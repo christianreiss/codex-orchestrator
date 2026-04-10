@@ -11,6 +11,7 @@ namespace App\Repositories;
 
 use App\Database;
 use App\Security\SecretBox;
+use App\Support\Engine;
 use PDO;
 
 class AuthPayloadRepository
@@ -22,11 +23,18 @@ class AuthPayloadRepository
     ) {
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson = null): array
+    public function create(
+        string $lastRefresh,
+        string $sha256,
+        ?int $sourceHostId,
+        array $entries,
+        ?string $extrasJson = null,
+        string $engine = Engine::DEFAULT
+    ): array
     {
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO auth_payloads (last_refresh, sha256, source_host_id, body, created_at)
-             VALUES (:last_refresh, :sha256, :source_host_id, :body, :created_at)'
+            'INSERT INTO auth_payloads (last_refresh, sha256, source_host_id, body, engine, created_at)
+             VALUES (:last_refresh, :sha256, :source_host_id, :body, :engine, :created_at)'
         );
 
         $statement->execute([
@@ -34,6 +42,7 @@ class AuthPayloadRepository
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
             'body' => $extrasJson !== null ? $this->encrypter->encrypt($extrasJson) : null,
+            'engine' => Engine::validate($engine),
             'created_at' => gmdate(DATE_ATOM),
         ]);
 
@@ -43,12 +52,20 @@ class AuthPayloadRepository
         return $this->findByIdWithEntries($id);
     }
 
-    public function findByIdWithEntries(int $id): ?array
+    public function findByIdWithEntries(int $id, ?string $engine = null): ?array
     {
-        $statement = $this->database->connection()->prepare(
-            'SELECT id, last_refresh, sha256, source_host_id, body, created_at FROM auth_payloads WHERE id = :id LIMIT 1'
-        );
-        $statement->execute(['id' => $id]);
+        $sql = 'SELECT id, last_refresh, sha256, source_host_id, body, engine, created_at
+                FROM auth_payloads
+                WHERE id = :id';
+        $params = ['id' => $id];
+        if ($engine !== null) {
+            $sql .= ' AND engine = :engine';
+            $params['engine'] = Engine::validate($engine);
+        }
+        $sql .= ' LIMIT 1';
+
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute($params);
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
 
         if (!$payload) {
@@ -61,22 +78,35 @@ class AuthPayloadRepository
         return $payload;
     }
 
-    public function findMetadataById(int $id): ?array
+    public function findMetadataById(int $id, ?string $engine = null): ?array
     {
-        $statement = $this->database->connection()->prepare(
-            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads WHERE id = :id LIMIT 1'
-        );
-        $statement->execute(['id' => $id]);
+        $sql = 'SELECT id, last_refresh, sha256, source_host_id, engine, created_at
+                FROM auth_payloads
+                WHERE id = :id';
+        $params = ['id' => $id];
+        if ($engine !== null) {
+            $sql .= ' AND engine = :engine';
+            $params['engine'] = Engine::validate($engine);
+        }
+        $sql .= ' LIMIT 1';
+
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute($params);
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
 
         return $payload ?: null;
     }
 
-    public function latest(): ?array
+    public function latest(string $engine = Engine::DEFAULT): ?array
     {
-        $statement = $this->database->connection()->query(
-            'SELECT id, last_refresh, sha256, source_host_id, body, created_at FROM auth_payloads ORDER BY created_at DESC, id DESC LIMIT 1'
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, last_refresh, sha256, source_host_id, body, engine, created_at
+             FROM auth_payloads
+             WHERE engine = :engine
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1'
         );
+        $statement->execute(['engine' => Engine::validate($engine)]);
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$payload) {
             return null;
@@ -88,11 +118,16 @@ class AuthPayloadRepository
         return $payload;
     }
 
-    public function latestMetadata(): ?array
+    public function latestMetadata(string $engine = Engine::DEFAULT): ?array
     {
-        $statement = $this->database->connection()->query(
-            'SELECT id, last_refresh, sha256, source_host_id, created_at FROM auth_payloads ORDER BY created_at DESC, id DESC LIMIT 1'
+        $statement = $this->database->connection()->prepare(
+            'SELECT id, last_refresh, sha256, source_host_id, engine, created_at
+             FROM auth_payloads
+             WHERE engine = :engine
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1'
         );
+        $statement->execute(['engine' => Engine::validate($engine)]);
         $payload = $statement->fetch(PDO::FETCH_ASSOC);
 
         return $payload ?: null;

@@ -10,6 +10,7 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Support\Engine;
 use PDO;
 
 class HostAuthDigestRepository
@@ -18,7 +19,7 @@ class HostAuthDigestRepository
     {
     }
 
-    public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+    public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = Engine::DEFAULT): void
     {
         $normalized = [];
         foreach ($digests as $digest) {
@@ -40,30 +41,43 @@ class HostAuthDigestRepository
 
         $now = gmdate(DATE_ATOM);
         $connection = $this->database->connection();
+        $driver = strtolower((string) $connection->getAttribute(PDO::ATTR_DRIVER_NAME));
 
-        $statement = $connection->prepare(
-            'INSERT INTO host_auth_digests (host_id, digest, last_seen, created_at) VALUES (:host_id, :digest, :last_seen, :created_at)
-             ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen)'
-        );
+        $sql = $driver === 'sqlite'
+            ? 'INSERT INTO host_auth_digests (host_id, engine, digest, last_seen, created_at)
+               VALUES (:host_id, :engine, :digest, :last_seen, :created_at)
+               ON CONFLICT(host_id, engine, digest) DO UPDATE SET
+                   last_seen = excluded.last_seen'
+            : 'INSERT INTO host_auth_digests (host_id, engine, digest, last_seen, created_at)
+               VALUES (:host_id, :engine, :digest, :last_seen, :created_at)
+               ON DUPLICATE KEY UPDATE last_seen = VALUES(last_seen)';
+
+        $statement = $connection->prepare($sql);
 
         foreach (array_keys($normalized) as $digest) {
             $statement->execute([
                 'host_id' => $hostId,
+                'engine' => Engine::validate($engine),
                 'digest' => $digest,
                 'last_seen' => $now,
                 'created_at' => $now,
             ]);
         }
 
-        $this->prune($hostId, $retain);
+        $this->prune($hostId, $retain, $engine);
     }
 
-    public function recentDigests(int $hostId, int $limit = 3): array
+    public function recentDigests(int $hostId, int $limit = 3, string $engine = Engine::DEFAULT): array
     {
         $statement = $this->database->connection()->prepare(
-            'SELECT digest FROM host_auth_digests WHERE host_id = :host_id ORDER BY last_seen DESC, id DESC LIMIT :limit'
+            'SELECT digest
+             FROM host_auth_digests
+             WHERE host_id = :host_id AND engine = :engine
+             ORDER BY last_seen DESC, id DESC
+             LIMIT :limit'
         );
         $statement->bindValue('host_id', $hostId, PDO::PARAM_INT);
+        $statement->bindValue('engine', Engine::validate($engine), PDO::PARAM_STR);
         $statement->bindValue('limit', $limit, PDO::PARAM_INT);
         $statement->execute();
 
@@ -72,14 +86,19 @@ class HostAuthDigestRepository
         return is_array($rows) ? $rows : [];
     }
 
-    private function prune(int $hostId, int $retain): void
+    private function prune(int $hostId, int $retain, string $engine = Engine::DEFAULT): void
     {
         // Select only the IDs that fall outside the retention window by skipping
         // the first :retain rows via OFFSET, so we never load the rows we intend to keep.
         $statement = $this->database->connection()->prepare(
-            'SELECT id FROM host_auth_digests WHERE host_id = :host_id ORDER BY last_seen DESC, id DESC LIMIT 99999 OFFSET :offset'
+            'SELECT id
+             FROM host_auth_digests
+             WHERE host_id = :host_id AND engine = :engine
+             ORDER BY last_seen DESC, id DESC
+             LIMIT 99999 OFFSET :offset'
         );
         $statement->bindValue('host_id', $hostId, PDO::PARAM_INT);
+        $statement->bindValue('engine', Engine::validate($engine), PDO::PARAM_STR);
         $statement->bindValue('offset', $retain, PDO::PARAM_INT);
         $statement->execute();
 
@@ -95,12 +114,16 @@ class HostAuthDigestRepository
         $delete->execute($toDelete);
     }
 
-    public function deleteByHostId(int $hostId): void
+    public function deleteByHostId(int $hostId, ?string $engine = null): void
     {
-        $statement = $this->database->connection()->prepare(
-            'DELETE FROM host_auth_digests WHERE host_id = :host_id'
-        );
-        $statement->execute(['host_id' => $hostId]);
+        $sql = 'DELETE FROM host_auth_digests WHERE host_id = :host_id';
+        $params = ['host_id' => $hostId];
+        if ($engine !== null) {
+            $sql .= ' AND engine = :engine';
+            $params['engine'] = Engine::validate($engine);
+        }
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute($params);
     }
 
     /**
@@ -108,11 +131,15 @@ class HostAuthDigestRepository
      *
      * @return array<int, array<int, string>>
      */
-    public function byHostId(): array
+    public function byHostId(string $engine = Engine::DEFAULT): array
     {
-        $statement = $this->database->connection()->query(
-            'SELECT host_id, digest FROM host_auth_digests ORDER BY last_seen DESC, id DESC'
+        $statement = $this->database->connection()->prepare(
+            'SELECT host_id, digest
+             FROM host_auth_digests
+             WHERE engine = :engine
+             ORDER BY last_seen DESC, id DESC'
         );
+        $statement->execute(['engine' => Engine::validate($engine)]);
         $rows = $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $grouped = [];
         foreach ($rows as $row) {

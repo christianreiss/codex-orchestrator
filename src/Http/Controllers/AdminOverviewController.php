@@ -28,6 +28,7 @@ use App\Services\PricingService;
 use App\Services\UsageScalingService;
 use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
+use App\Support\Engine;
 use DateTimeImmutable;
 
 class AdminOverviewController
@@ -624,22 +625,12 @@ class AdminOverviewController
         requireAdminAccess();
         $this->service->pruneStaleHosts();
 
-        $canonicalDigest = null;
-        $canonicalSourceHostId = null;
-        $canonicalPayloadId = $this->versionRepository->get('canonical_payload_id');
-        if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
-            $canonicalPayload = $this->authPayloadRepository->findByIdWithEntries((int) $canonicalPayloadId);
-            if ($canonicalPayload !== null && isset($canonicalPayload['sha256'])) {
-                $canonicalDigest = $canonicalPayload['sha256'];
-                $rawSourceHostId = $canonicalPayload['source_host_id'] ?? null;
-                if ($rawSourceHostId !== null && is_numeric($rawSourceHostId)) {
-                    $canonicalSourceHostId = (int) $rawSourceHostId;
-                    if ($canonicalSourceHostId <= 0) {
-                        $canonicalSourceHostId = null;
-                    }
-                }
-            }
-        }
+        $canonicalMeta = $this->canonicalPayloadMeta();
+        $canonicalDigest = $canonicalMeta['digest'];
+        $canonicalSourceHostId = $canonicalMeta['source_host_id'];
+        $claudeCanonicalMeta = $this->canonicalPayloadMeta(Engine::CLAUDE);
+        $claudeCanonicalDigest = $claudeCanonicalMeta['digest'];
+        $claudeCanonicalSourceHostId = $claudeCanonicalMeta['source_host_id'];
 
         $hosts = $this->hostRepository->all();
         $hostIds = array_map(
@@ -653,6 +644,7 @@ class AdminOverviewController
         $versionSummary = $this->service->versionSummary();
         $globalAutoUpdateEnabled = (bool) ($versionSummary['auto_update_enabled'] ?? false);
         $digests = $this->digestRepository->byHostId();
+        $claudeDigests = $this->digestRepository->byHostId(Engine::CLAUDE);
 
         $hostIds = array_map(static fn(array $h): int => (int) $h['id'], $hosts);
         $tokenUsageMap = $this->tokenUsageRepository->latestForHosts($hostIds);
@@ -676,19 +668,26 @@ class AdminOverviewController
             $hostCronEvents = $cronEvents[(int) ($host['id'] ?? 0)] ?? [];
             $autoUpdateState = $this->deriveAutoUpdateState($host, $hostVersions, $globalAutoUpdateEnabled, $hostCronEvents);
             $hostDigests = $digests[$host['id']] ?? [];
+            $hostClaudeDigests = $claudeDigests[$host['id']] ?? [];
+            $engines = Engine::parseHostEngines($host['engines'] ?? null);
+            $codexAuthed = (($host['auth_digest'] ?? '') !== '');
+            $claudeAuthed = (($host['claude_auth_digest'] ?? '') !== '');
             $items[] = [
                 'id' => (int) $host['id'],
                 'fqdn' => $host['fqdn'],
                 'status' => $host['status'],
                 'last_refresh' => $normalizeTs($host['last_refresh'] ?? null),
+                'claude_last_refresh' => $normalizeTs($host['claude_last_refresh'] ?? null),
                 'updated_at' => $normalizeTs($host['updated_at'] ?? null),
                 'created_at' => $normalizeTs($host['created_at'] ?? null),
                 'client_version' => $host['client_version'] ?? null,
+                'claude_client_version' => $host['claude_client_version'] ?? null,
                 'client_version_override' => $host['client_version_override'] ?? null,
                 'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
                     ? (int) $host['agents_document_id_override']
                     : null,
                 'wrapper_version' => $host['wrapper_version'] ?? null,
+                'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
                 'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
                 'ip4' => $host['ip4'] ?? null,
                 'ip6' => $host['ip6'] ?? null,
@@ -706,6 +705,10 @@ class AdminOverviewController
                 'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
                 'model_override' => $host['model_override'] ?? null,
                 'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+                'claude_model_override' => $host['claude_model_override'] ?? null,
+                'claude_reasoning_effort_override' => $host['claude_reasoning_effort_override'] ?? null,
+                'engines' => $host['engines'] ?? Engine::DEFAULT,
+                'engines_list' => $engines,
                 'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
                 'effective_auto_update_enabled' => $autoUpdateState['effective_enabled'],
                 'auto_update_state' => $autoUpdateState['state'],
@@ -715,12 +718,24 @@ class AdminOverviewController
                 'auto_update_last_event_at' => $autoUpdateState['last_event_at'],
                 'auto_update_target_version' => $autoUpdateState['target_version'],
                 'canonical_digest' => $host['auth_digest'] ?? null,
+                'claude_canonical_digest' => $host['claude_auth_digest'] ?? null,
                 'recent_digests' => array_values(array_unique($hostDigests)),
-                'authed' => ($host['auth_digest'] ?? '') !== '',
-                'auth_outdated' => $canonicalDigest !== null
+                'claude_recent_digests' => array_values(array_unique($hostClaudeDigests)),
+                'authed' => (in_array(Engine::DEFAULT, $engines, true) && $codexAuthed)
+                    || (in_array(Engine::CLAUDE, $engines, true) && $claudeAuthed),
+                'auth_outdated' => (
+                    in_array(Engine::DEFAULT, $engines, true)
+                    && $canonicalDigest !== null
                     && isset($host['auth_digest'])
-                    && (string) $host['auth_digest'] !== (string) $canonicalDigest,
-                'auth_source' => $canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId,
+                    && (string) $host['auth_digest'] !== (string) $canonicalDigest
+                ) || (
+                    in_array(Engine::CLAUDE, $engines, true)
+                    && $claudeCanonicalDigest !== null
+                    && isset($host['claude_auth_digest'])
+                    && (string) $host['claude_auth_digest'] !== (string) $claudeCanonicalDigest
+                ),
+                'auth_source' => ($canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId)
+                    || ($claudeCanonicalSourceHostId !== null && (int) $host['id'] === $claudeCanonicalSourceHostId),
                 'token_usage' => $tokenUsageMap[(int) $host['id']] ?? null,
                 'users' => $usersMap[(int) $host['id']] ?? [],
             ];
@@ -749,22 +764,12 @@ class AdminOverviewController
             ], 404);
         }
 
-        $canonicalDigest = null;
-        $canonicalSourceHostId = null;
-        $canonicalPayloadId = $this->versionRepository->get('canonical_payload_id');
-        if ($canonicalPayloadId !== null && ctype_digit((string) $canonicalPayloadId)) {
-            $canonicalPayload = $this->authPayloadRepository->findByIdWithEntries((int) $canonicalPayloadId);
-            if ($canonicalPayload !== null && isset($canonicalPayload['sha256'])) {
-                $canonicalDigest = $canonicalPayload['sha256'];
-                $rawSourceHostId = $canonicalPayload['source_host_id'] ?? null;
-                if ($rawSourceHostId !== null && is_numeric($rawSourceHostId)) {
-                    $canonicalSourceHostId = (int) $rawSourceHostId;
-                    if ($canonicalSourceHostId <= 0) {
-                        $canonicalSourceHostId = null;
-                    }
-                }
-            }
-        }
+        $canonicalMeta = $this->canonicalPayloadMeta();
+        $canonicalDigest = $canonicalMeta['digest'];
+        $canonicalSourceHostId = $canonicalMeta['source_host_id'];
+        $claudeCanonicalMeta = $this->canonicalPayloadMeta(Engine::CLAUDE);
+        $claudeCanonicalDigest = $claudeCanonicalMeta['digest'];
+        $claudeCanonicalSourceHostId = $claudeCanonicalMeta['source_host_id'];
 
         $versionSummary = $this->service->versionSummary();
         $hostVersions = $this->service->applyClientVersionOverrideForHost($versionSummary, $host);
@@ -778,6 +783,10 @@ class AdminOverviewController
         $tokenUsage = $this->tokenUsageRepository->latestForHost($hostId);
         $users = $this->hostUserRepository->listByHost($hostId);
         $hostDigests = $this->digestRepository->recentDigests($hostId);
+        $hostClaudeDigests = $this->digestRepository->recentDigests($hostId, 3, Engine::CLAUDE);
+        $engines = Engine::parseHostEngines($host['engines'] ?? null);
+        $codexAuthed = (($host['auth_digest'] ?? '') !== '');
+        $claudeAuthed = (($host['claude_auth_digest'] ?? '') !== '');
 
         Response::json([
             'status' => 'ok',
@@ -787,14 +796,17 @@ class AdminOverviewController
                     'fqdn' => $host['fqdn'],
                     'status' => $host['status'],
                     'last_refresh' => $this->normalizeIsoTimestamp($host['last_refresh'] ?? null),
+                    'claude_last_refresh' => $this->normalizeIsoTimestamp($host['claude_last_refresh'] ?? null),
                     'updated_at' => $this->normalizeIsoTimestamp($host['updated_at'] ?? null),
                     'created_at' => $this->normalizeIsoTimestamp($host['created_at'] ?? null),
                     'client_version' => $host['client_version'] ?? null,
+                    'claude_client_version' => $host['claude_client_version'] ?? null,
                     'client_version_override' => $host['client_version_override'] ?? null,
                     'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
                         ? (int) $host['agents_document_id_override']
                         : null,
                     'wrapper_version' => $host['wrapper_version'] ?? null,
+                    'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
                     'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
                     'ip4' => $host['ip4'] ?? null,
                     'ip6' => $host['ip6'] ?? null,
@@ -812,6 +824,10 @@ class AdminOverviewController
                     'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
                     'model_override' => $host['model_override'] ?? null,
                     'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,
+                    'claude_model_override' => $host['claude_model_override'] ?? null,
+                    'claude_reasoning_effort_override' => $host['claude_reasoning_effort_override'] ?? null,
+                    'engines' => $host['engines'] ?? Engine::DEFAULT,
+                    'engines_list' => $engines,
                     'auto_update_override' => isset($host['auto_update_override']) ? ($host['auto_update_override'] === null ? null : (bool) (int) $host['auto_update_override']) : null,
                     'effective_auto_update_enabled' => $autoUpdateState['effective_enabled'],
                     'auto_update_state' => $autoUpdateState['state'],
@@ -821,12 +837,24 @@ class AdminOverviewController
                     'auto_update_last_event_at' => $autoUpdateState['last_event_at'],
                     'auto_update_target_version' => $autoUpdateState['target_version'],
                     'canonical_digest' => $host['auth_digest'] ?? null,
+                    'claude_canonical_digest' => $host['claude_auth_digest'] ?? null,
                     'recent_digests' => array_values(array_unique($hostDigests)),
-                    'authed' => ($host['auth_digest'] ?? '') !== '',
-                    'auth_outdated' => $canonicalDigest !== null
+                    'claude_recent_digests' => array_values(array_unique($hostClaudeDigests)),
+                    'authed' => (in_array(Engine::DEFAULT, $engines, true) && $codexAuthed)
+                        || (in_array(Engine::CLAUDE, $engines, true) && $claudeAuthed),
+                    'auth_outdated' => (
+                        in_array(Engine::DEFAULT, $engines, true)
+                        && $canonicalDigest !== null
                         && isset($host['auth_digest'])
-                        && (string) $host['auth_digest'] !== (string) $canonicalDigest,
-                    'auth_source' => $canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId,
+                        && (string) $host['auth_digest'] !== (string) $canonicalDigest
+                    ) || (
+                        in_array(Engine::CLAUDE, $engines, true)
+                        && $claudeCanonicalDigest !== null
+                        && isset($host['claude_auth_digest'])
+                        && (string) $host['claude_auth_digest'] !== (string) $claudeCanonicalDigest
+                    ),
+                    'auth_source' => ($canonicalSourceHostId !== null && (int) $host['id'] === $canonicalSourceHostId)
+                        || ($claudeCanonicalSourceHostId !== null && (int) $host['id'] === $claudeCanonicalSourceHostId),
                     'token_usage' => $tokenUsage,
                     'users' => $users,
                 ],
@@ -1448,6 +1476,37 @@ class AdminOverviewController
         } catch (\Exception) {
             return is_string($value) ? $value : null;
         }
+    }
+
+    /**
+     * @return array{digest:?string, source_host_id:?int}
+     */
+    private function canonicalPayloadMeta(string $engine = Engine::DEFAULT): array
+    {
+        $key = $engine === Engine::CLAUDE ? 'canonical_payload_id_claude' : 'canonical_payload_id';
+        $payloadId = $this->versionRepository->get($key);
+        if ($payloadId === null || !ctype_digit((string) $payloadId)) {
+            return ['digest' => null, 'source_host_id' => null];
+        }
+
+        $payload = $this->authPayloadRepository->findByIdWithEntries((int) $payloadId, $engine);
+        if ($payload === null || !isset($payload['sha256'])) {
+            return ['digest' => null, 'source_host_id' => null];
+        }
+
+        $sourceHostId = null;
+        $rawSourceHostId = $payload['source_host_id'] ?? null;
+        if ($rawSourceHostId !== null && is_numeric($rawSourceHostId)) {
+            $sourceHostId = (int) $rawSourceHostId;
+            if ($sourceHostId <= 0) {
+                $sourceHostId = null;
+            }
+        }
+
+        return [
+            'digest' => $payload['sha256'],
+            'source_host_id' => $sourceHostId,
+        ];
     }
 
     private function isRecentTimestamp(?string $value, int $windowSeconds): bool

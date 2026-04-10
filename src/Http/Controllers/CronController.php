@@ -10,7 +10,9 @@ use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
+use App\Support\ClaudeVersionPolicy;
 use App\Support\CodexVersionPolicy;
+use App\Support\Engine;
 
 class CronController
 {
@@ -27,18 +29,29 @@ class CronController
         $clientIp = resolveClientIp();
         $host = $this->service->authenticateForCron($apiKey, $clientIp);
         $hostId = (int) $host['id'];
+        $engine = VersionHelper::extractEngine($payload);
 
         $this->hostRepository->touchLastCronCheck($hostId);
 
         $submittedVersion = VersionHelper::extractClientVersion($payload);
         $submittedWrapperVersion = VersionHelper::extractWrapperVersion($payload);
         if ($submittedVersion !== null || $submittedWrapperVersion !== null) {
-            $this->hostRepository->updateReportedVersions($hostId, $submittedVersion, $submittedWrapperVersion);
-            if ($submittedVersion !== null) {
-                $host['client_version'] = $submittedVersion;
-            }
-            if ($submittedWrapperVersion !== null) {
-                $host['wrapper_version'] = $submittedWrapperVersion;
+            if ($engine === Engine::CLAUDE) {
+                $this->hostRepository->updateClaudeVersions($hostId, $submittedVersion, $submittedWrapperVersion);
+                if ($submittedVersion !== null) {
+                    $host['claude_client_version'] = $submittedVersion;
+                }
+                if ($submittedWrapperVersion !== null) {
+                    $host['claude_wrapper_version'] = $submittedWrapperVersion;
+                }
+            } else {
+                $this->hostRepository->updateReportedVersions($hostId, $submittedVersion, $submittedWrapperVersion);
+                if ($submittedVersion !== null) {
+                    $host['client_version'] = $submittedVersion;
+                }
+                if ($submittedWrapperVersion !== null) {
+                    $host['wrapper_version'] = $submittedWrapperVersion;
+                }
             }
         }
 
@@ -66,10 +79,12 @@ class CronController
         }
 
         // Resolve effective target version for this host.
-        $versions = $this->service->versionSummary();
-        $versions = $this->service->applyClientVersionOverrideForHost($versions, $host);
+        $versions = $this->service->versionSummary($engine);
+        $versions = $this->service->applyClientVersionOverrideForHost($versions, $host, $engine);
 
-        $targetVersion = CodexVersionPolicy::normalize($versions['client_version'] ?? null);
+        $targetVersion = $engine === Engine::CLAUDE
+            ? ClaudeVersionPolicy::normalize($versions['client_version'] ?? null)
+            : CodexVersionPolicy::normalize($versions['client_version'] ?? null);
         $enforceExact = $versions['client_version_enforce_exact'] ?? false;
 
         $needClientUpdate = false;
@@ -83,7 +98,9 @@ class CronController
             $needClientUpdate = true;
         }
 
-        $targetWrapperVersion = CodexVersionPolicy::normalize($versions['wrapper_version'] ?? null);
+        $targetWrapperVersion = $engine === Engine::CLAUDE
+            ? ClaudeVersionPolicy::normalize($versions['wrapper_version'] ?? null)
+            : CodexVersionPolicy::normalize($versions['wrapper_version'] ?? null);
         $wrapperUpdate = [
             'action' => 'no_update',
             'target_version' => $targetWrapperVersion,
@@ -146,6 +163,7 @@ class CronController
         $clientIp = resolveClientIp();
         $host = $this->service->authenticateForCron($apiKey, $clientIp);
         $hostId = (int) $host['id'];
+        $engine = VersionHelper::extractEngine($payload);
 
         $clientVersion = VersionHelper::extractClientVersion($payload);
         $wrapperVersion = VersionHelper::extractWrapperVersion($payload);
@@ -156,7 +174,11 @@ class CronController
             ], 422);
         }
 
-        $this->hostRepository->updateReportedVersions($hostId, $clientVersion, $wrapperVersion);
+        if ($engine === Engine::CLAUDE) {
+            $this->hostRepository->updateClaudeVersions($hostId, $clientVersion, $wrapperVersion);
+        } else {
+            $this->hostRepository->updateReportedVersions($hostId, $clientVersion, $wrapperVersion);
+        }
 
         $this->logRepository->log($hostId, 'cron.update_reported', [
             'client' => [

@@ -73,12 +73,12 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function findByIdWithEntries(int $id): ?array
+            public function findByIdWithEntries(int $id, ?string $engine = null): ?array
             {
                 return null;
             }
 
-            public function latest(): ?array
+            public function latest(string $engine = 'codex'): ?array
             {
                 return null;
             }
@@ -89,7 +89,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function upsert(int $hostId, int $payloadId, string $digest): void
+            public function upsert(int $hostId, int $payloadId, string $digest, string $engine = 'codex'): void
             {
             }
         };
@@ -99,12 +99,12 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function recentDigests(int $hostId, int $limit = 3): array
+            public function recentDigests(int $hostId, int $limit = 3, string $engine = 'codex'): array
             {
                 return [];
             }
 
-            public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+            public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = 'codex'): void
             {
             }
         };
@@ -394,12 +394,12 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function findByIdWithEntries(int $id): ?array
+            public function findByIdWithEntries(int $id, ?string $engine = null): ?array
             {
                 return null;
             }
 
-            public function latest(): ?array
+            public function latest(string $engine = 'codex'): ?array
             {
                 return null;
             }
@@ -410,7 +410,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function upsert(int $hostId, int $payloadId, string $digest): void
+            public function upsert(int $hostId, int $payloadId, string $digest, string $engine = 'codex'): void
             {
             }
         };
@@ -420,12 +420,12 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function recentDigests(int $hostId, int $limit = 3): array
+            public function recentDigests(int $hostId, int $limit = 3, string $engine = 'codex'): array
             {
                 return [];
             }
 
-            public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+            public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = 'codex'): void
             {
             }
         };

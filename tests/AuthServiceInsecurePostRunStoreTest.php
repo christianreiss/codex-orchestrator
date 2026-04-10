@@ -50,6 +50,17 @@ class InsecureSessionHostRepository extends HostRepository
         $this->host['auth_digest'] = $authDigest;
     }
 
+    public function updateSyncStateForEngine(int $hostId, string $lastRefresh, string $authDigest, string $engine = 'codex'): void
+    {
+        if ($engine === 'claude') {
+            $this->host['claude_last_refresh'] = $lastRefresh;
+            $this->host['claude_auth_digest'] = $authDigest;
+            return;
+        }
+
+        $this->updateSyncState($hostId, $lastRefresh, $authDigest);
+    }
+
     public function all(): array
     {
         return [$this->host];
@@ -64,7 +75,7 @@ class InsecureSessionAuthPayloadRepository extends AuthPayloadRepository
     {
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson = null): array
+    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson = null, string $engine = 'codex'): array
     {
         $this->payload = [
             'id' => 1,
@@ -72,17 +83,18 @@ class InsecureSessionAuthPayloadRepository extends AuthPayloadRepository
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
             'entries' => $entries,
+            'engine' => $engine,
         ];
 
         return $this->payload;
     }
 
-    public function latest(): ?array
+    public function latest(string $engine = 'codex'): ?array
     {
         return $this->payload;
     }
 
-    public function findByIdWithEntries(int $id): ?array
+    public function findByIdWithEntries(int $id, ?string $engine = null): ?array
     {
         return $this->payload;
     }
@@ -94,7 +106,7 @@ class InsecureSessionHostAuthStateRepository extends HostAuthStateRepository
     {
     }
 
-    public function upsert(int $hostId, int $payloadId, string $digest): void
+    public function upsert(int $hostId, int $payloadId, string $digest, string $engine = 'codex'): void
     {
         // no-op
     }
@@ -106,12 +118,12 @@ class InsecureSessionHostAuthDigestRepository extends HostAuthDigestRepository
     {
     }
 
-    public function recentDigests(int $hostId, int $limit = 3): array
+    public function recentDigests(int $hostId, int $limit = 3, string $engine = 'codex'): array
     {
         return [];
     }
 
-    public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+    public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = 'codex'): void
     {
         // no-op
     }

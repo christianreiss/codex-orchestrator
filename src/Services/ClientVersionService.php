@@ -32,6 +32,16 @@ class ClientVersionService
 
     public function versionSnapshot(?array $wrapperMetaOverride = null): array
     {
+        return $this->versionSnapshotForEngine(Engine::DEFAULT, $wrapperMetaOverride);
+    }
+
+    public function versionSnapshotForEngine(string $engine = Engine::DEFAULT, ?array $wrapperMetaOverride = null): array
+    {
+        $engine = Engine::validate($engine);
+        if ($engine === Engine::CLAUDE) {
+            return $this->claudeVersionSnapshot($wrapperMetaOverride);
+        }
+
         $locked = $this->versions->getWithMetadata(self::CLIENT_VERSION_LOCK_KEY);
         $lockedVersion = $this->canonicalVersion($locked['version'] ?? null);
         $available = $lockedVersion !== null
@@ -83,8 +93,12 @@ class ClientVersionService
         ];
     }
 
-    public function applyClientVersionOverrideForHost(array $versions, array $host): array
+    public function applyClientVersionOverrideForHost(array $versions, array $host, string $engine = Engine::DEFAULT): array
     {
+        if (Engine::validate($engine) !== Engine::DEFAULT) {
+            return $versions;
+        }
+
         $override = $host['client_version_override'] ?? null;
         if (!is_string($override)) {
             return $versions;
@@ -154,43 +168,48 @@ class ClientVersionService
         ];
     }
 
-    public function latestReportedVersions(): array
+    public function latestReportedVersions(string $engine = Engine::DEFAULT): array
     {
         $hosts = $this->hosts->all();
 
         $latestClient = null;
         $latestWrapper = null;
+        $engine = Engine::validate($engine);
 
         foreach ($hosts as $host) {
-            $client = $host['client_version'] ?? null;
+            $client = $engine === Engine::CLAUDE
+                ? ($host['claude_client_version'] ?? null)
+                : ($host['client_version'] ?? null);
             if (is_string($client) && $client !== '') {
-                if ($latestClient === null || $this->isVersionGreater($client, $latestClient)) {
+                if ($latestClient === null || $this->isVersionGreater($client, $latestClient, $engine)) {
                     $latestClient = $client;
                 }
             }
 
-            $wrapper = $host['wrapper_version'] ?? null;
+            $wrapper = $engine === Engine::CLAUDE
+                ? ($host['claude_wrapper_version'] ?? null)
+                : ($host['wrapper_version'] ?? null);
             if (is_string($wrapper) && $wrapper !== '') {
-                if ($latestWrapper === null || $this->isVersionGreater($wrapper, $latestWrapper)) {
+                if ($latestWrapper === null || $this->isVersionGreater($wrapper, $latestWrapper, $engine)) {
                     $latestWrapper = $wrapper;
                 }
             }
         }
 
         return [
-            'client_version' => $this->canonicalVersion($latestClient),
-            'wrapper_version' => $this->canonicalVersion($latestWrapper),
+            'client_version' => $this->canonicalVersion($latestClient, $engine),
+            'wrapper_version' => $this->canonicalVersion($latestWrapper, $engine),
         ];
     }
 
-    public function versionSummary(): array
+    public function versionSummary(string $engine = Engine::DEFAULT): array
     {
-        return $this->versionSnapshot();
+        return $this->versionSnapshotForEngine($engine);
     }
 
-    public function normalizeClientVersion(?string $clientVersion): string
+    public function normalizeClientVersion(?string $clientVersion, string $engine = Engine::DEFAULT): string
     {
-        $normalized = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '');
+        $normalized = $this->canonicalVersion(is_string($clientVersion) ? $clientVersion : '', $engine);
         if ($normalized === null || $normalized === '') {
             $normalized = 'unknown';
         }
@@ -212,10 +231,10 @@ class ClientVersionService
         return $normalized ?? AuthService::DEFAULT_QUOTA_WEEK_PARTITION;
     }
 
-    private function isVersionGreater(string $left, string $right): bool
+    private function isVersionGreater(string $left, string $right, string $engine = Engine::DEFAULT): bool
     {
-        $left = $this->normalizeVersionString($left);
-        $right = $this->normalizeVersionString($right);
+        $left = $this->normalizeVersionString($left, $engine);
+        $right = $this->normalizeVersionString($right, $engine);
 
         if ($left === '') {
             return false;
@@ -266,13 +285,54 @@ class ClientVersionService
         return null;
     }
 
-    private function normalizeVersionString(string $value): string
+    private function normalizeVersionString(string $value, string $engine = Engine::DEFAULT): string
     {
-        return CodexVersionPolicy::normalize($value) ?? '';
+        return $this->canonicalVersion($value, $engine) ?? '';
     }
 
-    private function canonicalVersion(?string $value): ?string
+    private function canonicalVersion(?string $value, string $engine = Engine::DEFAULT): ?string
     {
+        if (Engine::validate($engine) === Engine::CLAUDE) {
+            return ClaudeVersionPolicy::normalize($value);
+        }
+
         return CodexVersionPolicy::normalize($value);
+    }
+
+    private function claudeVersionSnapshot(?array $wrapperMetaOverride = null): array
+    {
+        $locked = $this->versions->getWithMetadata('claude_fleet_version');
+        $lockedVersion = ClaudeVersionPolicy::normalize($locked['version'] ?? null);
+        $exactRequested = $this->versions->getFlag('claude_version_locked', false);
+        $policy = ClaudeVersionPolicy::resolveEffective($lockedVersion, $exactRequested);
+        $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata(Engine::CLAUDE);
+        $reported = $this->latestReportedVersions(Engine::CLAUDE);
+
+        return [
+            'client_version' => $policy['version'],
+            'client_version_checked_at' => $lockedVersion !== null ? ($locked['updated_at'] ?? null) : null,
+            'client_version_source' => $lockedVersion !== null ? 'locked' : 'minimum',
+            'client_version_enforce_exact' => $policy['enforce_exact'],
+            'wrapper_version' => $this->canonicalVersion($wrapperMeta['version'] ?? null, Engine::CLAUDE),
+            'wrapper_sha256' => $wrapperMeta['sha256'] ?? null,
+            'wrapper_url' => $wrapperMeta['url'] ?? null,
+            'reported_client_version' => $reported['client_version'],
+            'reported_wrapper_version' => $reported['wrapper_version'],
+            'quota_hard_fail' => $this->versions->getFlag('quota_hard_fail', true),
+            'quota_limit_percent' => $this->quotaLimitPercent(),
+            'quota_week_partition' => $this->quotaWeekPartition(),
+            'cdx_silent' => $this->versions->getFlag('clx_silent', false) || $this->versions->getFlag('cdx_silent', false),
+            'admin_theme' => AdminTheme::normalize($this->versions->get('admin_theme')),
+            'runner_enabled' => $this->runnerVerifier !== null,
+            'runner_state' => $this->versions->get('runner_state'),
+            'runner_last_ok' => $this->versions->get('runner_last_ok'),
+            'runner_last_fail' => $this->versions->get('runner_last_fail'),
+            'runner_last_check' => $this->versions->get('runner_last_check'),
+            'installation_id' => $this->installationId,
+            'auto_update_enabled' => $this->versions->getFlag('auto_update_enabled', false),
+            'engines' => Engine::ALL,
+            'claude_wrapper_version' => $this->canonicalVersion($wrapperMeta['version'] ?? null, Engine::CLAUDE),
+            'claude_client_version_minimum' => ClaudeVersionPolicy::minimumVersion(),
+        ];
     }
 }

@@ -38,11 +38,15 @@ final class HostRepositoryClearHostAuthTest extends TestCase
                 insecure_grace_until TEXT NULL,
                 insecure_window_minutes INTEGER NULL,
                 last_refresh TEXT NULL,
+                claude_last_refresh TEXT NULL,
                 auth_digest TEXT NULL,
+                claude_auth_digest TEXT NULL,
                 ip4 TEXT NULL,
                 ip6 TEXT NULL,
                 client_version TEXT NULL,
+                claude_client_version TEXT NULL,
                 wrapper_version TEXT NULL,
+                claude_wrapper_version TEXT NULL,
                 api_calls INTEGER DEFAULT 0,
                 expires_at TEXT NULL,
                 created_at TEXT NOT NULL,
@@ -54,8 +58,10 @@ final class HostRepositoryClearHostAuthTest extends TestCase
             'CREATE TABLE host_auth_states (
                 host_id INTEGER NOT NULL,
                 payload_id INTEGER NOT NULL,
+                engine TEXT NOT NULL DEFAULT "codex",
                 seen_digest TEXT NOT NULL,
-                seen_at TEXT NOT NULL
+                seen_at TEXT NOT NULL,
+                PRIMARY KEY (host_id, engine)
             )'
         );
 
@@ -65,8 +71,8 @@ final class HostRepositoryClearHostAuthTest extends TestCase
 
         $now = gmdate(DATE_ATOM);
         $seedHost = $this->pdo->prepare(
-            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, last_refresh, auth_digest, ip4, client_version, wrapper_version, api_calls, created_at, updated_at)
-             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :last_refresh, :auth_digest, :ip4, :client_version, :wrapper_version, :api_calls, :created_at, :updated_at)'
+            'INSERT INTO hosts (fqdn, api_key, status, secure, allow_roaming_ips, last_refresh, claude_last_refresh, auth_digest, claude_auth_digest, ip4, client_version, claude_client_version, wrapper_version, claude_wrapper_version, api_calls, created_at, updated_at)
+             VALUES (:fqdn, :api_key, :status, :secure, :allow_roaming_ips, :last_refresh, :claude_last_refresh, :auth_digest, :claude_auth_digest, :ip4, :client_version, :claude_client_version, :wrapper_version, :claude_wrapper_version, :api_calls, :created_at, :updated_at)'
         );
         $seedHost->execute([
             'fqdn' => 'host.test',
@@ -75,10 +81,14 @@ final class HostRepositoryClearHostAuthTest extends TestCase
             'secure' => 1,
             'allow_roaming_ips' => 0,
             'last_refresh' => '2024-01-01T00:00:00Z',
+            'claude_last_refresh' => '2024-02-01T00:00:00Z',
             'auth_digest' => str_repeat('b', 64),
+            'claude_auth_digest' => str_repeat('d', 64),
             'ip4' => '127.0.0.1',
             'client_version' => '0.0.0',
+            'claude_client_version' => '1.2.3',
             'wrapper_version' => null,
+            'claude_wrapper_version' => '2026.04.10-01',
             'api_calls' => 5,
             'created_at' => $now,
             'updated_at' => $now,
@@ -86,13 +96,21 @@ final class HostRepositoryClearHostAuthTest extends TestCase
         $this->hostId = (int) $this->pdo->lastInsertId();
 
         $seedState = $this->pdo->prepare(
-            'INSERT INTO host_auth_states (host_id, payload_id, seen_digest, seen_at) VALUES (:host_id, :payload_id, :seen_digest, :seen_at)'
+            'INSERT INTO host_auth_states (host_id, payload_id, engine, seen_digest, seen_at) VALUES (:host_id, :payload_id, :engine, :seen_digest, :seen_at)'
         );
         $seedState->execute([
             'host_id' => $this->hostId,
             'payload_id' => 99,
+            'engine' => 'codex',
             'seen_digest' => str_repeat('c', 64),
             'seen_at' => '2024-01-01T00:00:00Z',
+        ]);
+        $seedState->execute([
+            'host_id' => $this->hostId,
+            'payload_id' => 100,
+            'engine' => 'claude',
+            'seen_digest' => str_repeat('e', 64),
+            'seen_at' => '2024-02-01T00:00:00Z',
         ]);
     }
 
@@ -101,15 +119,19 @@ final class HostRepositoryClearHostAuthTest extends TestCase
         $hostBefore = $this->repository->findById($this->hostId);
         $this->assertNotNull($hostBefore);
         $this->assertSame('2024-01-01T00:00:00Z', $hostBefore['last_refresh']);
+        $this->assertSame('2024-02-01T00:00:00Z', $hostBefore['claude_last_refresh']);
         $this->assertSame(str_repeat('b', 64), $hostBefore['auth_digest']);
-        $this->assertSame(1, $this->stateCount());
+        $this->assertSame(str_repeat('d', 64), $hostBefore['claude_auth_digest']);
+        $this->assertSame(2, $this->stateCount());
 
         $this->repository->clearHostAuth($this->hostId);
 
         $hostAfter = $this->repository->findById($this->hostId);
         $this->assertNotNull($hostAfter);
         $this->assertNull($hostAfter['last_refresh']);
+        $this->assertNull($hostAfter['claude_last_refresh']);
         $this->assertNull($hostAfter['auth_digest']);
+        $this->assertNull($hostAfter['claude_auth_digest']);
         $this->assertSame(0, $this->stateCount());
     }
 

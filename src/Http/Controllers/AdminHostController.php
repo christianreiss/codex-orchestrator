@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Response;
+use App\Http\VersionHelper;
 use App\Repositories\AgentsRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
@@ -41,6 +42,7 @@ class AdminHostController
     {
         requireAdminAccess();
         $hostId = (int) $hostId;
+        $engine = VersionHelper::extractEngine(null);
         $host = $this->hostRepository->findById($hostId);
         if (!$host) {
             Response::json([
@@ -50,14 +52,14 @@ class AdminHostController
         }
 
         $includeBody = filter_var($_GET['include_body'] ?? null, FILTER_VALIDATE_BOOLEAN);
-        $state = $this->hostStateRepository->findByHostId($hostId);
+        $state = $this->hostStateRepository->findByHostId($hostId, $engine);
 
         $payloadRow = null;
         if ($state && isset($state['payload_id'])) {
-            $payloadRow = $this->authPayloadRepository->findByIdWithEntries((int) $state['payload_id']);
+            $payloadRow = $this->authPayloadRepository->findByIdWithEntries((int) $state['payload_id'], $engine);
         }
         if ($payloadRow === null) {
-            $payloadRow = $this->authPayloadRepository->latest();
+            $payloadRow = $this->authPayloadRepository->latest($engine);
         }
 
         $validated = $payloadRow ? $this->service->validateCanonicalPayload($payloadRow) : null;
@@ -67,10 +69,17 @@ class AdminHostController
             $auth = $validated['auth'];
         }
 
+        $engineLastRefresh = $engine === Engine::CLAUDE
+            ? ($host['claude_last_refresh'] ?? null)
+            : ($host['last_refresh'] ?? null);
+        $engineDigest = $engine === Engine::CLAUDE
+            ? ($host['claude_auth_digest'] ?? null)
+            : ($host['auth_digest'] ?? null);
+
         $canonicalLastRefresh = $validated['last_refresh']
-            ?? ($host['last_refresh'] ?? ($state['seen_at'] ?? null));
+            ?? ($engineLastRefresh ?? ($state['seen_at'] ?? null));
         $canonicalDigest = $validated['digest']
-            ?? ($state['seen_digest'] ?? ($host['auth_digest'] ?? null));
+            ?? ($state['seen_digest'] ?? $engineDigest);
 
         Response::json([
             'status' => 'ok',
@@ -80,17 +89,24 @@ class AdminHostController
                     'fqdn' => $host['fqdn'],
                     'status' => $host['status'],
                     'last_refresh' => $host['last_refresh'] ?? ($state['seen_at'] ?? null),
+                    'claude_last_refresh' => $host['claude_last_refresh'] ?? null,
                     'updated_at' => $host['updated_at'] ?? null,
                     'client_version' => $host['client_version'] ?? null,
+                    'claude_client_version' => $host['claude_client_version'] ?? null,
                     'wrapper_version' => $host['wrapper_version'] ?? null,
+                    'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
+                    'auth_digest' => $host['auth_digest'] ?? null,
+                    'claude_auth_digest' => $host['claude_auth_digest'] ?? null,
+                    'engines' => $host['engines'] ?? Engine::DEFAULT,
                     'ip4' => $host['ip4'] ?? null,
                     'ip6' => $host['ip6'] ?? null,
                     'allow_roaming_ips' => isset($host['allow_roaming_ips']) ? (bool) (int) $host['allow_roaming_ips'] : false,
                     'secure' => isset($host['secure']) ? (bool) (int) $host['secure'] : true,
                 ],
+                'engine' => $engine,
                 'canonical_last_refresh' => $canonicalLastRefresh,
                 'canonical_digest' => $canonicalDigest,
-                'recent_digests' => $this->digestRepository->recentDigests($hostId),
+                'recent_digests' => $this->digestRepository->recentDigests($hostId, 3, $engine),
                 'auth' => $auth,
                 'api_calls' => isset($host['api_calls']) ? (int) $host['api_calls'] : null,
             ],

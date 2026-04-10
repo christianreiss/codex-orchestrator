@@ -57,6 +57,24 @@ class HostRepository
         if (!array_key_exists('expires_at', $host)) {
             $host['expires_at'] = null;
         }
+        if (!array_key_exists('claude_last_refresh', $host)) {
+            $host['claude_last_refresh'] = null;
+        }
+        if (!array_key_exists('claude_client_version', $host)) {
+            $host['claude_client_version'] = null;
+        }
+        if (!array_key_exists('claude_wrapper_version', $host)) {
+            $host['claude_wrapper_version'] = null;
+        }
+        if (!array_key_exists('claude_auth_digest', $host)) {
+            $host['claude_auth_digest'] = null;
+        }
+        if (!array_key_exists('claude_model_override', $host)) {
+            $host['claude_model_override'] = null;
+        }
+        if (!array_key_exists('claude_reasoning_effort_override', $host)) {
+            $host['claude_reasoning_effort_override'] = null;
+        }
         // Engine normalization — default to 'codex' for legacy hosts.
         if (!array_key_exists('engines', $host) || $host['engines'] === null || $host['engines'] === '') {
             $host['engines'] = Engine::DEFAULT;
@@ -297,6 +315,20 @@ class HostRepository
 
     public function updateSyncState(int $hostId, string $lastRefresh, string $authDigest): void
     {
+        $this->updateSyncStateForEngine($hostId, $lastRefresh, $authDigest, Engine::DEFAULT);
+    }
+
+    public function updateSyncStateForEngine(int $hostId, string $lastRefresh, string $authDigest, string $engine = Engine::DEFAULT): void
+    {
+        $engine = Engine::validate($engine);
+        if ($engine === Engine::CLAUDE) {
+            $this->updateHostFields($hostId, 'claude_last_refresh = :last_refresh, claude_auth_digest = :auth_digest', [
+                'last_refresh' => $lastRefresh,
+                'auth_digest' => $authDigest,
+            ]);
+            return;
+        }
+
         $this->updateHostFields($hostId, 'last_refresh = :last_refresh, auth_digest = :auth_digest', [
             'last_refresh' => $lastRefresh,
             'auth_digest' => $authDigest,
@@ -533,7 +565,13 @@ class HostRepository
         $pdo = $this->database->connection();
 
         $statement = $pdo->prepare(
-            'UPDATE hosts SET last_refresh = NULL, auth_digest = NULL, updated_at = :updated_at WHERE id = :id'
+            'UPDATE hosts
+             SET last_refresh = NULL,
+                 auth_digest = NULL,
+                 claude_last_refresh = NULL,
+                 claude_auth_digest = NULL,
+                 updated_at = :updated_at
+             WHERE id = :id'
         );
         $statement->execute([
             'updated_at' => gmdate(DATE_ATOM),

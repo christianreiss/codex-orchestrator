@@ -49,6 +49,17 @@ class InMemoryHostRepository extends HostRepository
         $this->host['auth_digest'] = $authDigest;
     }
 
+    public function updateSyncStateForEngine(int $hostId, string $lastRefresh, string $authDigest, string $engine = 'codex'): void
+    {
+        if ($engine === 'claude') {
+            $this->host['claude_last_refresh'] = $lastRefresh;
+            $this->host['claude_auth_digest'] = $authDigest;
+            return;
+        }
+
+        $this->updateSyncState($hostId, $lastRefresh, $authDigest);
+    }
+
     public function all(): array
     {
         return [$this->host];
@@ -61,12 +72,12 @@ class InMemoryAuthPayloadRepository extends AuthPayloadRepository
     {
     }
 
-    public function findByIdWithEntries(int $id): ?array
+    public function findByIdWithEntries(int $id, ?string $engine = null): ?array
     {
         return $this->payload['id'] === $id ? $this->payload : null;
     }
 
-    public function latest(): ?array
+    public function latest(string $engine = 'codex'): ?array
     {
         return $this->payload;
     }
@@ -80,12 +91,12 @@ class InMemoryHostAuthDigestRepository extends HostAuthDigestRepository
     {
     }
 
-    public function recentDigests(int $hostId, int $limit = 3): array
+    public function recentDigests(int $hostId, int $limit = 3, string $engine = 'codex'): array
     {
         return array_slice($this->digests, 0, $limit);
     }
 
-    public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+    public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = 'codex'): void
     {
         $merged = array_values(array_unique(array_merge($digests, $this->digests)));
         $this->digests = array_slice($merged, 0, $retain);
@@ -98,7 +109,7 @@ class NullHostAuthStateRepository extends HostAuthStateRepository
     {
     }
 
-    public function upsert(int $hostId, int $payloadId, string $digest): void
+    public function upsert(int $hostId, int $payloadId, string $digest, string $engine = 'codex'): void
     {
         // no-op for test
     }

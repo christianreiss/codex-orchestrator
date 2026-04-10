@@ -207,6 +207,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 
 **Body**
 - `command`: `retrieve` (default) or `store`.
+- `engine`: optional `codex` or `claude`. May also be supplied via query `?engine=...` or `X-Engine`; wrapper user-agent fallback (`clx`) also selects Claude. Default is `codex`.
 - `client_version` / `wrapper_version`: optional strings (also accepted from query params `client_version`/`cdx_version`/`wrapper_version`).
 - `retrieve` requires `digest` (64-hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, `>=2000-01-01`, `<=now+300s`).
 - `store` requires `auth` (or top-level auth object) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
@@ -221,7 +222,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on retrieve paths that require upload.
-- `host`: `fqdn`, `status`, `last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `agents_document_id_override`, `wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`.
+- `host`: `fqdn`, `status`, `last_refresh`, `claude_last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `claude_client_version`, `agents_document_id_override`, `wrapper_version`, `claude_wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `engines`, `engines_list`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`, and optional `claude_model_override` / `claude_reasoning_effort_override`.
 - `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`cost`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
@@ -318,7 +319,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/toasts` — emit admin toast event (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
 - `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `curl_insecure`, overrides (`client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`, `auto_update_override`), latest token usage, `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
 - `GET /admin/hosts/insecure` — insecure-host view with `{count, active, hosts[], domains[], domains_active}`.
-- `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests; optional auth body via `?include_body=1`.
+- `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests for the selected engine; optional auth body via `?include_body=1`. Engine can be supplied via body/query/header and defaults to `codex`; the response includes `engine` plus both Codex and Claude host-side fields.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure/insecure mode.
 - `POST /admin/hosts/{id}/vip` — toggle VIP (VIP hosts always behave warn-only for quota hard-fail).
@@ -337,7 +338,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/insecure-approvals/{id}/approve` — approve pending request and open host window; optional `duration_minutes`.
 - `POST /admin/insecure-approvals/{id}/deny` — deny pending request.
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke domain auto-allow.
-- `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests.
+- `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests for both Codex and Claude.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner-validated when the runner is enabled.
 - `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for local `~/.codex/auth.json`; TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
@@ -382,5 +383,5 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage
-- Canonical auth payloads live in `auth_payloads`, per-target entries in `auth_entries`; recent host digests in `host_auth_digests` (retained 3 per host); `host_auth_states` tracks last payload served to a host.
+- Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude`), with per-target entries in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
 - Auth/register/runner/usage events are logged in `logs`. Token usage rows include total/input/output/cached/reasoning/model/cost; `/usage` also writes audit rows in `token_usage_ingests` linked by `ingest_id`.

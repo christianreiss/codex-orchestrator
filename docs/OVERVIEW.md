@@ -111,7 +111,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
 
 ## Data retention & pruning
 
-- Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). `host_auth_states` tracks what each host last saw; `host_auth_digests` caches up to 3 recent digests per host.
+- Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). Those canonical payloads are engine-scoped (`codex` and `claude`), `host_auth_states` tracks what each host last saw per engine, and `host_auth_digests` caches up to 3 recent digests per host per engine.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
 - Logs, token usages, Skills, project coordination tables, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
 

@@ -19,7 +19,7 @@ final class InMemoryAuthPayloadRepositoryForSkillSummary extends AuthPayloadRepo
     {
     }
 
-    public function latest(): ?array
+    public function latest(string $engine = 'codex'): ?array
     {
         return $this->latestPayload;
     }

@@ -57,13 +57,13 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota/cost history store rather than raw verbose logs.
 - **Hosts**:
   - List: `GET /admin/hosts`.
-  - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body).
+  - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body; `engine` can be supplied via body/query/header and defaults to `codex`).
   - Register/rotate host key + installer token: `POST /admin/hosts/register` (`hosts.manage`).
     - Required: `fqdn`.
     - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
   - Host actions:
     - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).
-    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`).
+    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`; clears both Codex and Claude host auth linkage/digests for that host).
     - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool, `hosts.manage`).
     - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool, `hosts.manage`).
     - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool, `hosts.manage`).

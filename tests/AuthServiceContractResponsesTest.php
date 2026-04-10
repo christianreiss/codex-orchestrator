@@ -50,6 +50,17 @@ final class ContractHostRepository extends HostRepository
         $this->host['auth_digest'] = $authDigest;
     }
 
+    public function updateSyncStateForEngine(int $hostId, string $lastRefresh, string $authDigest, string $engine = 'codex'): void
+    {
+        if ($engine === 'claude') {
+            $this->host['claude_last_refresh'] = $lastRefresh;
+            $this->host['claude_auth_digest'] = $authDigest;
+            return;
+        }
+
+        $this->updateSyncState($hostId, $lastRefresh, $authDigest);
+    }
+
     public function all(): array
     {
         return [$this->host];
@@ -66,12 +77,12 @@ final class ContractAuthPayloadRepository extends AuthPayloadRepository
         $this->latestPayload = $latestPayload;
     }
 
-    public function latest(): ?array
+    public function latest(string $engine = 'codex'): ?array
     {
         return $this->latestPayload;
     }
 
-    public function findByIdWithEntries(int $id): ?array
+    public function findByIdWithEntries(int $id, ?string $engine = null): ?array
     {
         if ($this->latestPayload === null) {
             return null;
@@ -80,7 +91,7 @@ final class ContractAuthPayloadRepository extends AuthPayloadRepository
         return ((int) ($this->latestPayload['id'] ?? 0) === $id) ? $this->latestPayload : null;
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $body = null): array
+    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $body = null, string $engine = 'codex'): array
     {
         $row = [
             'id' => $this->nextId++,
@@ -89,6 +100,7 @@ final class ContractAuthPayloadRepository extends AuthPayloadRepository
             'source_host_id' => $sourceHostId,
             'entries' => $entries,
             'body' => $body,
+            'engine' => $engine,
             'created_at' => gmdate(DATE_ATOM),
         ];
         $this->latestPayload = $row;
@@ -103,7 +115,7 @@ final class ContractHostAuthStateRepository extends HostAuthStateRepository
     {
     }
 
-    public function upsert(int $hostId, int $payloadId, string $digest): void
+    public function upsert(int $hostId, int $payloadId, string $digest, string $engine = 'codex'): void
     {
     }
 }
@@ -117,13 +129,13 @@ final class ContractHostAuthDigestRepository extends HostAuthDigestRepository
     {
     }
 
-    public function rememberDigests(int $hostId, array $digests, int $retain = 3): void
+    public function rememberDigests(int $hostId, array $digests, int $retain = 3, string $engine = 'codex'): void
     {
         $merged = array_values(array_unique(array_merge($digests, $this->digests)));
         $this->digests = array_slice($merged, 0, $retain);
     }
 
-    public function recentDigests(int $hostId, int $limit = 3): array
+    public function recentDigests(int $hostId, int $limit = 3, string $engine = 'codex'): array
     {
         return array_slice($this->digests, 0, $limit);
     }

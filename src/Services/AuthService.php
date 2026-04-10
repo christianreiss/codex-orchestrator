@@ -477,6 +477,9 @@ class AuthService
 
     public function handleAuth(array $payload, array $host, ?string $clientVersion, ?string $wrapperVersion = null, ?string $baseUrl = null, bool $skipRunner = false): array
     {
+        $engine = isset($payload['engine']) && is_string($payload['engine']) && Engine::isValid(trim($payload['engine']))
+            ? trim($payload['engine'])
+            : Engine::DEFAULT;
         $hostId = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : 0;
         $logHostId = $hostId > 0 ? $hostId : null;
         $incomingInstallation = isset($payload['installation_id']) && is_string($payload['installation_id'])
@@ -491,8 +494,8 @@ class AuthService
             throw new HttpException('Installation ID mismatch', 403, ['code' => 'installation_mismatch']);
         }
 
-        $normalizedClientVersion = $this->clientVersionService->normalizeClientVersion($clientVersion);
-        $normalizedWrapperVersion = $this->clientVersionService->normalizeClientVersion($wrapperVersion);
+        $normalizedClientVersion = $this->clientVersionService->normalizeClientVersion($clientVersion, $engine);
+        $normalizedWrapperVersion = $this->clientVersionService->normalizeClientVersion($wrapperVersion, $engine);
 
         $command = $this->tokenUsageTracker->normalizeCommand($payload['command'] ?? null);
         $sessionStartedAt = null;
@@ -509,14 +512,18 @@ class AuthService
         }
 
         if ($trackHost) {
-            $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+            if ($engine === Engine::CLAUDE) {
+                $this->hosts->updateClaudeVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+            } else {
+                $this->hosts->updateClientVersions($hostId, $normalizedClientVersion, $normalizedWrapperVersion);
+            }
             $this->hosts->incrementApiCalls($hostId);
             $host = $this->hosts->findById($hostId) ?? $host;
         }
 
         $bakedWrapperMeta = null;
         if ($trackHost && $baseUrl !== null && $baseUrl !== '') {
-            $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, $baseUrl);
+            $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, $baseUrl, null, $engine);
         }
 
         $monthStart = gmdate('Y-m-01\T00:00:00\Z');
@@ -527,15 +534,17 @@ class AuthService
             'token_usage_month' => $hostTokenMonth,
         ];
 
-        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost);
+        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost, $engine);
         $quotaHardFail = $this->versions->getFlag('quota_hard_fail', true);
         if ($hostVip) {
             $quotaHardFail = false;
         }
         $quotaLimitPercent = $this->clientVersionService->quotaLimitPercent();
         $quotaWeekPartition = $this->clientVersionService->quotaWeekPartition();
-        $cdxSilent = $this->versions->getFlag('cdx_silent', false);
-        $canonicalPayload = $this->runnerValidationService->resolveCanonicalPayload();
+        $cdxSilent = $engine === Engine::CLAUDE
+            ? ($this->versions->getFlag('clx_silent', false) || $this->versions->getFlag('cdx_silent', false))
+            : $this->versions->getFlag('cdx_silent', false);
+        $canonicalPayload = $this->runnerValidationService->resolveCanonicalPayload($engine);
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
         $canonicalAuthArray = null;
@@ -555,7 +564,14 @@ class AuthService
 
         // Runner preflight
         if ($this->runnerVerifier !== null && !$skipRunner) {
-            [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerValidationService->runnerDailyCheck($canonicalPayload, $host, $versions);
+            [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh] = $this->runnerValidationService->runnerDailyCheck(
+                $canonicalPayload,
+                $host,
+                $versions,
+                false,
+                'daily_preflight',
+                $engine
+            );
             if ($canonicalPayload !== null) {
                 $validated = $this->runnerValidationService->validateCanonicalPayload($canonicalPayload);
                 if ($validated !== null) {
@@ -578,17 +594,18 @@ class AuthService
                 $canonicalPayload,
                 $canonicalAuthArray,
                 $host,
-                $versions
+                $versions,
+                $engine
             );
         }
 
         // Refresh the version snapshot after runner activity
-        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost);
+        $versions = $this->buildVersionSnapshotForHost($bakedWrapperMeta, $host, $trackHost, $engine);
 
-        $recentDigests = $trackHost ? $this->digests->recentDigests($hostId) : [];
+        $recentDigests = $trackHost ? $this->digests->recentDigests($hostId, 3, $engine) : [];
         if ($trackHost && $canonicalDigest !== null && !in_array($canonicalDigest, $recentDigests, true)) {
-            $this->digests->rememberDigests($hostId, [$canonicalDigest]);
-            $recentDigests = $this->digests->recentDigests($hostId);
+            $this->digests->rememberDigests($hostId, [$canonicalDigest], 3, $engine);
+            $recentDigests = $this->digests->recentDigests($hostId, 3, $engine);
         }
 
         if ($command === 'retrieve') {
@@ -633,8 +650,8 @@ class AuthService
                     ];
 
                     if ($trackHost) {
-                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest, $engine);
+                        $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh, $canonicalDigest, $engine);
                     }
                 } elseif ($comparison === 1 || $comparison === 0) {
                     $status = 'upload_required';
@@ -654,8 +671,8 @@ class AuthService
                     ];
 
                     if ($trackHost) {
-                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest, $engine);
+                        $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh, $canonicalDigest, $engine);
                     }
                 } else {
                     $status = 'outdated';
@@ -676,8 +693,8 @@ class AuthService
                     ];
 
                     if ($trackHost) {
-                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest);
-                        $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                        $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest, $engine);
+                        $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh, $canonicalDigest, $engine);
                     }
                 }
             }
@@ -713,7 +730,7 @@ class AuthService
 
         $incomingDigest = $this->runnerValidationService->calculateDigest($encodedAuth);
         if ($trackHost) {
-            $this->digests->rememberDigests($hostId, [$incomingDigest]);
+            $this->digests->rememberDigests($hostId, [$incomingDigest], 3, $engine);
         }
 
         $comparison = $canonicalLastRefresh !== null ? Timestamp::compare($incomingLastRefresh, $canonicalLastRefresh) : 1;
@@ -819,15 +836,22 @@ class AuthService
         }
 
         if ($shouldUpdate) {
-            $payloadRow = $this->payloads->create($candidateLastRefresh, $candidateDigest, $trackHost ? $hostId : null, $candidateEntries, $candidateEncoded);
-            $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+            $payloadRow = $this->payloads->create(
+                $candidateLastRefresh,
+                $candidateDigest,
+                $trackHost ? $hostId : null,
+                $candidateEntries,
+                $candidateEncoded,
+                $engine
+            );
+            $this->versions->set($engine === Engine::CLAUDE ? 'canonical_payload_id_claude' : 'canonical_payload_id', (string) $payloadRow['id']);
             $canonicalPayload = $payloadRow;
             $canonicalDigest = $candidateDigest;
             $canonicalLastRefresh = $candidateLastRefresh;
 
             if ($trackHost) {
-                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $candidateDigest);
-                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $candidateDigest, $engine);
+                $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh, $canonicalDigest, $engine);
                 $host = $this->hosts->findById($hostId) ?? $host;
             }
 
@@ -885,8 +909,8 @@ class AuthService
             }
 
             if ($trackHost && $canonicalPayload) {
-                $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest ?? $incomingDigest);
-                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh ?? $incomingLastRefresh, $canonicalDigest ?? $incomingDigest);
+                $this->hostStates->upsert($hostId, (int) $canonicalPayload['id'], $canonicalDigest ?? $incomingDigest, $engine);
+                $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh ?? $incomingLastRefresh, $canonicalDigest ?? $incomingDigest, $engine);
             }
         }
 
@@ -942,15 +966,22 @@ class AuthService
                             || ($comparisonRunner === 0 && $runnerDigest !== $canonicalDigest);
 
                         if ($runnerShouldUpdate) {
-                            $payloadRow = $this->payloads->create($runnerLastRefresh, $runnerDigest, $trackHost ? $hostId : null, $runnerEntries, $runnerEncoded);
-                            $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+                            $payloadRow = $this->payloads->create(
+                                $runnerLastRefresh,
+                                $runnerDigest,
+                                $trackHost ? $hostId : null,
+                                $runnerEntries,
+                                $runnerEncoded,
+                                $engine
+                            );
+                            $this->versions->set($engine === Engine::CLAUDE ? 'canonical_payload_id_claude' : 'canonical_payload_id', (string) $payloadRow['id']);
                             $canonicalPayload = $payloadRow;
                             $canonicalDigest = $runnerDigest;
                             $canonicalLastRefresh = $runnerLastRefresh;
 
                             if ($trackHost) {
-                                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
-                                $this->hosts->updateSyncState($hostId, $canonicalLastRefresh, $canonicalDigest);
+                                $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest, $engine);
+                                $this->hosts->updateSyncStateForEngine($hostId, $canonicalLastRefresh, $canonicalDigest, $engine);
                                 $host = $this->hosts->findById($hostId) ?? $host;
                             }
 
@@ -1077,6 +1108,7 @@ class AuthService
             'fqdn' => $host['fqdn'],
             'status' => $host['status'],
             'last_refresh' => $host['last_refresh'] ?? null,
+            'claude_last_refresh' => $host['claude_last_refresh'] ?? null,
             'updated_at' => $host['updated_at'] ?? null,
             'expires_at' => $host['expires_at'] ?? null,
             'client_version' => $host['client_version'] ?? null,
@@ -1106,6 +1138,7 @@ class AuthService
             'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
             'claude_auth_digest' => $host['claude_auth_digest'] ?? null,
             'claude_model_override' => $host['claude_model_override'] ?? null,
+            'claude_reasoning_effort_override' => $host['claude_reasoning_effort_override'] ?? null,
         ];
 
         if ($includeApiKey) {
@@ -1115,9 +1148,9 @@ class AuthService
         return $payload;
     }
 
-    public function applyClientVersionOverrideForHost(array $versions, array $host): array
+    public function applyClientVersionOverrideForHost(array $versions, array $host, string $engine = Engine::DEFAULT): array
     {
-        return $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
+        return $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host, $engine);
     }
 
     public function enforceInsecureWindow(array $host, string $command = 'mcp'): array
@@ -1150,9 +1183,9 @@ class AuthService
         return $this->clientVersionService->latestReportedVersions();
     }
 
-    public function versionSummary(): array
+    public function versionSummary(string $engine = Engine::DEFAULT): array
     {
-        return $this->clientVersionService->versionSummary();
+        return $this->clientVersionService->versionSummary($engine);
     }
 
     public function availableClientVersion(bool $forceRefresh = false): array
@@ -1239,11 +1272,11 @@ class AuthService
 
     // --- Private helpers that remain on AuthService ---
 
-    private function buildVersionSnapshotForHost(?array $bakedWrapperMeta, array $host, bool $trackHost): array
+    private function buildVersionSnapshotForHost(?array $bakedWrapperMeta, array $host, bool $trackHost, string $engine = Engine::DEFAULT): array
     {
-        $versions = $this->clientVersionService->versionSnapshot($bakedWrapperMeta);
+        $versions = $this->clientVersionService->versionSnapshotForEngine($engine, $bakedWrapperMeta);
         if ($trackHost) {
-            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host);
+            $versions = $this->clientVersionService->applyClientVersionOverrideForHost($versions, $host, $engine);
             $override = $host['auto_update_override'] ?? null;
             if ($override !== null) {
                 $versions['auto_update_enabled'] = (bool) (int) $override;

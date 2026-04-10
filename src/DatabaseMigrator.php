@@ -15,6 +15,7 @@ use App\Migrations\ClaudeHostFieldsMigration;
 use App\Migrations\ClaudeUsageSnapshotsMigration;
 use App\Migrations\ContentMigration;
 use App\Migrations\EngineMigration;
+use App\Migrations\EngineHostAuthScopeMigration;
 use App\Migrations\HostMigration;
 use App\Migrations\InfrastructureMigration;
 use App\Migrations\InsecureMigration;
@@ -82,6 +83,7 @@ class DatabaseMigrator
             new JoplinMigration(),
             new EngineMigration(),
             new ClaudeHostFieldsMigration(),
+            new EngineHostAuthScopeMigration(),
             new ClaudeUsageSnapshotsMigration(),
         ];
 

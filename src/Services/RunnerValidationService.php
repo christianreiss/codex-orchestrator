@@ -17,6 +17,7 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
+use App\Support\Engine;
 use App\Support\Timestamp;
 
 class RunnerValidationService
@@ -108,7 +109,14 @@ class RunnerValidationService
      *
      * @return array{0: ?array, 1: ?string, 2: ?string} Updated canonical payload, digest, last_refresh
      */
-    public function runnerDailyCheck(?array $canonicalPayload, array $host, array $versions, bool $forceRun = false, string $trigger = 'daily_preflight'): array
+    public function runnerDailyCheck(
+        ?array $canonicalPayload,
+        array $host,
+        array $versions,
+        bool $forceRun = false,
+        string $trigger = 'daily_preflight',
+        string $engine = Engine::DEFAULT
+    ): array
     {
         if ($canonicalPayload === null || $this->runnerVerifier === null) {
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
@@ -142,7 +150,8 @@ class RunnerValidationService
             $canonicalPayload,
             $host,
             $versions,
-            $trigger
+            $trigger,
+            $engine
         );
 
         return [$canonicalPayload, $canonicalDigest, $canonicalLastRefresh];
@@ -153,7 +162,13 @@ class RunnerValidationService
      *
      * @return array{0: ?array, 1: ?string, 2: ?string, 3: ?array|null}
      */
-    public function runRunnerValidationAttempt(array $canonicalPayload, array $host, array $versions, string $trigger): array
+    public function runRunnerValidationAttempt(
+        array $canonicalPayload,
+        array $host,
+        array $versions,
+        string $trigger,
+        string $engine = Engine::DEFAULT
+    ): array
     {
         $validatedCanonical = $this->validateCanonicalPayload($canonicalPayload);
         if ($validatedCanonical === null) {
@@ -201,13 +216,20 @@ class RunnerValidationService
                     || ($comparison === 0 && $runnerDigest !== $currentDigest);
 
                 if ($shouldUpdate) {
-                    $payloadRow = $this->payloads->create((string) $runnerLastRefresh, $runnerDigest, $trackHost ? $hostId : null, $runnerEntries, $runnerEncoded);
-                    $this->versions->set('canonical_payload_id', (string) $payloadRow['id']);
+                    $payloadRow = $this->payloads->create(
+                        (string) $runnerLastRefresh,
+                        $runnerDigest,
+                        $trackHost ? $hostId : null,
+                        $runnerEntries,
+                        $runnerEncoded,
+                        $engine
+                    );
+                    $this->versions->set($this->canonicalPayloadVersionKey($engine), (string) $payloadRow['id']);
                     $canonicalPayload = $payloadRow;
 
                     if ($trackHost) {
-                        $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest);
-                        $this->hosts->updateSyncState($hostId, (string) $runnerLastRefresh, $runnerDigest);
+                        $this->hostStates->upsert($hostId, (int) $payloadRow['id'], $runnerDigest, $engine);
+                        $this->hosts->updateSyncStateForEngine($hostId, (string) $runnerLastRefresh, $runnerDigest, $engine);
                     }
                     $this->logs->log($logHostId, 'auth.runner_store', [
                         'status' => 'applied',
@@ -243,7 +265,13 @@ class RunnerValidationService
      *
      * @return array{0: ?array, 1: ?array, 2: ?string, 3: ?string}
      */
-    public function enforceRunnerValidationOnFailure(?array $canonicalPayload, ?array $canonicalAuthArray, array $host, array $versions): array
+    public function enforceRunnerValidationOnFailure(
+        ?array $canonicalPayload,
+        ?array $canonicalAuthArray,
+        array $host,
+        array $versions,
+        string $engine = Engine::DEFAULT
+    ): array
     {
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
@@ -259,7 +287,8 @@ class RunnerValidationService
             $canonicalPayload,
             $runnerHost,
             $versions,
-            'fail_recovery'
+            'fail_recovery',
+            $engine
         );
 
         if ($canonicalPayload !== null) {
@@ -402,17 +431,18 @@ class RunnerValidationService
         return true;
     }
 
-    public function resolveCanonicalPayload(): ?array
+    public function resolveCanonicalPayload(string $engine = Engine::DEFAULT): ?array
     {
-        $id = $this->versions->get('canonical_payload_id');
+        $engine = Engine::validate($engine);
+        $id = $this->versions->get($this->canonicalPayloadVersionKey($engine));
         if ($id !== null && ctype_digit((string) $id)) {
-            $payload = $this->payloads->findByIdWithEntries((int) $id);
+            $payload = $this->payloads->findByIdWithEntries((int) $id, $engine);
             if ($payload) {
                 return $payload;
             }
         }
 
-        return $this->payloads->latest();
+        return $this->payloads->latest($engine);
     }
 
     public function resolveRunnerHost(?array $hostContext = null, ?array $canonicalPayload = null): ?array
@@ -506,6 +536,12 @@ class RunnerValidationService
     public function hasCanonicalAuth(): bool
     {
         return $this->resolveCanonicalPayload() !== null;
+    }
+
+    private function canonicalPayloadVersionKey(string $engine): string
+    {
+        $engine = Engine::validate($engine);
+        return $engine === Engine::CLAUDE ? 'canonical_payload_id_claude' : 'canonical_payload_id';
     }
 
     public function calculateDigest(?string $authJson): ?string
