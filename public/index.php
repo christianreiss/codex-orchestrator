@@ -637,6 +637,11 @@ $router->add('POST', '#^/admin/log-retention$#', fn() => $adminSettingsCtrl->pos
 $router->add('GET', '#^/admin/scaling$#', fn() => $adminSettingsCtrl->getScaling());
 $router->add('POST', '#^/admin/scaling$#', fn() => $adminSettingsCtrl->postScaling($payload));
 
+// Admin: Claude version management & usage history
+$router->add('GET', '#^/admin/claude/version$#', fn() => $adminSettingsCtrl->getClaudeVersion());
+$router->add('POST', '#^/admin/claude/version$#', fn() => $adminSettingsCtrl->postClaudeVersion($payload));
+$router->add('GET', '#^/admin/claude/usage/history$#', fn() => $adminSettingsCtrl->getClaudeUsageHistory());
+
 // Admin host detail endpoints
 $router->add('GET', '#^/admin/hosts/(\d+)/detail$#', fn($id) => $adminOverviewCtrl->hostDetail((int) $id));
 $router->add('GET', '#^/admin/hosts/(\d+)/auth$#', fn($id) => $adminHostCtrl->auth($id));
