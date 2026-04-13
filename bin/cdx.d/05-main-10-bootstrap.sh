@@ -66,14 +66,10 @@ fi
 
 CODEX_SSH_SESSION_ACTIVE=0
 CODEX_SSH_INTERACTIVE=0
-CODEX_SSH_PTY_BRIDGE_ACTIVE=0
 if is_ssh_session; then
   CODEX_SSH_SESSION_ACTIVE=1
   if [[ -t 0 && -t 1 ]]; then
     CODEX_SSH_INTERACTIVE=1
-    if command -v python3 >/dev/null 2>&1; then
-      CODEX_SSH_PTY_BRIDGE_ACTIVE=1
-    fi
   fi
 fi
 

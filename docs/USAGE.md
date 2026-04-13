@@ -200,7 +200,7 @@ cdx --update
 
 That forced path checks both the wrapper and Codex. If the wrapper has to replace itself first, it restarts once and then finishes the Codex update check before exiting.
 
-If SSH launches misbehave, run `cdx doctor`. The wrapper reports SSH terminal/session hints, PTY state, API reachability, and local Codex version so you can see whether the host is launching through the normal PTY/direct paths or failing earlier.
+If SSH launches misbehave, run `cdx doctor`. The wrapper reports SSH terminal/session hints, API reachability, local Codex version, and whether the host is using the direct TTY path or the older inline fallback.
 
 ### Rotate canonical auth (operator)
 

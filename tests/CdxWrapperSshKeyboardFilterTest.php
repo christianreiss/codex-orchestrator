@@ -8,29 +8,25 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 final class CdxWrapperSshKeyboardFilterTest extends TestCase
 {
-    public function testWrapperUsesPythonPtyBridgeForInteractiveSsh(): void
+    public function testWrapperUsesDirectTtyForInteractiveSsh(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
 
         self::assertStringContainsString('is_ssh_session()', $wrapperSource);
         self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
-        self::assertStringContainsString('CODEX_SSH_PTY_BRIDGE_ACTIVE=1', $wrapperSource);
         self::assertStringContainsString('ssh_should_force_no_alt_screen()', $wrapperSource);
-        self::assertStringContainsString('run_codex_command_via_python_pty_bridge() {', $wrapperSource);
-        self::assertStringContainsString('output_filter_re = re.compile', $wrapperSource);
-        self::assertStringContainsString('<1?u', $wrapperSource);
-        self::assertStringContainsString("cpr_re = re.compile(br'\\x1b\\[6n')", $wrapperSource);
-        self::assertStringContainsString('os.write(child_fd, cpr_reply * cpr_count)', $wrapperSource);
-        self::assertStringContainsString('tty_fd = os.open("/dev/tty", os.O_RDWR)', $wrapperSource);
-        self::assertStringContainsString('normalize_plain_input_byte', $wrapperSource);
-        self::assertStringContainsString('run_codex_command_via_python_pty_bridge "$tmp_output" "${exec_cmd[@]}"', $wrapperSource);
+        self::assertStringContainsString("if [[ -t 0 && -t 1 ]]; then\n    \"\${exec_cmd[@]}\"\n    status=$?", $wrapperSource);
         self::assertStringContainsString('if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then', $wrapperSource);
         self::assertStringContainsString('cmd_line+=("--no-alt-screen")', $wrapperSource);
-        self::assertStringNotContainsString('bridge_script="$(mktemp)"', $wrapperSource);
+        self::assertStringNotContainsString('CODEX_SSH_PTY_BRIDGE_ACTIVE', $wrapperSource);
+        self::assertStringNotContainsString('run_codex_command_via_python_pty_bridge', $wrapperSource);
+        self::assertStringNotContainsString('output_filter_re = re.compile', $wrapperSource);
+        self::assertStringNotContainsString("cpr_re = re.compile(br'\\x1b\\[6n')", $wrapperSource);
+        self::assertStringNotContainsString('normalize_plain_input_byte', $wrapperSource);
     }
 
-    public function testDoctorReportsInteractiveSshBridgeMode(): void
+    public function testDoctorReportsInteractiveSshDirectMode(): void
     {
         $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
         self::assertIsString($wrapperSource);
@@ -41,11 +37,12 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
         self::assertStringContainsString('TERM=${TERM:-unknown}', $wrapperSource);
         self::assertStringContainsString('version=${LOCAL_VERSION:-unknown}', $wrapperSource);
         self::assertStringContainsString('ssh_should_force_no_alt_screen', $wrapperSource);
-        self::assertStringContainsString('pty-bridge', $wrapperSource);
-        self::assertStringContainsString('cpr=synthetic', $wrapperSource);
         self::assertStringContainsString('ssh-launch=direct-tty', $wrapperSource);
+        self::assertStringContainsString('ssh-launch=direct-tty-inline', $wrapperSource);
         self::assertStringContainsString('alt-screen=enabled', $wrapperSource);
         self::assertStringContainsString('alt-screen=disabled', $wrapperSource);
+        self::assertStringNotContainsString('pty-bridge', $wrapperSource);
+        self::assertStringNotContainsString('cpr=synthetic', $wrapperSource);
         self::assertStringNotContainsString('ssh-launch=pty-forced', $wrapperSource);
     }
 }

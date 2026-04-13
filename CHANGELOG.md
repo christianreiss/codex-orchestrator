@@ -1,3 +1,6 @@
+# 2026-04-13
+- cdx wrapper: removed the interactive SSH Python PTY bridge again and returned SSH launches to direct Codex TTY ownership. This avoids stacked-PTY cursor/input drift on SSH hosts while keeping the old-version `--no-alt-screen` fallback, and the wrapper version bumped to `2026.04.13-01`.
+
 # 2026-04-10
 - Admin UI / host detail: the `Install` action on `/admin/hosts/{id}` now respects the actual host engine state instead of falling back to stale new-host modal state. Host-detail installer refreshes now stay correct for all three modes: Codex-only, Claude-only, and dual-engine hosts, and the action label now names the exact installer being minted.
 - Installer: when `cdx` or `clx` already exists in a standard wrapper path, the host installer now overwrites that active path first instead of always preferring `/usr/local/bin`. This avoids same-shell upgrades continuing to hit an older cached wrapper path, and the installer now prints a `hash -r` hint when the shell may still have the old location cached.
