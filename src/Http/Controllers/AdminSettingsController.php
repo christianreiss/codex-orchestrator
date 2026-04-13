@@ -9,6 +9,8 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\AdminAuthService;
+use App\Services\ClaudeModelService;
+use App\Services\ClaudeUsageService;
 use App\Services\UsageScalingService;
 use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
@@ -20,6 +22,7 @@ class AdminSettingsController
         private VersionRepository $versionRepository,
         private LogRepository $logRepository,
         private ?UsageScalingService $usageScalingService = null,
+        private ?ClaudeUsageService $claudeUsageService = null,
     ) {}
 
     /**
@@ -177,11 +180,9 @@ class AdminSettingsController
         requireAdminAccess();
         requireAdminCapability(AdminAuthService::CAP_SETTINGS);
 
-        $supported = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
-
         if (isset($payload['default_model'])) {
             $model = trim((string) $payload['default_model']);
-            if (in_array($model, $supported, true)) {
+            if (in_array($model, ClaudeModelService::SUPPORTED_MODELS, true)) {
                 $this->versionRepository->set('claude_default_model', $model);
             }
         }
@@ -200,7 +201,6 @@ class AdminSettingsController
 
         $this->logRepository->log(null, 'admin.claude_settings', array_filter($payload));
 
-        // Return current state
         $this->getClaudeSettings();
     }
 
@@ -835,26 +835,13 @@ class AdminSettingsController
             $period = '7d';
         }
 
-        $service = $this->getClaudeUsageService();
-        if ($service === null) {
+        if ($this->claudeUsageService === null) {
             Response::json(['status' => 'ok', 'data' => []]);
             return;
         }
 
-        if (!method_exists($service, 'history')) {
-            Response::json(['status' => 'ok', 'data' => []]);
-            return;
-        }
-
-        $data = $service->history($bucket, $period, is_string($model) ? $model : null);
+        $data = $this->claudeUsageService->history($bucket, $period, is_string($model) ? $model : null);
         Response::json(['status' => 'ok', 'data' => $data]);
     }
 
-    private function getClaudeUsageService(): ?object
-    {
-        if (!class_exists(\App\Services\ClaudeUsageService::class)) {
-            return null;
-        }
-        return new \App\Services\ClaudeUsageService($this->versionRepository, $this->logRepository);
-    }
 }

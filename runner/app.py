@@ -29,15 +29,17 @@ RUNNER_HOME_PARENT = os.getenv("RUNNER_HOME_PARENT", "/var/tmp").strip() or "/va
 DEBUG_DUMP_ENABLED = DEBUG_DUMP_AUTH and ALLOW_SECRET_DUMP and APP_ENV != "production"
 
 
+_CODEX_AVAILABLE = shutil.which("codex") is not None
+_CLAUDE_AVAILABLE = shutil.which("claude") is not None
+
+
 @app.get("/health")
 def health():
-    codex_ok = shutil.which("codex") is not None
-    claude_ok = shutil.which("claude") is not None
     return {
         "status": "ok",
         "engines": {
-            "codex": {"available": codex_ok},
-            "claude": {"available": claude_ok},
+            "codex": {"available": _CODEX_AVAILABLE},
+            "claude": {"available": _CLAUDE_AVAILABLE},
         },
     }
 
@@ -313,6 +315,7 @@ def _run_claude_probe(payload) -> dict:
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
 
+    version = _claude_version()
     timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
     start = time.perf_counter()
     try:
@@ -343,7 +346,7 @@ def _run_claude_probe(payload) -> dict:
                 "status": "ok" if ok else "fail",
                 "latency_ms": latency_ms,
                 "reachable": True,
-                "claude_version": _claude_version(),
+                "claude_version": version,
             }
             if not ok:
                 result["reason"] = f"unexpected response: {text[:200]}"
@@ -356,7 +359,7 @@ def _run_claude_probe(payload) -> dict:
             "latency_ms": latency_ms,
             "reachable": True,
             "reason": f"HTTP {resp.status_code}: {error_text}",
-            "claude_version": _claude_version(),
+            "claude_version": version,
         }
     except httpx.TimeoutException:
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -365,7 +368,7 @@ def _run_claude_probe(payload) -> dict:
             "latency_ms": latency_ms,
             "reachable": False,
             "reason": "timeout contacting Anthropic API",
-            "claude_version": _claude_version(),
+            "claude_version": version,
         }
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -374,7 +377,7 @@ def _run_claude_probe(payload) -> dict:
             "latency_ms": latency_ms,
             "reachable": False,
             "reason": str(exc)[:400],
-            "claude_version": _claude_version(),
+            "claude_version": version,
         }
 
 

@@ -139,7 +139,7 @@ class ClaudeUsageService
                        COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
                        COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) + COALESCE(cached_tokens, 0)), 0) AS total_tokens
                 FROM token_usages
-                WHERE created_at >= :since
+                WHERE created_at >= :since AND engine = 'claude'
                 GROUP BY model
                 ORDER BY total_tokens DESC";
 
@@ -171,12 +171,11 @@ class ClaudeUsageService
 
     /**
      * Build a dashboard summary with usage across multiple time windows.
+     * Uses a single query for all three windows instead of three separate queries.
      */
     public function dashboardSummary(): array
     {
-        $usage24h = $this->aggregateRecentUsage('24h');
-        $usage7d = $this->aggregateRecentUsage('7d');
-        $usage30d = $this->aggregateRecentUsage('30d');
+        $buckets = $this->aggregateAllWindows();
 
         $sumCost = static function (array $rows): float {
             $total = 0.0;
@@ -186,9 +185,9 @@ class ClaudeUsageService
             return round($total, 6);
         };
 
-        $totalCost24h = $sumCost($usage24h);
-        $totalCost7d = $sumCost($usage7d);
-        $totalCost30d = $sumCost($usage30d);
+        $totalCost24h = $sumCost($buckets['24h']);
+        $totalCost7d = $sumCost($buckets['7d']);
+        $totalCost30d = $sumCost($buckets['30d']);
 
         $snapshot = $this->latestUsageSummary();
         $spendLimit = $snapshot['spend_limit'] ?? null;
@@ -203,13 +202,92 @@ class ClaudeUsageService
                 'limit' => $spendLimit !== null ? (float) $spendLimit : null,
                 'percent' => $spendPercent,
             ],
-            'usage_24h' => $usage24h,
-            'usage_7d' => $usage7d,
-            'usage_30d' => $usage30d,
+            'usage_24h' => $buckets['24h'],
+            'usage_7d' => $buckets['7d'],
+            'usage_30d' => $buckets['30d'],
             'total_cost_24h' => $totalCost24h,
             'total_cost_7d' => $totalCost7d,
             'total_cost_30d' => $totalCost30d,
         ];
+    }
+
+    /**
+     * Single-query aggregate for all three time windows.
+     *
+     * @return array<string, list<array{model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int, cost: float}>>
+     */
+    private function aggregateAllWindows(): array
+    {
+        if ($this->database === null) {
+            return ['24h' => [], '7d' => [], '30d' => []];
+        }
+
+        $now = time();
+        $since30d = gmdate(DATE_ATOM, $now - 30 * 86400);
+        $threshold7d = gmdate(DATE_ATOM, $now - 7 * 86400);
+        $threshold24h = gmdate(DATE_ATOM, $now - 86400);
+
+        $sql = "SELECT COALESCE(model, 'unknown') AS model,
+                       created_at,
+                       COALESCE(input_tokens, 0) AS input_tokens,
+                       COALESCE(output_tokens, 0) AS output_tokens,
+                       COALESCE(cached_tokens, 0) AS cached_tokens
+                FROM token_usages
+                WHERE created_at >= :since AND engine = 'claude'";
+
+        $stmt = $this->database->connection()->prepare($sql);
+        $stmt->execute(['since' => $since30d]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $accum = [
+            '24h' => [],
+            '7d' => [],
+            '30d' => [],
+        ];
+
+        foreach ($rows as $row) {
+            $model = (string) $row['model'];
+            $createdAt = (string) $row['created_at'];
+            $input = (int) $row['input_tokens'];
+            $output = (int) $row['output_tokens'];
+            $cached = (int) $row['cached_tokens'];
+
+            $windows = ['30d'];
+            if ($createdAt >= $threshold7d) {
+                $windows[] = '7d';
+            }
+            if ($createdAt >= $threshold24h) {
+                $windows[] = '24h';
+            }
+
+            foreach ($windows as $w) {
+                if (!isset($accum[$w][$model])) {
+                    $accum[$w][$model] = ['input' => 0, 'output' => 0, 'cached' => 0];
+                }
+                $accum[$w][$model]['input'] += $input;
+                $accum[$w][$model]['output'] += $output;
+                $accum[$w][$model]['cached'] += $cached;
+            }
+        }
+
+        $result = ['24h' => [], '7d' => [], '30d' => []];
+        foreach ($accum as $window => $models) {
+            foreach ($models as $model => $tokens) {
+                $total = $tokens['input'] + $tokens['output'] + $tokens['cached'];
+                $cost = self::calculateCost($model, $tokens['input'], $tokens['output'], $tokens['cached']);
+                $result[$window][] = [
+                    'model' => $model,
+                    'input_tokens' => $tokens['input'],
+                    'output_tokens' => $tokens['output'],
+                    'cached_tokens' => $tokens['cached'],
+                    'total_tokens' => $total,
+                    'cost' => round($cost, 6),
+                ];
+            }
+            usort($result[$window], fn($a, $b) => $b['total_tokens'] <=> $a['total_tokens']);
+        }
+
+        return $result;
     }
 
     /**
@@ -243,7 +321,7 @@ class ClaudeUsageService
                        COALESCE(SUM(output_tokens), 0) AS output_tokens,
                        COALESCE(SUM(cached_tokens), 0) AS cached_tokens
                 FROM token_usages
-                WHERE created_at >= :since{$modelFilter}
+                WHERE created_at >= :since AND engine = 'claude'{$modelFilter}
                 GROUP BY time_bucket, model
                 ORDER BY time_bucket ASC, model ASC";
 

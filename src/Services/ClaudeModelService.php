@@ -13,24 +13,10 @@ class ClaudeModelService
     public const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
     /** @var list<string> */
-    public const SUPPORTED_MODELS = [
-        'claude-opus-4-6',
-        'claude-sonnet-4-6',
-        'claude-haiku-4-5',
-    ];
+    public const SUPPORTED_MODELS = ConfigNormalizer::CLAUDE_SUPPORTED_MODELS;
 
     /** @var array<string, string> */
-    public const LEGACY_MODEL_UPGRADES = [
-        'claude-3-opus-20240229' => 'claude-opus-4-6',
-        'claude-3-sonnet-20240229' => 'claude-sonnet-4-6',
-        'claude-3-haiku-20240307' => 'claude-haiku-4-5',
-        'claude-3-5-sonnet-20240620' => 'claude-sonnet-4-6',
-        'claude-3-5-sonnet-20241022' => 'claude-sonnet-4-6',
-        'claude-3-5-haiku-20241022' => 'claude-haiku-4-5',
-        'claude-sonnet-4-20250514' => 'claude-sonnet-4-6',
-        'claude-opus-4-20250514' => 'claude-opus-4-6',
-        'claude-haiku-4-5-20251001' => 'claude-haiku-4-5',
-    ];
+    public const LEGACY_MODEL_UPGRADES = ConfigNormalizer::CLAUDE_LEGACY_MODEL_UPGRADES;
 
     public function __construct(
         private readonly ClientConfigRepository $configs,

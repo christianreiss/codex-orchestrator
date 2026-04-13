@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Response;
 use App\Services\OpenaiApiKeyService;
+use App\Support\Engine;
 
 class AdminClaudeKeyController
 {
@@ -23,7 +24,7 @@ class AdminClaudeKeyController
 
         Response::json([
             'status' => 'ok',
-            'data' => $this->keyService->list(),
+            'data' => $this->keyService->listByEngine(Engine::CLAUDE),
         ]);
     }
 
@@ -53,7 +54,7 @@ class AdminClaudeKeyController
         }
 
         $adminUserId = $this->currentAdminUserId();
-        $result = $this->keyService->generate($name, $adminUserId, $rateLimitRpm, $expiresAt);
+        $result = $this->keyService->generate($name, $adminUserId, $rateLimitRpm, $expiresAt, Engine::CLAUDE);
 
         Response::json([
             'status' => 'ok',
@@ -72,7 +73,7 @@ class AdminClaudeKeyController
         requireAdminAccess();
 
         $active = !empty($payload['active']);
-        $this->keyService->toggleActive((int) $id, $active);
+        $this->keyService->toggleActive((int) $id, $active, Engine::CLAUDE);
 
         Response::json([
             'status' => 'ok',
@@ -87,7 +88,7 @@ class AdminClaudeKeyController
     {
         requireAdminAccess();
 
-        $this->keyService->delete((int) $id);
+        $this->keyService->delete((int) $id, Engine::CLAUDE);
 
         Response::json([
             'status' => 'ok',
