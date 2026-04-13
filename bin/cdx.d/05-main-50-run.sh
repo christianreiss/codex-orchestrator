@@ -225,6 +225,7 @@ import select
 import signal
 import sys
 import termios
+import time
 import tty
 
 log_path = sys.argv[1]
@@ -235,7 +236,33 @@ tail_len = 64
 output_filter_re = re.compile(br'\x1b\[(?:>[0-9;:]*u|<1?u)')
 csi_u_re = re.compile(br'^\x1b\[(\d+)(?::(\d+))?(?:;(\d+)(?::(\d+))?)?u$')
 cpr_re = re.compile(br'\x1b\[6n')
-cpr_reply = b'\x1b[1;1R'
+
+
+def query_cursor_position(fd):
+    """Query cursor position via CPR on fd; return (row, col) or (1, 1) on failure."""
+    try:
+        attrs = termios.tcgetattr(fd)
+        tty.setraw(fd)
+        try:
+            os.write(fd, b'\x1b[6n')
+            response = b''
+            end_time = time.time() + 0.5
+            while time.time() < end_time:
+                r, _, _ = select.select([fd], [], [], max(0.0, end_time - time.time()))
+                if not r:
+                    break
+                ch = os.read(fd, 1)
+                response += ch
+                if ch == b'R':
+                    break
+            m = re.match(br'\x1b\[(\d+);(\d+)R', response)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, attrs)
+    except Exception:
+        pass
+    return 1, 1
 
 
 def translate_csi_u(sequence):
@@ -340,6 +367,8 @@ def copy_winsize(from_fd, to_fd):
 
 
 tty_fd = os.open("/dev/tty", os.O_RDWR)
+cursor_row, cursor_col = query_cursor_position(tty_fd)
+cpr_reply = ('\x1b[%d;%dR' % (cursor_row, cursor_col)).encode()
 stdin_fd = tty_fd
 pid, child_fd = pty.fork()
 if pid == 0:
