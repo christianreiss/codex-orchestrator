@@ -147,21 +147,4 @@ clx_auth_sync() {
   clx_auth_digest > "$CLX_AUTH_DIGEST_FILE"
 }
 
-clx_auth_push() {
-  if [[ ! -f "$CLX_AUTH_FILE" ]]; then
-    log_debug "No local auth file to push."
-    return 0
-  fi
-
-  local auth_body=""
-  auth_body="$(cat "$CLX_AUTH_FILE" 2>/dev/null || true)"
-  if [[ -z "$auth_body" ]]; then
-    return 0
-  fi
-
-  clx_curl -X POST "${CLAUDE_SYNC_BASE_URL}/auth" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -nc --arg cmd "store" --arg engine "claude" --argjson auth "$auth_body" \
-      '{command: $cmd, engine: $engine, auth: $auth}')" \
-    >/dev/null 2>&1 || log_warn "Failed to push auth to orchestrator."
-}
+# clx_auth_push() is defined in 02-auth-30-push.sh (extracted for parity with cdx).

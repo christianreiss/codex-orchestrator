@@ -1052,6 +1052,13 @@ class AuthService
         );
     }
 
+    public function triggerRunnerRefreshClaude(): array
+    {
+        return $this->runnerValidationService->triggerRunnerRefreshClaude(
+            fn () => $this->clientVersionService->versionSnapshot()
+        );
+    }
+
     public function deleteHost(array $host): array
     {
         if (!isset($host['id'])) {

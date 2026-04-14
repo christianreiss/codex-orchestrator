@@ -9,6 +9,7 @@ use App\Http\VersionHelper;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
+use App\Services\ClaudeUsageService;
 use App\Services\StartupSyncService;
 use App\Support\Engine;
 
@@ -19,6 +20,7 @@ class AuthController
         private ChatGptUsageService $chatGptUsageService,
         private StartupSyncService $startupSyncService,
         private VersionRepository $versionRepository,
+        private ?ClaudeUsageService $claudeUsageService = null,
     ) {}
 
     public function auth(mixed $payload): void
@@ -44,7 +46,7 @@ class AuthController
 
         $result = $this->service->handleAuth($authPayload, $host, $clientVersion, $wrapperVersion, $baseUrl);
         $result['engine'] = $engine;
-        $result['chatgpt_usage'] = $this->fetchChatGptUsage($host);
+        $this->attachEngineUsage($result, $host, $engine);
 
         Response::json([
             'status' => 'ok',
@@ -76,19 +78,24 @@ class AuthController
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
         $baseUrl = RequestHelper::resolveBaseUrl();
         $requestPayload = is_array($payload) ? $payload : [];
+        $engine = VersionHelper::extractEngine($requestPayload);
 
         $hostUserInput = PayloadHelper::extractSyncHostUserInput($requestPayload);
         $users = $this->service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
 
-        $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, false);
+        $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, false, $engine);
         $includeAuth = VersionHelper::normalizeBoolean($requestPayload['include_auth'] ?? null);
         if ($includeAuth !== false) {
             $authFingerprint = PayloadHelper::extractSyncAuthFingerprint($requestPayload);
+            if (!is_array($authFingerprint)) {
+                $authFingerprint = [];
+            }
+            $authFingerprint['engine'] = $engine;
             $clientVersion = VersionHelper::extractClientVersion($requestPayload);
             $wrapperVersion = VersionHelper::extractWrapperVersion($requestPayload);
             $authResult = $this->service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
 
-            $authResult['chatgpt_usage'] = $this->fetchChatGptUsage($host);
+            $this->attachEngineUsage($authResult, $host, $engine);
             $result['auth'] = $authResult;
 
             $authStatus = strtolower(trim((string) ($authResult['status'] ?? '')));
@@ -99,6 +106,7 @@ class AuthController
 
         $result['reasons'] = array_values(array_unique(array_filter($result['reasons'] ?? [])));
         $result['status'] = $result['reasons'] === [] ? 'ok' : 'update';
+        $result['engine'] = $engine;
         $result['host_users'] = $users;
 
         Response::json([
@@ -114,14 +122,19 @@ class AuthController
         $host = $this->service->authenticate($apiKey, $clientIp, false, true);
         $baseUrl = RequestHelper::resolveBaseUrl();
         $requestPayload = is_array($payload) ? $payload : [];
+        $engine = VersionHelper::extractEngine($requestPayload);
 
         $hostUserInput = PayloadHelper::extractSyncHostUserInput($requestPayload);
         $users = $this->service->recordHostUser($host, $hostUserInput['username'], $hostUserInput['hostname']);
 
-        $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, true);
+        $result = $this->startupSyncService->collect($requestPayload, $host, $baseUrl, $apiKey, true, $engine);
         $includeAuth = VersionHelper::normalizeBoolean($requestPayload['include_auth'] ?? null);
         if ($includeAuth !== false) {
             $authFingerprint = PayloadHelper::extractSyncAuthFingerprint($requestPayload);
+            if (!is_array($authFingerprint)) {
+                $authFingerprint = [];
+            }
+            $authFingerprint['engine'] = $engine;
             $clientVersion = VersionHelper::extractClientVersion($requestPayload);
             $wrapperVersion = VersionHelper::extractWrapperVersion($requestPayload);
             $authResult = $this->service->handleAuth($authFingerprint, $host, $clientVersion, $wrapperVersion, $baseUrl);
@@ -132,6 +145,7 @@ class AuthController
             if (($authStatus === 'missing' || $authStatus === 'upload_required') && is_array($authCandidate)) {
                 $storePayload = [
                     'command' => 'store',
+                    'engine' => $engine,
                     'auth' => $authCandidate,
                 ];
                 if (isset($authResult['canonical_digest']) && is_string($authResult['canonical_digest']) && trim($authResult['canonical_digest']) !== '') {
@@ -157,7 +171,7 @@ class AuthController
                 $didStore = true;
             }
 
-            $authResult['chatgpt_usage'] = $this->fetchChatGptUsage($host);
+            $this->attachEngineUsage($authResult, $host, $engine);
             $result['auth'] = $authResult;
 
             if ($didStore && ($authStatus === 'updated' || $authStatus === 'unchanged')) {
@@ -169,6 +183,7 @@ class AuthController
 
         $result['reasons'] = array_values(array_unique(array_filter($result['reasons'] ?? [])));
         $result['status'] = $result['reasons'] === [] ? 'ok' : 'update';
+        $result['engine'] = $engine;
         $result['host_users'] = $users;
 
         Response::json([
@@ -177,6 +192,25 @@ class AuthController
         ]);
     }
 
+    /**
+     * Attach engine-specific usage summary to the result array.
+     * Codex hosts get chatgpt_usage; Claude hosts get claude_usage.
+     *
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $host
+     */
+    private function attachEngineUsage(array &$result, array $host, string $engine): void
+    {
+        if ($engine === Engine::CLAUDE) {
+            $result['claude_usage'] = $this->fetchClaudeUsage();
+        } else {
+            $result['chatgpt_usage'] = $this->fetchChatGptUsage($host);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $host
+     */
     private function fetchChatGptUsage(array $host): mixed
     {
         $this->chatGptUsageService->fetchLatest(false);
@@ -185,5 +219,13 @@ class AuthController
             $chatgptUsage['active_quota_lane'] = VersionHelper::resolveActiveQuotaLaneForHost($host, $this->versionRepository, $chatgptUsage['active_quota_lane'] ?? null);
         }
         return $chatgptUsage;
+    }
+
+    private function fetchClaudeUsage(): mixed
+    {
+        if ($this->claudeUsageService === null) {
+            return null;
+        }
+        return $this->claudeUsageService->latestUsageSummary();
     }
 }

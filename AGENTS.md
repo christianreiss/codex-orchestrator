@@ -1,15 +1,26 @@
 # Agents & Responsibilities
 
-Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, and `docs/interface-cdx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
 
 ## Multi-Engine Architecture
 
 The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
 - `cdx` wrapper manages Codex; `clx` wrapper manages Claude Code.
-- Skills, AGENTS.md, and MCP are shared across both engines by default.
+- Skills, `AGENTS.md` / `CLAUDE.md`, and MCP are shared across both engines by default (per-engine filename via `Engine::agentsDocument`).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.
-- Engine::CODEX = 'codex', Engine::CLAUDE = 'claude' (see `src/Support/Engine.php`).
+- `Engine::CODEX = 'codex'`, `Engine::CLAUDE = 'claude'` (see `src/Support/Engine.php`).
+- Runner state, canonical auth payloads, runner refresh triggers, admin API-disable toggles, key-service listings, and installer scripts are all engine-scoped. When adding a feature that touches any of those, branch per engine instead of silently defaulting to Codex.
+
+## Dual-engine parity (kept current)
+
+Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before landing any engine-agnostic feature, add both paths. Intentional deltas (documented, not implemented for Claude) are:
+- ChatGPT quota lanes / Spark lane / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept.
+- `reasoning_effort` override — no such parameter in Anthropic's API.
+- Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
+- GitHub-release CLI download — Claude CLI is npm-only; `clx --update` uses `npm install -g @anthropic-ai/claude-code` (with a sudo fallback).
+- SSH alt-screen suppression — Claude CLI handles its own terminal state.
+- OpenAI auth is `Bearer`-only (matches OpenAI's public API); the Anthropic-compatible API accepts Bearer / `x-api-key` / raw token (matches Anthropic's public API).
 
 ## Voice & Contact Rules
 

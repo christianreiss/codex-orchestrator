@@ -13,7 +13,7 @@ final class AdminJoplinSettingsActivationTest extends TestCase
         $source = file_get_contents(__DIR__ . '/../public/index.php');
         $this->assertIsString($source);
 
-        $this->assertStringContainsString('/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|apikeys|joplin)', $source);
+        $this->assertStringContainsString('/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|claude|apikeys|joplin)', $source);
         $this->assertStringContainsString("#^/admin/joplin/config$#", $source);
         $this->assertStringContainsString("#^/admin/joplin/test$#", $source);
         $this->assertStringContainsString("#^/admin/joplin/sync$#", $source);

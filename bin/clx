@@ -1320,9 +1320,158 @@ clx_auth_sync() {
   clx_auth_digest > "$CLX_AUTH_DIGEST_FILE"
 }
 
+# clx_auth_push() is defined in 02-auth-30-push.sh (extracted for parity with cdx).
+
+# ── Claude Auth Validation ────────────────────────────────────
+# Validates the shape of a locally-cached Claude credentials JSON.
+# Mirrors cdx's 02-auth-20-validate.sh surface so operators can rely on the
+# same helpers (get_auth_last_refresh, is_last_refresh_recent, validate_auth_json_file)
+# regardless of engine.
+#
+# Accepted Claude credential shapes:
+#   1. {"api_key": "sk-ant-...", ...}                     (plain API key)
+#   2. {"anthropic_api_key": "sk-ant-...", ...}           (alias)
+#   3. {"auths": {"api.anthropic.com": {"token": "..."}}} (Codex-compatible)
+# A valid file MUST contain a usable token via one of the three shapes.
+# The optional `last_refresh` field enables freshness checks.
+
+get_auth_last_refresh() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 - "$path" <<'PY'
+import json, sys, pathlib
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001
+    sys.exit(0)
+if isinstance(data, dict):
+    lr = data.get("last_refresh")
+    if isinstance(lr, str):
+        print(lr, end="")
+PY
+}
+
+is_last_refresh_recent() {
+  local last_refresh="$1"
+  local max_age_seconds="${2:-${MAX_LOCAL_AUTH_AGE_SECONDS:-86400}}"
+  if [[ -z "$last_refresh" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$last_refresh" "$max_age_seconds" <<'PY'
+import sys, datetime
+from datetime import timezone
+
+value = sys.argv[1]
+max_age_seconds = int(sys.argv[2])
+max_future_skew = 300
+
+def parse_iso8601(raw):
+    normalized = (raw or "").strip()
+    if not normalized:
+        raise ValueError("missing timestamp")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+0000"
+    elif len(normalized) >= 6 and normalized[-6] in ("+", "-") and normalized[-3] == ":":
+        normalized = normalized[:-3] + normalized[-2:]
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.datetime.strptime(normalized, fmt)
+        except Exception:
+            continue
+    raise ValueError("invalid timestamp")
+
+try:
+    dt = parse_iso8601(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    now = datetime.datetime.now(timezone.utc)
+    delta = now - dt
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+if delta.total_seconds() < -max_future_skew:
+    sys.exit(1)
+if delta.total_seconds() <= max_age_seconds:
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
+validate_auth_json_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    return 1
+  fi
+  # Fallback: a cheap jq validation so this helper works even when python3 is absent.
+  if ! command -v python3 >/dev/null 2>&1; then
+    if ! command -v jq >/dev/null 2>&1; then
+      return 1
+    fi
+    local probe
+    probe="$(jq -r '(.api_key // .anthropic_api_key // .auths["api.anthropic.com"].token // empty)' "$path" 2>/dev/null || true)"
+    [[ -n "$probe" ]] && return 0 || return 1
+  fi
+
+  python3 - "$path" <<'PY'
+import json, sys, pathlib
+
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+if not isinstance(data, dict):
+    sys.exit(1)
+
+api_key = data.get("api_key")
+alt_key = data.get("anthropic_api_key")
+auths = data.get("auths")
+
+def _valid_token(v):
+    return isinstance(v, str) and len(v.strip()) >= 8
+
+if _valid_token(api_key) or _valid_token(alt_key):
+    sys.exit(0)
+
+if isinstance(auths, dict):
+    entry = auths.get("api.anthropic.com")
+    if isinstance(entry, dict):
+        token = entry.get("token")
+        if _valid_token(token):
+            sys.exit(0)
+
+sys.exit(1)
+PY
+}
+
+# ── Claude Auth Push ──────────────────────────────────────────
+# Pushes a locally-held Claude credentials JSON up to the orchestrator.
+# Mirrors cdx's 02-auth-30-push.sh. Called by clx_auth_sync() when the
+# orchestrator returns `upload_required` or `missing`.
+#
+# The dedicated fragment makes it easy to reuse the push path from
+# one-shot flows (e.g., a future `clx --seed` command) without dragging
+# in the full sync state machine.
+
 clx_auth_push() {
   if [[ ! -f "$CLX_AUTH_FILE" ]]; then
     log_debug "No local auth file to push."
+    return 0
+  fi
+
+  if [[ -z "${CLAUDE_SYNC_BASE_URL:-}" ]] || [[ -z "${CLAUDE_SYNC_API_KEY:-}" ]]; then
+    log_debug "No sync URL or API key; skipping auth push."
     return 0
   fi
 
@@ -1332,11 +1481,23 @@ clx_auth_push() {
     return 0
   fi
 
+  # Validate before uploading so we don't push a garbage file to the orchestrator.
+  if ! validate_auth_json_file "$CLX_AUTH_FILE"; then
+    log_warn "Local auth file did not pass validation; refusing to push."
+    return 1
+  fi
+
   clx_curl -X POST "${CLAUDE_SYNC_BASE_URL}/auth" \
     -H "Content-Type: application/json" \
     -d "$(jq -nc --arg cmd "store" --arg engine "claude" --argjson auth "$auth_body" \
       '{command: $cmd, engine: $engine, auth: $auth}')" \
-    >/dev/null 2>&1 || log_warn "Failed to push auth to orchestrator."
+    >/dev/null 2>&1 || {
+    log_warn "Failed to push auth to orchestrator."
+    return 1
+  }
+
+  log_debug "Pushed local auth to orchestrator."
+  return 0
 }
 
 # ── CLAUDE.md Sync ────────────────────────────────────────────
@@ -1508,6 +1669,152 @@ clx_check_quota() {
   fi
 }
 
+
+# ── Claude Startup Bundle (atomic agents+config+auth sync) ────
+# When enabled (CLX_USE_STARTUP_BUNDLE=1), a single POST to /sync/bootstrap
+# replaces the three separate sync calls (auth, agents, config). This saves
+# two round trips and keeps the three artifacts consistent even if one phase
+# fails server-side.
+#
+# Falls back to the legacy three-call path when:
+#   - the env flag is off (default for now while the endpoint is proven),
+#   - the server responds with a shape we don't recognize,
+#   - the server returns a 4xx/5xx,
+#   - python3 / jq are unavailable.
+#
+# Mirrors cdx's 03-sync-40-config/20-startup-bundle-python.sh (simpler because
+# Claude has no ChatGPT quota or lane concept).
+
+CLX_USE_STARTUP_BUNDLE="${CLX_USE_STARTUP_BUNDLE:-0}"
+CLX_STARTUP_BUNDLE_STATUS="not_attempted"
+CLX_STARTUP_BUNDLE_REASON=""
+
+clx_startup_bundle_enabled() {
+  [[ "${CLX_USE_STARTUP_BUNDLE}" == "1" ]]
+}
+
+clx_startup_bundle_pull() {
+  CLX_STARTUP_BUNDLE_STATUS="error"
+  CLX_STARTUP_BUNDLE_REASON=""
+
+  if ! clx_startup_bundle_enabled; then
+    CLX_STARTUP_BUNDLE_STATUS="disabled"
+    return 1
+  fi
+
+  if [[ -z "${CLAUDE_SYNC_BASE_URL:-}" ]] || [[ -z "${CLAUDE_SYNC_API_KEY:-}" ]]; then
+    CLX_STARTUP_BUNDLE_STATUS="missing-config"
+    return 1
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    CLX_STARTUP_BUNDLE_STATUS="no-jq"
+    return 1
+  fi
+
+  local agents_sha=""
+  if [[ -f "$CLX_AGENTS_FILE" ]]; then
+    agents_sha="$(sha256sum "$CLX_AGENTS_FILE" 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  local config_sha=""
+  if [[ -f "$CLX_SETTINGS_FILE" ]]; then
+    config_sha="$(sha256sum "$CLX_SETTINGS_FILE" 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  local auth_digest=""
+  auth_digest="$(clx_auth_digest)"
+
+  local include_auth="true"
+  local request_body
+  request_body="$(jq -nc \
+    --arg engine "claude" \
+    --arg agents_sha "$agents_sha" \
+    --arg config_sha "$config_sha" \
+    --arg auth_digest "$auth_digest" \
+    --argjson include_auth true \
+    '{
+      engine: $engine,
+      include_auth: $include_auth,
+      agents: {sha256: $agents_sha},
+      config: {sha256: $config_sha},
+      auth_digest: $auth_digest
+    }')" || {
+    CLX_STARTUP_BUNDLE_STATUS="encode-failed"
+    return 1
+  }
+
+  local tmp_response
+  tmp_response="$(mktemp)"
+  trap 'rm -f "$tmp_response"' RETURN
+
+  local http_code=""
+  http_code="$(clx_curl -o "$tmp_response" -w '%{http_code}' \
+    -X POST "${CLAUDE_SYNC_BASE_URL}/sync/bootstrap" \
+    -H "Content-Type: application/json" \
+    -d "$request_body" 2>/dev/null || echo "000")"
+
+  if [[ "$http_code" == "404" ]]; then
+    CLX_STARTUP_BUNDLE_STATUS="endpoint-missing"
+    return 1
+  fi
+  if [[ "$http_code" != "200" ]]; then
+    CLX_STARTUP_BUNDLE_STATUS="http-${http_code}"
+    return 1
+  fi
+
+  local response
+  response="$(cat "$tmp_response" 2>/dev/null || true)"
+  if [[ -z "$response" ]]; then
+    CLX_STARTUP_BUNDLE_STATUS="empty-response"
+    return 1
+  fi
+
+  # Extract per-section content.
+  local agents_status config_status agents_content config_content
+  agents_status="$(printf '%s' "$response" | jq -r '.data.agents.status // "missing"' 2>/dev/null || echo "missing")"
+  config_status="$(printf '%s' "$response" | jq -r '.data.config.status // "missing"' 2>/dev/null || echo "missing")"
+
+  if [[ "$agents_status" == "updated" ]]; then
+    agents_content="$(printf '%s' "$response" | jq -r '.data.agents.content // empty' 2>/dev/null || true)"
+    if [[ -n "$agents_content" ]]; then
+      printf '%s' "$agents_content" > "$CLX_AGENTS_FILE"
+      log_debug "Startup bundle: CLAUDE.md updated."
+    fi
+  fi
+
+  if [[ "$config_status" == "updated" ]]; then
+    config_content="$(printf '%s' "$response" | jq -r '.data.config.content // empty' 2>/dev/null || true)"
+    if [[ -n "$config_content" ]]; then
+      printf '%s' "$config_content" > "$CLX_SETTINGS_FILE"
+      local claude_dir="${HOME}/.claude"
+      if [[ -d "$claude_dir" ]]; then
+        cp "$CLX_SETTINGS_FILE" "${claude_dir}/settings.json" 2>/dev/null || true
+      fi
+      log_debug "Startup bundle: settings.json updated."
+    fi
+  fi
+
+  # If the server returned an auth block (include_auth=true), consume it.
+  local auth_block auth_status
+  auth_block="$(printf '%s' "$response" | jq '.data.auth // empty' 2>/dev/null || true)"
+  if [[ -n "$auth_block" ]] && [[ "$auth_block" != "null" ]]; then
+    auth_status="$(printf '%s' "$auth_block" | jq -r '.status // empty' 2>/dev/null || true)"
+    case "$auth_status" in
+      updated|outdated|valid)
+        AUTH_PULL_STATUS="ok"
+        ;;
+      disabled|invalid|insecure|insecure-denied|concurrent|skip)
+        AUTH_PULL_STATUS="$auth_status"
+        ;;
+      *)
+        AUTH_PULL_STATUS="${auth_status:-ok}"
+        ;;
+    esac
+  fi
+
+  CLX_STARTUP_BUNDLE_STATUS="ok"
+  date +%s > "$CLX_AUTH_LAST_SYNC"
+  return 0
+}
 
 # ── Claude Token Usage Extraction & Reporting ─────────────────
 # Extracts token usage from Claude Code session JSONL files and
@@ -2620,6 +2927,15 @@ clx_do_update() {
     return 1
   fi
 
+  # Fetch expected SHA256 from the metadata endpoint so we can verify the download.
+  # This mirrors cdx's update path and guards against MITM / partial downloads.
+  local meta_response=""
+  meta_response="$(clx_curl "${CLAUDE_SYNC_BASE_URL}/wrapper?engine=claude" 2>/dev/null || true)"
+  local expected_sha=""
+  if [[ -n "$meta_response" ]]; then
+    expected_sha="$(printf '%s' "$meta_response" | jq -r '.data.sha256 // empty' 2>/dev/null || true)"
+  fi
+
   log_info "Downloading updated CLX wrapper..."
   local tmp_wrapper
   tmp_wrapper="$(mktemp)"
@@ -2630,7 +2946,27 @@ clx_do_update() {
     return 1
   fi
 
-  # Verify it's a valid shell script.
+  # Verify SHA256 if the server provided one. Abort on mismatch.
+  if [[ -n "$expected_sha" ]]; then
+    local actual_sha=""
+    actual_sha="$(sha256sum "$tmp_wrapper" 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -z "$actual_sha" ]]; then
+      rm -f "$tmp_wrapper"
+      log_error "Could not compute SHA256 of downloaded wrapper."
+      return 1
+    fi
+    if [[ "$actual_sha" != "$expected_sha" ]]; then
+      rm -f "$tmp_wrapper"
+      log_error "Wrapper SHA256 mismatch: expected ${expected_sha}, got ${actual_sha}."
+      log_error "Refusing to install unverified wrapper."
+      return 1
+    fi
+    log_debug "Wrapper SHA256 verified: ${actual_sha}"
+  else
+    log_warn "Server did not return a SHA256; falling back to shebang sanity check."
+  fi
+
+  # Final sanity: verify it's a valid shell script (shebang).
   if ! head -1 "$tmp_wrapper" | grep -q '#!/usr/bin/env bash'; then
     rm -f "$tmp_wrapper"
     log_error "Downloaded file is not a valid wrapper script."
@@ -2642,20 +2978,49 @@ clx_do_update() {
   chmod +x "$tmp_wrapper"
   mv "$tmp_wrapper" "$self_path"
   log_info "CLX wrapper updated to latest version."
+
+  # Depth guard: refuse to re-exec more than twice in a single invocation.
+  # A misconfigured server that keeps sending "new" bytes of the same version
+  # would otherwise hot-loop. Two restarts covers the legitimate case (initial
+  # exec -> update -> exec; if the next bootstrap still claims an update is
+  # needed, something's wrong and we bail out with an error).
+  local depth="${CLAUDE_WRAPPER_RESTART_DEPTH:-0}"
+  depth=$((depth + 1))
+  if (( depth > 2 )); then
+    log_error "Wrapper has restarted ${depth} times in one invocation; bailing out to avoid an update loop."
+    log_error "Investigate the /wrapper?engine=claude endpoint (stale version or checksum mismatch)."
+    return 1
+  fi
+
   log_info "Re-running with updated wrapper..."
-  exec "$self_path" "$@"
+  exec env CLAUDE_WRAPPER_RESTART_DEPTH="$depth" "$self_path" "$@"
 }
 
 # ── Claude Code CLI Update ────────────────────────────────────
 clx_update_cli() {
   log_info "Updating Claude Code CLI..."
-  if command -v npm >/dev/null 2>&1; then
-    npm update -g @anthropic-ai/claude-code 2>/dev/null && {
-      log_info "Claude Code CLI updated."
-      return 0
-    }
+  if ! command -v npm >/dev/null 2>&1; then
+    log_error "Claude Code CLI update requires npm (Node.js >= 18); please install npm first."
+    return 1
   fi
-  log_warn "Could not update Claude Code CLI. Try: npm update -g @anthropic-ai/claude-code"
+
+  # First attempt: install -g (works for missing or stale installs).
+  if npm install -g @anthropic-ai/claude-code 2>/tmp/clx-npm.log; then
+    log_info "Claude Code CLI installed/updated."
+    return 0
+  fi
+
+  # Fallback: try sudo if available. Non-fatal — operator can update manually.
+  if command -v sudo >/dev/null 2>&1; then
+    log_debug "Retrying CLI update with sudo..."
+    if sudo -n npm install -g @anthropic-ai/claude-code 2>/tmp/clx-npm.log; then
+      log_info "Claude Code CLI installed/updated (sudo)."
+      return 0
+    fi
+  fi
+
+  log_warn "Could not update Claude Code CLI via npm. Try manually:"
+  log_warn "  npm install -g @anthropic-ai/claude-code"
   return 1
 }
 
@@ -2694,27 +3059,45 @@ clx_bootstrap() {
   ensure_deps
   clx_debug_phase "deps" "$phase_start"
 
-  # Auth sync.
-  phase_start="$(clx_time_ms)"
-  clx_auth_sync
-  clx_debug_phase "auth-sync" "$phase_start"
+  # Atomic startup bundle (gated by CLX_USE_STARTUP_BUNDLE). When it succeeds
+  # we skip the three legacy per-phase syncs. When it fails for any reason
+  # other than "disabled", we log the reason and fall through to the legacy
+  # path so the host never misses a sync because the optimization flaked.
+  local bundle_ok=0
+  if clx_startup_bundle_enabled; then
+    phase_start="$(clx_time_ms)"
+    if clx_startup_bundle_pull; then
+      bundle_ok=1
+      log_debug "Startup bundle completed OK; skipping per-phase syncs."
+    else
+      log_debug "Startup bundle fell back (reason=${CLX_STARTUP_BUNDLE_STATUS})."
+    fi
+    clx_debug_phase "startup-bundle" "$phase_start"
+  fi
 
-  # CLAUDE.md sync.
-  phase_start="$(clx_time_ms)"
-  clx_sync_agents
-  clx_debug_phase "agents-sync" "$phase_start"
+  if (( bundle_ok == 0 )); then
+    # Auth sync.
+    phase_start="$(clx_time_ms)"
+    clx_auth_sync
+    clx_debug_phase "auth-sync" "$phase_start"
 
-  # Skills sync.
+    # CLAUDE.md sync.
+    phase_start="$(clx_time_ms)"
+    clx_sync_agents
+    clx_debug_phase "agents-sync" "$phase_start"
+
+    # Config sync.
+    phase_start="$(clx_time_ms)"
+    clx_sync_config
+    clx_debug_phase "config-sync" "$phase_start"
+  fi
+
+  # Skills sync always runs separately — it's a cheap listing call.
   phase_start="$(clx_time_ms)"
   clx_sync_skills
   clx_debug_phase "skills-sync" "$phase_start"
 
-  # Config sync.
-  phase_start="$(clx_time_ms)"
-  clx_sync_config
-  clx_debug_phase "config-sync" "$phase_start"
-
-  # Apply model override.
+  # Apply model override (reads the just-synced settings.json).
   clx_apply_model_override
 
   # Check for wrapper updates (non-blocking).
@@ -2731,18 +3114,50 @@ clx_status() {
     claude_version="$("$claude_cli" --version 2>/dev/null || echo "unknown")"
   fi
 
+  local auth_fresh="unknown"
+  if [[ -f "$CLX_AUTH_LAST_SYNC" ]]; then
+    local ts now
+    ts="$(cat "$CLX_AUTH_LAST_SYNC" 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    local age=$(( now - ts ))
+    if (( age < CLX_AUTH_CACHE_TTL )); then
+      auth_fresh="fresh (${age}s)"
+    elif (( age < CLX_AUTH_FALLBACK_TTL )); then
+      auth_fresh="stale but within fallback window (${age}s)"
+    else
+      auth_fresh="stale (${age}s)"
+    fi
+  fi
+
+  local wrapper_source="seed"
+  if [[ -n "${CLX_WRAPPER_SOURCE:-}" ]]; then
+    wrapper_source="$CLX_WRAPPER_SOURCE"
+  fi
+
+  local auto_update="${CLX_AUTO_UPDATE_ENABLED:-1}"
+  local bundle_state="${CLX_STARTUP_BUNDLE_STATUS:-not_attempted}"
+
   printf "%b%s%b Claude Code Status\n" "${VIOLET}${BOLD}" "" "${RESET}"
-  printf "  Engine:          claude\n"
-  printf "  Wrapper:         clx %s\n" "${WRAPPER_VERSION:-unknown}"
-  printf "  CLI:             %s\n" "${claude_version:-not installed}"
-  printf "  FQDN:            %s\n" "${CLAUDE_SYNC_FQDN:-not configured}"
-  printf "  Secure:          %s\n" "${CLAUDE_HOST_SECURE:-unknown}"
-  printf "  Sync URL:        %s\n" "${CLAUDE_SYNC_BASE_URL:-not configured}"
-  printf "  Auth:            %s\n" "$([[ -f "$CLX_AUTH_FILE" ]] && echo "present" || echo "missing")"
-  printf "  Config:          %s\n" "$([[ -f "$CLX_SETTINGS_FILE" ]] && echo "present" || echo "missing")"
-  printf "  CLAUDE.md:       %s\n" "$([[ -f "$CLX_AGENTS_FILE" ]] && echo "present" || echo "missing")"
-  if [[ -n "$CLAUDE_HOST_MODEL" ]] && [[ "$CLAUDE_HOST_MODEL" != "__CLAUDE_HOST_MODEL__" ]]; then
-    printf "  Model override:  %s\n" "$CLAUDE_HOST_MODEL"
+  printf "  Engine:            claude\n"
+  printf "  Wrapper:           clx %s (%s)\n" "${WRAPPER_VERSION:-unknown}" "$wrapper_source"
+  printf "  Auto-update:       %s\n" "$([[ "$auto_update" == "1" ]] && echo "enabled" || echo "disabled")"
+  printf "  CLI:               %s\n" "${claude_version:-not installed}"
+  printf "  FQDN:              %s\n" "${CLAUDE_SYNC_FQDN:-not configured}"
+  printf "  Secure:            %s\n" "${CLAUDE_HOST_SECURE:-unknown}"
+  printf "  Sync URL:          %s\n" "${CLAUDE_SYNC_BASE_URL:-not configured}"
+  printf "  Startup bundle:    %s\n" "$bundle_state"
+  printf "  Auth:              %s\n" "$([[ -f "$CLX_AUTH_FILE" ]] && echo "present" || echo "missing")"
+  printf "  Auth freshness:    %s\n" "$auth_fresh"
+  printf "  Config:            %s\n" "$([[ -f "$CLX_SETTINGS_FILE" ]] && echo "present" || echo "missing")"
+  printf "  CLAUDE.md:         %s\n" "$([[ -f "$CLX_AGENTS_FILE" ]] && echo "present" || echo "missing")"
+  if [[ -n "${CLAUDE_HOST_MODEL:-}" ]] && [[ "$CLAUDE_HOST_MODEL" != "__CLAUDE_HOST_MODEL__" ]]; then
+    printf "  Model override:    %s\n" "$CLAUDE_HOST_MODEL"
+  fi
+  if [[ -n "${CLX_CLAUDE_FLEET_VERSION:-}" ]]; then
+    printf "  Fleet version:     %s\n" "$CLX_CLAUDE_FLEET_VERSION"
+  fi
+  if [[ -n "${CLX_RUNNER_STATE:-}" ]]; then
+    printf "  Runner state:      %s\n" "$CLX_RUNNER_STATE"
   fi
 }
 

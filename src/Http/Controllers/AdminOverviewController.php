@@ -196,6 +196,34 @@ class AdminOverviewController
     }
 
     /**
+     * POST /admin/runner/run-claude
+     *
+     * Manual trigger for Claude runner verification. Uses RunnerVerifier::verifyClaude
+     * against the most recent Anthropic canonical payload; does not share state with
+     * the Codex runner (engine-scoped runner_state_claude key).
+     */
+    public function runnerRunClaude(): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_SETTINGS);
+
+        try {
+            $result = $this->service->triggerRunnerRefreshClaude();
+        } catch (HttpException $exception) {
+            Response::json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], $exception->getStatusCode());
+            return;
+        }
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $result,
+        ]);
+    }
+
+    /**
      * POST /admin/auth/seed-command
      */
     public function seedCommand(): void
@@ -238,6 +266,10 @@ class AdminOverviewController
 
     /**
      * POST /admin/auth/upload
+     *
+     * Accepts `engine: codex|claude` in the payload so the uploaded canonical
+     * auth lands in the correct engine-scoped canonical store. Falls back to
+     * `codex` for backwards compatibility.
      */
     public function authUpload(array $payload): void
     {
@@ -267,6 +299,14 @@ class AdminOverviewController
             ];
         }
 
+        $engine = Engine::DEFAULT;
+        if (array_key_exists('engine', $payload) && is_string($payload['engine'])) {
+            $normalized = strtolower(trim($payload['engine']));
+            if (Engine::isValid($normalized)) {
+                $engine = $normalized;
+            }
+        }
+
         $authPayload = $payload['auth'] ?? null;
         if ($authPayload === null && isset($_FILES['file']) && is_array($_FILES['file']) && ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
             $contents = file_get_contents((string) $_FILES['file']['tmp_name']);
@@ -292,7 +332,7 @@ class AdminOverviewController
 
         try {
             $result = $this->service->handleAuth(
-                ['command' => 'store', 'auth' => $authPayload],
+                ['command' => 'store', 'auth' => $authPayload, 'engine' => $engine],
                 $host,
                 'admin-upload',
                 null,
@@ -310,6 +350,10 @@ class AdminOverviewController
                 'status' => 'error',
                 'message' => $exception->getMessage(),
             ], $exception->getStatusCode());
+        }
+
+        if (is_array($result)) {
+            $result['engine'] = $engine;
         }
 
         Response::json([

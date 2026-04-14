@@ -522,7 +522,7 @@ $adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository,
 $wrapperCtrl = new WrapperController($service, $wrapperService);
 $installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
-$authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository);
+$authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository, $claudeUsageService);
 $configApiCtrl = new ConfigApiController($service, $agentsService, $clientConfigService);
 $projectApiCtrl = new ProjectApiController($service, $projectCoordinationService, $memoryService);
 $skillApiCtrl = new SkillApiController($service, $skillService);
@@ -544,7 +544,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
         (float) Config::get('OPENAI_API_TIMEOUT', 30.0)
     );
 }
-$openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService);
+$openaiApiCtrl = new OpenAiApiController($openaiBackend, $openaiKeyService, $rateLimiter, $openaiModelService, $versionRepository);
 $claudeModelService = new ClaudeModelService($clientConfigRepository, $versionRepository);
 $claudeBackend = null;
 if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
@@ -578,7 +578,7 @@ $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard())
 $router->add('GET', '#^/admin/skills/new$#', fn() => $adminPageCtrl->skill());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
-$router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|apikeys|joplin)$#', fn() => $adminPageCtrl->settingsSection());
+$router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|claude|apikeys|joplin)$#', fn() => $adminPageCtrl->settingsSection());
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
@@ -635,6 +635,7 @@ $router->add('POST', '#^/admin/hosts/register$#', fn() => $adminHostCtrl->regist
 // Admin runner
 $router->add('GET', '#^/admin/runner$#', fn() => $adminOverviewCtrl->runner());
 $router->add('POST', '#^/admin/runner/run$#', fn() => $adminOverviewCtrl->runnerRun());
+$router->add('POST', '#^/admin/runner/run-claude$#', fn() => $adminOverviewCtrl->runnerRunClaude());
 $router->add('POST', '#^/admin/auth/seed-command$#', fn() => $adminOverviewCtrl->seedCommand());
 $router->add('POST', '#^/admin/auth/upload$#', fn() => $adminOverviewCtrl->authUpload($payload));
 

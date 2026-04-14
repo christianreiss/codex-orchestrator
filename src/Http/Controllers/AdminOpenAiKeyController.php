@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Response;
 use App\Services\OpenaiApiKeyService;
+use App\Support\Engine;
 
 class AdminOpenAiKeyController
 {
@@ -16,6 +17,9 @@ class AdminOpenAiKeyController
 
     /**
      * GET /admin/openai/keys
+     *
+     * Engine-scoped: only returns `sk-codex-` prefixed keys so that
+     * Claude keys don't leak into the OpenAI admin listing.
      */
     public function index(): void
     {
@@ -23,7 +27,7 @@ class AdminOpenAiKeyController
 
         Response::json([
             'status' => 'ok',
-            'data' => $this->keyService->list(),
+            'data' => $this->keyService->listByEngine(Engine::CODEX),
         ]);
     }
 
@@ -53,7 +57,7 @@ class AdminOpenAiKeyController
         }
 
         $adminUserId = $this->currentAdminUserId();
-        $result = $this->keyService->generate($name, $adminUserId, $rateLimitRpm, $expiresAt);
+        $result = $this->keyService->generate($name, $adminUserId, $rateLimitRpm, $expiresAt, Engine::CODEX);
 
         Response::json([
             'status' => 'ok',
@@ -72,7 +76,7 @@ class AdminOpenAiKeyController
         requireAdminAccess();
 
         $active = !empty($payload['active']);
-        $this->keyService->toggleActive((int) $id, $active);
+        $this->keyService->toggleActive((int) $id, $active, Engine::CODEX);
 
         Response::json([
             'status' => 'ok',
@@ -87,7 +91,7 @@ class AdminOpenAiKeyController
     {
         requireAdminAccess();
 
-        $this->keyService->delete((int) $id);
+        $this->keyService->delete((int) $id, Engine::CODEX);
 
         Response::json([
             'status' => 'ok',

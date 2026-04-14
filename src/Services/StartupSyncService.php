@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\Engine;
+
 class StartupSyncService
 {
     public function __construct(
@@ -19,10 +21,11 @@ class StartupSyncService
     ) {
     }
 
-    public function collect(array $payload, array $host, string $baseUrl, string $apiKey, bool $includeContent = false): array
+    public function collect(array $payload, array $host, string $baseUrl, string $apiKey, bool $includeContent = false, string $engine = Engine::CODEX): array
     {
-        $agents = $this->collectAgents($payload['agents'] ?? null, $host, $includeContent);
-        $config = $this->collectConfig($payload, $host, $baseUrl, $apiKey, $includeContent);
+        $engine = Engine::validate($engine);
+        $agents = $this->collectAgents($payload['agents'] ?? null, $host, $includeContent, $engine);
+        $config = $this->collectConfig($payload, $host, $baseUrl, $apiKey, $includeContent, $engine);
 
         $reasons = [];
         if (!empty($agents['changed'])) {
@@ -34,17 +37,18 @@ class StartupSyncService
 
         return [
             'status' => $reasons === [] ? 'ok' : 'update',
+            'engine' => $engine,
             'reasons' => $reasons,
             'agents' => $agents,
             'config' => $config,
         ];
     }
 
-    private function collectAgents(mixed $payload, ?array $host, bool $includeContent): array
+    private function collectAgents(mixed $payload, ?array $host, bool $includeContent, string $engine = Engine::CODEX): array
     {
         $payloadData = is_array($payload) ? $payload : [];
         $sha = $this->normalizeSha($payloadData['sha256'] ?? null);
-        $result = $this->agents->retrieve($sha, $host);
+        $result = $this->agents->retrieve($sha, $host, $engine);
         if (!$includeContent) {
             unset($result['content']);
         }
@@ -54,6 +58,7 @@ class StartupSyncService
 
         return [
             'status' => $result['status'] ?? 'missing',
+            'filename' => Engine::agentsDocument($engine),
             'changed' => $changed,
             'sha256' => $result['sha256'] ?? null,
             'base_sha256' => $result['base_sha256'] ?? null,
@@ -65,7 +70,7 @@ class StartupSyncService
         ];
     }
 
-    private function collectConfig(array $payload, ?array $host, string $baseUrl, string $apiKey, bool $includeContent): array
+    private function collectConfig(array $payload, ?array $host, string $baseUrl, string $apiKey, bool $includeContent, string $engine = Engine::CODEX): array
     {
         $configPayload = [];
         if (isset($payload['config']) && is_array($payload['config'])) {
@@ -76,7 +81,7 @@ class StartupSyncService
         $username = $this->normalizeString($configPayload['username'] ?? ($payload['username'] ?? null));
         $home = $this->normalizeString($configPayload['home'] ?? ($payload['home'] ?? null));
 
-        $result = $this->configs->retrieve($sha, $host, $baseUrl, $apiKey, $username, $home);
+        $result = $this->configs->retrieve($sha, $host, $baseUrl, $apiKey, $username, $home, $engine);
         if (!$includeContent) {
             unset($result['content']);
         }
@@ -86,6 +91,8 @@ class StartupSyncService
 
         return [
             'status' => $result['status'] ?? 'missing',
+            'filename' => Engine::configFile($engine),
+            'format' => Engine::CONFIG_FORMAT[$engine] ?? 'toml',
             'changed' => $changed,
             'sha256' => $result['sha256'] ?? null,
             'base_sha256' => $result['base_sha256'] ?? null,

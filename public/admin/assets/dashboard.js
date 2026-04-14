@@ -60,6 +60,8 @@
     const seedUploadBtn = document.getElementById('seedUploadBtn');
     const seedDismissBtn = document.getElementById('seedDismissBtn');
     const seedModalCopy = document.getElementById('seedModalCopy');
+    // Engine picked in the seed modal; flows into /admin/auth/upload as `engine`.
+    let seedSelectedEngine = 'codex';
     const seedHostsStatus = document.getElementById('seedHostsStatus');
     const seedAuthStatus = document.getElementById('seedAuthStatus');
     const runnerRunnerBtn = document.getElementById('runner-runner');
@@ -2885,20 +2887,24 @@
       loadMemories();
     };
 
-    // --- OpenAI API Keys management ---
+    // --- Compatible-API Keys management (OpenAI + Anthropic) ---
     {
       let apiKeysInited = false;
       let currentApiKeys = [];
       let openaiApiDisabled = null;
+      let claudeApiDisabled = null;
       const apiKeysTbody = document.querySelector('#apiKeysTable tbody');
       const newApiKeyBtn = document.getElementById('newApiKeyBtn');
       const openaiApiToggle = document.getElementById('openaiApiToggle');
       const openaiApiToggleLabel = document.getElementById('openaiApiToggleLabel');
+      const claudeApiToggle = document.getElementById('claudeApiToggle');
+      const claudeApiToggleLabel = document.getElementById('claudeApiToggleLabel');
       const apiKeyModalBackdrop = document.getElementById('apiKeyModalBackdrop');
       const apiKeyModalClose = document.getElementById('apiKeyModalClose');
       const apiKeyModalCancel = document.getElementById('apiKeyModalCancel');
       const apiKeyModalCreate = document.getElementById('apiKeyModalCreate');
       const apiKeyName = document.getElementById('apiKeyName');
+      const apiKeyEngine = document.getElementById('apiKeyEngine');
       const apiKeyRpm = document.getElementById('apiKeyRpm');
       const apiKeyExpiresToggle = document.getElementById('apiKeyExpiresToggle');
       const apiKeyExpires = document.getElementById('apiKeyExpires');
@@ -2933,31 +2939,53 @@
         } catch { return dateStr; }
       }
 
+      function deriveKeyEngine(key) {
+        if (key && typeof key.engine === 'string') return key.engine;
+        if (typeof key?.key_prefix === 'string') {
+          if (key.key_prefix.startsWith('sk-claude-')) return 'claude';
+          if (key.key_prefix.startsWith('sk-codex-')) return 'codex';
+        }
+        return 'codex';
+      }
+
+      function engineBadgeHtml(engine) {
+        if (engine === 'claude') {
+          return '<span class="chip engine-badge engine-clx" title="Anthropic / Claude">Claude</span>';
+        }
+        return '<span class="chip engine-badge engine-cdx" title="OpenAI / Codex">OpenAI</span>';
+      }
+
+      function adminKeyPath(engine) {
+        return engine === 'claude' ? '/admin/claude/keys' : '/admin/openai/keys';
+      }
+
       function renderApiKeys(keys) {
         currentApiKeys = Array.isArray(keys) ? keys : [];
         if (!apiKeysTbody) return;
         if (currentApiKeys.length === 0) {
-          apiKeysTbody.innerHTML = '<tr><td colspan="7" class="muted">No API keys yet. Click "New key" to create one.</td></tr>';
+          apiKeysTbody.innerHTML = '<tr><td colspan="8" class="muted">No API keys yet. Click "New key" to create one.</td></tr>';
           return;
         }
         apiKeysTbody.innerHTML = currentApiKeys.map((k) => {
           const active = Number(k.is_active) === 1;
           const useCount = Number(k.use_count) || 0;
-          return `<tr>
+          const engine = deriveKeyEngine(k);
+          return `<tr data-engine="${escapeHtml(engine)}">
             <td data-label="Name">${escapeHtml(k.name)}</td>
+            <td data-label="Engine">${engineBadgeHtml(engine)}</td>
             <td data-label="Key"><code>${escapeHtml(k.key_prefix)}</code></td>
             <td data-label="Used">${useCount.toLocaleString()}</td>
             <td data-label="Last used">${formatTimeAgo(k.last_used_at)}</td>
             <td data-label="Created">${formatApiKeyDate(k.created_at)}</td>
             <td data-label="Enabled">
               <label class="toggle">
-                <input type="checkbox" class="apikey-toggle" data-id="${k.id}" ${active ? 'checked' : ''}>
+                <input type="checkbox" class="apikey-toggle" data-id="${k.id}" data-engine="${escapeHtml(engine)}" ${active ? 'checked' : ''}>
                 <span class="track"><span class="thumb"></span></span>
               </label>
             </td>
             <td data-label="Actions">
               <div class="table-actions">
-                <button class="ghost tiny-btn danger apikey-delete" data-id="${k.id}">Delete</button>
+                <button class="ghost tiny-btn danger apikey-delete" data-id="${k.id}" data-engine="${escapeHtml(engine)}">Delete</button>
               </div>
             </td>
           </tr>`;
@@ -2966,10 +2994,11 @@
         apiKeysTbody.querySelectorAll('.apikey-toggle').forEach((toggle) => {
           toggle.addEventListener('change', async () => {
             const id = toggle.getAttribute('data-id');
+            const engine = toggle.getAttribute('data-engine') || 'codex';
             const active = toggle.checked;
             toggle.disabled = true;
             try {
-              await api(`/admin/openai/keys/${id}/toggle`, { method: 'POST', json: { active } });
+              await api(`${adminKeyPath(engine)}/${id}/toggle`, { method: 'POST', json: { active } });
               toast(active ? 'Key enabled' : 'Key disabled', 'success');
             } catch (err) {
               toggle.checked = !active;
@@ -2983,11 +3012,12 @@
         apiKeysTbody.querySelectorAll('.apikey-delete').forEach((btn) => {
           btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-id');
+            const engine = btn.getAttribute('data-engine') || 'codex';
             const key = currentApiKeys.find((k) => String(k.id) === id);
             if (!await showConfirmModal('Delete API key', `Permanently delete key "${key?.name || id}"? This cannot be undone.`, { action: 'Delete', warn: true })) return;
             btn.disabled = true;
             try {
-              await api(`/admin/openai/keys/${id}`, { method: 'DELETE' });
+              await api(`${adminKeyPath(engine)}/${id}`, { method: 'DELETE' });
               toast('API key deleted', 'success');
               await loadApiKeys();
             } catch (err) {
@@ -3001,10 +3031,16 @@
 
       async function loadApiKeys() {
         try {
-          const resp = await api('/admin/openai/keys');
-          renderApiKeys(resp?.data || []);
+          // Fetch both engines in parallel so the "API Keys" table covers Codex and Claude.
+          const [openaiResp, claudeResp] = await Promise.all([
+            api('/admin/openai/keys').catch(() => ({ data: [] })),
+            api('/admin/claude/keys').catch(() => ({ data: [] })),
+          ]);
+          const openaiKeys = Array.isArray(openaiResp?.data) ? openaiResp.data.map((k) => ({ ...k, engine: k.engine || 'codex' })) : [];
+          const claudeKeys = Array.isArray(claudeResp?.data) ? claudeResp.data.map((k) => ({ ...k, engine: k.engine || 'claude' })) : [];
+          renderApiKeys([...openaiKeys, ...claudeKeys]);
         } catch (err) {
-          if (apiKeysTbody) apiKeysTbody.innerHTML = `<tr><td colspan="6" class="muted">Failed to load keys: ${escapeHtml(err.message)}</td></tr>`;
+          if (apiKeysTbody) apiKeysTbody.innerHTML = `<tr><td colspan="8" class="muted">Failed to load keys: ${escapeHtml(err.message)}</td></tr>`;
         }
       }
 
@@ -3060,6 +3096,7 @@
           apiKeyName?.focus();
           return;
         }
+        const engine = apiKeyEngine?.value === 'claude' ? 'claude' : 'codex';
         apiKeyModalCreate.disabled = true;
         apiKeyModalCreate.textContent = 'Creating\u2026';
         if (apiKeyStatus) apiKeyStatus.textContent = '';
@@ -3068,7 +3105,7 @@
           if (apiKeyExpiresToggle?.checked && apiKeyExpires?.value) {
             body.expires_at = new Date(apiKeyExpires.value).toISOString();
           }
-          const resp = await api('/admin/openai/keys', { method: 'POST', json: body });
+          const resp = await api(adminKeyPath(engine), { method: 'POST', json: body });
           const key = resp?.data?.key;
           if (key) {
             showCreatedKey(key);
@@ -3133,6 +3170,47 @@
         openaiApiToggle.addEventListener('change', () => setOpenaiApiState(openaiApiToggle.checked));
       }
 
+      // --- Claude compat API master toggle (parallel to OpenAI) ---
+      async function loadClaudeApiState() {
+        try {
+          const res = await api('/admin/claude/state');
+          claudeApiDisabled = !!res.data?.disabled;
+          if (claudeApiToggle) {
+            claudeApiToggle.checked = !claudeApiDisabled;
+            claudeApiToggle.disabled = false;
+            if (claudeApiToggleLabel) {
+              claudeApiToggleLabel.textContent = claudeApiDisabled ? 'Claude off' : 'Claude on';
+            }
+          }
+        } catch (err) {
+          if (claudeApiToggle) { claudeApiToggle.checked = false; claudeApiToggle.disabled = true; }
+          if (claudeApiToggleLabel) claudeApiToggleLabel.textContent = 'Unavailable';
+        }
+      }
+
+      async function setClaudeApiState(enabled) {
+        if (!claudeApiToggle) return;
+        claudeApiToggle.disabled = true;
+        try {
+          await api('/admin/claude/state', { method: 'POST', json: { disabled: !enabled } });
+          claudeApiDisabled = !enabled;
+          if (claudeApiToggleLabel) claudeApiToggleLabel.textContent = claudeApiDisabled ? 'Claude off' : 'Claude on';
+        } catch (err) {
+          toast(`Claude API toggle failed: ${err.message}`, 'error');
+          claudeApiToggle.checked = !enabled;
+        } finally {
+          claudeApiToggle.disabled = false;
+        }
+      }
+
+      if (claudeApiToggle) {
+        claudeApiToggle.addEventListener('change', () => setClaudeApiState(claudeApiToggle.checked));
+      }
+
+      // Expose loaders so initApiKeys / shared init can call them on panel show.
+      window.__loadClaudeApiState = loadClaudeApiState;
+      window.__loadApiKeys = loadApiKeys;
+
       // --- API Reference modal ---
       const apiRefModalBackdrop = document.getElementById('apiRefModalBackdrop');
       const apiRefModalClose = document.getElementById('apiRefModalClose');
@@ -3148,7 +3226,7 @@
 
           const chatEx = document.getElementById('apiRefChatExample');
           if (chatEx) chatEx.textContent = `curl ${base}/v1/chat/completions \\
-  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Authorization: Bearer sk-codex-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
   "messages": [
@@ -3159,7 +3237,7 @@
 
           const responsesEx = document.getElementById('apiRefResponsesExample');
           if (responsesEx) responsesEx.textContent = `curl ${base}/v1/responses \\
-  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Authorization: Bearer sk-codex-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
   "input": "Reply with exactly pong"
@@ -3167,7 +3245,7 @@
 
           const compEx = document.getElementById('apiRefCompletionsExample');
           if (compEx) compEx.textContent = `curl ${base}/v1/completions \\
-  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Authorization: Bearer sk-codex-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
   "prompt": "Once upon a time"
@@ -3175,11 +3253,11 @@
 
           const modelsEx = document.getElementById('apiRefModelsExample');
           if (modelsEx) modelsEx.textContent = `curl ${base}/v1/models \\
-  -H "Authorization: Bearer sk-coco-YOUR_KEY"`;
+  -H "Authorization: Bearer sk-codex-YOUR_KEY"`;
 
           const embedEx = document.getElementById('apiRefEmbeddingsExample');
           if (embedEx) embedEx.textContent = `curl ${base}/v1/embeddings \\
-  -H "Authorization: Bearer sk-coco-YOUR_KEY" \\
+  -H "Authorization: Bearer sk-codex-YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
   "input": "The quick brown fox"
@@ -3231,6 +3309,7 @@
         apiKeysInited = true;
         loadApiKeys();
         loadOpenaiApiState();
+        loadClaudeApiState();
       };
     }
 
@@ -9877,9 +9956,12 @@
       const logFn = (msg, tone) => appendToLogEl(claudeRunnerLogEl, msg, tone);
       if (!claudeRunnerModal || !claudeRunnerLogEl) {
         try {
-          await runClaudeVerification();
+          const result = await runClaudeVerification();
+          updateClaudeRunnerChip(result);
           toast('Claude verification succeeded', 'success');
-        } catch (_) {}
+        } catch (_) {
+          updateClaudeRunnerChip({ status: 'fail' });
+        }
         return;
       }
       showClaudeRunnerModal(true);
@@ -9887,11 +9969,93 @@
       try {
         const result = await runClaudeVerification(logFn);
         setClaudeRunnerMeta(result);
+        updateClaudeRunnerChip(result);
         logFn('Claude verification finished', result?.status === 'ok' ? 'ok' : 'err');
       } catch (err) {
         logFn(`Claude verification error: ${err.message}`, 'err');
+        updateClaudeRunnerChip({ status: 'fail' });
       }
     }
+
+    function updateClaudeRunnerChip(result) {
+      const chip = document.getElementById('claudeRunnerChip');
+      if (!chip) return;
+      chip.classList.remove('ok', 'warn', 'err');
+      const status = result?.status || 'unknown';
+      const latency = result?.latency_ms ? ` (${result.latency_ms}ms)` : '';
+      if (status === 'ok') {
+        chip.classList.add('ok');
+        chip.innerHTML = `<span class="dot"></span>Claude runner OK${latency}`;
+      } else if (status === 'fail') {
+        chip.classList.add('err');
+        chip.innerHTML = `<span class="dot"></span>Claude runner failed${latency}`;
+      } else {
+        chip.classList.add('warn');
+        chip.innerHTML = `<span class="dot"></span>Claude runner ${escapeHtml(status)}${latency}`;
+      }
+    }
+
+    // ── Claude settings panel (engine-scoped fleet config) ──
+
+    async function loadClaudeSettings() {
+      try {
+        const res = await api('/admin/claude/settings');
+        const data = res?.data || {};
+        const modelEl = document.getElementById('claudeDefaultModel');
+        const maxEl = document.getElementById('claudeMaxTokens');
+        const spendEl = document.getElementById('claudeSpendLimit');
+        if (modelEl && data.default_model) modelEl.value = data.default_model;
+        if (maxEl && typeof data.max_tokens === 'number') maxEl.value = String(data.max_tokens);
+        if (spendEl && typeof data.spend_limit === 'number') spendEl.value = String(data.spend_limit);
+      } catch (err) {
+        console.error('loadClaudeSettings failed', err);
+      }
+    }
+
+    async function saveClaudeSettings() {
+      const saveBtn = document.getElementById('claudeSettingsSaveBtn');
+      const modelEl = document.getElementById('claudeDefaultModel');
+      const maxEl = document.getElementById('claudeMaxTokens');
+      const spendEl = document.getElementById('claudeSpendLimit');
+      if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+      try {
+        const body = {
+          default_model: modelEl?.value || 'claude-sonnet-4-6',
+          max_tokens: parseInt(maxEl?.value || '8192', 10) || 8192,
+          spend_limit: parseFloat(spendEl?.value || '0') || 0,
+        };
+        await api('/admin/claude/settings', { method: 'POST', json: body });
+        toast('Claude settings saved', 'success');
+      } catch (err) {
+        toast(`Save failed: ${err.message}`, 'error');
+      } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      }
+    }
+
+    window.__initClaudeOnce = () => {
+      loadClaudeSettings();
+      // Probe runner state so the chip shows something other than 'Checking…'.
+      (async () => {
+        try {
+          const result = await runClaudeVerification();
+          updateClaudeRunnerChip(result);
+        } catch (_) {
+          updateClaudeRunnerChip({ status: 'fail' });
+        }
+      })();
+
+      const saveBtn = document.getElementById('claudeSettingsSaveBtn');
+      if (saveBtn && !saveBtn.dataset.bound) {
+        saveBtn.dataset.bound = '1';
+        saveBtn.addEventListener('click', saveClaudeSettings);
+      }
+      const verifyBtn = document.getElementById('claudeRunnerVerifyBtn');
+      if (verifyBtn && !verifyBtn.dataset.bound) {
+        verifyBtn.dataset.bound = '1';
+        verifyBtn.addEventListener('click', handleClaudeRunnerClick);
+      }
+    };
 
     // ── Claude usage rendering ──
 
@@ -10544,6 +10708,10 @@
     }
     if (seedUploadBtn) {
       seedUploadBtn.addEventListener('click', () => {
+        // Capture the chosen seed engine so submitAuthUpload can include it
+        // in /admin/auth/upload POST. Defaults to codex for back-compat.
+        const selectedEngineRadio = document.querySelector('input[name="seedEngine"]:checked');
+        seedSelectedEngine = selectedEngineRadio?.value === 'claude' ? 'claude' : 'codex';
         showSeedModal(false);
         showUploadModal(true);
       });
@@ -11290,7 +11458,11 @@
       try {
         const res = await api('/admin/auth/upload', {
           method: 'POST',
-          json: { auth: parsed, host_id: hostId || undefined },
+          json: {
+            auth: parsed,
+            host_id: hostId || undefined,
+            engine: seedSelectedEngine === 'claude' ? 'claude' : 'codex',
+          },
         });
         const data = res.data || {};
         const digest = data.canonical_digest || data.digest || 'n/a';

@@ -26,6 +26,12 @@
             "update"
           ]
         },
+        "engine": {
+          "enum": [
+            "codex",
+            "claude"
+          ]
+        },
         "reasons": {
           "type": "array",
           "items": {

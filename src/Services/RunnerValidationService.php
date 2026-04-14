@@ -252,7 +252,7 @@ class RunnerValidationService
                 'reason' => $exception->getMessage(),
             ]);
         } finally {
-            $this->recordRunnerOutcome($validation ?? ['status' => 'fail'], $runnerReachable, $trigger);
+            $this->recordRunnerOutcome($validation ?? ['status' => 'fail'], $runnerReachable, $trigger, $engine);
         }
 
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
@@ -329,20 +329,26 @@ class RunnerValidationService
         return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
     }
 
-    public function recordRunnerOutcome(array $validation, bool $reachable, string $trigger): void
+    public function recordRunnerOutcome(array $validation, bool $reachable, string $trigger, string $engine = Engine::DEFAULT): void
     {
+        $engine = Engine::validate($engine);
         $status = strtolower((string) ($validation['status'] ?? 'fail'));
         $nowIso = gmdate(DATE_ATOM);
+        $stateKey = $this->runnerStateKey($engine);
+        $lastOkKey = $this->runnerLastOkKey($engine);
+        $lastFailKey = $this->runnerLastFailKey($engine);
+        $lastCheckKey = $this->runnerLastCheckKey($engine);
+
         if ($status === 'ok') {
-            $this->versions->set('runner_state', 'ok');
-            $this->versions->set('runner_last_ok', $nowIso);
+            $this->versions->set($stateKey, 'ok');
+            $this->versions->set($lastOkKey, $nowIso);
         } else {
-            $this->versions->set('runner_state', 'fail');
-            $this->versions->set('runner_last_fail', $nowIso);
+            $this->versions->set($stateKey, 'fail');
+            $this->versions->set($lastFailKey, $nowIso);
         }
 
         if ($reachable) {
-            $this->versions->set('runner_last_check', $nowIso);
+            $this->versions->set($lastCheckKey, $nowIso);
         }
     }
 
@@ -373,6 +379,7 @@ class RunnerValidationService
         $applied = $newDigest !== null && $newDigest !== $originalDigest;
 
         return [
+            'engine' => Engine::CODEX,
             'applied' => $applied,
             'canonical_digest' => $newDigest,
             'canonical_last_refresh' => $newLastRefresh,
@@ -382,6 +389,95 @@ class RunnerValidationService
             'runner_state' => $this->versions->get('runner_state'),
             'runner_boot_id' => $this->versions->get('runner_boot_id'),
         ];
+    }
+
+    /**
+     * Trigger a manual Claude runner verification.
+     *
+     * Unlike triggerRunnerRefresh, this does NOT use the Codex canonical-digest
+     * ladder. It calls RunnerVerifier::verifyClaude directly against the most
+     * recent Anthropic canonical payload stored in auth_payloads (engine=claude).
+     *
+     * @return array<string, mixed>
+     */
+    public function triggerRunnerRefreshClaude(callable $versionSnapshotFn): array
+    {
+        if ($this->runnerVerifier === null) {
+            throw new HttpException('Runner not configured', 503);
+        }
+
+        $engine = Engine::CLAUDE;
+        $canonicalPayload = $this->resolveCanonicalPayload($engine);
+        if ($canonicalPayload === null) {
+            throw new HttpException('No Claude canonical auth payload available', 404);
+        }
+
+        $validated = $this->validateCanonicalPayload($canonicalPayload);
+        if ($validated === null) {
+            throw new HttpException('Claude canonical auth payload invalid', 409);
+        }
+
+        $validation = null;
+        $reachable = false;
+        $host = $this->resolveRunnerHost(null, $canonicalPayload) ?? [];
+        $hostIdForLog = isset($host['id']) && is_numeric($host['id']) ? (int) $host['id'] : null;
+        $authArray = is_array($validated['auth'] ?? null) ? $validated['auth'] : [];
+
+        try {
+            $validation = $this->runnerVerifier->verifyClaude($authArray);
+            $reachable = (bool) ($validation['reachable'] ?? false);
+            $this->logs->log($hostIdForLog, 'auth.validate_claude', [
+                'status' => $validation['status'] ?? null,
+                'reason' => $validation['reason'] ?? null,
+                'latency_ms' => $validation['latency_ms'] ?? null,
+                'trigger' => 'manual',
+            ]);
+        } catch (\Throwable $exception) {
+            $this->logs->log($hostIdForLog, 'auth.validate_claude', [
+                'status' => 'fail',
+                'reason' => $exception->getMessage(),
+                'trigger' => 'manual',
+            ]);
+        } finally {
+            $this->recordRunnerOutcome(is_array($validation) ? $validation : ['status' => 'fail'], $reachable, 'manual', $engine);
+        }
+
+        $validationArr = is_array($validation) ? $validation : [];
+        return [
+            'engine' => $engine,
+            'applied' => false,
+            'status' => $validationArr['status'] ?? 'fail',
+            'reason' => $validationArr['reason'] ?? null,
+            'latency_ms' => $validationArr['latency_ms'] ?? null,
+            'claude_version' => $validationArr['claude_version'] ?? null,
+            'canonical_digest' => $validated['digest'] ?? null,
+            'canonical_last_refresh' => $validated['last_refresh'] ?? null,
+            'runner_last_check' => $this->versions->get($this->runnerLastCheckKey($engine)),
+            'runner_last_fail' => $this->versions->get($this->runnerLastFailKey($engine)),
+            'runner_last_ok' => $this->versions->get($this->runnerLastOkKey($engine)),
+            'runner_state' => $this->versions->get($this->runnerStateKey($engine)),
+            'runner_boot_id' => $this->versions->get('runner_boot_id'),
+        ];
+    }
+
+    private function runnerStateKey(string $engine): string
+    {
+        return $engine === Engine::CLAUDE ? 'runner_state_claude' : 'runner_state';
+    }
+
+    private function runnerLastCheckKey(string $engine): string
+    {
+        return $engine === Engine::CLAUDE ? 'runner_last_check_claude' : 'runner_last_check';
+    }
+
+    private function runnerLastOkKey(string $engine): string
+    {
+        return $engine === Engine::CLAUDE ? 'runner_last_ok_claude' : 'runner_last_ok';
+    }
+
+    private function runnerLastFailKey(string $engine): string
+    {
+        return $engine === Engine::CLAUDE ? 'runner_last_fail_claude' : 'runner_last_fail';
     }
 
     public function isRunnerFailing(): bool

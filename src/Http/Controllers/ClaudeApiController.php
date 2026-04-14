@@ -164,7 +164,8 @@ class ClaudeApiController
 
     public function embeddings(array $payload): void
     {
-        $this->authenticate();
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
         $this->ensureApiEnabled();
         $this->ensureBackend();
 
@@ -190,7 +191,8 @@ class ClaudeApiController
 
     public function models(): void
     {
-        $this->authenticate();
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
         $this->ensureApiEnabled();
 
         $result = $this->backend !== null

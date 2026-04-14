@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Contracts\BackendAdapter;
 use App\Http\OpenAiCompat;
 use App\Http\OpenAiResponse;
+use App\Repositories\VersionRepository;
 use App\Security\RateLimiter;
 use App\Services\OpenAiModelService;
 use App\Services\OpenaiApiKeyService;
@@ -19,7 +20,8 @@ class OpenAiApiController
         private readonly ?BackendAdapter $backend,
         private readonly OpenaiApiKeyService $keyService,
         private readonly RateLimiter $rateLimiter,
-        private readonly OpenAiModelService $modelService
+        private readonly OpenAiModelService $modelService,
+        private readonly ?VersionRepository $versionRepository = null
     ) {
     }
 
@@ -27,6 +29,7 @@ class OpenAiApiController
     {
         $key = $this->authenticate();
         $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $messages = OpenAiCompat::normalizeChatMessages($payload['messages'] ?? null);
@@ -55,6 +58,7 @@ class OpenAiApiController
     {
         $key = $this->authenticate();
         $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $messages = OpenAiCompat::normalizeResponsesInput(
@@ -92,6 +96,7 @@ class OpenAiApiController
     {
         $key = $this->authenticate();
         $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $prompt = $payload['prompt'] ?? null;
@@ -118,7 +123,9 @@ class OpenAiApiController
 
     public function embeddings(array $payload): void
     {
-        $this->authenticate();
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $input = $payload['input'] ?? null;
@@ -143,7 +150,9 @@ class OpenAiApiController
 
     public function models(): void
     {
-        $this->authenticate();
+        $key = $this->authenticate();
+        $this->enforceRateLimit($key);
+        $this->ensureApiEnabled();
         $this->ensureBackend();
 
         $result = $this->backend->models();
@@ -153,6 +162,18 @@ class OpenAiApiController
     public function options(): void
     {
         OpenAiResponse::options();
+    }
+
+    private function ensureApiEnabled(): void
+    {
+        if ($this->versionRepository !== null && $this->versionRepository->getFlag('openai_api_disabled', false)) {
+            OpenAiResponse::error(
+                'OpenAI API is currently disabled by administrator',
+                'api_error',
+                503,
+                'api_disabled'
+            );
+        }
     }
 
     private function authenticate(): array
