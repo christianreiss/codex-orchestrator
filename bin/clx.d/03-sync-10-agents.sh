@@ -21,16 +21,16 @@ clx_sync_agents() {
   local response=""
   response=$(clx_curl -X POST "${CLAUDE_SYNC_BASE_URL}/agents/retrieve" \
     -H "Content-Type: application/json" \
-    -d "$(jq -nc --arg digest "$digest" --arg engine "claude" \
-      '{digest: $digest, engine: $engine}')" \
+    -d "$(jq -nc --arg sha256 "$digest" --arg engine "claude" \
+      '{sha256: $sha256, engine: $engine}')" \
     2>/dev/null) || return 0
 
   local status=""
   status="$(printf '%s' "$response" | jq -r '.data.status // empty' 2>/dev/null || true)"
 
-  if [[ "$status" == "outdated" ]] || [[ "$status" == "updated" ]]; then
+  if [[ "$status" == "updated" ]]; then
     local body=""
-    body="$(printf '%s' "$response" | jq -r '.data.body // empty' 2>/dev/null || true)"
+    body="$(printf '%s' "$response" | jq -r '.data.content // empty' 2>/dev/null || true)"
     if [[ -n "$body" ]]; then
       printf '%s' "$body" > "$CLX_AGENTS_FILE"
       log_info "CLAUDE.md updated from orchestrator."

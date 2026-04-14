@@ -32,7 +32,7 @@ if not api_key:
     print("error reason=missing-api-key")
     sys.exit(1)
 
-payload = {}
+payload = {"engine": "codex"}
 if current_sha and len(current_sha) == 64:
     payload["sha256"] = current_sha
 

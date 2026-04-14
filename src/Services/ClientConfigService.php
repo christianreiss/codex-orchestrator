@@ -16,6 +16,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\McpSessionTokenRepository;
 use App\Repositories\VersionRepository;
 use App\Services\Traits\HostServiceTrait;
+use App\Support\Engine;
 
 class ClientConfigService
 {
@@ -89,13 +90,17 @@ class ClientConfigService
         ];
     }
 
-    public function renderForHost(array $settings, ?array $host, ?string $baseUrl, ?string $apiKey): array
+    public function renderForHost(array $settings, ?array $host, ?string $baseUrl, ?string $apiKey, string $engine = Engine::CODEX): array
     {
         $settings = $this->applyUsageScaling($settings, $host);
         $settings = $this->applyHostModelOverrides($settings, $host);
         $normalized = $this->normalizer->normalizeSettings($settings);
         $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host);
-        $content = $this->tomlRenderer->buildToml($withManaged);
+        if ($engine === Engine::CLAUDE) {
+            $content = json_encode($withManaged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        } else {
+            $content = $this->tomlRenderer->buildToml($withManaged);
+        }
         $sha = hash('sha256', $content);
 
         return [
@@ -343,7 +348,8 @@ class ClientConfigService
         ?string $baseUrl = null,
         ?string $apiKey = null,
         ?string $username = null,
-        ?string $home = null
+        ?string $home = null,
+        string $engine = Engine::CODEX
     ): array
     {
         $this->normalizer->assertSha($sha256, true);
@@ -365,15 +371,19 @@ class ClientConfigService
         $updatedAt = $row['updated_at'] ?? null;
         $shouldBypassBakeCache = $this->shouldBypassBakeCache($host);
 
-        $cacheKey = $this->cacheKey($baseSha, $updatedAt, $hostId, $apiKey, $baseUrl, $homePath);
+        $cacheKey = $this->cacheKey($baseSha, $updatedAt, $hostId, $apiKey, $baseUrl, $homePath) . '|' . $engine;
         $baked = $shouldBypassBakeCache ? null : (self::$bakeCache[$cacheKey] ?? null);
         if ($baked === null) {
             $settings = $row['settings'] ?? [];
             if (!is_array($settings)) {
                 $settings = [];
             }
-            $rendered = $this->renderForHost($settings, $host, $baseUrl, $apiKey);
-            $content = $this->tomlRenderer->injectTrustedProjectToml($rendered['content'], $homePath);
+            $rendered = $this->renderForHost($settings, $host, $baseUrl, $apiKey, $engine);
+            if ($engine === Engine::CLAUDE) {
+                $content = $rendered['content'];
+            } else {
+                $content = $this->tomlRenderer->injectTrustedProjectToml($rendered['content'], $homePath);
+            }
             $bakedSha = $rendered['sha256'];
             $bakedSize = $rendered['size_bytes'];
             if ($content !== $rendered['content']) {
