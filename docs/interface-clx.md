@@ -94,6 +94,8 @@ clx --help                Show this help
 | `__CLAUDE_SYNC_ALLOW_INSECURE__` | `hosts.curl_insecure` | `1` or `0`; adds `-k` to curl. |
 | `__CLAUDE_HOST_MODEL__` | `hosts.claude_model_override` | Applied as `CLAUDE_MODEL` env at exec time. Omitted when the override is empty. |
 
+Host-baked string values are shell-escaped before download so malformed or operator-entered host labels cannot break wrapper parsing.
+
 ## Intentional deltas vs `cdx`
 
 - **No quota lanes / Spark lane.** ChatGPT-specific. Claude's quota is a monthly spend cap + per-minute RPM; see `ClaudeUsageService`.

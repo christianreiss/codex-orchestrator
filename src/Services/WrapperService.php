@@ -144,7 +144,7 @@ class WrapperService
         $secure = isset($host['secure']) ? (bool) (int) $host['secure'] : true;
         $curlInsecure = isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false;
         $adminTheme = AdminTheme::normalize($this->versions->get('admin_theme'));
-        $escapeBashDefault = static function (string $value): string {
+        $escapeBashDoubleQuoted = static function (string $value): string {
             $value = str_replace(["\r", "\n"], '', $value);
             return str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $value);
         };
@@ -155,10 +155,10 @@ class WrapperService
             $silentFlag = $this->versions->getFlag('clx_silent', false) || $this->versions->getFlag('cdx_silent', false);
 
             $replacements = [
-                '__CLAUDE_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
-                '__CLAUDE_SYNC_API_KEY__' => $apiKey,
-                '__CLAUDE_SYNC_FQDN__' => $fqdn,
-                '__CLAUDE_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
+                '__CLAUDE_SYNC_BASE_URL__' => $escapeBashDoubleQuoted(rtrim($baseUrl, '/')),
+                '__CLAUDE_SYNC_API_KEY__' => $escapeBashDoubleQuoted($apiKey),
+                '__CLAUDE_SYNC_FQDN__' => $escapeBashDoubleQuoted($fqdn),
+                '__CLAUDE_SYNC_CA_FILE__' => $escapeBashDoubleQuoted((string) ($caFile ?? '')),
                 '__CLAUDE_HOST_SECURE__' => $secure ? '1' : '0',
                 '__CLAUDE_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
                 '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
@@ -166,7 +166,7 @@ class WrapperService
                 '__CLAUDE_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
             ];
             if ($claudeModel !== '') {
-                $replacements['__CLAUDE_HOST_MODEL__'] = $escapeBashDefault($claudeModel);
+                $replacements['__CLAUDE_HOST_MODEL__'] = $escapeBashDoubleQuoted($claudeModel);
             }
         } else {
             // Codex wrapper baking — existing CODEX_* placeholders.
@@ -179,10 +179,10 @@ class WrapperService
             }
 
             $replacements = [
-                '__CODEX_SYNC_BASE_URL__' => rtrim($baseUrl, '/'),
-                '__CODEX_SYNC_API_KEY__' => $apiKey,
-                '__CODEX_SYNC_FQDN__' => $fqdn,
-                '__CODEX_SYNC_CA_FILE__' => (string) ($caFile ?? ''),
+                '__CODEX_SYNC_BASE_URL__' => $escapeBashDoubleQuoted(rtrim($baseUrl, '/')),
+                '__CODEX_SYNC_API_KEY__' => $escapeBashDoubleQuoted($apiKey),
+                '__CODEX_SYNC_FQDN__' => $escapeBashDoubleQuoted($fqdn),
+                '__CODEX_SYNC_CA_FILE__' => $escapeBashDoubleQuoted((string) ($caFile ?? '')),
                 '__CODEX_HOST_SECURE__' => $secure ? '1' : '0',
                 '__CODEX_INSTALLATION_ID__' => (string) ($this->installationId ?? ''),
                 '__WRAPPER_VERSION__' => (string) ($meta['version'] ?? ''),
@@ -191,10 +191,10 @@ class WrapperService
                 '__CODEX_SYNC_ALLOW_INSECURE__' => $curlInsecure ? '1' : '0',
             ];
             if ($modelOverride !== '') {
-                $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDefault($modelOverride);
+                $replacements['__CODEX_HOST_MODEL__'] = $escapeBashDoubleQuoted($modelOverride);
             }
             if ($reasoningOverride !== '') {
-                $replacements['__CODEX_HOST_REASONING_EFFORT__'] = $escapeBashDefault($reasoningOverride);
+                $replacements['__CODEX_HOST_REASONING_EFFORT__'] = $escapeBashDoubleQuoted($reasoningOverride);
             }
         }
 

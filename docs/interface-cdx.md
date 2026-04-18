@@ -22,6 +22,7 @@ At download time, the server bakes host-specific placeholders into the wrapper:
 
 Guardrails:
 - Wrapper enforces baked FQDN at runtime. Override only with `CODEX_ALLOW_FQDN_MISMATCH=1`.
+- Host-baked string values are shell-escaped before download so malformed or operator-entered host labels cannot break wrapper parsing.
 - `load_sync_config` prefers baked host config whenever the wrapper was baked for a host. Local CLI-login credentials are only used as a fallback for unbaked wrappers.
 
 ## Startup Sequence

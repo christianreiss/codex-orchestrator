@@ -1,3 +1,6 @@
+# 2026-04-18
+- cdx wrapper: shell-escape host-baked wrapper strings and quote the baked FQDN guard comparison so malformed host labels (for example an installer command pasted into the FQDN field) no longer make `/usr/local/bin/cdx` fail at parse time. Wrapper bumped to `2026.04.18-01`.
+
 # 2026-04-14
 - Claude parity pass — broad feature-parity push between `cdx`/Codex and `clx`/Claude across wrapper, backend, admin UI, runner docs, tests, and docs. Only intentional (engine-semantic) deltas remain.
   - Backend: added `POST /admin/runner/run-claude` + `AdminOverviewController::runnerRunClaude()` so the admin dashboard's "Claude Runner" button actually reaches a handler; the dashboard had been calling a 404 route. The new handler invokes `RunnerValidationService::triggerRunnerRefreshClaude()` which bypasses the Codex canonical-digest ladder and hits `RunnerVerifier::verifyClaude()` directly.

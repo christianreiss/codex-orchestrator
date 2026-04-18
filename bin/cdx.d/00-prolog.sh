@@ -709,7 +709,7 @@ normalize_hostname() {
 
 enforce_baked_fqdn_guard() {
   local raw_fqdn="${CODEX_SYNC_FQDN:-}"
-  if [[ -z "$raw_fqdn" || "$raw_fqdn" == __CODEX_SYNC_FQDN__ ]]; then
+  if [[ -z "$raw_fqdn" || "$raw_fqdn" == "__CODEX_SYNC_FQDN__" ]]; then
     return 0
   fi
 
@@ -948,7 +948,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.13-01"
+WRAPPER_VERSION="2026.04.18-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
