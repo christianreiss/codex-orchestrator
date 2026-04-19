@@ -23,7 +23,7 @@ if [[ -z "$CODEX_REAL_BIN" ]]; then
 fi
 
 # Help invocations should behave exactly like upstream Codex help output.
-if ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)) && ((!CODEX_DO_UNINSTALL)) && ((!CODEX_LANE_COMMAND)) && ((!CODEX_EXIT_AFTER_UPDATE)) && is_codex_help_passthrough_invocation "$@"; then
+if ((!CODEX_STATUS_ONLY)) && ((!CODEX_DOCTOR_ONLY)) && ((!CODEX_DO_UNINSTALL)) && ((!CODEX_LANE_COMMAND)) && ((!CODEX_EXIT_AFTER_UPDATE)) && ((!CODEX_AUTH_UPLOAD_ONLY)) && is_codex_help_passthrough_invocation "$@"; then
   exec "$CODEX_REAL_BIN" "$@"
 fi
 
@@ -78,6 +78,11 @@ if ((!CODEX_CONCURRENT_SYNC_OVERRIDE)); then
   acquire_run_lock_or_mark_concurrent || true
 fi
 if ((CDX_ACTIVE_RUN_DETECTED)); then
+  if ((CODEX_AUTH_UPLOAD_ONLY)); then
+    release_run_lock_if_held || true
+    log_error "Cannot upload auth while another cdx run is active. Re-run with --allow-concurrent-sync if you want to override."
+    exit 1
+  fi
   concurrent_reason="${CDX_ACTIVE_RUN_INFO:-active cdx run detected}"
   AUTH_PULL_STATUS="concurrent"
   AUTH_PULL_REASON="$concurrent_reason"
@@ -94,6 +99,14 @@ if ((CDX_ACTIVE_RUN_DETECTED)); then
     AUTH_PULL_STATUS="concurrent"
     AUTH_PULL_REASON="$concurrent_reason"
   fi
+elif ((CODEX_AUTH_UPLOAD_ONLY)); then
+  if auth_upload_with_api; then
+    release_run_lock_if_held || true
+    log_info "${AUTH_MESSAGE:-uploaded current auth}"
+    exit 0
+  fi
+  release_run_lock_if_held || true
+  exit 1
 else
   cleanup_legacy_prompt_state || true
   sync_skills_pull || true

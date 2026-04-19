@@ -749,6 +749,7 @@ CODEX_FORCE_WRAPPER_UPDATE=0
 CODEX_EXIT_AFTER_UPDATE=0
 CODEX_DO_UNINSTALL=0
 CODEX_DO_LOGIN=0
+CODEX_AUTH_UPLOAD_ONLY=0
 CODEX_STATUS_ONLY=0
 CODEX_DOCTOR_ONLY=0
 CODEX_CRON_MODE=0
@@ -948,7 +949,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.19-01"
+WRAPPER_VERSION="2026.04.19-02"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -1462,6 +1463,10 @@ case "${1-}" in
     CODEX_DOCTOR_ONLY=1
     shift
     ;;
+  auth-upload)
+    CODEX_AUTH_UPLOAD_ONLY=1
+    shift
+    ;;
   login | --login)
     CODEX_DO_LOGIN=1
     shift
@@ -1508,7 +1513,20 @@ case "${1-}" in
     CODEX_DOCTOR_ONLY=1
     shift
     ;;
+  auth-upload)
+    CODEX_AUTH_UPLOAD_ONLY=1
+    shift
+    ;;
 esac
+
+if ((CODEX_AUTH_UPLOAD_ONLY)) && (($# > 0)); then
+  if is_help_flag "${1-}"; then
+    printf 'Usage: cdx [--debug] auth-upload\n\nUpload the current ~/.codex/auth.json to the canonical server store, validating it through the auth runner.\n'
+    exit 0
+  fi
+  printf 'Usage: cdx [--debug] auth-upload\n' >&2
+  exit 1
+fi
 
 if ((CODEX_STATUS_ONLY || CODEX_DOCTOR_ONLY)) && (($# > 0)); then
   if is_help_flag "${1-}"; then

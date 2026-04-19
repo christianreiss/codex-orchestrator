@@ -57,6 +57,7 @@ Concurrent-run guard behavior (`active cdx run detected`):
 - Retrieve statuses handled: `valid`, `outdated`, `upload_required`, `missing`.
 - On `upload_required|missing`, wrapper attempts `store`.
 - In startup-bundle mode, `upload_required|missing` forces `/sync/bootstrap` and sends the local auth as `auth_candidate`, so a freshly renewed local `auth.json` is pushed before launch.
+- `cdx auth-upload` runs a direct `/auth` `store` for the current local file and adds `last_refresh` first when plain `codex login` wrote token material without the orchestration timestamp.
 - If `store` returns `updated|unchanged`, wrapper normalizes local auth status to `valid`.
 - Post-run auth push now detects changes using both `last_refresh` and local `auth.json` SHA-256 content hash (not timestamp alone), so same-timestamp token changes still upload.
 - Offline launch fallback:
@@ -79,6 +80,7 @@ Help passthrough:
 | `cdx --wrapper-version` / `cdx -W` | Print wrapper version and exit. |
 | `cdx status` / `cdx --status` | Run sync/update checks + summary, do not launch Codex. Exit `0` unless red/error state (`1`). |
 | `cdx doctor` / `cdx --doctor` | Run status checks plus diagnostics (deps, auth freshness, sync states, `/versions` probe, SSH terminal hints). Exit non-zero on critical failures/red state. |
+| `cdx auth-upload` | Normalize and upload the current `~/.codex/auth.json` through `/auth command=store`, validating via the auth runner, then exit without launching Codex. Use after `codex login` when the local file is fresher than canonical storage. |
 | `cdx --update` / `cdx -U` | Force an update check, refreshing the wrapper first when needed and then finishing the Codex update check before exit. |
 | `cdx --uninstall` | Deregister host auth and remove Codex/wrapper artifacts. |
 | `cdx -4` | Force IPv4 for wrapper-managed network calls and Codex child outbound traffic for this invocation. |

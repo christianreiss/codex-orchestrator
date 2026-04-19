@@ -124,3 +124,58 @@ for target, entry in auths.items():
 sys.exit(0)
 PY
 }
+
+normalize_auth_json_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  python3 - "$path" <<'PY'
+import datetime
+import json
+import os
+import pathlib
+import sys
+from datetime import timezone
+
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001
+    sys.exit(1)
+
+if not isinstance(data, dict):
+    sys.exit(1)
+
+last_refresh = data.get("last_refresh")
+if isinstance(last_refresh, str) and last_refresh.strip():
+    sys.exit(0)
+
+auths = data.get("auths")
+tokens = data.get("tokens")
+openai_key = data.get("OPENAI_API_KEY")
+has_token = isinstance(auths, dict) and bool(auths)
+if isinstance(tokens, dict):
+    access_token = tokens.get("access_token")
+    has_token = has_token or (isinstance(access_token, str) and bool(access_token.strip()))
+has_token = has_token or (isinstance(openai_key, str) and bool(openai_key.strip()))
+if not has_token:
+    sys.exit(1)
+
+data["last_refresh"] = datetime.datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+tmp = path.with_suffix(path.suffix + ".tmp")
+with open(tmp, "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(data, indent=2) + "\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+tmp.replace(path)
+try:
+    os.chmod(path, 0o600)
+except PermissionError:
+    pass
+sys.exit(0)
+PY
+}

@@ -192,6 +192,242 @@ if isinstance(month_usage, dict):
 PY
 }
 
+auth_upload_with_api() {
+  load_sync_config
+  if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
+    log_error "Sync config missing API key or base URL; download a fresh cdx wrapper from the server."
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 is required for Codex auth upload; install python3 and retry."
+    return 1
+  fi
+
+  local auth_path="$HOME/.codex/auth.json"
+  if [[ ! -f "$auth_path" ]]; then
+    log_error "No local auth.json found at ${auth_path}. Run 'codex login' first."
+    return 1
+  fi
+  if ! normalize_auth_json_file "$auth_path" || ! validate_auth_json_file "$auth_path"; then
+    log_error "Local auth.json is not uploadable. Run 'codex login' first, then retry 'cdx auth-upload'."
+    return 1
+  fi
+
+  record_host_user_with_api || true
+
+  local api_output=""
+  local api_status=0
+  if api_output="$(
+    CODEX_SYNC_API_KEY="$CODEX_SYNC_API_KEY" CODEX_FORCE_IPV4="${CODEX_FORCE_IPV4:-0}" python3 - "$CODEX_SYNC_BASE_URL" "$auth_path" "$CODEX_SYNC_CA_FILE" "$LOCAL_VERSION" "$WRAPPER_VERSION" <<'PY'
+import datetime
+import json
+import os
+import pathlib
+import sys
+import urllib.error
+import urllib.request
+from datetime import timezone
+
+py_http_util = os.environ.get("CODEX_PY_HTTP_UTIL", "")
+if py_http_util:
+    exec(py_http_util, globals())
+if "cdx_enable_force_ipv4" in globals():
+    cdx_enable_force_ipv4()
+
+base = (sys.argv[1] or "").rstrip("/")
+path = pathlib.Path(sys.argv[2]).expanduser()
+cafile = sys.argv[3] if len(sys.argv) > 3 else ""
+client_version = sys.argv[4] if len(sys.argv) > 4 else "unknown"
+wrapper_version = sys.argv[5] if len(sys.argv) > 5 else "unknown"
+api_key = os.environ.get("CODEX_SYNC_API_KEY", "")
+installation_id = (os.environ.get("CODEX_INSTALLATION_ID", "") or "").strip()
+
+
+def canonical_json(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def atomic_write_text(target, content, mode=None):
+    target = pathlib.Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(target)
+    if mode is not None:
+        try:
+            os.chmod(target, mode)
+        except PermissionError:
+            pass
+
+
+def token_material(data):
+    auths = data.get("auths")
+    if isinstance(auths, dict) and auths:
+        return True
+    tokens = data.get("tokens")
+    if isinstance(tokens, dict) and isinstance(tokens.get("access_token"), str) and tokens["access_token"].strip():
+        return True
+    openai_key = data.get("OPENAI_API_KEY")
+    return isinstance(openai_key, str) and bool(openai_key.strip())
+
+
+try:
+    auth = json.loads(path.read_text(encoding="utf-8"))
+except Exception as exc:  # noqa: BLE001
+    print(f"invalid local auth.json: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(auth, dict) or not token_material(auth):
+    print("local auth.json has no usable token material", file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(auth.get("last_refresh"), str) or not auth["last_refresh"].strip():
+    auth["last_refresh"] = datetime.datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    atomic_write_text(path, json.dumps(auth, indent=2) + "\n", mode=0o600)
+
+
+def parse_error_body(body: str):
+    msg = body
+    details = {}
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict):
+            msg = parsed.get("message", body)
+            details = parsed.get("details", parsed.get("errors", {})) or {}
+    except Exception:
+        pass
+    return msg, details
+
+
+def fail_with_http(exc: urllib.error.HTTPError):
+    body = exc.read().decode("utf-8", "ignore")
+    msg, details = parse_error_body(body)
+    detail_code = ""
+    if isinstance(details, dict):
+        detail_code = str(details.get("code") or "").lower()
+    if exc.code == 401:
+        print("auth upload failed: invalid API key", file=sys.stderr)
+        sys.exit(10)
+    if exc.code == 403 and (detail_code == "reverse_dns_mismatch" or "reverse dns" in str(msg).lower()):
+        print("auth upload denied: reverse DNS mismatch", file=sys.stderr)
+        sys.exit(27)
+    if exc.code == 503 and "disabled" in str(msg).lower():
+        print("auth upload failed: API disabled", file=sys.stderr)
+        sys.exit(40)
+    print(f"auth upload failed ({exc.code}): {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def post_json(url: str, payload: dict):
+    body = canonical_json(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    contexts = cdx_build_ssl_contexts(cafile) if "cdx_build_ssl_contexts" in globals() else [None]
+    last_err = None
+    for ctx in contexts:
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:
+            if 500 <= exc.code < 600:
+                last_err = exc
+                continue
+            fail_with_http(exc)
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            continue
+    print(f"auth upload failed: {last_err}", file=sys.stderr)
+    sys.exit(3)
+
+
+payload = {
+    "command": "store",
+    "auth": auth,
+    "client_version": client_version or "unknown",
+}
+if wrapper_version and wrapper_version != "unknown":
+    payload["wrapper_version"] = wrapper_version
+if installation_id:
+    payload["installation_id"] = installation_id
+
+response = post_json(f"{base}/auth", payload)
+data = response.get("data") if isinstance(response, dict) else {}
+if not isinstance(data, dict):
+    print("auth upload failed: invalid server response", file=sys.stderr)
+    sys.exit(1)
+
+status = str(data.get("status") or "unknown").strip().lower()
+server_installation = None
+versions = data.get("versions")
+if isinstance(versions, dict):
+    value = versions.get("installation_id")
+    if isinstance(value, str) and value.strip():
+        server_installation = value.strip()
+if server_installation and installation_id and server_installation != installation_id:
+    print("auth upload failed: installation ID mismatch", file=sys.stderr)
+    sys.exit(42)
+
+auth_to_write = data.get("auth") if isinstance(data.get("auth"), dict) else auth
+lr = data.get("canonical_last_refresh") or data.get("last_refresh")
+if isinstance(lr, str) and isinstance(auth_to_write, dict):
+    auth_to_write["last_refresh"] = lr
+if isinstance(auth_to_write, dict):
+    atomic_write_text(path, json.dumps(auth_to_write, indent=2) + "\n", mode=0o600)
+
+host = data.get("host") if isinstance(data.get("host"), dict) else {}
+print(canonical_json({
+    "versions": versions if isinstance(versions, dict) else {},
+    "auth_status": "valid" if status in ("updated", "unchanged") else status,
+    "auth_action": "store" if status in ("updated", "unchanged") else status,
+    "auth_message": (
+        "uploaded current auth" if status == "updated" else
+        "server already had this auth" if status == "unchanged" else
+        "server has newer auth" if status == "outdated" else
+        status
+    ),
+    "canonical_last_refresh": data.get("canonical_last_refresh"),
+    "canonical_digest": data.get("canonical_digest"),
+    "api_calls": data.get("api_calls"),
+    "token_usage_month": data.get("token_usage_month"),
+    "quota_hard_fail": data.get("quota_hard_fail"),
+    "quota_limit_percent": data.get("quota_limit_percent"),
+    "quota_week_partition": data.get("quota_week_partition"),
+    "cdx_silent": data.get("cdx_silent"),
+    "host_vip": host.get("vip"),
+    "host_secure": host.get("secure"),
+}))
+sys.exit(0 if status in ("updated", "unchanged") else 4)
+PY
+  )"; then
+    local parsed=""
+    parsed="$(emit_auth_sync_lines_from_json "$api_output" || true)"
+    if [[ -n "$parsed" ]]; then
+      apply_auth_sync_lines "$parsed"
+    fi
+    AUTH_PULL_STATUS="ok"
+    AUTH_PULL_URL="$CODEX_SYNC_BASE_URL"
+    return 0
+  else
+    api_status=$?
+    AUTH_PULL_STATUS="fail"
+    AUTH_PULL_REASON="auth-upload"
+    local parsed=""
+    parsed="$(emit_auth_sync_lines_from_json "$api_output" || true)"
+    if [[ -n "$parsed" ]]; then
+      apply_auth_sync_lines "$parsed"
+    fi
+    if [[ -n "$AUTH_MESSAGE" ]]; then
+      log_error "$AUTH_MESSAGE"
+    elif [[ -n "$api_output" ]]; then
+      log_error "$api_output"
+    fi
+    return "$api_status"
+  fi
+}
+
 apply_auth_sync_lines() {
   local parsed_lines="${1-}"
   [[ -n "$parsed_lines" ]] || return 0
@@ -461,7 +697,10 @@ sync_auth_with_api() {
   fi
   local auth_path="$HOME/.codex/auth.json"
   AUTH_PULL_REASON=""
-  # Drop a malformed local auth.json so we can hydrate cleanly.
+  # Normalize plain Codex login output before deciding a local file is unusable.
+  if ((read_only == 0)) && [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
+    normalize_auth_json_file "$auth_path" || rm -f "$auth_path"
+  fi
   if ((read_only == 0)) && [[ -f "$auth_path" ]] && ! validate_auth_json_file "$auth_path"; then
     rm -f "$auth_path"
   fi

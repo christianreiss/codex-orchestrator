@@ -101,6 +101,7 @@ A few more handy ones:
 ```bash
 cdx status          # quick health check
 cdx doctor          # diagnose SSH, PTY, and API issues
+cdx auth-upload     # upload current ~/.codex/auth.json after codex login
 cdx lane spark      # switch to Spark lane for this run
 cdx ls              # shortcut for lane spark
 cdx --update        # force-update the wrapper and Codex

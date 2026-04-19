@@ -151,6 +151,9 @@ cdx lane normal --persist
 # Clear persisted lane preference (host follows inherited/default lane)
 cdx lane clear --persist
 
+# Upload a freshly renewed local auth.json after running codex login
+cdx auth-upload
+
 # One-shot, script-friendly execution (prints only the final assistant reply;
 # direct codex exec fast path, not the full wrapper sync lifecycle)
 cdx --execute "explain what this repo does in 5 bullets"
