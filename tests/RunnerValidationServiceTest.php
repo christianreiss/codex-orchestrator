@@ -651,7 +651,7 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertArrayHasKey('runner_last_fail', $called);
     }
 
-    public function testRecordRunnerOutcomeDoesNotSetLastCheckWhenNotReachable(): void
+    public function testRecordRunnerOutcomeSetsLastCheckWhenNotReachable(): void
     {
         $called = [];
         $this->versions->method('set')->willReturnCallback(function ($key, $value) use (&$called) {
@@ -660,7 +660,7 @@ final class RunnerValidationServiceTest extends TestCase
 
         $this->svc->recordRunnerOutcome(['status' => 'fail'], false, 'test');
 
-        $this->assertArrayNotHasKey('runner_last_check', $called);
+        $this->assertArrayHasKey('runner_last_check', $called);
     }
 
     public function testRecordRunnerOutcomeSetsLastCheckWhenReachable(): void
@@ -889,5 +889,85 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertFalse($result['applied']);
         $this->assertSame($digest, $result['canonical_digest']);
         $this->assertSame(self::VALID_LAST_REFRESH, $result['canonical_last_refresh']);
+    }
+
+    public function testRunDailyPreflightUsesShortTimeoutForBackgroundRunnerProbe(): void
+    {
+        $canonicalAuth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $hosts = $this->getMockBuilder(HostRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $payloads->method('findByIdWithEntries')->willReturn([
+            'id' => 42,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'entries' => [],
+        ]);
+        $payloads->expects(self::never())->method('create');
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $versions = $this->getMockBuilder(VersionRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+        $versions->method('get')->willReturnCallback(static function (string $name): ?string {
+            return match ($name) {
+                'canonical_payload_id' => '42',
+                'daily_preflight' => null,
+                'runner_last_check' => null,
+                'runner_last_fail' => null,
+                default => null,
+            };
+        });
+        $versions->expects(self::atLeastOnce())->method('set');
+
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects(self::once())
+            ->method('verify')
+            ->with($canonicalAuth, null, 2.0, [])
+            ->willReturn([
+                'status' => 'fail',
+                'reachable' => false,
+                'reason' => 'runner ping failed',
+            ]);
+
+        $svc = new RunnerValidationService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $logs,
+            $versions,
+            $runner
+        );
+
+        $refreshed = false;
+        $svc->runDailyPreflight(null, static function (bool $force) use (&$refreshed): void {
+            $refreshed = $force;
+        }, static fn (): array => []);
+
+        $this->assertTrue($refreshed);
     }
 }

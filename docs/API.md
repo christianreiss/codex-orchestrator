@@ -379,7 +379,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 ## Runner & Versions
 - Scheduled preflight runs on first non-admin request after interval (`AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800), excluding `/versions` and `/mcp`: refreshes cached GitHub client version and runs runner validation when configured.
 - Runner state is recorded in `runner_state` (`ok|fail`) with timestamps (`runner_last_ok`, `runner_last_fail`, `runner_last_check`).
-- Runner failures do not block `/auth` retrieve. Store update candidates are blocked when runner is unavailable/non-OK. Manual `POST /admin/runner/run` bypasses interval guard.
+- Runner failures do not block `/auth` retrieve. Failed runner attempts still update `runner_last_check`, and background preflight/recovery probes use a short timeout so startup sync can fall back to cached auth promptly. Store update candidates are blocked when runner is unavailable/non-OK. Manual `POST /admin/runner/run` bypasses interval guard.
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage

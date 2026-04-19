@@ -25,6 +25,7 @@ class RunnerValidationService
     private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
+    private const RUNNER_BACKGROUND_TIMEOUT_SECONDS = 2.0;
     private const MAX_FUTURE_SKEW_SECONDS = 300;
     private const MIN_LAST_REFRESH_EPOCH = 946684800;
 
@@ -185,7 +186,12 @@ class RunnerValidationService
         $runnerReachable = false;
         $validation = null;
         try {
-            $validation = $this->runnerVerifier->verify($canonicalAuth, null, null, $host);
+            $validation = $this->runnerVerifier->verify(
+                $canonicalAuth,
+                null,
+                $this->runnerTimeoutForTrigger($trigger),
+                $host
+            );
             $runnerReachable = (bool) ($validation['reachable'] ?? false);
             $this->logs->log($logHostId, 'auth.validate', [
                 'status' => $validation['status'] ?? null,
@@ -347,9 +353,7 @@ class RunnerValidationService
             $this->versions->set($lastFailKey, $nowIso);
         }
 
-        if ($reachable) {
-            $this->versions->set($lastCheckKey, $nowIso);
-        }
+        $this->versions->set($lastCheckKey, $nowIso);
     }
 
     public function triggerRunnerRefresh(callable $versionSnapshotFn): array
@@ -509,6 +513,13 @@ class RunnerValidationService
         }
 
         return [true, 'fail_backoff'];
+    }
+
+    private function runnerTimeoutForTrigger(string $trigger): ?float
+    {
+        return in_array($trigger, ['scheduled_preflight', 'daily_preflight', 'fail_recovery', 'fail_backoff', 'boot'], true)
+            ? self::RUNNER_BACKGROUND_TIMEOUT_SECONDS
+            : null;
     }
 
     public function recordCurrentBootId(): bool

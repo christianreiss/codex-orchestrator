@@ -1,4 +1,5 @@
 # 2026-04-19
+- Runner recovery: failed runner probes now update `runner_last_check` and background preflight/recovery probes use a short timeout, preventing stale runner failures from making host startup sync wait until the wrapper reports `request_failed: The read operation timed out`.
 - Seed auth command: generated `curl | bash` scripts now normalize plain Codex `auth.json` files by adding `last_refresh` when missing, avoid printing successful auth payloads back to the terminal, and show server validation JSON on HTTP failures. Seed tokens are now consumed after a successful store-level upload instead of before runner/auth validation, so retryable 422 failures no longer burn the one-time command.
 
 # 2026-04-18
