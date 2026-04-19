@@ -29,7 +29,7 @@ Guardrails:
 1. Resolve real `codex` binary (`/usr/local/bin/codex`, `/opt/codex/bin/codex`, or `PATH`); abort if none found.
 2. Help-only Codex invocations are passed straight through to the real binary before any wrapper sync/update/MOTD/footer work. Supported passthrough forms are top-level `--help`, top-level `-h`, top-level `help`, and Codex subcommand help where a reserved Codex command is followed by `--help` or `-h`.
 3. Acquire per-user run lock with `flock` (`/tmp` or `/var/tmp`) unless `--allow-concurrent-sync`.
-4. When local `~/.codex/auth.json` is already valid, wrapper prefers the startup bundle path first: `POST /sync/status` and (when needed) `POST /sync/bootstrap` run with `include_auth=true`, so auth metadata/refresh plus AGENTS/config diffing happen in one request chain.
+4. When local `~/.codex/auth.json` is already valid, wrapper prefers the startup bundle path first: `POST /sync/status` and (when needed) `POST /sync/bootstrap` run with `include_auth=true`, so auth metadata/refresh plus AGENTS/config diffing happen in one request chain. Auth statuses `missing` and `upload_required` also force `/sync/bootstrap` with the local `auth_candidate`, even when AGENTS/config are already current.
 5. When bundled auth cannot be used (for example local auth is missing/invalid) or when bundled auth errors outside the offline path, wrapper falls back to standalone auth sync via `POST /auth`, then continues with the startup bundle for AGENTS/config.
 6. If the startup bundle endpoints are missing on an older server, wrapper falls back to legacy AGENTS/config pulls. Transient bundle failures do not trigger extra legacy sync requests.
 7. Compute local auth freshness:
@@ -56,6 +56,7 @@ Concurrent-run guard behavior (`active cdx run detected`):
   - fallback token (`tokens.access_token` or `OPENAI_API_KEY`).
 - Retrieve statuses handled: `valid`, `outdated`, `upload_required`, `missing`.
 - On `upload_required|missing`, wrapper attempts `store`.
+- In startup-bundle mode, `upload_required|missing` forces `/sync/bootstrap` and sends the local auth as `auth_candidate`, so a freshly renewed local `auth.json` is pushed before launch.
 - If `store` returns `updated|unchanged`, wrapper normalizes local auth status to `valid`.
 - Post-run auth push now detects changes using both `last_refresh` and local `auth.json` SHA-256 content hash (not timestamp alone), so same-timestamp token changes still upload.
 - Offline launch fallback:

@@ -450,8 +450,16 @@ phase = str((data or {}).get("status") or "").strip().lower()
 reasons = data.get("reasons") if isinstance(data, dict) else []
 if not isinstance(reasons, list):
     reasons = []
+auth_status = ""
+if include_auth and isinstance(data, dict) and isinstance(data.get("auth"), dict):
+    auth_status = str(data["auth"].get("status") or "").strip().lower()
+auth_store_needed = (
+    include_auth
+    and isinstance(current_auth, dict)
+    and auth_status in ("missing", "upload_required")
+)
 
-if phase == "update":
+if phase == "update" or auth_store_needed:
     bootstrap_payload = dict(status_payload)
     if include_auth and isinstance(current_auth, dict):
         bootstrap_payload["auth_candidate"] = current_auth
@@ -465,6 +473,7 @@ if phase == "update":
         print(f"error reason={reason}")
         sys.exit(1)
     data = bootstrap_resp.get("data") if isinstance(bootstrap_resp, dict) else {}
+    phase = str((data or {}).get("status") or phase).strip().lower()
     reasons = data.get("reasons") if isinstance(data, dict) else reasons
     if not isinstance(reasons, list):
         reasons = []
