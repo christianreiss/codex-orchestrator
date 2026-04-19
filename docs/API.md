@@ -341,9 +341,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests for both Codex and Claude.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner-validated when the runner is enabled.
-- `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for local `~/.codex/auth.json`; TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
+- `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for local `~/.codex/auth.json`; the generated script normalizes plain Codex auth files by adding `last_refresh` when missing and prints server validation errors on upload failure. TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
 - `GET /seed/auth/{uuid}` — serve seed shell script.
-- `POST /seed/auth/{uuid}` — accept raw auth payload (or `{ "auth": ... }`), validate/store canonical auth, consume token, runner skipped.
+- `POST /seed/auth/{uuid}` — accept raw auth payload (or `{ "auth": ... }`), runner-validate/store canonical auth when the runner is enabled, and consume the token after a successful store. Malformed JSON/object attempts are still consumed.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - Claude admin endpoints:

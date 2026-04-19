@@ -92,8 +92,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Management endpoints (session required): `GET /admin/passkeys`, `POST /admin/passkeys/{id}/name`, `DELETE /admin/passkeys/{id}`.
   - Login requires WebAuthn user verification and uses the entered username to scope `allowCredentials`; it is not username-less.
 - **Auth Upload & Seed**:
-  - Upload canonical auth (runner skipped): `POST /admin/auth/upload` (`settings.manage`).
-  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`).
+  - Upload canonical auth (runner-validated when enabled): `POST /admin/auth/upload` (`settings.manage`).
+  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); generated scripts normalize plain Codex auth files and print server validation errors on upload failure.
   - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
 - **Global Settings**:
   - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).

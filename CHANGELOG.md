@@ -1,3 +1,6 @@
+# 2026-04-19
+- Seed auth command: generated `curl | bash` scripts now normalize plain Codex `auth.json` files by adding `last_refresh` when missing, avoid printing successful auth payloads back to the terminal, and show server validation JSON on HTTP failures. Seed tokens are now consumed after a successful store-level upload instead of before runner/auth validation, so retryable 422 failures no longer burn the one-time command.
+
 # 2026-04-18
 - cdx wrapper: shell-escape host-baked wrapper strings and quote the baked FQDN guard comparison so malformed host labels (for example an installer command pasted into the FQDN field) no longer make `/usr/local/bin/cdx` fail at parse time. Wrapper bumped to `2026.04.18-01`.
 

@@ -168,11 +168,6 @@ class InstallController
             ], 422);
         }
 
-        $this->seedTokenRepository->markUsed((int) $tokenRow['id']);
-        $this->logRepository->log(null, 'auth.seed.consume', [
-            'token' => substr((string) $tokenRow['token'], 0, 8) . "\u{2026}",
-        ]);
-
         $host = [
             'id' => 0,
             'fqdn' => '[seed]',
@@ -203,6 +198,12 @@ class InstallController
                 'message' => $exception->getMessage(),
             ], $exception->getStatusCode());
         }
+
+        $this->seedTokenRepository->markUsed((int) $tokenRow['id']);
+        $this->logRepository->log(null, 'auth.seed.consume', [
+            'token' => substr((string) $tokenRow['token'], 0, 8) . "\u{2026}",
+            'status' => $result['status'] ?? null,
+        ]);
 
         Response::json([
             'status' => 'ok',
