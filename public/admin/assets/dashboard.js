@@ -730,6 +730,12 @@
         copy: 'Emergency toggles and runner utilities.',
         show: ['settings-panel'],
       },
+      manual: {
+        eyebrow: 'Manual',
+        title: 'Orchestrator manual',
+        copy: 'Operator reference assembled from the live codebase.',
+        show: ['manualPanel'],
+      },
     };
 
     function toggleSection(id, visible) {
@@ -760,7 +766,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid', 'manualPanel'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -1456,6 +1462,13 @@
       if (normalizedKey === 'd') {
         event.preventDefault();
         navigateAdminShortcut('/admin/dashboard');
+        clearShortcutPrefix();
+        return;
+      }
+
+      if (normalizedKey === 'm') {
+        event.preventDefault();
+        navigateAdminShortcut('/admin/manual');
         clearShortcutPrefix();
         return;
       }

@@ -84,4 +84,10 @@ class AdminPageController
     {
         require $this->publicDir . '/admin/index.php';
     }
+
+    /** GET /admin/manual, /admin/manual/{slug} */
+    public function manual(): void
+    {
+        require $this->publicDir . '/admin/index.php';
+    }
 }

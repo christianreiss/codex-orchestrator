@@ -120,6 +120,7 @@ use App\Http\Controllers\ClaudeApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
 use App\Http\Controllers\AdminClaudeKeyController;
 use App\Http\Controllers\AdminJoplinController;
+use App\Http\Controllers\AdminManualController;
 use App\Http\OpenAiResponse;
 use App\Http\AnthropicResponse;
 use App\Contracts\BackendAdapter;
@@ -560,6 +561,7 @@ if (is_string($runnerUrl) && trim($runnerUrl) !== '') {
 $claudeApiCtrl = new ClaudeApiController($claudeBackend, $openaiKeyService, $rateLimiter, $claudeModelService, $versionRepository);
 $adminOpenAiKeyCtrl = new AdminOpenAiKeyController($openaiKeyService);
 $adminClaudeKeyCtrl = new AdminClaudeKeyController($openaiKeyService);
+$adminManualCtrl = new AdminManualController(__DIR__);
 
 // --- Route wiring ---
 
@@ -582,6 +584,13 @@ $router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|p
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
+$router->add('GET', '#^/admin/manual$#', fn() => $adminPageCtrl->manual());
+$router->add('GET', '#^/admin/manual/manifest$#', fn() => $adminManualCtrl->manifest());
+$router->add('GET', '#^/admin/manual/search$#', fn() => $adminManualCtrl->searchIndex());
+$router->add('GET', '#^/admin/manual/article/([a-z0-9][a-z0-9-]{0,63})$#', function ($slug) use ($adminManualCtrl): void {
+    if (is_string($slug)) { $adminManualCtrl->article($slug); }
+});
+$router->add('GET', '#^/admin/manual/[a-z0-9][a-z0-9-]{0,63}$#', fn() => $adminPageCtrl->manual());
 
 // Admin settings
 $router->add('POST', '#^/admin/versions/check$#', fn() => $adminSettingsCtrl->versionsCheck());

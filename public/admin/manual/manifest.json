@@ -1,0 +1,125 @@
+{
+  "version": "2026-04-19",
+  "articles": [
+    {
+      "slug": "welcome",
+      "title": "Welcome to Orchestrator",
+      "section": "Orientation",
+      "summary": "What Orchestrator is, who operates it, and how to move around the admin UI.",
+      "tags": ["overview", "getting-started"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "architecture",
+      "title": "Architecture at a glance",
+      "section": "Orientation",
+      "summary": "Request flow, controllers, services, repositories, the runner sidecar, and the admin-ws event stream.",
+      "tags": ["architecture", "internals"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "install",
+      "title": "Installing and bootstrapping",
+      "section": "Orientation",
+      "summary": "First boot, environment variables, install tokens, seed auth, and baking per-host wrappers.",
+      "tags": ["install", "setup"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "admin-login",
+      "title": "Admin login and mTLS",
+      "section": "Admin access and identity",
+      "summary": "Access modes, mTLS enforcement, the session cookie, and the login / logout flow.",
+      "tags": ["auth", "login", "mtls"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "passkeys",
+      "title": "Passkeys and passwords",
+      "section": "Admin access and identity",
+      "summary": "WebAuthn registration and login, passkey management, and password behaviour.",
+      "tags": ["auth", "webauthn", "passkeys"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "roles",
+      "title": "Roles and capabilities",
+      "section": "Admin access and identity",
+      "summary": "What admin, fleet_operator, trusted_user, and user can each do across the admin surface.",
+      "tags": ["auth", "rbac"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "hosts",
+      "title": "Hosts: secure, insecure, unprovisioned",
+      "section": "Fleet operations",
+      "summary": "Fleet tabs, host detail page, registration, pruning, and the active-window review queue.",
+      "tags": ["hosts", "fleet"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "auth-pipeline",
+      "title": "The auth distribution pipeline",
+      "section": "Fleet operations",
+      "summary": "How auth.json reaches a host: encryption, IP binding, reverse DNS, runner verification, and insecure windows.",
+      "tags": ["auth", "secrets", "pipeline"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "wrappers",
+      "title": "The cdx and clx wrappers",
+      "section": "Fleet operations",
+      "summary": "Per-host baked wrappers, the /wrapper contract, startup sync, auto-update, and boot summaries.",
+      "tags": ["runner", "wrappers", "cdx", "clx"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "dashboard",
+      "title": "Dashboard metrics",
+      "section": "Admin workspace",
+      "summary": "KPIs, ChatGPT quota lanes, Claude usage, cost history, and how the charts are fed.",
+      "tags": ["dashboard", "usage", "cost"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "settings",
+      "title": "Settings reference",
+      "section": "Admin workspace",
+      "summary": "Every tab under Settings — what each one changes and which services it touches.",
+      "tags": ["settings", "reference"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "projects",
+      "title": "Projects workspace",
+      "section": "Admin workspace",
+      "summary": "Shared coordination surface: notes, todos, files, feedback, the coco skill, and MCP resources.",
+      "tags": ["projects", "mcp"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "logs",
+      "title": "Logs: API, MCP, and Events",
+      "section": "Admin workspace",
+      "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
+      "tags": ["logs", "observability"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "mcp",
+      "title": "MCP server and tools",
+      "section": "Integrations and reference",
+      "summary": "Host-authenticated MCP, the tools and resources exposed, and how agents call them.",
+      "tags": ["mcp", "agents", "tools"],
+      "verified": "2026-04-19"
+    },
+    {
+      "slug": "shortcuts-api",
+      "title": "Keyboard shortcuts and API reference",
+      "section": "Integrations and reference",
+      "summary": "Complete keyboard-shortcut map and a full index of admin HTTP routes with their controllers.",
+      "tags": ["reference", "shortcuts", "api"],
+      "verified": "2026-04-19"
+    }
+  ]
+}

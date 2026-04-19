@@ -210,6 +210,7 @@
     if (/\/admin\/account/.test(pathname)) return 'account';
     if (/\/admin\/users/.test(pathname)) return 'users';
     if (/\/admin\/projects/.test(pathname)) return 'settings';
+    if (/\/admin\/manual/.test(pathname)) return 'manual';
     if (/\/admin\/(dashboard)?\/?$/.test(pathname)) return 'dashboard';
     return '';
   };

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-04-08-01">
   <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-03-27-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
+  <link rel="stylesheet" href="/admin/assets/manual.css?v=2026-04-19-01">
 </head>
 <body data-view="desktop" data-view-mode="dashboard" data-theme="auto" data-nav-version="2026">
   <header class="editorial-rail">
@@ -24,6 +25,7 @@
     <div class="rail-frame" id="navDrawer" aria-hidden="false">
       <nav class="rail-primary" aria-label="Primary navigation">
         <a class="rail-link" href="/admin/dashboard" data-nav="dashboard">Overview</a>
+        <a class="rail-link" href="/admin/manual" data-nav="manual">Manual</a>
         <div class="rail-group" data-nav="hosts">
           <button class="rail-disclosure" type="button" data-rail-trigger aria-expanded="false" aria-haspopup="true">
             <span>Hosts</span>
@@ -159,6 +161,7 @@
                 <div class="kbd-shortcut-row"><kbd>r</kbd><span>Refresh the current view</span></div>
                 <div class="kbd-shortcut-row"><kbd>n</kbd><span>New item (host / user / command / skill)</span></div>
                 <div class="kbd-shortcut-row"><kbd>t</kbd><span>Toggle the visible drawer/panel</span></div>
+                <div class="kbd-shortcut-row"><kbd>m</kbd><span>Open the manual</span></div>
                 <div class="kbd-shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
                 <div class="kbd-shortcut-row"><kbd>Esc</kbd><span>Close modal / dismiss</span></div>
               </div>
@@ -2583,6 +2586,35 @@
             </div>
           </div>
         </section>
+        <section class="panel-set" data-panel="manual" id="manualPanel" hidden>
+          <div class="manual-layout">
+            <aside class="manual-sidebar" aria-label="Manual navigation">
+              <div class="manual-search">
+                <input id="manualSearchInput" type="search" placeholder="Search the manual" autocomplete="off" aria-label="Search the manual">
+              </div>
+              <nav class="manual-toc" id="manualToc" aria-label="Manual articles"></nav>
+            </aside>
+            <article class="manual-article" id="manualArticle" aria-live="polite">
+              <header class="manual-article-head">
+                <div class="eyebrow" id="manualEyebrow"></div>
+                <h1 id="manualTitle">Loading…</h1>
+                <p class="muted" id="manualSummary"></p>
+                <span class="manual-verified" id="manualVerified" hidden></span>
+              </header>
+              <div class="manual-body is-loading" id="manualBody">Loading the manual…</div>
+              <footer class="manual-article-foot">
+                <section class="manual-sources" id="manualSources" hidden>
+                  <h3>Source references</h3>
+                  <ul id="manualSourcesList"></ul>
+                </section>
+                <nav class="manual-pagination" aria-label="Manual pagination">
+                  <a id="manualPrev" class="manual-pagination-prev" rel="prev" href="#" hidden></a>
+                  <a id="manualNext" class="manual-pagination-next" rel="next" href="#" hidden></a>
+                </nav>
+              </footer>
+            </article>
+          </div>
+        </section>
     </main>
   </div>
 
@@ -2705,6 +2737,7 @@
           return { panel: 'project-detail', sub: decodeRouteValue(seg2) };
         }
         if (seg1 === 'users') return { panel: 'users', sub: '' };
+        if (seg1 === 'manual') return { panel: 'manual', sub: seg2 };
         return { panel: seg1, sub: seg2 };
       }
 
@@ -2743,6 +2776,11 @@
         } else if (document.body.dataset.projectSlug) {
           delete document.body.dataset.projectSlug;
         }
+        if (route.panel === 'manual') {
+          document.body.dataset.manualSlug = route.sub || '';
+        } else if (document.body.dataset.manualSlug) {
+          delete document.body.dataset.manualSlug;
+        }
       }
       applyFromPath();
       window.addEventListener('popstate', applyFromPath);
@@ -2762,6 +2800,9 @@
   <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>
   <script src="/admin/assets/config.js?v=2026-04-08-01"></script>
   <script src="/admin/assets/profiles.js?v=2026-04-08-01"></script>
+  <script src="/admin/assets/vendor/marked.min.js?v=12.0.2"></script>
+  <script src="/admin/assets/vendor/purify.min.js?v=3.0.11"></script>
+  <script src="/admin/assets/manual.js?v=2026-04-19-01"></script>
   <script>
   // Claude settings integration
   (function() {

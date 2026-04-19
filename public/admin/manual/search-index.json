@@ -1,0 +1,8583 @@
+{
+    "version": "2026-04-19T19:13:53Z",
+    "docs": [
+        {
+            "slug": "welcome",
+            "title": "Welcome to Orchestrator",
+            "section": "Orientation",
+            "summary": "What Orchestrator is, who operates it, and how to move around the admin UI.",
+            "anchors": [
+                {
+                    "id": "who-uses-this-admin",
+                    "text": "Who uses this admin",
+                    "level": 2
+                },
+                {
+                    "id": "how-the-admin-is-laid-out",
+                    "text": "How the admin is laid out",
+                    "level": 2
+                },
+                {
+                    "id": "the-reading-path-we-suggest",
+                    "text": "The reading path we suggest",
+                    "level": 2
+                },
+                {
+                    "id": "conventions-used-in-the-manual",
+                    "text": "Conventions used in the manual",
+                    "level": 2
+                },
+                {
+                    "id": "when-an-article-is-wrong",
+                    "text": "When an article is wrong",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "architecture",
+            "title": "Architecture at a glance",
+            "section": "Orientation",
+            "summary": "Request flow, controllers, services, repositories, the runner sidecar, and the admin-ws event stream.",
+            "anchors": [
+                {
+                    "id": "request-lifecycle",
+                    "text": "Request lifecycle",
+                    "level": 2
+                },
+                {
+                    "id": "layers",
+                    "text": "Layers",
+                    "level": 2
+                },
+                {
+                    "id": "the-runner-sidecar",
+                    "text": "The runner sidecar",
+                    "level": 2
+                },
+                {
+                    "id": "the-wrappers",
+                    "text": "The wrappers",
+                    "level": 2
+                },
+                {
+                    "id": "admin-websocket-admin-ws",
+                    "text": "Admin websocket (admin-ws)",
+                    "level": 2
+                },
+                {
+                    "id": "database",
+                    "text": "Database",
+                    "level": 2
+                },
+                {
+                    "id": "engine-support",
+                    "text": "Engine support",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "install",
+            "title": "Installing and bootstrapping",
+            "section": "Orientation",
+            "summary": "First boot, environment variables, install tokens, seed auth, and baking per-host wrappers.",
+            "anchors": [
+                {
+                    "id": "first-boot",
+                    "text": "First boot",
+                    "level": 2
+                },
+                {
+                    "id": "environment-variables-the-app-reads",
+                    "text": "Environment variables the app reads",
+                    "level": 2
+                },
+                {
+                    "id": "seeding-the-canonical-auth",
+                    "text": "Seeding the canonical auth",
+                    "level": 2
+                },
+                {
+                    "id": "registering-a-host",
+                    "text": "Registering a host",
+                    "level": 2
+                },
+                {
+                    "id": "wrapper-distribution",
+                    "text": "Wrapper distribution",
+                    "level": 2
+                },
+                {
+                    "id": "post-install-smoke-test",
+                    "text": "Post-install smoke test",
+                    "level": 2
+                },
+                {
+                    "id": "backups",
+                    "text": "Backups",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "admin-login",
+            "title": "Admin login and mTLS",
+            "section": "Admin access and identity",
+            "summary": "Access modes, mTLS enforcement, the session cookie, and the login / logout flow.",
+            "anchors": [
+                {
+                    "id": "access-modes",
+                    "text": "Access modes",
+                    "level": 2
+                },
+                {
+                    "id": "when-session-gating-is-active",
+                    "text": "When session gating is active",
+                    "level": 2
+                },
+                {
+                    "id": "the-session-cookie",
+                    "text": "The session cookie",
+                    "level": 2
+                },
+                {
+                    "id": "the-page-bootstrap",
+                    "text": "The page bootstrap",
+                    "level": 2
+                },
+                {
+                    "id": "the-login-flow-passkey-first",
+                    "text": "The login flow (passkey first)",
+                    "level": 2
+                },
+                {
+                    "id": "sign-out",
+                    "text": "Sign-out",
+                    "level": 2
+                },
+                {
+                    "id": "password-reset",
+                    "text": "Password reset",
+                    "level": 2
+                },
+                {
+                    "id": "failure-modes-you-will-see",
+                    "text": "Failure modes you will see",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "passkeys",
+            "title": "Passkeys and passwords",
+            "section": "Admin access and identity",
+            "summary": "WebAuthn registration and login, passkey management, and password behaviour.",
+            "anchors": [
+                {
+                    "id": "the-account-page",
+                    "text": "The account page",
+                    "level": 2
+                },
+                {
+                    "id": "registering-a-passkey",
+                    "text": "Registering a passkey",
+                    "level": 2
+                },
+                {
+                    "id": "logging-in-with-a-passkey",
+                    "text": "Logging in with a passkey",
+                    "level": 2
+                },
+                {
+                    "id": "managing-passkeys",
+                    "text": "Managing passkeys",
+                    "level": 2
+                },
+                {
+                    "id": "passwords",
+                    "text": "Passwords",
+                    "level": 2
+                },
+                {
+                    "id": "counter-drift-and-cloned-authenticators",
+                    "text": "Counter drift and cloned authenticators",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "roles",
+            "title": "Roles and capabilities",
+            "section": "Admin access and identity",
+            "summary": "What admin, fleet_operator, trusted_user, and user can each do across the admin surface.",
+            "anchors": [
+                {
+                    "id": "roles",
+                    "text": "Roles",
+                    "level": 2
+                },
+                {
+                    "id": "capabilities",
+                    "text": "Capabilities",
+                    "level": 2
+                },
+                {
+                    "id": "the-matrix",
+                    "text": "The matrix",
+                    "level": 2
+                },
+                {
+                    "id": "where-each-capability-gates",
+                    "text": "Where each capability gates",
+                    "level": 2
+                },
+                {
+                    "id": "how-the-check-is-implemented",
+                    "text": "How the check is implemented",
+                    "level": 2
+                },
+                {
+                    "id": "changing-a-users-role",
+                    "text": "Changing a user's role",
+                    "level": 2
+                },
+                {
+                    "id": "roles-and-the-first-run-path",
+                    "text": "Roles and the first-run path",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "hosts",
+            "title": "Hosts: secure, insecure, unprovisioned",
+            "section": "Fleet operations",
+            "summary": "Fleet tabs, host detail page, registration, pruning, and the active-window review queue.",
+            "anchors": [
+                {
+                    "id": "the-four-tabs",
+                    "text": "The four tabs",
+                    "level": 2
+                },
+                {
+                    "id": "registering-a-host",
+                    "text": "Registering a host",
+                    "level": 2
+                },
+                {
+                    "id": "host-detail-page",
+                    "text": "Host detail page",
+                    "level": 2
+                },
+                {
+                    "id": "the-insecure-approval-queue",
+                    "text": "The insecure approval queue",
+                    "level": 2
+                },
+                {
+                    "id": "pruning-stale-hosts",
+                    "text": "Pruning stale hosts",
+                    "level": 2
+                },
+                {
+                    "id": "signals-you-will-see",
+                    "text": "Signals you will see",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "auth-pipeline",
+            "title": "The auth distribution pipeline",
+            "section": "Fleet operations",
+            "summary": "How auth.json reaches a host: encryption, IP binding, reverse DNS, runner verification, and insecure windows.",
+            "anchors": [
+                {
+                    "id": "the-two-public-endpoints",
+                    "text": "The two public endpoints",
+                    "level": 2
+                },
+                {
+                    "id": "authservicehandleauth-in-order",
+                    "text": "AuthService::handleAuth() in order",
+                    "level": 2
+                },
+                {
+                    "id": "encryption",
+                    "text": "Encryption",
+                    "level": 2
+                },
+                {
+                    "id": "ip-binding-and-roaming",
+                    "text": "IP binding and roaming",
+                    "level": 2
+                },
+                {
+                    "id": "insecure-windows",
+                    "text": "Insecure windows",
+                    "level": 2
+                },
+                {
+                    "id": "the-runner-contract",
+                    "text": "The runner contract",
+                    "level": 2
+                },
+                {
+                    "id": "what-a-client-sees",
+                    "text": "What a client sees",
+                    "level": 2
+                },
+                {
+                    "id": "killing-the-pipeline-in-an-emergency",
+                    "text": "Killing the pipeline in an emergency",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "wrappers",
+            "title": "The cdx and clx wrappers",
+            "section": "Fleet operations",
+            "summary": "Per-host baked wrappers, the /wrapper contract, startup sync, auto-update, and boot summaries.",
+            "anchors": [
+                {
+                    "id": "what-lives-where",
+                    "text": "What lives where",
+                    "level": 2
+                },
+                {
+                    "id": "public-download-endpoint",
+                    "text": "Public download endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "startup-sync-contract",
+                    "text": "Startup sync contract",
+                    "level": 2
+                },
+                {
+                    "id": "reporting-back",
+                    "text": "Reporting back",
+                    "level": 2
+                },
+                {
+                    "id": "silent-mode",
+                    "text": "Silent mode",
+                    "level": 2
+                },
+                {
+                    "id": "auto-update-behaviour",
+                    "text": "Auto-update behaviour",
+                    "level": 2
+                },
+                {
+                    "id": "anatomy-of-a-run",
+                    "text": "Anatomy of a run",
+                    "level": 2
+                },
+                {
+                    "id": "insecure-hosts",
+                    "text": "Insecure hosts",
+                    "level": 2
+                },
+                {
+                    "id": "when-a-wrapper-goes-wrong",
+                    "text": "When a wrapper goes wrong",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "dashboard",
+            "title": "Dashboard metrics",
+            "section": "Admin workspace",
+            "summary": "KPIs, ChatGPT quota lanes, Claude usage, cost history, and how the charts are fed.",
+            "anchors": [
+                {
+                    "id": "the-overview-endpoint",
+                    "text": "The overview endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "the-cost-card",
+                    "text": "The cost card",
+                    "level": 2
+                },
+                {
+                    "id": "the-chatgpt-usage-card",
+                    "text": "The ChatGPT usage card",
+                    "level": 2
+                },
+                {
+                    "id": "the-claude-usage-card",
+                    "text": "The Claude usage card",
+                    "level": 2
+                },
+                {
+                    "id": "tokens-card",
+                    "text": "Tokens card",
+                    "level": 2
+                },
+                {
+                    "id": "scaling",
+                    "text": "Scaling",
+                    "level": 2
+                },
+                {
+                    "id": "graph-stats",
+                    "text": "Graph stats",
+                    "level": 2
+                },
+                {
+                    "id": "admin-ws-live-updates",
+                    "text": "admin-ws live updates",
+                    "level": 2
+                },
+                {
+                    "id": "refresh-semantics",
+                    "text": "Refresh semantics",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "settings",
+            "title": "Settings reference",
+            "section": "Admin workspace",
+            "summary": "Every tab under Settings \u2014 what each one changes and which services it touches.",
+            "anchors": [
+                {
+                    "id": "admin-general",
+                    "text": "Admin \u2192 General",
+                    "level": 2
+                },
+                {
+                    "id": "admin-users",
+                    "text": "Admin \u2192 Users",
+                    "level": 2
+                },
+                {
+                    "id": "admin-agents",
+                    "text": "Admin \u2192 Agents",
+                    "level": 2
+                },
+                {
+                    "id": "admin-openai",
+                    "text": "Admin \u2192 OpenAI",
+                    "level": 2
+                },
+                {
+                    "id": "admin-claude",
+                    "text": "Admin \u2192 Claude",
+                    "level": 2
+                },
+                {
+                    "id": "admin-api-keys",
+                    "text": "Admin \u2192 API keys",
+                    "level": 2
+                },
+                {
+                    "id": "authoring-skills",
+                    "text": "Authoring \u2192 Skills",
+                    "level": 2
+                },
+                {
+                    "id": "authoring-memories",
+                    "text": "Authoring \u2192 Memories",
+                    "level": 2
+                },
+                {
+                    "id": "workspace-projects",
+                    "text": "Workspace \u2192 Projects",
+                    "level": 2
+                },
+                {
+                    "id": "workspace-profiles",
+                    "text": "Workspace \u2192 Profiles",
+                    "level": 2
+                },
+                {
+                    "id": "integrations-joplin",
+                    "text": "Integrations \u2192 Joplin",
+                    "level": 2
+                },
+                {
+                    "id": "runner-controls-admin-general-helpers",
+                    "text": "Runner controls (Admin \u2192 General helpers)",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "projects",
+            "title": "Projects workspace",
+            "section": "Admin workspace",
+            "summary": "Shared coordination surface: notes, todos, files, feedback, the coco skill, and MCP resources.",
+            "anchors": [
+                {
+                    "id": "turning-it-on",
+                    "text": "Turning it on",
+                    "level": 2
+                },
+                {
+                    "id": "creating-and-listing-projects",
+                    "text": "Creating and listing projects",
+                    "level": 2
+                },
+                {
+                    "id": "notes",
+                    "text": "Notes",
+                    "level": 2
+                },
+                {
+                    "id": "todos",
+                    "text": "Todos",
+                    "level": 2
+                },
+                {
+                    "id": "files",
+                    "text": "Files",
+                    "level": 2
+                },
+                {
+                    "id": "feedback",
+                    "text": "Feedback",
+                    "level": 2
+                },
+                {
+                    "id": "change-history",
+                    "text": "Change history",
+                    "level": 2
+                },
+                {
+                    "id": "the-assist-button",
+                    "text": "The assist button",
+                    "level": 2
+                },
+                {
+                    "id": "about-and-roster",
+                    "text": "About and roster",
+                    "level": 2
+                },
+                {
+                    "id": "the-coco-skill",
+                    "text": "The coco skill",
+                    "level": 2
+                },
+                {
+                    "id": "bootstrapping-an-agent-into-a-project",
+                    "text": "Bootstrapping an agent into a project",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "logs",
+            "title": "Logs: API, MCP, and Events",
+            "section": "Admin workspace",
+            "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
+            "anchors": [
+                {
+                    "id": "the-three-streams",
+                    "text": "The three streams",
+                    "level": 2
+                },
+                {
+                    "id": "api-log-endpoint",
+                    "text": "API log endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "mcp-log-endpoint",
+                    "text": "MCP log endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "events-endpoint",
+                    "text": "Events endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "retention",
+                    "text": "Retention",
+                    "level": 2
+                },
+                {
+                    "id": "live-streaming-admin-ws",
+                    "text": "Live streaming (admin-ws)",
+                    "level": 2
+                },
+                {
+                    "id": "what-to-do-when-a-log-line-is-unclear",
+                    "text": "What to do when a log line is unclear",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "mcp",
+            "title": "MCP server and tools",
+            "section": "Integrations and reference",
+            "summary": "Host-authenticated MCP, the tools and resources exposed, and how agents call them.",
+            "anchors": [
+                {
+                    "id": "endpoint",
+                    "text": "Endpoint",
+                    "level": 2
+                },
+                {
+                    "id": "tool-catalogue",
+                    "text": "Tool catalogue",
+                    "level": 2
+                },
+                {
+                    "id": "resources",
+                    "text": "Resources",
+                    "level": 2
+                },
+                {
+                    "id": "memory-tools-vs-repositories",
+                    "text": "Memory tools vs. repositories",
+                    "level": 2
+                },
+                {
+                    "id": "access-logging",
+                    "text": "Access logging",
+                    "level": 2
+                },
+                {
+                    "id": "probing-from-the-cli",
+                    "text": "Probing from the CLI",
+                    "level": 2
+                },
+                {
+                    "id": "shutting-it-off",
+                    "text": "Shutting it off",
+                    "level": 2
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        },
+        {
+            "slug": "shortcuts-api",
+            "title": "Keyboard shortcuts and API reference",
+            "section": "Integrations and reference",
+            "summary": "Complete keyboard-shortcut map and a full index of admin HTTP routes with their controllers.",
+            "anchors": [
+                {
+                    "id": "keyboard-shortcuts",
+                    "text": "Keyboard shortcuts",
+                    "level": 2
+                },
+                {
+                    "id": "admin-http-routes",
+                    "text": "Admin HTTP routes",
+                    "level": 2
+                },
+                {
+                    "id": "admin-pages-spa-shell",
+                    "text": "Admin pages (SPA shell)",
+                    "level": 3
+                },
+                {
+                    "id": "admin-auth",
+                    "text": "Admin auth",
+                    "level": 3
+                },
+                {
+                    "id": "admin-users",
+                    "text": "Admin users",
+                    "level": 3
+                },
+                {
+                    "id": "admin-hosts",
+                    "text": "Admin hosts",
+                    "level": 3
+                },
+                {
+                    "id": "admin-settings",
+                    "text": "Admin settings",
+                    "level": 3
+                },
+                {
+                    "id": "admin-overview-dashboard",
+                    "text": "Admin overview / dashboard",
+                    "level": 3
+                },
+                {
+                    "id": "admin-config-agents-skills-memories",
+                    "text": "Admin config / agents / skills / memories",
+                    "level": 3
+                },
+                {
+                    "id": "admin-projects",
+                    "text": "Admin projects",
+                    "level": 3
+                },
+                {
+                    "id": "admin-manual",
+                    "text": "Admin manual",
+                    "level": 3
+                },
+                {
+                    "id": "host-facing-and-public-routes",
+                    "text": "Host-facing and public routes",
+                    "level": 3
+                },
+                {
+                    "id": "openai-and-anthropic-compatible-apis",
+                    "text": "OpenAI- and Anthropic-compatible APIs",
+                    "level": 3
+                },
+                {
+                    "id": "source-references",
+                    "text": "Source references",
+                    "level": 2
+                }
+            ]
+        }
+    ],
+    "index": {
+        "1.": [
+            0,
+            1,
+            2,
+            4,
+            5,
+            7,
+            11,
+            13
+        ],
+        "2.": [
+            0,
+            1,
+            2,
+            4,
+            5,
+            7,
+            11,
+            13
+        ],
+        "2.0": [
+            13
+        ],
+        "3.": [
+            0,
+            1,
+            2,
+            4,
+            5,
+            7,
+            11
+        ],
+        "4.": [
+            1,
+            2,
+            4,
+            7,
+            11
+        ],
+        "5.": [
+            7
+        ],
+        "6.": [
+            7
+        ],
+        "7.": [
+            7
+        ],
+        "12": [
+            2,
+            4
+        ],
+        "28": [
+            3
+        ],
+        "30": [
+            2
+        ],
+        "64": [
+            3
+        ],
+        "128.": [
+            2
+        ],
+        "128": [
+            4
+        ],
+        "213": [
+            11
+        ],
+        "300": [
+            2,
+            3
+        ],
+        "302": [
+            3
+        ],
+        "352.": [
+            11
+        ],
+        "401": [
+            3
+        ],
+        "403": [
+            3
+        ],
+        "403.": [
+            4
+        ],
+        "503": [
+            7
+        ],
+        "604": [
+            3
+        ],
+        "800": [
+            3
+        ],
+        "1108": [
+            6
+        ],
+        "1418": [
+            14
+        ],
+        "28800": [
+            2
+        ],
+        "604800.": [
+            2
+        ],
+        "aaguid": [
+            4
+        ],
+        "able": [
+            5
+        ],
+        "about.": [
+            11,
+            12,
+            13
+        ],
+        "above": [
+            5,
+            10,
+            11
+        ],
+        "above.": [
+            3
+        ],
+        "accepted": [
+            13
+        ],
+        "accepts": [
+            7,
+            8
+        ],
+        "access": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            12,
+            13
+        ],
+        "access.": [
+            3,
+            5
+        ],
+        "account": [
+            0,
+            3,
+            4,
+            5
+        ],
+        "account.js": [
+            4
+        ],
+        "accounting.": [
+            14
+        ],
+        "accounts": [
+            6
+        ],
+        "across": [
+            0,
+            5,
+            10
+        ],
+        "action": [
+            6,
+            12,
+            14
+        ],
+        "action.": [
+            9
+        ],
+        "activated": [
+            2
+        ],
+        "activates": [
+            1
+        ],
+        "activation": [
+            10
+        ],
+        "activations": [
+            5
+        ],
+        "active": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            9,
+            10,
+            14
+        ],
+        "activity": [
+            11
+        ],
+        "activity.": [
+            11
+        ],
+        "actual": [
+            7
+        ],
+        "actually": [
+            1,
+            2,
+            8,
+            10
+        ],
+        "add": [
+            1,
+            4,
+            5,
+            6
+        ],
+        "adding": [
+            7
+        ],
+        "additional": [
+            13
+        ],
+        "adjust": [
+            6
+        ],
+        "admin": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "admin.": [
+            2,
+            5
+        ],
+        "adminauthcontroller.php": [
+            3,
+            4
+        ],
+        "adminauthservice.php": [
+            0,
+            3,
+            4,
+            5
+        ],
+        "adminbootstrap": [
+            3
+        ],
+        "adminclaudekeycontroller.php": [
+            10
+        ],
+        "adminconfigcontroller.php": [
+            5,
+            10,
+            12
+        ],
+        "admineventrepository.php": [
+            12
+        ],
+        "adminhostcontroller.php": [
+            2,
+            5,
+            6
+        ],
+        "administrative": [
+            11,
+            12
+        ],
+        "adminjoplincontroller.php": [
+            5,
+            10
+        ],
+        "adminmanualcontroller.php": [
+            14
+        ],
+        "adminopenaikeycontroller.php": [
+            10
+        ],
+        "adminoverviewcontroller.php": [
+            2,
+            5,
+            6,
+            9,
+            12
+        ],
+        "adminpagecontroller.php": [
+            1,
+            14
+        ],
+        "adminpasskeyrepository.php": [
+            4
+        ],
+        "adminpasskeyservice.php": [
+            4
+        ],
+        "adminpasswordresetrepository.php": [
+            4
+        ],
+        "adminprojectcontroller.php": [
+            5,
+            11
+        ],
+        "admins": [
+            2,
+            4,
+            5,
+            10
+        ],
+        "admins.": [
+            5
+        ],
+        "adminsessionhelper.php": [
+            0,
+            3,
+            5
+        ],
+        "adminsettingscontroller.php": [
+            5,
+            10,
+            12
+        ],
+        "adminusercontroller.php": [
+            5
+        ],
+        "adminwebauthnchallengerepository.php": [
+            4
+        ],
+        "affects": [
+            8
+        ],
+        "after": [
+            2,
+            3,
+            6,
+            7,
+            8
+        ],
+        "afterwards.": [
+            10
+        ],
+        "against": [
+            2,
+            7,
+            8,
+            9,
+            12
+        ],
+        "age": [
+            9
+        ],
+        "agent": [
+            11,
+            12,
+            13
+        ],
+        "agents": [
+            0,
+            1,
+            5,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "agents.md": [
+            6,
+            7,
+            8
+        ],
+        "agentsservice.php": [
+            10
+        ],
+        "aggregate": [
+            11
+        ],
+        "aggregated": [
+            9
+        ],
+        "aggregates": [
+            9
+        ],
+        "aggressive": [
+            9
+        ],
+        "ai": [
+            10
+        ],
+        "all.": [
+            7
+        ],
+        "allow": [
+            6,
+            7
+        ],
+        "allow.": [
+            6
+        ],
+        "allowed": [
+            4,
+            5,
+            7
+        ],
+        "allows": [
+            7
+        ],
+        "already": [
+            8
+        ],
+        "alt": [
+            14
+        ],
+        "always": [
+            5,
+            11
+        ],
+        "am": [
+            7
+        ],
+        "amber": [
+            6
+        ],
+        "anatomy": [
+            8
+        ],
+        "another": [
+            4
+        ],
+        "anthropic": [
+            0,
+            1,
+            10,
+            14
+        ],
+        "anthropic.": [
+            1
+        ],
+        "anything": [
+            2,
+            5,
+            6,
+            7
+        ],
+        "anywhere": [
+            0,
+            1
+        ],
+        "api": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "apis": [
+            14
+        ],
+        "app": [
+            0,
+            1,
+            2,
+            5,
+            7,
+            13
+        ],
+        "app.": [
+            0
+        ],
+        "app.py": [
+            1,
+            7
+        ],
+        "appear": [
+            2,
+            6,
+            11
+        ],
+        "append": [
+            13
+        ],
+        "appends": [
+            11
+        ],
+        "application": [
+            1
+        ],
+        "apply.": [
+            5
+        ],
+        "applying": [
+            7
+        ],
+        "approval": [
+            5,
+            6,
+            7,
+            9,
+            10
+        ],
+        "approval.": [
+            7
+        ],
+        "approvals": [
+            6,
+            7
+        ],
+        "approvals.": [
+            12
+        ],
+        "approve": [
+            0,
+            5,
+            6,
+            8
+        ],
+        "approved": [
+            8
+        ],
+        "approves.": [
+            6
+        ],
+        "architecture": [
+            0,
+            1
+        ],
+        "areas": [
+            0
+        ],
+        "arguments.": [
+            1
+        ],
+        "arming": [
+            14
+        ],
+        "around": [
+            0,
+            7
+        ],
+        "array": [
+            6
+        ],
+        "arrays.": [
+            1
+        ],
+        "article": [
+            0
+        ],
+        "articles": [
+            0
+        ],
+        "artifacts": [
+            11
+        ],
+        "ask": [
+            1,
+            10,
+            12
+        ],
+        "asking": [
+            7
+        ],
+        "asks": [
+            3
+        ],
+        "assertion": [
+            3,
+            4
+        ],
+        "assets": [
+            3,
+            4,
+            6,
+            9,
+            11,
+            12,
+            14
+        ],
+        "assign.": [
+            6
+        ],
+        "assist": [
+            10,
+            11
+        ],
+        "assists": [
+            7
+        ],
+        "attached": [
+            12
+        ],
+        "attestation": [
+            4
+        ],
+        "audit": [
+            0,
+            12
+        ],
+        "auth": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            13,
+            14
+        ],
+        "auth.": [
+            7,
+            10
+        ],
+        "auth.js": [
+            3
+        ],
+        "auth.json": [
+            1,
+            7
+        ],
+        "authcontroller.php": [
+            7,
+            8
+        ],
+        "authencryptionmigrator.php": [
+            7
+        ],
+        "authenticate": [
+            7
+        ],
+        "authenticated": [
+            1,
+            3,
+            7,
+            11,
+            13
+        ],
+        "authenticated.": [
+            13
+        ],
+        "authenticates": [
+            1
+        ],
+        "authentication": [
+            3,
+            4,
+            14
+        ],
+        "authentication.": [
+            7
+        ],
+        "authentications.": [
+            5
+        ],
+        "authenticator": [
+            4
+        ],
+        "authenticators": [
+            4
+        ],
+        "authoring": [
+            0,
+            10
+        ],
+        "authoritative": [
+            13
+        ],
+        "authorization": [
+            13
+        ],
+        "authpayloadrepository.php": [
+            7
+        ],
+        "authseedtokenrepository.php": [
+            2
+        ],
+        "authservice": [
+            7
+        ],
+        "authservice.php": [
+            1,
+            6,
+            7
+        ],
+        "authupload": [
+            2
+        ],
+        "auto": [
+            2,
+            5,
+            6,
+            8,
+            10
+        ],
+        "automatically": [
+            1
+        ],
+        "automatically.": [
+            2
+        ],
+        "average": [
+            9
+        ],
+        "aware": [
+            1
+        ],
+        "axis": [
+            9
+        ],
+        "back": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            7,
+            8,
+            9,
+            12
+        ],
+        "back.": [
+            2
+        ],
+        "backed": [
+            2,
+            6
+        ],
+        "backend": [
+            10
+        ],
+        "background": [
+            9
+        ],
+        "backing": [
+            11,
+            13
+        ],
+        "backup": [
+            2
+        ],
+        "backups": [
+            1,
+            2
+        ],
+        "badge": [
+            9
+        ],
+        "bails": [
+            5
+        ],
+        "bake": [
+            8
+        ],
+        "baked": [
+            0,
+            1,
+            2,
+            6,
+            8,
+            10,
+            13
+        ],
+        "bakedforhost": [
+            2,
+            8
+        ],
+        "bakes": [
+            2
+        ],
+        "baking": [
+            1,
+            2,
+            8
+        ],
+        "band": [
+            13
+        ],
+        "banner": [
+            6
+        ],
+        "base": [
+            2
+        ],
+        "based": [
+            3,
+            7
+        ],
+        "been": [
+            4,
+            8
+        ],
+        "before": [
+            7,
+            8,
+            10,
+            11
+        ],
+        "begins": [
+            8
+        ],
+        "behaved": [
+            13
+        ],
+        "behaviour": [
+            7,
+            8
+        ],
+        "behaviour.": [
+            4
+        ],
+        "behind": [
+            1,
+            5,
+            13
+        ],
+        "being": [
+            1,
+            13
+        ],
+        "below": [
+            13
+        ],
+        "between": [
+            2,
+            3,
+            6
+        ],
+        "big": [
+            9
+        ],
+        "bin": [
+            1,
+            2,
+            8
+        ],
+        "binaries": [
+            8
+        ],
+        "binary": [
+            0
+        ],
+        "binding": [
+            1,
+            2,
+            6,
+            7
+        ],
+        "binds": [
+            7,
+            9
+        ],
+        "blob": [
+            7,
+            11
+        ],
+        "blocks": [
+            9
+        ],
+        "blurb": [
+            11
+        ],
+        "bodies": [
+            10
+        ],
+        "body": [
+            0,
+            6,
+            7,
+            10,
+            11,
+            13
+        ],
+        "body.": [
+            8,
+            10,
+            11,
+            12
+        ],
+        "boot": [
+            0,
+            2,
+            8
+        ],
+        "boot.": [
+            1,
+            5,
+            8
+        ],
+        "bootstrap": [
+            0,
+            1,
+            3,
+            4,
+            7,
+            8,
+            11
+        ],
+        "bootstrapping": [
+            0,
+            2,
+            11
+        ],
+        "both.": [
+            0
+        ],
+        "bottom.": [
+            1
+        ],
+        "bounded": [
+            7,
+            13
+        ],
+        "box": [
+            0,
+            4,
+            14
+        ],
+        "branch": [
+            1,
+            7
+        ],
+        "branches": [
+            1
+        ],
+        "bricks.": [
+            7
+        ],
+        "bring": [
+            13
+        ],
+        "brings": [
+            2
+        ],
+        "browser": [
+            3,
+            4,
+            6,
+            10,
+            12
+        ],
+        "browser.": [
+            3
+        ],
+        "browsers": [
+            14
+        ],
+        "builder": [
+            1,
+            10
+        ],
+        "builder.": [
+            10
+        ],
+        "built": [
+            2,
+            7,
+            9
+        ],
+        "bundle.": [
+            1
+        ],
+        "business": [
+            1
+        ],
+        "button": [
+            3,
+            6,
+            7,
+            11
+        ],
+        "button.": [
+            0
+        ],
+        "bypass": [
+            3,
+            6,
+            9
+        ],
+        "bypasses": [
+            13
+        ],
+        "ca": [
+            1
+        ],
+        "cache": [
+            9
+        ],
+        "cached": [
+            9
+        ],
+        "caddy": [
+            1,
+            2,
+            3
+        ],
+        "calculatecost": [
+            9
+        ],
+        "call": [
+            1,
+            7,
+            9,
+            10,
+            11,
+            12,
+            13
+        ],
+        "callable.": [
+            14
+        ],
+        "called": [
+            7
+        ],
+        "caller": [
+            7,
+            13
+        ],
+        "callers": [
+            13
+        ],
+        "calling.": [
+            13
+        ],
+        "calls": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            9,
+            11,
+            12,
+            13
+        ],
+        "calls.": [
+            2,
+            8,
+            12
+        ],
+        "cannot": [
+            2,
+            3,
+            4,
+            5,
+            13
+        ],
+        "canonical": [
+            0,
+            1,
+            2,
+            6,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "cap": [
+            7,
+            13
+        ],
+        "capabilities": [
+            0,
+            1,
+            2,
+            5,
+            13
+        ],
+        "capabilities.": [
+            5
+        ],
+        "capability": [
+            0,
+            5,
+            8,
+            12,
+            13
+        ],
+        "capability.": [
+            5,
+            11,
+            13
+        ],
+        "capturing": [
+            1
+        ],
+        "card": [
+            9
+        ],
+        "card.": [
+            10
+        ],
+        "cards": [
+            9
+        ],
+        "cards.": [
+            9
+        ],
+        "care": [
+            1
+        ],
+        "carefully": [
+            2
+        ],
+        "cares": [
+            11,
+            12
+        ],
+        "carries": [
+            4,
+            13
+        ],
+        "carry": [
+            4,
+            12,
+            13
+        ],
+        "cascade.": [
+            11
+        ],
+        "catalogue": [
+            13
+        ],
+        "catch": [
+            0,
+            11
+        ],
+        "cdx": [
+            1,
+            8,
+            10
+        ],
+        "ceremony": [
+            3,
+            4
+        ],
+        "cert": [
+            1
+        ],
+        "certificate": [
+            0,
+            3
+        ],
+        "challenge": [
+            4
+        ],
+        "challenge.": [
+            4
+        ],
+        "change": [
+            4,
+            5,
+            11
+        ],
+        "changed": [
+            1,
+            7
+        ],
+        "changed.": [
+            7,
+            10
+        ],
+        "changes": [
+            1,
+            4,
+            10,
+            12
+        ],
+        "changing": [
+            5
+        ],
+        "channel.": [
+            1
+        ],
+        "characters.": [
+            3
+        ],
+        "chart": [
+            9
+        ],
+        "chart.js": [
+            9
+        ],
+        "chart.umd.min.js": [
+            9
+        ],
+        "chartjs": [
+            9
+        ],
+        "charts": [
+            8,
+            9
+        ],
+        "chatgpt": [
+            9
+        ],
+        "chatgptusageservice.php": [
+            9
+        ],
+        "chatter": [
+            8
+        ],
+        "cheap": [
+            7,
+            9
+        ],
+        "cheap.": [
+            7
+        ],
+        "cheaply": [
+            11
+        ],
+        "cheaply.": [
+            1
+        ],
+        "check": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            7,
+            8,
+            12
+        ],
+        "check.": [
+            3,
+            8
+        ],
+        "checked": [
+            3,
+            4,
+            6,
+            11
+        ],
+        "checks": [
+            0,
+            5
+        ],
+        "checksums": [
+            2
+        ],
+        "chip": [
+            9
+        ],
+        "chip.": [
+            9
+        ],
+        "chord": [
+            14
+        ],
+        "chosen": [
+            9
+        ],
+        "circuit": [
+            7
+        ],
+        "circuits": [
+            5
+        ],
+        "clamp": [
+            7
+        ],
+        "clamped": [
+            0,
+            2,
+            3,
+            4,
+            6
+        ],
+        "class": [
+            4
+        ],
+        "classes": [
+            1
+        ],
+        "claude": [
+            0,
+            1,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11,
+            14
+        ],
+        "claudeusageservice.php": [
+            9
+        ],
+        "clear": [
+            5,
+            6,
+            13
+        ],
+        "clears": [
+            3
+        ],
+        "cli": [
+            1,
+            3,
+            5,
+            8,
+            10,
+            13
+        ],
+        "cli.": [
+            8
+        ],
+        "cliauthcontroller.php": [
+            5
+        ],
+        "click": [
+            0,
+            2,
+            5
+        ],
+        "client": [
+            0,
+            1,
+            3,
+            4,
+            7,
+            8,
+            9,
+            13
+        ],
+        "clientconfigservice.php": [
+            10
+        ],
+        "clients": [
+            13
+        ],
+        "clis": [
+            8
+        ],
+        "clis.": [
+            1
+        ],
+        "clock": [
+            6
+        ],
+        "clone": [
+            2
+        ],
+        "cloned": [
+            4
+        ],
+        "close": [
+            12,
+            14
+        ],
+        "closed": [
+            14
+        ],
+        "closes": [
+            7
+        ],
+        "clx": [
+            1,
+            8,
+            10
+        ],
+        "cmd": [
+            14
+        ],
+        "coco": [
+            11
+        ],
+        "code": [
+            0,
+            1,
+            3,
+            5,
+            8,
+            14
+        ],
+        "code.": [
+            1
+        ],
+        "codebase": [
+            0
+        ],
+        "codes": [
+            7,
+            12
+        ],
+        "codex": [
+            0,
+            1,
+            5,
+            6,
+            8,
+            10,
+            11
+        ],
+        "coerced": [
+            3
+        ],
+        "collect": [
+            1
+        ],
+        "collects": [
+            0
+        ],
+        "colours": [
+            9
+        ],
+        "column": [
+            8,
+            13
+        ],
+        "columns": [
+            6
+        ],
+        "columns.": [
+            7
+        ],
+        "combinations": [
+            14
+        ],
+        "combines": [
+            9
+        ],
+        "come": [
+            0,
+            7,
+            10,
+            12
+        ],
+        "comes": [
+            4,
+            7,
+            9
+        ],
+        "command": [
+            2,
+            10,
+            13,
+            14
+        ],
+        "commit": [
+            10
+        ],
+        "common": [
+            12
+        ],
+        "compact": [
+            11
+        ],
+        "compared": [
+            8
+        ],
+        "compares": [
+            4
+        ],
+        "compat": [
+            1,
+            12
+        ],
+        "compatible": [
+            10,
+            14
+        ],
+        "compiled": [
+            1
+        ],
+        "complained": [
+            13
+        ],
+        "complaints": [
+            11
+        ],
+        "complete": [
+            2,
+            14
+        ],
+        "completed": [
+            6
+        ],
+        "completes": [
+            6
+        ],
+        "completion": [
+            1,
+            7
+        ],
+        "compliant": [
+            4
+        ],
+        "compose": [
+            1,
+            2
+        ],
+        "compose.yml": [
+            2
+        ],
+        "composes": [
+            8
+        ],
+        "compromise": [
+            3
+        ],
+        "compromised": [
+            7
+        ],
+        "computed": [
+            9
+        ],
+        "computes": [
+            9
+        ],
+        "conditional": [
+            13
+        ],
+        "config": [
+            1,
+            4,
+            5,
+            8,
+            10,
+            12,
+            14
+        ],
+        "config.": [
+            2,
+            3,
+            5
+        ],
+        "confignormalizer.php": [
+            10
+        ],
+        "configuration": [
+            2,
+            5
+        ],
+        "configured": [
+            2,
+            3,
+            4
+        ],
+        "configured.": [
+            7
+        ],
+        "confirm": [
+            4
+        ],
+        "confirmation": [
+            6
+        ],
+        "confirms": [
+            13
+        ],
+        "connects": [
+            1,
+            9
+        ],
+        "console": [
+            8
+        ],
+        "constant": [
+            1
+        ],
+        "constants": [
+            0,
+            5,
+            7,
+            8,
+            10,
+            13
+        ],
+        "consume": [
+            2
+        ],
+        "consumed": [
+            13
+        ],
+        "consumes": [
+            4
+        ],
+        "contain": [
+            8
+        ],
+        "container": [
+            1,
+            2
+        ],
+        "contains": [
+            1,
+            6,
+            12
+        ],
+        "content": [
+            1,
+            8,
+            10,
+            13
+        ],
+        "content.": [
+            1
+        ],
+        "context": [
+            11,
+            13
+        ],
+        "context.": [
+            11
+        ],
+        "contextual": [
+            14
+        ],
+        "contract": [
+            7,
+            8
+        ],
+        "contract.": [
+            1
+        ],
+        "control": [
+            2,
+            6,
+            8
+        ],
+        "controlled": [
+            4,
+            8
+        ],
+        "controller": [
+            1,
+            5,
+            6,
+            9,
+            12
+        ],
+        "controller.": [
+            7
+        ],
+        "controllers": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "controllers.": [
+            14
+        ],
+        "controls": [
+            8,
+            10
+        ],
+        "conventions": [
+            0
+        ],
+        "converted": [
+            5
+        ],
+        "cookie": [
+            0,
+            3
+        ],
+        "cookie.": [
+            3,
+            4
+        ],
+        "coordination": [
+            11
+        ],
+        "copies": [
+            1,
+            13
+        ],
+        "copy": [
+            8,
+            11
+        ],
+        "copy.": [
+            1,
+            2,
+            8
+        ],
+        "correct": [
+            1
+        ],
+        "correction.": [
+            0
+        ],
+        "cors": [
+            14
+        ],
+        "cost": [
+            0,
+            1,
+            8,
+            9,
+            14
+        ],
+        "costhistoryservice.php": [
+            9
+        ],
+        "count": [
+            6
+        ],
+        "counter": [
+            4
+        ],
+        "counter.": [
+            4
+        ],
+        "counts": [
+            8,
+            9
+        ],
+        "create": [
+            2,
+            3,
+            5,
+            11
+        ],
+        "create.": [
+            10,
+            11
+        ],
+        "created": [
+            4,
+            7
+        ],
+        "creates": [
+            1,
+            2,
+            4,
+            6,
+            11
+        ],
+        "creating": [
+            11
+        ],
+        "creation": [
+            4,
+            10
+        ],
+        "credential": [
+            4
+        ],
+        "credentials": [
+            0,
+            3,
+            4,
+            6,
+            7,
+            8
+        ],
+        "credentials.": [
+            4
+        ],
+        "creds": [
+            7
+        ],
+        "crud": [
+            10
+        ],
+        "crud.": [
+            13
+        ],
+        "ctrl": [
+            14
+        ],
+        "curl": [
+            5,
+            6
+        ],
+        "current": [
+            2,
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            12,
+            14
+        ],
+        "current.": [
+            2
+        ],
+        "currently": [
+            2,
+            6,
+            7
+        ],
+        "custom": [
+            12
+        ],
+        "cut": [
+            13
+        ],
+        "daily": [
+            9,
+            12
+        ],
+        "dash": [
+            6
+        ],
+        "dashboard": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            9,
+            10,
+            14
+        ],
+        "dashboard.": [
+            1,
+            7,
+            8,
+            9
+        ],
+        "dashboard.js": [
+            6,
+            9,
+            14
+        ],
+        "dashboardgraphstatsservice.php": [
+            9
+        ],
+        "data": [
+            0,
+            2,
+            6,
+            9,
+            13
+        ],
+        "data.": [
+            9
+        ],
+        "database": [
+            1,
+            11
+        ],
+        "database.": [
+            3
+        ],
+        "databasemigrator.php": [
+            1,
+            2
+        ],
+        "date": [
+            0
+        ],
+        "date.": [
+            6,
+            14
+        ],
+        "day": [
+            9,
+            10
+        ],
+        "days": [
+            0,
+            9
+        ],
+        "days.": [
+            9,
+            12
+        ],
+        "debugging": [
+            12
+        ],
+        "decide": [
+            7
+        ],
+        "decides": [
+            3
+        ],
+        "decision": [
+            7
+        ],
+        "declared": [
+            0,
+            5,
+            10,
+            13
+        ],
+        "decoding": [
+            9
+        ],
+        "decrease": [
+            4
+        ],
+        "decrypt": [
+            2
+        ],
+        "decrypted": [
+            7
+        ],
+        "decryption": [
+            7
+        ],
+        "decrypts": [
+            7
+        ],
+        "deduplicated.": [
+            13
+        ],
+        "default": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            10
+        ],
+        "default.": [
+            1,
+            3,
+            7,
+            11
+        ],
+        "defaults": [
+            0,
+            2,
+            10
+        ],
+        "defence": [
+            4
+        ],
+        "defined": [
+            1,
+            5,
+            13
+        ],
+        "definition": [
+            2
+        ],
+        "definitions": [
+            11
+        ],
+        "delegates": [
+            0,
+            1,
+            4
+        ],
+        "delete": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            11,
+            13,
+            14
+        ],
+        "deleted": [
+            3
+        ],
+        "deleted.": [
+            6,
+            8
+        ],
+        "deleteolderthan": [
+            12
+        ],
+        "deletes": [
+            3,
+            10,
+            12
+        ],
+        "deliberate": [
+            0,
+            3
+        ],
+        "deliberately": [
+            5
+        ],
+        "delivery": [
+            3,
+            7
+        ],
+        "deltas": [
+            8
+        ],
+        "demand": [
+            1
+        ],
+        "demand.": [
+            8
+        ],
+        "demands": [
+            3
+        ],
+        "demote": [
+            5
+        ],
+        "denied": [
+            12
+        ],
+        "deny": [
+            5,
+            6
+        ],
+        "depends": [
+            13
+        ],
+        "deployments": [
+            8
+        ],
+        "depth": [
+            4
+        ],
+        "derived": [
+            7,
+            8,
+            11,
+            13
+        ],
+        "describes.": [
+            0
+        ],
+        "destroys": [
+            2
+        ],
+        "detail": [
+            0,
+            6,
+            7,
+            10,
+            11
+        ],
+        "details": [
+            7,
+            12
+        ],
+        "detected.": [
+            2
+        ],
+        "device": [
+            3,
+            5
+        ],
+        "differ": [
+            12
+        ],
+        "different": [
+            9
+        ],
+        "differs": [
+            8
+        ],
+        "digest": [
+            2,
+            6,
+            7,
+            8
+        ],
+        "digest.": [
+            7
+        ],
+        "dip": [
+            0
+        ],
+        "directory": [
+            1,
+            13
+        ],
+        "disable": [
+            6,
+            13
+        ],
+        "disabled": [
+            3,
+            4,
+            7,
+            10,
+            11
+        ],
+        "disabled.": [
+            4
+        ],
+        "disables": [
+            0
+        ],
+        "disappear": [
+            6
+        ],
+        "disappear.": [
+            13
+        ],
+        "disappears.": [
+            13
+        ],
+        "disclosure": [
+            4,
+            14
+        ],
+        "discover": [
+            1
+        ],
+        "disk": [
+            2,
+            8,
+            11
+        ],
+        "disk.": [
+            6,
+            8,
+            13
+        ],
+        "dismiss": [
+            14
+        ],
+        "dispatch": [
+            1,
+            13
+        ],
+        "dispatcher": [
+            1
+        ],
+        "dispatchers": [
+            1
+        ],
+        "dispatches": [
+            12
+        ],
+        "display": [
+            5
+        ],
+        "distributes": [
+            0
+        ],
+        "distribution": [
+            1,
+            2,
+            7
+        ],
+        "dns": [
+            5,
+            6,
+            7,
+            10
+        ],
+        "docker": [
+            2
+        ],
+        "document": [
+            11
+        ],
+        "documents": [
+            11
+        ],
+        "doing": [
+            12
+        ],
+        "domain": [
+            1,
+            6
+        ],
+        "done": [
+            11
+        ],
+        "download": [
+            8
+        ],
+        "downstream": [
+            7
+        ],
+        "draft.": [
+            10
+        ],
+        "drawer": [
+            14
+        ],
+        "drift": [
+            2,
+            4
+        ],
+        "drifted": [
+            0
+        ],
+        "drive": [
+            9
+        ],
+        "driven": [
+            6,
+            9
+        ],
+        "drives": [
+            10
+        ],
+        "drop": [
+            11
+        ],
+        "drops": [
+            10
+        ],
+        "dual": [
+            3
+        ],
+        "during": [
+            3,
+            6,
+            7,
+            8
+        ],
+        "e.g.": [
+            7,
+            8,
+            14
+        ],
+        "earlier": [
+            10
+        ],
+        "early": [
+            5
+        ],
+        "edit": [
+            5
+        ],
+        "editable": [
+            11,
+            14
+        ],
+        "edited": [
+            8
+        ],
+        "editing": [
+            11
+        ],
+        "editor.": [
+            0
+        ],
+        "edits.": [
+            10
+        ],
+        "effectively": [
+            4
+        ],
+        "either": [
+            0,
+            1,
+            3,
+            7
+        ],
+        "else.": [
+            6
+        ],
+        "email": [
+            3
+        ],
+        "embed": [
+            2
+        ],
+        "embedded": [
+            1
+        ],
+        "emergency": [
+            7
+        ],
+        "emission": [
+            2
+        ],
+        "emit": [
+            1,
+            2
+        ],
+        "empty": [
+            2,
+            12
+        ],
+        "enable": [
+            6
+        ],
+        "enabled": [
+            10,
+            11,
+            13
+        ],
+        "enabled.": [
+            13
+        ],
+        "enables": [
+            10
+        ],
+        "encrypt": [
+            7
+        ],
+        "encrypted": [
+            0,
+            1,
+            2,
+            7,
+            8
+        ],
+        "encryption": [
+            1,
+            2,
+            7
+        ],
+        "encryptionkeymanager.php": [
+            2,
+            7
+        ],
+        "encrypts": [
+            7
+        ],
+        "endpoint": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13,
+            14
+        ],
+        "endpoint.": [
+            10
+        ],
+        "endpoints": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            14
+        ],
+        "endpoints.": [
+            4,
+            10
+        ],
+        "ends": [
+            5,
+            7
+        ],
+        "enforce": [
+            4
+        ],
+        "enforced": [
+            3,
+            5,
+            13
+        ],
+        "enforcement": [
+            0,
+            2,
+            3,
+            5,
+            7,
+            12
+        ],
+        "enforces": [
+            5,
+            10
+        ],
+        "engine": [
+            1,
+            8
+        ],
+        "engine.php": [
+            8
+        ],
+        "engines": [
+            0,
+            2,
+            8
+        ],
+        "english": [
+            7
+        ],
+        "ensure": [
+            11
+        ],
+        "ensureseeded": [
+            2,
+            8
+        ],
+        "entirely.": [
+            9
+        ],
+        "entries": [
+            10
+        ],
+        "entry": [
+            1,
+            3,
+            4,
+            5,
+            12
+        ],
+        "enumerates": [
+            13
+        ],
+        "envelope": [
+            3,
+            13
+        ],
+        "envelopes": [
+            1,
+            5
+        ],
+        "environment": [
+            1,
+            2
+        ],
+        "equivalent.": [
+            12
+        ],
+        "error": [
+            1,
+            3,
+            5,
+            12,
+            13
+        ],
+        "errors": [
+            4,
+            9
+        ],
+        "errors.": [
+            4,
+            7
+        ],
+        "event": [
+            1
+        ],
+        "events": [
+            0,
+            1,
+            9,
+            12,
+            14
+        ],
+        "ever": [
+            7
+        ],
+        "everyone.": [
+            2
+        ],
+        "everything": [
+            1,
+            3,
+            8,
+            10
+        ],
+        "everything.": [
+            10
+        ],
+        "evolution": [
+            1
+        ],
+        "exact": [
+            0
+        ],
+        "exactly": [
+            2,
+            3,
+            13
+        ],
+        "except": [
+            6
+        ],
+        "exceptions": [
+            5
+        ],
+        "exec": [
+            1,
+            8
+        ],
+        "executable": [
+            2
+        ],
+        "execute": [
+            1
+        ],
+        "exempt": [
+            5,
+            6,
+            9
+        ],
+        "exhausted": [
+            7
+        ],
+        "exhaustive": [
+            5
+        ],
+        "exist": [
+            3,
+            13
+        ],
+        "exist.": [
+            0
+        ],
+        "existing": [
+            7,
+            11,
+            12,
+            13
+        ],
+        "exists": [
+            0,
+            4,
+            5
+        ],
+        "exists.": [
+            3
+        ],
+        "exits": [
+            8
+        ],
+        "exits.": [
+            1
+        ],
+        "expand": [
+            12
+        ],
+        "expansions": [
+            9
+        ],
+        "expected": [
+            11
+        ],
+        "expire": [
+            3
+        ],
+        "expired": [
+            3
+        ],
+        "expired.": [
+            8
+        ],
+        "explicit": [
+            4,
+            11
+        ],
+        "explicitly": [
+            9
+        ],
+        "explicitly.": [
+            4
+        ],
+        "exposed": [
+            11,
+            13
+        ],
+        "exposes": [
+            1,
+            7,
+            10
+        ],
+        "facing": [
+            7,
+            11,
+            12,
+            14
+        ],
+        "fail": [
+            2,
+            7,
+            12
+        ],
+        "failed": [
+            13
+        ],
+        "failed.": [
+            8
+        ],
+        "fails": [
+            3,
+            7
+        ],
+        "fails.": [
+            4
+        ],
+        "failure": [
+            3
+        ],
+        "failures": [
+            4
+        ],
+        "fall": [
+            3,
+            4
+        ],
+        "fallback": [
+            10
+        ],
+        "falls": [
+            1,
+            9,
+            12
+        ],
+        "false": [
+            2,
+            5,
+            6
+        ],
+        "false.": [
+            5
+        ],
+        "family": [
+            12
+        ],
+        "fan": [
+            12
+        ],
+        "fastapi": [
+            1
+        ],
+        "feature": [
+            9
+        ],
+        "fed": [
+            0,
+            9
+        ],
+        "fed.": [
+            9
+        ],
+        "feed": [
+            8
+        ],
+        "feed.": [
+            12
+        ],
+        "feedback": [
+            11
+        ],
+        "feedback.": [
+            11
+        ],
+        "feeds": [
+            10
+        ],
+        "fetch": [
+            2,
+            8,
+            9,
+            10,
+            13
+        ],
+        "few": [
+            9
+        ],
+        "fields": [
+            11
+        ],
+        "figure": [
+            11
+        ],
+        "file": [
+            0,
+            1
+        ],
+        "filenames": [
+            0
+        ],
+        "files": [
+            0,
+            11
+        ],
+        "files.": [
+            13
+        ],
+        "filesystem": [
+            13
+        ],
+        "filter": [
+            13
+        ],
+        "filter.": [
+            12
+        ],
+        "filtered": [
+            6,
+            13
+        ],
+        "filtering": [
+            12
+        ],
+        "filters": [
+            0,
+            12
+        ],
+        "filters.": [
+            12,
+            13
+        ],
+        "find": [
+            0,
+            11,
+            12
+        ],
+        "finds": [
+            1
+        ],
+        "fingerprint": [
+            2,
+            3,
+            7
+        ],
+        "fingerprint.": [
+            0,
+            1
+        ],
+        "finished": [
+            9
+        ],
+        "first": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            10,
+            13,
+            14
+        ],
+        "five": [
+            0
+        ],
+        "flag": [
+            0,
+            6,
+            7,
+            8,
+            10
+        ],
+        "flag.": [
+            11
+        ],
+        "flagged": [
+            11
+        ],
+        "flags": [
+            8
+        ],
+        "flavor.": [
+            7
+        ],
+        "fleet": [
+            0,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+        ],
+        "flip": [
+            7,
+            11
+        ],
+        "flips": [
+            2,
+            5,
+            10
+        ],
+        "flow": [
+            0,
+            1,
+            3,
+            4
+        ],
+        "flow.": [
+            3,
+            10
+        ],
+        "focus": [
+            14
+        ],
+        "follow": [
+            0,
+            7,
+            9,
+            13
+        ],
+        "footer": [
+            0
+        ],
+        "force": [
+            9,
+            10
+        ],
+        "forces": [
+            9
+        ],
+        "forcing": [
+            7
+        ],
+        "forever.": [
+            12
+        ],
+        "forgot": [
+            3
+        ],
+        "form": [
+            4,
+            10
+        ],
+        "forward": [
+            0,
+            3
+        ],
+        "forwarding": [
+            3
+        ],
+        "forwards": [
+            1
+        ],
+        "four": [
+            0,
+            5,
+            6,
+            7,
+            10
+        ],
+        "framework": [
+            1
+        ],
+        "fresh": [
+            2,
+            7,
+            9
+        ],
+        "freshness": [
+            9
+        ],
+        "freshness.": [
+            9
+        ],
+        "friction": [
+            11
+        ],
+        "friendly": [
+            4
+        ],
+        "front": [
+            1
+        ],
+        "fs": [
+            13
+        ],
+        "full": [
+            0,
+            2,
+            5,
+            6,
+            10,
+            11,
+            13,
+            14
+        ],
+        "fulltext": [
+            13
+        ],
+        "future": [
+            7
+        ],
+        "gate": [
+            5
+        ],
+        "gated": [
+            0,
+            6
+        ],
+        "gates": [
+            5
+        ],
+        "gates.": [
+            3
+        ],
+        "gating": [
+            3
+        ],
+        "gating.": [
+            2
+        ],
+        "gauge.": [
+            9
+        ],
+        "general": [
+            0,
+            5,
+            6,
+            7,
+            8,
+            10,
+            12,
+            14
+        ],
+        "generated": [
+            10
+        ],
+        "generation": [
+            7
+        ],
+        "generic": [
+            13
+        ],
+        "get": [
+            1,
+            2,
+            8,
+            10,
+            13,
+            14
+        ],
+        "getlogretention": [
+            12
+        ],
+        "gets": [
+            0,
+            1,
+            2,
+            7,
+            10,
+            13
+        ],
+        "ghost.": [
+            12
+        ],
+        "given": [
+            7,
+            10
+        ],
+        "gives": [
+            11,
+            13
+        ],
+        "glance": [
+            0,
+            1,
+            6
+        ],
+        "global": [
+            5,
+            8,
+            10
+        ],
+        "go": [
+            10
+        ],
+        "goes": [
+            8,
+            13
+        ],
+        "going": [
+            13
+        ],
+        "gpt": [
+            9
+        ],
+        "grace": [
+            6,
+            7,
+            8
+        ],
+        "graph": [
+            1,
+            9
+        ],
+        "greater": [
+            3
+        ],
+        "green": [
+            6
+        ],
+        "grep": [
+            5
+        ],
+        "grey": [
+            6
+        ],
+        "grid": [
+            14
+        ],
+        "group": [
+            6,
+            14
+        ],
+        "grouped": [
+            0,
+            10
+        ],
+        "groups": [
+            0,
+            1
+        ],
+        "guard": [
+            5
+        ],
+        "half": [
+            12
+        ],
+        "hand": [
+            6,
+            7,
+            8,
+            11
+        ],
+        "handful": [
+            9
+        ],
+        "handing": [
+            7
+        ],
+        "handle": [
+            13
+        ],
+        "handleauth": [
+            6,
+            7
+        ],
+        "handled": [
+            1,
+            2,
+            7,
+            10,
+            14
+        ],
+        "handleglobalshortcut": [
+            14
+        ],
+        "handler": [
+            1,
+            3,
+            7,
+            13,
+            14
+        ],
+        "handlers": [
+            1
+        ],
+        "handling": [
+            1
+        ],
+        "hands": [
+            11
+        ],
+        "handshake": [
+            7
+        ],
+        "happened": [
+            11
+        ],
+        "happens.": [
+            3
+        ],
+        "hard": [
+            7
+        ],
+        "hardware": [
+            4
+        ],
+        "hash": [
+            2,
+            3,
+            7,
+            8
+        ],
+        "hash.": [
+            10
+        ],
+        "hashed": [
+            10
+        ],
+        "hashes": [
+            4,
+            10
+        ],
+        "hashing": [
+            3
+        ],
+        "hasn": [
+            9
+        ],
+        "header": [
+            7,
+            11
+        ],
+        "header.": [
+            3,
+            4,
+            13
+        ],
+        "headings": [
+            0
+        ],
+        "health": [
+            7
+        ],
+        "heavier": [
+            9
+        ],
+        "heavy": [
+            9
+        ],
+        "held": [
+            6
+        ],
+        "help": [
+            14
+        ],
+        "helper": [
+            0,
+            5
+        ],
+        "helpers": [
+            6,
+            7,
+            10,
+            11
+        ],
+        "helpers.php": [
+            0,
+            5
+        ],
+        "here.": [
+            1
+        ],
+        "hex": [
+            3
+        ],
+        "hidden.": [
+            11
+        ],
+        "hide": [
+            8
+        ],
+        "hides": [
+            4,
+            13
+        ],
+        "history": [
+            9,
+            10,
+            11
+        ],
+        "history.": [
+            10,
+            11
+        ],
+        "hit": [
+            1,
+            7
+        ],
+        "hits": [
+            3
+        ],
+        "hold": [
+            7,
+            8
+        ],
+        "holds": [
+            0,
+            2
+        ],
+        "honoured.": [
+            7
+        ],
+        "hood": [
+            10
+        ],
+        "horizon": [
+            9
+        ],
+        "host": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "host.": [
+            11
+        ],
+        "hostapicontroller.php": [
+            8
+        ],
+        "hostauthdigestrepository.php": [
+            7
+        ],
+        "hosted": [
+            0
+        ],
+        "hostname": [
+            6
+        ],
+        "hostrepository.php": [
+            6
+        ],
+        "hosts": [
+            0,
+            2,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            13,
+            14
+        ],
+        "hosts.": [
+            1,
+            9,
+            10
+        ],
+        "hosts.activate": [
+            5
+        ],
+        "hosts.manage": [
+            5
+        ],
+        "hours": [
+            0
+        ],
+        "html": [
+            1,
+            3
+        ],
+        "http": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "http.": [
+            13
+        ],
+        "i.e.": [
+            2
+        ],
+        "id": [
+            12
+        ],
+        "id.": [
+            10,
+            13
+        ],
+        "identifier.": [
+            11
+        ],
+        "identity": [
+            1,
+            3,
+            4,
+            5,
+            13
+        ],
+        "identity.": [
+            0
+        ],
+        "ignored": [
+            14
+        ],
+        "immediately": [
+            3,
+            6,
+            7,
+            13
+        ],
+        "immediately.": [
+            4
+        ],
+        "implementation": [
+            4,
+            13
+        ],
+        "implemented": [
+            3,
+            5
+        ],
+        "implements": [
+            1
+        ],
+        "implicitly": [
+            4
+        ],
+        "impose": [
+            9
+        ],
+        "in.": [
+            4,
+            11
+        ],
+        "include": [
+            3
+        ],
+        "including": [
+            0,
+            9,
+            11
+        ],
+        "incoming": [
+            4,
+            12
+        ],
+        "increasing": [
+            4
+        ],
+        "independent": [
+            3
+        ],
+        "index": [
+            14
+        ],
+        "index.html": [
+            0,
+            4,
+            6,
+            10,
+            14
+        ],
+        "index.php": [
+            0,
+            1,
+            2,
+            3,
+            14
+        ],
+        "indexing": [
+            13
+        ],
+        "individual": [
+            0,
+            8,
+            10
+        ],
+        "inferred": [
+            2
+        ],
+        "info": [
+            9,
+            13
+        ],
+        "info.": [
+            7
+        ],
+        "init": [
+            9
+        ],
+        "initial": [
+            2,
+            3,
+            9
+        ],
+        "injects": [
+            1,
+            3
+        ],
+        "inline": [
+            1,
+            5
+        ],
+        "input": [
+            1,
+            9
+        ],
+        "input.": [
+            8
+        ],
+        "inputs": [
+            6
+        ],
+        "insecure": [
+            0,
+            2,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            14
+        ],
+        "insecureauthrequestrepository.php": [
+            6,
+            7
+        ],
+        "insecuredomainallowrepository.php": [
+            6,
+            7
+        ],
+        "insecurehostwindowservice.php": [
+            6,
+            7
+        ],
+        "inside": [
+            0,
+            6,
+            8
+        ],
+        "inspected": [
+            8
+        ],
+        "install": [
+            0,
+            1,
+            2,
+            6,
+            8
+        ],
+        "installation": [
+            2
+        ],
+        "installcontroller.php": [
+            2
+        ],
+        "installer": [
+            2,
+            8
+        ],
+        "installerscriptbuilder.php": [
+            2
+        ],
+        "installing": [
+            0,
+            2
+        ],
+        "installs": [
+            2
+        ],
+        "installtokenrepository.php": [
+            2
+        ],
+        "instantiates": [
+            1,
+            2
+        ],
+        "instead": [
+            6,
+            14
+        ],
+        "instead.": [
+            8
+        ],
+        "integration": [
+            10
+        ],
+        "integrations": [
+            0,
+            10,
+            13,
+            14
+        ],
+        "intentional": [
+            5
+        ],
+        "interaction": [
+            12
+        ],
+        "interactive": [
+            2
+        ],
+        "internal": [
+            13
+        ],
+        "interval": [
+            9
+        ],
+        "invalid": [
+            4
+        ],
+        "invalidated": [
+            7,
+            13
+        ],
+        "invoked": [
+            9,
+            12
+        ],
+        "ip": [
+            1,
+            2,
+            6,
+            7
+        ],
+        "ips": [
+            12
+        ],
+        "irrelevant": [
+            8
+        ],
+        "is.": [
+            10
+        ],
+        "ish": [
+            9
+        ],
+        "ismtlssatisfied": [
+            3
+        ],
+        "issued": [
+            13
+        ],
+        "issues": [
+            11
+        ],
+        "it.": [
+            10,
+            11,
+            13
+        ],
+        "item": [
+            14
+        ],
+        "iterate": [
+            11
+        ],
+        "itself": [
+            1,
+            7,
+            12
+        ],
+        "job.": [
+            2
+        ],
+        "joplin": [
+            0,
+            5,
+            10,
+            13
+        ],
+        "joplinservice.php": [
+            10
+        ],
+        "joplinskillservice.php": [
+            10
+        ],
+        "js": [
+            9,
+            12
+        ],
+        "json": [
+            1,
+            3,
+            5,
+            6,
+            9,
+            10,
+            11,
+            12,
+            13
+        ],
+        "jump": [
+            0,
+            14
+        ],
+        "keep": [
+            8
+        ],
+        "keep.": [
+            10
+        ],
+        "keeping": [
+            1,
+            13
+        ],
+        "keeps": [
+            0,
+            8
+        ],
+        "key": [
+            0,
+            1,
+            2,
+            7,
+            8,
+            10,
+            11,
+            13,
+            14
+        ],
+        "key.": [
+            7
+        ],
+        "keyboard": [
+            0,
+            14
+        ],
+        "keyring": [
+            1,
+            2,
+            7
+        ],
+        "keyring.": [
+            7
+        ],
+        "keys": [
+            0,
+            5,
+            7,
+            8,
+            10,
+            11,
+            14
+        ],
+        "kill": [
+            7,
+            10,
+            13
+        ],
+        "killing": [
+            7
+        ],
+        "knob.": [
+            12
+        ],
+        "knobs.": [
+            5
+        ],
+        "known": [
+            7
+        ],
+        "kpis": [
+            9
+        ],
+        "labels": [
+            5
+        ],
+        "laid": [
+            0
+        ],
+        "lands": [
+            1
+        ],
+        "lane": [
+            9
+        ],
+        "lanes": [
+            9
+        ],
+        "large": [
+            4,
+            8
+        ],
+        "larger": [
+            13
+        ],
+        "last": [
+            2,
+            4,
+            5,
+            6,
+            7,
+            9,
+            11,
+            12
+        ],
+        "latest": [
+            8,
+            10,
+            11
+        ],
+        "latestpricing": [
+            9
+        ],
+        "launch": [
+            1
+        ],
+        "layer": [
+            13
+        ],
+        "layers": [
+            0,
+            1
+        ],
+        "layout": [
+            9
+        ],
+        "least": [
+            0,
+            3
+        ],
+        "leave": [
+            10
+        ],
+        "left": [
+            0,
+            4
+        ],
+        "legacy": [
+            9
+        ],
+        "length": [
+            4,
+            9
+        ],
+        "let": [
+            2
+        ],
+        "lets": [
+            1,
+            3,
+            8
+        ],
+        "letter": [
+            14
+        ],
+        "letting": [
+            7
+        ],
+        "library": [
+            10
+        ],
+        "libsodium": [
+            1,
+            7
+        ],
+        "lifecycle": [
+            1
+        ],
+        "lighter": [
+            7
+        ],
+        "like": [
+            0,
+            1,
+            9,
+            13
+        ],
+        "limiting": [
+            9
+        ],
+        "limits": [
+            13
+        ],
+        "line": [
+            0,
+            6,
+            7,
+            12,
+            13,
+            14
+        ],
+        "lines": [
+            11
+        ],
+        "links": [
+            4
+        ],
+        "list": [
+            2,
+            3,
+            4,
+            6,
+            8,
+            9,
+            11,
+            12
+        ],
+        "list.": [
+            10,
+            13
+        ],
+        "listens": [
+            12
+        ],
+        "listing": [
+            11
+        ],
+        "listings": [
+            5,
+            6
+        ],
+        "listresources": [
+            13
+        ],
+        "lists": [
+            5,
+            10
+        ],
+        "listtools": [
+            13
+        ],
+        "literal": [
+            5
+        ],
+        "live": [
+            0,
+            1,
+            2,
+            4,
+            5,
+            6,
+            9,
+            12
+        ],
+        "live.": [
+            12
+        ],
+        "lives": [
+            1,
+            3,
+            6,
+            8,
+            9,
+            11,
+            14
+        ],
+        "load": [
+            9
+        ],
+        "loading": [
+            9
+        ],
+        "loads": [
+            6,
+            8
+        ],
+        "local": [
+            1,
+            2,
+            8,
+            9
+        ],
+        "locally": [
+            8
+        ],
+        "location": [
+            2
+        ],
+        "lock": [
+            6
+        ],
+        "locked": [
+            4
+        ],
+        "log": [
+            6,
+            7,
+            10,
+            12
+        ],
+        "logged.": [
+            7
+        ],
+        "logging": [
+            4,
+            13
+        ],
+        "logic": [
+            1,
+            6
+        ],
+        "login": [
+            1,
+            3,
+            4
+        ],
+        "login.": [
+            4
+        ],
+        "login.html": [
+            3
+        ],
+        "login.js": [
+            3,
+            4
+        ],
+        "logins": [
+            12
+        ],
+        "logout": [
+            0,
+            3
+        ],
+        "logrepository.php": [
+            12
+        ],
+        "logs": [
+            0,
+            3,
+            4,
+            5,
+            12,
+            13,
+            14
+        ],
+        "logs.js": [
+            12
+        ],
+        "long": [
+            1,
+            6,
+            7
+        ],
+        "longer": [
+            0,
+            9
+        ],
+        "lookup": [
+            3
+        ],
+        "lookups.": [
+            12
+        ],
+        "lose": [
+            7
+        ],
+        "losing": [
+            2
+        ],
+        "low": [
+            11
+        ],
+        "machine": [
+            0,
+            2,
+            6,
+            7
+        ],
+        "machines.": [
+            0
+        ],
+        "main": [
+            1
+        ],
+        "make": [
+            7
+        ],
+        "manage": [
+            4
+        ],
+        "managed": [
+            10
+        ],
+        "management": [
+            0,
+            4
+        ],
+        "management.": [
+            0
+        ],
+        "managing": [
+            4
+        ],
+        "manifest": [
+            7,
+            8,
+            10
+        ],
+        "manifest.": [
+            13
+        ],
+        "manual": [
+            0,
+            2,
+            7,
+            8,
+            10,
+            13,
+            14
+        ],
+        "manual.": [
+            0
+        ],
+        "map": [
+            6,
+            14
+        ],
+        "mapping": [
+            5
+        ],
+        "maps": [
+            6,
+            10
+        ],
+        "mariadb": [
+            1,
+            2
+        ],
+        "mariadb.": [
+            1
+        ],
+        "mark": [
+            6
+        ],
+        "markdown": [
+            11
+        ],
+        "markdown.": [
+            11
+        ],
+        "match": [
+            7,
+            12
+        ],
+        "matching": [
+            1,
+            14
+        ],
+        "material": [
+            2
+        ],
+        "materialisation": [
+            1
+        ],
+        "materialises": [
+            10,
+            13
+        ],
+        "maths": [
+            6,
+            7
+        ],
+        "maths.": [
+            8
+        ],
+        "matrix": [
+            0,
+            1,
+            5
+        ],
+        "may": [
+            0,
+            4,
+            10
+        ],
+        "mcp": [
+            0,
+            1,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "mcpaccesslogrepository.php": [
+            12,
+            13
+        ],
+        "mcpfileoperations.php": [
+            13
+        ],
+        "mcplogs": [
+            12
+        ],
+        "mcpresourcehandler.php": [
+            13
+        ],
+        "mcproutecontroller.php": [
+            13
+        ],
+        "mcpserver.php": [
+            1,
+            13
+        ],
+        "mcpsessiontokenrepository.php": [
+            13
+        ],
+        "mcptooldefinitions.php": [
+            11,
+            13
+        ],
+        "means": [
+            4,
+            7
+        ],
+        "memories": [
+            0,
+            5,
+            10,
+            13,
+            14
+        ],
+        "memory": [
+            1,
+            13
+        ],
+        "memory.": [
+            8,
+            13
+        ],
+        "memoryservice.php": [
+            10,
+            13
+        ],
+        "memorysummaryservice.php": [
+            13
+        ],
+        "menu": [
+            0,
+            3
+        ],
+        "merges": [
+            9
+        ],
+        "meta": [
+            8
+        ],
+        "metadata": [
+            2,
+            4,
+            7,
+            8
+        ],
+        "metadata.": [
+            1,
+            13
+        ],
+        "meter": [
+            9
+        ],
+        "meter.": [
+            9
+        ],
+        "method": [
+            0,
+            1,
+            5,
+            6,
+            7,
+            13,
+            14
+        ],
+        "methods.": [
+            1
+        ],
+        "metrics": [
+            9
+        ],
+        "migrate": [
+            7
+        ],
+        "migration": [
+            2
+        ],
+        "migrations": [
+            1,
+            2
+        ],
+        "min": [
+            0
+        ],
+        "minimal": [
+            11
+        ],
+        "minimum": [
+            4
+        ],
+        "mint": [
+            10
+        ],
+        "mints": [
+            2
+        ],
+        "mirror": [
+            11
+        ],
+        "mirrors": [
+            10,
+            14
+        ],
+        "misbehaving": [
+            4
+        ],
+        "mismatches": [
+            8
+        ],
+        "missing": [
+            3
+        ],
+        "mix.": [
+            9
+        ],
+        "modal": [
+            0,
+            6,
+            14
+        ],
+        "modal.": [
+            6
+        ],
+        "mode": [
+            2,
+            5,
+            6,
+            7,
+            8,
+            10
+        ],
+        "model": [
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            13
+        ],
+        "modes": [
+            3,
+            10
+        ],
+        "modifier": [
+            14
+        ],
+        "module": [
+            10,
+            11,
+            13
+        ],
+        "module.": [
+            1
+        ],
+        "moment": [
+            2,
+            3,
+            5
+        ],
+        "monotonically": [
+            4
+        ],
+        "month": [
+            9
+        ],
+        "move": [
+            0,
+            2,
+            7
+        ],
+        "mtls": [
+            0,
+            3
+        ],
+        "multiple": [
+            7
+        ],
+        "must": [
+            0,
+            3,
+            7,
+            9,
+            11
+        ],
+        "mutate": [
+            5
+        ],
+        "mutating": [
+            5,
+            6
+        ],
+        "mutating.": [
+            5
+        ],
+        "mutation": [
+            11
+        ],
+        "mysql": [
+            1,
+            13
+        ],
+        "name": [
+            0,
+            3,
+            4,
+            12
+        ],
+        "names": [
+            2
+        ],
+        "namespaced": [
+            13
+        ],
+        "naming": [
+            8
+        ],
+        "narrower": [
+            12
+        ],
+        "nav.js": [
+            14
+        ],
+        "navigating.": [
+            14
+        ],
+        "navigation": [
+            0
+        ],
+        "near": [
+            1
+        ],
+        "need": [
+            3,
+            4
+        ],
+        "need.": [
+            0
+        ],
+        "needed": [
+            1
+        ],
+        "needed.": [
+            1
+        ],
+        "needing": [
+            7
+        ],
+        "needs": [
+            3,
+            5,
+            7,
+            8,
+            13
+        ],
+        "neither": [
+            1
+        ],
+        "network": [
+            9
+        ],
+        "never": [
+            1,
+            3,
+            5,
+            6,
+            8
+        ],
+        "new": [
+            0,
+            1,
+            2,
+            4,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            14
+        ],
+        "newer": [
+            1,
+            8
+        ],
+        "newest": [
+            7
+        ],
+        "next": [
+            1,
+            8,
+            10
+        ],
+        "non": [
+            4
+        ],
+        "normal": [
+            2,
+            6
+        ],
+        "normalised": [
+            13
+        ],
+        "normalises": [
+            3
+        ],
+        "normally": [
+            13
+        ],
+        "notable": [
+            9
+        ],
+        "notes": [
+            10,
+            11
+        ],
+        "nothing": [
+            0,
+            1,
+            7
+        ],
+        "now.": [
+            10
+        ],
+        "nuclear.": [
+            10
+        ],
+        "nudge.": [
+            4
+        ],
+        "number.": [
+            11
+        ],
+        "numbers": [
+            0
+        ],
+        "object": [
+            9,
+            11
+        ],
+        "observed": [
+            8
+        ],
+        "occasionally": [
+            4
+        ],
+        "off.": [
+            10,
+            13
+        ],
+        "often": [
+            12
+        ],
+        "often.": [
+            12
+        ],
+        "old": [
+            10
+        ],
+        "on.": [
+            7
+        ],
+        "onboard": [
+            1
+        ],
+        "one": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            7,
+            8,
+            10
+        ],
+        "one.": [
+            11
+        ],
+        "ones": [
+            10
+        ],
+        "online.": [
+            0
+        ],
+        "only.": [
+            4,
+            13
+        ],
+        "onto": [
+            6,
+            10
+        ],
+        "op.": [
+            5
+        ],
+        "open": [
+            0,
+            1,
+            6,
+            12,
+            14
+        ],
+        "open.": [
+            0
+        ],
+        "openai": [
+            0,
+            1,
+            5,
+            7,
+            10,
+            14
+        ],
+        "opens": [
+            4,
+            6,
+            7,
+            10,
+            12
+        ],
+        "operate": [
+            13
+        ],
+        "operates": [
+            0
+        ],
+        "operational": [
+            5
+        ],
+        "operations": [
+            1,
+            6,
+            7,
+            8,
+            10
+        ],
+        "operator": [
+            0,
+            5,
+            9,
+            13
+        ],
+        "operator.": [
+            5
+        ],
+        "operators": [
+            5,
+            11
+        ],
+        "optional": [
+            8,
+            10,
+            11
+        ],
+        "optionally": [
+            2,
+            7
+        ],
+        "options": [
+            3
+        ],
+        "orchestrate": [
+            1
+        ],
+        "orchestrator": [
+            0,
+            1,
+            2,
+            7,
+            9,
+            11,
+            13
+        ],
+        "orchestrator.": [
+            6
+        ],
+        "order": [
+            0,
+            7
+        ],
+        "orient": [
+            11
+        ],
+        "orientation": [
+            0,
+            1,
+            2
+        ],
+        "origin": [
+            4
+        ],
+        "originates": [
+            12
+        ],
+        "orm": [
+            1
+        ],
+        "os": [
+            8
+        ],
+        "otherwise": [
+            9
+        ],
+        "out": [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7,
+            11,
+            12,
+            13
+        ],
+        "out.": [
+            7
+        ],
+        "outcome": [
+            12
+        ],
+        "output": [
+            9
+        ],
+        "outside": [
+            6,
+            7,
+            8
+        ],
+        "over.": [
+            9
+        ],
+        "overhead.": [
+            13
+        ],
+        "override": [
+            6,
+            7,
+            8,
+            10
+        ],
+        "overrides.": [
+            10
+        ],
+        "overview": [
+            0,
+            5,
+            9,
+            14
+        ],
+        "overwrites": [
+            11
+        ],
+        "overwriting.": [
+            8
+        ],
+        "own.": [
+            0
+        ],
+        "page": [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7,
+            11
+        ],
+        "page.": [
+            0,
+            3
+        ],
+        "paged": [
+            12
+        ],
+        "pages": [
+            0,
+            1,
+            6,
+            14
+        ],
+        "paginated": [
+            11
+        ],
+        "pair": [
+            1
+        ],
+        "pair.": [
+            12
+        ],
+        "pan": [
+            9
+        ],
+        "panel": [
+            4,
+            6,
+            11,
+            12,
+            14
+        ],
+        "panel.": [
+            1
+        ],
+        "panels": [
+            6
+        ],
+        "parallel": [
+            9
+        ],
+        "parse": [
+            1
+        ],
+        "parsing": [
+            4
+        ],
+        "partition": [
+            10
+        ],
+        "party": [
+            2,
+            4,
+            10
+        ],
+        "pass.": [
+            0
+        ],
+        "passkey": [
+            0,
+            2,
+            3,
+            4
+        ],
+        "passkeys": [
+            3,
+            4
+        ],
+        "passkeys.": [
+            3
+        ],
+        "passkeys.js": [
+            4
+        ],
+        "password": [
+            0,
+            3,
+            4
+        ],
+        "password.": [
+            3
+        ],
+        "passwords": [
+            4
+        ],
+        "past": [
+            3,
+            12
+        ],
+        "pasted": [
+            0
+        ],
+        "path": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            8,
+            9,
+            12
+        ],
+        "path.": [
+            3,
+            7
+        ],
+        "paths": [
+            0,
+            2,
+            3,
+            10
+        ],
+        "pause": [
+            6,
+            14
+        ],
+        "payload": [
+            7,
+            8,
+            11
+        ],
+        "payload.": [
+            6,
+            7
+        ],
+        "payloads": [
+            0,
+            1,
+            7
+        ],
+        "payloads.": [
+            2
+        ],
+        "pending": [
+            6,
+            9
+        ],
+        "performs": [
+            3
+        ],
+        "period": [
+            6
+        ],
+        "period.": [
+            9
+        ],
+        "periodic": [
+            6
+        ],
+        "periodically": [
+            12
+        ],
+        "persisted": [
+            9
+        ],
+        "php": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            7,
+            14
+        ],
+        "pick": [
+            10
+        ],
+        "picks": [
+            10
+        ],
+        "pill": [
+            0
+        ],
+        "pin": [
+            6,
+            8
+        ],
+        "pinged.": [
+            2
+        ],
+        "pings": [
+            7
+        ],
+        "pinned": [
+            10
+        ],
+        "pipeline": [
+            7,
+            8
+        ],
+        "place.": [
+            2
+        ],
+        "placeholder": [
+            8
+        ],
+        "placeholders": [
+            8
+        ],
+        "placeholders.": [
+            8
+        ],
+        "plain": [
+            1,
+            3,
+            7
+        ],
+        "plaintext": [
+            8
+        ],
+        "plugin": [
+            9
+        ],
+        "plus": [
+            3,
+            5,
+            6,
+            7,
+            9,
+            11,
+            14
+        ],
+        "point": [
+            0,
+            1
+        ],
+        "pointers": [
+            0
+        ],
+        "points": [
+            1,
+            3
+        ],
+        "points.": [
+            5
+        ],
+        "policy": [
+            6,
+            10
+        ],
+        "polling.": [
+            1,
+            9,
+            12
+        ],
+        "pops": [
+            0
+        ],
+        "positive": [
+            6
+        ],
+        "post": [
+            2,
+            7,
+            14
+        ],
+        "postlogretention": [
+            12
+        ],
+        "posts": [
+            2,
+            4,
+            8
+        ],
+        "posture.": [
+            3
+        ],
+        "prefer": [
+            0,
+            4
+        ],
+        "preferred": [
+            4,
+            13
+        ],
+        "prefix": [
+            1,
+            14
+        ],
+        "prefixed": [
+            14
+        ],
+        "preflight": [
+            10,
+            12
+        ],
+        "preflight.": [
+            6
+        ],
+        "prepends": [
+            12
+        ],
+        "present": [
+            2,
+            3
+        ],
+        "press": [
+            0,
+            14
+        ],
+        "pressing": [
+            14
+        ],
+        "previous": [
+            6
+        ],
+        "pricing": [
+            5,
+            9
+        ],
+        "pricingservice.php": [
+            9
+        ],
+        "pricingsnapshotrepository.php": [
+            9
+        ],
+        "primary": [
+            9
+        ],
+        "primitive": [
+            1
+        ],
+        "primitives": [
+            1
+        ],
+        "printed": [
+            2
+        ],
+        "pro": [
+            9
+        ],
+        "probe": [
+            2,
+            6,
+            7,
+            8,
+            10,
+            13
+        ],
+        "probing": [
+            13
+        ],
+        "process": [
+            1,
+            12
+        ],
+        "produces": [
+            4
+        ],
+        "profile": [
+            5,
+            10
+        ],
+        "profiles": [
+            0,
+            5,
+            10,
+            14
+        ],
+        "project": [
+            11,
+            13,
+            14
+        ],
+        "projectapicontroller.php": [
+            11
+        ],
+        "projectcoordinationservice.php": [
+            11,
+            13
+        ],
+        "projectdraftservice.php": [
+            11
+        ],
+        "projecteventrepository.php": [
+            11
+        ],
+        "projectfeedbackrepository.php": [
+            11
+        ],
+        "projectfilerepository.php": [
+            11
+        ],
+        "projectmoduleservice.php": [
+            10,
+            11
+        ],
+        "projectnormalizer.php": [
+            11
+        ],
+        "projectnoterepository.php": [
+            11
+        ],
+        "projectrepository.php": [
+            11
+        ],
+        "projects": [
+            0,
+            1,
+            10,
+            11,
+            13,
+            14
+        ],
+        "projects.": [
+            11
+        ],
+        "projects.js": [
+            11
+        ],
+        "projecttodorepository.php": [
+            11
+        ],
+        "prompt": [
+            1,
+            7
+        ],
+        "prompts": [
+            2
+        ],
+        "protocol": [
+            13
+        ],
+        "provisioning.": [
+            9
+        ],
+        "proxy": [
+            0,
+            1,
+            2,
+            3,
+            14
+        ],
+        "prune": [
+            10
+        ],
+        "prunestalehosts": [
+            6
+        ],
+        "pruning": [
+            6
+        ],
+        "ptr": [
+            7
+        ],
+        "public": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            14
+        ],
+        "published": [
+            2
+        ],
+        "pull": [
+            1,
+            2,
+            6
+        ],
+        "pulled": [
+            14
+        ],
+        "pulls": [
+            6,
+            12
+        ],
+        "purge": [
+            7
+        ],
+        "purged": [
+            6
+        ],
+        "purged.": [
+            6
+        ],
+        "purges": [
+            8
+        ],
+        "pushes": [
+            0
+        ],
+        "python": [
+            1,
+            2
+        ],
+        "query": [
+            13
+        ],
+        "queue": [
+            6,
+            7,
+            9,
+            10,
+            11
+        ],
+        "queue.": [
+            6,
+            7
+        ],
+        "queued": [
+            9
+        ],
+        "quick": [
+            2
+        ],
+        "quiet": [
+            10
+        ],
+        "quiet.": [
+            8
+        ],
+        "quota": [
+            5,
+            6,
+            7,
+            9,
+            10,
+            14
+        ],
+        "rail": [
+            0,
+            4,
+            6,
+            10,
+            11,
+            12,
+            14
+        ],
+        "range": [
+            9
+        ],
+        "ranges": [
+            9
+        ],
+        "rate": [
+            9
+        ],
+        "rather": [
+            8
+        ],
+        "raw": [
+            10
+        ],
+        "re": [
+            0,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            10
+        ],
+        "reachable": [
+            2
+        ],
+        "reachable.": [
+            0,
+            13
+        ],
+        "reaches": [
+            2,
+            7
+        ],
+        "read": [
+            0,
+            2,
+            5,
+            10,
+            11,
+            12,
+            13
+        ],
+        "reading": [
+            0,
+            13
+        ],
+        "readme.md": [
+            0,
+            2
+        ],
+        "reads": [
+            2,
+            3,
+            9,
+            12,
+            13
+        ],
+        "real": [
+            1
+        ],
+        "reasons": [
+            9,
+            12
+        ],
+        "receive": [
+            7,
+            11
+        ],
+        "receives": [
+            7,
+            9,
+            12
+        ],
+        "recent": [
+            7,
+            9,
+            11,
+            12,
+            13
+        ],
+        "recomputes": [
+            8
+        ],
+        "reconciles": [
+            10
+        ],
+        "record": [
+            1,
+            11
+        ],
+        "records": [
+            7
+        ],
+        "recovery": [
+            4
+        ],
+        "red": [
+            6
+        ],
+        "redirect": [
+            3
+        ],
+        "refer": [
+            0
+        ],
+        "reference": [
+            10,
+            13,
+            14
+        ],
+        "reference.": [
+            0
+        ],
+        "referenced": [
+            2
+        ],
+        "references": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "refresh": [
+            7,
+            9,
+            14
+        ],
+        "refresh.": [
+            9,
+            12
+        ],
+        "refreshed": [
+            8
+        ],
+        "refreshes": [
+            2
+        ],
+        "refusal": [
+            7,
+            12
+        ],
+        "refusal.": [
+            7
+        ],
+        "refuse": [
+            7
+        ],
+        "refused": [
+            4
+        ],
+        "refuses": [
+            7,
+            10
+        ],
+        "regardless": [
+            6
+        ],
+        "regex": [
+            0,
+            1,
+            2,
+            14
+        ],
+        "regexes": [
+            2
+        ],
+        "register": [
+            0,
+            2,
+            5
+        ],
+        "register.": [
+            1
+        ],
+        "registered": [
+            0,
+            1,
+            3,
+            4,
+            6,
+            7,
+            10,
+            11,
+            13,
+            14
+        ],
+        "registered.": [
+            4
+        ],
+        "registering": [
+            2,
+            4,
+            6
+        ],
+        "registers": [
+            1,
+            13
+        ],
+        "registration": [
+            2,
+            4,
+            6,
+            7,
+            8
+        ],
+        "registration.": [
+            4
+        ],
+        "registrations": [
+            0,
+            14
+        ],
+        "rehash": [
+            4
+        ],
+        "rehashes": [
+            4
+        ],
+        "rejected": [
+            13
+        ],
+        "relay": [
+            1
+        ],
+        "relays": [
+            1
+        ],
+        "relying": [
+            2,
+            4
+        ],
+        "remote": [
+            7,
+            8
+        ],
+        "removal": [
+            6
+        ],
+        "remove": [
+            3,
+            5
+        ],
+        "removed": [
+            0,
+            4
+        ],
+        "rename": [
+            4
+        ],
+        "renamed": [
+            0
+        ],
+        "render": [
+            5,
+            9,
+            10
+        ],
+        "rendered": [
+            4,
+            8
+        ],
+        "renders": [
+            9,
+            12
+        ],
+        "replaces": [
+            1,
+            8,
+            11
+        ],
+        "repo": [
+            2
+        ],
+        "report": [
+            1,
+            8
+        ],
+        "reported": [
+            4,
+            9
+        ],
+        "reported.": [
+            9
+        ],
+        "reporting": [
+            8
+        ],
+        "reports": [
+            1,
+            2,
+            8
+        ],
+        "repositories": [
+            1,
+            2,
+            4,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13
+        ],
+        "repository": [
+            1
+        ],
+        "repository.": [
+            0,
+            8
+        ],
+        "request": [
+            1,
+            3,
+            4,
+            12,
+            13
+        ],
+        "requested": [
+            3
+        ],
+        "requester": [
+            6
+        ],
+        "requests": [
+            0,
+            3,
+            5,
+            7
+        ],
+        "require": [
+            4,
+            5,
+            6,
+            10
+        ],
+        "requireadminaccess": [
+            0,
+            3
+        ],
+        "requireadmincapability": [
+            5
+        ],
+        "required": [
+            3
+        ],
+        "required.": [
+            0,
+            7
+        ],
+        "requirements": [
+            7
+        ],
+        "requires": [
+            3,
+            5,
+            7,
+            10
+        ],
+        "requirespasskey": [
+            4
+        ],
+        "reset": [
+            3,
+            4
+        ],
+        "resolve": [
+            3,
+            7
+        ],
+        "resolves": [
+            3,
+            5,
+            7
+        ],
+        "resource": [
+            12,
+            13
+        ],
+        "resource.": [
+            13
+        ],
+        "resources": [
+            13
+        ],
+        "resources.": [
+            10,
+            11
+        ],
+        "responds": [
+            3
+        ],
+        "response": [
+            6,
+            13
+        ],
+        "responsibility.": [
+            1
+        ],
+        "rest": [
+            1,
+            4,
+            6,
+            7,
+            8,
+            9
+        ],
+        "rest.": [
+            7
+        ],
+        "restore": [
+            3
+        ],
+        "resulting": [
+            8
+        ],
+        "retention": [
+            5,
+            10,
+            12
+        ],
+        "return": [
+            1,
+            3,
+            5,
+            7,
+            8,
+            11
+        ],
+        "returned": [
+            9
+        ],
+        "returns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            11,
+            12,
+            13
+        ],
+        "reuses": [
+            9
+        ],
+        "reverse": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            10
+        ],
+        "reversednsvalidator.php": [
+            7
+        ],
+        "revert": [
+            10
+        ],
+        "reverts": [
+            12
+        ],
+        "review": [
+            6
+        ],
+        "reviews": [
+            11
+        ],
+        "rewrite": [
+            5
+        ],
+        "right": [
+            0,
+            11
+        ],
+        "roaming": [
+            5,
+            6,
+            7
+        ],
+        "role": [
+            0,
+            1,
+            5,
+            12
+        ],
+        "roleallows": [
+            5
+        ],
+        "roles": [
+            0,
+            5
+        ],
+        "rolling": [
+            9
+        ],
+        "rolling.": [
+            8
+        ],
+        "rollup": [
+            9
+        ],
+        "rollups": [
+            9
+        ],
+        "root": [
+            2,
+            13
+        ],
+        "rooted": [
+            13
+        ],
+        "roster": [
+            11
+        ],
+        "rotated": [
+            8
+        ],
+        "rotation": [
+            1,
+            7
+        ],
+        "round": [
+            8,
+            9
+        ],
+        "route": [
+            0,
+            1,
+            2,
+            5,
+            14
+        ],
+        "route.": [
+            0
+        ],
+        "router": [
+            1
+        ],
+        "router.php": [
+            1
+        ],
+        "routes": [
+            0,
+            1,
+            5,
+            7,
+            11,
+            14
+        ],
+        "routes.": [
+            1
+        ],
+        "routing": [
+            13
+        ],
+        "row": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            12,
+            14
+        ],
+        "row.": [
+            4,
+            10
+        ],
+        "rows": [
+            7,
+            9,
+            12,
+            13
+        ],
+        "rows.": [
+            12
+        ],
+        "rpc": [
+            1,
+            12,
+            13
+        ],
+        "rule": [
+            1
+        ],
+        "rules": [
+            1,
+            3,
+            5,
+            7
+        ],
+        "run": [
+            0,
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            8,
+            10,
+            11
+        ],
+        "run.": [
+            0,
+            6,
+            8
+        ],
+        "runner": [
+            1,
+            2,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            14
+        ],
+        "runner.": [
+            2,
+            7,
+            10
+        ],
+        "runnervalidationservice.php": [
+            1,
+            7
+        ],
+        "runnerverifier.php": [
+            1,
+            7
+        ],
+        "running": [
+            1,
+            6,
+            8,
+            9,
+            12
+        ],
+        "running.": [
+            2
+        ],
+        "runs": [
+            2,
+            3,
+            4,
+            6,
+            7
+        ],
+        "runs.": [
+            2
+        ],
+        "runtime": [
+            13
+        ],
+        "safe": [
+            11
+        ],
+        "sandboxing": [
+            13
+        ],
+        "save": [
+            10
+        ],
+        "save.": [
+            10
+        ],
+        "saving.": [
+            11
+        ],
+        "say": [
+            1
+        ],
+        "says": [
+            7
+        ],
+        "scaling": [
+            5,
+            6,
+            9,
+            10
+        ],
+        "schema": [
+            1,
+            2
+        ],
+        "schemas": [
+            11
+        ],
+        "scheme": [
+            13
+        ],
+        "schemes": [
+            13
+        ],
+        "scoped": [
+            13
+        ],
+        "screens": [
+            0,
+            2
+        ],
+        "script": [
+            1,
+            2,
+            8
+        ],
+        "script.": [
+            2
+        ],
+        "scripts": [
+            1,
+            12
+        ],
+        "scrolling": [
+            12
+        ],
+        "sdk": [
+            1
+        ],
+        "search": [
+            0,
+            13,
+            14
+        ],
+        "search.": [
+            13
+        ],
+        "second": [
+            4,
+            14
+        ],
+        "secondary": [
+            9
+        ],
+        "seconds": [
+            2
+        ],
+        "secret": [
+            1,
+            2,
+            7
+        ],
+        "secretbox.php": [
+            7
+        ],
+        "section": [
+            0,
+            11
+        ],
+        "sections": [
+            10
+        ],
+        "secure": [
+            0,
+            2,
+            5,
+            6,
+            14
+        ],
+        "security": [
+            1,
+            2,
+            3,
+            7
+        ],
+        "securityhelper.php": [
+            3
+        ],
+        "see": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "seed": [
+            2,
+            9,
+            10
+        ],
+        "seedcommand": [
+            2
+        ],
+        "seeding": [
+            2
+        ],
+        "seeing": [
+            4
+        ],
+        "seen": [
+            11
+        ],
+        "sees": [
+            2,
+            6,
+            7
+        ],
+        "select": [
+            8
+        ],
+        "selection": [
+            0
+        ],
+        "selects": [
+            13
+        ],
+        "self": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            8,
+            10,
+            11
+        ],
+        "semantics": [
+            9
+        ],
+        "semver": [
+            2
+        ],
+        "sends": [
+            8
+        ],
+        "separate": [
+            8
+        ],
+        "sequence": [
+            11
+        ],
+        "series": [
+            9
+        ],
+        "series.": [
+            9
+        ],
+        "serve": [
+            10
+        ],
+        "served": [
+            0,
+            4,
+            10
+        ],
+        "server": [
+            1,
+            3,
+            4,
+            5,
+            8,
+            10,
+            13
+        ],
+        "server.": [
+            12
+        ],
+        "serves": [
+            0,
+            2
+        ],
+        "service": [
+            0,
+            1,
+            4,
+            13
+        ],
+        "services": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            13
+        ],
+        "session": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            7,
+            13
+        ],
+        "session.": [
+            3
+        ],
+        "sessions": [
+            0,
+            1,
+            3,
+            4
+        ],
+        "sessions.": [
+            1
+        ],
+        "set": [
+            3,
+            4,
+            6,
+            7,
+            8,
+            11,
+            12,
+            13
+        ],
+        "sets": [
+            3,
+            4,
+            6,
+            7,
+            10
+        ],
+        "setting": [
+            0
+        ],
+        "settings": [
+            0,
+            2,
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            11,
+            12,
+            14
+        ],
+        "settings.manage": [
+            5
+        ],
+        "setup": [
+            9
+        ],
+        "setup.": [
+            2
+        ],
+        "setup.sh": [
+            2
+        ],
+        "sha": [
+            6,
+            8
+        ],
+        "shape": [
+            8,
+            10,
+            13
+        ],
+        "shape.": [
+            1,
+            14
+        ],
+        "shapes": [
+            10,
+            11
+        ],
+        "share": [
+            1
+        ],
+        "shared": [
+            0,
+            1,
+            7,
+            10,
+            11,
+            14
+        ],
+        "shell": [
+            0,
+            1,
+            2,
+            3,
+            8,
+            14
+        ],
+        "ship": [
+            10
+        ],
+        "ships": [
+            2,
+            11
+        ],
+        "short": [
+            5,
+            7,
+            9,
+            11
+        ],
+        "shortcut": [
+            0,
+            9,
+            12,
+            14
+        ],
+        "shortcuts": [
+            0,
+            6,
+            14
+        ],
+        "shot": [
+            2,
+            6
+        ],
+        "show": [
+            9,
+            11,
+            12,
+            14
+        ],
+        "shown": [
+            0,
+            2,
+            6,
+            10
+        ],
+        "shows": [
+            4,
+            6
+        ],
+        "shutting": [
+            13
+        ],
+        "side": [
+            1,
+            3,
+            5,
+            8,
+            9,
+            10,
+            12,
+            13
+        ],
+        "sidecar": [
+            1
+        ],
+        "sign": [
+            2,
+            3,
+            4,
+            5
+        ],
+        "signals": [
+            6
+        ],
+        "signature": [
+            4
+        ],
+        "signed": [
+            4
+        ],
+        "silent": [
+            8,
+            10
+        ],
+        "silently": [
+            5,
+            9
+        ],
+        "simple": [
+            8,
+            13
+        ],
+        "simply": [
+            1
+        ],
+        "since": [
+            0,
+            11
+        ],
+        "single": [
+            0,
+            1,
+            2,
+            7,
+            8,
+            9,
+            14
+        ],
+        "sits": [
+            6
+        ],
+        "six": [
+            0
+        ],
+        "size": [
+            13
+        ],
+        "sized": [
+            9
+        ],
+        "skill": [
+            7,
+            10,
+            11,
+            13,
+            14
+        ],
+        "skilldraftservice.php": [
+            10
+        ],
+        "skillmanifestservice.php": [
+            10,
+            13
+        ],
+        "skills": [
+            0,
+            1,
+            5,
+            7,
+            8,
+            10,
+            13,
+            14
+        ],
+        "skills.": [
+            10
+        ],
+        "skillservice.php": [
+            10
+        ],
+        "skip": [
+            3
+        ],
+        "slash": [
+            13
+        ],
+        "slow": [
+            9
+        ],
+        "slug": [
+            11
+        ],
+        "small": [
+            1,
+            3,
+            11,
+            12,
+            13
+        ],
+        "smoke": [
+            2
+        ],
+        "smtp": [
+            4
+        ],
+        "smtp.": [
+            3
+        ],
+        "snapshot": [
+            9
+        ],
+        "snapshot.": [
+            9
+        ],
+        "snapshots": [
+            1,
+            9
+        ],
+        "snippet": [
+            2
+        ],
+        "soft": [
+            9
+        ],
+        "someone": [
+            5,
+            8
+        ],
+        "something": [
+            12
+        ],
+        "source": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "sources": [
+            2
+        ],
+        "spa": [
+            1,
+            6,
+            10,
+            14
+        ],
+        "speaks": [
+            13
+        ],
+        "spec.": [
+            13
+        ],
+        "special": [
+            9
+        ],
+        "specific": [
+            1,
+            2,
+            7,
+            9,
+            10,
+            12,
+            13
+        ],
+        "split": [
+            1,
+            13
+        ],
+        "splits": [
+            6
+        ],
+        "spread": [
+            10
+        ],
+        "sql": [
+            1
+        ],
+        "src": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14
+        ],
+        "stack": [
+            1,
+            2
+        ],
+        "stack.": [
+            1,
+            2
+        ],
+        "stale": [
+            6,
+            8,
+            10
+        ],
+        "stamp": [
+            7
+        ],
+        "stamped": [
+            0
+        ],
+        "standard": [
+            4
+        ],
+        "start": [
+            2
+        ],
+        "starts": [
+            2
+        ],
+        "startup": [
+            8
+        ],
+        "startupsyncservice.php": [
+            1,
+            8
+        ],
+        "state": [
+            1,
+            5,
+            6,
+            10,
+            11,
+            13
+        ],
+        "state.": [
+            2,
+            6
+        ],
+        "static": [
+            9
+        ],
+        "stats": [
+            9
+        ],
+        "status": [
+            1,
+            7,
+            8
+        ],
+        "status.": [
+            8
+        ],
+        "still": [
+            1,
+            2,
+            5,
+            7
+        ],
+        "stop": [
+            13
+        ],
+        "storage": [
+            8
+        ],
+        "storage.": [
+            12
+        ],
+        "store": [
+            5,
+            13
+        ],
+        "store.": [
+            1
+        ],
+        "stored": [
+            1,
+            2,
+            3,
+            4,
+            8,
+            10,
+            13
+        ],
+        "stores": [
+            4,
+            8,
+            10,
+            11,
+            12
+        ],
+        "storing": [
+            10
+        ],
+        "stream": [
+            12
+        ],
+        "stream.": [
+            1
+        ],
+        "streaming": [
+            12
+        ],
+        "streams": [
+            12
+        ],
+        "strict": [
+            7,
+            10
+        ],
+        "strictness": [
+            10
+        ],
+        "string": [
+            0,
+            8,
+            12
+        ],
+        "strings": [
+            1,
+            12
+        ],
+        "strings.": [
+            12
+        ],
+        "structured": [
+            7,
+            10,
+            11,
+            13
+        ],
+        "style": [
+            1,
+            11
+        ],
+        "submits": [
+            3
+        ],
+        "subscribes": [
+            12
+        ],
+        "subsequent": [
+            7
+        ],
+        "substitutes": [
+            1,
+            8
+        ],
+        "success": [
+            3,
+            7
+        ],
+        "success.": [
+            2
+        ],
+        "successful": [
+            2,
+            4,
+            7,
+            8,
+            13
+        ],
+        "suggest": [
+            0
+        ],
+        "suggested": [
+            11
+        ],
+        "summaries.": [
+            8
+        ],
+        "summary": [
+            0
+        ],
+        "support": [
+            1,
+            2,
+            3,
+            8
+        ],
+        "supported": [
+            7
+        ],
+        "supports": [
+            7,
+            9,
+            14
+        ],
+        "sure": [
+            7
+        ],
+        "surface": [
+            0,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10,
+            11,
+            13,
+            14
+        ],
+        "surface.": [
+            5,
+            10
+        ],
+        "surfaced": [
+            5
+        ],
+        "surfaces": [
+            4,
+            9,
+            11
+        ],
+        "switch": [
+            7
+        ],
+        "switch.": [
+            13
+        ],
+        "switches": [
+            10,
+            13
+        ],
+        "sync": [
+            0,
+            1,
+            2,
+            6,
+            7,
+            8,
+            9,
+            10
+        ],
+        "sync.": [
+            6,
+            8,
+            10
+        ],
+        "synced": [
+            6
+        ],
+        "system": [
+            12
+        ],
+        "tab": [
+            4,
+            6,
+            10
+        ],
+        "tab.": [
+            8
+        ],
+        "table": [
+            6,
+            10
+        ],
+        "table.": [
+            13
+        ],
+        "tables": [
+            1,
+            2,
+            14
+        ],
+        "tables.": [
+            9
+        ],
+        "tabs": [
+            0,
+            6
+        ],
+        "tag": [
+            13
+        ],
+        "tags": [
+            13
+        ],
+        "take": [
+            1,
+            7
+        ],
+        "takes": [
+            1,
+            7
+        ],
+        "talks": [
+            1
+        ],
+        "target": [
+            2,
+            4
+        ],
+        "target.": [
+            14
+        ],
+        "targeted": [
+            10
+        ],
+        "targets": [
+            0
+        ],
+        "teaches": [
+            11
+        ],
+        "telemetry.": [
+            1
+        ],
+        "tell": [
+            6,
+            9
+        ],
+        "tells": [
+            8,
+            9
+        ],
+        "template": [
+            8
+        ],
+        "template.": [
+            8
+        ],
+        "templates": [
+            8,
+            10
+        ],
+        "temporary": [
+            4
+        ],
+        "terminates": [
+            1
+        ],
+        "test": [
+            2
+        ],
+        "tests": [
+            7
+        ],
+        "text": [
+            3,
+            12,
+            13
+        ],
+        "text.": [
+            0
+        ],
+        "them.": [
+            6,
+            12,
+            13
+        ],
+        "theme": [
+            0,
+            10
+        ],
+        "themselves.": [
+            11
+        ],
+        "thin": [
+            1,
+            5
+        ],
+        "things": [
+            0,
+            1,
+            2
+        ],
+        "third": [
+            10
+        ],
+        "three": [
+            0,
+            1,
+            4,
+            7,
+            12
+        ],
+        "through": [
+            0,
+            2,
+            4,
+            7,
+            9,
+            13,
+            14
+        ],
+        "throw": [
+            4
+        ],
+        "throws": [
+            5
+        ],
+        "thumb": [
+            1
+        ],
+        "tiers": [
+            9
+        ],
+        "time": [
+            0,
+            2,
+            6,
+            7,
+            9,
+            12,
+            14
+        ],
+        "time.": [
+            8,
+            13
+        ],
+        "timed": [
+            12
+        ],
+        "timestamp": [
+            12
+        ],
+        "tiny": [
+            7
+        ],
+        "title": [
+            0,
+            11
+        ],
+        "tls": [
+            1,
+            2
+        ],
+        "toast": [
+            9
+        ],
+        "todos": [
+            11
+        ],
+        "together": [
+            11
+        ],
+        "toggle": [
+            6,
+            7,
+            9,
+            11,
+            14
+        ],
+        "toggled": [
+            4,
+            8
+        ],
+        "toggles": [
+            5,
+            10,
+            14
+        ],
+        "toggles.": [
+            10
+        ],
+        "toggling": [
+            14
+        ],
+        "token": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            8,
+            9,
+            10,
+            13
+        ],
+        "token.": [
+            2,
+            4,
+            6,
+            8,
+            10
+        ],
+        "tokens": [
+            2,
+            4,
+            9,
+            13
+        ],
+        "tokens.": [
+            9
+        ],
+        "tokenusagerepository.php": [
+            9
+        ],
+        "toml": [
+            10
+        ],
+        "tomlrenderer.php": [
+            10
+        ],
+        "tool": [
+            11,
+            12,
+            13
+        ],
+        "tools": [
+            1,
+            10,
+            11,
+            13
+        ],
+        "tools.": [
+            13
+        ],
+        "top": [
+            1,
+            6,
+            9
+        ],
+        "top.": [
+            0
+        ],
+        "tophost": [
+            9
+        ],
+        "topic": [
+            0
+        ],
+        "total": [
+            9
+        ],
+        "totals": [
+            9
+        ],
+        "totalsforrange": [
+            9
+        ],
+        "touch": [
+            4
+        ],
+        "touched": [
+            3
+        ],
+        "touches.": [
+            10
+        ],
+        "touching": [
+            1,
+            6
+        ],
+        "tracking": [
+            8
+        ],
+        "traffic": [
+            7
+        ],
+        "trail": [
+            12
+        ],
+        "transparently.": [
+            3,
+            4
+        ],
+        "transport": [
+            3
+        ],
+        "transport.": [
+            0
+        ],
+        "transports": [
+            4
+        ],
+        "treated": [
+            1,
+            2,
+            3
+        ],
+        "treats": [
+            7
+        ],
+        "tree": [
+            7
+        ],
+        "trend": [
+            9
+        ],
+        "triage.": [
+            11
+        ],
+        "tries": [
+            6,
+            7
+        ],
+        "trigger": [
+            2,
+            5
+        ],
+        "trip": [
+            8,
+            9
+        ],
+        "true": [
+            3,
+            5,
+            6
+        ],
+        "true.": [
+            4
+        ],
+        "trust": [
+            7
+        ],
+        "trusted": [
+            5,
+            6
+        ],
+        "truth": [
+            0
+        ],
+        "ttl": [
+            0,
+            3
+        ],
+        "turning": [
+            11
+        ],
+        "twin": [
+            2
+        ],
+        "two": [
+            0,
+            1,
+            2,
+            3,
+            7,
+            8,
+            9,
+            11,
+            13,
+            14
+        ],
+        "type": [
+            12
+        ],
+        "types": [
+            4
+        ],
+        "typing": [
+            14
+        ],
+        "ui": [
+            1,
+            2,
+            3,
+            4,
+            8,
+            9,
+            11,
+            12,
+            13
+        ],
+        "ui.": [
+            0,
+            12,
+            13
+        ],
+        "un": [
+            8
+        ],
+        "unauthenticated": [
+            3,
+            4
+        ],
+        "unauthenticated.": [
+            3
+        ],
+        "unclear": [
+            12
+        ],
+        "understood": [
+            12
+        ],
+        "unless": [
+            3,
+            7,
+            9
+        ],
+        "unprovisioned": [
+            2,
+            6
+        ],
+        "unprovisioned.": [
+            0,
+            6
+        ],
+        "unreachable": [
+            9
+        ],
+        "unset.": [
+            2
+        ],
+        "until": [
+            2,
+            3,
+            6,
+            7
+        ],
+        "up": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            11,
+            12
+        ],
+        "update": [
+            1,
+            2,
+            5,
+            6,
+            8,
+            10,
+            11,
+            12
+        ],
+        "update.": [
+            8,
+            10,
+            11
+        ],
+        "updated": [
+            7
+        ],
+        "updates": [
+            5,
+            9
+        ],
+        "upgrade": [
+            1
+        ],
+        "upgrades": [
+            2
+        ],
+        "upgrading": [
+            3
+        ],
+        "upload": [
+            0,
+            2,
+            5,
+            9,
+            10
+        ],
+        "upload.": [
+            2
+        ],
+        "uploaded.": [
+            2
+        ],
+        "upsert": [
+            11
+        ],
+        "upstream": [
+            2,
+            8,
+            9
+        ],
+        "uri": [
+            12,
+            13
+        ],
+        "url": [
+            1,
+            2,
+            9,
+            11,
+            12
+        ],
+        "url.": [
+            1,
+            6
+        ],
+        "usage": [
+            0,
+            1,
+            8,
+            9,
+            10
+        ],
+        "usagecostservice.php": [
+            9
+        ],
+        "usagescalingservice.php": [
+            9
+        ],
+        "use": [
+            1,
+            2,
+            3,
+            4,
+            7,
+            9,
+            10,
+            11,
+            12,
+            13
+        ],
+        "use.": [
+            3,
+            9
+        ],
+        "used": [
+            0,
+            2,
+            4,
+            7,
+            8,
+            9
+        ],
+        "user": [
+            0,
+            3,
+            4,
+            5,
+            11,
+            14
+        ],
+        "username": [
+            3,
+            4
+        ],
+        "users": [
+            0,
+            4,
+            5,
+            8,
+            10,
+            14
+        ],
+        "users.": [
+            5
+        ],
+        "users.manage": [
+            5
+        ],
+        "uses": [
+            0,
+            1,
+            3,
+            7,
+            8,
+            9,
+            10,
+            11,
+            13
+        ],
+        "uses.": [
+            9
+        ],
+        "using": [
+            1
+        ],
+        "uuids": [
+            2
+        ],
+        "valid": [
+            0,
+            1,
+            3,
+            5,
+            6,
+            10
+        ],
+        "validate": [
+            1
+        ],
+        "validates": [
+            13
+        ],
+        "validation": [
+            4
+        ],
+        "value": [
+            3
+        ],
+        "value.": [
+            0
+        ],
+        "values": [
+            2
+        ],
+        "variables": [
+            2
+        ],
+        "variants": [
+            0
+        ],
+        "vary": [
+            1
+        ],
+        "vendored": [
+            9
+        ],
+        "verdict": [
+            6
+        ],
+        "verification": [
+            3,
+            7
+        ],
+        "verified": [
+            14
+        ],
+        "verifies": [
+            4
+        ],
+        "verify": [
+            1,
+            2,
+            7,
+            10
+        ],
+        "verifyclaude": [
+            7
+        ],
+        "version": [
+            1,
+            2,
+            5,
+            6,
+            7,
+            8,
+            10
+        ],
+        "version.": [
+            8,
+            10,
+            11
+        ],
+        "versioned": [
+            11
+        ],
+        "versioned.": [
+            1
+        ],
+        "versionrepository.php": [
+            8
+        ],
+        "versions": [
+            1,
+            10
+        ],
+        "view": [
+            0,
+            6,
+            9,
+            14
+        ],
+        "views": [
+            6
+        ],
+        "vip": [
+            5,
+            6,
+            9
+        ],
+        "visible": [
+            0,
+            6,
+            14
+        ],
+        "visit": [
+            2
+        ],
+        "visiting": [
+            6
+        ],
+        "volume": [
+            2
+        ],
+        "vs": [
+            12,
+            13
+        ],
+        "vs.": [
+            13
+        ],
+        "walks": [
+            2
+        ],
+        "want": [
+            6
+        ],
+        "way": [
+            4
+        ],
+        "ways": [
+            13
+        ],
+        "webauthn": [
+            3,
+            4
+        ],
+        "websocket": [
+            1,
+            12
+        ],
+        "week": [
+            9
+        ],
+        "welcome": [
+            0
+        ],
+        "well": [
+            13
+        ],
+        "what": [
+            0,
+            2,
+            5,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13
+        ],
+        "whatever": [
+            9
+        ],
+        "whether": [
+            1,
+            3,
+            6,
+            7,
+            8,
+            9,
+            13
+        ],
+        "whichever": [
+            0
+        ],
+        "whole": [
+            5
+        ],
+        "whose": [
+            6
+        ],
+        "wide": [
+            5,
+            7,
+            8,
+            10,
+            11
+        ],
+        "window": [
+            6,
+            7,
+            8,
+            9,
+            12
+        ],
+        "window.": [
+            3,
+            6,
+            7,
+            8,
+            9
+        ],
+        "windows": [
+            0,
+            7,
+            12
+        ],
+        "windows.": [
+            7,
+            10
+        ],
+        "wipe": [
+            5
+        ],
+        "wired": [
+            3,
+            4
+        ],
+        "wiring": [
+            1
+        ],
+        "within": [
+            8
+        ],
+        "without": [
+            1,
+            2,
+            3,
+            6,
+            7,
+            9,
+            11,
+            12,
+            13
+        ],
+        "work": [
+            6,
+            7
+        ],
+        "work.": [
+            11
+        ],
+        "workflow": [
+            11
+        ],
+        "workflow.": [
+            11
+        ],
+        "works": [
+            1,
+            7,
+            13
+        ],
+        "works.": [
+            7
+        ],
+        "workspace": [
+            0,
+            9,
+            10,
+            11,
+            12
+        ],
+        "wrap": [
+            1
+        ],
+        "wrapped": [
+            8
+        ],
+        "wrapper": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7,
+            8,
+            10
+        ],
+        "wrapper.": [
+            13
+        ],
+        "wrappercontroller.php": [
+            8
+        ],
+        "wrappers": [
+            1,
+            5,
+            7,
+            8
+        ],
+        "wrappers.": [
+            2
+        ],
+        "wrapperservice.php": [
+            1,
+            2,
+            8
+        ],
+        "wraps": [
+            8
+        ],
+        "write": [
+            10,
+            12,
+            13
+        ],
+        "write.": [
+            13
+        ],
+        "writer": [
+            7
+        ],
+        "writes": [
+            2,
+            8,
+            12
+        ],
+        "writes.": [
+            7
+        ],
+        "written": [
+            0,
+            8,
+            12
+        ],
+        "wrong": [
+            0,
+            8
+        ],
+        "ws": [
+            1,
+            9,
+            12
+        ],
+        "ws.": [
+            2
+        ],
+        "ws.js": [
+            12
+        ],
+        "ws.php": [
+            1,
+            12
+        ],
+        "wsinfo": [
+            12
+        ],
+        "yet": [
+            0
+        ],
+        "yet.": [
+            9
+        ],
+        "you.": [
+            9
+        ],
+        "zero": [
+            5,
+            10
+        ],
+        "zero.": [
+            3
+        ],
+        "zoom": [
+            9
+        ],
+        "zoom.min.js": [
+            9
+        ]
+    }
+}
