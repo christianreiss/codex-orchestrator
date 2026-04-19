@@ -29,6 +29,44 @@ class RunnerAppTest(unittest.TestCase):
             cmd,
         )
 
+    def test_run_codex_exec_uses_probe_model(self):
+        captured = {}
+
+        def fake_run(cmd, env, capture_output, text, timeout):
+            captured["cmd"] = cmd
+            captured["env"] = env
+            captured["capture_output"] = capture_output
+            captured["text"] = text
+            captured["timeout"] = timeout
+
+            class Result:
+                stdout = "Banana"
+                stderr = ""
+                returncode = 0
+
+            return Result()
+
+        original_run = runner_app.subprocess.run
+        runner_app.subprocess.run = fake_run
+        try:
+            runner_app._run_codex_exec("Reply Banana if this works.", {"HOME": "/tmp/home"}, 2.0, "gpt-5.4")
+        finally:
+            runner_app.subprocess.run = original_run
+
+        self.assertEqual(
+            [
+                "/usr/local/bin/codex",
+                "exec",
+                "--model",
+                "gpt-5.4",
+                "-s",
+                "read-only",
+                "--skip-git-repo-check",
+                "Reply Banana if this works.",
+            ],
+            captured["cmd"],
+        )
+
     def test_prepare_codex_env_uses_non_tmp_home_and_sets_tmpdir(self):
         env, home_dir, auth_path = runner_app._prepare_codex_env(
             {"tokens": {"access_token": "tok_test_12345678901234567890"}}

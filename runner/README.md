@@ -17,7 +17,7 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
-- The Codex CLI (default `rust-v0.101.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- The Codex CLI (default `rust-v0.121.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22 plus the `@anthropic-ai/claude-code` npm package (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 ## Run (standalone)
@@ -70,6 +70,7 @@ Request body:
 Fields:
 - `auth_json` (required object) — written to `~/.codex/auth.json` for the probe; must contain either `auths.api.openai.com.token` or `tokens.access_token` / `tokens.openai_api_key`, or the request fails with HTTP 400 (`"no usable token in auth_json"`).
 - `timeout_seconds` (optional float) — probe timeout in seconds; defaults to 8.0 when omitted.
+- `RUNNER_CODEX_PROBE_MODEL` (environment) — model used for the Codex “Reply Banana” probe; defaults to `gpt-5.4`.
 
 Example:
 
@@ -120,7 +121,7 @@ Behavior details:
 - Uses a temporary `$HOME` and writes `~/.codex/auth.json` with mode 0600 for each probe.
 - The temporary `$HOME` is created under `RUNNER_HOME_PARENT` (the bundled image defaults this to `/dev/shm`), and the runner also points `TMPDIR`/`TMP`/`TEMP` at a writable subdirectory inside that home.
 - Token extraction order is `auths.api.openai.com.token` first, then `tokens.access_token`, then `tokens.openai_api_key`.
-- Runs `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."`.
+- Runs `/usr/local/bin/codex exec --model "${RUNNER_CODEX_PROBE_MODEL:-gpt-5.4}" -s read-only --skip-git-repo-check "Reply Banana if this works."`.
 - Sets `CODEX_SYNC_BASE_URL` from the container env (default `http://api` when unset), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 - `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 - `codex_version` is taken from `/usr/local/bin/codex --version` (last whitespace-separated token), or `"unknown"` when the version call fails.

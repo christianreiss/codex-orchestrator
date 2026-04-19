@@ -442,8 +442,8 @@ def _engine_version(env: dict, engine: str) -> str:
     return _codex_version(env)
 
 
-def _run_codex_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
-    cmd = _build_codex_exec_cmd(prompt, None)
+def _run_codex_exec(prompt: str, env: dict, timeout: float, model: Optional[str] = None) -> tuple[subprocess.CompletedProcess[str], int]:
+    cmd = _build_codex_exec_cmd(prompt, model)
     start = time.perf_counter()
     proc = subprocess.run(
         cmd,
@@ -460,7 +460,8 @@ def _run_probe(payload: VerifyRequest) -> dict:
     env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout)
+        probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-5.4").strip() or None
+        proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout, probe_model)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
