@@ -719,8 +719,8 @@ class AuthService
         }
         $this->assertReasonableLastRefresh($incomingLastRefresh, 'auth.last_refresh');
 
-        $incomingAuth = $this->runnerValidationService->ensureAuthsFallback($incomingAuth);
-        $entries = $this->runnerValidationService->normalizeAuthEntries($incomingAuth);
+        $incomingAuth = $this->runnerValidationService->ensureAuthsFallback($incomingAuth, $engine);
+        $entries = $this->runnerValidationService->normalizeAuthEntries($incomingAuth, $engine);
         $canonicalizedAuth = $this->runnerValidationService->canonicalizeAuthPayload($incomingAuth, $entries, $incomingLastRefresh);
 
         $encodedAuth = json_encode($canonicalizedAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -784,8 +784,8 @@ class AuthService
                         throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
                     }
                     $this->assertReasonableLastRefresh($runnerLastRefresh, 'auth.last_refresh');
-                    $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth);
-                    $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth);
+                    $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth, $engine);
+                    $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth, $engine);
                     $runnerCanonical = $this->runnerValidationService->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
                     $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                     if ($runnerEncoded === false) {
@@ -952,8 +952,8 @@ class AuthService
                             throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
                         }
                         $this->assertReasonableLastRefresh($runnerLastRefresh, 'auth.last_refresh');
-                        $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth);
-                        $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth);
+                        $runnerAuth = $this->runnerValidationService->ensureAuthsFallback($runnerAuth, $engine);
+                        $runnerEntries = $this->runnerValidationService->normalizeAuthEntries($runnerAuth, $engine);
                         $runnerCanonical = $this->runnerValidationService->canonicalizeAuthPayload($runnerAuth, $runnerEntries, $runnerLastRefresh);
                         $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                         if ($runnerEncoded === false) {
@@ -1142,6 +1142,7 @@ class AuthService
             'engines' => $host['engines'] ?? Engine::DEFAULT,
             'engines_list' => Engine::parseHostEngines($host['engines'] ?? null),
             'claude_client_version' => $host['claude_client_version'] ?? null,
+            'claude_client_version_override' => $host['claude_client_version_override'] ?? null,
             'claude_wrapper_version' => $host['claude_wrapper_version'] ?? null,
             'claude_auth_digest' => $host['claude_auth_digest'] ?? null,
             'claude_model_override' => $host['claude_model_override'] ?? null,

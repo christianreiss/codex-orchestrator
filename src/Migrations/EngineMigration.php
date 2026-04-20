@@ -23,6 +23,7 @@ class EngineMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'engines', "VARCHAR(32) NOT NULL DEFAULT 'codex'");
         // Claude-specific version tracking (Codex versions stay in client_version / wrapper_version).
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'claude_client_version', 'VARCHAR(64) NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'claude_client_version_override', 'VARCHAR(64) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'claude_wrapper_version', 'VARCHAR(64) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'claude_auth_digest', 'VARCHAR(128) NULL');
         // Claude-specific model/effort overrides.

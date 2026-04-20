@@ -204,8 +204,8 @@ class RunnerValidationService
                 $runnerAuth = $validation['updated_auth'];
                 $runnerLastRefresh = $runnerAuth['last_refresh'] ?? null;
                 $this->assertReasonableLastRefresh((string) $runnerLastRefresh, 'auth.last_refresh');
-                $runnerAuth = $this->ensureAuthsFallback($runnerAuth);
-                $runnerEntries = $this->normalizeAuthEntries($runnerAuth);
+                $runnerAuth = $this->ensureAuthsFallback($runnerAuth, $engine);
+                $runnerEntries = $this->normalizeAuthEntries($runnerAuth, $engine);
                 $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, (string) $runnerLastRefresh);
                 $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 if ($runnerEncoded === false) {
@@ -584,7 +584,10 @@ class RunnerValidationService
                 throw new ValidationException(['auth.last_refresh' => ['last_refresh is required']]);
             }
             $this->assertReasonableLastRefresh($lastRefresh, 'auth.last_refresh');
-            $this->normalizeAuthEntries($auth);
+            $payloadEngine = isset($payload['engine']) && is_string($payload['engine']) && Engine::isValid($payload['engine'])
+                ? $payload['engine']
+                : Engine::DEFAULT;
+            $this->normalizeAuthEntries($auth, $payloadEngine);
 
             $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             if ($encoded === false) {
@@ -662,19 +665,26 @@ class RunnerValidationService
 
     // --- Auth payload helpers used during runner validation ---
 
-    public function ensureAuthsFallback(array $authPayload): array
+    public function ensureAuthsFallback(array $authPayload, string $engine = Engine::DEFAULT): array
     {
+        $engine = Engine::validate($engine);
         $hasAuths = isset($authPayload['auths']) && is_array($authPayload['auths']) && count($authPayload['auths']) > 0;
         if ($hasAuths) {
             return $authPayload;
         }
 
         $tokenCandidates = [];
-        if (isset($authPayload['tokens']) && is_array($authPayload['tokens'])) {
-            $tokenCandidates[] = $authPayload['tokens']['access_token'] ?? null;
-        }
-        if (isset($authPayload['OPENAI_API_KEY'])) {
-            $tokenCandidates[] = $authPayload['OPENAI_API_KEY'];
+        if ($engine === Engine::CLAUDE) {
+            $tokenCandidates[] = $authPayload['api_key'] ?? null;
+            $tokenCandidates[] = $authPayload['anthropic_api_key'] ?? null;
+            $tokenCandidates[] = $authPayload['ANTHROPIC_API_KEY'] ?? null;
+        } else {
+            if (isset($authPayload['tokens']) && is_array($authPayload['tokens'])) {
+                $tokenCandidates[] = $authPayload['tokens']['access_token'] ?? null;
+            }
+            if (isset($authPayload['OPENAI_API_KEY'])) {
+                $tokenCandidates[] = $authPayload['OPENAI_API_KEY'];
+            }
         }
 
         $chosen = null;
@@ -690,7 +700,7 @@ class RunnerValidationService
         }
 
         $authPayload['auths'] = [
-            'api.openai.com' => [
+            ($engine === Engine::CLAUDE ? 'api.anthropic.com' : 'api.openai.com') => [
                 'token' => $chosen,
                 'token_type' => 'bearer',
             ],
@@ -699,19 +709,33 @@ class RunnerValidationService
         return $authPayload;
     }
 
-    public function normalizeAuthEntries(array $authPayload): array
+    public function normalizeAuthEntries(array $authPayload, string $engine = Engine::DEFAULT): array
     {
+        $engine = Engine::validate($engine);
         if (!isset($authPayload['auths']) || !is_array($authPayload['auths']) || count($authPayload['auths']) === 0) {
             $fallbackToken = null;
-            if (isset($authPayload['tokens']['access_token']) && is_string($authPayload['tokens']['access_token'])) {
-                $fallbackToken = trim($authPayload['tokens']['access_token']);
-            } elseif (isset($authPayload['OPENAI_API_KEY']) && is_string($authPayload['OPENAI_API_KEY'])) {
-                $fallbackToken = trim($authPayload['OPENAI_API_KEY']);
+            if ($engine === Engine::CLAUDE) {
+                foreach ([
+                    $authPayload['api_key'] ?? null,
+                    $authPayload['anthropic_api_key'] ?? null,
+                    $authPayload['ANTHROPIC_API_KEY'] ?? null,
+                ] as $candidate) {
+                    if (is_string($candidate) && trim($candidate) !== '') {
+                        $fallbackToken = trim($candidate);
+                        break;
+                    }
+                }
+            } else {
+                if (isset($authPayload['tokens']['access_token']) && is_string($authPayload['tokens']['access_token'])) {
+                    $fallbackToken = trim($authPayload['tokens']['access_token']);
+                } elseif (isset($authPayload['OPENAI_API_KEY']) && is_string($authPayload['OPENAI_API_KEY'])) {
+                    $fallbackToken = trim($authPayload['OPENAI_API_KEY']);
+                }
             }
 
             if ($fallbackToken !== null && $fallbackToken !== '') {
                 $authPayload['auths'] = [
-                    'api.openai.com' => [
+                    ($engine === Engine::CLAUDE ? 'api.anthropic.com' : 'api.openai.com') => [
                         'token' => $fallbackToken,
                     ],
                 ];

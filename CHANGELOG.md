@@ -1,3 +1,9 @@
+# 2026-04-20
+- Claude workflow parity: seed commands are now engine-aware. Operators can mint Claude seed scripts from the dashboard, the token records remember `engine`, and generated scripts upload `~/.claude/.credentials.json` with the same runner-validated `/seed/auth/{uuid}` flow used for Codex.
+- Claude auth canonicalization: server-side auth storage now accepts Claude credential shapes (`api_key`, `anthropic_api_key`, `ANTHROPIC_API_KEY`) and synthesizes the canonical `auths["api.anthropic.com"]` entry during runner validation and storage, matching Codex fallback behavior.
+- `clx` wrapper: added `clx auth-upload`, canonical digest tracking, startup-bundle auth ingestion, and API-key extraction from server-returned `auths["api.anthropic.com"].token`, so post-install credential refreshes work analogously to `cdx auth-upload`.
+- Admin Claude parity: hosts can now pin a Claude Code CLI version and a Claude model override from the host action panel; `/auth` host metadata returns `claude_client_version_override` alongside the existing Claude client/wrapper fields.
+
 # 2026-04-19
 - cdx wrapper: added `cdx auth-upload`, a wrapper-only command that normalizes a local `~/.codex/auth.json` from `codex login` when `last_refresh` is missing, uploads it through `/auth command=store`, and exits without launching Codex. Normal auth sync now performs the same safe normalization before deciding a local auth file is unusable. Wrapper bumped to `2026.04.19-02`.
 - cdx wrapper: startup bundle sync now calls `/sync/bootstrap` when auth alone reports `missing` or `upload_required`, so a fresh local `~/.codex/auth.json` from `codex login` is uploaded to canonical storage even when AGENTS/config are already current. Wrapper bumped to `2026.04.19-01`.

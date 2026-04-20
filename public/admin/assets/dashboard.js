@@ -2639,6 +2639,14 @@
 	      return normalized;
 	    }
 
+	    function normalizeClaudeVersion(value) {
+	      if (typeof value !== 'string') return '';
+	      let normalized = value.trim();
+	      normalized = normalized.replace(/^(claude-code|claude-cli|claude)/i, '');
+	      normalized = normalized.replace(/^v/i, '');
+	      return normalized;
+	    }
+
 	    function isFullCodexRelease(version) {
 	      const normalized = normalizeCodexVersion(String(version || ''));
 	      if (!normalized) return false;
@@ -4273,10 +4281,12 @@
       return !!reverseDnsEnabled;
     }
 
-    function renderHostActionButtons(host) {
-      const secure = isHostSecure(host);
-      const installerMode = installerModeFromEngines(host?.engines);
-      const toggles = [];
+	    function renderHostActionButtons(host) {
+	      const secure = isHostSecure(host);
+	      const installerMode = installerModeFromEngines(host?.engines);
+	      const detailEngines = parseEngines(host?.engines);
+	      const hasClaude = detailEngines.includes('claude');
+	      const toggles = [];
       const secureState = secure
         ? 'Secure: auth.json stays on disk'
         : 'Insecure: auth.json purged after each run';
@@ -4341,11 +4351,39 @@
       const reverseDnsMode = normalizeReverseDnsMode(host?.reverse_dns_mode);
       const reverseDnsEffective = isReverseDnsEffective(host);
       const reverseDnsGlobalLabel = reverseDnsEnabled ? 'Global (enabled)' : 'Global (disabled)';
-      const reverseDnsState = reverseDnsMode === 'global'
-        ? reverseDnsGlobalLabel
-        : (reverseDnsEffective ? 'Enabled (host override)' : 'Disabled (host override)');
+	      const reverseDnsState = reverseDnsMode === 'global'
+	        ? reverseDnsGlobalLabel
+	        : (reverseDnsEffective ? 'Enabled (host override)' : 'Disabled (host override)');
+	      const claudeVersionBlock = hasClaude ? `
+	          <div class="host-inline-block">
+	            <div class="muted" style="font-weight:600; margin-bottom:6px;">Claude Code version</div>
+	            <div class="inline-group" style="gap:10px; align-items:flex-end;">
+	              <div class="field" style="min-width:240px;">
+	                <label for="hostClaudeVersionSelect">Version</label>
+	                <select id="hostClaudeVersionSelect">
+	                  <option value="global">Global (fleet)</option>
+	                </select>
+	              </div>
+	            </div>
+	            <div class="muted-note" style="margin-top:6px;">
+	              “Global” follows the fleet setting; picking a version pins this host and forces update on the next cron run.
+	              <span id="hostClaudeVersionSaveState" class="muted" style="margin-left:10px;"></span>
+	            </div>
+	          </div>
+	      ` : '';
+	      const claudeModelBlock = hasClaude ? `
+	            <div class="field" style="min-width:240px;">
+	              <label for="hostClaudeModelOverrideSelect">Claude model</label>
+	              <select id="hostClaudeModelOverrideSelect">
+	                <option value="">Standard (global)</option>
+	                <option value="claude-opus-4-6">claude-opus-4-6</option>
+	                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+	                <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+	              </select>
+	            </div>
+	      ` : '';
 
-      return `
+	      return `
         <div class="host-toggle-list">
           ${toggles.join('')}
         </div>
@@ -4365,7 +4403,7 @@
           </div>
         </div>
         <div class="host-inline-row">
-          <div class="host-inline-block">
+	          <div class="host-inline-block">
             <div class="muted" style="font-weight:600; margin-bottom:6px;">Reverse DNS enforcement</div>
             <div class="host-inline-toggle">
               <label class="toggle">
@@ -4393,11 +4431,12 @@
               “Global” follows the fleet setting; picking a version pins this host and forces upgrade/downgrade on the next run.
               <span id="hostCodexVersionSaveState" class="muted" style="margin-left:10px;"></span>
             </div>
-          </div>
-        </div>
-        <div class="host-model-overrides" style="margin-top:12px;">
-          <div class="muted" style="font-weight:600; margin-bottom:6px;">Model &amp; reasoning overrides</div>
-          <div class="inline-group" style="gap:10px; align-items:flex-end;">
+	          </div>
+	          ${claudeVersionBlock}
+	        </div>
+	        <div class="host-model-overrides" style="margin-top:12px;">
+	          <div class="muted" style="font-weight:600; margin-bottom:6px;">Model &amp; reasoning overrides</div>
+	          <div class="inline-group" style="gap:10px; align-items:flex-end;">
             <div class="field" style="min-width:240px;">
               <label for="hostModelOverrideSelect">Model</label>
               <select id="hostModelOverrideSelect">
@@ -4416,13 +4455,14 @@
                 <option value="medium">medium</option>
                 <option value="high">high</option>
                 <option value="xhigh">xhigh (Extra high)</option>
-              </select>
-            </div>
-          </div>
-          <div class="muted-note" style="margin-top:6px;">
-            Overrides affect the baked <code>cdx</code> wrapper for this host. “Standard” = use fleet-wide config.
-            <span id="hostModelOverrideSaveState" class="muted" style="margin-left:10px;"></span>
-          </div>
+	              </select>
+	            </div>
+	            ${claudeModelBlock}
+	          </div>
+	          <div class="muted-note" style="margin-top:6px;">
+	            Overrides affect the baked wrappers for this host. “Standard” = use fleet-wide config.
+	            <span id="hostModelOverrideSaveState" class="muted" style="margin-left:10px;"></span>
+	          </div>
         </div>
         <div class="host-action-buttons">
           <button class="ghost secondary" data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>
@@ -4554,7 +4594,7 @@
 
       const codexSelect = hostDetailActions.querySelector('#hostCodexVersionSelect');
       const codexSaveState = hostDetailActions.querySelector('#hostCodexVersionSaveState');
-      if (codexSelect) {
+	      if (codexSelect) {
         const override = normalizeCodexVersion(host.client_version_override || '');
         const target = normalizeCodexVersion(currentOverview?.versions?.client_version ?? '');
         const hostReported = normalizeCodexVersion(host.client_version || '');
@@ -4622,39 +4662,109 @@
         codexSelect.addEventListener('change', async (ev) => {
           ev.stopPropagation();
           await saveCodexOverride();
-        });
-      }
+	        });
+	      }
 
-      const modelSelect = hostDetailActions.querySelector('#hostModelOverrideSelect');
-      const effortSelect = hostDetailActions.querySelector('#hostReasoningEffortSelect');
-      const saveState = hostDetailActions.querySelector('#hostModelOverrideSaveState');
-      if (modelSelect) {
-        modelSelect.value = (host.model_override || '').trim();
-      }
+	      const claudeSelect = hostDetailActions.querySelector('#hostClaudeVersionSelect');
+	      const claudeSaveState = hostDetailActions.querySelector('#hostClaudeVersionSaveState');
+	      if (claudeSelect) {
+	        const override = normalizeClaudeVersion(host.claude_client_version_override || '');
+	        const target = normalizeClaudeVersion(currentOverview?.versions?.claude_version ?? '');
+	        const hostReported = normalizeClaudeVersion(host.claude_client_version || '');
+	        const orderedVersions = Array.from(new Set([
+	          target,
+	          hostReported && hostReported !== target ? hostReported : '',
+	          override && override !== target && override !== hostReported ? override : '',
+	        ].filter(Boolean)));
+
+	        claudeSelect.innerHTML = '';
+	        const globalLabel = target ? `Global (fleet · ${target})` : 'Global (fleet)';
+	        const globalOpt = document.createElement('option');
+	        globalOpt.value = 'global';
+	        globalOpt.textContent = globalLabel;
+	        claudeSelect.appendChild(globalOpt);
+	        for (const version of orderedVersions) {
+	          const suffix = [];
+	          if (target && version === target) suffix.push('fleet');
+	          if (hostReported && version === hostReported) suffix.push('host');
+	          if (override && version === override) suffix.push('pinned');
+	          const el = document.createElement('option');
+	          el.value = version;
+	          el.textContent = suffix.length ? `${version} (${suffix.join(', ')})` : version;
+	          claudeSelect.appendChild(el);
+	        }
+	        claudeSelect.value = override || 'global';
+
+	        const saveClaudeOverride = async () => {
+	          const selection = claudeSelect ? String(claudeSelect.value || 'global') : 'global';
+	          if (claudeSaveState) claudeSaveState.textContent = 'Saving…';
+	          if (claudeSelect) claudeSelect.disabled = true;
+	          try {
+	            await api(`/admin/hosts/${host.id}/claude-version`, {
+	              method: 'POST',
+	              json: { selection },
+	            });
+	            if (claudeSaveState) claudeSaveState.textContent = 'Saved';
+	            await reloadHostContextAfterMutation();
+	          } catch (err) {
+	            if (claudeSaveState) claudeSaveState.textContent = 'Save failed';
+	            console.error('save host claude version override failed', err);
+	          } finally {
+	            if (claudeSelect) claudeSelect.disabled = false;
+	            if (claudeSaveState) {
+	              window.setTimeout(() => {
+	                if (claudeSaveState.textContent === 'Saved') claudeSaveState.textContent = '';
+	              }, 1500);
+	            }
+	          }
+	        };
+
+	        claudeSelect.addEventListener('change', async (ev) => {
+	          ev.stopPropagation();
+	          await saveClaudeOverride();
+	        });
+	      }
+
+	      const modelSelect = hostDetailActions.querySelector('#hostModelOverrideSelect');
+	      const effortSelect = hostDetailActions.querySelector('#hostReasoningEffortSelect');
+	      const claudeModelSelect = hostDetailActions.querySelector('#hostClaudeModelOverrideSelect');
+	      const saveState = hostDetailActions.querySelector('#hostModelOverrideSaveState');
+	      if (modelSelect) {
+	        modelSelect.value = (host.model_override || '').trim();
+	      }
+	      if (claudeModelSelect) {
+	        claudeModelSelect.value = (host.claude_model_override || '').trim();
+	      }
       const initialEffort = (host.reasoning_effort_override || '').trim();
       rebuildHostReasoningOptions(effortSelect, modelSelect ? modelSelect.value : '', initialEffort);
       const saveOverrides = async () => {
         const modelVal = modelSelect ? String(modelSelect.value || '') : '';
         const effortVal = effortSelect ? String(effortSelect.value || '') : '';
         if (saveState) saveState.textContent = 'Saving…';
-        if (modelSelect) modelSelect.disabled = true;
-        if (effortSelect) effortSelect.disabled = true;
-        try {
-          await api(`/admin/hosts/${host.id}/model`, {
-            method: 'POST',
-            json: {
+	        if (modelSelect) modelSelect.disabled = true;
+	        if (effortSelect) effortSelect.disabled = true;
+	        if (claudeModelSelect) claudeModelSelect.disabled = true;
+	        try {
+            const payload = {
               model_override: modelVal === '' ? null : modelVal,
               reasoning_effort_override: effortVal === '' ? null : effortVal,
-            },
-          });
+            };
+            if (claudeModelSelect) {
+              payload.claude_model_override = claudeModelSelect.value ? String(claudeModelSelect.value) : null;
+            }
+	          await api(`/admin/hosts/${host.id}/model`, {
+	            method: 'POST',
+	            json: payload,
+	          });
           if (saveState) saveState.textContent = 'Saved';
           await reloadHostContextAfterMutation();
         } catch (err) {
           if (saveState) saveState.textContent = 'Save failed';
           console.error('save host model overrides failed', err);
         } finally {
-          if (modelSelect) modelSelect.disabled = false;
-          if (effortSelect) effortSelect.disabled = false;
+	          if (modelSelect) modelSelect.disabled = false;
+	          if (effortSelect) effortSelect.disabled = false;
+	          if (claudeModelSelect) claudeModelSelect.disabled = false;
           if (saveState) {
             window.setTimeout(() => {
               if (saveState.textContent === 'Saved') saveState.textContent = '';
@@ -4670,13 +4780,19 @@
           await saveOverrides();
         });
       }
-      if (effortSelect) {
-        effortSelect.addEventListener('change', async (ev) => {
-          ev.stopPropagation();
-          await saveOverrides();
-        });
-      }
-    }
+	      if (effortSelect) {
+	        effortSelect.addEventListener('change', async (ev) => {
+	          ev.stopPropagation();
+	          await saveOverrides();
+	        });
+	      }
+	      if (claudeModelSelect) {
+	        claudeModelSelect.addEventListener('change', async (ev) => {
+	          ev.stopPropagation();
+	          await saveOverrides();
+	        });
+	      }
+	    }
 
     function renderHostSummary(host) {
       if (!hostDetailSummary) return;
@@ -4685,9 +4801,9 @@
       const wrapperTag = renderVersionTag(host.wrapper_version, latestVersions.wrapper);
       const autoUpdate = hostAutoUpdateIndicator(host);
       const hostEngines = parseEngines(host.engines);
-      const claudeVersionTag = host.claude_version
-        ? renderVersionTag(host.claude_version, latestVersions.claude)
-        : null;
+	      const claudeVersionTag = host.claude_client_version
+	        ? renderVersionTag(host.claude_client_version, latestVersions.claude)
+	        : null;
       let versionValue = `${clientTag} ${wrapperTag}`;
       let versionMeta = 'Client \u00b7 Wrapper';
       if (claudeVersionTag) {
@@ -4763,7 +4879,7 @@
       const primaryIp = host.ip4 ?? host.ip6 ?? null;
       const secondaryIp = host.ip4 && host.ip6 ? host.ip6 : null;
       const detailEngines = parseEngines(host.engines);
-      const claudeTag = host.claude_version ? renderVersionTag(host.claude_version, latestVersions.claude) : null;
+	      const claudeTag = host.claude_client_version ? renderVersionTag(host.claude_client_version, latestVersions.claude) : null;
       const rows = [
         {
           key: 'Status',
@@ -11499,7 +11615,9 @@
       seedCommandBtn.disabled = true;
       seedCommandBtn.textContent = 'Generating…';
       try {
-        const res = await api('/admin/auth/seed-command', { method: 'POST' });
+        const selectedEngineRadio = document.querySelector('input[name="seedEngine"]:checked');
+        const engine = selectedEngineRadio?.value === 'claude' ? 'claude' : 'codex';
+        const res = await api('/admin/auth/seed-command', { method: 'POST', json: { engine } });
         const data = res.data || {};
         const cmd = data.command || '';
         if (seedCommandText) seedCommandText.textContent = cmd || 'No command returned.';
@@ -11509,9 +11627,10 @@
         }
         if (seedCommandMeta) {
           const expiresAt = data.expires_at || '';
+          const engineLabel = engine === 'claude' ? 'Claude' : 'Codex';
           seedCommandMeta.textContent = expiresAt
-            ? `Expires ${formatRelativeWithTimestamp(expiresAt)}. One-time use.`
-            : 'One-time use.';
+            ? `${engineLabel}. Expires ${formatRelativeWithTimestamp(expiresAt)}. One-time use.`
+            : `${engineLabel}. One-time use.`;
           seedCommandMeta.style.display = 'block';
         }
         if (cmd) toast('Seed command ready.', 'ok');

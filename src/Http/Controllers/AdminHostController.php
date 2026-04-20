@@ -17,7 +17,9 @@ use App\Services\AgentsService;
 use App\Services\AuthService;
 use App\Config;
 use App\Repositories\InstallTokenRepository;
+use App\Services\ClaudeModelService;
 use App\Services\ClientConfigService;
+use App\Support\ClaudeVersionPolicy;
 use App\Support\CodexVersionPolicy;
 use App\Support\Engine;
 use App\Support\InstallerMode;
@@ -921,6 +923,8 @@ class AdminHostController
 
         $modelRaw = $payload['model_override'] ?? null;
         $reasoningRaw = $payload['reasoning_effort_override'] ?? null;
+        $hasClaudeModelOverride = array_key_exists('claude_model_override', $payload);
+        $claudeModelRaw = $hasClaudeModelOverride ? $payload['claude_model_override'] : null;
         if ($modelRaw !== null && !is_string($modelRaw)) {
             Response::json([
                 'status' => 'error',
@@ -931,6 +935,12 @@ class AdminHostController
             Response::json([
                 'status' => 'error',
                 'message' => 'reasoning_effort_override must be string or null',
+            ], 422);
+        }
+        if ($claudeModelRaw !== null && !is_string($claudeModelRaw)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'claude_model_override must be string or null',
             ], 422);
         }
 
@@ -959,16 +969,35 @@ class AdminHostController
             ], 422);
         }
 
+        $claudeModelOverride = null;
+        if (is_string($claudeModelRaw) && trim($claudeModelRaw) !== '') {
+            $candidate = trim($claudeModelRaw);
+            if (!in_array($candidate, ClaudeModelService::SUPPORTED_MODELS, true)) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => 'claude_model_override must be one of: ' . implode(', ', ClaudeModelService::SUPPORTED_MODELS),
+                ], 422);
+            }
+            $claudeModelOverride = $candidate;
+        }
+
         $this->hostRepository->updateModelOverrides(
             $hostId,
             $modelOverride,
             $reasoningOverride
         );
-        $this->logRepository->log($hostId, 'admin.host.model_overrides', [
+        if ($hasClaudeModelOverride) {
+            $this->hostRepository->updateClaudeModelOverride($hostId, $claudeModelOverride);
+        }
+        $logDetails = [
             'fqdn' => $host['fqdn'] ?? null,
             'model_override' => $modelOverride,
             'reasoning_effort_override' => $reasoningOverride,
-        ]);
+        ];
+        if ($hasClaudeModelOverride) {
+            $logDetails['claude_model_override'] = $claudeModelOverride;
+        }
+        $this->logRepository->log($hostId, 'admin.host.model_overrides', $logDetails);
 
         $updated = $this->hostRepository->findById($hostId);
 
@@ -979,6 +1008,7 @@ class AdminHostController
                     'id' => $hostId,
                     'model_override' => $updated['model_override'] ?? null,
                     'reasoning_effort_override' => $updated['reasoning_effort_override'] ?? null,
+                    'claude_model_override' => $updated['claude_model_override'] ?? null,
                 ],
             ],
         ]);
@@ -1035,6 +1065,62 @@ class AdminHostController
                 'host' => [
                     'id' => $hostId,
                     'client_version_override' => $override,
+                ],
+            ],
+        ]);
+    }
+
+    public function claudeVersion(string $hostId, array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+        $hostId = (int) $hostId;
+        $host = $this->hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $selectionRaw = $payload['selection'] ?? ($payload['claude_client_version_override'] ?? null);
+        if ($selectionRaw !== null && !is_string($selectionRaw)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'selection must be one of: global, or a version like 1.2.3',
+            ], 422);
+        }
+
+        $selection = is_string($selectionRaw) ? trim($selectionRaw) : 'global';
+        $selectionLower = strtolower($selection);
+        if ($selectionLower === '' || $selectionLower === 'global' || $selectionLower === 'fleet' || $selectionLower === 'default') {
+            $this->hostRepository->updateClaudeClientVersionOverride($hostId, null);
+        } else {
+            $normalized = ClaudeVersionPolicy::normalize($selection);
+            if (!ClaudeVersionPolicy::isSemanticVersion($normalized)) {
+                Response::json([
+                    'status' => 'error',
+                    'message' => 'selection must be a semantic version like 1.2.3',
+                ], 422);
+            }
+            $effective = ClaudeVersionPolicy::resolveEffective($normalized, true)['version'];
+            $this->hostRepository->updateClaudeClientVersionOverride($hostId, $effective);
+        }
+
+        $updated = $this->hostRepository->findById($hostId);
+        $override = $updated['claude_client_version_override'] ?? null;
+
+        $this->logRepository->log($hostId, 'admin.host.claude_client_version_override', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'claude_client_version_override' => $override,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => $hostId,
+                    'claude_client_version_override' => $override,
                 ],
             ],
         ]);

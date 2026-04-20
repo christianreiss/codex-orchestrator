@@ -13,6 +13,7 @@ ${BOLD}Usage:${RESET}
   clx status                Show CLX status
   clx doctor                Diagnose CLX setup
   clx --update              Update CLX wrapper + Claude CLI
+  clx auth-upload           Upload local Claude credentials
   clx --cron                Run cron auto-update check
   clx --cron install        Install cron auto-update job
   clx --cron remove         Remove cron auto-update job
@@ -79,7 +80,7 @@ clx_run_claude() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
     # Extract API key from credentials if present.
     local api_key=""
-    api_key="$(jq -r '.api_key // .anthropic_api_key // empty' "$CLX_AUTH_FILE" 2>/dev/null || true)"
+    api_key="$(clx_auth_extract_api_key "$CLX_AUTH_FILE" || true)"
     if [[ -n "$api_key" ]]; then
       export ANTHROPIC_API_KEY="$api_key"
     fi
@@ -149,6 +150,23 @@ clx_main() {
     --uninstall)
       clx_uninstall
       exit 0
+      ;;
+    auth-upload)
+      shift
+      if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        printf 'Usage: clx auth-upload\n\nUpload ~/.claude/.credentials.json or cached CLX credentials to the canonical server store.\n'
+        exit 0
+      fi
+      if (($# > 0)); then
+        printf 'Usage: clx auth-upload\n' >&2
+        exit 1
+      fi
+      clx_acquire_lock
+      ensure_deps
+      clx_auth_upload_command
+      status=$?
+      rm -f "$CLX_LOCK_FILE" 2>/dev/null || true
+      exit "$status"
       ;;
     status)
       CLAUDE_STATUS_ONLY=1

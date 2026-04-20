@@ -63,6 +63,9 @@ class HostRepository
         if (!array_key_exists('claude_client_version', $host)) {
             $host['claude_client_version'] = null;
         }
+        if (!array_key_exists('claude_client_version_override', $host)) {
+            $host['claude_client_version_override'] = null;
+        }
         if (!array_key_exists('claude_wrapper_version', $host)) {
             $host['claude_wrapper_version'] = null;
         }
@@ -252,6 +255,11 @@ class HostRepository
     public function updateClaudeModelOverride(int $hostId, ?string $modelOverride): void
     {
         $this->updateHostFields($hostId, 'claude_model_override = :claude_model_override', ['claude_model_override' => $modelOverride]);
+    }
+
+    public function updateClaudeClientVersionOverride(int $hostId, ?string $clientVersionOverride): void
+    {
+        $this->updateHostFields($hostId, 'claude_client_version_override = :claude_client_version_override', ['claude_client_version_override' => $clientVersionOverride]);
     }
 
     public function rotateApiKey(int $hostId, string $apiKey): ?array

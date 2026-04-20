@@ -14,6 +14,7 @@ use App\Repositories\LogRepository;
 use App\Services\AuthService;
 use App\Support\InstallerScriptBuilder;
 use App\Support\SeedAuthScriptBuilder;
+use App\Support\Engine;
 
 class InstallController
 {
@@ -106,7 +107,10 @@ class InstallController
         }
 
         try {
-            $body = SeedAuthScriptBuilder::build($baseUrl, (string) $tokenRow['token']);
+            $engine = isset($tokenRow['engine']) && is_string($tokenRow['engine']) && Engine::isValid($tokenRow['engine'])
+                ? $tokenRow['engine']
+                : Engine::CODEX;
+            $body = SeedAuthScriptBuilder::build($baseUrl, (string) $tokenRow['token'], $engine);
         } catch (\InvalidArgumentException $exception) {
             seedAuthError($exception->getMessage(), 500, $tokenRow['expires_at'] ?? null);
         }
@@ -176,10 +180,13 @@ class InstallController
             'allow_roaming_ips' => true,
             'secure' => true,
         ];
+        $engine = isset($tokenRow['engine']) && is_string($tokenRow['engine']) && Engine::isValid($tokenRow['engine'])
+            ? $tokenRow['engine']
+            : Engine::CODEX;
 
         try {
             $result = $this->service->handleAuth(
-                ['command' => 'store', 'auth' => $authPayload],
+                ['command' => 'store', 'auth' => $authPayload, 'engine' => $engine],
                 $host,
                 'seed-upload',
                 null,
@@ -203,6 +210,7 @@ class InstallController
         $this->logRepository->log(null, 'auth.seed.consume', [
             'token' => substr((string) $tokenRow['token'], 0, 8) . "\u{2026}",
             'status' => $result['status'] ?? null,
+            'engine' => $engine,
         ]);
 
         Response::json([

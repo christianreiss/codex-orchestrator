@@ -104,7 +104,25 @@
                 "null"
               ]
             },
+            "claude_client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "claude_client_version_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "wrapper_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "claude_wrapper_version": {
               "type": [
                 "string",
                 "null"
@@ -167,6 +185,18 @@
               ]
             },
             "reasoning_effort_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "claude_model_override": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "claude_reasoning_effort_override": {
               "type": [
                 "string",
                 "null"

@@ -95,11 +95,10 @@ class ClientVersionService
 
     public function applyClientVersionOverrideForHost(array $versions, array $host, string $engine = Engine::DEFAULT): array
     {
-        if (Engine::validate($engine) !== Engine::DEFAULT) {
-            return $versions;
-        }
-
-        $override = $host['client_version_override'] ?? null;
+        $engine = Engine::validate($engine);
+        $override = $engine === Engine::CLAUDE
+            ? ($host['claude_client_version_override'] ?? null)
+            : ($host['client_version_override'] ?? null);
         if (!is_string($override)) {
             return $versions;
         }
@@ -109,7 +108,9 @@ class ClientVersionService
             return $versions;
         }
 
-        $policy = CodexVersionPolicy::resolveEffective($override, true);
+        $policy = $engine === Engine::CLAUDE
+            ? ClaudeVersionPolicy::resolveEffective($override, true)
+            : CodexVersionPolicy::resolveEffective($override, true);
 
         $versions['client_version'] = $policy['version'];
         $versions['client_version_source'] = 'locked';

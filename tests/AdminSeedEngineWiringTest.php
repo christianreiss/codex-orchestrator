@@ -36,6 +36,14 @@ final class AdminSeedEngineWiringTest extends TestCase
         );
     }
 
+    public function testSeedCommandCallIncludesSelectedEngine(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        self::assertIsString($js);
+
+        self::assertStringContainsString("api('/admin/auth/seed-command', { method: 'POST', json: { engine } })", $js);
+    }
+
     public function testServerAcceptsEngineFieldOnAuthUpload(): void
     {
         $controller = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');

@@ -1177,13 +1177,36 @@ mkdir -p "$CLX_DATA_DIR" "$CLX_CACHE_DIR" "$CLX_AUTH_DIR" "$CLX_CONFIG_DIR" "$CL
 
 CLX_AUTH_FILE="${CLX_AUTH_DIR}/credentials.json"
 CLX_AUTH_DIGEST_FILE="${CLX_CACHE_DIR}/auth_digest"
+CLX_AUTH_FILE_HASH_FILE="${CLX_CACHE_DIR}/auth_file_sha256"
 CLX_AUTH_LAST_SYNC="${CLX_CACHE_DIR}/auth_last_sync"
 CLX_AUTH_CACHE_TTL=86400 # 24 hours
 CLX_AUTH_FALLBACK_TTL=604800 # 7 days for secure hosts
 
 clx_auth_digest() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
-    sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true
+    local file_hash cached_hash cached_digest
+    file_hash="$(sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true)"
+    cached_hash="$(cat "$CLX_AUTH_FILE_HASH_FILE" 2>/dev/null || true)"
+    cached_digest="$(cat "$CLX_AUTH_DIGEST_FILE" 2>/dev/null || true)"
+    if [[ -n "$file_hash" && -n "$cached_hash" && "$file_hash" == "$cached_hash" && "$cached_digest" =~ ^[a-f0-9]{64}$ ]]; then
+      printf '%s' "$cached_digest"
+      return 0
+    fi
+    printf '%s' "$file_hash"
+  fi
+}
+
+clx_remember_auth_digest() {
+  local digest="$1"
+  local file_hash=""
+  if [[ -f "$CLX_AUTH_FILE" ]]; then
+    file_hash="$(sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true)"
+    printf '%s' "$file_hash" > "$CLX_AUTH_FILE_HASH_FILE" || true
+  fi
+  if [[ "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+    printf '%s' "$digest" > "$CLX_AUTH_DIGEST_FILE"
+  elif [[ -n "$file_hash" ]]; then
+    printf '%s' "$file_hash" > "$CLX_AUTH_DIGEST_FILE"
   fi
 }
 
@@ -1253,6 +1276,7 @@ clx_auth_sync() {
   case "$status" in
     valid)
       log_debug "Auth is up to date."
+      clx_remember_auth_digest "$(printf '%s' "$response" | jq -r '.data.canonical_digest // empty' 2>/dev/null || true)"
       AUTH_PULL_STATUS="ok"
       ;;
     outdated|updated)
@@ -1263,6 +1287,7 @@ clx_auth_sync() {
         chmod 600 "$CLX_AUTH_FILE"
         log_info "Claude auth updated from orchestrator."
       fi
+      clx_remember_auth_digest "$(printf '%s' "$response" | jq -r '.data.canonical_digest // empty' 2>/dev/null || true)"
       AUTH_PULL_STATUS="ok"
       ;;
     upload_required|missing)
@@ -1299,7 +1324,7 @@ clx_auth_sync() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
     HAS_LOCAL_AUTH=1
     local api_key_check=""
-    api_key_check="$(jq -r '.api_key // .anthropic_api_key // empty' "$CLX_AUTH_FILE" 2>/dev/null || true)"
+    api_key_check="$(clx_auth_extract_api_key "$CLX_AUTH_FILE" || true)"
     if [[ -n "$api_key_check" ]]; then
       HAS_VALID_LOCAL_AUTH=1
     fi
@@ -1317,7 +1342,9 @@ clx_auth_sync() {
   fi
 
   date +%s > "$CLX_AUTH_LAST_SYNC"
-  clx_auth_digest > "$CLX_AUTH_DIGEST_FILE"
+  if [[ ! -s "$CLX_AUTH_DIGEST_FILE" ]]; then
+    clx_remember_auth_digest ""
+  fi
 }
 
 # clx_auth_push() is defined in 02-auth-30-push.sh (extracted for parity with cdx).
@@ -1455,6 +1482,20 @@ sys.exit(1)
 PY
 }
 
+clx_auth_extract_api_key() {
+  local path="$1"
+  if [[ ! -f "$path" ]] || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+  jq -r '
+    .api_key
+    // .anthropic_api_key
+    // .ANTHROPIC_API_KEY
+    // .auths["api.anthropic.com"].token
+    // empty
+  ' "$path" 2>/dev/null | head -n1
+}
+
 # ── Claude Auth Push ──────────────────────────────────────────
 # Pushes a locally-held Claude credentials JSON up to the orchestrator.
 # Mirrors cdx's 02-auth-30-push.sh. Called by clx_auth_sync() when the
@@ -1487,17 +1528,84 @@ clx_auth_push() {
     return 1
   fi
 
-  clx_curl -X POST "${CLAUDE_SYNC_BASE_URL}/auth" \
+  local response=""
+  response="$(clx_curl -X POST "${CLAUDE_SYNC_BASE_URL}/auth" \
     -H "Content-Type: application/json" \
-    -d "$(jq -nc --arg cmd "store" --arg engine "claude" --argjson auth "$auth_body" \
-      '{command: $cmd, engine: $engine, auth: $auth}')" \
-    >/dev/null 2>&1 || {
+    -d "$(jq -nc \
+      --arg cmd "store" \
+      --arg engine "claude" \
+      --arg client_version "${LOCAL_CLAUDE_VERSION:-unknown}" \
+      --arg wrapper_version "${WRAPPER_VERSION:-unknown}" \
+      --arg installation_id "${CLAUDE_INSTALLATION_ID:-}" \
+      --argjson auth "$auth_body" \
+      '{
+        command: $cmd,
+        engine: $engine,
+        client_version: $client_version,
+        wrapper_version: $wrapper_version,
+        auth: $auth
+      } + (if $installation_id == "" then {} else {installation_id: $installation_id} end)')" \
+    2>/dev/null)" || {
     log_warn "Failed to push auth to orchestrator."
     return 1
   }
 
+  local returned_auth=""
+  returned_auth="$(printf '%s' "$response" | jq '.data.auth // empty' 2>/dev/null || true)"
+  if [[ -n "$returned_auth" && "$returned_auth" != "null" ]]; then
+    printf '%s' "$returned_auth" > "$CLX_AUTH_FILE"
+    chmod 600 "$CLX_AUTH_FILE"
+  fi
+  clx_remember_auth_digest "$(printf '%s' "$response" | jq -r '.data.canonical_digest // empty' 2>/dev/null || true)"
+
   log_debug "Pushed local auth to orchestrator."
   return 0
+}
+
+clx_prepare_auth_upload_file() {
+  local source_path="$CLX_AUTH_FILE"
+  if [[ ! -f "$source_path" && -f "$HOME/.claude/.credentials.json" ]]; then
+    mkdir -p "$CLX_AUTH_DIR"
+    cp "$HOME/.claude/.credentials.json" "$CLX_AUTH_FILE"
+    chmod 600 "$CLX_AUTH_FILE"
+    source_path="$CLX_AUTH_FILE"
+  fi
+
+  if [[ ! -f "$source_path" ]]; then
+    log_error "No local Claude credentials found. Run 'claude login' first, then retry 'clx auth-upload'."
+    return 1
+  fi
+
+  local lr
+  lr="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local tmp_auth
+  tmp_auth="$(mktemp)" || return 1
+  if jq --arg lr "$lr" 'if (.last_refresh | type) != "string" or (.last_refresh | length) == 0 then . + {last_refresh: $lr} else . end' "$source_path" > "$tmp_auth" 2>/dev/null; then
+    mv "$tmp_auth" "$CLX_AUTH_FILE"
+    chmod 600 "$CLX_AUTH_FILE"
+  else
+    rm -f "$tmp_auth"
+  fi
+
+  if ! validate_auth_json_file "$CLX_AUTH_FILE"; then
+    log_error "Local Claude credentials are not uploadable. Run 'claude login' first, then retry 'clx auth-upload'."
+    return 1
+  fi
+}
+
+clx_auth_upload_command() {
+  if [[ -z "${CLAUDE_SYNC_BASE_URL:-}" ]] || [[ -z "${CLAUDE_SYNC_API_KEY:-}" ]]; then
+    log_error "Sync config missing API key or base URL; download a fresh clx wrapper from the server."
+    return 1
+  fi
+
+  clx_prepare_auth_upload_file || return 1
+  if clx_auth_push; then
+    log_info "Uploaded current Claude credentials."
+    return 0
+  fi
+
+  return 1
 }
 
 # ── CLAUDE.md Sync ────────────────────────────────────────────
@@ -1800,10 +1908,24 @@ clx_startup_bundle_pull() {
     auth_status="$(printf '%s' "$auth_block" | jq -r '.status // empty' 2>/dev/null || true)"
     case "$auth_status" in
       updated|outdated|valid)
+        local auth_content auth_digest_value
+        auth_content="$(printf '%s' "$auth_block" | jq '.auth // empty' 2>/dev/null || true)"
+        if [[ -n "$auth_content" && "$auth_content" != "null" ]]; then
+          printf '%s' "$auth_content" > "$CLX_AUTH_FILE"
+          chmod 600 "$CLX_AUTH_FILE"
+        fi
+        auth_digest_value="$(printf '%s' "$auth_block" | jq -r '.canonical_digest // empty' 2>/dev/null || true)"
+        clx_remember_auth_digest "$auth_digest_value"
         AUTH_PULL_STATUS="ok"
         ;;
       disabled|invalid|insecure|insecure-denied|concurrent|skip)
         AUTH_PULL_STATUS="$auth_status"
+        ;;
+      missing|upload_required)
+        if [[ -f "$CLX_AUTH_FILE" ]]; then
+          clx_auth_push || true
+        fi
+        AUTH_PULL_STATUS="ok"
         ;;
       *)
         AUTH_PULL_STATUS="${auth_status:-ok}"
@@ -3101,7 +3223,7 @@ clx_bootstrap() {
   clx_apply_model_override
 
   # Check for wrapper updates (non-blocking).
-  clx_check_wrapper_update &
+  clx_check_wrapper_update "${CLAUDE_ORIGINAL_ARGS[@]}" &
   local update_pid=$!
   wait "$update_pid" 2>/dev/null || true
 }
@@ -4716,6 +4838,7 @@ ${BOLD}Usage:${RESET}
   clx status                Show CLX status
   clx doctor                Diagnose CLX setup
   clx --update              Update CLX wrapper + Claude CLI
+  clx auth-upload           Upload local Claude credentials
   clx --cron                Run cron auto-update check
   clx --cron install        Install cron auto-update job
   clx --cron remove         Remove cron auto-update job
@@ -4782,7 +4905,7 @@ clx_run_claude() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
     # Extract API key from credentials if present.
     local api_key=""
-    api_key="$(jq -r '.api_key // .anthropic_api_key // empty' "$CLX_AUTH_FILE" 2>/dev/null || true)"
+    api_key="$(clx_auth_extract_api_key "$CLX_AUTH_FILE" || true)"
     if [[ -n "$api_key" ]]; then
       export ANTHROPIC_API_KEY="$api_key"
     fi
@@ -4852,6 +4975,23 @@ clx_main() {
     --uninstall)
       clx_uninstall
       exit 0
+      ;;
+    auth-upload)
+      shift
+      if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        printf 'Usage: clx auth-upload\n\nUpload ~/.claude/.credentials.json or cached CLX credentials to the canonical server store.\n'
+        exit 0
+      fi
+      if (($# > 0)); then
+        printf 'Usage: clx auth-upload\n' >&2
+        exit 1
+      fi
+      clx_acquire_lock
+      ensure_deps
+      clx_auth_upload_command
+      status=$?
+      rm -f "$CLX_LOCK_FILE" 2>/dev/null || true
+      exit "$status"
       ;;
     status)
       CLAUDE_STATUS_ONLY=1

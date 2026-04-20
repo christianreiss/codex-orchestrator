@@ -11,6 +11,7 @@ namespace App\Repositories;
 
 use App\Database;
 use App\Security\SecretBox;
+use App\Support\Engine;
 use PDO;
 
 class AuthSeedTokenRepository
@@ -22,21 +23,23 @@ class AuthSeedTokenRepository
     {
     }
 
-    public function create(string $token, string $expiresAt, ?string $baseUrl = null): array
+    public function create(string $token, string $expiresAt, ?string $baseUrl = null, string $engine = Engine::CODEX): array
     {
+        $engine = Engine::isValid($engine) ? $engine : Engine::CODEX;
         $now = gmdate(DATE_ATOM);
         $tokenHash = hash('sha256', $token);
         $tokenEnc = $this->encrypter->encrypt($token);
 
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO auth_seed_tokens (token, token_enc, base_url, expires_at, created_at)
-             VALUES (:token, :token_enc, :base_url, :expires_at, :created_at)'
+            'INSERT INTO auth_seed_tokens (token, token_enc, base_url, engine, expires_at, created_at)
+             VALUES (:token, :token_enc, :base_url, :engine, :expires_at, :created_at)'
         );
 
         $statement->execute([
             'token' => $tokenHash,
             'token_enc' => $tokenEnc,
             'base_url' => $baseUrl,
+            'engine' => $engine,
             'expires_at' => $expiresAt,
             'created_at' => $now,
         ]);

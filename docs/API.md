@@ -210,7 +210,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 - `engine`: optional `codex` or `claude`. May also be supplied via query `?engine=...` or `X-Engine`; wrapper user-agent fallback (`clx`) also selects Claude. Default is `codex`.
 - `client_version` / `wrapper_version`: optional strings (also accepted from query params `client_version`/`cdx_version`/`wrapper_version`).
 - `retrieve` requires `digest` (64-hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh` (RFC3339, `>=2000-01-01`, `<=now+300s`).
-- `store` requires `auth` (or top-level auth object) with `last_refresh` and `auths`. If `auths` is missing/empty but `tokens.access_token` or `OPENAI_API_KEY` exists, server synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}`.
+- `store` requires `auth` (or top-level auth object) with `last_refresh` and `auths`. If `auths` is missing/empty, Codex synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}` from `tokens.access_token` or `OPENAI_API_KEY`; Claude synthesizes `auths = {"api.anthropic.com": {token, token_type:"bearer"}}` from `api_key`, `anthropic_api_key`, or `ANTHROPIC_API_KEY`.
 - Store update candidates are runner-validated before persistence; non-OK/unreachable runner rejects the update. Admin `/admin/auth/upload` and `/seed/auth/{uuid}` use the same runner-validation/update path, so runner `updated_auth` can become canonical there too.
 - If runner is not configured, update-candidate `store` requests fail (`503 Auth runner required`).
 - `installation_id` is optional; when present it must match server `INSTALLATION_ID` or request is rejected with HTTP 403 (`Installation ID mismatch`).
@@ -222,7 +222,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on retrieve paths that require upload.
-- `host`: `fqdn`, `status`, `last_refresh`, `claude_last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `claude_client_version`, `agents_document_id_override`, `wrapper_version`, `claude_wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `engines`, `engines_list`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`, and optional `claude_model_override` / `claude_reasoning_effort_override`.
+- `host`: `fqdn`, `status`, `last_refresh`, `claude_last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `claude_client_version`, `claude_client_version_override`, `agents_document_id_override`, `wrapper_version`, `claude_wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `engines`, `engines_list`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`, and optional `claude_model_override` / `claude_reasoning_effort_override`.
 - `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`cost`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
@@ -317,7 +317,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/users/{id}` — delete admin user (blocked if last active admin).
   - `POST /admin/users/wipe` — wipe all admin users (requires confirmation `confirm:"WIPE"`).
 - `POST /admin/toasts` — emit admin toast event (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
-- `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `curl_insecure`, overrides (`client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `reverse_dns_mode`, `auto_update_override`), latest token usage, `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
+- `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `curl_insecure`, overrides (`client_version_override`, `claude_client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `claude_model_override`, `reverse_dns_mode`, `auto_update_override`), latest token usage, `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
 - `GET /admin/hosts/insecure` — insecure-host view with `{count, active, hosts[], domains[], domains_active}`.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests for the selected engine; optional auth body via `?include_body=1`. Engine can be supplied via body/query/header and defaults to `codex`; the response includes `engine` plus both Codex and Claude host-side fields.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
@@ -325,8 +325,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/vip` — toggle VIP (VIP hosts always behave warn-only for quota hard-fail).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle sync TLS verification bypass (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`).
-- `POST /admin/hosts/{id}/model` — set per-host `model_override` / `reasoning_effort_override` (null/empty clears). Supported models: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`; effort must be valid for the selected model. Stored legacy overrides on removed models are backfilled to `gpt-5.4` with `medium` effort.
+- `POST /admin/hosts/{id}/model` — set per-host Codex `model_override` / `reasoning_effort_override` and Claude `claude_model_override` (null/empty clears). Codex supported models: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`; effort must be valid for the selected model. Claude supported models: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`. Stored legacy Codex overrides on removed models are backfilled to `gpt-5.4` with `medium` effort.
 - `POST /admin/hosts/{id}/codex-version` — set per-host Codex version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`).
+- `POST /admin/hosts/{id}/claude-version` — set per-host Claude Code version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`, or `claude_client_version_override`).
 - `POST /admin/hosts/{id}/agents-version` — set per-host AGENTS document override (`selection: "global"|"fleet"|"default"|<version_id>`).
 - `POST /admin/hosts/{id}/insecure/enable` — insecure hosts only; opens/extends window. Optional `duration_minutes` (`0..480`); if omitted uses stored/default 10.
 - `POST /admin/hosts/{id}/insecure/disable` — closes window immediately and clears grace.
@@ -341,9 +342,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests for both Codex and Claude.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner-validated when the runner is enabled.
-- `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for local `~/.codex/auth.json`; the generated script normalizes plain Codex auth files by adding `last_refresh` when missing and prints server validation errors on upload failure. TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
-- `GET /seed/auth/{uuid}` — serve seed shell script.
-- `POST /seed/auth/{uuid}` — accept raw auth payload (or `{ "auth": ... }`), runner-validate/store canonical auth when the runner is enabled, and consume the token after a successful store. Malformed JSON/object attempts are still consumed.
+- `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for `{engine:"codex"|"claude"}` (default Codex). Generated scripts read `~/.codex/auth.json` for Codex or `~/.claude/.credentials.json` for Claude, normalize plain credential files by adding `last_refresh` when missing, and print server validation errors on upload failure. TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
+- `GET /seed/auth/{uuid}` — serve engine-specific seed shell script.
+- `POST /seed/auth/{uuid}` — accept raw credential payload (or `{ "auth": ... }`), runner-validate/store canonical auth for the token engine when the runner is enabled, and consume the token after a successful store. Malformed JSON/object attempts are still consumed.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - Claude admin endpoints:

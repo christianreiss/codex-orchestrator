@@ -74,7 +74,7 @@ clx_bootstrap() {
   clx_apply_model_override
 
   # Check for wrapper updates (non-blocking).
-  clx_check_wrapper_update &
+  clx_check_wrapper_update "${CLAUDE_ORIGINAL_ARGS[@]}" &
   local update_pid=$!
   wait "$update_pid" 2>/dev/null || true
 }

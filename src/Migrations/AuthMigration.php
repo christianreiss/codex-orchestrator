@@ -86,6 +86,7 @@ class AuthMigration implements MigrationInterface
                 token CHAR(64) NOT NULL UNIQUE,
                 token_enc LONGTEXT NULL,
                 base_url VARCHAR(255) NULL,
+                engine VARCHAR(16) NOT NULL DEFAULT 'codex',
                 expires_at VARCHAR(100) NOT NULL,
                 used_at VARCHAR(100) NULL,
                 created_at VARCHAR(100) NOT NULL,
@@ -128,6 +129,7 @@ class AuthMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'install_tokens', 'api_key_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'auth_seed_tokens', 'token_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'auth_seed_tokens', 'base_url', 'VARCHAR(255) NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'auth_seed_tokens', 'engine', "VARCHAR(16) NOT NULL DEFAULT 'codex'");
         $this->ensureColumnLength($pdo, $databaseName, 'install_tokens', 'token', 64);
         $this->ensureColumnLength($pdo, $databaseName, 'auth_seed_tokens', 'token', 64);
     }

@@ -4,13 +4,36 @@
 
 CLX_AUTH_FILE="${CLX_AUTH_DIR}/credentials.json"
 CLX_AUTH_DIGEST_FILE="${CLX_CACHE_DIR}/auth_digest"
+CLX_AUTH_FILE_HASH_FILE="${CLX_CACHE_DIR}/auth_file_sha256"
 CLX_AUTH_LAST_SYNC="${CLX_CACHE_DIR}/auth_last_sync"
 CLX_AUTH_CACHE_TTL=86400 # 24 hours
 CLX_AUTH_FALLBACK_TTL=604800 # 7 days for secure hosts
 
 clx_auth_digest() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
-    sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true
+    local file_hash cached_hash cached_digest
+    file_hash="$(sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true)"
+    cached_hash="$(cat "$CLX_AUTH_FILE_HASH_FILE" 2>/dev/null || true)"
+    cached_digest="$(cat "$CLX_AUTH_DIGEST_FILE" 2>/dev/null || true)"
+    if [[ -n "$file_hash" && -n "$cached_hash" && "$file_hash" == "$cached_hash" && "$cached_digest" =~ ^[a-f0-9]{64}$ ]]; then
+      printf '%s' "$cached_digest"
+      return 0
+    fi
+    printf '%s' "$file_hash"
+  fi
+}
+
+clx_remember_auth_digest() {
+  local digest="$1"
+  local file_hash=""
+  if [[ -f "$CLX_AUTH_FILE" ]]; then
+    file_hash="$(sha256sum "$CLX_AUTH_FILE" 2>/dev/null | awk '{print $1}' || true)"
+    printf '%s' "$file_hash" > "$CLX_AUTH_FILE_HASH_FILE" || true
+  fi
+  if [[ "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+    printf '%s' "$digest" > "$CLX_AUTH_DIGEST_FILE"
+  elif [[ -n "$file_hash" ]]; then
+    printf '%s' "$file_hash" > "$CLX_AUTH_DIGEST_FILE"
   fi
 }
 
@@ -80,6 +103,7 @@ clx_auth_sync() {
   case "$status" in
     valid)
       log_debug "Auth is up to date."
+      clx_remember_auth_digest "$(printf '%s' "$response" | jq -r '.data.canonical_digest // empty' 2>/dev/null || true)"
       AUTH_PULL_STATUS="ok"
       ;;
     outdated|updated)
@@ -90,6 +114,7 @@ clx_auth_sync() {
         chmod 600 "$CLX_AUTH_FILE"
         log_info "Claude auth updated from orchestrator."
       fi
+      clx_remember_auth_digest "$(printf '%s' "$response" | jq -r '.data.canonical_digest // empty' 2>/dev/null || true)"
       AUTH_PULL_STATUS="ok"
       ;;
     upload_required|missing)
@@ -126,7 +151,7 @@ clx_auth_sync() {
   if [[ -f "$CLX_AUTH_FILE" ]]; then
     HAS_LOCAL_AUTH=1
     local api_key_check=""
-    api_key_check="$(jq -r '.api_key // .anthropic_api_key // empty' "$CLX_AUTH_FILE" 2>/dev/null || true)"
+    api_key_check="$(clx_auth_extract_api_key "$CLX_AUTH_FILE" || true)"
     if [[ -n "$api_key_check" ]]; then
       HAS_VALID_LOCAL_AUTH=1
     fi
@@ -144,7 +169,9 @@ clx_auth_sync() {
   fi
 
   date +%s > "$CLX_AUTH_LAST_SYNC"
-  clx_auth_digest > "$CLX_AUTH_DIGEST_FILE"
+  if [[ ! -s "$CLX_AUTH_DIGEST_FILE" ]]; then
+    clx_remember_auth_digest ""
+  fi
 }
 
 # clx_auth_push() is defined in 02-auth-30-push.sh (extracted for parity with cdx).

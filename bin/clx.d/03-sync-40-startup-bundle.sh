@@ -128,10 +128,24 @@ clx_startup_bundle_pull() {
     auth_status="$(printf '%s' "$auth_block" | jq -r '.status // empty' 2>/dev/null || true)"
     case "$auth_status" in
       updated|outdated|valid)
+        local auth_content auth_digest_value
+        auth_content="$(printf '%s' "$auth_block" | jq '.auth // empty' 2>/dev/null || true)"
+        if [[ -n "$auth_content" && "$auth_content" != "null" ]]; then
+          printf '%s' "$auth_content" > "$CLX_AUTH_FILE"
+          chmod 600 "$CLX_AUTH_FILE"
+        fi
+        auth_digest_value="$(printf '%s' "$auth_block" | jq -r '.canonical_digest // empty' 2>/dev/null || true)"
+        clx_remember_auth_digest "$auth_digest_value"
         AUTH_PULL_STATUS="ok"
         ;;
       disabled|invalid|insecure|insecure-denied|concurrent|skip)
         AUTH_PULL_STATUS="$auth_status"
+        ;;
+      missing|upload_required)
+        if [[ -f "$CLX_AUTH_FILE" ]]; then
+          clx_auth_push || true
+        fi
+        AUTH_PULL_STATUS="ok"
         ;;
       *)
         AUTH_PULL_STATUS="${auth_status:-ok}"

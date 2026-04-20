@@ -33,4 +33,16 @@ final class AdminHostModelOverrideValidationTest extends TestCase
             'Expected per-model reasoning-effort validation for host overrides.'
         );
     }
+
+    public function testEndpointValidatesClaudeModelOverride(): void
+    {
+        $routerSource = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php')
+            . file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        self::assertIsString($routerSource);
+
+        self::assertStringContainsString('ClaudeModelService::SUPPORTED_MODELS', $routerSource);
+        self::assertStringContainsString("array_key_exists('claude_model_override', \$payload)", $routerSource);
+        self::assertStringContainsString('claude_model_override', $routerSource);
+        self::assertStringContainsString('hostClaudeModelOverrideSelect', $routerSource);
+    }
 }

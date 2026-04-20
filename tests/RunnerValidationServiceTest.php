@@ -10,6 +10,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\RunnerValidationService;
 use App\Services\RunnerVerifier;
+use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -195,6 +196,18 @@ final class RunnerValidationServiceTest extends TestCase
         $result = $this->svc->ensureAuthsFallback($payload);
         $this->assertArrayHasKey('auths', $result);
         $this->assertSame(self::VALID_TOKEN, $result['auths']['api.openai.com']['token']);
+    }
+
+    public function testEnsureAuthsFallbackSynthesizesClaudeApiKey(): void
+    {
+        $payload = [
+            'api_key' => self::VALID_TOKEN,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+        ];
+        $result = $this->svc->ensureAuthsFallback($payload, Engine::CLAUDE);
+        $this->assertArrayHasKey('auths', $result);
+        $this->assertSame(self::VALID_TOKEN, $result['auths']['api.anthropic.com']['token']);
+        $this->assertSame('bearer', $result['auths']['api.anthropic.com']['token_type']);
     }
 
     public function testEnsureAuthsFallbackPrefersTokensOverOpenAiApiKey(): void
@@ -451,6 +464,18 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertSame('api.openai.com', $entries[0]['target']);
         $this->assertSame(self::VALID_TOKEN, $entries[0]['token']);
         $this->assertSame('bearer', $entries[0]['token_type']);
+    }
+
+    public function testNormalizeAuthEntriesSynthesizesClaudeEntryFromApiKey(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'anthropic_api_key' => self::VALID_TOKEN,
+        ];
+        $entries = $this->svc->normalizeAuthEntries($auth, Engine::CLAUDE);
+        $this->assertCount(1, $entries);
+        $this->assertSame('api.anthropic.com', $entries[0]['target']);
+        $this->assertSame(self::VALID_TOKEN, $entries[0]['token']);
     }
 
     public function testNormalizeAuthEntriesPreservesOrganizationAndProject(): void

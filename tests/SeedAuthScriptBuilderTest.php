@@ -18,6 +18,15 @@ final class SeedAuthScriptBuilderTest extends TestCase
         $this->assertStringContainsString('auth.json', $script);
     }
 
+    public function testClaudeTemplateTargetsClaudeCredentials(): void
+    {
+        $script = SeedAuthScriptBuilder::build('https://codex.test', '11111111-2222-3333-4444-555555555555', 'claude');
+
+        self::assertStringContainsString('ENGINE="claude"', $script);
+        self::assertStringContainsString('.claude/.credentials.json', $script);
+        self::assertStringContainsString('anthropic_api_key', $script);
+    }
+
     public function testScriptAddsLastRefreshForPlainCodexAuth(): void
     {
         $tmp = $this->makeSeedScriptFixture();

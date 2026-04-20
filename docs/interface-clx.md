@@ -26,6 +26,7 @@ clx --continue            Continue last conversation
 clx --resume <session>    Resume a specific session
 clx status                Show CLX status summary
 clx doctor                Diagnose CLX setup
+clx auth-upload           Normalize and upload current Claude credentials
 clx --update              Update CLX wrapper + Claude CLI
 clx --cron                Run cron auto-update check
 clx --cron install        Install cron auto-update job
@@ -95,6 +96,10 @@ clx --help                Show this help
 | `__CLAUDE_HOST_MODEL__` | `hosts.claude_model_override` | Applied as `CLAUDE_MODEL` env at exec time. Omitted when the override is empty. |
 
 Host-baked string values are shell-escaped before download so malformed or operator-entered host labels cannot break wrapper parsing.
+
+## Auth upload
+
+`clx auth-upload` mirrors `cdx auth-upload`: it prepares the current Claude credentials, adds `last_refresh` when needed, stores them through `/auth` with `command=store` and `engine=claude`, then exits without launching Claude Code. The upload source is `~/.clx/auth/credentials.json` when present, otherwise `~/.claude/.credentials.json` from `claude login`. Accepted credential shapes are `auths["api.anthropic.com"].token`, `api_key`, `anthropic_api_key`, and `ANTHROPIC_API_KEY`; the server canonicalizes these into the Anthropic auth target.
 
 ## Intentional deltas vs `cdx`
 

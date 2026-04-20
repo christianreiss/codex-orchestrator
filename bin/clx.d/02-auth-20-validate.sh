@@ -130,3 +130,17 @@ if isinstance(auths, dict):
 sys.exit(1)
 PY
 }
+
+clx_auth_extract_api_key() {
+  local path="$1"
+  if [[ ! -f "$path" ]] || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+  jq -r '
+    .api_key
+    // .anthropic_api_key
+    // .ANTHROPIC_API_KEY
+    // .auths["api.anthropic.com"].token
+    // empty
+  ' "$path" 2>/dev/null | head -n1
+}

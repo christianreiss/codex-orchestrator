@@ -4,11 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-mapfile -t fragment_targets < <(find bin/cdx.d -type f -name '*.sh' -print | LC_ALL=C sort)
+mapfile -t fragment_targets < <(find bin/cdx.d bin/clx.d -type f -name '*.sh' -print | LC_ALL=C sort)
 mapfile -t script_targets < <(
   {
     find scripts -type f -name '*.sh' -print
     printf '%s\n' bin/cdx
+    printf '%s\n' bin/clx
   } | LC_ALL=C sort
 )
 

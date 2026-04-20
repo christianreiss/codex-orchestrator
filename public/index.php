@@ -645,7 +645,7 @@ $router->add('POST', '#^/admin/hosts/register$#', fn() => $adminHostCtrl->regist
 $router->add('GET', '#^/admin/runner$#', fn() => $adminOverviewCtrl->runner());
 $router->add('POST', '#^/admin/runner/run$#', fn() => $adminOverviewCtrl->runnerRun());
 $router->add('POST', '#^/admin/runner/run-claude$#', fn() => $adminOverviewCtrl->runnerRunClaude());
-$router->add('POST', '#^/admin/auth/seed-command$#', fn() => $adminOverviewCtrl->seedCommand());
+$router->add('POST', '#^/admin/auth/seed-command$#', fn() => $adminOverviewCtrl->seedCommand(is_array($payload) ? $payload : []));
 $router->add('POST', '#^/admin/auth/upload$#', fn() => $adminOverviewCtrl->authUpload($payload));
 
 // Admin settings (API state, CDX silent, reverse DNS, auto-update, etc.)
@@ -696,6 +696,7 @@ $router->add('POST', '#^/admin/hosts/(\d+)/curl-insecure$#', fn($id) => $adminHo
 $router->add('POST', '#^/admin/hosts/(\d+)/reverse-dns$#', fn($id) => $adminHostCtrl->reverseDns($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/model$#', fn($id) => $adminHostCtrl->model($id, $payload));
 $router->add('POST', '#^/admin/hosts/(\d+)/codex-version$#', fn($id) => $adminHostCtrl->codexVersion($id, $payload));
+$router->add('POST', '#^/admin/hosts/(\d+)/claude-version$#', fn(string $id) => $adminHostCtrl->claudeVersion($id, is_array($payload) ? $payload : []));
 $router->add('POST', '#^/admin/hosts/(\d+)/agents-version$#', fn($id) => $adminHostCtrl->agentsVersion($id, $payload));
 
 // Admin overview

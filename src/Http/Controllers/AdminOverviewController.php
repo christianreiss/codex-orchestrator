@@ -226,7 +226,7 @@ class AdminOverviewController
     /**
      * POST /admin/auth/seed-command
      */
-    public function seedCommand(): void
+    public function seedCommand(array $payload = []): void
     {
         requireAdminAccess();
         requireAdminCapability(AdminAuthService::CAP_SETTINGS);
@@ -247,12 +247,21 @@ class AdminOverviewController
             ], 500);
         }
 
-        $tokenRow = $this->seedTokenRepository->create(generateUuid(), $expiresAt, $baseUrl);
+        $engine = Engine::DEFAULT;
+        if (array_key_exists('engine', $payload) && is_string($payload['engine'])) {
+            $normalized = strtolower(trim($payload['engine']));
+            if (Engine::isValid($normalized)) {
+                $engine = $normalized;
+            }
+        }
+
+        $tokenRow = $this->seedTokenRepository->create(generateUuid(), $expiresAt, $baseUrl, $engine);
         $command = seedAuthCommand($baseUrl, (string) $tokenRow['token']);
 
         $this->logRepository->log(null, 'admin.seed_token.create', [
             'expires_at' => $expiresAt,
             'token' => substr((string) $tokenRow['token'], 0, 8) . "\u{2026}",
+            'engine' => $engine,
         ]);
 
         Response::json([
@@ -260,6 +269,7 @@ class AdminOverviewController
             'data' => [
                 'command' => $command,
                 'expires_at' => $expiresAt,
+                'engine' => $engine,
             ],
         ]);
     }
@@ -374,6 +384,10 @@ class AdminOverviewController
         $countHosts = count($hosts);
         $latestLog = $this->logRepository->recent(1);
         $versions = $this->service->versionSummary();
+        $claudeVersions = $this->service->versionSummary(Engine::CLAUDE);
+        $versions['claude_version'] = $claudeVersions['client_version'] ?? null;
+        $versions['claude_wrapper_version'] = $claudeVersions['wrapper_version'] ?? null;
+        $versions['claude_client_version_minimum'] = $claudeVersions['claude_client_version_minimum'] ?? null;
         $lastRefresh = null;
         $avgRefreshDays = null;
         $hasCanonicalAuth = $this->service->hasCanonicalAuth();
@@ -727,6 +741,7 @@ class AdminOverviewController
                 'client_version' => $host['client_version'] ?? null,
                 'claude_client_version' => $host['claude_client_version'] ?? null,
                 'client_version_override' => $host['client_version_override'] ?? null,
+                'claude_client_version_override' => $host['claude_client_version_override'] ?? null,
                 'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
                     ? (int) $host['agents_document_id_override']
                     : null,
@@ -846,6 +861,7 @@ class AdminOverviewController
                     'client_version' => $host['client_version'] ?? null,
                     'claude_client_version' => $host['claude_client_version'] ?? null,
                     'client_version_override' => $host['client_version_override'] ?? null,
+                    'claude_client_version_override' => $host['claude_client_version_override'] ?? null,
                     'agents_document_id_override' => isset($host['agents_document_id_override']) && $host['agents_document_id_override'] !== null
                         ? (int) $host['agents_document_id_override']
                         : null,
@@ -907,6 +923,7 @@ class AdminOverviewController
                         'client_version' => $versionSummary['client_version'] ?? null,
                         'wrapper_version' => $versionSummary['wrapper_version'] ?? null,
                         'client_version_checked_at' => $versionSummary['client_version_checked_at'] ?? null,
+                        'claude_version' => $this->service->versionSummary(Engine::CLAUDE)['client_version'] ?? null,
                     ],
                     'reverse_dns_enabled' => $this->versionRepository->getFlag('reverse_dns_enabled', false),
                     'auto_update_enabled' => $globalAutoUpdateEnabled,

@@ -70,8 +70,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
     - Toggle IPv4-only wrapper behavior: `POST /admin/hosts/{id}/ipv4` (`force` bool, clears pinned IPs, `hosts.manage`).
     - Toggle curl insecure wrapper behavior: `POST /admin/hosts/{id}/curl-insecure` (`allow` bool, `hosts.manage`).
     - Per-host reverse DNS mode: `POST /admin/hosts/{id}/reverse-dns` (`mode`, `hosts.manage`).
-    - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (`hosts.manage`).
+    - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (`hosts.manage`; Codex model/reasoning plus Claude model override when the host supports Claude).
     - Per-host codex version override: `POST /admin/hosts/{id}/codex-version` (`hosts.manage`).
+    - Per-host Claude Code version override: `POST /admin/hosts/{id}/claude-version` (`hosts.manage`).
     - Per-host AGENTS version override: `POST /admin/hosts/{id}/agents-version` (`hosts.manage`).
 - **Insecure Windows & Approval**:
   - Enable/disable per-host window: `POST /admin/hosts/{id}/insecure/enable|disable` (`hosts.activate`).
@@ -93,7 +94,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Login requires WebAuthn user verification and uses the entered username to scope `allowCredentials`; it is not username-less.
 - **Auth Upload & Seed**:
   - Upload canonical auth (runner-validated when enabled): `POST /admin/auth/upload` (`settings.manage`).
-  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); generated scripts normalize plain Codex auth files and print server validation errors on upload failure.
+  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.
   - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
 - **Global Settings**:
   - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
@@ -135,7 +136,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 ## Common Workflows
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
-- **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` -> execute generated `curl | bash`.
+- **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` with `engine` (`codex` or `claude`) -> execute generated `curl | bash`.
 - **Recover a locked-out admin who lost all passkeys**: `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`.
 - **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.
 - **Create a shared project**: `POST /admin/projects` with `slug`, optional `about`, and optional `roster_markdown`.
