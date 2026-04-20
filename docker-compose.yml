@@ -132,6 +132,57 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  preflight-cron:
+    build: .
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DB_DRIVER: mysql
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-codex_auth}
+      DB_USERNAME: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      AUTH_RUNNER_URL: ${AUTH_RUNNER_URL:-http://auth-runner:8080/verify}
+      AUTH_RUNNER_CODEX_BASE_URL: ${AUTH_RUNNER_CODEX_BASE_URL:-https://codex-auth.example.com}
+      AUTH_RUNNER_TIMEOUT: ${AUTH_RUNNER_TIMEOUT:-8}
+      AUTH_RUNNER_SHARED_SECRET: ${AUTH_RUNNER_SHARED_SECRET:-}
+      PREFLIGHT_CRON_INTERVAL: ${PREFLIGHT_CRON_INTERVAL:-60}
+      PREFLIGHT_RUNNER_INTERVAL: ${PREFLIGHT_RUNNER_INTERVAL:-600}
+      PREFLIGHT_VERSION_INTERVAL: ${PREFLIGHT_VERSION_INTERVAL:-10800}
+      PREFLIGHT_CRON_HEALTH_PATH: ${PREFLIGHT_CRON_HEALTH_PATH:-/tmp/preflight-cron-health.json}
+    volumes:
+      - ${ENV_FILE:-./.env}:/var/www/html/.env
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+    networks:
+      - codex_auth
+    command: >
+      bash -c "interval=${PREFLIGHT_CRON_INTERVAL:-60};
+        if [[ -z \"$$interval\" || ! \"$$interval\" =~ ^[0-9]+$ ]]; then interval=60; fi;
+        while true; do
+          if php /var/www/html/scripts/preflight-cron-tick.php; then
+            sleep \"$$interval\";
+          else
+            echo '[preflight-cron] tick failed; retrying in 60s' >&2;
+            sleep 60;
+          fi
+        done"
+    healthcheck:
+      test: ["CMD", "php", "/var/www/html/scripts/check-preflight-cron-health.php"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
   auth-runner:
     build:
       context: .

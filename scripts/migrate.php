@@ -55,6 +55,17 @@ try {
     } else {
         echo "[migrate] hosts api-key backfill already applied\n";
     }
+
+    if ($versionRepository->get('auth_payloads_verification_state_backfill_v1') === null) {
+        $update = $database->connection()->prepare(
+            "UPDATE auth_payloads SET verification_state = 'verified' WHERE verification_state = 'pending' OR verification_state IS NULL OR verification_state = ''"
+        );
+        $update->execute();
+        $versionRepository->set('auth_payloads_verification_state_backfill_v1', gmdate(DATE_ATOM));
+        echo "[migrate] auth_payloads verification_state backfill complete\n";
+    } else {
+        echo "[migrate] auth_payloads verification_state backfill already applied\n";
+    }
 } catch (Throwable $exception) {
     fwrite(STDERR, "[migrate] failed: " . $exception->getMessage() . "\n");
     exit(1);

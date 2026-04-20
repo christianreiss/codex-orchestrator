@@ -81,6 +81,11 @@ class InMemoryAuthPayloadRepository extends AuthPayloadRepository
     {
         return $this->payload;
     }
+
+    public function latestVerified(string $engine = 'codex'): ?array
+    {
+        return null;
+    }
 }
 
 class InMemoryHostAuthDigestRepository extends HostAuthDigestRepository

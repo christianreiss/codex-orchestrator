@@ -267,6 +267,205 @@ class RunnerValidationService
     }
 
     /**
+     * Promote or reject a pending auth_payloads row by running the runner against it.
+     *
+     * @return array{state: string, reason: ?string, payload_id: int, canonical_moved: bool, canonical_payload_id: ?int}
+     */
+    public function verifyPendingPayload(array $pendingPayload, string $engine = Engine::DEFAULT): array
+    {
+        $engine = Engine::validate($engine);
+        $payloadId = isset($pendingPayload['id']) ? (int) $pendingPayload['id'] : 0;
+        if ($payloadId <= 0) {
+            return [
+                'state' => 'skipped',
+                'reason' => 'missing_payload_id',
+                'payload_id' => 0,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        }
+
+        if ($this->runnerVerifier === null) {
+            return [
+                'state' => 'skipped',
+                'reason' => 'runner_not_configured',
+                'payload_id' => $payloadId,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        }
+
+        $validated = $this->validateCanonicalPayload($pendingPayload);
+        if ($validated === null) {
+            $this->payloads->markRejected($payloadId, 'canonical_invalid');
+            return [
+                'state' => 'rejected',
+                'reason' => 'canonical_invalid',
+                'payload_id' => $payloadId,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        }
+
+        $canonicalAuth = $validated['auth'];
+        $host = $this->resolveRunnerHost(null, $pendingPayload) ?? [];
+        $hostId = (int) ($host['id'] ?? 0);
+        $logHostId = $hostId > 0 ? $hostId : null;
+        $trackHost = $hostId > 0;
+        $runnerReachable = false;
+        $validation = null;
+
+        try {
+            $validation = $this->runnerVerifier->verify(
+                $canonicalAuth,
+                null,
+                $this->runnerTimeoutForTrigger('preflight_cron'),
+                $host
+            );
+            $runnerReachable = (bool) ($validation['reachable'] ?? false);
+            $this->logs->log($logHostId, 'auth.validate', [
+                'status' => $validation['status'] ?? null,
+                'reason' => $validation['reason'] ?? null,
+                'latency_ms' => $validation['latency_ms'] ?? null,
+                'trigger' => 'preflight_cron',
+                'payload_id' => $payloadId,
+            ]);
+        } catch (\Throwable $exception) {
+            $this->logs->log($logHostId, 'auth.validate', [
+                'status' => 'fail',
+                'reason' => $exception->getMessage(),
+                'trigger' => 'preflight_cron',
+                'payload_id' => $payloadId,
+            ]);
+            $this->recordRunnerOutcome(['status' => 'fail'], false, 'preflight_cron', $engine);
+
+            return [
+                'state' => 'skipped',
+                'reason' => 'runner_exception: ' . $exception->getMessage(),
+                'payload_id' => $payloadId,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        } finally {
+            if ($validation !== null) {
+                $this->recordRunnerOutcome($validation, $runnerReachable, 'preflight_cron', $engine);
+            }
+        }
+
+        if (!$runnerReachable) {
+            return [
+                'state' => 'skipped',
+                'reason' => 'runner_unreachable',
+                'payload_id' => $payloadId,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        }
+
+        $runnerStatus = strtolower((string) ($validation['status'] ?? 'fail'));
+        if ($runnerStatus !== 'ok') {
+            $reason = isset($validation['reason']) && is_string($validation['reason']) ? $validation['reason'] : 'runner_rejected';
+            $this->payloads->markRejected($payloadId, $reason);
+            $this->logs->log($logHostId, 'auth.runner_store', [
+                'status' => 'rejected',
+                'trigger' => 'preflight_cron',
+                'reason' => $reason,
+                'payload_id' => $payloadId,
+            ]);
+
+            return [
+                'state' => 'rejected',
+                'reason' => $reason,
+                'payload_id' => $payloadId,
+                'canonical_moved' => false,
+                'canonical_payload_id' => null,
+            ];
+        }
+
+        $promotedPayloadId = $payloadId;
+        $canonicalPayload = $pendingPayload;
+        $currentDigest = $validated['digest'];
+        $currentLastRefresh = $validated['last_refresh'];
+
+        if (isset($validation['updated_auth']) && is_array($validation['updated_auth'])) {
+            try {
+                $runnerAuth = $validation['updated_auth'];
+                $runnerLastRefresh = $runnerAuth['last_refresh'] ?? null;
+                $this->assertReasonableLastRefresh((string) $runnerLastRefresh, 'auth.last_refresh');
+                $runnerAuth = $this->ensureAuthsFallback($runnerAuth, $engine);
+                $runnerEntries = $this->normalizeAuthEntries($runnerAuth, $engine);
+                $runnerCanonical = $this->canonicalizeAuthPayload($runnerAuth, $runnerEntries, (string) $runnerLastRefresh);
+                $runnerEncoded = json_encode($runnerCanonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                if ($runnerEncoded === false) {
+                    throw new ValidationException(['auth' => ['Unable to encode runner auth payload']]);
+                }
+                $runnerDigest = $this->calculateDigest($runnerEncoded);
+
+                $comparison = Timestamp::compare((string) $runnerLastRefresh, $currentLastRefresh);
+                if ($comparison === 1 || ($comparison === 0 && $runnerDigest !== $currentDigest)) {
+                    $sourceHostForPayload = $trackHost
+                        ? $hostId
+                        : (isset($pendingPayload['source_host_id']) && is_numeric($pendingPayload['source_host_id'])
+                            ? (int) $pendingPayload['source_host_id']
+                            : null);
+                    if ($sourceHostForPayload === 0) {
+                        $sourceHostForPayload = null;
+                    }
+                    $payloadRow = $this->payloads->create(
+                        (string) $runnerLastRefresh,
+                        $runnerDigest,
+                        $sourceHostForPayload,
+                        $runnerEntries,
+                        $runnerEncoded,
+                        $engine,
+                        \App\Repositories\AuthPayloadRepository::STATE_VERIFIED
+                    );
+                    $promotedPayloadId = (int) $payloadRow['id'];
+                    $canonicalPayload = $payloadRow;
+                    $currentDigest = $runnerDigest;
+                    $currentLastRefresh = (string) $runnerLastRefresh;
+                    $this->logs->log($logHostId, 'auth.runner_store', [
+                        'status' => 'applied',
+                        'trigger' => 'preflight_cron',
+                        'incoming_last_refresh' => $runnerLastRefresh,
+                        'incoming_digest' => $runnerDigest,
+                        'source_payload_id' => $payloadId,
+                    ]);
+                    // Mark the pending one as verified too (the runner confirmed it was a valid input).
+                    $this->payloads->markVerified($payloadId, 'runner_applied_update');
+                } else {
+                    $this->payloads->markVerified($payloadId, 'runner_ok');
+                }
+            } catch (\Throwable $exception) {
+                $this->payloads->markVerified($payloadId, 'runner_ok');
+                $this->logs->log($logHostId, 'auth.runner_store', [
+                    'status' => 'updated_auth_failed',
+                    'trigger' => 'preflight_cron',
+                    'reason' => $exception->getMessage(),
+                    'payload_id' => $payloadId,
+                ]);
+            }
+        } else {
+            $this->payloads->markVerified($payloadId, 'runner_ok');
+        }
+
+        $this->versions->set($this->canonicalPayloadVersionKey($engine), (string) $promotedPayloadId);
+
+        if ($trackHost) {
+            $this->hostStates->upsert($hostId, $promotedPayloadId, (string) $currentDigest, $engine);
+            $this->hosts->updateSyncStateForEngine($hostId, $currentLastRefresh, (string) $currentDigest, $engine);
+        }
+
+        return [
+            'state' => 'verified',
+            'reason' => null,
+            'payload_id' => $payloadId,
+            'canonical_moved' => true,
+            'canonical_payload_id' => $promotedPayloadId,
+        ];
+    }
+
+    /**
      * When the runner is failing, decide if we should block the request to re-validate auth.
      *
      * @return array{0: ?array, 1: ?array, 2: ?string, 3: ?string}
@@ -517,7 +716,7 @@ class RunnerValidationService
 
     private function runnerTimeoutForTrigger(string $trigger): ?float
     {
-        return in_array($trigger, ['scheduled_preflight', 'daily_preflight', 'fail_recovery', 'fail_backoff', 'boot'], true)
+        return in_array($trigger, ['scheduled_preflight', 'daily_preflight', 'fail_recovery', 'fail_backoff', 'boot', 'preflight_cron'], true)
             ? self::RUNNER_BACKGROUND_TIMEOUT_SECONDS
             : null;
     }
@@ -541,6 +740,12 @@ class RunnerValidationService
     public function resolveCanonicalPayload(string $engine = Engine::DEFAULT): ?array
     {
         $engine = Engine::validate($engine);
+
+        $verified = $this->payloads->latestVerified($engine);
+        if ($verified !== null) {
+            return $verified;
+        }
+
         $id = $this->versions->get($this->canonicalPayloadVersionKey($engine));
         if ($id !== null && ctype_digit((string) $id)) {
             $payload = $this->payloads->findByIdWithEntries((int) $id, $engine);

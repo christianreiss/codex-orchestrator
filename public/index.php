@@ -242,6 +242,18 @@ if ($runBackfillsOnBoot && $versionRepository->get('hosts_api_key_encryption_bac
         error_log('[hosts] api key backfill failed: ' . $exception->getMessage());
     }
 }
+// One-time backfill: pre-existing auth_payloads rows predate verification_state and should be treated as verified.
+if ($runBackfillsOnBoot && $versionRepository->get('auth_payloads_verification_state_backfill_v1') === null) {
+    try {
+        $update = $database->connection()->prepare(
+            "UPDATE auth_payloads SET verification_state = 'verified' WHERE verification_state = 'pending' OR verification_state IS NULL OR verification_state = ''"
+        );
+        $update->execute();
+        $versionRepository->set('auth_payloads_verification_state_backfill_v1', gmdate(DATE_ATOM));
+    } catch (\Throwable $exception) {
+        error_log('[auth] verification_state backfill failed: ' . $exception->getMessage());
+    }
+}
 $hostStateRepository = new HostAuthStateRepository($database);
 $digestRepository = new HostAuthDigestRepository($database);
 $hostUserRepository = new HostUserRepository($database);
@@ -442,15 +454,8 @@ if ($normalizedPath === '') {
 
 enforcePublicBaseUrlPolicy($normalizedPath);
 
-// First non-admin API hit after ~8 hours (or boot): refresh GitHub client version cache and run auth runner once.
-// Avoid doing preflight work on ultra-hot, unauthenticated endpoints (health checks) or latency-sensitive MCP init.
-if (!str_starts_with($normalizedPath, '/admin') && $normalizedPath !== '/versions' && !str_starts_with($normalizedPath, '/mcp') && !str_starts_with($normalizedPath, '/cron') && !str_starts_with($normalizedPath, '/v1/') && !str_starts_with($normalizedPath, '/anthropic/')) {
-    try {
-        $service->runDailyPreflight();
-    } catch (\Throwable $exception) {
-        error_log('[preflight] scheduled check failed: ' . $exception->getMessage());
-    }
-}
+// Preflight work (runner probe + GitHub release fetch) is owned by the preflight-cron service.
+// Hot-path requests read cached state from MySQL only.
 
 const MIN_LAST_REFRESH_EPOCH = 946684800; // 2000-01-01T00:00:00Z
 
@@ -521,7 +526,7 @@ $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsServic
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
 $adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
 $wrapperCtrl = new WrapperController($service, $wrapperService);
-$installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository);
+$installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository, $versionRepository);
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
 $authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository, $claudeUsageService);
 $configApiCtrl = new ConfigApiController($service, $agentsService, $clientConfigService);

@@ -82,6 +82,11 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
                 return null;
             }
+
+            public function latestVerified(string $engine = 'codex'): ?array
+            {
+                return null;
+            }
         };
 
         $hostStates = new class() extends HostAuthStateRepository {
@@ -400,6 +405,11 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             }
 
             public function latest(string $engine = 'codex'): ?array
+            {
+                return null;
+            }
+
+            public function latestVerified(string $engine = 'codex'): ?array
             {
                 return null;
             }

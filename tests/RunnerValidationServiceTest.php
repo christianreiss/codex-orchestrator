@@ -916,6 +916,173 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertSame(self::VALID_LAST_REFRESH, $result['canonical_last_refresh']);
     }
 
+    public function testVerifyPendingPayloadPromotesOnRunnerOk(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $pending = [
+            'id' => 701,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'engine' => 'codex',
+            'entries' => [],
+            'verification_state' => 'pending',
+        ];
+
+        $hosts = $this->getMockBuilder(HostRepository::class)->disableOriginalConstructor()->getMock();
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)->disableOriginalConstructor()->getMock();
+        $payloads->expects(self::once())->method('markVerified')->with(701, self::anything());
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+
+        $versions = $this->getMockBuilder(VersionRepository::class)->disableOriginalConstructor()->getMock();
+        $versions->method('get')->willReturn(null);
+        $captured = [];
+        $versions->method('set')->willReturnCallback(function (string $key, string $value) use (&$captured): void {
+            $captured[$key] = $value;
+        });
+
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects(self::once())
+            ->method('verify')
+            ->willReturn(['status' => 'ok', 'reachable' => true, 'latency_ms' => 8]);
+
+        $svc = new RunnerValidationService($hosts, $payloads, $hostStates, $logs, $versions, $runner);
+
+        $outcome = $svc->verifyPendingPayload($pending);
+
+        $this->assertSame('verified', $outcome['state']);
+        $this->assertTrue($outcome['canonical_moved']);
+        $this->assertSame(701, $outcome['canonical_payload_id']);
+        $this->assertSame('701', $captured['canonical_payload_id'] ?? null);
+    }
+
+    public function testVerifyPendingPayloadMarksRejectedOnRunnerFail(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $pending = [
+            'id' => 702,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'engine' => 'codex',
+            'entries' => [],
+            'verification_state' => 'pending',
+        ];
+
+        $hosts = $this->getMockBuilder(HostRepository::class)->disableOriginalConstructor()->getMock();
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)->disableOriginalConstructor()->getMock();
+        $payloads->expects(self::once())->method('markRejected')->with(702, self::anything());
+        $payloads->expects(self::never())->method('markVerified');
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+
+        $versions = $this->getMockBuilder(VersionRepository::class)->disableOriginalConstructor()->getMock();
+        $versions->method('get')->willReturn(null);
+        $captured = [];
+        $versions->method('set')->willReturnCallback(function (string $key, string $value) use (&$captured): void {
+            $captured[$key] = $value;
+        });
+
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects(self::once())
+            ->method('verify')
+            ->willReturn(['status' => 'fail', 'reachable' => true, 'latency_ms' => 9, 'reason' => 'bad token']);
+
+        $svc = new RunnerValidationService($hosts, $payloads, $hostStates, $logs, $versions, $runner);
+
+        $outcome = $svc->verifyPendingPayload($pending);
+
+        $this->assertSame('rejected', $outcome['state']);
+        $this->assertFalse($outcome['canonical_moved']);
+        $this->assertArrayNotHasKey('canonical_payload_id', $captured);
+    }
+
+    public function testVerifyPendingPayloadSkipsWhenRunnerUnreachable(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.openai.com' => [
+                    'token' => self::VALID_TOKEN,
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $pending = [
+            'id' => 703,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'engine' => 'codex',
+            'entries' => [],
+            'verification_state' => 'pending',
+        ];
+
+        $hosts = $this->getMockBuilder(HostRepository::class)->disableOriginalConstructor()->getMock();
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)->disableOriginalConstructor()->getMock();
+        $payloads->expects(self::never())->method('markVerified');
+        $payloads->expects(self::never())->method('markRejected');
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+
+        $versions = $this->getMockBuilder(VersionRepository::class)->disableOriginalConstructor()->getMock();
+        $versions->method('get')->willReturn(null);
+        $versions->method('set');
+
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects(self::once())
+            ->method('verify')
+            ->willReturn(['status' => 'fail', 'reachable' => false, 'latency_ms' => null, 'reason' => 'connection refused']);
+
+        $svc = new RunnerValidationService($hosts, $payloads, $hostStates, $logs, $versions, $runner);
+
+        $outcome = $svc->verifyPendingPayload($pending);
+
+        $this->assertSame('skipped', $outcome['state']);
+        $this->assertFalse($outcome['canonical_moved']);
+    }
+
     public function testRunDailyPreflightUsesShortTimeoutForBackgroundRunnerProbe(): void
     {
         $canonicalAuth = [

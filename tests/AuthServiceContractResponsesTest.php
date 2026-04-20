@@ -82,6 +82,11 @@ final class ContractAuthPayloadRepository extends AuthPayloadRepository
         return $this->latestPayload;
     }
 
+    public function latestVerified(string $engine = 'codex'): ?array
+    {
+        return null;
+    }
+
     public function findByIdWithEntries(int $id, ?string $engine = null): ?array
     {
         if ($this->latestPayload === null) {
@@ -91,16 +96,24 @@ final class ContractAuthPayloadRepository extends AuthPayloadRepository
         return ((int) ($this->latestPayload['id'] ?? 0) === $id) ? $this->latestPayload : null;
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $body = null, string $engine = 'codex'): array
-    {
+    public function create(
+        string $lastRefresh,
+        string $sha256,
+        ?int $sourceHostId,
+        array $entries,
+        ?string $extrasJson = null,
+        string $engine = \App\Support\Engine::DEFAULT,
+        string $verificationState = self::STATE_PENDING
+    ): array {
         $row = [
             'id' => $this->nextId++,
             'last_refresh' => $lastRefresh,
             'sha256' => $sha256,
             'source_host_id' => $sourceHostId,
             'entries' => $entries,
-            'body' => $body,
+            'body' => $extrasJson,
             'engine' => $engine,
+            'verification_state' => $verificationState,
             'created_at' => gmdate(DATE_ATOM),
         ];
         $this->latestPayload = $row;

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Exceptions\ValidationException;
 use App\Repositories\AuthPayloadRepository;
 use App\Repositories\HostAuthDigestRepository;
 use App\Repositories\HostAuthStateRepository;
@@ -14,6 +13,7 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\PricingService;
+use App\Services\RunnerValidationService;
 use App\Services\RunnerVerifier;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
@@ -35,7 +35,7 @@ final class StubRunnerVerifier extends RunnerVerifier
 
 final class AuthServiceRunnerStoreGateTest extends TestCase
 {
-    private function buildService(AuthPayloadRepository $payloads, RunnerVerifier $runner): AuthService
+    private function buildService(AuthPayloadRepository $payloads, ?RunnerVerifier $runner, ?VersionRepository $versions = null): AuthService
     {
         $host = [
             'id' => 1,
@@ -50,6 +50,7 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
         $hosts->method('incrementApiCalls');
         $hosts->method('findById')->willReturn($host);
         $hosts->method('updateSyncState');
+        $hosts->method('updateSyncStateForEngine');
         $hosts->method('all')->willReturn([$host]);
 
         $hostStates = $this->createMock(HostAuthStateRepository::class);
@@ -75,13 +76,15 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
         $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
         $pricing = $this->createMock(PricingService::class);
 
-        $versions = $this->createMock(VersionRepository::class);
-        $versions->method('getWithMetadata')->willReturn(null);
-        $versions->method('get')->willReturn(null);
-        $versions->method('set');
-        $versions->method('getFlag')->willReturnCallback(static function (string $name, bool $default = false): bool {
-            return $default;
-        });
+        if ($versions === null) {
+            $versions = $this->createMock(VersionRepository::class);
+            $versions->method('getWithMetadata')->willReturn(null);
+            $versions->method('get')->willReturn(null);
+            $versions->method('set');
+            $versions->method('getFlag')->willReturnCallback(static function (string $name, bool $default = false): bool {
+                return $default;
+            });
+        }
 
         $wrapper = $this->createMock(WrapperService::class);
         $wrapper->method('metadata')->willReturn([
@@ -107,24 +110,61 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
         );
     }
 
-    public function testStoreRejectedWhenRunnerFails(): void
+    public function testStoreAcceptsImmediatelyWithRunnerUnreachable(): void
     {
         $payloads = $this->createMock(AuthPayloadRepository::class);
         $payloads->method('latest')->willReturn(null);
+        $payloads->method('latestVerified')->willReturn(null);
         $payloads->method('findByIdWithEntries')->willReturn(null);
-        $payloads->expects($this->never())->method('create');
 
-        $runner = new StubRunnerVerifier([
-            'status' => 'fail',
-            'reachable' => true,
-            'reason' => 'invalid token',
-            'latency_ms' => 20,
-        ]);
+        // Store must call create() exactly once, with verification_state=pending.
+        $payloads
+            ->expects($this->once())
+            ->method('create')
+            ->willReturnCallback(
+                function (
+                    string $lastRefresh,
+                    string $sha256,
+                    ?int $sourceHostId,
+                    array $entries,
+                    ?string $extrasJson = null,
+                    string $engine = 'codex',
+                    string $verificationState = AuthPayloadRepository::STATE_PENDING
+                ): array {
+                    $this->assertSame(AuthPayloadRepository::STATE_PENDING, $verificationState);
 
-        $service = $this->buildService($payloads, $runner);
+                    return [
+                        'id' => 42,
+                        'last_refresh' => $lastRefresh,
+                        'sha256' => $sha256,
+                        'source_host_id' => $sourceHostId,
+                        'body' => $extrasJson,
+                        'entries' => $entries,
+                        'verification_state' => $verificationState,
+                        'created_at' => gmdate(DATE_ATOM),
+                    ];
+                }
+            );
 
-        $this->expectException(ValidationException::class);
-        $service->handleAuth(
+        $versions = $this->createMock(VersionRepository::class);
+        $versions->method('getWithMetadata')->willReturn(null);
+        $versions->method('get')->willReturn(null);
+        $versions->method('getFlag')->willReturnCallback(static fn (string $name, bool $default = false): bool => $default);
+        // Critical: the store path must NOT set canonical_payload_id.
+        $versions->expects($this->never())
+            ->method('set')
+            ->with(
+                $this->logicalOr('canonical_payload_id', 'canonical_payload_id_claude'),
+                $this->anything()
+            );
+
+        // Runner is configured but unreachable — the hot path must NOT call it.
+        $runner = $this->createMock(RunnerVerifier::class);
+        $runner->expects($this->never())->method('verify');
+
+        $service = $this->buildService($payloads, $runner, $versions);
+
+        $response = $service->handleAuth(
             [
                 'command' => 'store',
                 'auth' => [
@@ -147,26 +187,60 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
             null,
             null
         );
+
+        $this->assertSame('updated', $response['status'] ?? null);
+        $this->assertSame(AuthPayloadRepository::STATE_PENDING, $response['verification_state'] ?? null);
+        $this->assertSame(42, $response['pending_payload_id'] ?? null);
+        $this->assertFalse($response['runner_applied'] ?? true);
     }
 
-    public function testStorePersistsAfterRunnerOk(): void
+    public function testCronVerifyPromotesPendingOnRunnerOk(): void
     {
+        $pending = [
+            'id' => 501,
+            'last_refresh' => '2026-01-02T00:00:00Z',
+            'sha256' => hash('sha256', json_encode([
+                'last_refresh' => '2026-01-02T00:00:00Z',
+                'auths' => [
+                    'api.openai.com' => [
+                        'token' => 'sk-test-1234567890abcdefghijklmnop',
+                        'token_type' => 'bearer',
+                    ],
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+            'engine' => 'codex',
+            'verification_state' => 'pending',
+            'source_host_id' => null,
+            'body' => null,
+            'entries' => [[
+                'target' => 'api.openai.com',
+                'token' => 'sk-test-1234567890abcdefghijklmnop',
+                'token_type' => 'bearer',
+                'organization' => null,
+                'project' => null,
+                'api_base' => null,
+                'meta' => null,
+            ]],
+        ];
+
         $payloads = $this->createMock(AuthPayloadRepository::class);
-        $payloads->method('latest')->willReturn(null);
-        $payloads->method('findByIdWithEntries')->willReturn(null);
-        $payloads->expects($this->once())->method('create')->willReturnCallback(
-            static function (string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson): array {
-                return [
-                    'id' => 42,
-                    'last_refresh' => $lastRefresh,
-                    'sha256' => $sha256,
-                    'source_host_id' => $sourceHostId,
-                    'body' => $extrasJson,
-                    'entries' => $entries,
-                    'created_at' => gmdate(DATE_ATOM),
-                ];
-            }
-        );
+        $payloads->expects($this->once())->method('markVerified')->with(501, $this->anything());
+
+        $hosts = $this->createMock(HostRepository::class);
+        $hosts->method('all')->willReturn([]);
+        $hostStates = $this->createMock(HostAuthStateRepository::class);
+        $logs = $this->createMock(LogRepository::class);
+
+        $versions = $this->createMock(VersionRepository::class);
+        $versions->method('get')->willReturn(null);
+        $versions->method('getFlag')->willReturnCallback(static fn (string $name, bool $default = false): bool => $default);
+        $versions->expects($this->atLeastOnce())
+            ->method('set')
+            ->willReturnCallback(function (string $key, string $value): void {
+                if ($key === 'canonical_payload_id') {
+                    $this->assertSame('501', $value);
+                }
+            });
 
         $runner = new StubRunnerVerifier([
             'status' => 'ok',
@@ -174,116 +248,90 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
             'latency_ms' => 12,
         ]);
 
-        $service = $this->buildService($payloads, $runner);
-
-        $response = $service->handleAuth(
-            [
-                'command' => 'store',
-                'auth' => [
-                    'last_refresh' => '2026-01-02T00:00:00Z',
-                    'auths' => [
-                        'api.openai.com' => [
-                            'token' => 'sk-test-1234567890abcdefghijklmnop',
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'id' => 1,
-                'fqdn' => 'host.test',
-                'status' => 'active',
-                'api_calls' => 0,
-                'secure' => 1,
-            ],
-            '1.0.0',
-            null,
-            null
+        $service = new RunnerValidationService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $logs,
+            $versions,
+            $runner
         );
 
-        $this->assertSame('updated', $response['status'] ?? null);
-        $this->assertFalse($response['runner_applied'] ?? true);
-        $this->assertSame('ok', $response['validation']['status'] ?? null);
+        $outcome = $service->verifyPendingPayload($pending);
+
+        $this->assertSame('verified', $outcome['state']);
+        $this->assertTrue($outcome['canonical_moved']);
+        $this->assertSame(501, $outcome['canonical_payload_id']);
     }
 
-    public function testStoreUpdatesWhenTimestampEqualButDigestDiffers(): void
+    public function testCronVerifyRejectsPendingOnRunnerFail(): void
     {
-        $canonicalAuth = [
+        $pending = [
+            'id' => 601,
             'last_refresh' => '2026-01-02T00:00:00Z',
-            'auths' => [
-                'api.openai.com' => [
-                    'token' => 'sk-old-1234567890abcdefghijklmnop',
-                    'token_type' => 'bearer',
+            'sha256' => hash('sha256', json_encode([
+                'last_refresh' => '2026-01-02T00:00:00Z',
+                'auths' => [
+                    'api.openai.com' => [
+                        'token' => 'sk-bad-1234567890abcdefghijklmnop',
+                        'token_type' => 'bearer',
+                    ],
                 ],
-            ],
-        ];
-        $canonicalDigest = hash('sha256', json_encode($canonicalAuth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-        $canonicalPayload = [
-            'id' => 77,
-            'last_refresh' => $canonicalAuth['last_refresh'],
-            'sha256' => $canonicalDigest,
-            'entries' => [
-                [
-                    'target' => 'api.openai.com',
-                    'token' => $canonicalAuth['auths']['api.openai.com']['token'],
-                    'token_type' => 'bearer',
-                    'organization' => null,
-                    'project' => null,
-                    'api_base' => null,
-                    'meta' => null,
-                ],
-            ],
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+            'engine' => 'codex',
+            'verification_state' => 'pending',
+            'source_host_id' => null,
+            'body' => null,
+            'entries' => [[
+                'target' => 'api.openai.com',
+                'token' => 'sk-bad-1234567890abcdefghijklmnop',
+                'token_type' => 'bearer',
+                'organization' => null,
+                'project' => null,
+                'api_base' => null,
+                'meta' => null,
+            ]],
         ];
 
         $payloads = $this->createMock(AuthPayloadRepository::class);
-        $payloads->method('latest')->willReturn($canonicalPayload);
-        $payloads->method('findByIdWithEntries')->willReturn($canonicalPayload);
-        $payloads->expects($this->once())->method('create')->willReturnCallback(
-            static function (string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson): array {
-                return [
-                    'id' => 78,
-                    'last_refresh' => $lastRefresh,
-                    'sha256' => $sha256,
-                    'source_host_id' => $sourceHostId,
-                    'body' => $extrasJson,
-                    'entries' => $entries,
-                    'created_at' => gmdate(DATE_ATOM),
-                ];
-            }
-        );
+        $payloads->expects($this->once())->method('markRejected')->with(601, $this->anything());
+        $payloads->expects($this->never())->method('markVerified');
+
+        $hosts = $this->createMock(HostRepository::class);
+        $hosts->method('all')->willReturn([]);
+        $hostStates = $this->createMock(HostAuthStateRepository::class);
+        $logs = $this->createMock(LogRepository::class);
+
+        $versions = $this->createMock(VersionRepository::class);
+        $versions->method('get')->willReturn(null);
+        $versions->method('getFlag')->willReturnCallback(static fn (string $name, bool $default = false): bool => $default);
+        $stored = [];
+        $versions->method('set')->willReturnCallback(function (string $key, string $value) use (&$stored): void {
+            $stored[$key] = $value;
+        });
 
         $runner = new StubRunnerVerifier([
-            'status' => 'ok',
+            'status' => 'fail',
             'reachable' => true,
-            'latency_ms' => 8,
+            'latency_ms' => 13,
+            'reason' => 'invalid token',
         ]);
 
-        $service = $this->buildService($payloads, $runner);
-
-        $response = $service->handleAuth(
-            [
-                'command' => 'store',
-                'auth' => [
-                    'last_refresh' => '2026-01-02T00:00:00Z',
-                    'auths' => [
-                        'api.openai.com' => [
-                            'token' => 'sk-new-1234567890abcdefghijklmnop',
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'id' => 1,
-                'fqdn' => 'host.test',
-                'status' => 'active',
-                'api_calls' => 0,
-                'secure' => 1,
-            ],
-            '1.0.0',
-            null,
-            null
+        $service = new RunnerValidationService(
+            $hosts,
+            $payloads,
+            $hostStates,
+            $logs,
+            $versions,
+            $runner
         );
 
-        $this->assertSame('updated', $response['status'] ?? null);
-        $this->assertSame('2026-01-02T00:00:00Z', $response['canonical_last_refresh'] ?? null);
+        $outcome = $service->verifyPendingPayload($pending);
+
+        $this->assertSame('rejected', $outcome['state']);
+        $this->assertFalse($outcome['canonical_moved']);
+        // Canonical pointer must not move on rejection.
+        $this->assertArrayNotHasKey('canonical_payload_id', $stored);
+        $this->assertArrayNotHasKey('canonical_payload_id_claude', $stored);
     }
 }

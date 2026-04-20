@@ -75,8 +75,15 @@ class InsecureSessionAuthPayloadRepository extends AuthPayloadRepository
     {
     }
 
-    public function create(string $lastRefresh, string $sha256, ?int $sourceHostId, array $entries, ?string $extrasJson = null, string $engine = 'codex'): array
-    {
+    public function create(
+        string $lastRefresh,
+        string $sha256,
+        ?int $sourceHostId,
+        array $entries,
+        ?string $extrasJson = null,
+        string $engine = \App\Support\Engine::DEFAULT,
+        string $verificationState = self::STATE_PENDING
+    ): array {
         $this->payload = [
             'id' => 1,
             'last_refresh' => $lastRefresh,
@@ -84,6 +91,7 @@ class InsecureSessionAuthPayloadRepository extends AuthPayloadRepository
             'source_host_id' => $sourceHostId,
             'entries' => $entries,
             'engine' => $engine,
+            'verification_state' => $verificationState,
         ];
 
         return $this->payload;
@@ -92,6 +100,11 @@ class InsecureSessionAuthPayloadRepository extends AuthPayloadRepository
     public function latest(string $engine = 'codex'): ?array
     {
         return $this->payload;
+    }
+
+    public function latestVerified(string $engine = 'codex'): ?array
+    {
+        return null;
     }
 
     public function findByIdWithEntries(int $id, ?string $engine = null): ?array

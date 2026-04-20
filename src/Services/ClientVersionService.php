@@ -50,7 +50,7 @@ class ClientVersionService
                 'updated_at' => $locked['updated_at'] ?? null,
                 'source' => 'locked',
             ]
-            : $this->availableClientVersion();
+            : $this->availableClientVersionCached();
         $wrapperMeta = $wrapperMetaOverride ?? $this->wrapperService->metadata();
         $reported = $this->latestReportedVersions();
 
@@ -122,27 +122,49 @@ class ClientVersionService
 
     public function availableClientVersion(bool $forceRefresh = false): array
     {
+        return $forceRefresh
+            ? $this->refreshAvailableClientVersion()
+            : $this->availableClientVersionCached();
+    }
+
+    /**
+     * Cheap read-only view of the cached client-version record. Never performs a network fetch.
+     */
+    public function availableClientVersionCached(): array
+    {
         $cached = $this->versions->getWithMetadata('client_available');
-        $now = time();
-        $cacheFresh = false;
-
-        if (!$forceRefresh && $cached && isset($cached['updated_at'])) {
-            $updatedAt = strtotime($cached['updated_at']);
-            if ($updatedAt !== false && ($now - $updatedAt) <= self::VERSION_CACHE_TTL_SECONDS) {
-                $cacheFresh = true;
-            }
-        }
-
         $cachedVersion = $this->canonicalVersion($cached['version'] ?? null);
+        $updatedAt = $cached['updated_at'] ?? null;
 
-        if ($cacheFresh && $cachedVersion !== null) {
+        if ($cachedVersion === null) {
             return [
-                'version' => $cachedVersion,
-                'updated_at' => $cached['updated_at'] ?? null,
-                'source' => 'cache',
+                'version' => null,
+                'updated_at' => null,
+                'source' => 'unknown',
             ];
         }
 
+        $now = time();
+        $isFresh = false;
+        if (is_string($updatedAt) && $updatedAt !== '') {
+            $ts = strtotime($updatedAt);
+            if ($ts !== false && ($now - $ts) <= self::VERSION_CACHE_TTL_SECONDS) {
+                $isFresh = true;
+            }
+        }
+
+        return [
+            'version' => $cachedVersion,
+            'updated_at' => $updatedAt,
+            'source' => $isFresh ? 'cache' : 'cache_stale',
+        ];
+    }
+
+    /**
+     * Performs the GitHub fetch and updates the cached record. Safe to call from the preflight cron.
+     */
+    public function refreshAvailableClientVersion(): array
+    {
         $fetched = $this->fetchLatestCodexVersion();
         if ($fetched !== null) {
             $normalized = $this->canonicalVersion($fetched) ?? $fetched;
@@ -154,19 +176,7 @@ class ClientVersionService
             ];
         }
 
-        if ($cachedVersion !== null) {
-            return [
-                'version' => $cachedVersion,
-                'updated_at' => $cached['updated_at'] ?? null,
-                'source' => 'cache_stale',
-            ];
-        }
-
-        return [
-            'version' => null,
-            'updated_at' => null,
-            'source' => 'unknown',
-        ];
+        return $this->availableClientVersionCached();
     }
 
     public function latestReportedVersions(string $engine = Engine::DEFAULT): array

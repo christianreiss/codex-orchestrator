@@ -11,6 +11,7 @@ use App\Repositories\AuthSeedTokenRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\InstallTokenRepository;
 use App\Repositories\LogRepository;
+use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Support\InstallerScriptBuilder;
 use App\Support\SeedAuthScriptBuilder;
@@ -23,19 +24,22 @@ class InstallController
     private LogRepository $logRepository;
     private AuthService $service;
     private AuthSeedTokenRepository $seedTokenRepository;
+    private ?VersionRepository $versionRepository;
 
     public function __construct(
         InstallTokenRepository $installTokenRepository,
         HostRepository $hostRepository,
         LogRepository $logRepository,
         AuthService $service,
-        AuthSeedTokenRepository $seedTokenRepository
+        AuthSeedTokenRepository $seedTokenRepository,
+        ?VersionRepository $versionRepository = null
     ) {
         $this->installTokenRepository = $installTokenRepository;
         $this->hostRepository = $hostRepository;
         $this->logRepository = $logRepository;
         $this->service = $service;
         $this->seedTokenRepository = $seedTokenRepository;
+        $this->versionRepository = $versionRepository;
     }
 
     /** GET /install/{token} — consume an install token and emit the installer script. */
@@ -212,6 +216,16 @@ class InstallController
             'status' => $result['status'] ?? null,
             'engine' => $engine,
         ]);
+
+        // Ask the preflight-cron to run a verification pass on its next tick so the
+        // freshly-seeded payload is promoted in seconds instead of ~interval/2.
+        if ($this->versionRepository !== null) {
+            try {
+                $this->versionRepository->set('preflight_force_run', '1');
+            } catch (\Throwable) {
+                // Best-effort marker; ignore write failures.
+            }
+        }
 
         Response::json([
             'status' => 'ok',

@@ -124,6 +124,16 @@ class AuthMigration implements MigrationInterface
 
         // Backfill columns.
         $this->ensureColumnExists($pdo, $databaseName, 'auth_payloads', 'body', 'LONGTEXT NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'auth_payloads', 'verification_state', "VARCHAR(16) NOT NULL DEFAULT 'pending'");
+        $this->ensureColumnExists($pdo, $databaseName, 'auth_payloads', 'verification_checked_at', 'VARCHAR(100) NULL');
+        $this->ensureColumnExists($pdo, $databaseName, 'auth_payloads', 'verification_reason', 'VARCHAR(500) NULL');
+        $this->ensureIndexExists(
+            $pdo,
+            $databaseName,
+            'auth_payloads',
+            'idx_auth_payloads_verification_state',
+            'INDEX idx_auth_payloads_verification_state (verification_state, created_at)'
+        );
         $this->ensureColumnExists($pdo, $databaseName, 'install_tokens', 'base_url', 'VARCHAR(255) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'install_tokens', 'token_enc', 'LONGTEXT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'install_tokens', 'api_key_enc', 'LONGTEXT NULL');
