@@ -119,7 +119,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReturnsVersionsUnchangedWhenOverrideIsNull(): void
     {
-        $versions = ['client_version' => '0.114.0', 'client_version_source' => 'github'];
+        $versions = ['client_version' => '0.120.0', 'client_version_source' => 'github'];
         $host = ['client_version_override' => null];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -129,7 +129,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReturnsVersionsUnchangedWhenOverrideIsNotString(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = ['client_version_override' => 42];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -139,7 +139,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReturnsVersionsUnchangedWhenOverrideIsEmptyString(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = ['client_version_override' => ''];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -149,7 +149,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReturnsVersionsUnchangedWhenOverrideIsGlobal(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = ['client_version_override' => 'global'];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -159,7 +159,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReturnsVersionsUnchangedWhenOverrideIsGlobalCaseInsensitive(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = ['client_version_override' => 'GLOBAL'];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -169,7 +169,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideReplacesClientVersionWithValidOverride(): void
     {
-        $versions = ['client_version' => '0.114.0', 'client_version_source' => 'github'];
+        $versions = ['client_version' => '0.120.0', 'client_version_source' => 'github'];
         $host = ['client_version_override' => '0.200.0'];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -182,7 +182,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideStripsVersionPrefixInOverride(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = ['client_version_override' => 'rust-v0.200.0'];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -206,7 +206,7 @@ final class ClientVersionServiceTest extends TestCase
 
     public function testApplyOverrideKeyMissingFromHostArrayReturnsVersionsUnchanged(): void
     {
-        $versions = ['client_version' => '0.114.0'];
+        $versions = ['client_version' => '0.120.0'];
         $host = [];
 
         $result = $this->svc->applyClientVersionOverrideForHost($versions, $host);
@@ -256,7 +256,7 @@ final class ClientVersionServiceTest extends TestCase
     public function testLatestReportedVersionsPicksHighestVersionAcrossHosts(): void
     {
         $this->hosts->method('all')->willReturn([
-            ['id' => 1, 'client_version' => '0.114.0', 'wrapper_version' => '2026.03.24-01'],
+            ['id' => 1, 'client_version' => '0.120.0', 'wrapper_version' => '2026.03.24-01'],
             ['id' => 2, 'client_version' => '0.200.0', 'wrapper_version' => '2026.03.24-03'],
             ['id' => 3, 'client_version' => '0.150.0', 'wrapper_version' => '2026.03.24-02'],
         ]);

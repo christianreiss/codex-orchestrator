@@ -949,7 +949,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.19-02"
+WRAPPER_VERSION="2026.04.24-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2657,12 +2657,7 @@ ssh_should_force_no_alt_screen() {
       ;;
   esac
 
-  local local_version="${LOCAL_VERSION:-}"
-  if [[ -n "$local_version" ]] && ! version_lt "$local_version" "0.117.0"; then
-    return 1
-  fi
-
-  return 0
+  return 1
 }
 
 is_ssh_session() {

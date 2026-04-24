@@ -14,7 +14,7 @@ use App\Exceptions\ValidationException;
 class ConfigNormalizer
 {
     public const FORCE_UPGRADE_MODEL = 'gpt-5.4';
-    public const FORCE_UPGRADE_REASONING_EFFORT = 'medium';
+    public const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
     /** @var list<string> */
     public const SUPPORTED_MODELS = [

@@ -1,3 +1,6 @@
+# 2026-04-24
+- Codex defaults: moved the Codex CLI floor to `0.120.0`, so lower fleet pins, host overrides, installers, auth snapshots, and cron update checks force-upgrade to at least `0.120.0`. GPT-5.4 remains the default model and forced legacy model migrations now select `high` reasoning effort. The `cdx` SSH launch path no longer auto-injects the old pre-0.120 alt-screen workaround. Cache-bumped `config.js` and `profiles.js` to `v=2026-04-24-01`.
+
 # 2026-04-20
 - Claude workflow parity: seed commands are now engine-aware. Operators can mint Claude seed scripts from the dashboard, the token records remember `engine`, and generated scripts upload `~/.claude/.credentials.json` with the same runner-validated `/seed/auth/{uuid}` flow used for Codex.
 - Claude auth canonicalization: server-side auth storage now accepts Claude credential shapes (`api_key`, `anthropic_api_key`, `ANTHROPIC_API_KEY`) and synthesizes the canonical `auths["api.anthropic.com"]` entry during runner validation and storage, matching Codex fallback behavior.

@@ -395,7 +395,7 @@
       personality: 'friendly',
       approval_policy: 'on-request',
       sandbox_mode: 'read-only',
-      model_reasoning_effort: 'medium',
+      model_reasoning_effort: 'high',
       web_search: 'disabled',
       features: {
         streamable_shell: false,

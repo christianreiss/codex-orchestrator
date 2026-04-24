@@ -130,7 +130,7 @@ final class ClientConfigServiceTest extends TestCase
 
         $this->assertNotEmpty($rendered['content']);
         $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "high"', $rendered['content']);
         $this->assertStringContainsString('model_provider = "oss"', $rendered['content']);
         $this->assertStringContainsString('local_provider = "ollama"', $rendered['content']);
         $this->assertStringContainsString('approval_policy = "on-request"', $rendered['content']);
@@ -402,7 +402,7 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "high"', $rendered['content']);
         $this->assertStringContainsString('model_reasoning_summary = "concise"', $rendered['content']);
 
         $rendered = $this->service->render([
@@ -418,7 +418,7 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "high"', $rendered['content']);
         $this->assertStringContainsString('model_reasoning_summary = "auto"', $rendered['content']);
     }
 
@@ -468,7 +468,7 @@ final class ClientConfigServiceTest extends TestCase
         ]);
 
         $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "high"', $rendered['content']);
     }
 
     public function testStaticModelValidationHelpersUseSupportedAllowlist(): void
@@ -602,7 +602,7 @@ final class ClientConfigServiceTest extends TestCase
         ], 'https://example.test', 'api-key-one');
 
         $this->assertStringContainsString('model = "gpt-5.4"', $rendered['content']);
-        $this->assertStringContainsString('model_reasoning_effort = "medium"', $rendered['content']);
+        $this->assertStringContainsString('model_reasoning_effort = "high"', $rendered['content']);
     }
 
     public function testStoreDetectsSettingsOnlyChange(): void
@@ -749,6 +749,6 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertSame('cached', $settings['profiles'][0]['web_search']);
         $this->assertSame(true, $settings['profiles'][0]['sandbox_workspace_write']['network_access']);
         $this->assertSame('gpt-5.4', $settings['profiles'][0]['model']);
-        $this->assertSame('medium', $settings['profiles'][0]['model_reasoning_effort']);
+        $this->assertSame('high', $settings['profiles'][0]['model_reasoning_effort']);
     }
 }

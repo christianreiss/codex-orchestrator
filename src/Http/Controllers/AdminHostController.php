@@ -1031,7 +1031,7 @@ class AdminHostController
         if ($selectionRaw !== null && !is_string($selectionRaw)) {
             Response::json([
                 'status' => 'error',
-                'message' => 'selection must be one of: global, or a version like 0.114.0',
+                'message' => 'selection must be one of: global, or a version like 0.120.0',
             ], 422);
         }
 
@@ -1044,7 +1044,7 @@ class AdminHostController
             if (!CodexVersionPolicy::isSemanticVersion($normalized)) {
                 Response::json([
                     'status' => 'error',
-                    'message' => 'selection must be a semantic version like 0.114.0',
+                    'message' => 'selection must be a semantic version like 0.120.0',
                 ], 422);
             }
             $effective = CodexVersionPolicy::resolveEffective($normalized, true)['version'];

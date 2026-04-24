@@ -365,12 +365,7 @@ ssh_should_force_no_alt_screen() {
       ;;
   esac
 
-  local local_version="${LOCAL_VERSION:-}"
-  if [[ -n "$local_version" ]] && ! version_lt "$local_version" "0.117.0"; then
-    return 1
-  fi
-
-  return 0
+  return 1
 }
 
 is_ssh_session() {

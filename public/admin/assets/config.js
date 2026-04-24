@@ -155,7 +155,7 @@
         dangerously_bypass_approvals_and_sandbox: false,
       },
       web_search: 'disabled',
-      model_reasoning_effort: 'medium',
+      model_reasoning_effort: 'high',
       model_reasoning_summary: 'detailed',
       model_verbosity: 'low',
       model_supports_reasoning_summaries: false,

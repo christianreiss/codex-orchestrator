@@ -6,7 +6,7 @@ namespace App\Support;
 
 final class CodexVersionPolicy
 {
-    public const MINIMUM_VERSION = '0.114.0';
+    public const MINIMUM_VERSION = '0.120.0';
 
     public static function minimumVersion(): string
     {

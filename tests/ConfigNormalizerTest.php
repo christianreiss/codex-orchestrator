@@ -778,7 +778,7 @@ final class ConfigNormalizerTest extends TestCase
             'model_reasoning_effort' => 'low',
         ]);
         $this->assertSame('gpt-5.4', $result['model']);
-        $this->assertSame('medium', $result['model_reasoning_effort']);
+        $this->assertSame('high', $result['model_reasoning_effort']);
     }
 
     public function testNormalizeSettingsReasoningSummaryDetailedForcedForCodexModel(): void

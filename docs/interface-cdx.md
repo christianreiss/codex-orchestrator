@@ -140,7 +140,7 @@ Sync details:
 - Supported reasoning effort values: `low|medium|high|xhigh`.
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.4-mini` accepts `low|medium|high|xhigh`.
-- Stored configs or host overrides that still point at removed models (`gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`) are force-upgraded to `gpt-5.4` with `medium` effort during normalization/backfill.
+- Stored configs or host overrides that still point at removed models (`gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`) are force-upgraded to `gpt-5.4` with `high` effort during normalization/backfill.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
 - Normalization defaults include `features.apps=true` and `features.multi_agent=true` when unset.
 - Builder defaults keep `features.guardian_approval=false`, `features.js_repl=false`, `features.tui_app_server=false`, and `features.prevent_idle_sleep=false` unless explicitly enabled.
@@ -189,7 +189,7 @@ Summary layout:
 - When stdin and stdout are TTYs, Codex is launched with direct terminal ownership (no intermediate PTY capture).
 - When stdout is not a TTY (pipe mode), Codex output is captured via `tee` for token usage extraction.
 - Non-TTY interactive launch (no args, no terminal) fails with guidance to use `--execute`.
-- Interactive SSH sessions use the same direct terminal path as local interactive launches. Older Codex builds still get `--no-alt-screen` automatically; on `codex 0.117.0+`, alt-screen stays enabled unless you explicitly set `CODEX_SSH_ALT_SCREEN=1`; set `CODEX_SSH_ALT_SCREEN=0` to force fullscreen alt-screen mode on any version.
+- Interactive SSH sessions use the same direct terminal path as local interactive launches. Alt-screen stays enabled by default; `CODEX_SSH_ALT_SCREEN=1` remains an explicit operator override for inline `--no-alt-screen` launches.
 - `PROMPT_TOOLKIT_NO_CPR=1` is also set automatically when stdin or stdout is not a TTY.
 `--execute` behavior:
 - `--execute` is parsed early but launched from the normal run path, so auth/config sync still runs before Codex starts.

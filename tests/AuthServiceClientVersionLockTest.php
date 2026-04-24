@@ -70,7 +70,7 @@ final class AuthServiceClientVersionLockTest extends TestCase
 
         $summary = $service->versionSummary();
 
-        $this->assertSame('0.114.0', $summary['client_version']);
+        $this->assertSame('0.120.0', $summary['client_version']);
         $this->assertSame('locked', $summary['client_version_source']);
         $this->assertSame('2025-12-13T00:00:00Z', $summary['client_version_checked_at']);
         $this->assertFalse($summary['client_version_enforce_exact']);
@@ -93,7 +93,7 @@ final class AuthServiceClientVersionLockTest extends TestCase
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
             if ($name === 'client_version_lock') {
-                return ['version' => 'rust-v0.120.0', 'updated_at' => '2025-12-13T00:00:00Z'];
+                return ['version' => 'rust-v0.121.0', 'updated_at' => '2025-12-13T00:00:00Z'];
             }
             return null;
         });
@@ -126,7 +126,7 @@ final class AuthServiceClientVersionLockTest extends TestCase
 
         $summary = $service->versionSummary();
 
-        $this->assertSame('0.120.0', $summary['client_version']);
+        $this->assertSame('0.121.0', $summary['client_version']);
         $this->assertSame('locked', $summary['client_version_source']);
         $this->assertSame('2025-12-13T00:00:00Z', $summary['client_version_checked_at']);
         $this->assertTrue($summary['client_version_enforce_exact']);

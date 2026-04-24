@@ -19,28 +19,28 @@ final class CodexVersionPolicyTest extends TestCase
     public function testResolveEffectiveUsesMinimumFloorForMissingOrLowValues(): void
     {
         $this->assertSame(
-            ['version' => '0.114.0', 'enforce_exact' => false],
+            ['version' => '0.120.0', 'enforce_exact' => false],
             CodexVersionPolicy::resolveEffective(null, false)
         );
         $this->assertSame(
-            ['version' => '0.114.0', 'enforce_exact' => false],
+            ['version' => '0.120.0', 'enforce_exact' => false],
             CodexVersionPolicy::resolveEffective('0.101.0', true)
         );
         $this->assertSame(
-            ['version' => '0.114.0', 'enforce_exact' => false],
-            CodexVersionPolicy::resolveEffective('0.114.0', true)
+            ['version' => '0.120.0', 'enforce_exact' => false],
+            CodexVersionPolicy::resolveEffective('0.120.0', true)
         );
     }
 
     public function testResolveEffectiveKeepsHigherExplicitPinsExact(): void
     {
         $this->assertSame(
-            ['version' => '0.120.0', 'enforce_exact' => true],
-            CodexVersionPolicy::resolveEffective('rust-v0.120.0', true)
+            ['version' => '0.121.0', 'enforce_exact' => true],
+            CodexVersionPolicy::resolveEffective('rust-v0.121.0', true)
         );
         $this->assertSame(
-            ['version' => '0.120.0', 'enforce_exact' => false],
-            CodexVersionPolicy::resolveEffective('0.120.0', false)
+            ['version' => '0.121.0', 'enforce_exact' => false],
+            CodexVersionPolicy::resolveEffective('0.121.0', false)
         );
     }
 }

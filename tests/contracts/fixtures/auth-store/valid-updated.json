@@ -45,7 +45,7 @@
       "events": 3
     },
     "versions": {
-      "client_version": "0.114.0",
+      "client_version": "0.120.0",
       "client_version_checked_at": "2026-02-22T10:00:00Z",
       "client_version_source": "api",
       "client_version_enforce_exact": false,

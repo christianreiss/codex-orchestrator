@@ -51,7 +51,7 @@ LOG);
         ])));
 
         $payload = $this->parseUsagePayload(<<<LOG
-OpenAI Codex v0.114.0 (research preview)
+OpenAI Codex v0.120.0 (research preview)
 --------
 session id: {$sessionId}
 user
@@ -76,7 +76,7 @@ LOG, $home);
     public function testWrapperFallsBackToCurrentTokensUsedFooter(): void
     {
         $payload = $this->parseUsagePayload(<<<'LOG'
-OpenAI Codex v0.114.0 (research preview)
+OpenAI Codex v0.120.0 (research preview)
 --------
 user
 Reply with exactly: hi
