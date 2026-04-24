@@ -1144,7 +1144,7 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertFalse($outcome['canonical_moved']);
     }
 
-    public function testRunDailyPreflightUsesShortTimeoutForBackgroundRunnerProbe(): void
+    public function testRunDailyPreflightUsesExtendedTimeoutForBackgroundRunnerProbe(): void
     {
         $canonicalAuth = [
             'last_refresh' => self::VALID_LAST_REFRESH,
@@ -1200,7 +1200,7 @@ final class RunnerValidationServiceTest extends TestCase
         $runner = $this->createMock(RunnerVerifier::class);
         $runner->expects(self::once())
             ->method('verify')
-            ->with($canonicalAuth, null, 2.0, [])
+            ->with($canonicalAuth, null, 12.0, [])
             ->willReturn([
                 'status' => 'fail',
                 'reachable' => false,

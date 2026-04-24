@@ -267,6 +267,7 @@ class RunnerVerifier
 
     private function probeRunnerReady(string $url, float $timeout): array
     {
+        $probeUrl = $this->deriveReadinessUrl($url);
         $start = microtime(true);
         try {
             $context = stream_context_create([
@@ -276,7 +277,7 @@ class RunnerVerifier
                     'ignore_errors' => true,
                 ],
             ]);
-            $response = file_get_contents($url, false, $context);
+            $response = file_get_contents($probeUrl, false, $context);
             $latencyMs = (int) ((microtime(true) - $start) * 1000);
             $status = $this->extractStatus($http_response_header ?? []);
             if ($response === false) {
@@ -344,6 +345,27 @@ class RunnerVerifier
     private function deriveSkillSummaryUrl(string $runnerUrl): string
     {
         return $this->deriveRunnerFeatureUrl($runnerUrl, '/skills/summarize');
+    }
+
+    private function deriveReadinessUrl(string $runnerUrl): string
+    {
+        $normalized = trim($runnerUrl);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $parts = parse_url($normalized);
+        if (!is_array($parts)) {
+            return $normalized;
+        }
+
+        $path = isset($parts['path']) ? (string) $parts['path'] : '';
+        if (preg_match('#/(verify|verify-claude)/?$#', $path) === 1) {
+            $parts['path'] = preg_replace('#/(verify|verify-claude)/?$#', '/health', $path) ?? '/health';
+            return $this->buildUrl($parts);
+        }
+
+        return $normalized;
     }
 
     private function deriveSkillGenerateUrl(string $runnerUrl): string

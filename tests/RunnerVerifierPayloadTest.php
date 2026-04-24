@@ -84,6 +84,76 @@ PHP);
         }
     }
 
+    public function testVerifierUsesHealthProbeWhenVerifyGetIsMethodNotAllowed(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/runner-verifier-health-' . uniqid('', true);
+        self::assertTrue(mkdir($tmpDir, 0777, true) || is_dir($tmpDir));
+
+        $routerPath = $tmpDir . '/router.php';
+        $requestPath = $tmpDir . '/request.json';
+        $stdoutPath = $tmpDir . '/server.out';
+        $stderrPath = $tmpDir . '/server.err';
+
+        file_put_contents($routerPath, <<<'PHP'
+<?php
+$path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $path === '/health') {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'ok']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $path === '/verify') {
+    http_response_code(405);
+    header('Content-Type: application/json');
+    echo json_encode(['detail' => 'method not allowed']);
+    return;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $path === '/verify') {
+    file_put_contents(__DIR__ . '/request.json', file_get_contents('php://input'));
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'latency_ms' => 1,
+        'reachable' => true,
+        'codex_version' => 'test',
+    ]);
+    return;
+}
+
+http_response_code(404);
+echo 'not found';
+PHP);
+
+        $server = $this->startPhpServer($tmpDir, $routerPath, $stdoutPath, $stderrPath);
+
+        try {
+            $verifier = new RunnerVerifier(
+                'http://127.0.0.1:' . $server['port'] . '/verify',
+                'https://unused.example',
+                8.0
+            );
+
+            $result = $verifier->verify(
+                ['tokens' => ['access_token' => 'sk-test-1234567890abcdefghijklmnop']],
+                timeoutSeconds: 3.5
+            );
+
+            self::assertSame('ok', $result['status'] ?? null);
+            self::assertFileExists($requestPath);
+        } finally {
+            proc_terminate($server['process']);
+            proc_close($server['process']);
+            @unlink($routerPath);
+            @unlink($requestPath);
+            @unlink($stdoutPath);
+            @unlink($stderrPath);
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testSkillSummarizerPostsAuthSlugManifestAndTimeoutSeconds(): void
     {
         $tmpDir = sys_get_temp_dir() . '/runner-skill-summary-' . uniqid('', true);
@@ -532,7 +602,7 @@ PHP);
         $ready = false;
         for ($i = 0; $i < 50; $i++) {
             usleep(100000);
-            $response = @file_get_contents('http://127.0.0.1:' . $port . '/verify');
+            $response = @file_get_contents('http://127.0.0.1:' . $port . '/health');
             if ($response !== false) {
                 $ready = true;
                 break;

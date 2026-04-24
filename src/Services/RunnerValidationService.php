@@ -25,7 +25,8 @@ class RunnerValidationService
     private const RUNNER_PREFLIGHT_INTERVAL_SECONDS = 28800; // 8 hours
     private const RUNNER_FAILURE_BACKOFF_SECONDS = 60;
     private const RUNNER_FAILURE_RETRY_SECONDS = 900; // 15 minutes
-    private const RUNNER_BACKGROUND_TIMEOUT_SECONDS = 2.0;
+    // Background probes run out-of-band, so give the Codex CLI enough time to cold-start.
+    private const RUNNER_BACKGROUND_TIMEOUT_SECONDS = 12.0;
     private const MAX_FUTURE_SKEW_SECONDS = 300;
     private const MIN_LAST_REFRESH_EPOCH = 946684800;
 
