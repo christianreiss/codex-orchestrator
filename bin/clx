@@ -1710,7 +1710,7 @@ clx_sync_config() {
 
       # Apply to Claude Code's config directory.
       local claude_dir="${HOME}/.claude"
-      if [[ -d "$claude_dir" ]]; then
+      if mkdir -p "$claude_dir" 2>/dev/null; then
         cp "$CLX_SETTINGS_FILE" "${claude_dir}/settings.json" 2>/dev/null || true
       fi
     fi
@@ -1894,7 +1894,7 @@ clx_startup_bundle_pull() {
     if [[ -n "$config_content" ]]; then
       printf '%s' "$config_content" > "$CLX_SETTINGS_FILE"
       local claude_dir="${HOME}/.claude"
-      if [[ -d "$claude_dir" ]]; then
+      if mkdir -p "$claude_dir" 2>/dev/null; then
         cp "$CLX_SETTINGS_FILE" "${claude_dir}/settings.json" 2>/dev/null || true
       fi
       log_debug "Startup bundle: settings.json updated."
@@ -2154,6 +2154,8 @@ try:
     with open(payload_path, "r", encoding="utf-8", errors="replace") as fh:
         payload_raw = fh.read()
     payload = json.loads(payload_raw)
+    if isinstance(payload, dict):
+        payload["engine"] = "claude"
 except Exception:
     print("error=invalid payload")
     sys.exit(1)

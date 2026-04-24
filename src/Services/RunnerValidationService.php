@@ -119,15 +119,16 @@ class RunnerValidationService
         string $engine = Engine::DEFAULT
     ): array
     {
+        $engine = Engine::validate($engine);
         if ($canonicalPayload === null || $this->runnerVerifier === null) {
             return [$canonicalPayload, $canonicalPayload['sha256'] ?? null, $canonicalPayload['last_refresh'] ?? null];
         }
 
-        $lastCheck = $this->versions->get('runner_last_check') ?? '';
-        $lastFailure = $this->versions->get('runner_last_fail') ?? '';
+        $lastCheck = $this->versions->get($this->runnerLastCheckKey($engine)) ?? '';
+        $lastFailure = $this->versions->get($this->runnerLastFailKey($engine)) ?? '';
         $now = time();
         $lastCheckTs = $this->parseTimestamp(is_string($lastCheck) ? $lastCheck : null);
-        $runnerFailing = $this->isRunnerFailing();
+        $runnerFailing = $this->isRunnerFailing($engine);
 
         if (
             !$forceRun
@@ -171,6 +172,7 @@ class RunnerValidationService
         string $engine = Engine::DEFAULT
     ): array
     {
+        $engine = Engine::validate($engine);
         $validatedCanonical = $this->validateCanonicalPayload($canonicalPayload);
         if ($validatedCanonical === null) {
             return [null, null, null, null];
@@ -186,9 +188,9 @@ class RunnerValidationService
         $runnerReachable = false;
         $validation = null;
         try {
-            $validation = $this->runnerVerifier->verify(
+            $validation = $this->verifyWithRunner(
                 $canonicalAuth,
-                null,
+                $engine,
                 $this->runnerTimeoutForTrigger($trigger),
                 $host
             );
@@ -316,9 +318,9 @@ class RunnerValidationService
         $validation = null;
 
         try {
-            $validation = $this->runnerVerifier->verify(
+            $validation = $this->verifyWithRunner(
                 $canonicalAuth,
-                null,
+                $engine,
                 $this->runnerTimeoutForTrigger('preflight_cron'),
                 $host
             );
@@ -481,7 +483,8 @@ class RunnerValidationService
         $canonicalDigest = $canonicalPayload['sha256'] ?? null;
         $canonicalLastRefresh = $canonicalPayload['last_refresh'] ?? null;
 
-        [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery();
+        $engine = Engine::validate($engine);
+        [$shouldRun, $recoveryReason] = $this->shouldTriggerRunnerRecovery($engine);
         if (!$shouldRun || $canonicalPayload === null || $canonicalAuthArray === null) {
             return [$canonicalPayload, $canonicalAuthArray, $canonicalDigest, $canonicalLastRefresh];
         }
@@ -683,25 +686,27 @@ class RunnerValidationService
         return $engine === Engine::CLAUDE ? 'runner_last_fail_claude' : 'runner_last_fail';
     }
 
-    public function isRunnerFailing(): bool
+    public function isRunnerFailing(string $engine = Engine::DEFAULT): bool
     {
-        return strtolower((string) ($this->versions->get('runner_state') ?? '')) === 'fail';
+        $engine = Engine::validate($engine);
+        return strtolower((string) ($this->versions->get($this->runnerStateKey($engine)) ?? '')) === 'fail';
     }
 
     /**
      * @return array{0: bool, 1: ?string} [shouldRun, reason]
      */
-    public function shouldTriggerRunnerRecovery(): array
+    public function shouldTriggerRunnerRecovery(string $engine = Engine::DEFAULT): array
     {
+        $engine = Engine::validate($engine);
         $bootChanged = $this->recordCurrentBootId();
 
-        $state = strtolower((string) ($this->versions->get('runner_state') ?? ''));
+        $state = strtolower((string) ($this->versions->get($this->runnerStateKey($engine)) ?? ''));
         if ($state !== 'fail') {
             return [false, null];
         }
 
         $now = time();
-        $lastFailTs = $this->parseTimestamp($this->versions->get('runner_last_fail'));
+        $lastFailTs = $this->parseTimestamp($this->versions->get($this->runnerLastFailKey($engine)));
         $fifteenMinutesElapsed = $lastFailTs === null || ($now - $lastFailTs) >= self::RUNNER_FAILURE_RETRY_SECONDS;
 
         if ($bootChanged) {
@@ -719,6 +724,20 @@ class RunnerValidationService
         return in_array($trigger, ['scheduled_preflight', 'daily_preflight', 'fail_recovery', 'fail_backoff', 'boot', 'preflight_cron'], true)
             ? self::RUNNER_BACKGROUND_TIMEOUT_SECONDS
             : null;
+    }
+
+    private function verifyWithRunner(array $authPayload, string $engine, ?float $timeoutSeconds = null, ?array $host = null): array
+    {
+        if ($this->runnerVerifier === null) {
+            throw new \RuntimeException('Runner not configured');
+        }
+
+        $engine = Engine::validate($engine);
+        if ($engine === Engine::CLAUDE) {
+            return $this->runnerVerifier->verifyClaude($authPayload, $timeoutSeconds);
+        }
+
+        return $this->runnerVerifier->verify($authPayload, null, $timeoutSeconds, $host);
     }
 
     public function recordCurrentBootId(): bool

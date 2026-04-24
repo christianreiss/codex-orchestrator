@@ -214,6 +214,8 @@ try:
     with open(payload_path, "r", encoding="utf-8", errors="replace") as fh:
         payload_raw = fh.read()
     payload = json.loads(payload_raw)
+    if isinstance(payload, dict):
+        payload["engine"] = "claude"
 except Exception:
     print("error=invalid payload")
     sys.exit(1)

@@ -1,4 +1,5 @@
 # 2026-04-24
+- Claude lifecycle parity: fixed automatic pending-auth runner validation to use `/verify-claude`, surfaced Claude runner state from the Claude-specific version keys, persisted `engine=claude` for new CLX usage rows/ingests, and made runtime API keys strict per engine (`sk-codex-*` for OpenAI-compatible routes, `sk-claude-*` for Anthropic-compatible routes). CLX settings now render Claude-native `mcpServers.clx`, config sync creates `~/.claude` before mirroring `settings.json`, and the Claude installer now retries npm global install through sudo when needed.
 - Codex defaults: moved the Codex CLI floor to `0.120.0`, so lower fleet pins, host overrides, installers, auth snapshots, and cron update checks force-upgrade to at least `0.120.0`. GPT-5.4 remains the default model and forced legacy model migrations now select `high` reasoning effort. The `cdx` SSH launch path no longer auto-injects the old pre-0.120 alt-screen workaround. Cache-bumped `config.js` and `profiles.js` to `v=2026-04-24-01`.
 
 # 2026-04-20

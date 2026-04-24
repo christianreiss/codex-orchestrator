@@ -70,10 +70,10 @@ clx --help                Show this help
 | `POST /auth` | clx → api | `{command: "retrieve"\|"store", digest, engine: "claude", auth?}` | Returns `status: valid\|outdated\|updated\|upload_required\|missing\|disabled\|invalid\|insecure\|insecure-denied\|concurrent`. |
 | `DELETE /auth?engine=claude` | clx → api | n/a (query param) | Decommission host. |
 | `POST /agents/retrieve` | clx → api | `{sha256, engine: "claude"}` | Returns `CLAUDE.md` body or `status=unchanged`. |
-| `POST /config/retrieve` | clx → api | `{sha256, engine: "claude"}` | Returns JSON `settings.json` body. |
+| `POST /config/retrieve` | clx → api | `{sha256, engine: "claude"}` | Returns Claude-native JSON `settings.json` body; the managed MCP server is rendered as `mcpServers.clx`. |
 | `GET /skills?engine=claude` | clx → api | n/a | Returns skill list for this engine. |
 | `POST /sync/bootstrap` | clx → api | `{engine: "claude", include_auth, agents, config, auth_digest}` | Atomic three-in-one. Optional, gated by `CLX_USE_STARTUP_BUNDLE`. |
-| `POST /usage` | clx → api | `{engine: "claude", fqdn, entries}` | Token usage entries extracted from Claude session JSONL. |
+| `POST /usage` | clx → api | `{engine: "claude", fqdn, entries}` | Token usage entries extracted from Claude session JSONL; new rows are stored with `engine=claude`. |
 | `POST /cron/check` | clx → api | `{client_version, wrapper_version, engine: "claude"}` | Invoked by the cron auto-update job. |
 | `GET /wrapper?engine=claude` | clx → api | n/a | Metadata (`version`, `sha256`, `auto_update_enabled`). |
 | `GET /wrapper/download?engine=claude` | clx → api | n/a | Returns the clx shell script. SHA256 verified against the metadata response. |
@@ -97,6 +97,22 @@ clx --help                Show this help
 
 Host-baked string values are shell-escaped before download so malformed or operator-entered host labels cannot break wrapper parsing.
 
+`/config/retrieve` writes `~/.clx/config/settings.json` and mirrors it to `~/.claude/settings.json`, creating `~/.claude` when needed. The JSON uses Claude Code's native MCP shape:
+
+```json
+{
+  "mcpServers": {
+    "clx": {
+      "type": "http",
+      "url": "https://orchestrator.example/mcp",
+      "headers": {
+        "Authorization": "Bearer ..."
+      }
+    }
+  }
+}
+```
+
 ## Auth upload
 
 `clx auth-upload` mirrors `cdx auth-upload`: it prepares the current Claude credentials, adds `last_refresh` when needed, stores them through `/auth` with `command=store` and `engine=claude`, then exits without launching Claude Code. The upload source is `~/.clx/auth/credentials.json` when present, otherwise `~/.claude/.credentials.json` from `claude login`. Accepted credential shapes are `auths["api.anthropic.com"].token`, `api_key`, `anthropic_api_key`, and `ANTHROPIC_API_KEY`; the server canonicalizes these into the Anthropic auth target.
@@ -107,10 +123,10 @@ Host-baked string values are shell-escaped before download so malformed or opera
 - **No `--lane` command.** Absence of lanes → absence of lane-selection UI. Operators configure `claude_model_override` per host instead.
 - **No `reasoning_effort` override.** Anthropic's API has no such parameter.
 - **No device-code CLI login.** Claude Code CLI accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.json and exports the key at exec time.
-- **No GitHub-release CLI download.** Claude CLI is npm-only. `clx --update` runs `npm install -g @anthropic-ai/claude-code` with a sudo fallback.
+- **No GitHub-release CLI download.** Claude CLI is npm-only. The installer and `clx --update` run `npm install -g @anthropic-ai/claude-code` with a sudo fallback.
 - **No SSH alt-screen override.** Claude Code CLI handles its own terminal state.
 - **`/v1/completions` vs `/anthropic/v1/completions`** — both exist. Claude's completions wraps the Messages API internally.
-- **Auth header.** The Anthropic-compatible API accepts `Authorization: Bearer …`, `x-api-key: …`, and raw token in the `Authorization` header; the OpenAI-compatible API only accepts `Authorization: Bearer …` to match OpenAI's public API.
+- **Auth header.** The Anthropic-compatible API accepts `Authorization: Bearer …`, `x-api-key: …`, and raw token in the `Authorization` header, but only Claude-scoped keys are valid. The OpenAI-compatible API only accepts `Authorization: Bearer …` with Codex-scoped keys.
 
 ## `clx doctor` checks
 

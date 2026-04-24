@@ -973,6 +973,67 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertSame('701', $captured['canonical_payload_id'] ?? null);
     }
 
+    public function testVerifyPendingPayloadUsesClaudeRunnerForClaudeEngine(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'auths' => [
+                'api.anthropic.com' => [
+                    'token' => 'sk-ant-' . str_repeat('a', 32),
+                    'token_type' => 'bearer',
+                ],
+            ],
+        ];
+        $encoded = json_encode($auth, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        self::assertIsString($encoded);
+        $digest = hash('sha256', $encoded);
+
+        $pending = [
+            'id' => 703,
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'sha256' => $digest,
+            'source_host_id' => null,
+            'body' => $encoded,
+            'engine' => Engine::CLAUDE,
+            'entries' => [],
+            'verification_state' => 'pending',
+        ];
+
+        $hosts = $this->getMockBuilder(HostRepository::class)->disableOriginalConstructor()->getMock();
+        $hosts->method('all')->willReturn([]);
+
+        $payloads = $this->getMockBuilder(AuthPayloadRepository::class)->disableOriginalConstructor()->getMock();
+        $payloads->expects(self::once())->method('markVerified')->with(703, self::anything());
+
+        $hostStates = $this->getMockBuilder(HostAuthStateRepository::class)->disableOriginalConstructor()->getMock();
+        $logs = $this->getMockBuilder(LogRepository::class)->disableOriginalConstructor()->getMock();
+
+        $versions = $this->getMockBuilder(VersionRepository::class)->disableOriginalConstructor()->getMock();
+        $versions->method('get')->willReturn(null);
+        $captured = [];
+        $versions->method('set')->willReturnCallback(function (string $key, string $value) use (&$captured): void {
+            $captured[$key] = $value;
+        });
+
+        $runner = $this->getMockBuilder(RunnerVerifier::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['verify', 'verifyClaude'])
+            ->getMock();
+        $runner->expects(self::never())->method('verify');
+        $runner->expects(self::once())
+            ->method('verifyClaude')
+            ->willReturn(['status' => 'ok', 'reachable' => true, 'latency_ms' => 7]);
+
+        $svc = new RunnerValidationService($hosts, $payloads, $hostStates, $logs, $versions, $runner);
+
+        $outcome = $svc->verifyPendingPayload($pending, Engine::CLAUDE);
+
+        $this->assertSame('verified', $outcome['state']);
+        $this->assertTrue($outcome['canonical_moved']);
+        $this->assertSame(703, $outcome['canonical_payload_id']);
+        $this->assertSame('703', $captured['canonical_payload_id_claude'] ?? null);
+    }
+
     public function testVerifyPendingPayloadMarksRejectedOnRunnerFail(): void
     {
         $auth = [

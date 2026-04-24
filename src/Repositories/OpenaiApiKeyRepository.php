@@ -48,14 +48,21 @@ class OpenaiApiKeyRepository
         ];
     }
 
-    public function findByKey(string $key): ?array
+    public function findByKey(string $key, ?string $engine = null): ?array
     {
         $keyHash = hash('sha256', $key);
+        $engine = $engine !== null ? Engine::validate($engine) : null;
 
-        $statement = $this->database->connection()->prepare(
-            'SELECT * FROM openai_api_keys WHERE key_hash = :key_hash LIMIT 1'
-        );
-        $statement->execute(['key_hash' => $keyHash]);
+        $sql = 'SELECT * FROM openai_api_keys WHERE key_hash = :key_hash';
+        $params = ['key_hash' => $keyHash];
+        if ($engine !== null) {
+            $sql .= ' AND engine = :engine';
+            $params['engine'] = $engine;
+        }
+        $sql .= ' LIMIT 1';
+
+        $statement = $this->database->connection()->prepare($sql);
+        $statement->execute($params);
 
         $row = $statement->fetch(PDO::FETCH_ASSOC);
         if (!$row) {

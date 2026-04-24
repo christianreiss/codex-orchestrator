@@ -38,7 +38,7 @@ clx_sync_config() {
 
       # Apply to Claude Code's config directory.
       local claude_dir="${HOME}/.claude"
-      if [[ -d "$claude_dir" ]]; then
+      if mkdir -p "$claude_dir" 2>/dev/null; then
         cp "$CLX_SETTINGS_FILE" "${claude_dir}/settings.json" 2>/dev/null || true
       fi
     fi

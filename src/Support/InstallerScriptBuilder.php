@@ -433,7 +433,14 @@ install_claude_cli() {
     exit 1
   fi
 
-  npm install -g @anthropic-ai/claude-code 2>/dev/null
+  if ! npm install -g @anthropic-ai/claude-code 2>/dev/null; then
+    if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+      sudo npm install -g @anthropic-ai/claude-code
+    else
+      echo "Claude Code npm install failed." >&2
+      exit 1
+    fi
+  fi
   CLAUDE_BIN_PATH="$(detect_claude_cli || true)"
   if [ -z "$CLAUDE_BIN_PATH" ]; then
     echo "Claude Code CLI not found after npm install." >&2

@@ -10,6 +10,7 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Support\Engine;
 use PDO;
 
 class TokenUsageRepository
@@ -28,16 +29,19 @@ class TokenUsageRepository
         ?float $cost,
         ?string $model,
         ?string $line,
-        ?int $ingestId = null
+        ?int $ingestId = null,
+        string $engine = Engine::DEFAULT
     ): void {
+        $engine = Engine::validate($engine);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO token_usages (host_id, ingest_id, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, model, line, created_at)
-             VALUES (:host_id, :ingest_id, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :model, :line, :created_at)'
+            'INSERT INTO token_usages (host_id, ingest_id, engine, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, model, line, created_at)
+             VALUES (:host_id, :ingest_id, :engine, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :model, :line, :created_at)'
         );
 
         $statement->execute([
             'host_id' => $hostId,
             'ingest_id' => $ingestId,
+            'engine' => $engine,
             'total' => $total,
             'input_tokens' => $input,
             'output_tokens' => $output,
@@ -54,6 +58,7 @@ class TokenUsageRepository
     {
         return [
             'ingest_id'  => isset($row['ingest_id'])  ? (int) $row['ingest_id']  : null,
+            'engine'     => $row['engine']     ?? Engine::DEFAULT,
             'total'      => isset($row['total'])      ? (int) $row['total']      : null,
             'input'      => isset($row['input'])      ? (int) $row['input']      : null,
             'output'     => isset($row['output'])     ? (int) $row['output']     : null,
@@ -328,11 +333,11 @@ class TokenUsageRepository
     public function backfillCosts(float $inputPricePer1k, float $outputPricePer1k, float $cachedPricePer1k): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE token_usages
+            "UPDATE token_usages
              SET cost = (COALESCE(input_tokens, 0) / 1000) * :input_price
                       + (COALESCE(output_tokens, 0) / 1000) * :output_price
                       + (COALESCE(cached_tokens, 0) / 1000) * :cached_price
-             WHERE cost IS NULL'
+             WHERE cost IS NULL AND (engine IS NULL OR engine = 'codex')"
         );
 
         $statement->execute([

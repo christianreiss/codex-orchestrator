@@ -36,6 +36,24 @@ final class ClxWrapperStartupBundleTest extends TestCase
         self::assertStringContainsString('CLX_USE_STARTUP_BUNDLE="${CLX_USE_STARTUP_BUNDLE:-0}"', $fragment);
     }
 
+    public function testBundleCreatesClaudeConfigDirBeforeMirroringSettings(): void
+    {
+        $fragment = file_get_contents(__DIR__ . '/../bin/clx.d/03-sync-40-startup-bundle.sh');
+        self::assertIsString($fragment);
+
+        self::assertStringContainsString('mkdir -p "$claude_dir"', $fragment);
+        self::assertStringContainsString('${claude_dir}/settings.json', $fragment);
+    }
+
+    public function testConfigSyncCreatesClaudeConfigDirBeforeMirroringSettings(): void
+    {
+        $fragment = file_get_contents(__DIR__ . '/../bin/clx.d/03-sync-30-config.sh');
+        self::assertIsString($fragment);
+
+        self::assertStringContainsString('mkdir -p "$claude_dir"', $fragment);
+        self::assertStringContainsString('${claude_dir}/settings.json', $fragment);
+    }
+
     public function testBootstrapOrchestratorSkipsPerPhaseWhenBundleSucceeded(): void
     {
         $bootstrap = file_get_contents(__DIR__ . '/../bin/clx.d/05-main-10-bootstrap.sh');

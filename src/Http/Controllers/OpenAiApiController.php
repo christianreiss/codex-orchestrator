@@ -11,6 +11,7 @@ use App\Repositories\VersionRepository;
 use App\Security\RateLimiter;
 use App\Services\OpenAiModelService;
 use App\Services\OpenaiApiKeyService;
+use App\Support\Engine;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -189,7 +190,7 @@ class OpenAiApiController
         }
 
         $token = trim($matches[1]);
-        $key = $this->keyService->validate($token);
+        $key = $this->keyService->validate($token, Engine::CODEX);
         if ($key === null) {
             OpenAiResponse::error(
                 'Incorrect API key provided',

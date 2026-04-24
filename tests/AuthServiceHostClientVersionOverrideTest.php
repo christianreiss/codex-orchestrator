@@ -181,7 +181,8 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 ?float $cost,
                 ?string $model,
                 ?string $line,
-                ?int $ingestId = null
+                ?int $ingestId = null,
+                string $engine = 'codex'
             ): void {
             }
 
@@ -211,11 +212,12 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null): array
+            public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
             {
                 return [
                     'id' => 0,
                     'host_id' => $hostId,
+                    'engine' => $engine,
                     'entries' => $entries,
                     'total' => $totals['total'] ?? null,
                     'input' => $totals['input'] ?? null,
@@ -507,7 +509,8 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 ?float $cost,
                 ?string $model,
                 ?string $line,
-                ?int $ingestId = null
+                ?int $ingestId = null,
+                string $engine = 'codex'
             ): void {
             }
 

@@ -81,6 +81,7 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('Installing Claude Code for ${FQDN}', $script);
         $this->assertStringContainsString('/wrapper/download?engine=claude', $script);
         $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
+        $this->assertStringContainsString('sudo npm install -g @anthropic-ai/claude-code', $script);
         $this->assertStringContainsString('clx_install_path="$(preferred_wrapper_path clx "/usr/local/bin/clx" "$HOME/.local/bin/clx")"', $script);
         $this->assertStringContainsString('print_shell_rehash_hint clx "${existing_clx_path:-}" "$clx_install_path"', $script);
         $this->assertStringContainsString('1) Check versions: clx --version', $script);
@@ -96,6 +97,7 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString('/wrapper/download?engine=codex', $script);
         $this->assertStringContainsString('/wrapper/download?engine=claude', $script);
         $this->assertStringContainsString('npm install -g @anthropic-ai/claude-code', $script);
+        $this->assertStringContainsString('sudo npm install -g @anthropic-ai/claude-code', $script);
         $this->assertStringContainsString('Target Codex: ${CODEX_VERSION}', $script);
         $this->assertStringContainsString('Target Claude Code: latest npm release', $script);
         $this->assertStringContainsString('print_shell_rehash_hint cdx "${existing_cdx_path:-}" "$cdx_install_path"', $script);

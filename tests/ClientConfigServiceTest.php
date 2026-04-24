@@ -7,6 +7,7 @@ use App\Repositories\LogRepository;
 use App\Repositories\McpSessionTokenRepository;
 use App\Exceptions\ValidationException;
 use App\Services\ClientConfigService;
+use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -645,6 +646,35 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('startup_timeout_sec = 30', $content);
         $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
         $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
+    }
+
+    public function testRenderForClaudeHostUsesClaudeSettingsMcpShape(): void
+    {
+        $rendered = $this->service->renderForHost(
+            [
+                'model' => 'claude-sonnet-4-6',
+                'mcp_servers' => [
+                    ['name' => 'cdx', 'command' => 'legacy-managed'],
+                    ['name' => 'user-custom', 'command' => '/bin/echo', 'args' => ['hi']],
+                ],
+            ],
+            ['id' => 9],
+            'https://coord.example',
+            'abc123',
+            Engine::CLAUDE
+        );
+
+        $decoded = json_decode($rendered['content'], true);
+        $this->assertIsArray($decoded);
+        $this->assertSame('claude-sonnet-4-6', $decoded['model']);
+        $this->assertArrayHasKey('mcpServers', $decoded);
+        $this->assertArrayHasKey('clx', $decoded['mcpServers']);
+        $this->assertSame('http', $decoded['mcpServers']['clx']['type']);
+        $this->assertSame('https://coord.example/mcp', $decoded['mcpServers']['clx']['url']);
+        $this->assertSame('Bearer abc123', $decoded['mcpServers']['clx']['headers']['Authorization']);
+        $this->assertArrayHasKey('user-custom', $decoded['mcpServers']);
+        $this->assertArrayNotHasKey('cdx', $decoded['mcpServers']);
+        $this->assertArrayNotHasKey('mcp_servers', $decoded);
     }
 
     public function testRenderForInsecureHostUsesEphemeralManagedMcpToken(): void

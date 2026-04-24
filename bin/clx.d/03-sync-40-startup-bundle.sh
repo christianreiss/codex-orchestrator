@@ -114,7 +114,7 @@ clx_startup_bundle_pull() {
     if [[ -n "$config_content" ]]; then
       printf '%s' "$config_content" > "$CLX_SETTINGS_FILE"
       local claude_dir="${HOME}/.claude"
-      if [[ -d "$claude_dir" ]]; then
+      if mkdir -p "$claude_dir" 2>/dev/null; then
         cp "$CLX_SETTINGS_FILE" "${claude_dir}/settings.json" 2>/dev/null || true
       fi
       log_debug "Startup bundle: settings.json updated."

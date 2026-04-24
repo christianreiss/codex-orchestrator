@@ -10,6 +10,7 @@
 namespace App\Repositories;
 
 use App\Database;
+use App\Support\Engine;
 use PDO;
 
 class TokenUsageIngestRepository
@@ -28,18 +29,20 @@ class TokenUsageIngestRepository
      * @param ?string $payload Normalized payload JSON (already sanitized)
      * @param ?string $clientIp
      *
-     * @return array{id:int,host_id:?int,entries:int,total:?int,input:?int,output:?int,cached:?int,reasoning:?int,cost:?float,client_ip:?string,payload:?string,created_at:string}
+     * @return array{id:int,host_id:?int,engine:string,entries:int,total:?int,input:?int,output:?int,cached:?int,reasoning:?int,cost:?float,client_ip:?string,payload:?string,created_at:string}
      */
-    public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null): array
+    public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = Engine::DEFAULT): array
     {
+        $engine = Engine::validate($engine);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO token_usage_ingests (host_id, entries, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, client_ip, payload, created_at)
-             VALUES (:host_id, :entries, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :client_ip, :payload, :created_at)'
+            'INSERT INTO token_usage_ingests (host_id, engine, entries, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, client_ip, payload, created_at)
+             VALUES (:host_id, :engine, :entries, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :client_ip, :payload, :created_at)'
         );
 
         $createdAt = gmdate(DATE_ATOM);
         $statement->execute([
             'host_id' => $hostId,
+            'engine' => $engine,
             'entries' => $entries,
             'total' => $totals['total'] ?? null,
             'input_tokens' => $totals['input'] ?? null,
@@ -57,6 +60,7 @@ class TokenUsageIngestRepository
         return [
             'id' => $id,
             'host_id' => $hostId,
+            'engine' => $engine,
             'entries' => $entries,
             'total' => isset($totals['total']) ? (int) $totals['total'] : null,
             'input' => isset($totals['input']) ? (int) $totals['input'] : null,
@@ -75,6 +79,7 @@ class TokenUsageIngestRepository
         return [
             'id'         => isset($row['id'])        ? (int) $row['id']        : null,
             'host_id'    => isset($row['host_id'])   ? (int) $row['host_id']   : null,
+            'engine'     => $row['engine']    ?? Engine::DEFAULT,
             'fqdn'       => $row['fqdn']      ?? null,
             'entries'    => isset($row['entries'])   ? (int) $row['entries']   : 0,
             'total'      => isset($row['total'])     ? (int) $row['total']     : null,
@@ -95,6 +100,7 @@ class TokenUsageIngestRepository
         $statement = $this->database->connection()->prepare(
             'SELECT tui.id,
                     tui.host_id,
+                    tui.engine,
                     h.fqdn AS fqdn,
                     tui.entries,
                     tui.total,
@@ -189,6 +195,7 @@ class TokenUsageIngestRepository
 
         $sql = 'SELECT tui.id,
                        tui.host_id,
+                       tui.engine,
                        h.fqdn AS fqdn,
                        tui.entries,
                        tui.total,
@@ -234,11 +241,11 @@ class TokenUsageIngestRepository
     public function backfillCosts(float $inputPricePer1k, float $outputPricePer1k, float $cachedPricePer1k): void
     {
         $statement = $this->database->connection()->prepare(
-            'UPDATE token_usage_ingests
+            "UPDATE token_usage_ingests
              SET cost = (COALESCE(input_tokens, 0) / 1000) * :input_price
                       + (COALESCE(output_tokens, 0) / 1000) * :output_price
                       + (COALESCE(cached_tokens, 0) / 1000) * :cached_price
-             WHERE cost IS NULL'
+             WHERE cost IS NULL AND (engine IS NULL OR engine = 'codex')"
         );
 
         $statement->execute([

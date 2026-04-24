@@ -14,6 +14,7 @@ use App\Exceptions\ValidationException;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
+use App\Support\Engine;
 
 class TokenUsageTracker
 {
@@ -32,6 +33,8 @@ class TokenUsageTracker
             throw new HttpException('Host not found', 404);
         }
 
+        $engineRaw = is_string($payload['engine'] ?? null) ? strtolower(trim((string) $payload['engine'])) : Engine::DEFAULT;
+        $engine = Engine::validate($engineRaw !== '' ? $engineRaw : Engine::DEFAULT);
         $usageRows = $this->normalizeUsagePayloads($payload);
         $hostId = (int) $host['id'];
         $records = [];
@@ -44,8 +47,8 @@ class TokenUsageTracker
             'cost' => 0.0,
         ];
         $pricingCache = [];
-        $resolvePricing = function (?string $model) use (&$pricingCache): array {
-            $resolvedModel = $model !== null && $model !== '' ? $model : $this->pricingService->defaultModel();
+        $resolvePricing = function (?string $model) use (&$pricingCache, $engine): array {
+            $resolvedModel = $this->resolvePricingModel($model, $engine);
             if (!array_key_exists($resolvedModel, $pricingCache)) {
                 $pricingCache[$resolvedModel] = $this->pricingService->latestPricing($resolvedModel, false);
             }
@@ -55,6 +58,11 @@ class TokenUsageTracker
         $recordedAt = gmdate(DATE_ATOM);
 
         foreach ($usageRows as $idx => $usage) {
+            if ($engine === Engine::CLAUDE && empty($usage['model'])) {
+                $usageRows[$idx]['model'] = $this->resolvePricingModel(null, $engine);
+                $usage['model'] = $usageRows[$idx]['model'];
+            }
+
             foreach (['total', 'input', 'output', 'cached', 'reasoning'] as $field) {
                 if ($usage[$field] !== null) {
                     $aggregates[$field] = ($aggregates[$field] ?? 0) + (int) $usage[$field];
@@ -70,7 +78,7 @@ class TokenUsageTracker
         }
 
         $encodedPayload = null;
-        $payloadWrapper = ['usages' => $usageRows];
+        $payloadWrapper = ['engine' => $engine, 'usages' => $usageRows];
         $encoded = json_encode($payloadWrapper, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($encoded !== false) {
             $encodedPayload = $encoded;
@@ -82,7 +90,8 @@ class TokenUsageTracker
             $aggregates,
             $aggregates['cost'] ?? null,
             $encodedPayload,
-            $clientIp !== null && $clientIp !== '' ? $clientIp : null
+            $clientIp !== null && $clientIp !== '' ? $clientIp : null,
+            $engine
         );
         $ingestId = $ingest['id'] ?? null;
 
@@ -109,10 +118,12 @@ class TokenUsageTracker
                 $usage['cost'],
                 $usage['model'],
                 $usage['line'],
-                $ingestId
+                $ingestId,
+                $engine
             );
 
             $records[] = [
+                'engine' => $engine,
                 'recorded_at' => $recordedAt,
                 'line' => $usage['line'],
                 'total' => $usage['total'],
@@ -129,6 +140,7 @@ class TokenUsageTracker
 
         $response = [
             'host_id' => $hostId,
+            'engine' => $engine,
             'recorded' => count($records),
             'usages' => $records,
             'ingest_id' => $ingestId,
@@ -140,6 +152,15 @@ class TokenUsageTracker
         }
 
         return $response;
+    }
+
+    private function resolvePricingModel(?string $model, string $engine): string
+    {
+        if ($model !== null && trim($model) !== '') {
+            return trim($model);
+        }
+
+        return $engine === Engine::CLAUDE ? 'claude-sonnet-4-6' : $this->pricingService->defaultModel();
     }
 
     public function normalizeUsagePayloads(array $payload): array

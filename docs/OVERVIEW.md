@@ -2,7 +2,7 @@
 
 ## What it is
 
-Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx` wrapper. The same API also ships Skills, shared project coordination, token-usage telemetry, ChatGPT quota snapshots, and pricing data for dashboards.
+Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx` wrappers. The same API also ships Skills, shared project coordination, token-usage telemetry, ChatGPT/Claude usage snapshots, and pricing data for dashboards.
 
 ## Primary use cases
 
@@ -90,7 +90,7 @@ Small PHP 8.2 + MySQL service that keeps one canonical Codex `auth.json` for eve
    - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
 
 5) **Usage and host telemetry**
-   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot (env fallbacks when remote pricing is absent) when billable token splits are present, stores per-row entries, and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, and total cost.
+   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot when billable token splits are present, stores per-row entries with their resolved engine (`codex` or `claude`), and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, engine, and total cost.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync. When project coordination is enabled, this same path auto-ships the managed `coco` skill to clients.

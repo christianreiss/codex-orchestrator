@@ -11,6 +11,7 @@ use App\Repositories\VersionRepository;
 use App\Security\RateLimiter;
 use App\Services\ClaudeModelService;
 use App\Services\OpenaiApiKeyService;
+use App\Support\Engine;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -288,7 +289,7 @@ class ClaudeApiController
             );
         }
 
-        $key = $this->keyService->validate($apiKey);
+        $key = $this->keyService->validate($apiKey, Engine::CLAUDE);
         if ($key === null) {
             AnthropicResponse::error('Invalid API key.', 'authentication_error', 401, 'invalid_api_key');
         }

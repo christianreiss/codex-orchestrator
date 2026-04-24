@@ -42,9 +42,10 @@ class OpenaiApiKeyService
     /**
      * Validate a bearer token. Returns the key record if valid, null otherwise.
      */
-    public function validate(string $bearerToken): ?array
+    public function validate(string $bearerToken, ?string $engine = null): ?array
     {
-        $record = $this->repository->findByKey($bearerToken);
+        $requiredEngine = $engine !== null ? Engine::validate($engine) : null;
+        $record = $this->repository->findByKey($bearerToken, $requiredEngine);
         if ($record === null) {
             return null;
         }

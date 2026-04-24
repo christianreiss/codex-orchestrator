@@ -9,6 +9,7 @@ use App\Repositories\VersionRepository;
 use App\Services\DashboardGraphStatsService;
 use App\Services\PricingService;
 use App\Services\TokenUsageTracker;
+use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -516,5 +517,81 @@ final class TokenUsageTrackerTest extends TestCase
 
         $this->assertSame(123, $response['host_id']);
         $this->assertSame(1, $response['recorded']);
+    }
+
+    public function testRecordTokenUsagePersistsClaudeEngineAndDefaultModel(): void
+    {
+        $tokenUsages = $this->getMockBuilder(TokenUsageRepository::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['record'])
+            ->getMock();
+        $tokenUsages->expects($this->once())
+            ->method('record')
+            ->with(
+                $this->equalTo(123),
+                $this->equalTo(150),
+                $this->equalTo(100),
+                $this->equalTo(50),
+                $this->equalTo(null),
+                $this->equalTo(null),
+                $this->equalTo(0.42),
+                $this->equalTo('claude-sonnet-4-6'),
+                $this->equalTo(null),
+                $this->equalTo(88),
+                $this->equalTo(Engine::CLAUDE)
+            );
+
+        $tokenUsageIngests = $this->getMockBuilder(TokenUsageIngestRepository::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['record'])
+            ->getMock();
+        $tokenUsageIngests->expects($this->once())
+            ->method('record')
+            ->with(
+                $this->equalTo(123),
+                $this->equalTo(1),
+                $this->callback(static fn (array $totals): bool => $totals['total'] === 150 && $totals['input'] === 100 && $totals['output'] === 50),
+                $this->equalTo(0.42),
+                $this->callback(static fn (?string $payload): bool => is_string($payload) && str_contains($payload, '"engine":"claude"')),
+                $this->equalTo('127.0.0.1'),
+                $this->equalTo(Engine::CLAUDE)
+            )
+            ->willReturn(['id' => 88, 'engine' => Engine::CLAUDE]);
+
+        $pricingService = $this->getMockBuilder(PricingService::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['defaultModel', 'latestPricing', 'calculateCost'])
+            ->getMock();
+        $pricingService->expects($this->never())->method('defaultModel');
+        $pricingService->expects($this->once())
+            ->method('latestPricing')
+            ->with('claude-sonnet-4-6', false)
+            ->willReturn(['currency' => 'USD']);
+        $pricingService->method('calculateCost')->willReturn(0.42);
+
+        $versions = $this->getMockBuilder(VersionRepository::class)
+            ->disableOriginalConstructor()
+            ->getMock();
+
+        $tracker = new TokenUsageTracker(
+            $tokenUsages,
+            $tokenUsageIngests,
+            $pricingService,
+            $versions
+        );
+
+        $response = $tracker->recordTokenUsage(
+            ['id' => 123],
+            [
+                'engine' => Engine::CLAUDE,
+                'total' => 150,
+                'input' => 100,
+                'output' => 50,
+            ],
+            '127.0.0.1'
+        );
+
+        $this->assertSame(Engine::CLAUDE, $response['engine']);
+        $this->assertSame('claude-sonnet-4-6', $response['model']);
     }
 }

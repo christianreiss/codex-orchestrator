@@ -9,6 +9,7 @@ use App\Services\ClientVersionService;
 use App\Services\RunnerVerifier;
 use App\Services\WrapperService;
 use App\Support\CodexVersionPolicy;
+use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -385,5 +386,39 @@ final class ClientVersionServiceTest extends TestCase
         $result = $this->svc->quotaWeekPartition();
 
         $this->assertSame(AuthService::DEFAULT_QUOTA_WEEK_PARTITION, $result);
+    }
+
+    public function testClaudeVersionSnapshotUsesClaudeRunnerStateKeys(): void
+    {
+        $this->hosts->method('all')->willReturn([]);
+        $this->wrapper->method('metadata')->with(Engine::CLAUDE)->willReturn([
+            'version' => '1.2.3',
+            'sha256' => str_repeat('a', 64),
+            'url' => 'https://coord.example/wrapper/download?engine=claude',
+        ]);
+        $this->versions->method('getWithMetadata')->willReturnCallback(static function (string $key): ?array {
+            if ($key === 'claude_fleet_version') {
+                return ['version' => '1.2.3', 'updated_at' => '2026-04-24T00:00:00Z'];
+            }
+            return null;
+        });
+        $this->versions->method('getFlag')->willReturn(false);
+        $this->versions->method('get')->willReturnCallback(static function (string $key): ?string {
+            return match ($key) {
+                'runner_state' => 'codex-ok',
+                'runner_state_claude' => 'claude-fail',
+                'runner_last_ok_claude' => '2026-04-24T01:00:00Z',
+                'runner_last_fail_claude' => '2026-04-24T02:00:00Z',
+                'runner_last_check_claude' => '2026-04-24T03:00:00Z',
+                default => null,
+            };
+        });
+
+        $snapshot = $this->svc->versionSnapshotForEngine(Engine::CLAUDE);
+
+        $this->assertSame('claude-fail', $snapshot['runner_state']);
+        $this->assertSame('2026-04-24T01:00:00Z', $snapshot['runner_last_ok']);
+        $this->assertSame('2026-04-24T02:00:00Z', $snapshot['runner_last_fail']);
+        $this->assertSame('2026-04-24T03:00:00Z', $snapshot['runner_last_check']);
     }
 }

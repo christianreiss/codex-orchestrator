@@ -32,4 +32,13 @@ final class ClxWrapperUsageUploadTest extends TestCase
         self::assertIsString($fragment);
         self::assertStringContainsString('send_claude_usage_from_session_jsonl', $fragment);
     }
+
+    public function testSessionJsonlPayloadAddsClaudeEngineBeforePost(): void
+    {
+        $fragment = file_get_contents(__DIR__ . '/../bin/clx.d/03-sync-50-usage.sh');
+        self::assertIsString($fragment);
+
+        self::assertStringContainsString('payload["engine"] = "claude"', $fragment);
+        self::assertStringContainsString('"X-Engine": "claude"', $fragment);
+    }
 }

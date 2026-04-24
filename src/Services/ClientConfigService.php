@@ -95,9 +95,12 @@ class ClientConfigService
         $settings = $this->applyUsageScaling($settings, $host);
         $settings = $this->applyHostModelOverrides($settings, $host);
         $normalized = $this->normalizer->normalizeSettings($settings);
-        $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host);
         if ($engine === Engine::CLAUDE) {
-            $content = json_encode($withManaged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+            $normalized['model'] = ConfigNormalizer::normalizeClaudeModel($settings['model'] ?? null);
+        }
+        $withManaged = $this->injectManagedMcp($normalized, $baseUrl, $apiKey, $host, $engine);
+        if ($engine === Engine::CLAUDE) {
+            $content = json_encode($this->renderClaudeSettings($withManaged), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
         } else {
             $content = $this->tomlRenderer->buildToml($withManaged);
         }
@@ -467,8 +470,9 @@ class ClientConfigService
         ]);
     }
 
-    private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey, ?array $host = null): array
+    private function injectManagedMcp(array $settings, ?string $baseUrl, ?string $apiKey, ?array $host = null, string $engine = Engine::CODEX): array
     {
+        $engine = Engine::validate($engine);
         $enabled = $settings['orchestrator_mcp_enabled'] ?? true;
         $normalizedBase = $this->normalizer->normalizeString($baseUrl);
         $key = $this->normalizer->normalizeString($apiKey);
@@ -488,25 +492,26 @@ class ClientConfigService
             $bearer = 'Bearer ' . $ephemeral;
         }
 
-        // Streamable HTTP MCP (no npm dependency). Codex will call our API directly.
+        // Streamable HTTP MCP (no npm dependency). Clients call our API directly.
         $entry = [
-            'name' => 'cdx',
+            'name' => $engine === Engine::CLAUDE ? 'clx' : 'cdx',
             'url' => rtrim($normalizedBase, '/') . '/mcp',
-            // Codex streamable_http supports static headers; embed Authorization header.
             'http_headers' => [
                 'Authorization' => $bearer,
             ],
-            // Codex may block startup while validating MCP servers; give the HTTP endpoint a bit more room.
             'startup_timeout_sec' => 30,
         ];
+        $managedNames = $engine === Engine::CLAUDE
+            ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx']
+            : ['codex-memory', 'codex-orchestrator', 'cdx'];
 
         $existing = $settings['mcp_servers'] ?? [];
         $filtered = array_values(array_filter(
             is_array($existing) ? $existing : [],
-            static function ($item): bool {
+            static function ($item) use ($managedNames): bool {
                 $name = is_array($item) ? ($item['name'] ?? '') : '';
                 $normalized = strtolower(trim((string) $name));
-                return !in_array($normalized, ['codex-memory', 'codex-orchestrator', 'cdx'], true);
+                return !in_array($normalized, $managedNames, true);
             }
         ));
 
@@ -514,6 +519,58 @@ class ClientConfigService
         $settings['mcp_servers'] = $filtered;
 
         return $settings;
+    }
+
+    private function renderClaudeSettings(array $settings): array
+    {
+        $result = [];
+        $model = ConfigNormalizer::normalizeClaudeModel($settings['model'] ?? null);
+        if ($model !== null) {
+            $result['model'] = $model;
+        }
+
+        $mcpServers = [];
+        $entries = is_array($settings['mcp_servers'] ?? null) ? $settings['mcp_servers'] : [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $name = $this->normalizer->normalizeString($entry['name'] ?? null);
+            if ($name === null || $name === '') {
+                continue;
+            }
+            if (array_key_exists('enabled', $entry) && $entry['enabled'] === false) {
+                continue;
+            }
+
+            $server = [];
+            $url = $this->normalizer->normalizeString($entry['url'] ?? null);
+            if ($url !== null && $url !== '') {
+                $server['type'] = 'http';
+                $server['url'] = $url;
+                $headers = is_array($entry['http_headers'] ?? null) ? $entry['http_headers'] : [];
+                if ($headers !== []) {
+                    $server['headers'] = $headers;
+                }
+            } else {
+                $command = $this->normalizer->normalizeString($entry['command'] ?? null);
+                if ($command === null || $command === '') {
+                    continue;
+                }
+                $server['command'] = $command;
+                if (is_array($entry['args'] ?? null) && $entry['args'] !== []) {
+                    $server['args'] = array_values($entry['args']);
+                }
+            }
+
+            $mcpServers[$name] = $server;
+        }
+
+        if ($mcpServers !== []) {
+            $result['mcpServers'] = $mcpServers;
+        }
+
+        return $result;
     }
 
     private function issueManagedMcpToken(?int $hostId): ?string
