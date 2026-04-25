@@ -44,7 +44,7 @@ Each lane ("primary" / "secondary" / per-model) renders its own meter. Meter col
 
 ## Scaling
 
-Orchestrator can impose an operator-side quota on aggressive hosts. `UsageScalingService` computes scaling tiers from a host's recent usage and surfaces a *Scaling* badge on the dashboard. Toggle the feature at `POST /admin/scaling` (`AdminSettingsController::postScaling`); exempt specific hosts with `POST /admin/hosts/{id}/scaling-exempt`. VIP hosts (`POST /admin/hosts/{id}/vip`) bypass scaling entirely.
+Orchestrator can impose an operator-side quota on aggressive hosts. `UsageScalingService` computes scaling tiers from a host's recent usage and surfaces a *Scaling* badge on the dashboard. The default chain now steps from `gpt-5.4` / `high` to `gpt-5.4-mini` / `high` before dropping to older Codex models. Toggle the feature at `POST /admin/scaling` (`AdminSettingsController::postScaling`); exempt specific hosts with `POST /admin/hosts/{id}/scaling-exempt`. VIP hosts (`POST /admin/hosts/{id}/vip`) bypass scaling entirely.
 
 ## Graph stats
 

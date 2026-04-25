@@ -1,3 +1,6 @@
+# 2026-04-25
+- Admin UI / scaling: fixed the default usage-scaling settings so the first downgrade step now shows `gpt-5.4-mini` with `high` effort instead of the stale `gpt-5.4` / `medium` pair left over from the earlier rollout. The scaling copy now reflects that the rule can step down both model and effort, and `dashboard.js` was cache-bumped to `v=2026-04-25-01`.
+
 # 2026-04-24
 - Runner preflight: fixed `RunnerVerifier` readiness probes to hit the runner’s GET-safe `/health` endpoint before posting to `/verify` / `/verify-claude`, and raised the background runner timeout to 12 seconds so cron/preflight checks no longer false-fail just because verification routes are POST-only or the Codex probe needs a cold-start.
 - Claude lifecycle parity: fixed automatic pending-auth runner validation to use `/verify-claude`, surfaced Claude runner state from the Claude-specific version keys, persisted `engine=claude` for new CLX usage rows/ingests, and made runtime API keys strict per engine (`sk-codex-*` for OpenAI-compatible routes, `sk-claude-*` for Anthropic-compatible routes). CLX settings now render Claude-native `mcpServers.clx`, config sync creates `~/.claude` before mirroring `settings.json`, and the Claude installer now retries npm global install through sudo when needed.

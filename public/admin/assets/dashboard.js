@@ -7418,7 +7418,7 @@
 
     const DEFAULT_SCALING_TIERS = [
       { projected_percent: 80, reasoning_effort: 'high', model: 'gpt-5.4' },
-      { projected_percent: 85, reasoning_effort: 'medium', model: 'gpt-5.4' },
+      { projected_percent: 85, reasoning_effort: 'high', model: 'gpt-5.4-mini' },
       { projected_percent: 92, reasoning_effort: 'high', model: 'gpt-5.3-codex' },
       { projected_percent: 100, reasoning_effort: 'medium', model: 'gpt-5.3-codex' },
     ];

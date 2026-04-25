@@ -21,7 +21,7 @@ class UsageScalingService
     /** @var list<array{projected_percent:int, reasoning_effort:string, model:string}> */
     private const DEFAULT_TIERS = [
         ['projected_percent' => 80, 'reasoning_effort' => 'high', 'model' => 'gpt-5.4'],
-        ['projected_percent' => 85, 'reasoning_effort' => 'medium', 'model' => 'gpt-5.4'],
+        ['projected_percent' => 85, 'reasoning_effort' => 'high', 'model' => 'gpt-5.4-mini'],
         ['projected_percent' => 92, 'reasoning_effort' => 'high', 'model' => 'gpt-5.3-codex'],
         ['projected_percent' => 100, 'reasoning_effort' => 'medium', 'model' => 'gpt-5.3-codex'],
     ];
