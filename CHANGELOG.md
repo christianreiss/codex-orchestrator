@@ -1,5 +1,6 @@
 # 2026-04-25
 - Admin UI / scaling: fixed the default usage-scaling settings so the first downgrade step now shows `gpt-5.4-mini` with `high` effort instead of the stale `gpt-5.4` / `medium` pair left over from the earlier rollout. The scaling copy now reflects that the rule can step down both model and effort, and `dashboard.js` was cache-bumped to `v=2026-04-25-01`.
+- Admin UI / config: hardened the OpenAI model pickers in `/admin/settings/config` and `/admin/settings/profiles` so they rebuild directly from the supported-model allowlist (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`) instead of trusting whatever options happen to already be in the DOM. Cache-bumped `config.js` and `profiles.js` to `v=2026-04-25-02`.
 
 # 2026-04-24
 - Runner preflight: fixed `RunnerVerifier` readiness probes to hit the runner’s GET-safe `/health` endpoint before posting to `/verify` / `/verify-claude`, and raised the background runner timeout to 12 seconds so cron/preflight checks no longer false-fail just because verification routes are POST-only or the Codex probe needs a cold-start.

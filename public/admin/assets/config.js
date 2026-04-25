@@ -237,6 +237,21 @@
     return optVal;
   }
 
+  function rebuildModelOptions(currentValue = '') {
+    if (!modelInput) return;
+    modelInput.innerHTML = '';
+    SUPPORTED_MODELS.forEach((model) => {
+      const opt = document.createElement('option');
+      opt.value = model;
+      opt.textContent = model;
+      modelInput.appendChild(opt);
+    });
+    setSelectValue(modelInput, currentValue || defaultSettings().model, { allowUnknown: false });
+    if (!SUPPORTED_MODELS.includes(modelInput.value)) {
+      modelInput.value = defaultSettings().model;
+    }
+  }
+
   function rebuildReasoningOptions(model, currentValue) {
     if (!reasoningEffortInput) return;
     const allowed = MODEL_REASONING[model] || [''];
@@ -529,10 +544,7 @@
     if (!modelInput) return;
     const cfg = deepMerge(defaultSettings(), settings || {});
     preservedProfiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
-    setSelectValue(modelInput, cfg.model || '', { allowUnknown: false });
-    if (!SUPPORTED_MODELS.includes(modelInput.value)) {
-      modelInput.value = defaultSettings().model;
-    }
+    rebuildModelOptions(cfg.model || '');
     setSelectValue(modelProviderInput, cfg.model_provider || '');
     setSelectValue(localProviderInput, cfg.local_provider || '');
     setSelectValue(personalityInput, cfg.personality || defaultSettings().personality, { allowUnknown: false });
@@ -953,6 +965,8 @@
     // If the panel is not present (different tab), bail silently.
     if (!modelInput || !previewEl || !statusEl) return;
     inited = true;
+
+    rebuildModelOptions();
 
     ensureConfigSections();
 

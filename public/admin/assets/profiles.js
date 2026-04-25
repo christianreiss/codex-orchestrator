@@ -21,6 +21,7 @@
     'gpt-5.3-codex': ['', 'low', 'medium', 'high', 'xhigh'],
     'gpt-5.2': ['', 'low', 'medium', 'high', 'xhigh'],
   };
+  const SUPPORTED_MODELS = Object.keys(MODEL_REASONING);
 
   function deepClone(value) {
     if (value === null || value === undefined) return value;
@@ -71,6 +72,18 @@
       opt.textContent = source.textContent;
       toSelect.appendChild(opt);
     });
+  }
+
+  function rebuildModelOptions(selectEl, currentValue = '') {
+    if (!selectEl) return;
+    selectEl.innerHTML = '';
+    SUPPORTED_MODELS.forEach((model) => {
+      const opt = document.createElement('option');
+      opt.value = model;
+      opt.textContent = model;
+      selectEl.appendChild(opt);
+    });
+    selectEl.value = SUPPORTED_MODELS.includes(currentValue || '') ? currentValue : '';
   }
 
   function rebuildReasoningOptions(selectEl, model, currentValue) {
@@ -209,12 +222,11 @@
     const imageToggle = row.querySelector('.profile-image');
     const networkToggle = row.querySelector('.profile-network');
 
-    const modelSource = document.getElementById('modelInput');
     const approvalSource = document.getElementById('approvalPolicyInput');
     const sandboxSource = document.getElementById('sandboxModeInput');
     const personalitySource = document.getElementById('personalityInput');
 
-    cloneSelectOptions(modelSource, modelSelect);
+    rebuildModelOptions(modelSelect, data.model || defaults.model || '');
     cloneSelectOptions(approvalSource, approvalSelect, { includeBlank: true });
     cloneSelectOptions(sandboxSource, sandboxSelect, { includeBlank: true });
     cloneSelectOptions(personalitySource, personalitySelect, {
