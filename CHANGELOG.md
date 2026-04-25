@@ -1,4 +1,5 @@
 # 2026-04-25
+- Model support: added `gpt-5.5` to the Codex/OpenAI allowlist across backend validation, `/v1/models`, admin config/profile pickers, host override controls, and scaling model selectors. Fleet defaults remain on `gpt-5.4`; this change makes GPT-5.5 selectable without silently retuning existing hosts. Cache-bumped `dashboard.js` to `v=2026-04-25-02` and `config.js` / `profiles.js` to `v=2026-04-25-03`.
 - Admin UI / scaling: fixed the default usage-scaling settings so the first downgrade step now shows `gpt-5.4-mini` with `high` effort instead of the stale `gpt-5.4` / `medium` pair left over from the earlier rollout. The scaling copy now reflects that the rule can step down both model and effort, and `dashboard.js` was cache-bumped to `v=2026-04-25-01`.
 - Admin UI / config: hardened the OpenAI model pickers in `/admin/settings/config` and `/admin/settings/profiles` so they rebuild directly from the supported-model allowlist (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`) instead of trusting whatever options happen to already be in the DOM. Cache-bumped `config.js` and `profiles.js` to `v=2026-04-25-02`.
 

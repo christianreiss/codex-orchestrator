@@ -133,11 +133,13 @@ Sync details:
 - Managed MCP auth stays as the host API key on secure hosts.
 - Managed MCP auth is replaced with a short-lived bearer on insecure hosts, so `config.toml` does not keep a reusable coordinator credential on disk after the run.
 - Supported override models:
+  - `gpt-5.5`
   - `gpt-5.4`
   - `gpt-5.4-mini`
   - `gpt-5.3-codex`
   - `gpt-5.2`
 - Supported reasoning effort values: `low|medium|high|xhigh`.
+- `gpt-5.5` accepts `low|medium|high|xhigh`.
 - `gpt-5.4` accepts `low|medium|high|xhigh`.
 - `gpt-5.4-mini` accepts `low|medium|high|xhigh`.
 - Stored configs or host overrides that still point at removed models (`gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`) are force-upgraded to `gpt-5.4` with `high` effort during normalization/backfill.

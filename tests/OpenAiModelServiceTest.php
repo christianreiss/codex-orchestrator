@@ -14,6 +14,7 @@ final class OpenAiModelServiceTest extends TestCase
         $service = new OpenAiModelService($this->makeConfigRepo(null), $this->makeVersionRepo([]));
 
         $this->assertSame([
+            'gpt-5.5',
             'gpt-5.4',
             'gpt-5.4-mini',
             'gpt-5.3-codex',

@@ -475,6 +475,10 @@ final class ClientConfigServiceTest extends TestCase
     public function testStaticModelValidationHelpersUseSupportedAllowlist(): void
     {
         $this->assertSame(
+            'gpt-5.5',
+            ClientConfigService::normalizeSupportedModel('gpt-5.5')
+        );
+        $this->assertSame(
             'gpt-5.4',
             ClientConfigService::normalizeSupportedModel('gpt-5.4')
         );
@@ -484,6 +488,7 @@ final class ClientConfigServiceTest extends TestCase
         );
         $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.3-codex-spark'));
         $this->assertNull(ClientConfigService::normalizeSupportedModel('gpt-5.1'));
+        $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.5', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.4-mini', 'xhigh'));
         $this->assertTrue(ClientConfigService::modelSupportsReasoningEffort('gpt-5.2', 'xhigh'));

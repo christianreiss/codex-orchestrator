@@ -281,6 +281,7 @@
     let hostSearchMatches = [];
     let hostSearchSelectedIndex = 0;
     const HOST_MODEL_REASONING = {
+      'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
       'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
@@ -4441,6 +4442,7 @@
               <label for="hostModelOverrideSelect">Model</label>
               <select id="hostModelOverrideSelect">
                 <option value="">Standard (global)</option>
+                <option value="gpt-5.5">gpt-5.5</option>
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.3-codex">gpt-5.3-codex</option>
@@ -7468,6 +7470,7 @@
 
     const SCALING_MODELS = [
       { value: '', label: '(no change)' },
+      { value: 'gpt-5.5', label: 'gpt-5.5' },
       { value: 'gpt-5.4', label: 'gpt-5.4' },
       { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini' },
       { value: 'gpt-5.3-codex', label: 'gpt-5.3-codex' },

@@ -18,6 +18,7 @@ class ConfigNormalizer
 
     /** @var list<string> */
     public const SUPPORTED_MODELS = [
+        'gpt-5.5',
         'gpt-5.4',
         'gpt-5.4-mini',
         'gpt-5.3-codex',
@@ -54,6 +55,7 @@ class ConfigNormalizer
 
     /** @var array<string, list<string>> */
     public const MODEL_REASONING_EFFORTS = [
+        'gpt-5.5' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.4' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.4-mini' => ['low', 'medium', 'high', 'xhigh'],
         'gpt-5.3-codex' => ['low', 'medium', 'high', 'xhigh'],

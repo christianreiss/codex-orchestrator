@@ -390,6 +390,7 @@ final class ConfigNormalizerTest extends TestCase
     public function testNormalizeSupportedModelIsCaseInsensitive(): void
     {
         $this->assertSame('gpt-5.4', ConfigNormalizer::normalizeSupportedModel('GPT-5.4'));
+        $this->assertSame('gpt-5.5', ConfigNormalizer::normalizeSupportedModel('GPT-5.5'));
     }
 
     public function testNormalizeSupportedModelRejectsUnknownModels(): void
@@ -405,6 +406,7 @@ final class ConfigNormalizerTest extends TestCase
 
     public function testModelSupportsReasoningEffortReturnsTrueForValidPair(): void
     {
+        $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.5', 'high'));
         $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4', 'low'));
         $this->assertTrue(ConfigNormalizer::modelSupportsReasoningEffort('gpt-5.4-mini', 'medium'));
     }

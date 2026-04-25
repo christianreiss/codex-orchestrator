@@ -91,6 +91,6 @@ final class UsageScalingServiceTest extends TestCase
         ]);
 
         $this->assertNotEmpty($errors);
-        $this->assertContains('tiers[0].model must be one of: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2', $errors);
+        $this->assertContains('tiers[0].model must be one of: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2', $errors);
     }
 }
