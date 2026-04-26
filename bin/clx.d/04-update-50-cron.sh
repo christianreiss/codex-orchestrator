@@ -316,15 +316,22 @@ cron_auto_update() {
   check_response="$CRON_CHECK_RESPONSE"
 
   local action wrapper_action wrapper_target_version wrapper_target_sha wrapper_target_url
-  local _parsed
-  _parsed="$(printf '%s' "$check_response" | jq -r '[
-    .data.action // empty,
-    .data.wrapper.action // empty,
-    .data.wrapper.target_version // empty,
-    .data.wrapper.sha256 // empty,
-    .data.wrapper.url // empty
-  ] | join("\n")' 2>/dev/null || true)"
-  IFS=$'\n' read -r action wrapper_action wrapper_target_version wrapper_target_sha wrapper_target_url <<<"$_parsed"
+  local _fields=()
+  mapfile -t _fields < <(printf '%s' "$check_response" | jq -r '
+    .data as $data |
+    [
+      ($data.action // ""),
+      ($data.wrapper.action // ""),
+      ($data.wrapper.target_version // ""),
+      ($data.wrapper.sha256 // ""),
+      ($data.wrapper.url // "")
+    ][]
+  ' 2>/dev/null || true)
+  action="${_fields[0]:-}"
+  wrapper_action="${_fields[1]:-}"
+  wrapper_target_version="${_fields[2]:-}"
+  wrapper_target_sha="${_fields[3]:-}"
+  wrapper_target_url="${_fields[4]:-}"
   if [[ -z "$wrapper_target_url" ]] && [[ -n "${CLAUDE_SYNC_BASE_URL:-}" ]]; then
     wrapper_target_url="${CLAUDE_SYNC_BASE_URL%/}/wrapper/download?engine=claude"
   fi
@@ -399,7 +406,8 @@ cron_auto_update() {
     report_payload="$(jq -nc \
       --arg client_version "${new_version:-$target_version}" \
       --arg wrapper_version "${WRAPPER_VERSION:-unknown}" \
-      '{client_version: $client_version, wrapper_version: $wrapper_version}')"
+      --arg engine "claude" \
+      '{client_version: $client_version, wrapper_version: $wrapper_version, engine: $engine}')"
     local report_url="${CLAUDE_SYNC_BASE_URL}/cron/report"
     local report_attempt report_ok=0
     for report_attempt in 1 2 3; do

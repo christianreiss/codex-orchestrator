@@ -74,7 +74,8 @@ clx --help                Show this help
 | `GET /skills?engine=claude` | clx → api | n/a | Returns skill list for this engine. |
 | `POST /sync/bootstrap` | clx → api | `{engine: "claude", include_auth, agents, config, auth_digest}` | Atomic three-in-one. Optional, gated by `CLX_USE_STARTUP_BUNDLE`. |
 | `POST /usage` | clx → api | `{engine: "claude", fqdn, entries}` | Token usage entries extracted from Claude session JSONL; new rows are stored with `engine=claude`. |
-| `POST /cron/check` | clx → api | `{client_version, wrapper_version, engine: "claude"}` | Invoked by the cron auto-update job. |
+| `POST /cron/check` | clx → api | `{client_version, wrapper_version, engine: "claude"}` | Invoked by the cron auto-update job; a nested `wrapper.action="update"` response makes cron install the new `clx` before continuing. |
+| `POST /cron/report` | clx → api | `{client_version, wrapper_version, engine: "claude"}` | Sent after successful cron-managed Claude CLI updates so Claude version fields are persisted. |
 | `GET /wrapper?engine=claude` | clx → api | n/a | Metadata (`version`, `sha256`, `auto_update_enabled`). |
 | `GET /wrapper/download?engine=claude` | clx → api | n/a | Returns the clx shell script. SHA256 verified against the metadata response. |
 

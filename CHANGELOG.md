@@ -1,3 +1,6 @@
+# 2026-04-26
+- `clx` cron auto-update: fixed parsing of `/cron/check` wrapper-update metadata so cron-managed Claude hosts actually install a required wrapper update before continuing, and made `/cron/report` include `engine=claude` so successful Claude CLI updates persist to the Claude version fields instead of the Codex fields.
+
 # 2026-04-25
 - Model support: added `gpt-5.5` to the Codex/OpenAI allowlist across backend validation, `/v1/models`, admin config/profile pickers, host override controls, and scaling model selectors. Fleet defaults remain on `gpt-5.4`; this change makes GPT-5.5 selectable without silently retuning existing hosts. Cache-bumped `dashboard.js` to `v=2026-04-25-02` and `config.js` / `profiles.js` to `v=2026-04-25-03`.
 - Admin UI / scaling: fixed the default usage-scaling settings so the first downgrade step now shows `gpt-5.4-mini` with `high` effort instead of the stale `gpt-5.4` / `medium` pair left over from the earlier rollout. The scaling copy now reflects that the rule can step down both model and effort, and `dashboard.js` was cache-bumped to `v=2026-04-25-01`.
