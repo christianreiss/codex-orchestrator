@@ -26,4 +26,14 @@ final class AdminUsersNavTest extends TestCase
         $this->assertStringContainsString('data-settings-panel="users"', $html);
         $this->assertStringContainsString('id="users-panel"', $html);
     }
+
+    public function testUsersSettingsPanelIsNotTopLevelHidden(): void
+    {
+        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
+        $this->assertIsString($js);
+
+        $matched = preg_match('/const allIds = \[(?<ids>[^\]]+)\];/', $js, $matches);
+        $this->assertSame(1, $matched);
+        $this->assertStringNotContainsString("'users-panel'", $matches['ids']);
+    }
 }

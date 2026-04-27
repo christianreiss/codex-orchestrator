@@ -701,12 +701,6 @@
         copy: 'Talk with AI, review field-level changes, and save the canonical fleet skill.',
         show: ['skillDetailPanel'],
       },
-      users: {
-        eyebrow: 'Users',
-        title: 'User management',
-        copy: 'Create users and assign access levels.',
-        show: ['users-panel'],
-      },
       account: {
         eyebrow: 'Account',
         title: 'Your account',
@@ -767,7 +761,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'users-panel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid', 'manualPanel'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid', 'manualPanel'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
