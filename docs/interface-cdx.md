@@ -144,7 +144,7 @@ Sync details:
 - `gpt-5.4-mini` accepts `low|medium|high|xhigh`.
 - Stored configs or host overrides that still point at removed models (`gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`) are force-upgraded to `gpt-5.4` with `high` effort during normalization/backfill.
 - Root `personality` accepts `friendly|pragmatic|none` and defaults to `friendly`; profiles may optionally override it.
-- Normalization defaults include `features.apps=true`, `features.memories=true`, and `features.multi_agent=true` when unset.
+- Normalization defaults include `features.apps=true`, `features.fast_mode=true`, `features.memories=true`, and `features.multi_agent=true` when unset.
 - `features.memories` enables native Codex Memories via `[features].memories = true`; fleet version policy forces Codex `0.125.0+` so the synced default is understood.
 - Builder defaults keep `features.guardian_approval=false`, `features.js_repl=false`, `features.tui_app_server=false`, and `features.prevent_idle_sleep=false` unless explicitly enabled.
 - `features.guardian_approval` enables automatic review of `on-request` approval prompts by a security reviewer subagent instead of blocking on direct user input.

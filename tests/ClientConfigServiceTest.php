@@ -331,6 +331,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('apps = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
+        $this->assertStringContainsString('fast_mode = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['fast_mode']);
         $this->assertStringContainsString('memories = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['memories']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
@@ -343,6 +345,7 @@ final class ClientConfigServiceTest extends TestCase
         $renderedCustom = $this->service->render([
             'features' => [
                 'apps' => true,
+                'fast_mode' => false,
                 'memories' => false,
                 'guardian_approval' => false,
                 'js_repl' => false,
@@ -354,6 +357,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[features]', $renderedCustom['content']);
         $this->assertStringContainsString('apps = true', $renderedCustom['content']);
         $this->assertSame(true, $renderedCustom['settings']['features']['apps']);
+        $this->assertStringContainsString('fast_mode = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['fast_mode']);
         $this->assertStringContainsString('memories = false', $renderedCustom['content']);
         $this->assertSame(false, $renderedCustom['settings']['features']['memories']);
         $this->assertStringContainsString('guardian_approval = false', $renderedCustom['content']);

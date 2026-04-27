@@ -258,7 +258,7 @@ class ConfigNormalizer
             }
             $features[$name] = $boolValue;
         }
-        foreach (['apps', 'memories', 'multi_agent'] as $defaultEnabledFeature) {
+        foreach (['apps', 'fast_mode', 'memories', 'multi_agent'] as $defaultEnabledFeature) {
             if (!array_key_exists($defaultEnabledFeature, $features)) {
                 $features[$defaultEnabledFeature] = true;
             }

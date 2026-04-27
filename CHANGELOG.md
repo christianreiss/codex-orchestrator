@@ -1,5 +1,6 @@
 # 2026-04-27
 - Admin UI / users: fixed `/admin/settings/users` rendering blank by removing the Users settings subpanel from the top-level dashboard visibility toggle. Cache-bumped `dashboard.js` to `v=2026-04-27-02`.
+- Codex defaults: made backend config normalization default `[features].fast_mode = true`, so older/sparse fleet settings render fast mode even when the admin UI has not re-saved the toggle.
 - Codex defaults: enabled native Codex Memories by default in rendered `config.toml` via `[features].memories = true`, exposed the toggle in the admin config builder, and raised the Codex minimum/version fallback plus auth-runner baked CLI to `0.125.0` so the fleet target understands the setting. Cache-bumped `config.js` to `v=2026-04-27-01`.
 
 # 2026-04-26
