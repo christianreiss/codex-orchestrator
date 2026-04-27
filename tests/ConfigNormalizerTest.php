@@ -546,10 +546,11 @@ final class ConfigNormalizerTest extends TestCase
         $this->assertSame('', $result['custom_toml']);
     }
 
-    public function testNormalizeSettingsDefaultFeaturesAppsAndMultiAgent(): void
+    public function testNormalizeSettingsDefaultFeaturesAppsMemoriesAndMultiAgent(): void
     {
         $result = $this->normalizer->normalizeSettings([]);
         $this->assertTrue($result['features']['apps']);
+        $this->assertTrue($result['features']['memories']);
         $this->assertTrue($result['features']['multi_agent']);
     }
 

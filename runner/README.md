@@ -17,7 +17,7 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
-- The Codex CLI (default `rust-v0.121.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- The Codex CLI (default `rust-v0.125.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22 plus the `@anthropic-ai/claude-code` npm package (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 ## Run (standalone)

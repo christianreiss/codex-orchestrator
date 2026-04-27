@@ -342,7 +342,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
 
         $snapshot = $response['versions'] ?? null;
         $this->assertIsArray($snapshot);
-        $this->assertSame('0.120.0', $snapshot['client_version'] ?? null);
+        $this->assertSame('0.125.0', $snapshot['client_version'] ?? null);
         $this->assertSame('locked', $snapshot['client_version_source'] ?? null);
         $this->assertNull($snapshot['client_version_checked_at'] ?? null);
         $this->assertFalse($snapshot['client_version_enforce_exact'] ?? true);
@@ -357,7 +357,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             'secure' => 1,
             'vip' => 0,
             'api_calls' => 0,
-            'client_version_override' => '0.121.0',
+            'client_version_override' => '0.126.0',
         ];
 
         $hosts = new class($host) extends HostRepository {
@@ -545,7 +545,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
             if ($name === 'client_available') {
-                return ['version' => '0.120.0', 'updated_at' => '2025-11-22T00:00:00Z'];
+                return ['version' => '0.125.0', 'updated_at' => '2025-11-22T00:00:00Z'];
             }
 
             return null;
@@ -625,7 +625,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
 
         $snapshot = $response['versions'] ?? null;
         $this->assertIsArray($snapshot);
-        $this->assertSame('0.121.0', $snapshot['client_version'] ?? null);
+        $this->assertSame('0.126.0', $snapshot['client_version'] ?? null);
         $this->assertSame('locked', $snapshot['client_version_source'] ?? null);
         $this->assertNull($snapshot['client_version_checked_at'] ?? null);
         $this->assertTrue($snapshot['client_version_enforce_exact'] ?? false);

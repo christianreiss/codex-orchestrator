@@ -25,6 +25,7 @@
   let featureWebSearch;
   let featureVoiceTranscription;
   let featureApps;
+  let featureMemories;
   let featureGuardianApproval;
   let featureJsRepl;
   let featureTuiAppServer;
@@ -167,6 +168,7 @@
         unified_exec: false,
         voice_transcription: false,
         apps: true,
+        memories: true,
         guardian_approval: false,
         js_repl: false,
         tui_app_server: false,
@@ -460,6 +462,7 @@
       unified_exec: featureUnifiedExec.checked,
       voice_transcription: featureVoiceTranscription.checked,
       apps: featureApps ? featureApps.checked : true,
+      memories: featureMemories ? featureMemories.checked : true,
       guardian_approval: featureGuardianApproval ? featureGuardianApproval.checked : false,
       js_repl: featureJsRepl ? featureJsRepl.checked : false,
       tui_app_server: featureTuiAppServer ? featureTuiAppServer.checked : false,
@@ -576,6 +579,9 @@
     if (featureApps) {
       featureApps.checked = resolveFeatureFlag(cfg, 'apps', true);
     }
+    if (featureMemories) {
+      featureMemories.checked = resolveFeatureFlag(cfg, 'memories', true);
+    }
     if (featureGuardianApproval) {
       featureGuardianApproval.checked = resolveFeatureFlag(cfg, 'guardian_approval', false);
     }
@@ -598,6 +604,7 @@
     delete featureExtras.web_search;
     delete featureExtras.voice_transcription;
     delete featureExtras.apps;
+    delete featureExtras.memories;
     delete featureExtras.guardian_approval;
     delete featureExtras.js_repl;
     delete featureExtras.tui_app_server;
@@ -920,6 +927,7 @@
     featureWebSearch = document.getElementById('featureWebSearch');
     featureVoiceTranscription = document.getElementById('featureVoiceTranscription');
     featureApps = document.getElementById('featureApps');
+    featureMemories = document.getElementById('featureMemories');
     featureGuardianApproval = document.getElementById('featureGuardianApproval');
     featureJsRepl = document.getElementById('featureJsRepl');
     featureTuiAppServer = document.getElementById('featureTuiAppServer');

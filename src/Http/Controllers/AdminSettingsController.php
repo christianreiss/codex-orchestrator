@@ -444,7 +444,7 @@ class AdminSettingsController
         if (!is_string($selectionRaw) || trim($selectionRaw) === '') {
             Response::json([
                 'status' => 'error',
-                'message' => 'selection must be one of: latest, or a version like 0.120.0',
+                'message' => 'selection must be one of: latest, or a version like 0.125.0',
             ], 422);
         }
 
@@ -460,7 +460,7 @@ class AdminSettingsController
             if (!CodexVersionPolicy::isSemanticVersion($normalized)) {
                 Response::json([
                     'status' => 'error',
-                    'message' => 'selection must be a semantic version like 0.120.0',
+                    'message' => 'selection must be a semantic version like 0.125.0',
                 ], 422);
             }
             $effective = CodexVersionPolicy::resolveEffective($normalized, true)['version'];

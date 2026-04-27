@@ -38,6 +38,7 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `unified_exec` — use the unified PTY-backed exec tool.
 - `voice_transcription` — enable voice-to-text input tooling for supported clients.
 - `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart (enabled by default).
+- `memories` — enable native Codex Memories (`[features].memories = true`) so eligible threads can contribute local memory and later sessions can read it (enabled by default; hosts need Codex `0.125.0+`).
 - `guardian_approval` — dispatch `on-request` approval prompts such as sandbox escapes or blocked network access to a carefully-prompted security reviewer subagent instead of blocking on direct user input (disabled by default).
 - `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (disabled by default; requires Node `>= v22.22.0` on the host).
 - `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).

@@ -1,3 +1,6 @@
+# 2026-04-27
+- Codex defaults: enabled native Codex Memories by default in rendered `config.toml` via `[features].memories = true`, exposed the toggle in the admin config builder, and raised the Codex minimum/version fallback plus auth-runner baked CLI to `0.125.0` so the fleet target understands the setting. Cache-bumped `config.js` to `v=2026-04-27-01`.
+
 # 2026-04-26
 - `clx` cron auto-update: fixed parsing of `/cron/check` wrapper-update metadata so cron-managed Claude hosts actually install a required wrapper update before continuing, and made `/cron/report` include `engine=claude` so successful Claude CLI updates persist to the Claude version fields instead of the Codex fields.
 

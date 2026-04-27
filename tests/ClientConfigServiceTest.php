@@ -331,6 +331,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[features]', $renderedDefault['content']);
         $this->assertStringContainsString('apps = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['apps']);
+        $this->assertStringContainsString('memories = true', $renderedDefault['content']);
+        $this->assertSame(true, $renderedDefault['settings']['features']['memories']);
         $this->assertStringContainsString('multi_agent = true', $renderedDefault['content']);
         $this->assertSame(true, $renderedDefault['settings']['features']['multi_agent']);
         $this->assertArrayNotHasKey('guardian_approval', $renderedDefault['settings']['features']);
@@ -341,6 +343,7 @@ final class ClientConfigServiceTest extends TestCase
         $renderedCustom = $this->service->render([
             'features' => [
                 'apps' => true,
+                'memories' => false,
                 'guardian_approval' => false,
                 'js_repl' => false,
                 'tui_app_server' => false,
@@ -351,6 +354,8 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringContainsString('[features]', $renderedCustom['content']);
         $this->assertStringContainsString('apps = true', $renderedCustom['content']);
         $this->assertSame(true, $renderedCustom['settings']['features']['apps']);
+        $this->assertStringContainsString('memories = false', $renderedCustom['content']);
+        $this->assertSame(false, $renderedCustom['settings']['features']['memories']);
         $this->assertStringContainsString('guardian_approval = false', $renderedCustom['content']);
         $this->assertSame(false, $renderedCustom['settings']['features']['guardian_approval']);
         $this->assertStringContainsString('js_repl = false', $renderedCustom['content']);

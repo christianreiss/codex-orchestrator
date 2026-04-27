@@ -48,7 +48,7 @@ final class InstallerScriptBuilderTest extends TestCase
     {
         $script = $this->buildScript([], '0.101.0');
 
-        $this->assertStringContainsString("CODEX_VERSION='0.120.0'", $script);
+        $this->assertStringContainsString("CODEX_VERSION='0.125.0'", $script);
     }
 
     public function testTemplateDoesNotAutoRunCdxAfterInstall(): void

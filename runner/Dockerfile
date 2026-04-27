@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Codex CLI (multi-arch) ---
-ARG CODEX_TAG=rust-v0.121.0
+ARG CODEX_TAG=rust-v0.125.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
 ARG TARGETARCH
