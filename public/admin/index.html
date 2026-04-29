@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchestrator</title>
-  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-04-29-01">
-  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-04-29-01">
+  <link rel="stylesheet" href="/admin/assets/dashboard.css?v=2026-04-29-02">
+  <link rel="stylesheet" href="/admin/assets/dashboard-mobile.css?v=2026-04-29-02">
   <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-04-29-01">
   <link rel="stylesheet" href="/admin/assets/manual.css?v=2026-04-19-01">
 </head>
@@ -1454,26 +1454,26 @@
             </div>
 
             <nav class="general-section-nav" aria-label="Settings sections">
-              <button type="button" class="general-section-btn is-active" data-section="emergency">Emergency</button>
-              <button type="button" class="general-section-btn" data-section="security">Security &amp; Access</button>
-              <button type="button" class="general-section-btn" data-section="fleet">Fleet Management</button>
-              <button type="button" class="general-section-btn" data-section="devex">Developer Experience</button>
+              <button type="button" class="general-section-btn is-active" data-section="emergency">Circuit Breakers</button>
+              <button type="button" class="general-section-btn" data-section="security">Authentication</button>
+              <button type="button" class="general-section-btn" data-section="fleet">Fleet</button>
+              <button type="button" class="general-section-btn" data-section="devex">Operations</button>
             </nav>
 
             <div class="general-sections">
 
               <!-- ── Emergency Controls ── -->
-              <section class="general-group general-group--danger" data-group="emergency">
+              <section class="general-group general-group--danger is-visible" data-group="emergency">
                 <div class="general-group-header">
-                  <p class="eyebrow">Emergency Controls</p>
-                  <p class="muted panel-subtitle-sm">Circuit-breakers that immediately affect all running agents.</p>
+                  <p class="eyebrow">Circuit Breakers</p>
+                  <p class="muted panel-subtitle-sm">Fleet-wide emergency stops and usage limits.</p>
                 </div>
                 <div class="settings-grid">
                   <div class="setting-block setting-block--danger">
                     <div class="setting-head">
                       <div>
                         <h3>API Kill Switch <span class="pill-quiet" id="apiStatusBadge">Active</span></h3>
-                        <p class="muted panel-subtitle-sm">Emergency stop for all Codex agents fleet-wide.</p>
+                        <p class="muted panel-subtitle-sm">Fleet-wide emergency stop.</p>
                       </div>
                       <label class="toggle state-toggle" for="apiToggle">
                         <input type="checkbox" id="apiToggle">
@@ -1486,7 +1486,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Quota Policy <span class="pill-quiet" id="quotaStatusBadge">Warn at 100%</span></h3>
-                        <p class="muted quota-desc panel-subtitle-sm">Control behavior when ChatGPT quota is reached.</p>
+                        <p class="muted quota-desc panel-subtitle-sm">Deny or warn when ChatGPT quota is reached.</p>
                       </div>
                       <label class="toggle" for="quotaHardFailToggle">
                         <input type="checkbox" id="quotaHardFailToggle">
@@ -1523,7 +1523,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Usage Scaling <span class="pill-quiet" id="scalingBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Automatically step down model and reasoning effort when projected weekly usage exceeds thresholds.</p>
+                        <p class="muted panel-subtitle-sm">Step down model on projected overspend.</p>
                       </div>
                       <label class="toggle" for="scalingToggle">
                         <input type="checkbox" id="scalingToggle">
@@ -1559,8 +1559,8 @@
               <!-- ── Security & Access ── -->
               <section class="general-group" data-group="security">
                 <div class="general-group-header">
-                  <p class="eyebrow">Security &amp; Access</p>
-                  <p class="muted panel-subtitle-sm">Authentication enforcement and insecure host policies.</p>
+                  <p class="eyebrow">Authentication</p>
+                  <p class="muted panel-subtitle-sm">DNS enforcement and insecure host policies.</p>
                 </div>
                 <div class="general-group-status">
                   <span class="pill-quiet">mTLS&ensp;<strong id="mtlsSettingStatus">Loading…</strong></span>
@@ -1571,7 +1571,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Reverse DNS Enforcement <span class="pill-quiet" id="reverseDnsBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Require forward + PTR match on <code>/auth</code>.</p>
+                        <p class="muted panel-subtitle-sm">Require forward + PTR match.</p>
                       </div>
                       <label class="toggle" for="reverseDnsToggle">
                         <input type="checkbox" id="reverseDnsToggle">
@@ -1585,7 +1585,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Insecure Host Window</h3>
-                        <p class="muted panel-subtitle-sm">Duration granted when enabling insecure hosts.</p>
+                        <p class="muted panel-subtitle-sm">Window duration for insecure enables.</p>
                       </div>
                     </div>
                     <div class="setting-body">
@@ -1605,7 +1605,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Insecure Host Approval <span class="pill-quiet" id="insecureApprovalBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Require admin confirmation when windows are closed.</p>
+                        <p class="muted panel-subtitle-sm">Require admin approval for insecure access.</p>
                       </div>
                       <label class="toggle" for="insecureApprovalToggle">
                         <input type="checkbox" id="insecureApprovalToggle">
@@ -1621,15 +1621,15 @@
               <!-- ── Fleet Management ── -->
               <section class="general-group" data-group="fleet">
                 <div class="general-group-header">
-                  <p class="eyebrow">Fleet Management</p>
-                  <p class="muted panel-subtitle-sm">Version control, updates, and host lifecycle.</p>
+                  <p class="eyebrow">Fleet</p>
+                  <p class="muted panel-subtitle-sm">Version pins, auto-update, and host lifecycle.</p>
                 </div>
                 <div class="settings-grid general-group-grid--compact">
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
                         <h3>Codex Version</h3>
-                        <p class="muted panel-subtitle-sm">Latest tracks GitHub; selecting a version pins the fleet.</p>
+                        <p class="muted panel-subtitle-sm">Pin to a specific version or track latest.</p>
                       </div>
                     </div>
                     <div class="setting-body">
@@ -1645,7 +1645,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Claude Version <span class="pill-quiet" id="claudeVersionBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Current Claude fleet version; lock to pin a specific version.</p>
+                        <p class="muted panel-subtitle-sm">Lock to pin a specific Claude version.</p>
                       </div>
                       <label class="toggle" for="claudeVersionLockToggle">
                         <input type="checkbox" id="claudeVersionLockToggle">
@@ -1666,7 +1666,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Cron Auto-Update <span class="pill-quiet" id="autoUpdateBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Fleet-wide Codex binary auto-update via cron.</p>
+                        <p class="muted panel-subtitle-sm">Fleet-wide cron auto-update.</p>
                       </div>
                       <label class="toggle" for="autoUpdateToggle">
                         <input type="checkbox" id="autoUpdateToggle">
@@ -1680,7 +1680,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Host Pruning</h3>
-                        <p class="muted panel-subtitle-sm">Delete inactive hosts after N days (0 disables).</p>
+                        <p class="muted panel-subtitle-sm">Auto-delete inactive hosts.</p>
                       </div>
                     </div>
                     <div class="setting-body">
@@ -1702,15 +1702,15 @@
               <!-- ── Developer Experience ── -->
               <section class="general-group" data-group="devex">
                 <div class="general-group-header">
-                  <p class="eyebrow">Developer Experience</p>
-                  <p class="muted panel-subtitle-sm">Logging, diagnostics, and maintenance tasks.</p>
+                  <p class="eyebrow">Operations</p>
+                  <p class="muted panel-subtitle-sm">Logging, diagnostics, and maintenance.</p>
                 </div>
                 <div class="settings-grid">
                   <div class="setting-block">
                     <div class="setting-head">
                       <div>
                         <h3>cdx Silent Mode <span class="pill-quiet" id="cdxSilentBadge">Verbose</span></h3>
-                        <p class="muted panel-subtitle-sm">Hide wrapper boot logs; only errors print.</p>
+                        <p class="muted panel-subtitle-sm">Suppress wrapper boot output.</p>
                       </div>
                       <label class="toggle" for="cdxSilentToggle">
                         <input type="checkbox" id="cdxSilentToggle">
@@ -1723,7 +1723,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Log Retention</h3>
-                        <p class="muted panel-subtitle-sm">Automatically delete old log entries after N days.</p>
+                        <p class="muted panel-subtitle-sm">Auto-prune old log entries.</p>
                       </div>
                       <label class="toggle" for="logRetentionToggle">
                         <input type="checkbox" id="logRetentionToggle">
@@ -1768,7 +1768,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Maintenance</h3>
-                        <p class="muted panel-subtitle-sm">Run the runner, seed auth.json, or check versions.</p>
+                        <p class="muted panel-subtitle-sm">Runner probes, auth seeding, version checks.</p>
                       </div>
                     </div>
                     <div class="setting-actions">
