@@ -1,3 +1,6 @@
+# 2026-04-29
+- Admin UI redesign: "warm operator console" visual overhaul of the entire `/admin/*` interface. Replaced the cold navy/cyan palette with warm cream (Paper) and espresso (Ink) themes using terracotta and amber accents. Added Source Serif 4 as a self-hosted display serif for editorial headings. Dropped glassmorphism/backdrop-filter in favour of solid surfaces with 1px hairlines. Bumped corner radii (8→10px cards, 12→14px modals, 12→18px login). Simplified shadows to hairline-first. All six themes preserved (Auto, Light, Dark, Auto Pink, Bright Pink, Dark Pink). All CSS class names and variable names preserved. No JS changes, no framework additions, no build step.
+
 # 2026-04-27
 - Admin UI / users: fixed `/admin/settings/users` rendering blank by removing the Users settings subpanel from the top-level dashboard visibility toggle. Cache-bumped `dashboard.js` to `v=2026-04-27-02`.
 - Codex defaults: made backend config normalization default `[features].fast_mode = true`, so older/sparse fleet settings render fast mode even when the admin UI has not re-saved the toggle.
