@@ -1,4 +1,4 @@
-/* Login page layout */
+/* Login page layout — warm operator console */
 body {
   display: grid;
   place-items: center;
@@ -15,17 +15,13 @@ body {
 }
 
 .login-card {
-  width: min(400px, 100%);
-  padding: 40px 36px 36px;
-  border-radius: var(--radius-lg);
+  width: min(420px, 100%);
+  padding: 40px 36px 32px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   background: var(--card);
-  backdrop-filter: blur(16px);
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.06),
-    0 24px 52px rgba(2, 6, 23, 0.25),
-    0 0 80px -20px rgba(var(--accent-rgb), 0.10);
-  animation: card-enter 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow: var(--shadow-pop);
+  animation: card-enter 400ms var(--ease) both;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -35,7 +31,7 @@ body {
 @keyframes card-enter {
   from {
     opacity: 0;
-    transform: translateY(16px) scale(0.97);
+    transform: translateY(12px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -46,37 +42,31 @@ body {
 /* ── Brand mark ────────────────────────────────────────────────────── */
 
 .brand-mark {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
   background: var(--logo-bg);
   border: 1px solid var(--border);
   display: grid;
   place-items: center;
-  box-shadow:
-    0 0 24px rgba(var(--accent-rgb), 0.12),
-    0 8px 20px rgba(2, 6, 23, 0.12);
-  animation: logo-glow 4s ease-in-out infinite alternate;
+  box-shadow: var(--shadow);
 }
 
 .brand-logo {
-  width: 32px;
-  height: 32px;
-}
-
-@keyframes logo-glow {
-  from { box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.10), 0 8px 20px rgba(2, 6, 23, 0.12); }
-  to   { box-shadow: 0 0 36px rgba(var(--accent-rgb), 0.24), 0 8px 20px rgba(2, 6, 23, 0.12); }
+  width: 28px;
+  height: 28px;
 }
 
 /* ── Title ─────────────────────────────────────────────────────────── */
 
 .login-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   text-align: center;
+  line-height: 1.2;
 }
 
 .login-copy {
@@ -106,7 +96,7 @@ body {
 }
 
 .field span {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--muted);
@@ -114,18 +104,15 @@ body {
 
 .field input {
   width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
+  height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--input-border);
   background: var(--input-bg);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 15px;
-  transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease,
-    background-color 200ms ease,
-    transform 200ms ease;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 
 .field input::placeholder {
@@ -139,11 +126,8 @@ body {
 
 .field input:focus {
   outline: none;
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow:
-    0 0 0 3px rgba(var(--accent-rgb), 0.15),
-    0 0 20px rgba(var(--accent-rgb), 0.08);
-  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: var(--ring);
 }
 
 /* ── Submit button ─────────────────────────────────────────────────── */
@@ -155,54 +139,39 @@ body {
   justify-content: center;
   gap: 10px;
   width: 100%;
+  height: 44px;
   margin-top: 4px;
-  padding: 13px 20px;
+  padding: 12px 20px;
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: var(--accent-gradient);
-  background-size: 200% 200%;
   color: var(--btn-text);
   font-family: var(--font-sans);
   font-weight: 700;
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.01em;
   cursor: pointer;
-  box-shadow: 0 12px 28px rgba(var(--accent-rgb), 0.22);
-  transition:
-    transform 180ms ease,
-    box-shadow 180ms ease,
-    background-position 600ms ease;
-  animation: gradient-shift 6s ease-in-out infinite alternate;
-}
-
-@keyframes gradient-shift {
-  0%   { background-position: 0% 50%; }
-  100% { background-position: 100% 50%; }
+  box-shadow: var(--shadow);
+  transition: filter var(--dur) var(--ease);
 }
 
 .login-submit:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 32px rgba(var(--accent-rgb), 0.32);
+  filter: brightness(0.96);
 }
 
 .login-submit:active {
-  transform: translateY(0);
-  box-shadow: 0 8px 16px rgba(var(--accent-rgb), 0.18);
+  filter: brightness(0.92);
 }
 
 .login-submit:focus-visible {
   outline: none;
-  box-shadow:
-    0 0 0 3px rgba(var(--accent-rgb), 0.30),
-    0 16px 32px rgba(var(--accent-rgb), 0.30);
+  box-shadow: var(--ring);
 }
 
 .login-submit[disabled] {
   cursor: wait;
   filter: saturate(0.6) brightness(0.85);
   box-shadow: none;
-  transform: none;
-  animation: none;
 }
 
 /* ── Keyboard hint ─────────────────────────────────────────────────── */
@@ -212,14 +181,14 @@ body {
   font-size: 11px;
   font-weight: 400;
   padding: 2px 7px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.12);
   opacity: 0;
-  transition: opacity 300ms ease;
+  transition: opacity var(--dur) var(--ease);
 }
 
 .login-form:focus-within .kbd-hint {
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 /* ── Error ─────────────────────────────────────────────────────────── */
@@ -230,7 +199,7 @@ body {
   font-weight: 600;
   color: var(--danger);
   text-align: center;
-  transition: min-height 200ms ease;
+  transition: min-height var(--dur) var(--ease);
 }
 
 .login-error:not(:empty) {
@@ -257,37 +226,29 @@ body {
   }
 
   .brand-mark {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
+    width: 40px;
+    height: 40px;
   }
 
   .brand-logo {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
   }
 
   .login-title {
-    font-size: 20px;
+    font-size: 26px;
   }
 }
 
 /* ── Motion preferences ─────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .login-card,
-  .brand-mark,
-  .login-submit {
+  .login-card {
     animation: none !important;
   }
 
-  .field input {
-    transition: border-color 200ms ease, box-shadow 200ms ease !important;
-    transform: none !important;
-  }
-
+  .field input,
   .login-submit {
-    transition: box-shadow 180ms ease !important;
-    transform: none !important;
+    transition: none !important;
   }
 }
