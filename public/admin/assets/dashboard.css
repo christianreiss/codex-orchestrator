@@ -1700,140 +1700,145 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     .settings-panel .settings-grid {
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      padding: 18px;
+      gap: 0;
+      padding: 0;
     }
     .settings-panel .setting-block {
-      background: var(--surface-tint);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 10px 18px rgba(40,30,20,0.05);
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      padding: 12px 14px;
+      box-shadow: none;
+    }
+    .settings-panel .settings-grid > .setting-block:last-child {
+      border-bottom: none;
     }
     .settings-panel .setting-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 18px;
+      gap: 12px;
       flex-wrap: wrap;
     }
     .settings-panel .setting-head h3 {
       margin: 0;
-      font-size: 18px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      font-weight: 600;
     }
     .settings-panel .setting-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 12px;
+      gap: 8px;
+      margin-top: 10px;
     }
     .settings-panel .setting-actions button {
-      flex: 1;
-      min-width: 180px;
+      min-width: auto;
     }
     /* ── General settings: section-jump navigation ── */
     .general-section-nav {
       display: flex;
-      gap: 6px;
-      padding: 14px 18px;
+      gap: 0;
+      padding: 0 14px;
       border-bottom: 1px solid var(--border);
-      background: color-mix(in srgb, var(--card) 96%, transparent);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 2;
+      background: transparent;
     }
     .general-section-btn {
-      border: 1px solid transparent;
+      border: none;
       background: transparent;
       color: var(--muted);
-      padding: 7px 14px;
-      border-radius: 999px;
+      padding: 10px 14px;
+      border-radius: 0;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
       cursor: pointer;
       font-weight: 600;
       font-size: 13px;
-      font-family: var(--font-sans, 'Inter', sans-serif);
-      transition: background 150ms ease, border-color 150ms ease, color 120ms ease;
+      font-family: var(--font-sans);
+      transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
       white-space: nowrap;
     }
     .general-section-btn:hover {
-      background: rgba(var(--accent-rgb), 0.10);
       color: var(--text);
     }
-    .general-section-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+    .general-section-btn:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-sm); }
     .general-section-btn.is-active {
-      background: rgba(var(--accent-rgb), 0.14);
-      border-color: rgba(var(--accent-rgb), 0.22);
       color: var(--text);
+      border-bottom-color: var(--accent);
     }
 
     /* ── General settings: group containers ── */
     .general-sections {
-      padding: 18px;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 32px;
+      gap: 0;
     }
-    .general-group {
-      display: flex;
+    .general-group[data-group] {
+      display: none;
       flex-direction: column;
-      gap: 14px;
+      gap: 0;
+    }
+    .general-group[data-group].is-visible {
+      display: flex;
     }
     .general-group-header {
-      margin-bottom: 2px;
+      padding: 14px 14px 10px;
     }
     .general-group-header .eyebrow {
-      margin: 0 0 4px;
+      margin: 0 0 2px;
     }
     .general-group-header .panel-subtitle-sm {
       margin: 0;
+      font-size: 12px;
+      line-height: 1.3;
     }
 
-    /* Danger-tinted section for emergency controls */
+    /* Danger group: strip wrapper, individual blocks carry the treatment */
     .general-group--danger {
-      border: 1px solid rgba(251, 113, 133, 0.18);
-      border-radius: var(--radius-lg);
-      background: rgba(251, 113, 133, 0.03);
-      padding: 18px;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      padding: 0;
     }
 
     /* Read-only status bar (e.g. mTLS) */
     .general-group-status {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 10px 14px;
-      border-radius: var(--radius);
+      gap: 10px;
+      padding: 8px 14px;
       background: var(--frost);
-      border: 1px solid var(--border);
-      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
     }
     .general-group-status .pill-quiet { margin: 0; }
 
     /* Responsive 2-col grid for compact settings */
     .general-group-grid--compact {
       display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 0;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     }
 
     /* Setting body separator for multi-control blocks */
     .setting-body {
-      margin-top: 14px;
-      padding-top: 14px;
+      margin-top: 10px;
+      padding-top: 10px;
       border-top: 1px solid var(--border);
     }
 
     /* Danger left-border accent on destructive setting blocks */
     .setting-block--danger {
       border-left: 3px solid var(--danger);
+      background: rgba(185, 28, 28, 0.02);
     }
 
     /* Inline status badge in setting titles */
     .setting-head .pill-quiet {
-      margin-left: 8px;
-      font-size: 12px;
+      margin-left: 6px;
+      font-size: 11px;
       vertical-align: middle;
     }
 
@@ -1905,24 +1910,25 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
       border-color: rgba(185,28,28,0.30);
     }
     .quota-limit-control {
-      margin-top: 14px;
-      border: 1px solid rgba(40,30,20,0.1);
-      border-radius: 12px;
-      padding: 12px 14px;
-      background: rgba(40,30,20,0.02);
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
     }
     .quota-limit-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 8px;
     }
     .quota-limit-value {
       font-weight: 700;
-      font-size: 18px;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
     }
     .quota-limit-slider {
       width: 100%;
@@ -1930,17 +1936,18 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     }
     .quota-limit-foot {
       margin: 0;
-      font-size: 12px;
+      font-size: 11px;
+      opacity: 0.7;
     }
     .quota-partition-control {
-      margin-top: 10px;
-      border: 1px solid rgba(40,30,20,0.1);
-      border-radius: 12px;
-      padding: 12px 14px;
-      background: rgba(40,30,20,0.015);
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
     }
     .quota-partition-buttons {
       display: flex;
@@ -3427,53 +3434,54 @@ body.auth-locked .rail-tools {
 
     .toggle .track {
       position: relative;
-      width: 50px;
-      height: 28px;
-      background: rgba(40,30,20,0.12);
-      border: 1px solid rgba(40,30,20,0.18);
+      width: 36px;
+      height: 20px;
+      background: var(--meter-track);
+      border: 1px solid var(--meter-border);
       border-radius: 999px;
-      box-shadow: inset 0 1px 3px rgba(40,30,20,0.12);
-      transition: all 0.18s ease;
+      transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
     }
 
     .toggle .thumb {
       position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 22px;
-      height: 22px;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
-      background: var(--border-2);
-      box-shadow: 0 2px 6px rgba(40,30,20,0.18);
-      transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.18s ease, background 0.18s ease;
+      background: var(--card);
+      border: 1px solid var(--border-2);
+      transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
     }
 
     .toggle input:checked + .track {
-      background: rgba(var(--accent-rgb), 0.28);
-      border-color: rgba(var(--accent-rgb), 0.55);
+      background: var(--accent);
+      border-color: var(--accent);
     }
 
     .toggle input:checked + .track .thumb {
-      transform: translateX(22px);
-      box-shadow: 0 4px 10px rgba(var(--accent-rgb), 0.26);
-      background: var(--accent-gradient);
+      transform: translateX(16px);
+      background: var(--btn-text);
+      border-color: transparent;
+      box-shadow: 0 0 0 2px var(--accent-soft);
     }
     .state-toggle .track {
-      background: rgba(255, 93, 122, 0.2);
-      border-color: rgba(255, 93, 122, 0.45);
+      background: rgba(185, 28, 28, 0.15);
+      border-color: rgba(185, 28, 28, 0.35);
     }
     .state-toggle .toggle-text {
       color: var(--danger);
     }
     .state-toggle input:checked + .track {
-      background: rgba(82, 242, 196, 0.2);
-      border-color: rgba(82, 242, 196, 0.5);
+      background: var(--success);
+      border-color: var(--success);
     }
     .state-toggle input:checked ~ .toggle-text {
       color: var(--success);
     }
     .state-toggle input:checked + .track .thumb {
-      background: linear-gradient(135deg, var(--success), #5efed3);
+      background: var(--btn-text);
+      border-color: transparent;
     }
     /* Host details */
     tbody tr.host-row { cursor: pointer; }
@@ -3694,81 +3702,66 @@ body.auth-locked .rail-tools {
       justify-content: flex-end;
       gap: 10px;
     }
-    .insecure-window-control {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-top: 12px;
-      border: 1px solid rgba(40,30,20,0.12);
-      border-radius: 12px;
-      padding: 14px 16px;
-      background: rgba(40,30,20,0.03);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
-    }
-    .insecure-window-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-    }
-    .insecure-window-copy {
-      margin: 0;
-      font-size: 13px;
-    }
-    .insecure-window-value {
-      font-weight: 700;
-      font-size: 20px;
-      letter-spacing: -0.5px;
-    }
-    .insecure-window-slider {
-      width: 100%;
-      accent-color: var(--accent);
-    }
-    .insecure-window-foot {
-      margin: 0;
-      font-size: 12px;
-      color: var(--muted);
-    }
+    .insecure-window-control,
     .prune-window-control {
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      margin-top: 12px;
-      border: 1px solid rgba(40,30,20,0.12);
-      border-radius: 12px;
-      padding: 14px 16px;
-      background: rgba(40,30,20,0.03);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+      gap: 6px;
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
     }
+    .insecure-window-head,
     .prune-window-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 18px;
+      gap: 8px;
     }
+    .insecure-window-copy,
     .prune-window-copy {
       margin: 0;
-      font-size: 13px;
+      font-size: 12px;
     }
+    .insecure-window-value,
     .prune-window-value {
       font-weight: 700;
-      font-size: 20px;
-      letter-spacing: -0.5px;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
     }
+    .insecure-window-slider,
     .prune-window-slider {
       width: 100%;
       accent-color: var(--accent);
     }
+    .insecure-window-foot,
     .prune-window-foot {
       margin: 0;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
+      opacity: 0.7;
     }
     .log-retention-sliders {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      margin-top: 10px;
+    }
+    .log-retention-sliders .prune-window-control {
+      gap: 4px;
+    }
+    .log-retention-sliders .prune-window-foot {
+      grid-column: 1 / -1;
+    }
+    #scalingTiers {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .scaling-tier-list {
+      font-size: 12px;
       transition: opacity 0.2s;
     }
     .log-retention-sliders.disabled {

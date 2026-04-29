@@ -10640,8 +10640,11 @@
 
       navBtns.forEach(btn => {
         btn.addEventListener('click', () => {
+          navBtns.forEach(b => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+          groups.forEach(g => g.classList.remove('is-visible'));
           const target = document.querySelector(`.general-group[data-group="${btn.dataset.section}"]`);
-          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (target) target.classList.add('is-visible');
         });
       });
 

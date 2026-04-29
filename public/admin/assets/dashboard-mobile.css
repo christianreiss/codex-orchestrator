@@ -261,20 +261,22 @@ body[data-view="mobile"] .settings-content .panel:first-child {
 body[data-view="mobile"] .general-section-nav {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 10px 14px;
-  position: static;
+  padding: 0 10px;
 }
 body[data-view="mobile"] .general-section-btn {
   flex: 0 0 auto;
 }
 body[data-view="mobile"] .general-sections {
-  padding: 14px;
-  gap: 24px;
+  padding: 0;
+  gap: 0;
 }
 body[data-view="mobile"] .general-group--danger {
-  padding: 14px;
+  padding: 0;
 }
 body[data-view="mobile"] .general-group-grid--compact {
+  grid-template-columns: 1fr;
+}
+body[data-view="mobile"] .log-retention-sliders {
   grid-template-columns: 1fr;
 }
 body[data-view="mobile"] .hosts-layout {
