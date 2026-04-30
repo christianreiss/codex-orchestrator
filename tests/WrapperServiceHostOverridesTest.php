@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Repositories\VersionRepository;
 use App\Services\WrapperService;
+use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -213,6 +214,48 @@ SH;
             @chmod($storagePath, 0644);
             @unlink($storagePath);
             @unlink($seedPath);
+        }
+    }
+
+    public function testPlaceholderWrapperVersionFallsBackToAutoVersion(): void
+    {
+        $storagePath = tempnam(sys_get_temp_dir(), 'cdx-storage-');
+        $seedPath = tempnam(sys_get_temp_dir(), 'cdx-seed-');
+        $clxStoragePath = tempnam(sys_get_temp_dir(), 'clx-storage-');
+        $clxSeedPath = tempnam(sys_get_temp_dir(), 'clx-seed-');
+        $this->assertNotFalse($storagePath);
+        $this->assertNotFalse($seedPath);
+        $this->assertNotFalse($clxStoragePath);
+        $this->assertNotFalse($clxSeedPath);
+
+        $cdxTemplate = <<<'SH'
+#!/usr/bin/env bash
+WRAPPER_VERSION="2026.04.30-01"
+SH;
+        $clxTemplate = <<<'SH'
+#!/usr/bin/env bash
+WRAPPER_VERSION="${WRAPPER_VERSION:-__WRAPPER_VERSION__}"
+SH;
+
+        $this->assertNotFalse(file_put_contents($storagePath, $cdxTemplate));
+        $this->assertNotFalse(file_put_contents($seedPath, $cdxTemplate));
+        $this->assertNotFalse(file_put_contents($clxStoragePath, $clxTemplate));
+        $this->assertNotFalse(file_put_contents($clxSeedPath, $clxTemplate));
+
+        $versions = new InMemoryVersionRepositoryForWrapper();
+        $service = new WrapperService($versions, $storagePath, $seedPath, null, null, $clxStoragePath, $clxSeedPath);
+
+        try {
+            $meta = $service->metadata(Engine::CLAUDE);
+            $this->assertIsString($meta['version']);
+            $this->assertStringStartsWith('auto-', $meta['version']);
+            $this->assertStringNotContainsString('__WRAPPER_VERSION__', $meta['version']);
+            $this->assertSame($meta['version'], $versions->get('wrapper_claude'));
+        } finally {
+            @unlink($storagePath);
+            @unlink($seedPath);
+            @unlink($clxStoragePath);
+            @unlink($clxSeedPath);
         }
     }
 }

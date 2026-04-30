@@ -221,7 +221,7 @@ class WrapperService
 
         if (preg_match('/WRAPPER_VERSION="([^"]+)"/', $content, $matches)) {
             $candidate = trim($matches[1]);
-            if ($candidate === '' || str_starts_with($candidate, '__')) {
+            if ($candidate === '' || str_contains($candidate, '__WRAPPER_VERSION__') || str_starts_with($candidate, '${')) {
                 return null;
             }
             return $candidate;
