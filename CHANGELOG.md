@@ -1,3 +1,6 @@
+# 2026-04-30
+- `cdx` / `clx` wrappers: fixed version-token parsing on newer Bash/Fedora builds by making the hyphen literal in the status-summary regex. Wrapper bumped to `2026.04.30-01`.
+
 # 2026-04-29
 - Admin UI redesign: "warm operator console" visual overhaul of the entire `/admin/*` interface. Replaced the cold navy/cyan palette with warm cream (Paper) and espresso (Ink) themes using terracotta and amber accents. Added Source Serif 4 as a self-hosted display serif for editorial headings. Dropped glassmorphism/backdrop-filter in favour of solid surfaces with 1px hairlines. Bumped corner radii (8→10px cards, 12→14px modals, 12→18px login). Simplified shadows to hairline-first. All six themes preserved (Auto, Light, Dark, Auto Pink, Bright Pink, Dark Pink). All CSS class names and variable names preserved. No JS changes, no framework additions, no build step.
 

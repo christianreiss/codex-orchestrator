@@ -46,4 +46,14 @@ final class CdxWrapperScriptDependencyTest extends TestCase
             'The recovery update path should only require curl.'
         );
     }
+
+    public function testVersionTokenRegexKeepsHyphenLiteral(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('[0-9A-Za-z.+_-]*', $wrapperSource);
+        self::assertStringNotContainsString('[0-9A-Za-z\.\-\+_]*', $wrapperSource);
+    }
 }

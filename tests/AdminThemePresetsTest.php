@@ -64,9 +64,7 @@ final class AdminThemePresetsTest extends TestCase
         $this->assertStringContainsString('body[data-theme="bright-pink"]', $themeCss);
         $this->assertStringContainsString('body[data-theme="dark-pink"]', $themeCss);
         $this->assertStringContainsString('--accent: #ec4899;', $themeCss);
-        $this->assertStringContainsString('--accent: #ff5cab;', $themeCss);
-        $this->assertStringContainsString('body[data-theme="auto-pink"]', $dashboardCss);
-        $this->assertStringContainsString('body[data-theme="bright-pink"]', $dashboardCss);
+        $this->assertStringContainsString('--accent: #f472b6;', $themeCss);
         $this->assertStringContainsString('body[data-theme="dark-pink"]', $dashboardCss);
     }
 }

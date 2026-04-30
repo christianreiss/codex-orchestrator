@@ -692,7 +692,7 @@ toml_table_enabled() {
 
 extract_version_token() {
   local display="$1"
-  if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
+  if [[ "$display" =~ ([0-9]+[0-9A-Za-z.+_-]*) ]]; then
     printf "%s" "${BASH_REMATCH[1]}"
   fi
 }

@@ -51,6 +51,14 @@ final class ClxWrapperScriptDependencyTest extends TestCase
         self::assertStringContainsString('curl', $wrapperSource);
     }
 
+    public function testVersionTokenRegexKeepsHyphenLiteral(): void
+    {
+        $wrapperSource = $this->readWrapper();
+
+        self::assertStringContainsString('[0-9A-Za-z.+_-]*', $wrapperSource);
+        self::assertStringNotContainsString('[0-9A-Za-z\.\-\+_]*', $wrapperSource);
+    }
+
     private function readWrapper(): string
     {
         $path = __DIR__ . '/../bin/clx';
