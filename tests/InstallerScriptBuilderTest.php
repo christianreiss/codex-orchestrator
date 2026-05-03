@@ -25,13 +25,14 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringContainsString("DEFAULT_CURL_INSECURE='1'", $script);
     }
 
-    public function testTemplateIncludesMuslFallbackForOldGlibc(): void
+    public function testTemplateUsesPublishedLinuxMuslAssets(): void
     {
         $script = $this->buildScript();
 
-        $this->assertStringContainsString('detect_glibc_version', $script);
-        $this->assertStringContainsString('unknown-linux-musl.tar.gz', $script);
-        $this->assertStringContainsString('glibc_version', $script);
+        $this->assertStringContainsString('asset="codex-x86_64-unknown-linux-musl.tar.gz"', $script);
+        $this->assertStringContainsString('asset="codex-aarch64-unknown-linux-musl.tar.gz"', $script);
+        $this->assertStringNotContainsString('asset="codex-x86_64-unknown-linux-gnu.tar.gz"', $script);
+        $this->assertStringNotContainsString('asset="codex-aarch64-unknown-linux-gnu.tar.gz"', $script);
     }
 
     public function testTemplateKeepsRequestedCodexVersionOnSsh(): void

@@ -350,25 +350,18 @@ detect_glibc_version() {
 
 install_codex_cli() {
   local workdir="$1"
-  local os arch glibc_version asset codex_bin
+  local os arch asset codex_bin
   os="$(uname -s)"
   arch="$(uname -m)"
 
   case "$os" in
     Linux)
-      glibc_version="$(detect_glibc_version)"
       case "$arch" in
         x86_64|amd64)
-          asset="codex-x86_64-unknown-linux-gnu.tar.gz"
-          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-            asset="codex-x86_64-unknown-linux-musl.tar.gz"
-          fi
+          asset="codex-x86_64-unknown-linux-musl.tar.gz"
           ;;
         aarch64|arm64)
-          asset="codex-aarch64-unknown-linux-gnu.tar.gz"
-          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-            asset="codex-aarch64-unknown-linux-musl.tar.gz"
-          fi
+          asset="codex-aarch64-unknown-linux-musl.tar.gz"
           ;;
         *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
       esac

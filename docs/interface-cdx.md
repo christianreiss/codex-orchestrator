@@ -223,7 +223,7 @@ Codex updates:
 - If `/auth` returns `auto_update_enabled=true`, wrapper first ensures the managed `cdx --cron` job is installed for the current user. Once the cron job is in place, wrapper skips the normal per-run Codex update check because cron-managed auto-update is authoritative for that host. If cron installation fails, wrapper falls back to the normal startup Codex update probe instead of silently disabling updates.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
-  - GitHub release asset download/install for platform-specific binary.
+  - GitHub release asset download/install for platform-specific binary. Linux hosts use the published `unknown-linux-musl` Codex assets.
 - GitHub release-asset installs require a trusted SHA-256 digest from the GitHub release metadata and abort when the digest is missing or mismatched.
 - Cron auto-update install/remove uses one managed crontab marker, shell-escaped wrapper/log paths, and escapes cron `%` semantics before writing the cron command.
 - A fresh `cdx --cron install` immediately pings `POST /cron/check` once after writing the managed crontab entry so the server records an initial cron check-in without waiting for the first scheduled minute.
@@ -244,6 +244,7 @@ Codex updates:
 
 Installer behavior:
 - Installer script downloads the server-targeted Codex version by default.
+- Linux installers use the published `unknown-linux-musl` Codex assets for both x86_64 and aarch64 hosts.
 - SSH compatibility is handled at wrapper runtime; the installer does not pin or rewrite the requested Codex version.
 
 Wrapper updates:

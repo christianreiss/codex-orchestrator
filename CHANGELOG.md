@@ -1,3 +1,6 @@
+# 2026-05-03
+- Installer / `cdx` updates: fixed Linux Codex CLI downloads for current releases such as `0.128.0` by using the published `unknown-linux-musl` assets instead of selecting missing `unknown-linux-gnu` assets on newer glibc hosts. Wrapper bumped to `2026.05.03-01`.
+
 # 2026-04-30
 - `cdx` / `clx` wrappers: fixed version-token parsing on newer Bash/Fedora builds by making the hyphen literal in the status-summary regex. Wrapper bumped to `2026.04.30-01`.
 - Wrapper metadata: fixed Claude wrapper version detection so the unbaked `__WRAPPER_VERSION__` placeholder falls back to an auto hash instead of leaking into `/versions`.

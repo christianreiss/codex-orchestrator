@@ -61,6 +61,18 @@ final class CdxWrapperPackageManagerSupportTest extends TestCase
         self::assertStringContainsString('dnf install -y "${install_missing[@]}"', $wrapperSource);
     }
 
+    public function testWrapperUsesPublishedLinuxMuslReleaseAssets(): void
+    {
+        $wrapperPath = __DIR__ . '/../bin/cdx';
+        $wrapperSource = @file_get_contents($wrapperPath);
+        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+
+        self::assertStringContainsString('printf "codex-x86_64-unknown-linux-musl.tar.gz"', $wrapperSource);
+        self::assertStringContainsString('printf "codex-aarch64-unknown-linux-musl.tar.gz"', $wrapperSource);
+        self::assertStringNotContainsString('printf "codex-x86_64-unknown-linux-gnu.tar.gz"', $wrapperSource);
+        self::assertStringNotContainsString('printf "codex-aarch64-unknown-linux-gnu.tar.gz"', $wrapperSource);
+    }
+
     public function testWrapperRetriesLegacyYumPythonPackageName(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';

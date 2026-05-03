@@ -439,16 +439,10 @@ detect_codex_asset_name() {
     Linux)
       case "$arch_name" in
         x86_64 | amd64)
-          local glibc_version
-          glibc_version="$(detect_glibc_version)"
-          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-            printf "codex-x86_64-unknown-linux-musl.tar.gz"
-          else
-            printf "codex-x86_64-unknown-linux-gnu.tar.gz"
-          fi
+          printf "codex-x86_64-unknown-linux-musl.tar.gz"
           ;;
         aarch64 | arm64)
-          printf "codex-aarch64-unknown-linux-gnu.tar.gz"
+          printf "codex-aarch64-unknown-linux-musl.tar.gz"
           ;;
         *)
           return 1
