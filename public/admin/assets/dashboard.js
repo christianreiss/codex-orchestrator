@@ -43,8 +43,12 @@
     const copyCmdBtn = document.getElementById('copyCmd');
     const installerMeta = document.getElementById('installerMeta');
     const newHostClipboardStatus = document.getElementById('newHostClipboardStatus');
-    const uploadAuthBtn = document.getElementById('uploadAuthBtn');
+    const seedCodexAuthBtn = document.getElementById('seedCodexAuthBtn');
+    const seedClaudeAuthBtn = document.getElementById('seedClaudeAuthBtn');
     const uploadModal = document.getElementById('uploadModal');
+    const uploadAuthTitle = document.getElementById('uploadAuthTitle');
+    const uploadAuthIntro = document.getElementById('uploadAuthIntro');
+    const uploadAuthPayloadLabel = document.getElementById('uploadAuthPayloadLabel');
     const uploadAuthText = document.getElementById('uploadAuthText');
     const uploadAuthFile = document.getElementById('uploadAuthFile');
     const uploadAuthSubmit = document.getElementById('uploadAuthSubmit');
@@ -69,7 +73,6 @@
     const runnerLogEl = document.getElementById('runnerLog');
     const runnerMetaEl = document.getElementById('runnerMeta');
     const runnerCloseBtn = document.getElementById('runnerClose');
-    const claudeRunnerBtn = document.getElementById('runner-claude');
     const claudeRunnerModal = document.getElementById('claudeRunnerModal');
     const claudeRunnerLogEl = document.getElementById('claudeRunnerLog');
     const claudeRunnerMetaEl = document.getElementById('claudeRunnerMeta');
@@ -10643,9 +10646,6 @@
     if (runnerRunnerBtn) {
       runnerRunnerBtn.addEventListener('click', handleRunnerClick);
     }
-    if (claudeRunnerBtn) {
-      claudeRunnerBtn.addEventListener('click', handleClaudeRunnerClick);
-    }
     if (claudeRunnerModal) {
       claudeRunnerModal.addEventListener('click', (e) => {
         if (e.target === claudeRunnerModal) showClaudeRunnerModal(false);
@@ -10855,17 +10855,20 @@
         }
       });
     }
-    if (uploadAuthBtn) {
-      uploadAuthBtn.addEventListener('click', () => showUploadModal(true));
+    if (seedCodexAuthBtn) {
+      seedCodexAuthBtn.addEventListener('click', () => showUploadModal(true, 'codex'));
+    }
+    if (seedClaudeAuthBtn) {
+      seedClaudeAuthBtn.addEventListener('click', () => showUploadModal(true, 'claude'));
     }
     if (seedUploadBtn) {
       seedUploadBtn.addEventListener('click', () => {
         // Capture the chosen seed engine so submitAuthUpload can include it
         // in /admin/auth/upload POST. Defaults to codex for back-compat.
         const selectedEngineRadio = document.querySelector('input[name="seedEngine"]:checked');
-        seedSelectedEngine = selectedEngineRadio?.value === 'claude' ? 'claude' : 'codex';
+        setSeedEngine(selectedEngineRadio?.value);
         showSeedModal(false);
-        showUploadModal(true);
+        showUploadModal(true, seedSelectedEngine);
       });
     }
     if (seedDismissBtn) {
@@ -11409,9 +11412,40 @@
       }
     }
 
-    function showUploadModal(show) {
+    function normalizeSeedEngine(engine) {
+      return engine === 'claude' ? 'claude' : 'codex';
+    }
+
+    function setSeedEngine(engine) {
+      seedSelectedEngine = normalizeSeedEngine(engine);
+      const codexRadio = document.getElementById('seedEngineCodex');
+      const claudeRadio = document.getElementById('seedEngineClaude');
+      if (codexRadio) codexRadio.checked = seedSelectedEngine === 'codex';
+      if (claudeRadio) claudeRadio.checked = seedSelectedEngine === 'claude';
+
+      const isClaude = seedSelectedEngine === 'claude';
+      if (uploadAuthTitle) {
+        uploadAuthTitle.textContent = isClaude ? 'Seed Claude credentials' : 'Seed Codex credentials';
+      }
+      if (uploadAuthIntro) {
+        uploadAuthIntro.textContent = isClaude
+          ? 'Paste or choose Claude credentials; they will be validated via the Claude runner and stored as canonical.'
+          : 'Paste or choose Codex auth.json; it will be validated via the runner and stored as canonical.';
+      }
+      if (uploadAuthPayloadLabel) {
+        uploadAuthPayloadLabel.textContent = isClaude ? 'Claude credentials.json' : 'Codex auth.json';
+      }
+      if (uploadAuthText) {
+        uploadAuthText.placeholder = isClaude
+          ? '{"api_key":"...","last_refresh":"..."}'
+          : '{"last_refresh":"...","auths":{...}}';
+      }
+    }
+
+    function showUploadModal(show, engine = null) {
       if (!uploadModal) return;
       if (show) {
+        setSeedEngine(engine || seedSelectedEngine);
         uploadModal.classList.add('show');
         setInertBehindModal(uploadModal, true);
         uploadAuthText.value = '';
@@ -11641,8 +11675,7 @@
       seedCommandBtn.disabled = true;
       seedCommandBtn.textContent = 'Generating…';
       try {
-        const selectedEngineRadio = document.querySelector('input[name="seedEngine"]:checked');
-        const engine = selectedEngineRadio?.value === 'claude' ? 'claude' : 'codex';
+        const engine = normalizeSeedEngine(seedSelectedEngine);
         const res = await api('/admin/auth/seed-command', { method: 'POST', json: { engine } });
         const data = res.data || {};
         const cmd = data.command || '';

@@ -148,7 +148,7 @@ Install tokens carry an `engine` field that maps to an `InstallerMode`:
 - `claude` → installs Claude CLI (via npm) + `clx` wrapper.
 - `both` → installs both.
 
-The admin UI radios at `#seedEngineCodex` / `#seedEngineClaude` set the seed engine for canonical-auth uploads; the host-create form's engine checkboxes (`engineCodexToggle`, `engineClaudeToggle`) set the host's `engines` list.
+The initial-seeding modal radios at `#seedEngineCodex` / `#seedEngineClaude` set the seed engine for that first canonical-auth upload. The persistent settings pages expose engine-specific seeders: Codex from `/admin/settings/config` and Claude from `/admin/settings/claude`. The host-create form's engine checkboxes (`engineCodexToggle`, `engineClaudeToggle`) set the host's `engines` list.
 
 ## Generated artifact
 

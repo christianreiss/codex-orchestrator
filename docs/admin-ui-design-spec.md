@@ -485,13 +485,15 @@ List view: table of skills with slug, name, description excerpt, tags, last upda
 ### 4.13 Settings — OpenAI / Codex config (`/admin/settings/config`)
 The **config.toml builder**. Multi-card layout where each card is a TOML section. Cards are
 tagged with `data-config-card` and `data-config-title` for navigation. Live render preview +
-"Save" button (POSTs to `/admin/config/store`). Same dirty-edit guard as Profiles.
+"Save" button (POSTs to `/admin/config/store`). Header actions also expose Codex credential
+seeding, Codex runner verification, and fleet version checks. Same dirty-edit guard as Profiles.
 
 ### 4.14 Settings — Claude (`/admin/settings/claude`)
 **Title:** "Claude Settings" · eyebrow "Claude / Anthropic" · subtitle: "Configure Claude Code
 fleet settings."
 
-**Header actions:** "↻ Verify runner" button (live `/verify-claude` probe), "Save" primary button.
+**Header actions:** "Seed Claude credentials", "↻ Verify runner" button (live `/verify-claude`
+probe), "Save" primary button.
 
 **Three config cards:**
 1. **General** — Default model (Sonnet/Opus/Haiku), default max tokens, monthly spend limit (USD).

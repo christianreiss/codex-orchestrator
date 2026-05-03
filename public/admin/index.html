@@ -580,14 +580,14 @@
         </div>
         <div class="modal-backdrop" id="uploadModal" role="dialog" aria-modal="true">
           <div class="modal">
-            <h3>Seed auth.json</h3>
-            <p>Paste or choose an auth.json; it will be validated via the runner and stored as canonical.</p>
+            <h3 id="uploadAuthTitle">Seed credentials</h3>
+            <p id="uploadAuthIntro">Paste or choose credentials; they will be validated via the runner and stored as canonical.</p>
             <div class="field">
               <label for="uploadHostSelect" class="modal-label">Store scope</label>
               <select id="uploadHostSelect"></select>
             </div>
             <div class="field">
-              <label for="uploadAuthText" class="modal-label">auth.json</label>
+              <label for="uploadAuthText" class="modal-label" id="uploadAuthPayloadLabel">Credentials JSON</label>
               <textarea id="uploadAuthText" rows="8" placeholder='{"last_refresh":"...","auths":{...}}'></textarea>
             </div>
             <div class="field">
@@ -1764,20 +1764,6 @@
                       <p class="muted prune-window-foot">Cleanup runs automatically during auth/register cycles. Disabled = keep forever.</p>
                     </div>
                   </div>
-                  <div class="setting-block">
-                    <div class="setting-head">
-                      <div>
-                        <h3>Maintenance</h3>
-                        <p class="muted panel-subtitle-sm">Runner probes, auth seeding, version checks.</p>
-                      </div>
-                    </div>
-                    <div class="setting-actions">
-                      <button class="ghost" id="uploadAuthBtn">Seed auth.json</button>
-                      <button class="ghost tiny-btn" id="runner-runner" title="Run auth-runner now">↻ Runner</button>
-                      <button class="ghost tiny-btn" id="runner-claude" title="Run Claude verification now">↻ Claude Runner</button>
-                      <button class="ghost" id="version-check">Check versions</button>
-                    </div>
-                  </div>
                 </div>
               </section>
 
@@ -2028,6 +2014,7 @@
                 <p class="muted">Configure Claude Code fleet settings. Hosts with the Claude engine will receive these settings via <code>clx</code>.</p>
               </div>
               <div class="panel-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <button class="ghost tiny-btn" id="seedClaudeAuthBtn">Seed Claude credentials</button>
                 <button class="ghost tiny-btn" id="claudeRunnerVerifyBtn" title="Run a live /verify-claude probe against the runner">↻ Verify runner</button>
                 <button class="primary tiny-btn" id="claudeSettingsSaveBtn">Save</button>
               </div>
@@ -2162,6 +2149,9 @@
 	                <p class="muted">Generate, preview, and deploy the fleet-wide config in one place. Profiles live under <strong>Settings → Profiles</strong>.</p>
 	              </div>
               <div class="panel-actions">
+                <button id="seedCodexAuthBtn" class="ghost tiny-btn">Seed Codex credentials</button>
+                <button id="runner-runner" class="ghost tiny-btn" title="Run auth-runner now">↻ Runner</button>
+                <button id="version-check" class="ghost tiny-btn">Check versions</button>
                 <button id="renderConfig" class="ghost tiny-btn">Preview</button>
                 <button id="copyPreviewTop" class="ghost tiny-btn">Copy</button>
                 <button id="saveConfig" class="primary">Save &amp; Deploy</button>
@@ -2802,7 +2792,7 @@
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/dashboard.js?v=2026-05-03-01"></script>
+  <script src="/admin/assets/dashboard.js?v=2026-05-03-02"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>
   <script src="/admin/assets/projects.js?v=2026-03-31-02"></script>
