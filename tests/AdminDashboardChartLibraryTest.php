@@ -96,8 +96,12 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
         $this->assertStringContainsString('function installerActionLabel(mode)', $js);
+        $this->assertStringContainsString('function hostInstallerEngineSet(host, addEngine = null)', $js);
         $this->assertStringContainsString("const installerMode = installerModeFromEngines(host?.engines);", $js);
         $this->assertStringContainsString('data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>', $js);
+        $this->assertStringContainsString('data-action="add-claude">Add Claude</button>', $js);
+        $this->assertStringContainsString("regenerateInstaller(host.fqdn, host.id, hostInstallerEngineSet(host, 'claude'));", $js);
         $this->assertStringContainsString('const existingHost = hostId ? getHostById(hostId) : null;', $js);
+        $this->assertStringContainsString('const selectedEngines = Array.isArray(engineOverride) && engineOverride.length', $js);
     }
 }

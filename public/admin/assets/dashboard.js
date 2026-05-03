@@ -2855,6 +2855,16 @@
       return 'Install Codex';
     }
 
+    function hostInstallerEngineSet(host, addEngine = null) {
+      const engines = parseEngines(host?.engines);
+      if (addEngine && !engines.includes(addEngine)) {
+        engines.push(addEngine);
+      }
+      return engines.includes('codex') && engines.includes('claude')
+        ? ['codex', 'claude']
+        : engines;
+    }
+
     function renderEngineBadges(enginesRaw) {
       const engines = parseEngines(enginesRaw);
       const badges = [];
@@ -4280,7 +4290,15 @@
 	      const secure = isHostSecure(host);
 	      const installerMode = installerModeFromEngines(host?.engines);
 	      const detailEngines = parseEngines(host?.engines);
+	      const hasCodex = detailEngines.includes('codex');
 	      const hasClaude = detailEngines.includes('claude');
+	      const addEngineButtons = [];
+	      if (hasCodex && !hasClaude) {
+	        addEngineButtons.push('<button class="ghost secondary" data-action="add-claude">Add Claude</button>');
+	      }
+	      if (hasClaude && !hasCodex) {
+	        addEngineButtons.push('<button class="ghost secondary" data-action="add-codex">Add Codex</button>');
+	      }
 	      const toggles = [];
       const secureState = secure
         ? 'Secure: auth.json stays on disk'
@@ -4462,6 +4480,7 @@
         </div>
         <div class="host-action-buttons">
           <button class="ghost secondary" data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>
+          ${addEngineButtons.join('')}
           <button class="ghost" data-action="clear">Clear auth</button>
           <button class="danger" data-action="remove">Remove</button>
         </div>
@@ -4476,6 +4495,10 @@
           const action = btn.getAttribute('data-action');
           if (action === 'install') {
             regenerateInstaller(host.fqdn, host.id);
+          } else if (action === 'add-claude') {
+            regenerateInstaller(host.fqdn, host.id, hostInstallerEngineSet(host, 'claude'));
+          } else if (action === 'add-codex') {
+            regenerateInstaller(host.fqdn, host.id, hostInstallerEngineSet(host, 'codex'));
           } else if (action === 'clear') {
             if (!await showConfirmModal('Clear auth', `Clear auth for ${host.fqdn}?`, { action: 'Clear' })) return;
             confirmClear(host.id);
@@ -11427,7 +11450,7 @@
       await regenerateInstaller(fqdn);
     }
 
-    async function regenerateInstaller(fqdn, hostId = null) {
+    async function regenerateInstaller(fqdn, hostId = null, engineOverride = null) {
       const targetFqdn = fqdn || newHostName.value.trim();
       if (!targetFqdn) {
         if (newHostError) { newHostError.textContent = 'Please enter a host name'; newHostError.classList.add('show'); }
@@ -11449,8 +11472,11 @@
       }
       if (existingHost) {
         const existingEngines = parseEngines(existingHost.engines);
-        if (engineCodexToggle) engineCodexToggle.checked = existingEngines.includes('codex');
-        if (engineClaudeToggle) engineClaudeToggle.checked = existingEngines.includes('claude');
+        const selectedEngines = Array.isArray(engineOverride) && engineOverride.length
+          ? engineOverride
+          : existingEngines;
+        if (engineCodexToggle) engineCodexToggle.checked = selectedEngines.includes('codex');
+        if (engineClaudeToggle) engineClaudeToggle.checked = selectedEngines.includes('claude');
       }
       const secure = secureHostToggle ? secureHostToggle.checked : true;
       const vip = vipToggle ? vipToggle.checked : false;
