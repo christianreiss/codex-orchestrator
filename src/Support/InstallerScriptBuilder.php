@@ -294,6 +294,91 @@ print_shell_rehash_hint() {
   fi
 }
 
+installer_package_for_command() {
+  case "$1" in
+    tar) printf '%s' "tar" ;;
+    gzip) printf '%s' "gzip" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+installer_run_as_root() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+    return $?
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -n "$@"
+    return $?
+  fi
+  return 1
+}
+
+installer_install_packages() {
+  local packages=("$@")
+  if ((${#packages[@]} == 0)); then
+    return 0
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    installer_run_as_root apt-get update
+    installer_run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+    return $?
+  fi
+  if command -v dnf >/dev/null 2>&1; then
+    installer_run_as_root dnf install -y "${packages[@]}"
+    return $?
+  fi
+  if command -v yum >/dev/null 2>&1; then
+    installer_run_as_root yum install -y "${packages[@]}"
+    return $?
+  fi
+  if command -v apk >/dev/null 2>&1; then
+    installer_run_as_root apk add --no-cache "${packages[@]}"
+    return $?
+  fi
+  if command -v pacman >/dev/null 2>&1; then
+    installer_run_as_root pacman -Sy --noconfirm "${packages[@]}"
+    return $?
+  fi
+  if command -v zypper >/dev/null 2>&1; then
+    installer_run_as_root zypper --non-interactive install "${packages[@]}"
+    return $?
+  fi
+
+  return 1
+}
+
+ensure_installer_commands() {
+  local missing=()
+  local packages=()
+  local cmd package
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+      package="$(installer_package_for_command "$cmd")"
+      packages+=("$package")
+    fi
+  done
+
+  if ((${#missing[@]} == 0)); then
+    return 0
+  fi
+
+  echo "Installing missing installer prerequisites: ${missing[*]}"
+  if ! installer_install_packages "${packages[@]}"; then
+    echo "Missing required command(s): ${missing[*]}. Install package(s): ${packages[*]} and rerun this one-time installer." >&2
+    exit 1
+  fi
+
+  for cmd in "${missing[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      echo "Missing required command after package install: ${cmd}" >&2
+      exit 1
+    fi
+  done
+}
+
 user_bin=0
 
 SCRIPT;
@@ -351,6 +436,7 @@ detect_glibc_version() {
 install_codex_cli() {
   local workdir="$1"
   local os arch asset codex_bin
+  ensure_installer_commands tar gzip
   os="$(uname -s)"
   arch="$(uname -m)"
 

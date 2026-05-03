@@ -35,6 +35,21 @@ final class InstallerScriptBuilderTest extends TestCase
         $this->assertStringNotContainsString('asset="codex-aarch64-unknown-linux-gnu.tar.gz"', $script);
     }
 
+    public function testCodexTemplateInstallsArchivePrerequisites(): void
+    {
+        $script = $this->buildScript();
+
+        $this->assertStringContainsString('ensure_installer_commands tar gzip', $script);
+        $this->assertStringContainsString('installer_install_packages() {', $script);
+        $this->assertStringContainsString('apt-get install -y --no-install-recommends "${packages[@]}"', $script);
+        $this->assertStringContainsString('dnf install -y "${packages[@]}"', $script);
+        $this->assertStringContainsString('yum install -y "${packages[@]}"', $script);
+        $this->assertStringContainsString('apk add --no-cache "${packages[@]}"', $script);
+        $this->assertStringContainsString('pacman -Sy --noconfirm "${packages[@]}"', $script);
+        $this->assertStringContainsString('zypper --non-interactive install "${packages[@]}"', $script);
+        $this->assertStringContainsString('Missing required command(s): ${missing[*]}. Install package(s): ${packages[*]}', $script);
+    }
+
     public function testTemplateKeepsRequestedCodexVersionOnSsh(): void
     {
         $script = $this->buildScript([], '0.120.0');
