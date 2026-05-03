@@ -1,4 +1,5 @@
 # 2026-05-03
+- `cdx` cron-managed updates: normal wrapper launches now still repair a locally stale Codex CLI after installing/reconciling the managed cron job, so new cron-managed hosts do not keep showing Codex's own "update available" banner until the first scheduled cron run. Wrapper bumped to `2026.05.03-02`.
 - Installer / `cdx` updates: fixed Linux Codex CLI downloads for current releases such as `0.128.0` by using the published `unknown-linux-musl` assets instead of selecting missing `unknown-linux-gnu` assets on newer glibc hosts. Wrapper bumped to `2026.05.03-01`.
 
 # 2026-04-30

@@ -65,7 +65,7 @@ final class CdxWrapperCronBehaviorTest extends TestCase
             $wrapperSource
         );
         self::assertStringContainsString('reconcile_cron_job_state remove || log_warn', $wrapperSource);
-        self::assertStringContainsString('elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && ((AUTO_UPDATE_CRON_READY)); then', $wrapperSource);
+        self::assertStringNotContainsString('skip_update_reason="cron_managed"', $wrapperSource);
     }
 
     public function testCronModeResolvesCodexStateBeforeReleaseLookup(): void

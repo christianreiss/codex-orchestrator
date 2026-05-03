@@ -180,9 +180,6 @@ skip_update_reason=""
 if ((CDX_ACTIVE_RUN_DETECTED)); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && ((AUTO_UPDATE_CRON_READY)); then
-  skip_update_check=1
-  skip_update_reason="cron_managed"
 elif ((!can_manage_codex)); then
   skip_update_check=1
   skip_update_reason="privilege"
@@ -328,9 +325,6 @@ if ((skip_update_check)); then
   case "$skip_update_reason" in
     active_run)
       codex_status_note="active cdx run"
-      ;;
-    cron_managed)
-      codex_status_note="cron-managed updates"
       ;;
     unsupported_platform)
       codex_status_note="unsupported platform (${platform_os}/${platform_arch})"

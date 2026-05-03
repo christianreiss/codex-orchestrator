@@ -220,7 +220,7 @@ Codex updates:
 - Target version comes from `/auth` `versions.client_version`.
 - If `/auth` returns `client_version_enforce_exact=true`, wrapper enforces the exact target version (upgrade or downgrade).
 - If `client_version_enforce_exact=false`, wrapper treats `versions.client_version` as an upgrade floor only and never downgrades to meet it.
-- If `/auth` returns `auto_update_enabled=true`, wrapper first ensures the managed `cdx --cron` job is installed for the current user. Once the cron job is in place, wrapper skips the normal per-run Codex update check because cron-managed auto-update is authoritative for that host. If cron installation fails, wrapper falls back to the normal startup Codex update probe instead of silently disabling updates.
+- If `/auth` returns `auto_update_enabled=true`, wrapper first ensures the managed `cdx --cron` job is installed for the current user. Normal sync-capable runs still perform a startup Codex version repair when the local CLI is behind the server target, so a newly installed cron-managed host does not keep launching an older Codex until its first scheduled cron minute.
 - Update path:
   - npm global `codex-cli` update when detected, otherwise
   - GitHub release asset download/install for platform-specific binary. Linux hosts use the published `unknown-linux-musl` Codex assets.
