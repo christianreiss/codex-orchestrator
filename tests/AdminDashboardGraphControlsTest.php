@@ -6,48 +6,42 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminDashboardGraphControlsTest extends TestCase
 {
-    public function testDashboardHtmlIncludesInlineChartContainer(): void
+    public function testDashboardHtmlIncludesTrendsGrid(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
-        $this->assertStringContainsString('id="dashboardGrid"', $html);
+        $this->assertStringContainsString('id="dashboardTrends"', $html);
+        $this->assertStringContainsString('class="dashboard-trends-grid"', $html);
+        $this->assertStringNotContainsString('id="dashboardGrid"', $html);
+        $this->assertStringNotContainsString('id="dashboardOpsStrip"', $html);
+        $this->assertStringNotContainsString('id="dashboardFooter"', $html);
+        $this->assertStringNotContainsString('chart.umd.min.js', $html);
+        $this->assertStringNotContainsString('chartjs-plugin-zoom.min.js', $html);
     }
 
-    public function testDashboardJsWiresAdvancedGraphControls(): void
+    public function testDashboardJsRendersTrendTilesInsteadOfChartJs(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
-        $this->assertStringContainsString('dashboardCompareBtn', $js);
-        $this->assertStringContainsString('dashboardTypeBtn', $js);
-        $this->assertStringContainsString('dashboardQuotaReset', $js);
-        $this->assertStringContainsString('dashboardCostReset', $js);
-        $this->assertStringContainsString('Export CSV', $js);
-        $this->assertStringContainsString('refreshDashboardCharts', $js);
+        $this->assertStringContainsString('function renderDashboardTrends(', $js);
+        $this->assertStringContainsString('function refreshDashboardTrends(', $js);
+        $this->assertStringContainsString('function renderTrendSparkline(', $js);
+        $this->assertStringContainsString('class="dashboard-trend-tile"', $js);
+        $this->assertStringNotContainsString('renderDashboardGrid', $js);
+        $this->assertStringNotContainsString('refreshDashboardCharts', $js);
+        $this->assertStringNotContainsString('dashboardQuotaChart', $js);
+        $this->assertStringNotContainsString('dashboardCostChart', $js);
+        $this->assertStringNotContainsString('new window.Chart', $js);
+        $this->assertStringNotContainsString('Export CSV', $js);
+        $this->assertStringNotContainsString('dashboardCompareBtn', $js);
+        $this->assertStringNotContainsString('dashboardTypeBtn', $js);
     }
 
-    public function testDashboardJsKeepsChartShellStableDuringLiveRefresh(): void
+    public function testDashboardJsKeepsLiveDebounceConstant(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
-        $this->assertStringContainsString('DASHBOARD_CHART_AUTO_REFRESH_MS', $js);
         $this->assertStringContainsString('DASHBOARD_CHART_LIVE_DEBOUNCE_MS', $js);
-        $this->assertStringContainsString('Live history refresh paused', $js);
-        $this->assertStringContainsString('hasChartShell', $js);
-        $this->assertStringContainsString('updateDashboardQuotaChart', $js);
-        $this->assertStringContainsString('updateDashboardCostChart', $js);
-        $this->assertStringContainsString("dashboardQuotaChart.update('none')", $js);
-        $this->assertStringContainsString("dashboardCostChart.update('none')", $js);
-        $this->assertStringContainsString('renderDashboardGrid(currentOverview, runnerInfo, currentHosts, { refreshCharts: false });', $js);
-    }
-
-    public function testDashboardJsClampsQuotaChartsToZeroThroughHundredPercent(): void
-    {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $this->assertStringContainsString('Math.max(0, Math.min(100, val))', $js);
-        $this->assertStringContainsString('clamp(val, 0, 100)', $js);
-        $this->assertStringContainsString('max: 100', $js);
-        $this->assertStringContainsString('min: 0', $js);
     }
 
     public function testDashboardJsSupportsNewStructuredNavigationShortcuts(): void

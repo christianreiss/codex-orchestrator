@@ -101,49 +101,23 @@ body[data-view="mobile"] .dashboard-status-bar {
   padding-bottom: 10px;
 }
 
-body[data-view="mobile"] .dashboard-ops-strip {
-  gap: 6px;
+body[data-view="mobile"] .dashboard-trends-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-body[data-view="mobile"] .dashboard-chart-shell {
-  padding: 12px;
+body[data-view="mobile"] .dashboard-trend-tile {
+  padding: 12px 14px;
 }
 
-body[data-view="mobile"] .dashboard-chart-controls {
-  flex-direction: column;
-  align-items: flex-start;
+body[data-view="mobile"] .dashboard-trend-value {
+  font-size: 22px;
 }
 
-body[data-view="mobile"] .dashboard-chart-ranges,
-body[data-view="mobile"] .dashboard-chart-actions {
-  width: 100%;
-}
-
-body[data-view="mobile"] .dashboard-chart-ranges .dashboard-range-btn,
-body[data-view="mobile"] .dashboard-chart-actions button {
-  flex: 1;
-}
-
-body[data-view="mobile"] .dashboard-chart-panels {
-  grid-template-columns: 1fr;
-}
-
-body[data-view="mobile"] .dashboard-chart-head {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-body[data-view="mobile"] .dashboard-chart-head-actions {
-  width: 100%;
-}
-
-body[data-view="mobile"] .dashboard-chart-head-actions button {
-  flex: 1;
-}
-
-body[data-view="mobile"] .dashboard-chart-canvas-wrap {
-  min-height: 220px;
-  height: 220px;
+@media (max-width: 480px) {
+  body[data-view="mobile"] .dashboard-trends-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 body[data-view="mobile"] #stats.dashboard-stats-grid {

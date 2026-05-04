@@ -156,9 +156,7 @@
 
     const dashboardMissionYear = document.getElementById('dashboardMissionYear');
     const dashboardStatusBar = document.getElementById('dashboardStatusBar');
-    const dashboardOpsStrip = document.getElementById('dashboardOpsStrip');
-    const dashboardFooter = document.getElementById('dashboardFooter');
-    const dashboardFooterText = document.getElementById('dashboardFooterText');
+    const dashboardTrends = document.getElementById('dashboardTrends');
     const memoriesHostFilter = document.getElementById('memoriesHostFilter');
     const memoriesQueryInput = document.getElementById('memoriesQuery');
     const memoriesTagsInput = document.getElementById('memoriesTags');
@@ -254,7 +252,6 @@
     const heroEyebrow = pageHero?.querySelector('.eyebrow');
     const heroTitle = pageHero?.querySelector('h1');
     const heroCopy = pageHero?.querySelector('p.muted');
-    const dashboardGrid = document.getElementById('dashboardGrid');
     const USAGE_HISTORY_DAYS = 60;
     const COST_SERIES = [
       { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
@@ -262,13 +259,9 @@
       { key: 'output', label: 'Output', color: '#16a34a' },
       { key: 'cached', label: 'Cached', color: '#f97316' },
     ];
-    const DASHBOARD_RANGE_PRESETS = [7, 30, 60, 90, 180];
-    const DASHBOARD_CHART_STORAGE_KEY = 'codex.dashboardCharts.v1';
     const QUOTA_SERIES_META = [
-      { key: 'normal_primary', label: 'Normal 5-hour', color: '#0b7c73' },
-      { key: 'normal_secondary', label: 'Normal weekly', color: '#2563eb' },
-      { key: 'spark_primary', label: 'Spark 5-hour', color: '#f97316' },
-      { key: 'spark_secondary', label: 'Spark weekly', color: '#7c3aed' },
+      { key: 'normal_primary', label: '5-hour runway', color: '#0b7c73' },
+      { key: 'normal_secondary', label: 'Weekly runway', color: '#2563eb' },
     ];
     const QUOTA_LIMIT_MIN = 50;
     const QUOTA_LIMIT_MAX = 100;
@@ -625,16 +618,6 @@
     let costHistoryPromise = null;
     const costHistoryCache = new Map();
     const costHistoryPromiseCache = new Map();
-    let dashboardQuotaChart = null;
-    let dashboardCostChart = null;
-    let dashboardQuotaPoints = [];
-    let dashboardCostPoints = [];
-    let dashboardCostCurrency = 'USD';
-    let dashboardQuotaPinnedIndex = null;
-    let dashboardCostPinnedIndex = null;
-    let dashboardChartsWired = false;
-    let dashboardChartRenderToken = 0;
-    let dashboardChartsLastLoadedAt = 0;
     let activeHostId = null;
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
@@ -642,7 +625,6 @@
     let insecureApprovalBellContext = null;
     let lastInsecureApprovalBellAt = 0;
     const INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000;
-    const DASHBOARD_CHART_AUTO_REFRESH_MS = 60 * 1000;
     const DASHBOARD_CHART_LIVE_DEBOUNCE_MS = 1200;
     const INSECURE_WINDOW_MIN = 0;
     const INSECURE_WINDOW_MAX = 480;
@@ -666,7 +648,6 @@
     let logRetentionDaysGraphStats = 180;
     let memoriesLoading = false;
     let memoriesOpen = false;
-    let dashboardChartPrefs = readDashboardChartPrefs();
 
     const dashboardYear = new Date().getFullYear();
     if (dashboardMissionYear) {
@@ -678,7 +659,7 @@
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
         copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
-        show: ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardGrid'],
+        show: ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardStatusBar', 'dashboardTrends'],
       },
       hosts: {
         eyebrow: 'Hosts',
@@ -764,7 +745,7 @@
           };
         }
       }
-      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardFooter', 'dashboardStatusBar', 'dashboardOpsStrip', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'accountPanel', 'memories-panel', 'settings-panel', 'dashboardGrid', 'manualPanel'];
+      const allIds = ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardStatusBar', 'dashboardTrends', 'hosts-panel', 'hostDetailPanel', 'projectDetailPanel', 'skillDetailPanel', 'accountPanel', 'memories-panel', 'settings-panel', 'manualPanel'];
       allIds.forEach((id) => toggleSection(id, config.show.includes(id)));
       if (pageHero) {
         if (heroEyebrow) heroEyebrow.textContent = config.eyebrow;
@@ -871,64 +852,6 @@
       if (!Number.isFinite(num)) return '—';
       const safeDigits = Number.isFinite(digits) ? Math.max(0, Math.min(2, Math.floor(digits))) : 0;
       return `${num.toFixed(safeDigits)}%`;
-    }
-
-    function clampRangeDays(value) {
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric)) return USAGE_HISTORY_DAYS;
-      const rounded = Math.round(numeric);
-      if (!DASHBOARD_RANGE_PRESETS.includes(rounded)) return USAGE_HISTORY_DAYS;
-      return rounded;
-    }
-
-    function normalizeChartType(value) {
-      const normalized = String(value || '').trim().toLowerCase();
-      return normalized === 'stacked' ? 'stacked' : 'line';
-    }
-
-    function normalizeVisibleSeries(value) {
-      if (!Array.isArray(value)) return [];
-      return value
-        .map((item) => String(item || '').trim().toLowerCase())
-        .filter((item) => item !== '');
-    }
-
-    function readDashboardChartPrefs() {
-      const defaults = {
-        range_days: USAGE_HISTORY_DAYS,
-        compare_previous: false,
-        chart_type: 'line',
-        quota_visible: [],
-        cost_visible: [],
-      };
-      try {
-        const raw = localStorage.getItem(DASHBOARD_CHART_STORAGE_KEY);
-        if (!raw) return defaults;
-        const parsed = JSON.parse(raw);
-        return {
-          range_days: clampRangeDays(parsed?.range_days),
-          compare_previous: !!parsed?.compare_previous,
-          chart_type: normalizeChartType(parsed?.chart_type),
-          quota_visible: normalizeVisibleSeries(parsed?.quota_visible),
-          cost_visible: normalizeVisibleSeries(parsed?.cost_visible),
-        };
-      } catch (_) {
-        return defaults;
-      }
-    }
-
-    function writeDashboardChartPrefs() {
-      try {
-        localStorage.setItem(DASHBOARD_CHART_STORAGE_KEY, JSON.stringify({
-          range_days: clampRangeDays(dashboardChartPrefs?.range_days),
-          compare_previous: !!dashboardChartPrefs?.compare_previous,
-          chart_type: normalizeChartType(dashboardChartPrefs?.chart_type),
-          quota_visible: normalizeVisibleSeries(dashboardChartPrefs?.quota_visible),
-          cost_visible: normalizeVisibleSeries(dashboardChartPrefs?.cost_visible),
-        }));
-      } catch (_) {
-        // Storage can fail in private mode; ignore.
-      }
     }
 
     function formatCountdown(value) {
@@ -6044,39 +5967,6 @@
       `;
     }
 
-    function renderUsageCompareChip(label, data, active = false) {
-      if (!hasWindowData(data) && !active) return '';
-      const used = Number(data?.used_percent);
-      const usedLabel = Number.isFinite(used) ? `${Math.max(0, Math.round(used))}%` : 'n/a';
-      return `
-        <span class="usage-stage-chip${active ? ' is-active' : ''}">
-          ${escapeHtml(label)}
-          <strong>${usedLabel}</strong>
-        </span>
-      `;
-    }
-
-    function renderUsageLaneCard(eyebrow, title, copy, rows = [], compare = '', active = false) {
-      const lanes = Array.isArray(rows)
-        ? rows.map((row) => renderUsageLane(row.label, row.data, row.windowKey)).join('')
-        : '';
-      return `
-        <section class="usage-stage${active ? ' is-active-lane' : ''}">
-          <div class="usage-stage-head">
-            <div class="usage-stage-copy">
-              <span class="usage-stage-kicker">${escapeHtml(eyebrow)}</span>
-              <h3>${escapeHtml(title)}</h3>
-              <p>${escapeHtml(copy)}</p>
-            </div>
-            ${compare ? `<div class="usage-stage-compare">${compare}</div>` : ''}
-          </div>
-          <div class="usage-lanes">
-            ${lanes}
-          </div>
-        </section>
-      `;
-    }
-
     function hasWindowData(data) {
       if (!data || typeof data !== 'object') return false;
       return ['used_percent', 'limit_seconds', 'reset_after_seconds', 'reset_at'].some((key) => {
@@ -6095,7 +5985,6 @@
       const snapshot = usage.snapshot;
       const status = snapshot.status || 'unknown';
       const plan = snapshot.plan_type || 'Unknown plan';
-      const fetched = snapshot.fetched_at ? formatRelative(snapshot.fetched_at) : 'never';
       const normalPrimary = {
         used_percent: snapshot.primary_used_percent ?? null,
         limit_seconds: snapshot.primary_limit_seconds ?? null,
@@ -6108,63 +5997,18 @@
         reset_after_seconds: snapshot.secondary_reset_after_seconds ?? null,
         reset_at: snapshot.secondary_reset_at ?? null,
       };
-      const sparkPrimary = {
-        used_percent: snapshot.spark_primary_used_percent ?? null,
-        limit_seconds: snapshot.spark_primary_limit_seconds ?? null,
-        reset_after_seconds: snapshot.spark_primary_reset_after_seconds ?? null,
-        reset_at: snapshot.spark_primary_reset_at ?? null,
-      };
-      const sparkSecondary = {
-        used_percent: snapshot.spark_secondary_used_percent ?? null,
-        limit_seconds: snapshot.spark_secondary_limit_seconds ?? null,
-        reset_after_seconds: snapshot.spark_secondary_reset_after_seconds ?? null,
-        reset_at: snapshot.spark_secondary_reset_at ?? null,
-      };
-      const hasSpark = hasWindowData(sparkPrimary) || hasWindowData(sparkSecondary);
-      const laneRaw = usage?.active_lane
-        || usage?.summary?.active_quota_lane
-        || snapshot.active_quota_lane
-        || 'normal';
-      const activeLane = typeof laneRaw === 'string' && laneRaw.toLowerCase() === 'spark' ? 'spark' : 'normal';
-      const planLabel = plan;
-      const laneCards = [
-        {
-          key: 'normal',
-          eyebrow: 'Default lane',
-          title: 'Normal',
-          copy: activeLane === 'normal'
-            ? 'This is the live shared lane right now, with the 5-hour burst bar sitting directly above the weekly runway.'
-            : 'Steady shared lane for day-to-day work, with short and weekly runway stacked together.',
-          compare: renderUsageCompareChip('Lane', normalPrimary, activeLane === 'normal'),
-          active: activeLane === 'normal',
-          rows: [
-            { label: '5-hour runway', data: normalPrimary, windowKey: 'normal:primary' },
-            { label: 'Weekly runway', data: normalSecondary, windowKey: 'normal:secondary' },
-          ],
-        },
+      const rows = [
+        { label: '5-hour runway', data: normalPrimary, windowKey: 'normal:primary' },
+        { label: 'Weekly runway', data: normalSecondary, windowKey: 'normal:secondary' },
       ];
-      if (hasSpark) {
-        laneCards.push({
-          key: 'spark',
-          eyebrow: 'Burst lane',
-          title: 'Spark',
-          copy: activeLane === 'spark'
-            ? 'Spark is the live lane, so both the 5-hour and weekly bars here tell the real story right now.'
-            : 'Extra punch when you need it, with the short window and weekly runway stacked in one read.',
-          compare: renderUsageCompareChip('Lane', sparkPrimary, activeLane === 'spark'),
-          active: activeLane === 'spark',
-          rows: [
-            { label: '5-hour runway', data: sparkPrimary, windowKey: 'spark:primary' },
-            { label: 'Weekly runway', data: sparkSecondary, windowKey: 'spark:secondary' },
-          ],
-        });
-      }
       chatgptUsageCard.innerHTML = `
+        <header class="usage-card-head">
+          <h2>ChatGPT</h2>
+          <span class="usage-plan-pill">${escapeHtml(plan)}</span>
+        </header>
         ${status !== 'ok' ? `<div class="usage-error">Usage unavailable: ${snapshot.error ?? 'Unknown error'}</div>` : ''}
-        <div class="usage-cockpit">
-          <div class="usage-cockpit-grid${hasSpark ? '' : ' is-single'}">
-            ${laneCards.map((lane) => renderUsageLaneCard(lane.eyebrow, lane.title, lane.copy, lane.rows, lane.compare, lane.active)).join('')}
-          </div>
+        <div class="usage-lanes">
+          ${rows.map((row) => renderUsageLane(row.label, row.data, row.windowKey)).join('')}
         </div>
       `;
 
@@ -6456,16 +6300,12 @@
       if (needOverview && currentOverview) {
         renderQuotaMode();
         renderStats(currentOverview, runnerInfo, currentHosts);
-        renderDashboardGrid(currentOverview, runnerInfo, currentHosts, { refreshCharts: false });
+        renderDashboardTrends(currentOverview);
         evaluateSeedRequirement(currentOverview, currentHosts);
       }
 
       if (needDashboardCharts && isDashboardView()) {
-        await refreshDashboardCharts({
-          force: true,
-          live: true,
-          debounceMs: DASHBOARD_CHART_LIVE_DEBOUNCE_MS,
-        });
+        refreshDashboardTrends({ force: true });
       }
 
       if (needSettingsGeneral && currentOverview) {
@@ -6525,21 +6365,15 @@
         el.onclick = (ev) => {
           ev.preventDefault();
           const raw = (el.getAttribute('data-window') || '').trim().toLowerCase();
-          const [laneRaw, windowRaw] = raw.includes(':') ? raw.split(':', 2) : ['normal', raw];
-          const laneKey = laneRaw === 'spark' ? 'spark' : 'normal';
+          const windowRaw = raw.includes(':') ? raw.split(':', 2)[1] : raw;
           const windowKey = windowRaw === 'secondary' ? 'secondary' : 'primary';
-          openUsageHistory(laneKey, windowKey);
+          openUsageHistory('normal', windowKey);
         };
       });
       document.querySelectorAll('.cost-history-btn').forEach((el) => {
         el.onclick = (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          const inline = document.getElementById('dashboardCostCanvas');
-          if (inline) {
-            inline.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            return;
-          }
           openCostHistory();
         };
       });
@@ -6571,13 +6405,7 @@
     }
 
     function buildUsageSeries(points, laneKey, windowKey) {
-      const lane = laneKey === 'spark' ? 'spark' : 'normal';
-      const key = (() => {
-        if (lane === 'spark' && windowKey === 'secondary') return 'spark_secondary_used_percent';
-        if (lane === 'spark') return 'spark_primary_used_percent';
-        if (windowKey === 'secondary') return 'secondary_used_percent';
-        return 'primary_used_percent';
-      })();
+      const key = windowKey === 'secondary' ? 'secondary_used_percent' : 'primary_used_percent';
       const series = [];
       (points || []).forEach((p) => {
         const ts = parseTimestamp(p?.fetched_at);
@@ -6623,7 +6451,7 @@
       }).join('');
 
       usageHistoryChart.innerHTML = `
-        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${laneKey === 'spark' ? 'Spark' : 'Normal'} ${windowKey === 'secondary' ? 'weekly' : '5-hour'} quota history">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${windowKey === 'secondary' ? 'Weekly' : '5-hour'} quota history">
           <g class="grid">${gridLines}</g>
           ${areaPath ? `<path d="${areaPath}" class="area"></path>` : ''}
           ${path ? `<path d="${path}" class="line"></path>` : ''}
@@ -6639,8 +6467,7 @@
         : USAGE_HISTORY_DAYS;
       const intervalRaw = String(source.interval || '').trim().toLowerCase();
       const interval = ['raw', 'hour', 'day'].includes(intervalRaw) ? intervalRaw : 'day';
-      const laneRaw = String(source.lane || '').trim().toLowerCase();
-      const lane = ['normal', 'spark', 'both'].includes(laneRaw) ? laneRaw : 'both';
+      const lane = 'normal';
       const windowRaw = String(source.window || '').trim().toLowerCase();
       const window = ['primary', 'secondary', 'both'].includes(windowRaw) ? windowRaw : 'both';
       const from = parseTimestamp(source.from) || null;
@@ -6715,8 +6542,7 @@
 
     async function openUsageHistory(laneKey = 'normal', windowKey = 'primary') {
       if (!usageHistoryModal) return;
-      const laneLabel = laneKey === 'spark' ? 'Spark' : 'Normal';
-      const label = `${laneLabel} ${windowKey === 'secondary' ? 'weekly quota' : '5-hour quota'}`;
+      const label = windowKey === 'secondary' ? 'Weekly quota' : '5-hour quota';
       if (usageHistorySubtitle) {
         usageHistorySubtitle.textContent = `${label} · loading…`;
       }
@@ -8157,36 +7983,7 @@
 
       const plural = (value, singular, pluralValue = `${singular}s`) => `${value} ${value === 1 ? singular : pluralValue}`;
 
-      if (dashboardStatusBar) {
-        dashboardStatusBar.hidden = true;
-        dashboardStatusBar.innerHTML = '';
-      }
-
-      if (dashboardOpsStrip) {
-        dashboardOpsStrip.hidden = true;
-        dashboardOpsStrip.innerHTML = '';
-      }
-
-      const costValueClass = (() => {
-        if (planCost <= 0) return '';
-        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 100) return 'cost-red';
-        if (monthPercentOfPlan !== null && monthPercentOfPlan >= 85) return 'cost-yellow';
-        return isOverpaying ? '' : 'cost-green';
-      })();
-      if (dashboardFooterText) {
-        const secureToneClass = secureRatio >= 80 ? 'cost-green' : (secureRatio >= 50 ? 'cost-yellow' : 'cost-red');
-        dashboardFooterText.innerHTML = `
-          <strong>${formatNumber(hostTotal)}</strong> total hosts,
-          <strong class="${secureToneClass}">${formatNumber(fleetSummary.secure)}</strong> secure,
-          <strong>${formatNumber(hostsActiveToday)}</strong> active today.
-          <span class="dashboard-footer-divider">/</span>
-          Codex version <strong>${escapeHtml(codexVersionDisplay)}</strong>
-          and wrapper <strong>${escapeHtml(wrapperVersionDisplay)}</strong>.
-          <span class="dashboard-footer-divider">/</span>
-          Spend <strong>${formatCurrency(dayCost, planCurrency)}</strong> today
-          and <strong class="${costValueClass}">${formatCurrency(monthCost, planCurrency)}</strong> this month.
-        `;
-      }
+      renderDashboardStatusBar(pulse);
 
       chatgptUsage = {
         snapshot: safeData.chatgpt_usage || null,
@@ -8199,923 +7996,147 @@
       renderClaudeUsage(safeData);
     }
 
-    function destroyDashboardCharts() {
-      if (dashboardQuotaChart && typeof dashboardQuotaChart.destroy === 'function') {
-        dashboardQuotaChart.destroy();
-      }
-      if (dashboardCostChart && typeof dashboardCostChart.destroy === 'function') {
-        dashboardCostChart.destroy();
-      }
-      dashboardQuotaChart = null;
-      dashboardCostChart = null;
-      dashboardQuotaPoints = [];
-      dashboardCostPoints = [];
-      dashboardQuotaPinnedIndex = null;
-      dashboardCostPinnedIndex = null;
-    }
-
-    function colorWithAlpha(color, alpha = 1) {
-      const safeAlpha = clamp(Number(alpha), 0, 1);
-      const source = String(color || '').trim();
-      if (/^#([0-9a-f]{6})$/i.test(source)) {
-        const hex = source.slice(1);
-        const r = Number.parseInt(hex.slice(0, 2), 16);
-        const g = Number.parseInt(hex.slice(2, 4), 16);
-        const b = Number.parseInt(hex.slice(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
-      }
-      if (/^#([0-9a-f]{3})$/i.test(source)) {
-        const hex = source.slice(1);
-        const r = Number.parseInt(hex.charAt(0) + hex.charAt(0), 16);
-        const g = Number.parseInt(hex.charAt(1) + hex.charAt(1), 16);
-        const b = Number.parseInt(hex.charAt(2) + hex.charAt(2), 16);
-        return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
-      }
-      return source;
-    }
-
-    function dashboardRangeWindow(days) {
-      const safeDays = clampRangeDays(days);
-      const until = new Date();
-      const from = new Date(until.getTime());
-      from.setUTCDate(from.getUTCDate() - safeDays + 1);
-      from.setUTCHours(0, 0, 0, 0);
-      return {
-        days: safeDays,
-        from,
-        until,
-        fromIso: from.toISOString(),
-        untilIso: until.toISOString(),
-        shiftMs: until.getTime() - from.getTime(),
-      };
-    }
-
-    function normalizeQuotaHistorySeries(history) {
-      const palette = new Map(QUOTA_SERIES_META.map((item) => [item.key, item]));
-      const result = [];
-      const pushSeries = (key, label, values) => {
-        const points = (values || [])
-          .map((pt) => {
-            const ts = parseTimestamp(pt?.ts || pt?.fetched_at || null);
-            const val = Number(pt?.value ?? pt?.y);
-            if (!ts || !Number.isFinite(val)) return null;
-            return { x: ts.getTime(), y: clamp(val, 0, 100) };
-          })
-          .filter(Boolean)
-          .sort((a, b) => a.x - b.x);
-        if (!points.length) return;
-        const style = palette.get(key);
-        result.push({
-          key,
-          label: label || style?.label || key,
-          color: style?.color || '#0b7c73',
-          points,
-        });
-      };
-
-      const series = Array.isArray(history?.series) ? history.series : [];
-      if (series.length) {
-        series.forEach((item) => {
-          const key = String(item?.key || '').trim().toLowerCase();
-          pushSeries(key, item?.label, item?.points);
-        });
-        if (result.length) return result;
-      }
-
-      const fallbackDefs = [
-        { key: 'normal_primary', label: 'Normal 5-hour', lane: 'normal', window: 'primary' },
-        { key: 'normal_secondary', label: 'Normal weekly', lane: 'normal', window: 'secondary' },
-        { key: 'spark_primary', label: 'Spark 5-hour', lane: 'spark', window: 'primary' },
-        { key: 'spark_secondary', label: 'Spark weekly', lane: 'spark', window: 'secondary' },
-      ];
-      fallbackDefs.forEach((definition) => {
-        const values = buildUsageSeries(history?.points || [], definition.lane, definition.window);
-        pushSeries(definition.key, definition.label, values);
-      });
-      return result;
-    }
-
-    function normalizeCostHistorySeries(history) {
-      const palette = new Map(COST_SERIES.map((item) => [item.key, item]));
-      const result = [];
-      const pushSeries = (key, label, values) => {
-        const points = (values || [])
-          .map((pt) => {
-            const ts = parseTimestamp(pt?.ts || null) || parseDateOnly(pt?.date || null);
-            const val = Number(pt?.value ?? pt?.y);
-            if (!ts || !Number.isFinite(val)) return null;
-            return { x: ts.getTime(), y: Math.max(0, val) };
-          })
-          .filter(Boolean)
-          .sort((a, b) => a.x - b.x);
-        if (!points.length) return;
-        const style = palette.get(key);
-        result.push({
-          key,
-          label: label || style?.label || key,
-          color: style?.color || '#2563eb',
-          points,
-        });
-      };
-
-      const series = Array.isArray(history?.series) ? history.series : [];
-      if (series.length) {
-        series.forEach((item) => {
-          const key = String(item?.key || '').trim().toLowerCase();
-          pushSeries(key, item?.label, item?.points);
-        });
-        if (result.length) return result;
-      }
-
-      const fallback = buildCostSeries(history);
-      fallback.forEach((item) => {
-        pushSeries(item.key, item.label, item.values);
-      });
-      return result;
-    }
-
-    function buildSeriesPointIndex(series) {
-      const byX = new Map();
-      (series || []).forEach((item) => {
-        (item?.points || []).forEach((point) => {
-          const x = Number(point?.x);
-          const y = Number(point?.y);
-          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-          if (!byX.has(x)) {
-            byX.set(x, { x, values: {} });
-          }
-          byX.get(x).values[item.key] = y;
-        });
-      });
-      return Array.from(byX.values()).sort((a, b) => a.x - b.x);
-    }
-
-    function selectedVisibleKeys(current, available) {
-      const safeAvailable = Array.isArray(available) ? available : [];
-      const preferred = Array.isArray(current) ? current.filter((key) => safeAvailable.includes(key)) : [];
-      if (preferred.length > 0) return preferred;
-      return safeAvailable.slice();
-    }
-
-    function buildCompareSeries(series, shiftMs) {
-      return (series || []).map((item) => ({
-        ...item,
-        points: (item?.points || []).map((point) => ({
-          x: point.x + shiftMs,
-          y: point.y,
-        })),
-      }));
-    }
-
-    function renderDashboardQuotaMeta(index = null) {
-      const el = document.getElementById('dashboardQuotaMeta');
-      if (!el) return;
-      if (!Array.isArray(dashboardQuotaPoints) || dashboardQuotaPoints.length === 0) {
-        el.textContent = 'No quota data in the selected range.';
+    function renderDashboardStatusBar(pulse) {
+      if (!dashboardStatusBar) return;
+      const alerts = Array.isArray(pulse?.radar)
+        ? pulse.radar.filter((item) => item && (item.tone === 'danger' || item.tone === 'warn'))
+        : [];
+      if (alerts.length === 0) {
+        dashboardStatusBar.hidden = true;
+        dashboardStatusBar.innerHTML = '';
         return;
       }
-      const lastIdx = dashboardQuotaPoints.length - 1;
-      const idx = Number.isFinite(index) ? clamp(Math.round(index), 0, lastIdx) : lastIdx;
-      const point = dashboardQuotaPoints[idx];
-      const dateText = formatShortDate(new Date(point.x), true);
-      const parts = QUOTA_SERIES_META
-        .map((item) => {
-          const value = point?.values?.[item.key];
-          return Number.isFinite(value) ? `${item.label} ${Math.round(value)}%` : null;
-        })
-        .filter(Boolean);
-      el.textContent = `${dateText} · ${parts.join(' · ') || 'No lane values'}`;
+      const items = alerts.map((item) => {
+        const tone = item.tone === 'danger' ? 'danger' : 'warn';
+        const glyph = tone === 'danger' ? '⚠' : '!';
+        return `<span class="dashboard-status-chip status-${tone}" title="${escapeHtml(item.detail || '')}">
+          <span class="dashboard-status-glyph" aria-hidden="true">${glyph}</span>
+          ${escapeHtml(item.title || '')}
+        </span>`;
+      }).join('');
+      dashboardStatusBar.hidden = false;
+      dashboardStatusBar.innerHTML = items;
     }
 
-    function renderDashboardCostMeta(index = null) {
-      const el = document.getElementById('dashboardCostMeta');
-      if (!el) return;
-      if (!Array.isArray(dashboardCostPoints) || dashboardCostPoints.length === 0) {
-        el.textContent = 'No cost data in the selected range.';
-        return;
-      }
-      const lastIdx = dashboardCostPoints.length - 1;
-      const idx = Number.isFinite(index) ? clamp(Math.round(index), 0, lastIdx) : lastIdx;
-      const point = dashboardCostPoints[idx];
-      const dateText = point?.dateObj ? formatShortDate(point.dateObj) : point?.date || '—';
-      const total = formatMoney(point?.costs?.total ?? 0, dashboardCostCurrency);
-      const tokens = formatNumber(point?.tokens?.total ?? 0);
-      el.textContent = `${dateText} · Total ${total} · ${tokens} tokens`;
+    let dashboardTrendsHistory = null;
+    let dashboardTrendsLoading = false;
+    const DASHBOARD_TRENDS_DAYS = 30;
+
+    function renderTrendSparkline(values) {
+      const numeric = (Array.isArray(values) ? values : [])
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v));
+      if (numeric.length < 2) return '';
+      const width = 120;
+      const height = 32;
+      const min = Math.min(...numeric);
+      const max = Math.max(...numeric);
+      const span = Math.max(1e-9, max - min);
+      const stepX = numeric.length > 1 ? width / (numeric.length - 1) : 0;
+      const points = numeric.map((v, i) => {
+        const x = (i * stepX).toFixed(2);
+        const y = (height - ((v - min) / span) * (height - 4) - 2).toFixed(2);
+        return `${x},${y}`;
+      }).join(' ');
+      return `<svg class="dashboard-trend-spark" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+        <polyline fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" points="${points}"></polyline>
+      </svg>`;
     }
 
-    function syncVisibleSeriesPreference(chart, kind) {
-      if (!chart || !Array.isArray(chart?.data?.datasets)) return;
-      const visible = [];
-      chart.data.datasets.forEach((dataset, idx) => {
-        if (dataset?.compare === true) return;
-        if (dataset?.seriesKey && chart.isDatasetVisible(idx)) {
-          visible.push(dataset.seriesKey);
-        }
-      });
-      if (kind === 'quota') {
-        dashboardChartPrefs.quota_visible = visible;
-      } else {
-        dashboardChartPrefs.cost_visible = visible;
+    function formatTrendDelta(curr, prev) {
+      if (!Number.isFinite(curr) || !Number.isFinite(prev) || prev === 0) {
+        return { label: '', tone: '' };
       }
-      writeDashboardChartPrefs();
+      const pct = ((curr - prev) / Math.abs(prev)) * 100;
+      if (!Number.isFinite(pct)) return { label: '', tone: '' };
+      const arrow = pct > 0 ? '↑' : (pct < 0 ? '↓' : '→');
+      const tone = pct > 5 ? 'up' : (pct < -5 ? 'down' : 'flat');
+      return { label: `${arrow}${Math.abs(Math.round(pct))}%`, tone };
     }
 
-    function clampDashboardPinnedIndex(index, points) {
-      if (!Number.isFinite(index)) return null;
-      if (!Array.isArray(points) || points.length === 0) return null;
-      return clamp(Math.round(index), 0, points.length - 1);
-    }
+    function renderDashboardTrends(overview) {
+      if (!dashboardTrends) return;
+      const data = overview || {};
+      const currency = (data?.pricing?.currency || 'USD').toString().toUpperCase();
+      const dayCost = Number(data?.pricing_day_cost) || 0;
+      const monthCost = Number(data?.pricing_month_cost) || 0;
+      const tokensDayTotal = Number(data?.tokens_day?.total) || 0;
+      const hostsTotal = Number(data?.totals?.hosts) || 0;
+      const hostsActiveToday = countHostsActiveToday(currentHosts);
 
-    function syncDashboardPinnedState(kind) {
-      if (kind === 'quota') {
-        dashboardQuotaPinnedIndex = clampDashboardPinnedIndex(dashboardQuotaPinnedIndex, dashboardQuotaPoints);
-        if (dashboardQuotaChart) {
-          dashboardQuotaChart.$pinnedIndex = dashboardQuotaPinnedIndex;
-        }
-        renderDashboardQuotaMeta(dashboardQuotaPinnedIndex);
-        return;
-      }
-      dashboardCostPinnedIndex = clampDashboardPinnedIndex(dashboardCostPinnedIndex, dashboardCostPoints);
-      if (dashboardCostChart) {
-        dashboardCostChart.$pinnedIndex = dashboardCostPinnedIndex;
-      }
-      renderDashboardCostMeta(dashboardCostPinnedIndex);
-    }
+      const points = Array.isArray(dashboardTrendsHistory?.points) ? dashboardTrendsHistory.points : [];
+      const recent = points.slice(-DASHBOARD_TRENDS_DAYS);
+      const half = Math.floor(recent.length / 2);
+      const costValues = recent.map((p) => Number(p?.costs?.total) || 0);
+      const tokenValues = recent.map((p) => Number(p?.tokens?.total) || 0);
 
-    function updateDashboardQuotaChart(quotaDatasets, includeFill) {
-      if (!dashboardQuotaChart) return false;
-      dashboardQuotaChart.data.datasets = quotaDatasets;
-      if (dashboardQuotaChart.options?.scales?.y) {
-        dashboardQuotaChart.options.scales.y.min = 0;
-        dashboardQuotaChart.options.scales.y.max = 100;
-        dashboardQuotaChart.options.scales.y.stacked = includeFill;
-      }
-      syncDashboardPinnedState('quota');
-      dashboardQuotaChart.update('none');
-      return true;
-    }
+      const costSum = (arr) => arr.reduce((acc, v) => acc + v, 0);
+      const costRecentSum = costSum(costValues);
+      const costPriorSum = costSum(costValues.slice(0, half));
+      const costLatestSum = costSum(costValues.slice(half));
+      const tokenRecentSum = costSum(tokenValues);
+      const tokenPriorSum = costSum(tokenValues.slice(0, half));
+      const tokenLatestSum = costSum(tokenValues.slice(half));
 
-    function updateDashboardCostChart(costDatasets, includeFill) {
-      if (!dashboardCostChart) return false;
-      dashboardCostChart.data.datasets = costDatasets;
-      if (dashboardCostChart.options?.scales?.y) {
-        dashboardCostChart.options.scales.y.min = 0;
-        dashboardCostChart.options.scales.y.stacked = includeFill;
-      }
-      syncDashboardPinnedState('cost');
-      dashboardCostChart.update('none');
-      return true;
-    }
+      const costDelta = formatTrendDelta(costLatestSum, costPriorSum);
+      const tokensDelta = formatTrendDelta(tokenLatestSum, tokenPriorSum);
 
-    function wireDashboardChartCanvas(chart, kind) {
-      if (!chart || !chart.canvas) return;
-      const canvas = chart.canvas;
-      canvas.tabIndex = 0;
-      canvas.onkeydown = (event) => {
-        const points = kind === 'quota' ? dashboardQuotaPoints : dashboardCostPoints;
-        if (!Array.isArray(points) || points.length === 0) return;
-        if (event.key === 'Escape') {
-          if (kind === 'quota') {
-            dashboardQuotaPinnedIndex = null;
-            chart.$pinnedIndex = null;
-            renderDashboardQuotaMeta();
-          } else {
-            dashboardCostPinnedIndex = null;
-            chart.$pinnedIndex = null;
-            renderDashboardCostMeta();
-          }
-          chart.update('none');
-          return;
-        }
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-        event.preventDefault();
-        const delta = event.key === 'ArrowLeft' ? -1 : 1;
-        const current = kind === 'quota' ? dashboardQuotaPinnedIndex : dashboardCostPinnedIndex;
-        const next = clamp((current ?? (points.length - 1)) + delta, 0, points.length - 1);
-        chart.$pinnedIndex = next;
-        if (kind === 'quota') {
-          dashboardQuotaPinnedIndex = next;
-          renderDashboardQuotaMeta(next);
-        } else {
-          dashboardCostPinnedIndex = next;
-          renderDashboardCostMeta(next);
-        }
-        chart.update('none');
-      };
-      canvas.onclick = (event) => {
-        const items = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, false);
-        if (!items.length) {
-          chart.$pinnedIndex = null;
-          if (kind === 'quota') {
-            dashboardQuotaPinnedIndex = null;
-            renderDashboardQuotaMeta();
-          } else {
-            dashboardCostPinnedIndex = null;
-            renderDashboardCostMeta();
-          }
-          chart.update('none');
-          return;
-        }
-        const idx = items[0].index;
-        if (kind === 'quota') {
-          dashboardQuotaPinnedIndex = dashboardQuotaPinnedIndex === idx ? null : idx;
-          chart.$pinnedIndex = dashboardQuotaPinnedIndex;
-          renderDashboardQuotaMeta(dashboardQuotaPinnedIndex);
-        } else {
-          dashboardCostPinnedIndex = dashboardCostPinnedIndex === idx ? null : idx;
-          chart.$pinnedIndex = dashboardCostPinnedIndex;
-          renderDashboardCostMeta(dashboardCostPinnedIndex);
-        }
-        chart.update('none');
-      };
-      canvas.onmouseleave = () => {
-        if (kind === 'quota' && dashboardQuotaPinnedIndex === null) {
-          renderDashboardQuotaMeta();
-        }
-        if (kind === 'cost' && dashboardCostPinnedIndex === null) {
-          renderDashboardCostMeta();
-        }
-      };
-    }
+      const costSpark = renderTrendSparkline(costValues);
+      const tokensSpark = renderTrendSparkline(tokenValues);
 
-    function buildDashboardChartCsv(kind) {
-      const points = kind === 'quota' ? dashboardQuotaPoints : dashboardCostPoints;
-      if (!Array.isArray(points) || points.length === 0) return null;
-      const visible = kind === 'quota'
-        ? selectedVisibleKeys(dashboardChartPrefs?.quota_visible, QUOTA_SERIES_META.map((item) => item.key))
-        : selectedVisibleKeys(dashboardChartPrefs?.cost_visible, COST_SERIES.map((item) => item.key));
-      if (!visible.length) return null;
-      const labelMap = kind === 'quota'
-        ? new Map(QUOTA_SERIES_META.map((item) => [item.key, item.label]))
-        : new Map(COST_SERIES.map((item) => [item.key, item.label]));
-      const header = ['timestamp_utc', ...visible.map((key) => labelMap.get(key) || key)];
-      const rows = points.map((point) => {
-        const date = new Date(point.x);
-        const values = visible.map((key) => {
-          const value = point?.values?.[key];
-          return Number.isFinite(value) ? String(value) : '';
-        });
-        return [date.toISOString(), ...values];
-      });
-      return [header, ...rows].map((row) => row.join(',')).join('\n');
-    }
-
-    function exportDashboardChartCsv(kind) {
-      const csv = buildDashboardChartCsv(kind);
-      if (!csv) {
-        showToast({
-          title: 'Export',
-          message: 'No chart data available for CSV export.',
-          level: 'warn',
-        });
-        return;
-      }
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const today = new Date().toISOString().slice(0, 10);
-      const range = clampRangeDays(dashboardChartPrefs?.range_days);
-      const filename = `dashboard-${kind}-${range}d-${today}.csv`;
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    }
-
-    function updateDashboardChartControls() {
-      if (!dashboardGrid) return;
-      const range = clampRangeDays(dashboardChartPrefs?.range_days);
-      dashboardGrid.querySelectorAll('[data-dashboard-range]').forEach((btn) => {
-        const value = Number(btn.getAttribute('data-dashboard-range'));
-        const active = value === range;
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
-      const compareBtn = document.getElementById('dashboardCompareBtn');
-      if (compareBtn) {
-        compareBtn.setAttribute('aria-pressed', dashboardChartPrefs?.compare_previous ? 'true' : 'false');
-      }
-      const typeBtn = document.getElementById('dashboardTypeBtn');
-      if (typeBtn) {
-        const type = normalizeChartType(dashboardChartPrefs?.chart_type);
-        typeBtn.setAttribute('aria-pressed', type === 'stacked' ? 'true' : 'false');
-        typeBtn.textContent = type === 'stacked' ? 'Stacked' : 'Line';
-      }
-    }
-
-    function wireDashboardChartControls() {
-      if (!dashboardGrid) return;
-      dashboardGrid.querySelectorAll('[data-dashboard-range]').forEach((btn) => {
-        btn.onclick = () => {
-          const value = Number(btn.getAttribute('data-dashboard-range'));
-          const next = clampRangeDays(value);
-          if (next === dashboardChartPrefs.range_days) return;
-          dashboardChartPrefs.range_days = next;
-          writeDashboardChartPrefs();
-          updateDashboardChartControls();
-          refreshDashboardCharts(true);
-        };
-      });
-      const compareBtn = document.getElementById('dashboardCompareBtn');
-      if (compareBtn) {
-        compareBtn.onclick = () => {
-          dashboardChartPrefs.compare_previous = !dashboardChartPrefs.compare_previous;
-          writeDashboardChartPrefs();
-          updateDashboardChartControls();
-          refreshDashboardCharts(true);
-        };
-      }
-      const typeBtn = document.getElementById('dashboardTypeBtn');
-      if (typeBtn) {
-        typeBtn.onclick = () => {
-          dashboardChartPrefs.chart_type = normalizeChartType(dashboardChartPrefs?.chart_type) === 'line' ? 'stacked' : 'line';
-          writeDashboardChartPrefs();
-          updateDashboardChartControls();
-          refreshDashboardCharts(true);
-        };
-      }
-      const quotaReset = document.getElementById('dashboardQuotaReset');
-      if (quotaReset) {
-        quotaReset.onclick = () => {
-          if (dashboardQuotaChart && typeof dashboardQuotaChart.resetZoom === 'function') {
-            dashboardQuotaChart.resetZoom();
-          }
-        };
-      }
-      const costReset = document.getElementById('dashboardCostReset');
-      if (costReset) {
-        costReset.onclick = () => {
-          if (dashboardCostChart && typeof dashboardCostChart.resetZoom === 'function') {
-            dashboardCostChart.resetZoom();
-          }
-        };
-      }
-      const quotaExport = document.getElementById('dashboardQuotaExport');
-      if (quotaExport) quotaExport.onclick = () => exportDashboardChartCsv('quota');
-      const costExport = document.getElementById('dashboardCostExport');
-      if (costExport) costExport.onclick = () => exportDashboardChartCsv('cost');
-      dashboardChartsWired = true;
-      updateDashboardChartControls();
-    }
-
-    function ensureChartJsReady() {
-      if (!window.Chart) return false;
-      const Chart = window.Chart;
-      if (!Chart.__dashboardZoomRegistered) {
-        const zoomPlugin = window.chartjsPluginZoom || window.ChartZoom || window['chartjs-plugin-zoom'] || null;
-        if (zoomPlugin) {
-          try {
-            Chart.register(zoomPlugin);
-          } catch (_) {
-            // Already registered or incompatible build.
-          }
-        }
-        Chart.__dashboardZoomRegistered = true;
-      }
-      if (!Chart.__dashboardPinnedCrosshairRegistered) {
-        const plugin = {
-          id: 'dashboardPinnedCrosshair',
-          afterDatasetsDraw(chart) {
-            const idx = Number.isFinite(chart.$pinnedIndex) ? chart.$pinnedIndex : null;
-            if (idx === null) return;
-            const datasets = chart.data?.datasets || [];
-            let xPixel = null;
-            datasets.some((dataset) => {
-              const point = dataset?.data?.[idx];
-              if (!point || typeof point !== 'object') return false;
-              const x = Number(point.x);
-              if (!Number.isFinite(x)) return false;
-              const xScale = chart.scales?.x;
-              if (!xScale || typeof xScale.getPixelForValue !== 'function') return false;
-              xPixel = xScale.getPixelForValue(x);
-              return Number.isFinite(xPixel);
-            });
-            if (!Number.isFinite(xPixel)) return;
-            const area = chart.chartArea;
-            if (!area) return;
-            const ctx = chart.ctx;
-            ctx.save();
-            ctx.strokeStyle = 'rgba(15,23,42,0.35)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(xPixel, area.top);
-            ctx.lineTo(xPixel, area.bottom);
-            ctx.stroke();
-            ctx.restore();
-          },
-        };
-        try {
-          Chart.register(plugin);
-        } catch (_) {
-          // ignore duplicate registration
-        }
-        Chart.__dashboardPinnedCrosshairRegistered = true;
-      }
-      return true;
-    }
-
-    async function refreshDashboardCharts(options = {}) {
-      const opts = typeof options === 'boolean' ? { force: options } : (options && typeof options === 'object' ? options : {});
-      const force = opts.force === true;
-      const live = opts.live === true;
-      if (!dashboardGrid || !isDashboardView()) return;
-      if (!ensureChartJsReady()) {
-        dashboardGrid.querySelectorAll('.dashboard-chart-status').forEach((el) => {
-          el.textContent = 'Chart.js assets failed to load.';
-          el.classList.add('error');
-        });
-        return;
-      }
-
-      const renderToken = ++dashboardChartRenderToken;
-      const range = dashboardRangeWindow(dashboardChartPrefs?.range_days);
-      const rangeDays = range.days;
-      const quotaInterval = rangeDays <= 14 ? 'hour' : 'day';
-      const costInterval = rangeDays <= 90 ? 'day' : 'week';
-      const useCompare = !!dashboardChartPrefs?.compare_previous;
-      const chartType = normalizeChartType(dashboardChartPrefs?.chart_type);
-
-      const quotaStatus = document.getElementById('dashboardQuotaStatus');
-      const costStatus = document.getElementById('dashboardCostStatus');
-      const hasRenderedCharts = !!(dashboardQuotaChart && dashboardCostChart);
-      const now = Date.now();
-      if (!force && hasRenderedCharts && (now - dashboardChartsLastLoadedAt) < DASHBOARD_CHART_AUTO_REFRESH_MS) {
-        const secondsRemaining = Math.max(1, Math.ceil((DASHBOARD_CHART_AUTO_REFRESH_MS - (now - dashboardChartsLastLoadedAt)) / 1000));
-        if (quotaStatus) quotaStatus.textContent = `Live history refresh paused for ${secondsRemaining}s to keep the dashboard stable`;
-        if (costStatus) costStatus.textContent = `Live history refresh paused for ${secondsRemaining}s to keep the dashboard stable`;
-        return;
-      }
-      if (quotaStatus) quotaStatus.textContent = live ? 'Applying websocket quota update…' : 'Loading quota history…';
-      if (costStatus) costStatus.textContent = live ? 'Applying websocket cost update…' : 'Loading cost history…';
-
-      const currentQuotaOpts = {
-        days: rangeDays,
-        from: range.fromIso,
-        until: range.untilIso,
-        interval: quotaInterval,
-        lane: 'both',
-        window: 'both',
-      };
-      const currentCostOpts = {
-        days: rangeDays,
-        from: range.fromIso,
-        until: range.untilIso,
-        interval: costInterval,
-        group_by: 'component',
-        include_tokens: true,
-      };
-
-      const previousWindow = dashboardRangeWindow(rangeDays);
-      previousWindow.until = new Date(range.from.getTime() - 1000);
-      previousWindow.from = new Date(previousWindow.until.getTime());
-      previousWindow.from.setUTCDate(previousWindow.from.getUTCDate() - rangeDays + 1);
-      previousWindow.from.setUTCHours(0, 0, 0, 0);
-      previousWindow.fromIso = previousWindow.from.toISOString();
-      previousWindow.untilIso = previousWindow.until.toISOString();
-      previousWindow.shiftMs = range.from.getTime() - previousWindow.from.getTime();
-
-      try {
-        const requests = [
-          loadUsageHistory(force, currentQuotaOpts),
-          loadCostHistory(force, currentCostOpts),
-        ];
-        if (useCompare) {
-          requests.push(
-            loadUsageHistory(force, {
-              ...currentQuotaOpts,
-              from: previousWindow.fromIso,
-              until: previousWindow.untilIso,
-            }),
-            loadCostHistory(force, {
-              ...currentCostOpts,
-              from: previousWindow.fromIso,
-              until: previousWindow.untilIso,
-            })
-          );
-        }
-        const [quotaCurrent, costCurrent, quotaPrevious, costPrevious] = await Promise.all(requests);
-        if (renderToken !== dashboardChartRenderToken) return;
-
-        const quotaSeries = normalizeQuotaHistorySeries(quotaCurrent);
-        const costSeries = normalizeCostHistorySeries(costCurrent);
-        const quotaKeys = quotaSeries.map((item) => item.key);
-        const costKeys = costSeries.map((item) => item.key);
-        dashboardChartPrefs.quota_visible = selectedVisibleKeys(dashboardChartPrefs?.quota_visible, quotaKeys);
-        dashboardChartPrefs.cost_visible = selectedVisibleKeys(dashboardChartPrefs?.cost_visible, costKeys);
-        writeDashboardChartPrefs();
-
-        const includeFill = chartType === 'stacked';
-        const visibleQuota = new Set(dashboardChartPrefs.quota_visible);
-        const visibleCost = new Set(dashboardChartPrefs.cost_visible);
-
-        const quotaDatasets = quotaSeries.map((item) => ({
-          label: item.label,
-          data: item.points.map((point) => ({ x: point.x, y: point.y })),
-          borderColor: item.color,
-          backgroundColor: includeFill ? colorWithAlpha(item.color, 0.16) : colorWithAlpha(item.color, 0.08),
-          borderWidth: 2.2,
-          tension: 0.25,
-          fill: includeFill ? 'origin' : false,
-          pointRadius: 0,
-          pointHitRadius: 10,
-          hidden: !visibleQuota.has(item.key),
-          parsing: false,
-          seriesKey: item.key,
-          compare: false,
-          stack: includeFill ? 'quota' : undefined,
-        }));
-        if (useCompare && quotaPrevious) {
-          const shifted = buildCompareSeries(normalizeQuotaHistorySeries(quotaPrevious), previousWindow.shiftMs);
-          shifted.forEach((item) => {
-            quotaDatasets.push({
-              label: `${item.label} (prev)`,
-              data: item.points.map((point) => ({ x: point.x, y: point.y })),
-              borderColor: colorWithAlpha(item.color, 0.55),
-              borderDash: [6, 5],
-              borderWidth: 1.6,
-              tension: 0.25,
-              fill: false,
-              pointRadius: 0,
-              pointHitRadius: 8,
-              hidden: !visibleQuota.has(item.key),
-              parsing: false,
-              seriesKey: item.key,
-              compare: true,
-            });
-          });
-        }
-
-        const costDatasets = costSeries.map((item) => ({
-          label: item.label,
-          data: item.points.map((point) => ({ x: point.x, y: point.y })),
-          borderColor: item.color,
-          backgroundColor: includeFill ? colorWithAlpha(item.color, 0.14) : colorWithAlpha(item.color, 0.08),
-          borderWidth: item.key === 'total' ? 2.8 : 2,
-          tension: 0.2,
-          fill: includeFill ? 'origin' : false,
-          pointRadius: 0,
-          pointHitRadius: 10,
-          hidden: !visibleCost.has(item.key),
-          parsing: false,
-          seriesKey: item.key,
-          compare: false,
-          stack: includeFill ? 'cost' : undefined,
-        }));
-        if (useCompare && costPrevious) {
-          const shifted = buildCompareSeries(normalizeCostHistorySeries(costPrevious), previousWindow.shiftMs);
-          shifted.forEach((item) => {
-            costDatasets.push({
-              label: `${item.label} (prev)`,
-              data: item.points.map((point) => ({ x: point.x, y: point.y })),
-              borderColor: colorWithAlpha(item.color, 0.5),
-              borderDash: [6, 5],
-              borderWidth: 1.6,
-              tension: 0.2,
-              fill: false,
-              pointRadius: 0,
-              pointHitRadius: 8,
-              hidden: !visibleCost.has(item.key),
-              parsing: false,
-              seriesKey: item.key,
-              compare: true,
-            });
-          });
-        }
-
-        dashboardQuotaPoints = buildSeriesPointIndex(quotaSeries);
-        dashboardCostPoints = buildCostPointIndex(costCurrent);
-        dashboardCostCurrency = costCurrent?.currency || 'USD';
-
-        const quotaCanvas = document.getElementById('dashboardQuotaCanvas');
-        const costCanvas = document.getElementById('dashboardCostCanvas');
-        if (!quotaCanvas || !costCanvas) return;
-
-        const defaultLegendClick = window.Chart.defaults.plugins.legend.onClick;
-        const quotaUpdatedInPlace = updateDashboardQuotaChart(quotaDatasets, includeFill);
-        const costUpdatedInPlace = updateDashboardCostChart(costDatasets, includeFill);
-
-        if (!quotaUpdatedInPlace) {
-          dashboardQuotaChart = new window.Chart(quotaCanvas.getContext('2d'), {
-            type: 'line',
-            data: { datasets: quotaDatasets },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              normalized: true,
-              interaction: { mode: 'nearest', intersect: false },
-              plugins: {
-                legend: {
-                  labels: {
-                    filter(item, chartData) {
-                      return chartData.datasets[item.datasetIndex]?.compare !== true;
-                    },
-                  },
-                  onClick: (event, legendItem, legend) => {
-                    defaultLegendClick(event, legendItem, legend);
-                    syncVisibleSeriesPreference(legend.chart, 'quota');
-                  },
-                },
-                tooltip: {
-                  callbacks: {
-                    label(context) {
-                      const value = Number(context.parsed?.y);
-                      return `${context.dataset.label}: ${Math.round(value)}%`;
-                    },
-                  },
-                },
-                decimation: {
-                  enabled: true,
-                  algorithm: 'lttb',
-                  samples: 900,
-                },
-                zoom: {
-                  pan: { enabled: true, mode: 'x' },
-                  zoom: {
-                    wheel: { enabled: true },
-                    pinch: { enabled: true },
-                    mode: 'x',
-                  },
-                },
-              },
-              scales: {
-                x: {
-                  type: 'linear',
-                  ticks: {
-                    maxTicksLimit: 8,
-                    callback(value) {
-                      return formatShortDate(new Date(Number(value)));
-                    },
-                  },
-                },
-                y: {
-                  min: 0,
-                  max: 100,
-                  stacked: includeFill,
-                  ticks: {
-                    callback(value) {
-                      return `${Math.round(Number(value))}%`;
-                    },
-                  },
-                },
-              },
-              onHover(event, elements, chart) {
-                if (dashboardQuotaPinnedIndex !== null) return;
-                if (!elements || !elements.length) return;
-                renderDashboardQuotaMeta(elements[0].index);
-              },
-            },
-          });
-        }
-
-        if (!costUpdatedInPlace) {
-          dashboardCostChart = new window.Chart(costCanvas.getContext('2d'), {
-            type: 'line',
-            data: { datasets: costDatasets },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              normalized: true,
-              interaction: { mode: 'nearest', intersect: false },
-              plugins: {
-                legend: {
-                  labels: {
-                    filter(item, chartData) {
-                      return chartData.datasets[item.datasetIndex]?.compare !== true;
-                    },
-                  },
-                  onClick: (event, legendItem, legend) => {
-                    defaultLegendClick(event, legendItem, legend);
-                    syncVisibleSeriesPreference(legend.chart, 'cost');
-                  },
-                },
-                tooltip: {
-                  callbacks: {
-                    label(context) {
-                      return `${context.dataset.label}: ${formatMoney(context.parsed?.y ?? 0, dashboardCostCurrency)}`;
-                    },
-                  },
-                },
-                decimation: {
-                  enabled: true,
-                  algorithm: 'lttb',
-                  samples: 900,
-                },
-                zoom: {
-                  pan: { enabled: true, mode: 'x' },
-                  zoom: {
-                    wheel: { enabled: true },
-                    pinch: { enabled: true },
-                    mode: 'x',
-                  },
-                },
-              },
-              scales: {
-                x: {
-                  type: 'linear',
-                  ticks: {
-                    maxTicksLimit: 8,
-                    callback(value) {
-                      return formatShortDate(new Date(Number(value)));
-                    },
-                  },
-                },
-                y: {
-                  min: 0,
-                  stacked: includeFill,
-                  ticks: {
-                    callback(value) {
-                      return formatMoney(value, dashboardCostCurrency);
-                    },
-                  },
-                },
-              },
-              onHover(event, elements, chart) {
-                if (dashboardCostPinnedIndex !== null) return;
-                if (!elements || !elements.length) return;
-                renderDashboardCostMeta(elements[0].index);
-              },
-            },
-          });
-        }
-
-        wireDashboardChartCanvas(dashboardQuotaChart, 'quota');
-        wireDashboardChartCanvas(dashboardCostChart, 'cost');
-        syncDashboardPinnedState('quota');
-        syncDashboardPinnedState('cost');
-        dashboardChartsLastLoadedAt = Date.now();
-        if (quotaStatus) quotaStatus.textContent = `${live ? 'Live websocket update' : 'Range'} ${live ? `· ${rangeDays} days · interval ${quotaInterval}` : `${rangeDays} days · interval ${quotaInterval}`}`;
-        if (costStatus) costStatus.textContent = `${live ? 'Live websocket update' : 'Range'} ${live ? `· ${rangeDays} days · interval ${costInterval}` : `${rangeDays} days · interval ${costInterval}`}`;
-      } catch (err) {
-        if (quotaStatus) quotaStatus.textContent = `Failed loading quota history: ${err.message}`;
-        if (costStatus) costStatus.textContent = `Failed loading cost history: ${err.message}`;
-      }
-    }
-
-    function renderDashboardGrid(data, runnerInfo = null, hostsList = [], options = {}) {
-      if (!dashboardGrid) return;
-      const refreshCharts = options?.refreshCharts !== false;
-      const hasChartShell = !!(document.getElementById('dashboardQuotaCanvas') && document.getElementById('dashboardCostCanvas'));
-      if (!hasChartShell) {
-        destroyDashboardCharts();
-        dashboardChartsWired = false;
-        dashboardGrid.innerHTML = `
-        <section class="card dashboard-chart-shell">
-          <div class="dashboard-chart-controls">
-            <div class="dashboard-chart-ranges" role="group" aria-label="History range">
-              ${DASHBOARD_RANGE_PRESETS.map((days) => `<button type="button" class="ghost tiny-btn dashboard-range-btn" data-dashboard-range="${days}" aria-pressed="false">${days}D</button>`).join('')}
-            </div>
-            <div class="dashboard-chart-actions">
-              <button type="button" class="ghost tiny-btn" id="dashboardCompareBtn" aria-pressed="false">Compare previous</button>
-              <button type="button" class="ghost tiny-btn" id="dashboardTypeBtn" aria-pressed="false">Line</button>
-            </div>
+      const tile = (label, value, deltaLabel, deltaTone, sparkHtml, subline) => `
+        <article class="dashboard-trend-tile">
+          <div class="dashboard-trend-label">${escapeHtml(label)}</div>
+          <div class="dashboard-trend-row">
+            <span class="dashboard-trend-value">${value}</span>
+            ${deltaLabel ? `<span class="dashboard-trend-delta delta-${deltaTone}">${escapeHtml(deltaLabel)}</span>` : ''}
           </div>
-          <div class="dashboard-chart-panels">
-            <section class="dashboard-chart-card">
-              <div class="dashboard-chart-head">
-                <div>
-                  <div class="stat-label">Quota trend</div>
-                  <h3>ChatGPT lane utilization</h3>
-                </div>
-                <div class="dashboard-chart-head-actions">
-                  <button type="button" class="ghost tiny-btn" id="dashboardQuotaReset">Reset zoom</button>
-                  <button type="button" class="ghost tiny-btn" id="dashboardQuotaExport">Export CSV</button>
-                </div>
-              </div>
-              <div class="dashboard-chart-canvas-wrap">
-                <canvas id="dashboardQuotaCanvas" aria-label="ChatGPT quota trend"></canvas>
-              </div>
-              <div class="muted dashboard-chart-meta" id="dashboardQuotaMeta">Loading quota details…</div>
-              <div class="muted dashboard-chart-status" id="dashboardQuotaStatus">Loading…</div>
-            </section>
-            <section class="dashboard-chart-card">
-              <div class="dashboard-chart-head">
-                <div>
-                  <div class="stat-label">Cost trend</div>
-                  <h3>Token spend over time</h3>
-                </div>
-                <div class="dashboard-chart-head-actions">
-                  <button type="button" class="ghost tiny-btn" id="dashboardCostReset">Reset zoom</button>
-                  <button type="button" class="ghost tiny-btn" id="dashboardCostExport">Export CSV</button>
-                </div>
-              </div>
-              <div class="dashboard-chart-canvas-wrap">
-                <canvas id="dashboardCostCanvas" aria-label="Cost trend"></canvas>
-              </div>
-              <div class="muted dashboard-chart-meta" id="dashboardCostMeta">Loading cost details…</div>
-              <div class="muted dashboard-chart-status" id="dashboardCostStatus">Loading…</div>
-            </section>
-          </div>
-        </section>
+          ${sparkHtml || ''}
+          ${subline ? `<div class="dashboard-trend-sub">${subline}</div>` : ''}
+        </article>
       `;
+
+      const hostsActive = `${formatNumber(hostsActiveToday)} <span class="dashboard-trend-denom">/ ${formatNumber(hostsTotal)}</span>`;
+      const todayLine = `${formatCurrency(dayCost, currency)} <span class="dashboard-trend-denom">· ${formatCompactNumber(tokensDayTotal)} tok</span>`;
+
+      dashboardTrends.innerHTML = [
+        tile(
+          'Cost (30d)',
+          recent.length ? formatCurrency(costRecentSum, currency) : '—',
+          costDelta.label,
+          costDelta.tone,
+          costSpark,
+          recent.length ? `Month-to-date ${formatCurrency(monthCost, currency)}` : 'No cost history yet',
+        ),
+        tile(
+          'Tokens (30d)',
+          recent.length ? formatCompactNumber(tokenRecentSum) : '—',
+          tokensDelta.label,
+          tokensDelta.tone,
+          tokensSpark,
+          '',
+        ),
+        tile('Hosts active', hostsActive, '', '', '', 'Online today'),
+        tile('Today', todayLine, '', '', '', 'Spend & tokens'),
+      ].join('');
+
+      if (!dashboardTrendsHistory && !dashboardTrendsLoading && isDashboardView()) {
+        refreshDashboardTrends({ force: false });
       }
-      if (!dashboardChartsWired) {
-        wireDashboardChartControls();
-      } else {
-        updateDashboardChartControls();
-      }
-      if (refreshCharts) {
-        refreshDashboardCharts();
+    }
+
+    async function refreshDashboardTrends({ force = false } = {}) {
+      if (!dashboardTrends) return;
+      if (dashboardTrendsLoading && !force) return;
+      dashboardTrendsLoading = true;
+      try {
+        const history = await loadCostHistory(force, { days: DASHBOARD_TRENDS_DAYS, interval: 'day', group_by: 'total', include_tokens: true });
+        dashboardTrendsHistory = history || null;
+        if (lastOverview) renderDashboardTrends(lastOverview);
+      } catch (err) {
+        console.warn('dashboard trends', err);
+      } finally {
+        dashboardTrendsLoading = false;
       }
     }
 
@@ -9248,7 +8269,7 @@
         renderLogRetention();
 
         renderStats(currentOverview, runner?.data || null, hostsList);
-        renderDashboardGrid(currentOverview, runner?.data || null, hostsList);
+        renderDashboardTrends(currentOverview);
         renderHosts(hostsList);
         renderInsecureHostsQuickButton(hostsList);
         renderSkills(skills?.data?.skills || []);
@@ -10522,8 +9543,6 @@
 
       if (panel === 'dashboard') {
         ensureDataLoaded();
-      } else {
-        destroyDashboardCharts();
       }
 
       if (panel === 'agents') {

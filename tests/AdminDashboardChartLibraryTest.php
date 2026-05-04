@@ -6,24 +6,24 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminDashboardChartLibraryTest extends TestCase
 {
-    public function testDashboardIncludesChartJsAssets(): void
+    public function testDashboardDoesNotShipChartJs(): void
     {
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
-        $this->assertStringContainsString('chart.umd.min.js', $html);
-        $this->assertStringContainsString('chartjs-plugin-zoom.min.js', $html);
-        $this->assertStringContainsString('hammer.min.js', $html);
+        $this->assertStringNotContainsString('chart.umd.min.js', $html);
+        $this->assertStringNotContainsString('chartjs-plugin-zoom.min.js', $html);
     }
 
-    public function testDashboardUsesChartJsDashboardHooks(): void
+    public function testDashboardUsesInlineSvgSparklines(): void
     {
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
-        $this->assertStringContainsString('window.Chart', $js);
-        $this->assertStringContainsString('refreshDashboardCharts', $js);
-        $this->assertStringContainsString('dashboardQuotaCanvas', $js);
-        $this->assertStringContainsString('dashboardCostCanvas', $js);
-        $this->assertStringContainsString('zoom', $js);
+        $this->assertStringContainsString('renderTrendSparkline', $js);
+        $this->assertStringContainsString('class="dashboard-trend-spark"', $js);
+        $this->assertStringNotContainsString('window.Chart', $js);
+        $this->assertStringNotContainsString('refreshDashboardCharts', $js);
+        $this->assertStringNotContainsString('dashboardQuotaCanvas', $js);
+        $this->assertStringNotContainsString('dashboardCostCanvas', $js);
     }
 
     public function testNavigationShowsShortcutHints(): void

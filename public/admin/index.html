@@ -742,9 +742,7 @@
 
         <!-- Dashboard -->
         <section class="panel-set dashboard-shell" data-panel="dashboard">
-          <div class="dashboard-status-bar" id="dashboardStatusBar">
-            <span class="status-ok">Loading…</span>
-          </div>
+          <div class="dashboard-status-bar" id="dashboardStatusBar" hidden></div>
           <section class="dashboard-primary-grid" id="stats">
             <section class="dashboard-primary-card" id="chatgpt-usage-card">
               <div class="muted">Loading usage…</div>
@@ -753,8 +751,7 @@
               <div class="muted">Loading Claude usage…</div>
             </section>
           </section>
-          <div class="dashboard-ops-strip" id="dashboardOpsStrip" hidden></div>
-          <section class="dashboard-charts-grid" id="dashboardGrid"></section>
+          <section class="dashboard-trends-grid" id="dashboardTrends"></section>
         </section>
 
         <!-- Hosts -->
@@ -2616,12 +2613,6 @@
     </main>
   </div>
 
-  <footer class="editorial-footer" id="dashboardFooter" style="display:none">
-    <div class="footer-frame">
-      <div class="dashboard-footer-text" id="dashboardFooterText">Loading fleet summary…</div>
-    </div>
-  </footer>
-
   <div class="modal-backdrop" id="usersModal" role="dialog" aria-modal="true" aria-labelledby="usersModalTitle">
     <div class="modal users-modal">
       <div class="modal-head">
@@ -2790,8 +2781,6 @@
   <script src="/admin/assets/users.js?v=2026-03-24-05"></script>
   <script src="/admin/assets/passkeys.js?v=2026-03-18-01"></script>
   <script src="/admin/assets/hammer.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/chart.umd.min.js?v=2026-02-19-01"></script>
-  <script src="/admin/assets/chartjs-plugin-zoom.min.js?v=2026-02-19-01"></script>
   <script src="/admin/assets/dashboard.js?v=2026-05-03-02"></script>
   <script src="/admin/assets/logs.js?v=2026-03-24-03"></script>
   <script src="/admin/assets/admin-ws.js?v=2026-03-30-01"></script>

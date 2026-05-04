@@ -23,7 +23,6 @@ final class AdminDashboardOverviewLiveUpdateTest extends TestCase
         $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS', $js);
         $this->assertStringContainsString('dashboard-charts', $js);
         $this->assertStringContainsString('DASHBOARD_CHART_LIVE_ACTIONS', $js);
-        $this->assertStringContainsString('Live websocket update', $js);
         $this->assertStringContainsString('token.usage', $js);
     }
 }
