@@ -467,57 +467,49 @@
         <div class="modal-backdrop" id="newHostModal" role="dialog" aria-modal="true">
           <div class="modal new-host-modal">
             <div class="new-host-stage" id="newHostFormStage">
-              <p class="new-host-kicker">Fresh machine, one command.</p>
               <h3>Spin Up a Host</h3>
-              <p class="new-host-copy">Pick a hostname, choose the guardrails, and hit Enter. We will mint a one-time installer that binds itself on first contact.</p>
               <form id="newHostForm">
                 <div class="field">
                   <label for="new-host-name" class="modal-label">Hostname</label>
                   <input id="new-host-name" type="text" placeholder="node-01.example.com">
-                  <p class="panel-subtitle-sm">Use the name this box should answer to.</p>
                   <div class="auth-error" id="newHostError" role="alert"></div>
                 </div>
                 <div class="field">
                   <div class="modal-label">Pick the host vibe</div>
-                  <p class="panel-subtitle-sm">Short names up top, the fine print right below.</p>
                   <div class="new-host-toggle-grid">
-                    <label class="toggle state-toggle new-host-option" for="secureHostToggle">
+                    <label class="toggle state-toggle new-host-option" for="secureHostToggle" title="Keep auth.json after runs for a normal managed host.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="secureHostToggle" checked>
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">Secure</span>
-                          <span class="new-host-option-desc">Keep <code>auth.json</code> after runs for a normal managed host.</span>
                         </span>
                       </span>
                     </label>
-                    <label class="toggle state-toggle new-host-option" for="temporaryHostToggle">
+                    <label class="toggle state-toggle new-host-option" for="temporaryHostToggle" title="Auto-prune the host entry and key after about two idle hours.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="temporaryHostToggle">
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">Temporary</span>
-                          <span class="new-host-option-desc">Auto-prune the host entry and key after about two idle hours.</span>
                         </span>
                       </span>
                     </label>
-                    <label class="toggle state-toggle new-host-option" for="insecureToggle">
+                    <label class="toggle state-toggle new-host-option" for="insecureToggle" title="Append curl -k for rough TLS environments that still need a fast install.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="insecureToggle">
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">Insecure Curl</span>
-                          <span class="new-host-option-desc">Append <code>curl -k</code> for rough TLS environments that still need a fast install.</span>
                         </span>
                       </span>
                     </label>
-                    <label class="toggle state-toggle new-host-option" for="vipToggle">
+                    <label class="toggle state-toggle new-host-option" for="vipToggle" title="Ignore quota hard-stop guardrails for boxes that must keep moving.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="vipToggle">
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">VIP</span>
-                          <span class="new-host-option-desc">Ignore quota hard-stop guardrails for boxes that must keep moving.</span>
                         </span>
                       </span>
                     </label>
@@ -525,25 +517,22 @@
                 </div>
                 <div class="field">
                   <div class="modal-label">Engines to install</div>
-                  <p class="panel-subtitle-sm">Select which engines this host should run. At least one required.</p>
                   <div class="new-host-toggle-grid">
-                    <label class="toggle state-toggle new-host-option" for="engineCodexToggle">
+                    <label class="toggle state-toggle new-host-option" for="engineCodexToggle" title="OpenAI Codex CLI engine for code generation tasks.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="engineCodexToggle" checked>
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">Codex</span>
-                          <span class="new-host-option-desc">OpenAI Codex CLI engine for code generation tasks.</span>
                         </span>
                       </span>
                     </label>
-                    <label class="toggle state-toggle new-host-option" for="engineClaudeToggle">
+                    <label class="toggle state-toggle new-host-option" for="engineClaudeToggle" title="Anthropic Claude Code engine for agentic development.">
                       <span class="new-host-option-head">
                         <input type="checkbox" id="engineClaudeToggle">
                         <span class="track"><span class="thumb"></span></span>
                         <span class="new-host-option-copy">
                           <span class="new-host-option-title">Claude</span>
-                          <span class="new-host-option-desc">Anthropic Claude Code engine for agentic development.</span>
                         </span>
                       </span>
                     </label>

@@ -2467,10 +2467,14 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     .modal p { margin: 0 0 16px; color: var(--muted); }
     .modal .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
     .new-host-modal {
-      max-width: 640px;
+      max-width: 480px;
+      padding: 18px;
     }
     .new-host-modal.is-success {
       max-width: 680px;
+    }
+    .new-host-modal .field {
+      margin-bottom: 0;
     }
     .new-host-stage {
       display: grid;
@@ -2481,7 +2485,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     }
     #newHostForm {
       display: grid;
-      gap: 0;
+      gap: 10px;
     }
     .host-search-modal {
       max-width: 760px;
@@ -2592,29 +2596,27 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     .new-host-toggle-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 6px;
+      gap: 6px;
+      margin-top: 2px;
     }
     .new-host-option {
       display: block;
       min-width: 0;
       margin: 0;
-      padding: 14px 16px;
-      border-radius: 16px;
+      padding: 8px 12px;
+      border-radius: 10px;
       border: 1px solid var(--border);
       background: color-mix(in srgb, var(--card) 94%, transparent);
-      box-shadow: var(--shadow-soft);
-      transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+      transition: border-color 0.18s ease, background 0.18s ease;
     }
     .new-host-option:hover {
       border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
       background: color-mix(in srgb, var(--card) 90%, var(--accent-soft));
-      transform: translateY(-1px);
     }
     .new-host-option-head {
       display: flex;
-      align-items: flex-start;
-      gap: 12px;
+      align-items: center;
+      gap: 10px;
       min-width: 0;
     }
     .new-host-option .track {
@@ -2629,7 +2631,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     }
     .new-host-option-title {
       color: var(--danger);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 800;
       letter-spacing: -0.01em;
       line-height: 1.2;
@@ -2649,7 +2651,7 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
       box-shadow: var(--ring);
     }
     .new-host-modal .actions {
-      margin-top: 12px;
+      margin-top: 8px;
     }
     @media (max-width: 640px) {
       .new-host-toggle-grid {
