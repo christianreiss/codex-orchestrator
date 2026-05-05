@@ -230,7 +230,7 @@ Codex updates:
 - Normal sync-capable wrapper runs reconcile cron state to match policy: enabled ensures the managed cron entry exists, disabled removes that managed entry.
 - `cdx --cron remove` removes only the managed/current-wrapper cron entry instead of broad `cdx --cron` substring matches.
 - Cron mode uses a non-blocking `flock` guard when available and degrades with a warning when `flock` is missing.
-- Cron update checks call `POST /cron/check`; the response keeps the legacy top-level Codex action and adds a nested wrapper action block.
+- Cron update checks call `POST /cron/check`; the response keeps the legacy top-level Codex action and adds a nested wrapper action block. The wrapper checksum in that block is the host-baked download checksum, not the unbaked template checksum.
 - When cron sees `wrapper.action:"update"`, it downloads `/wrapper/download`, verifies the reported SHA-256, installs the new wrapper over itself, and re-execs once back into `cdx --cron` before evaluating any Codex update.
 - Successful cron-installed Codex updates report back through `POST /cron/report` with both the post-update Codex version and the current wrapper version.
 - Cron HTTPS probes build the same relaxed SSL context chain as the other wrapper sync paths: optional baked CA, `VERIFY_X509_STRICT` fallback disable when available, and insecure mode only when the host was explicitly baked with `curl_insecure` / `CODEX_SYNC_ALLOW_INSECURE=1`.

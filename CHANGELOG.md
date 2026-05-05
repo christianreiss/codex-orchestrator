@@ -1,4 +1,5 @@
 # 2026-05-05
+- `cdx` cron-managed updates: fixed `/cron/check` to return the host-baked wrapper checksum, matching `/wrapper/download`, so older cron jobs no longer fail wrapper self-update with `hash mismatch` and abort before Codex CLI updates.
 - Admin UI / dashboard: tightened the warm dashboard shell with a lighter top rail, quieter alert strip, denser usage cards, and a deliberate Claude empty state. Cache-bumped `dashboard.css` to `v=2026-05-05-01`.
 - Admin UI / login: replaced the mock Codex/Claude login bubbles with the real OpenAI and Claude logo pair, refreshed the Claude SVG asset, and cache-bumped `login.css` to `v=2026-05-05-01`.
 

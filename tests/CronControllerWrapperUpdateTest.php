@@ -14,6 +14,8 @@ final class CronControllerWrapperUpdateTest extends TestCase
         self::assertStringContainsString('$engine = VersionHelper::extractEngine($payload);', $source);
         self::assertStringContainsString('$versions = $this->service->versionSummary($engine);', $source);
         self::assertStringContainsString('$versions = $this->service->applyClientVersionOverrideForHost($versions, $host, $engine);', $source);
+        self::assertStringContainsString('$bakedWrapperMeta = $this->wrapperService->bakedForHost($host, resolveBaseUrl(), null, $engine);', $source);
+        self::assertStringContainsString('$versions[\'wrapper_sha256\'] = $bakedWrapperMeta[\'sha256\'];', $source);
         self::assertStringContainsString("'wrapper' => \$wrapperUpdate", $source);
         self::assertStringContainsString("'action' => \$needClientUpdate ? 'update' : 'no_update'", $source);
     }

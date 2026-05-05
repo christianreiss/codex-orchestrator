@@ -10,6 +10,7 @@ use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
+use App\Services\WrapperService;
 use App\Support\ClaudeVersionPolicy;
 use App\Support\CodexVersionPolicy;
 use App\Support\Engine;
@@ -21,6 +22,7 @@ class CronController
         private HostRepository $hostRepository,
         private VersionRepository $versionRepository,
         private LogRepository $logRepository,
+        private WrapperService $wrapperService,
     ) {}
 
     public function check(array $payload): void
@@ -81,6 +83,12 @@ class CronController
         // Resolve effective target version for this host.
         $versions = $this->service->versionSummary($engine);
         $versions = $this->service->applyClientVersionOverrideForHost($versions, $host, $engine);
+        $bakedWrapperMeta = $this->wrapperService->bakedForHost($host, resolveBaseUrl(), null, $engine);
+        if (($bakedWrapperMeta['version'] ?? null) !== null && ($bakedWrapperMeta['sha256'] ?? null) !== null) {
+            $versions['wrapper_version'] = $bakedWrapperMeta['version'];
+            $versions['wrapper_sha256'] = $bakedWrapperMeta['sha256'];
+            $versions['wrapper_url'] = $bakedWrapperMeta['url'] ?? ($versions['wrapper_url'] ?? null);
+        }
 
         $targetVersion = $engine === Engine::CLAUDE
             ? ClaudeVersionPolicy::normalize($versions['client_version'] ?? null)

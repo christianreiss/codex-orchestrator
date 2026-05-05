@@ -514,7 +514,7 @@ function isBrowserRequest(): bool {
 
 // --- Controller instantiation ---
 
-$cronCtrl = new CronController($service, $hostRepository, $versionRepository, $logRepository);
+$cronCtrl = new CronController($service, $hostRepository, $versionRepository, $logRepository, $wrapperService);
 $versionCtrl = new VersionController($service);
 $adminPageCtrl = new AdminPageController(__DIR__);
 $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService, $adminUserRepository, $adminPasskeyRepository, $payload);
