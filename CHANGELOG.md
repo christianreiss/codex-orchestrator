@@ -1,3 +1,6 @@
+# 2026-05-05
+- Admin UI / login: replaced the mock Codex/Claude login bubbles with the real OpenAI and Claude logo pair, refreshed the Claude SVG asset, and cache-bumped `login.css` to `v=2026-05-05-01`.
+
 # 2026-05-03
 - Admin UI / settings: moved credential seeding and runner/version maintenance out of Settings → General. Codex seeding, Codex runner, and version checks now live on Settings → OpenAI; Claude seeding and Claude runner verification live on Settings → Claude. Cache-bumped `dashboard.js` to `v=2026-05-03-02`.
 - Installer: Codex bootstrap scripts now check for the archive prerequisites `tar` and `gzip`, try to install missing packages via common Linux package managers, and fail early with a clear remediation message if the host cannot install them automatically.

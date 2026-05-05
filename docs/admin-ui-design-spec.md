@@ -169,8 +169,8 @@ Theme is stored in `localStorage.adminTheme` and mirrored to server (`versions.a
 so the `cdx` CLI can match branding. **All six tokens sets must be defined in `theme.css`.**
 
 ### 2.6 Branding marks
-- `/admin/assets/openai-logo.svg` — used in the editorial rail header.
-- `/admin/assets/codex-logo.svg`, `/admin/assets/claude-logo.svg` — login page brand pair.
+- `/admin/assets/openai-logo.svg` — used in the editorial rail header and login page brand pair.
+- `/admin/assets/claude-logo.svg` — real Claude mark used in the login page brand pair.
 - App name: **Orchestrator**.
 - Tagline: **"Engines to Brrr!"** (kept).
 
