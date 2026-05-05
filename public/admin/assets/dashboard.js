@@ -9236,7 +9236,16 @@
       if (!claudeUsageCard) return;
       const usage = data?.claude_usage || null;
       if (!usage) {
-        claudeUsageCard.innerHTML = '<div class="muted">Claude usage not available yet.</div>';
+        claudeUsageCard.innerHTML = `
+          <header class="usage-card-head">
+            <h2>Claude</h2>
+            <span class="usage-plan-pill">API</span>
+          </header>
+          <div class="usage-empty-state">
+            <strong>Usage not available yet</strong>
+            <span>Claude totals will appear here after the first recorded API usage window.</span>
+          </div>
+        `;
         return;
       }
 
