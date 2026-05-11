@@ -809,17 +809,12 @@
 
     function countHostsActiveToday(hostsList = []) {
       if (!Array.isArray(hostsList)) return 0;
-      const now = new Date();
+      const cutoff = Date.now() - (24 * 60 * 60 * 1000);
       return hostsList.reduce((count, host) => {
-        const activeAt = host?.last_seen || host?.last_refresh || host?.updated_at || null;
-        if (typeof activeAt !== 'string' || activeAt.trim() === '') return count;
-        const active = new Date(activeAt);
-        if (Number.isNaN(active.getTime())) return count;
-        return active.getFullYear() === now.getFullYear()
-          && active.getMonth() === now.getMonth()
-          && active.getDate() === now.getDate()
-          ? count + 1
-          : count;
+        const activeAt = host?.last_seen || host?.last_refresh || host?.updated_at || host?.token_usage?.created_at || null;
+        const active = parseTimestamp(activeAt);
+        if (!active) return count;
+        return active.getTime() >= cutoff ? count + 1 : count;
       }, 0);
     }
 
@@ -7458,7 +7453,7 @@
           tokensSpark,
           `Week ${formatCompactNumber(tokensWeekTotal)}`,
         ),
-        tile('Hosts active', hostsActive, '', '', '', 'Online today'),
+        tile('Hosts active', hostsActive, '', '', '', 'Active in last 24h'),
         tile('Today', todayLine, '', '', '', 'Recorded usage'),
       ].join('');
     }

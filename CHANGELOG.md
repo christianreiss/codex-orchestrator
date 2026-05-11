@@ -2,6 +2,7 @@
 - Claude auth seeding: accepted Claude Code OAuth credentials (`claudeAiOauth.accessToken`) everywhere Claude API-key credentials are accepted: seed scripts, `/auth` canonicalization, `clx auth-upload`, and runner validation. Runner probes now send OAuth tokens as `Authorization: Bearer`, and Anthropic `rate_limit_error` probe responses count as valid credentials with quota pressure instead of rejecting seed uploads.
 - Admin UI / hosts: added a Quick VM flow that mints an insecure temporary throwaway host with an auto-generated `tmp-*` name and immediately copies a Codex, Claude, or dual-engine installer.
 - Cost tracking removal: stripped API cost/pricing calculation, pricing snapshots, cost history, wrapper run-cost reporting, and Claude spend-limit UI/enforcement. Usage reporting is now token-only, and boot migrations drop the legacy pricing/cost tables and columns.
+- Admin UI / dashboard: fixed the Hosts active card to count hosts with recent `last_refresh`, `updated_at`, or latest token usage within the last 24h instead of strictly "today".
 
 # 2026-05-05
 - `cdx` cron-managed updates: fixed `/cron/check` to return the host-baked wrapper checksum, matching `/wrapper/download`, so older cron jobs no longer fail wrapper self-update with `hash mismatch` and abort before Codex CLI updates.
