@@ -116,7 +116,7 @@ Host-baked string values are shell-escaped before download so malformed or opera
 
 ## Auth upload
 
-`clx auth-upload` mirrors `cdx auth-upload`: it prepares the current Claude credentials, adds `last_refresh` when needed, stores them through `/auth` with `command=store` and `engine=claude`, then exits without launching Claude Code. The upload source is `~/.clx/auth/credentials.json` when present, otherwise `~/.claude/.credentials.json` from `claude login`. Accepted credential shapes are `auths["api.anthropic.com"].token`, `api_key`, `anthropic_api_key`, and `ANTHROPIC_API_KEY`; the server canonicalizes these into the Anthropic auth target.
+`clx auth-upload` mirrors `cdx auth-upload`: it prepares the current Claude credentials, adds `last_refresh` when needed, stores them through `/auth` with `command=store` and `engine=claude`, then exits without launching Claude Code. The upload source is `~/.clx/auth/credentials.json` when present, otherwise `~/.claude/.credentials.json` from `claude login`. Accepted credential shapes are `auths["api.anthropic.com"].token`, `api_key`, `anthropic_api_key`, `ANTHROPIC_API_KEY`, and Claude Code OAuth credentials at `claudeAiOauth.accessToken`; the server canonicalizes these into the Anthropic auth target.
 
 ## Intentional deltas vs `cdx`
 

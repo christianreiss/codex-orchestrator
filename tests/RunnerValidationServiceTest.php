@@ -210,6 +210,21 @@ final class RunnerValidationServiceTest extends TestCase
         $this->assertSame('bearer', $result['auths']['api.anthropic.com']['token_type']);
     }
 
+    public function testEnsureAuthsFallbackSynthesizesClaudeOauthAccessToken(): void
+    {
+        $payload = [
+            'claudeAiOauth' => [
+                'accessToken' => self::VALID_TOKEN,
+                'refreshToken' => 'refresh-token-value',
+            ],
+            'last_refresh' => self::VALID_LAST_REFRESH,
+        ];
+        $result = $this->svc->ensureAuthsFallback($payload, Engine::CLAUDE);
+        $this->assertArrayHasKey('auths', $result);
+        $this->assertSame(self::VALID_TOKEN, $result['auths']['api.anthropic.com']['token']);
+        $this->assertSame('refresh-token-value', $result['claudeAiOauth']['refreshToken']);
+    }
+
     public function testEnsureAuthsFallbackPrefersTokensOverOpenAiApiKey(): void
     {
         $tokenFromTokens = 'sk-from-tokens-aaabbbcccdddeee0001';
@@ -471,6 +486,20 @@ final class RunnerValidationServiceTest extends TestCase
         $auth = [
             'last_refresh' => self::VALID_LAST_REFRESH,
             'anthropic_api_key' => self::VALID_TOKEN,
+        ];
+        $entries = $this->svc->normalizeAuthEntries($auth, Engine::CLAUDE);
+        $this->assertCount(1, $entries);
+        $this->assertSame('api.anthropic.com', $entries[0]['target']);
+        $this->assertSame(self::VALID_TOKEN, $entries[0]['token']);
+    }
+
+    public function testNormalizeAuthEntriesSynthesizesClaudeEntryFromOauthAccessToken(): void
+    {
+        $auth = [
+            'last_refresh' => self::VALID_LAST_REFRESH,
+            'claudeAiOauth' => [
+                'accessToken' => self::VALID_TOKEN,
+            ],
         ];
         $entries = $this->svc->normalizeAuthEntries($auth, Engine::CLAUDE);
         $this->assertCount(1, $entries);

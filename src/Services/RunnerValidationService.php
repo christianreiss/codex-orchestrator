@@ -903,6 +903,9 @@ class RunnerValidationService
             $tokenCandidates[] = $authPayload['api_key'] ?? null;
             $tokenCandidates[] = $authPayload['anthropic_api_key'] ?? null;
             $tokenCandidates[] = $authPayload['ANTHROPIC_API_KEY'] ?? null;
+            if (isset($authPayload['claudeAiOauth']) && is_array($authPayload['claudeAiOauth'])) {
+                $tokenCandidates[] = $authPayload['claudeAiOauth']['accessToken'] ?? null;
+            }
         } else {
             if (isset($authPayload['tokens']) && is_array($authPayload['tokens'])) {
                 $tokenCandidates[] = $authPayload['tokens']['access_token'] ?? null;
@@ -944,6 +947,9 @@ class RunnerValidationService
                     $authPayload['api_key'] ?? null,
                     $authPayload['anthropic_api_key'] ?? null,
                     $authPayload['ANTHROPIC_API_KEY'] ?? null,
+                    (isset($authPayload['claudeAiOauth']) && is_array($authPayload['claudeAiOauth']))
+                        ? ($authPayload['claudeAiOauth']['accessToken'] ?? null)
+                        : null,
                 ] as $candidate) {
                     if (is_string($candidate) && trim($candidate) !== '') {
                         $fallbackToken = trim($candidate);

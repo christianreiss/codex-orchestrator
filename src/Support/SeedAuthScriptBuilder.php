@@ -96,8 +96,14 @@ if engine == "claude":
         isinstance(payload.get(key), str) and bool(payload.get(key).strip())
         for key in ("api_key", "anthropic_api_key", "ANTHROPIC_API_KEY")
     )
-    if not (has_auths or has_api_key):
-        raise SystemExit("Claude credentials must contain auths, api_key, anthropic_api_key, or ANTHROPIC_API_KEY")
+    oauth = payload.get("claudeAiOauth")
+    has_oauth_access_token = (
+        isinstance(oauth, dict)
+        and isinstance(oauth.get("accessToken"), str)
+        and bool(oauth.get("accessToken").strip())
+    )
+    if not (has_auths or has_api_key or has_oauth_access_token):
+        raise SystemExit("Claude credentials must contain auths, api_key, anthropic_api_key, ANTHROPIC_API_KEY, or claudeAiOauth.accessToken")
 else:
     has_access_token = (
         isinstance(tokens, dict)
@@ -120,8 +126,8 @@ else
     exit 1
   fi
   if [[ "\${ENGINE}" == "claude" ]]; then
-    if ! grep -Eq '"auths"|"api_key"|"anthropic_api_key"|"ANTHROPIC_API_KEY"' "\${AUTH_PATH}"; then
-      echo "\${AUTH_LABEL} does not contain auths, api_key, anthropic_api_key, or ANTHROPIC_API_KEY." >&2
+    if ! grep -Eq '"auths"|"api_key"|"anthropic_api_key"|"ANTHROPIC_API_KEY"|"claudeAiOauth"|"accessToken"' "\${AUTH_PATH}"; then
+      echo "\${AUTH_LABEL} does not contain auths, api_key, anthropic_api_key, ANTHROPIC_API_KEY, or claudeAiOauth.accessToken." >&2
       exit 1
     fi
   else

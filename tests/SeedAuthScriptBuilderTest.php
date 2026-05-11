@@ -80,6 +80,63 @@ SH);
         }
     }
 
+    public function testScriptAddsLastRefreshForClaudeOauthCredentials(): void
+    {
+        $tmp = $this->makeSeedScriptFixture('claude');
+        try {
+            mkdir($tmp['home'] . '/.claude');
+            file_put_contents($tmp['home'] . '/.claude/.credentials.json', json_encode([
+                'claudeAiOauth' => [
+                    'accessToken' => 'sk-ant-oat01-seed-token-abcdefghijklmnopqrstuvwxyz',
+                    'refreshToken' => 'refresh-token-value',
+                ],
+            ], JSON_UNESCAPED_SLASHES));
+
+            file_put_contents($tmp['bin'] . '/curl', <<<'SH'
+#!/usr/bin/env bash
+set -e
+out=""
+data=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out="$2"
+      shift 2
+      ;;
+    --data-binary)
+      data="$2"
+      shift 2
+      ;;
+    -w)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cp "${data#@}" "${CAPTURE_PATH}"
+printf '{"status":"ok"}' > "$out"
+printf '200'
+SH);
+            chmod($tmp['bin'] . '/curl', 0755);
+
+            $output = [];
+            $status = $this->runSeedScript($tmp, $output);
+
+            self::assertSame(0, $status, implode("\n", $output));
+            $captured = json_decode((string) file_get_contents($tmp['capture']), true);
+            self::assertIsArray($captured);
+            self::assertArrayHasKey('last_refresh', $captured);
+            self::assertSame(
+                'sk-ant-oat01-seed-token-abcdefghijklmnopqrstuvwxyz',
+                $captured['claudeAiOauth']['accessToken'] ?? null
+            );
+        } finally {
+            $this->removeTree($tmp['root']);
+        }
+    }
+
     public function testScriptPrintsServerErrorBodyOnHttpFailure(): void
     {
         $tmp = $this->makeSeedScriptFixture();
@@ -130,7 +187,7 @@ SH);
     /**
      * @return array{root:string,home:string,bin:string,script:string,capture:string}
      */
-    private function makeSeedScriptFixture(): array
+    private function makeSeedScriptFixture(string $engine = 'codex'): array
     {
         $root = (string) tempnam(sys_get_temp_dir(), 'seed-auth-script-');
         unlink($root);
@@ -140,7 +197,7 @@ SH);
         mkdir($root . '/bin');
 
         $scriptPath = $root . '/seed.sh';
-        file_put_contents($scriptPath, SeedAuthScriptBuilder::build('https://codex.test', '11111111-2222-3333-4444-555555555555'));
+        file_put_contents($scriptPath, SeedAuthScriptBuilder::build('https://codex.test', '11111111-2222-3333-4444-555555555555', $engine));
         chmod($scriptPath, 0755);
 
         return [

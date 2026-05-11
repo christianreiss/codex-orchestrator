@@ -240,9 +240,18 @@ def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
             token = anthropic_entry.get("token")
             if isinstance(token, str) and token.strip():
                 return token.strip()
+    for key in ("api_key", "anthropic_api_key", "ANTHROPIC_API_KEY"):
+        candidate = auth_json.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
     tokens = auth_json.get("tokens", {})
     if isinstance(tokens, dict):
         candidate = tokens.get("anthropic_api_key")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    oauth = auth_json.get("claudeAiOauth", {})
+    if isinstance(oauth, dict):
+        candidate = oauth.get("accessToken")
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
     return None
@@ -354,6 +363,24 @@ def _run_claude_probe(payload) -> dict:
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         error_text = resp.text[:400]
+        error_type = ""
+        try:
+            error_body = resp.json()
+            if isinstance(error_body, dict):
+                error = error_body.get("error")
+                if isinstance(error, dict):
+                    error_type = str(error.get("type") or "")
+        except Exception:
+            error_type = ""
+        if resp.status_code == 429 and error_type == "rate_limit_error":
+            return {
+                "status": "ok",
+                "latency_ms": latency_ms,
+                "reachable": True,
+                "auth_limited": True,
+                "reason": "Anthropic accepted the credential but returned rate_limit_error",
+                "claude_version": version,
+            }
         return {
             "status": "fail",
             "latency_ms": latency_ms,

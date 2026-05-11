@@ -14,6 +14,7 @@ final class ClxWrapperAuthUploadCommandTest extends TestCase
         self::assertStringContainsString('clx auth-upload', $wrapperSource);
         self::assertStringContainsString('clx_auth_upload_command()', $wrapperSource);
         self::assertStringContainsString('.auths["api.anthropic.com"].token', $wrapperSource);
+        self::assertStringContainsString('.claudeAiOauth.accessToken', $wrapperSource);
         self::assertStringContainsString('--arg engine "claude"', $wrapperSource);
         self::assertStringContainsString("Run 'claude login' first, then retry 'clx auth-upload'.", $wrapperSource);
     }

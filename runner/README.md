@@ -143,7 +143,7 @@ Request body:
 ```
 
 Fields:
-- `auth_json` (required object) — must contain either `auths["api.anthropic.com"].token` or `tokens.anthropic_api_key`, or the request fails with HTTP 400 (`"no usable Anthropic token in auth_json"`).
+- `auth_json` (required object) — must contain `auths["api.anthropic.com"].token`, `tokens.anthropic_api_key`, top-level `api_key` / `anthropic_api_key` / `ANTHROPIC_API_KEY`, or Claude Code OAuth credentials at `claudeAiOauth.accessToken`; otherwise the request fails with HTTP 400 (`"no usable Anthropic token in auth_json"`).
 - `timeout_seconds` (optional float) — probe timeout in seconds; defaults to 8.0 when omitted.
 
 Example:
@@ -198,7 +198,7 @@ The POST endpoints that generate or summarize content accept an optional `engine
 ```
 
 When `engine: "claude"`, the runner:
-1. Extracts the Anthropic token via `auths["api.anthropic.com"].token` → `tokens.anthropic_api_key` fallback.
+1. Extracts the Anthropic token via `auths["api.anthropic.com"].token` → top-level API-key aliases → `tokens.anthropic_api_key` → `claudeAiOauth.accessToken` fallback.
 2. Creates a temp `$HOME` under `RUNNER_HOME_PARENT`, exports `ANTHROPIC_API_KEY=<token>`, and writes the auth JSON to `~/.claude/auth.json`.
 3. Runs `/usr/local/bin/claude --print --no-input [--model MODEL] [--max-tokens N] [--system-prompt SYS] PROMPT`.
 4. Emits `claude_version` in the response instead of `codex_version`.

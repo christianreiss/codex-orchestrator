@@ -83,6 +83,45 @@ class RunnerAppTest(unittest.TestCase):
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
+    def test_extract_anthropic_token_accepts_claude_oauth_credentials(self):
+        token = runner_app._extract_anthropic_token(
+            {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
+        )
+
+        self.assertEqual("sk-ant-oat01-test-token", token)
+
+    def test_claude_probe_treats_rate_limit_as_valid_auth(self):
+        class Payload:
+            auth_json = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
+            timeout_seconds = 2.0
+
+        class Response:
+            status_code = 429
+            text = '{"error":{"type":"rate_limit_error","message":"Error"}}'
+
+            def json(self):
+                return {"error": {"type": "rate_limit_error", "message": "Error"}}
+
+        original_post = runner_app.httpx.post
+        original_version = runner_app._claude_version
+        captured = {}
+
+        def fake_post(url, headers, json, timeout):
+            captured["headers"] = headers
+            return Response()
+
+        runner_app.httpx.post = fake_post
+        runner_app._claude_version = lambda: "1.0.0"
+        try:
+            result = runner_app._run_claude_probe(Payload())
+        finally:
+            runner_app.httpx.post = original_post
+            runner_app._claude_version = original_version
+
+        self.assertEqual("ok", result["status"])
+        self.assertTrue(result["auth_limited"])
+        self.assertEqual("sk-ant-oat01-test-token", captured["headers"]["x-api-key"])
+
 
 if __name__ == "__main__":
     unittest.main()

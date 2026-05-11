@@ -1359,7 +1359,8 @@ clx_auth_sync() {
 #   1. {"api_key": "sk-ant-...", ...}                     (plain API key)
 #   2. {"anthropic_api_key": "sk-ant-...", ...}           (alias)
 #   3. {"auths": {"api.anthropic.com": {"token": "..."}}} (Codex-compatible)
-# A valid file MUST contain a usable token via one of the three shapes.
+#   4. {"claudeAiOauth": {"accessToken": "sk-ant-oat..."}} (Claude Code login)
+# A valid file MUST contain a usable token via one of these shapes.
 # The optional `last_refresh` field enables freshness checks.
 
 get_auth_last_refresh() {
@@ -1445,7 +1446,7 @@ validate_auth_json_file() {
       return 1
     fi
     local probe
-    probe="$(jq -r '(.api_key // .anthropic_api_key // .auths["api.anthropic.com"].token // empty)' "$path" 2>/dev/null || true)"
+    probe="$(jq -r '(.api_key // .anthropic_api_key // .ANTHROPIC_API_KEY // .auths["api.anthropic.com"].token // .claudeAiOauth.accessToken // empty)' "$path" 2>/dev/null || true)"
     [[ -n "$probe" ]] && return 0 || return 1
   fi
 
@@ -1464,11 +1465,13 @@ if not isinstance(data, dict):
 api_key = data.get("api_key")
 alt_key = data.get("anthropic_api_key")
 auths = data.get("auths")
+oauth = data.get("claudeAiOauth")
 
 def _valid_token(v):
     return isinstance(v, str) and len(v.strip()) >= 8
 
-if _valid_token(api_key) or _valid_token(alt_key):
+env_key = data.get("ANTHROPIC_API_KEY")
+if _valid_token(api_key) or _valid_token(alt_key) or _valid_token(env_key):
     sys.exit(0)
 
 if isinstance(auths, dict):
@@ -1477,6 +1480,9 @@ if isinstance(auths, dict):
         token = entry.get("token")
         if _valid_token(token):
             sys.exit(0)
+
+if isinstance(oauth, dict) and _valid_token(oauth.get("accessToken")):
+    sys.exit(0)
 
 sys.exit(1)
 PY
@@ -1492,6 +1498,7 @@ clx_auth_extract_api_key() {
     // .anthropic_api_key
     // .ANTHROPIC_API_KEY
     // .auths["api.anthropic.com"].token
+    // .claudeAiOauth.accessToken
     // empty
   ' "$path" 2>/dev/null | head -n1
 }
