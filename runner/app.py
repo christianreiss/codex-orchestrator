@@ -257,6 +257,12 @@ def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
     return None
 
 
+def _anthropic_auth_headers(token: str) -> dict:
+    if token.startswith("sk-ant-oat"):
+        return {"Authorization": f"Bearer {token}"}
+    return {"x-api-key": token}
+
+
 def _claude_version(env: Optional[dict] = None) -> str:
     try:
         proc = subprocess.run(
@@ -331,7 +337,7 @@ def _run_claude_probe(payload) -> dict:
         resp = httpx.post(
             f"{ANTHROPIC_API_BASE}/v1/messages",
             headers={
-                "x-api-key": token,
+                **_anthropic_auth_headers(token),
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },

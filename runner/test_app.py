@@ -90,6 +90,16 @@ class RunnerAppTest(unittest.TestCase):
 
         self.assertEqual("sk-ant-oat01-test-token", token)
 
+    def test_anthropic_oauth_tokens_use_bearer_header(self):
+        self.assertEqual(
+            {"Authorization": "Bearer sk-ant-oat01-test-token"},
+            runner_app._anthropic_auth_headers("sk-ant-oat01-test-token"),
+        )
+        self.assertEqual(
+            {"x-api-key": "sk-ant-api03-test-token"},
+            runner_app._anthropic_auth_headers("sk-ant-api03-test-token"),
+        )
+
     def test_claude_probe_treats_rate_limit_as_valid_auth(self):
         class Payload:
             auth_json = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
@@ -120,7 +130,8 @@ class RunnerAppTest(unittest.TestCase):
 
         self.assertEqual("ok", result["status"])
         self.assertTrue(result["auth_limited"])
-        self.assertEqual("sk-ant-oat01-test-token", captured["headers"]["x-api-key"])
+        self.assertEqual("Bearer sk-ant-oat01-test-token", captured["headers"]["Authorization"])
+        self.assertNotIn("x-api-key", captured["headers"])
 
 
 if __name__ == "__main__":

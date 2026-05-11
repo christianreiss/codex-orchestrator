@@ -129,7 +129,7 @@ Behavior details:
 
 ### `POST /verify-claude`
 
-Lightweight Anthropic credential probe. Does NOT run the Claude CLI — it makes a small `POST /v1/messages` call to Anthropic directly, which is faster and avoids needing a real API quota slot on the CLI container.
+Lightweight Anthropic credential probe. Does NOT run the Claude CLI — it makes a small `POST /v1/messages` call to Anthropic directly, which is faster and avoids needing a real API quota slot on the CLI container. API-key credentials use `x-api-key`; Claude Code OAuth tokens (`sk-ant-oat...`) use `Authorization: Bearer`.
 
 Request body:
 
