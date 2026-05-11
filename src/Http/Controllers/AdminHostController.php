@@ -1256,49 +1256,8 @@ class AdminHostController
             }
         }
 
-        // Engine selection — defaults to ['codex'] for backwards compatibility.
-        $engines = [Engine::DEFAULT];
-        if (array_key_exists('engines', $payload)) {
-            $enginesRaw = $payload['engines'];
-            if (is_string($enginesRaw)) {
-                $enginesRaw = array_map('trim', explode(',', $enginesRaw));
-            }
-            if (is_array($enginesRaw)) {
-                $validated = array_filter($enginesRaw, fn ($e) => is_string($e) && Engine::isValid($e));
-                if ($validated === []) {
-                    Response::json([
-                        'status' => 'error',
-                        'message' => 'engines must contain at least one of: ' . implode(', ', Engine::ALL),
-                    ], 422);
-                }
-                $engines = array_values($validated);
-            }
-        }
-
-        $durationMinutes = null;
-        if (array_key_exists('duration_minutes', $payload)) {
-            $durationRaw = $payload['duration_minutes'];
-            if ($durationRaw !== null && $durationRaw !== '') {
-                if (!is_numeric($durationRaw) || (int) $durationRaw != (float) $durationRaw) {
-                    Response::json([
-                        'status' => 'error',
-                        'message' => 'duration_minutes must be an integer',
-                    ], 422);
-                }
-
-                $durationMinutes = (int) $durationRaw;
-                if ($durationMinutes < AuthService::MIN_INSECURE_WINDOW_MINUTES || $durationMinutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
-                    Response::json([
-                        'status' => 'error',
-                        'message' => sprintf(
-                            'duration_minutes must be between %d and %d',
-                            AuthService::MIN_INSECURE_WINDOW_MINUTES,
-                            AuthService::MAX_INSECURE_WINDOW_MINUTES
-                        ),
-                    ], 422);
-                }
-            }
-        }
+        $engines = $this->normalizeEngineSelection($payload, false);
+        $durationMinutes = $this->normalizeDurationMinutes($payload);
 
         $hostPayload = $this->service->register($fqdn, $secure, $durationMinutes, $engines);
         $host = $this->hostRepository->findByFqdn($fqdn);
@@ -1346,9 +1305,149 @@ class AdminHostController
             $hostPayload['reverse_dns_mode'] = $reverseDnsMode;
         }
 
+        Response::json([
+            'status' => 'ok',
+            'data' => $this->createInstallerResponseData($host, $hostPayload, $engines),
+        ]);
+    }
+
+    /**
+     * @param array<mixed> $payload
+     */
+    public function quickRegister(array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+
+        $engines = $this->normalizeEngineSelection($payload, true);
+        $durationMinutes = $this->normalizeDurationMinutes($payload);
+        $fqdn = $this->generateQuickHostName();
+
+        $hostPayload = $this->service->register($fqdn, false, $durationMinutes, $engines);
+        $host = $this->hostRepository->findByFqdn($fqdn);
+        if ($host === null) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host could not be loaded after quick registration',
+            ], 500);
+        }
+
+        $expiresAt = gmdate(DATE_ATOM, time() + 7200);
+        $hostId = $this->requireHostId($host);
+        $this->hostRepository->updateExpiresAt($hostId, $expiresAt);
+        $this->hostRepository->updateVip($hostId, false);
+        $this->hostRepository->updateCurlInsecure($hostId, false);
+        $host = $this->hostRepository->findById($hostId) ?? $host;
+        $hostPayload['expires_at'] = $expiresAt;
+        $hostPayload['vip'] = false;
+        $hostPayload['curl_insecure'] = false;
+
+        $this->logRepository->log($hostId, 'admin.host.quick_register', [
+            'fqdn' => $host['fqdn'] ?? $fqdn,
+            'engines' => Engine::serializeHostEngines($engines),
+            'expires_at' => $expiresAt,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => $this->createInstallerResponseData($host, $hostPayload, $engines),
+        ]);
+    }
+
+    /**
+     * @param array<mixed> $payload
+     * @return string[]
+     */
+    private function normalizeEngineSelection(array $payload, bool $requireExplicit): array
+    {
+        $engines = $requireExplicit ? [] : [Engine::DEFAULT];
+        if (array_key_exists('engines', $payload)) {
+            $enginesRaw = $payload['engines'];
+            if (is_string($enginesRaw)) {
+                $enginesRaw = array_map('trim', explode(',', $enginesRaw));
+            }
+            if (is_array($enginesRaw)) {
+                $validated = array_filter($enginesRaw, fn ($engine) => is_string($engine) && Engine::isValid($engine));
+                $engines = array_values(array_unique($validated));
+            }
+        }
+
+        if ($engines === []) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'engines must contain at least one of: ' . implode(', ', Engine::ALL),
+            ], 422);
+            throw new \InvalidArgumentException('engines must contain at least one valid engine');
+        }
+
+        return $engines;
+    }
+
+    /**
+     * @param array<mixed> $payload
+     */
+    private function normalizeDurationMinutes(array $payload): ?int
+    {
+        if (!array_key_exists('duration_minutes', $payload)) {
+            return null;
+        }
+
+        $durationRaw = $payload['duration_minutes'];
+        if ($durationRaw === null || $durationRaw === '') {
+            return null;
+        }
+
+        if (is_int($durationRaw)) {
+            $durationMinutes = $durationRaw;
+        } elseif (is_string($durationRaw) && preg_match('/^-?\d+$/', trim($durationRaw)) === 1) {
+            $durationMinutes = (int) trim($durationRaw);
+        } else {
+            Response::json([
+                'status' => 'error',
+                'message' => 'duration_minutes must be an integer',
+            ], 422);
+            throw new \InvalidArgumentException('duration_minutes must be an integer');
+        }
+
+        if ($durationMinutes < AuthService::MIN_INSECURE_WINDOW_MINUTES || $durationMinutes > AuthService::MAX_INSECURE_WINDOW_MINUTES) {
+            Response::json([
+                'status' => 'error',
+                'message' => sprintf(
+                    'duration_minutes must be between %d and %d',
+                    AuthService::MIN_INSECURE_WINDOW_MINUTES,
+                    AuthService::MAX_INSECURE_WINDOW_MINUTES
+                ),
+            ], 422);
+            throw new \InvalidArgumentException('duration_minutes out of range');
+        }
+
+        return $durationMinutes;
+    }
+
+    private function generateQuickHostName(): string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $fqdn = sprintf('tmp-%s-%s', gmdate('Ymd-His'), bin2hex(random_bytes(3)));
+            if ($this->hostRepository->findByFqdn($fqdn) === null) {
+                return $fqdn;
+            }
+        }
+
+        return sprintf('tmp-%s-%s', gmdate('Ymd-His'), bin2hex(random_bytes(6)));
+    }
+
+    /**
+     * @param array<mixed>|null $host
+     * @param array<mixed> $hostPayload
+     * @param string[] $engines
+     * @return array<string,mixed>
+     */
+    private function createInstallerResponseData(?array $host, array $hostPayload, array $engines): array
+    {
         $this->installTokenRepository->deleteExpired(gmdate(DATE_ATOM));
 
-        $ttlSeconds = (int) Config::get('INSTALL_TOKEN_TTL_SECONDS', 1800);
+        $ttlRaw = Config::get('INSTALL_TOKEN_TTL_SECONDS', 1800);
+        $ttlSeconds = is_int($ttlRaw) ? $ttlRaw : (is_string($ttlRaw) && preg_match('/^-?\d+$/', trim($ttlRaw)) === 1 ? (int) trim($ttlRaw) : 1800);
         if ($ttlSeconds <= 0) {
             $ttlSeconds = 1800;
         }
@@ -1360,38 +1459,72 @@ class AdminHostController
                 'status' => 'error',
                 'message' => 'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL or ensure Host/X-Forwarded-Proto headers are forwarded.',
             ], 500);
+            throw new \RuntimeException('Unable to determine public base URL for installer');
         }
+        $hostId = $this->requireHostId($host);
+        $hostFqdn = $this->requireHostFqdn($host);
         $installerMode = InstallerMode::forHostEngines($engines);
         $tokenRow = $this->installTokenRepository->create(
             generateUuid(),
-            (int) $host['id'],
-            (string) ($hostPayload['api_key'] ?? ($host['api_key_plain'] ?? '')),
-            (string) $host['fqdn'],
+            $hostId,
+            (string) ($hostPayload['api_key'] ?? (is_array($host) ? ($host['api_key_plain'] ?? '') : '')),
+            $hostFqdn,
             $expiresAt,
             $baseUrl,
             $installerMode
         );
 
-        $this->logRepository->log((int) $host['id'], 'admin.install_token.create', [
-            'fqdn' => $host['fqdn'],
+        $this->logRepository->log($hostId, 'admin.install_token.create', [
+            'fqdn' => $hostFqdn,
             'expires_at' => $expiresAt,
             'installer_mode' => $installerMode,
             'token' => substr((string) $tokenRow['token'], 0, 8) . '…',
         ]);
 
-        Response::json([
-            'status' => 'ok',
-            'data' => [
-                'host' => array_merge($hostPayload, ['id' => (int) $host['id']]),
-                'installer' => [
-                    'token' => $tokenRow['token'],
-                    'mode' => $installerMode,
-                    'label' => InstallerMode::label($installerMode),
-                    'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
-                    'command' => installerCommand($baseUrl, $tokenRow['token']),
-                    'expires_at' => $expiresAt,
-                ],
+        return [
+            'host' => array_merge($hostPayload, ['id' => $hostId]),
+            'installer' => [
+                'token' => $tokenRow['token'],
+                'mode' => $installerMode,
+                'label' => InstallerMode::label($installerMode),
+                'url' => rtrim($baseUrl, '/') . '/install/' . $tokenRow['token'],
+                'command' => installerCommand($baseUrl, $tokenRow['token']),
+                'expires_at' => $expiresAt,
             ],
-        ]);
+        ];
+    }
+
+    /**
+     * @param array<mixed>|null $host
+     */
+    private function requireHostId(?array $host): int
+    {
+        $id = is_array($host) ? ($host['id'] ?? null) : null;
+        if (!is_numeric($id)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host id missing after registration',
+            ], 500);
+            throw new \RuntimeException('Host id missing after registration');
+        }
+
+        return (int) $id;
+    }
+
+    /**
+     * @param array<mixed>|null $host
+     */
+    private function requireHostFqdn(?array $host): string
+    {
+        $fqdn = is_array($host) ? ($host['fqdn'] ?? null) : null;
+        if (!is_string($fqdn) || trim($fqdn) === '') {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host FQDN missing after registration',
+            ], 500);
+            throw new \RuntimeException('Host FQDN missing after registration');
+        }
+
+        return $fqdn;
     }
 }

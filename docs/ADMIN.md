@@ -61,6 +61,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Register/rotate host key + installer token: `POST /admin/hosts/register` (`hosts.manage`).
     - Required: `fqdn`.
     - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
+  - Quick throwaway host + installer token: `POST /admin/hosts/quick-register` (`hosts.manage`).
+    - Required: `engines` (`codex`, `claude`, or both).
+    - Always creates an insecure temporary `tmp-*` host with a 2-hour host expiry.
   - Host actions:
     - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).
     - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`; clears both Codex and Claude host auth linkage/digests for that host).
@@ -133,7 +136,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
     - `auth.denied` / `auth.insecure.denied` => `CDX refused` (warn/error).
 
 ## Common Workflows
-- **Onboard host**: `POST /admin/hosts/register` -> run returned installer command.
+- **Onboard host**: `POST /admin/hosts/register` -> run returned installer command. For disposable VMs, use `POST /admin/hosts/quick-register` or the WebUI `Quick VM` button.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` with `engine` (`codex` or `claude`) -> execute generated `curl | bash`.
 - **Recover a locked-out admin who lost all passkeys**: `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`.

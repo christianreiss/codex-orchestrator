@@ -1,7 +1,7 @@
 ---
 title: Dashboard
-summary: KPIs, ChatGPT quota lanes, Claude usage, and how the charts are fed.
-sources: src/Http/Controllers/AdminOverviewController.php, src/Services/ChatGptUsageService.php, src/Services/ClaudeUsageService.php, src/Services/UsageScalingService.php, src/Services/DashboardGraphStatsService.php, src/Repositories/TokenUsageRepository.php, public/admin/assets/dashboard.js, public/admin/assets/chart.umd.min.js
+summary: KPIs, ChatGPT quota lanes, Claude usage, host shortcuts, and how the charts are fed.
+sources: src/Http/Controllers/AdminOverviewController.php, src/Http/Controllers/AdminHostController.php, src/Services/ChatGptUsageService.php, src/Services/ClaudeUsageService.php, src/Services/UsageScalingService.php, src/Services/DashboardGraphStatsService.php, src/Repositories/TokenUsageRepository.php, public/admin/assets/dashboard.js
 ---
 
 # Dashboard
@@ -23,9 +23,14 @@ Token cards show today, week, and month totals where available. Client usage row
 
 The dashboard has a soft `[r]` shortcut that calls the same data-load path the initial render uses. ChatGPT quota refreshes are explicit because they hit the upstream usage page; most other reads are local-table lookups.
 
+## Hosts
+
+`New Host` keeps the full hostname and guardrail form. `Quick VM` creates an insecure temporary `tmp-*` host, asks only for the engine set, and copies the installer immediately.
+
 ## Useful Source Files
 
 - src/Http/Controllers/AdminOverviewController.php
+- src/Http/Controllers/AdminHostController.php
 - src/Services/ChatGptUsageService.php
 - src/Services/ClaudeUsageService.php
 - src/Services/DashboardGraphStatsService.php

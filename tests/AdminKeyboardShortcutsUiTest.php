@@ -17,6 +17,7 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString('id="hostSearchInput"', $html);
         self::assertStringContainsString('Keyboard shortcuts', $html);
         self::assertStringContainsString('Settings: projects', $html);
+        self::assertStringContainsString('Hosts: quick VM', $html);
         self::assertStringContainsString('Focus the active search, or jump to a host from the dashboard', $html);
         self::assertStringContainsString('Toggle the visible drawer/panel', $html);
         self::assertStringNotContainsString('id="kbdShortcutsModal"', $html);
@@ -42,8 +43,11 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
         self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
         self::assertStringContainsString("p: '/admin/settings/projects'", $js);
         self::assertStringContainsString('function openNewHostModal({ closeMenus = false } = {})', $js);
+        self::assertStringContainsString('function openQuickVmModal({ closeMenus = false } = {})', $js);
         self::assertStringContainsString('window.__railNav?.closeMenus?.();', $js);
         self::assertStringContainsString("showNewHostModal(true, { reset: true, focusInput: true });", $js);
+        self::assertStringContainsString("q: '__quick_vm__'", $js);
+        self::assertStringContainsString("openQuickVmModal({ closeMenus: true });", $js);
         self::assertStringContainsString("newHostName?.focus();", $js);
         self::assertStringContainsString('function triggerNewShortcut()', $js);
         self::assertStringContainsString("openNewHostModal({ closeMenus: true });", $js);

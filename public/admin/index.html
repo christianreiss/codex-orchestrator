@@ -37,6 +37,7 @@
             <a class="rail-sub-link host-tab" href="/admin/hosts/insecure" data-nav="hosts" data-host-tab="insecure" role="menuitem"><span>Insecure</span><span class="rail-shortcut">[h][i]</span></a>
             <a class="rail-sub-link host-tab" href="/admin/hosts/unprovisioned" data-nav="hosts" data-host-tab="unprovisioned" role="menuitem">Unprovisioned</a>
             <button class="rail-menu-button" id="newHostBtn" type="button" role="menuitem"><span>New Host</span><span class="rail-shortcut">[h][n]</span></button>
+            <button class="rail-menu-button" id="quickVmBtn" type="button" role="menuitem"><span>Quick VM</span><span class="rail-shortcut">[h][q]</span></button>
           </div>
         </div>
         <div class="rail-group" data-nav="logs">
@@ -141,6 +142,7 @@
                 <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>s</kbd><span>Hosts: secure</span></div>
                 <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>i</kbd><span>Hosts: insecure</span></div>
                 <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>n</kbd><span>Hosts: new</span></div>
+                <div class="kbd-shortcut-row"><kbd>h</kbd> <kbd>q</kbd><span>Hosts: quick VM</span></div>
                 <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>c</kbd><span>Logs: API</span></div>
                 <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>m</kbd><span>Logs: MCP</span></div>
                 <div class="kbd-shortcut-row"><kbd>l</kbd> <kbd>e</kbd><span>Logs: events</span></div>
@@ -569,6 +571,28 @@
             </div>
           </div>
         </div>
+        <div class="modal-backdrop" id="quickVmModal" role="dialog" aria-modal="true" aria-labelledby="quickVmTitle">
+          <div class="modal new-host-modal">
+            <div class="new-host-stage">
+              <p class="new-host-kicker">Throwaway VM, one command.</p>
+              <h3 id="quickVmTitle">Quick VM</h3>
+              <div class="new-host-toggle-grid">
+                <button class="ghost new-host-option" type="button" data-quick-vm-engines="codex">
+                  <span class="new-host-option-title">Codex</span>
+                </button>
+                <button class="ghost new-host-option" type="button" data-quick-vm-engines="claude">
+                  <span class="new-host-option-title">Claude</span>
+                </button>
+                <button class="ghost new-host-option" type="button" data-quick-vm-engines="codex,claude">
+                  <span class="new-host-option-title">Both</span>
+                </button>
+              </div>
+              <div class="actions">
+                <button class="ghost" id="quickVmCancel" type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="modal-backdrop" id="uploadModal" role="dialog" aria-modal="true">
           <div class="modal">
             <h3 id="uploadAuthTitle">Seed credentials</h3>
@@ -756,6 +780,7 @@
                   </div>
                   <div class="panel-actions">
                     <input type="search" id="host-filter" placeholder="Search host, status, engine, or version">
+                    <button class="ghost tiny-btn" id="quickVmPanelBtn" type="button">Quick VM</button>
                   </div>
                 </div>
                 <div class="table-wrap">

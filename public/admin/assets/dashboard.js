@@ -4,6 +4,11 @@
     const versionCheckBtn = document.getElementById('version-check');
     const filterInput = document.getElementById('host-filter');
     const newHostBtn = document.getElementById('newHostBtn');
+    const quickVmBtn = document.getElementById('quickVmBtn');
+    const quickVmPanelBtn = document.getElementById('quickVmPanelBtn');
+    const quickVmModal = document.getElementById('quickVmModal');
+    const quickVmCancel = document.getElementById('quickVmCancel');
+    const quickVmButtons = Array.from(document.querySelectorAll('[data-quick-vm-engines]'));
     const newHostModal = document.getElementById('newHostModal');
     const newHostDialog = newHostModal?.querySelector('.new-host-modal') || null;
     const navInsecureHosts = document.getElementById('navInsecureHosts');
@@ -1239,6 +1244,24 @@
       }, 30);
     }
 
+    function showQuickVmModal(show) {
+      if (!quickVmModal) return;
+      if (show) {
+        quickVmModal.classList.add('show');
+        setInertBehindModal(quickVmModal, true);
+      } else {
+        quickVmModal.classList.remove('show');
+        setInertBehindModal(quickVmModal, false);
+      }
+    }
+
+    function openQuickVmModal({ closeMenus = false } = {}) {
+      if (closeMenus) {
+        window.__railNav?.closeMenus?.();
+      }
+      showQuickVmModal(true);
+    }
+
     function triggerNewShortcut() {
       const activePanel = document.querySelector('.panel-set:not([hidden])');
       if (!activePanel) {
@@ -1284,6 +1307,7 @@
           s: '/admin/hosts/secure',
           i: '/admin/hosts/insecure',
           n: '__new_host__',
+          q: '__quick_vm__',
         },
         l: {
           c: '/admin/logs',
@@ -1307,6 +1331,10 @@
       if (!route) return false;
       if (route === '__new_host__') {
         openNewHostModal({ closeMenus: true });
+        return true;
+      }
+      if (route === '__quick_vm__') {
+        openQuickVmModal({ closeMenus: true });
         return true;
       }
       navigateAdminShortcut(route);
@@ -9086,6 +9114,20 @@
     if (newHostBtn) {
       newHostBtn.addEventListener('click', () => openNewHostModal({ closeMenus: true }));
     }
+    if (quickVmBtn) {
+      quickVmBtn.addEventListener('click', () => openQuickVmModal({ closeMenus: true }));
+    }
+    if (quickVmPanelBtn) {
+      quickVmPanelBtn.addEventListener('click', () => openQuickVmModal());
+    }
+    if (quickVmCancel) {
+      quickVmCancel.addEventListener('click', () => showQuickVmModal(false));
+    }
+    quickVmButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        createQuickVm(button.getAttribute('data-quick-vm-engines') || '', button);
+      });
+    });
     // Memories view is live-updating via filters; no explicit refresh button.
     if (memoriesHostFilter) {
       memoriesHostFilter.addEventListener('change', () => loadMemories());
@@ -9227,6 +9269,11 @@
         if (e.target === newHostModal) showNewHostModal(false);
       });
     }
+    if (quickVmModal) {
+      quickVmModal.addEventListener('click', (e) => {
+        if (e.target === quickVmModal) showQuickVmModal(false);
+      });
+    }
     if (seedModal) {
       seedModal.addEventListener('click', (e) => {
         if (e.target === seedModal) showSeedModal(false);
@@ -9346,6 +9393,7 @@
       [helpModal,             () => closeHelpModal()],
       [hostSearchModal,       () => showHostSearchModal(false)],
       [newHostModal,          () => showNewHostModal(false)],
+      [quickVmModal,          () => showQuickVmModal(false)],
       [uploadModal,           () => showUploadModal(false)],
       [insecureHostsModal,    () => closeInsecureHostsModal()],
       [deleteHostModal,       () => closeDeleteModal()],
@@ -9786,6 +9834,94 @@
       }
       if (newHostEngineError) { newHostEngineError.textContent = ''; newHostEngineError.classList.remove('show'); }
       await regenerateInstaller(fqdn);
+    }
+
+    async function createQuickVm(enginesRaw, triggerButton = null) {
+      const engines = parseEngines(enginesRaw);
+      if (!engines.length) {
+        toast('Select at least one engine for Quick VM.', 'error');
+        return;
+      }
+      const previousText = triggerButton?.textContent || '';
+      if (triggerButton) {
+        triggerButton.disabled = true;
+        triggerButton.textContent = 'Minting…';
+      }
+      try {
+        const res = await api('/admin/hosts/quick-register', {
+          method: 'POST',
+          json: {
+            engines,
+            duration_minutes: insecureWindowMinutes,
+          },
+        });
+        const installer = res.data?.installer;
+        const hostResponse = res.data?.host || {};
+        if (!installer || !installer.command) throw new Error('Missing installer command in response');
+
+        const targetFqdn = hostResponse.fqdn || 'tmp-host';
+        const enginesValue = engines.join(',');
+        const installerMode = normalizeInstallerMode(installer.mode, enginesValue);
+        const installerLabel = installerModeLabel(installerMode);
+        const installerCommandCopy = installerCommandLabel(installerMode);
+        const cmd = installer.command;
+
+        if (bootstrapCmdEl) bootstrapCmdEl.textContent = cmd;
+        if (commandField) commandField.style.display = 'block';
+        if (copyCmdBtn) {
+          copyCmdBtn.textContent = 'Copy Again';
+          copyCmdBtn.onclick = () => copyInstallerCommand(cmd);
+        }
+        if (installerMeta) {
+          const expires = installer.expires_at ? formatRelative(installer.expires_at) : null;
+          installerMeta.textContent = expires
+            ? `${installerLabel} Quick VM installer (expires ${expires}).`
+            : `${installerLabel} Quick VM installer ready.`;
+          installerMeta.style.display = 'block';
+        }
+
+        const responseHostId = Number(hostResponse?.id || 0);
+        newHostSuccessHostId = Number.isFinite(responseHostId) && responseHostId > 0 ? responseHostId : null;
+        newHostSuccessCanDelete = newHostSuccessHostId !== null;
+        if (deleteAccidentalHostBtn) {
+          deleteAccidentalHostBtn.hidden = !newHostSuccessCanDelete;
+        }
+        if (newHostSuccessKicker) {
+          newHostSuccessKicker.textContent = `${installerLabel} Quick VM ready. Clipboard warm.`;
+        }
+        if (newHostSuccessTitle) {
+          newHostSuccessTitle.textContent = 'Temporary Host Ready';
+        }
+        if (newHostSuccessCopy) {
+          newHostSuccessCopy.textContent = `${targetFqdn} is registered as an insecure temporary host. The ${installerCommandCopy} is copied and ready.`;
+        }
+        renderNewHostSuccessChips({
+          fqdn: targetFqdn,
+          secure: false,
+          temporary: true,
+          insecureCurl: false,
+          vip: false,
+          engines: enginesValue,
+        });
+        if (newHostName) {
+          newHostName.value = targetFqdn;
+        }
+        showQuickVmModal(false);
+        setNewHostModalStage('success');
+        showNewHostModal(true, { reset: false });
+        await copyInstallerCommand(cmd, { auto: true });
+        loadAll().catch((error) => {
+          console.warn('Dashboard refresh after quick VM mint failed', error);
+        });
+      } catch (err) {
+        const msg = err?.message || String(err);
+        toast(`Quick VM generation failed: ${msg}`, 'error');
+      } finally {
+        if (triggerButton) {
+          triggerButton.disabled = false;
+          triggerButton.textContent = previousText;
+        }
+      }
     }
 
     async function regenerateInstaller(fqdn, hostId = null, engineOverride = null) {

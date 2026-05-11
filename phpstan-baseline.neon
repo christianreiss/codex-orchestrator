@@ -307,12 +307,6 @@ parameters:
 			path: public/index.php
 
 		-
-			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminHostController\:\:register\(\) expects array, mixed given\.$#'
-			identifier: argument.type
-			count: 1
-			path: public/index.php
-
-		-
 			message: '#^Parameter \#1 \$payload of method App\\Http\\Controllers\\AdminJoplinController\:\:postConfig\(\) expects array, mixed given\.$#'
 			identifier: argument.type
 			count: 1
@@ -2463,19 +2457,13 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to int\.$#'
 			identifier: cast.int
-			count: 38
+			count: 33
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 6
-			path: src/Http/Controllers/AdminHostController.php
-
-		-
-			message: '#^Loose comparison via "\!\=" is not allowed\.$#'
-			identifier: notEqual.notAllowed
-			count: 1
+			count: 5
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
@@ -2571,13 +2559,13 @@ parameters:
 		-
 			message: '#^Offset ''fqdn'' might not exist on array\|null\.$#'
 			identifier: offsetAccess.notFound
-			count: 24
+			count: 22
 			path: src/Http/Controllers/AdminHostController.php
 
 		-
 			message: '#^Offset ''id'' might not exist on array\|null\.$#'
 			identifier: offsetAccess.notFound
-			count: 20
+			count: 17
 			path: src/Http/Controllers/AdminHostController.php
 
 		-

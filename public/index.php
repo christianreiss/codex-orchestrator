@@ -627,7 +627,12 @@ $router->add('POST', '#^/cli/auth/approve$#', fn() => $cliAuthCtrl->approve($pay
 $router->add('POST', '#^/cli/auth/deny$#', fn() => $cliAuthCtrl->deny($payload));
 
 // Admin hosts
-$router->add('POST', '#^/admin/hosts/register$#', fn() => $adminHostCtrl->register($payload));
+$router->add('POST', '#^/admin/hosts/register$#', function () use ($adminHostCtrl, $payload): void {
+    $adminHostCtrl->register(is_array($payload) ? $payload : []);
+});
+$router->add('POST', '#^/admin/hosts/quick-register$#', function () use ($adminHostCtrl, $payload): void {
+    $adminHostCtrl->quickRegister(is_array($payload) ? $payload : []);
+});
 
 // Admin runner
 $router->add('GET', '#^/admin/runner$#', fn() => $adminOverviewCtrl->runner());

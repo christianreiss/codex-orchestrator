@@ -1,4 +1,5 @@
 # 2026-05-11
+- Admin UI / hosts: added a Quick VM flow that mints an insecure temporary throwaway host with an auto-generated `tmp-*` name and immediately copies a Codex, Claude, or dual-engine installer.
 - Cost tracking removal: stripped API cost/pricing calculation, pricing snapshots, cost history, wrapper run-cost reporting, and Claude spend-limit UI/enforcement. Usage reporting is now token-only, and boot migrations drop the legacy pricing/cost tables and columns.
 
 # 2026-05-05

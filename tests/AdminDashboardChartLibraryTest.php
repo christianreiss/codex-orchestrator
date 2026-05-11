@@ -32,6 +32,7 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertIsString($html);
         $this->assertStringContainsString('All Hosts</span><span class="rail-shortcut">[h][a]</span>', $html);
         $this->assertStringContainsString('New Host</span><span class="rail-shortcut">[h][n]</span>', $html);
+        self::assertStringContainsString('Quick VM</span><span class="rail-shortcut">[h][q]</span>', $html);
         $this->assertStringContainsString('API Logs</span><span class="rail-shortcut">[l][c]</span>', $html);
         $this->assertStringContainsString('General</span><span class="rail-shortcut">[s][g]</span>', $html);
         $this->assertStringContainsString('Projects</span><span class="rail-shortcut">[s][p]</span>', $html);
@@ -63,6 +64,10 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString('Copy Again</button>', $html);
         $this->assertStringContainsString('Mint Another</button>', $html);
         $this->assertStringContainsString('Mint Installer</button>', $html);
+        self::assertStringContainsString('id="quickVmModal"', $html);
+        self::assertStringContainsString('data-quick-vm-engines="codex"', $html);
+        self::assertStringContainsString('data-quick-vm-engines="claude"', $html);
+        self::assertStringContainsString('data-quick-vm-engines="codex,claude"', $html);
         $this->assertStringNotContainsString('Issue a one-time installer link for this FQDN.', $html);
         $this->assertStringNotContainsString('Host FQDN', $html);
 
@@ -85,6 +90,10 @@ final class AdminDashboardChartLibraryTest extends TestCase
         $this->assertStringContainsString("showNewHostModal(false);", $js);
         $this->assertStringContainsString("setNewHostModalStage('success');", $js);
         $this->assertStringContainsString("await copyInstallerCommand(cmd, { auto: true });", $js);
+        self::assertStringContainsString("api('/admin/hosts/quick-register'", $js);
+        self::assertStringContainsString('function createQuickVm(enginesRaw, triggerButton = null)', $js);
+        self::assertStringContainsString('showQuickVmModal(false);', $js);
+        self::assertStringContainsString('Temporary Host Ready', $js);
         $this->assertStringContainsString("copyCmdBtn.textContent = 'Copy Again';", $js);
         $this->assertStringContainsString('function normalizeInstallerMode(mode, enginesRaw)', $js);
         $this->assertStringContainsString('function installerModeLabel(mode)', $js);
