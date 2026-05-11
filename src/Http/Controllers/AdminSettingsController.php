@@ -166,7 +166,6 @@ class AdminSettingsController
             'data' => [
                 'default_model' => $this->versionRepository->get('claude_default_model') ?? 'claude-sonnet-4-6',
                 'max_tokens' => (int) ($this->versionRepository->get('claude_max_tokens') ?? 8192),
-                'spend_limit' => (float) ($this->versionRepository->get('claude_spend_limit') ?? 0),
                 'disabled' => $this->versionRepository->getFlag('claude_api_disabled', false),
             ],
         ]);
@@ -192,13 +191,6 @@ class AdminSettingsController
                 $this->versionRepository->set('claude_max_tokens', (string) $tokens);
             }
         }
-        if (isset($payload['spend_limit'])) {
-            $limit = (float) $payload['spend_limit'];
-            if ($limit >= 0) {
-                $this->versionRepository->set('claude_spend_limit', (string) $limit);
-            }
-        }
-
         $this->logRepository->log(null, 'admin.claude_settings', array_filter($payload));
 
         $this->getClaudeSettings();

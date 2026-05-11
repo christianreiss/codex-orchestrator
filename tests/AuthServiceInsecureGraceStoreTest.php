@@ -12,7 +12,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -30,7 +29,6 @@ final class AuthServiceInsecureGraceStoreTest extends TestCase
         $logs = $this->createMock(LogRepository::class);
         $tokenUsages = $this->createMock(TokenUsageRepository::class);
         $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
-        $pricing = $this->createMock(PricingService::class);
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturn(null);
         $versions->method('getFlag')->willReturn(false);
@@ -45,7 +43,6 @@ final class AuthServiceInsecureGraceStoreTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricing,
             $versions,
             $wrapper,
             null

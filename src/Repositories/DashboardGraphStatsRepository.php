@@ -24,7 +24,6 @@ class DashboardGraphStatsRepository
                 output_tokens,
                 cached_tokens,
                 reasoning_tokens,
-                cost,
                 created_at,
                 updated_at
             ) VALUES (
@@ -34,7 +33,6 @@ class DashboardGraphStatsRepository
                 :output_tokens,
                 :cached_tokens,
                 :reasoning_tokens,
-                :cost,
                 :created_at,
                 :updated_at
             )
@@ -44,10 +42,6 @@ class DashboardGraphStatsRepository
                 output_tokens = COALESCE(output_tokens, 0) + VALUES(output_tokens),
                 cached_tokens = COALESCE(cached_tokens, 0) + VALUES(cached_tokens),
                 reasoning_tokens = COALESCE(reasoning_tokens, 0) + VALUES(reasoning_tokens),
-                cost = CASE
-                    WHEN cost IS NULL AND VALUES(cost) IS NULL THEN NULL
-                    ELSE COALESCE(cost, 0) + COALESCE(VALUES(cost), 0)
-                END,
                 updated_at = VALUES(updated_at)'
         );
 
@@ -58,7 +52,6 @@ class DashboardGraphStatsRepository
             'output_tokens' => max(0, (int) ($usage['output'] ?? 0)),
             'cached_tokens' => max(0, (int) ($usage['cached'] ?? 0)),
             'reasoning_tokens' => max(0, (int) ($usage['reasoning'] ?? 0)),
-            'cost' => isset($usage['cost']) ? (float) $usage['cost'] : null,
             'created_at' => $timestamp,
             'updated_at' => $timestamp,
         ]);
@@ -80,7 +73,6 @@ class DashboardGraphStatsRepository
                 output_tokens,
                 cached_tokens,
                 reasoning_tokens,
-                cost,
                 created_at,
                 updated_at
             ) VALUES (
@@ -90,7 +82,6 @@ class DashboardGraphStatsRepository
                 :output_tokens,
                 :cached_tokens,
                 :reasoning_tokens,
-                :cost,
                 :created_at,
                 :updated_at
             )
@@ -100,7 +91,6 @@ class DashboardGraphStatsRepository
                 output_tokens = VALUES(output_tokens),
                 cached_tokens = VALUES(cached_tokens),
                 reasoning_tokens = VALUES(reasoning_tokens),
-                cost = VALUES(cost),
                 updated_at = VALUES(updated_at)'
         );
 
@@ -111,7 +101,6 @@ class DashboardGraphStatsRepository
             'output_tokens' => max(0, (int) ($usage['output'] ?? 0)),
             'cached_tokens' => max(0, (int) ($usage['cached'] ?? 0)),
             'reasoning_tokens' => max(0, (int) ($usage['reasoning'] ?? 0)),
-            'cost' => isset($usage['cost']) ? (float) $usage['cost'] : null,
             'created_at' => $timestamp,
             'updated_at' => $timestamp,
         ]);
@@ -136,8 +125,7 @@ class DashboardGraphStatsRepository
                     output_tokens AS output,
                     cached_tokens AS cached,
                     reasoning_tokens AS reasoning,
-                    total_tokens AS total,
-                    cost
+                    total_tokens AS total
              FROM dashboard_graph_usage_daily_stats
              WHERE stat_date >= :start_date
              ORDER BY stat_date ASC'
@@ -156,7 +144,6 @@ class DashboardGraphStatsRepository
                 'cached' => isset($row['cached']) ? (int) $row['cached'] : 0,
                 'reasoning' => isset($row['reasoning']) ? (int) $row['reasoning'] : 0,
                 'total' => isset($row['total']) ? (int) $row['total'] : 0,
-                'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
             ];
         }, $rows);
     }

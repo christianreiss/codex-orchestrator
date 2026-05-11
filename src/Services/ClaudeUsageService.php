@@ -23,7 +23,6 @@ use PDO;
  * Claude's quota model differs from ChatGPT's:
  * - API usage is tracked via token counts per model
  * - Rate limits are per-minute (RPM) and per-day (RPD)
- * - Spend limits are monetary (monthly spend cap)
  *
  * This service stores quota snapshots in the versions table
  * and provides summaries for the admin dashboard.
@@ -57,10 +56,6 @@ class ClaudeUsageService
         return [
             'engine' => Engine::CLAUDE,
             'status' => $snapshot['status'] ?? 'unknown',
-            'spend_limit' => $snapshot['spend_limit'] ?? null,
-            'spend_used' => $snapshot['spend_used'] ?? null,
-            'spend_remaining' => $snapshot['spend_remaining'] ?? null,
-            'spend_currency' => $snapshot['spend_currency'] ?? 'USD',
             'rate_limit_rpm' => $snapshot['rate_limit_rpm'] ?? null,
             'rate_limit_rpd' => $snapshot['rate_limit_rpd'] ?? null,
             'models' => $snapshot['models'] ?? [],
@@ -81,49 +76,10 @@ class ClaudeUsageService
     }
 
     /**
-     * Get Claude model pricing for cost calculation.
-     *
-     * @return array<string, array{input: float, output: float, cached: float}>
-     */
-    public static function modelPricing(): array
-    {
-        return [
-            'claude-opus-4-6' => [
-                'input' => (float) ($_ENV['CLAUDE_OPUS_INPUT_PER_1K'] ?? 0.015),
-                'output' => (float) ($_ENV['CLAUDE_OPUS_OUTPUT_PER_1K'] ?? 0.075),
-                'cached' => (float) ($_ENV['CLAUDE_OPUS_CACHED_PER_1K'] ?? 0.0075),
-            ],
-            'claude-sonnet-4-6' => [
-                'input' => (float) ($_ENV['CLAUDE_SONNET_INPUT_PER_1K'] ?? 0.003),
-                'output' => (float) ($_ENV['CLAUDE_SONNET_OUTPUT_PER_1K'] ?? 0.015),
-                'cached' => (float) ($_ENV['CLAUDE_SONNET_CACHED_PER_1K'] ?? 0.0015),
-            ],
-            'claude-haiku-4-5' => [
-                'input' => (float) ($_ENV['CLAUDE_HAIKU_INPUT_PER_1K'] ?? 0.0008),
-                'output' => (float) ($_ENV['CLAUDE_HAIKU_OUTPUT_PER_1K'] ?? 0.004),
-                'cached' => (float) ($_ENV['CLAUDE_HAIKU_CACHED_PER_1K'] ?? 0.0004),
-            ],
-        ];
-    }
-
-    /**
-     * Calculate cost for a Claude API call.
-     */
-    public static function calculateCost(string $model, int $inputTokens, int $outputTokens, int $cachedTokens = 0): float
-    {
-        $pricing = self::modelPricing();
-        $modelPricing = $pricing[$model] ?? $pricing['claude-sonnet-4-6'];
-
-        return ($inputTokens / 1000.0 * $modelPricing['input'])
-            + ($outputTokens / 1000.0 * $modelPricing['output'])
-            + ($cachedTokens / 1000.0 * $modelPricing['cached']);
-    }
-
-    /**
      * Aggregate recent Claude token usage from the database.
      *
      * @param string $period One of '24h', '7d', '30d'
-     * @return array<int, array{model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int, cost: float}>
+     * @return array<int, array{model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int}>
      */
     public function aggregateRecentUsage(string $period = '24h'): array
     {
@@ -154,7 +110,6 @@ class ClaudeUsageService
             $outputTokens = (int) ($row['output_tokens'] ?? 0);
             $cachedTokens = (int) ($row['cached_tokens'] ?? 0);
             $totalTokens = (int) ($row['total_tokens'] ?? 0);
-            $cost = self::calculateCost($model, $inputTokens, $outputTokens, $cachedTokens);
 
             $results[] = [
                 'model' => $model,
@@ -162,7 +117,6 @@ class ClaudeUsageService
                 'output_tokens' => $outputTokens,
                 'cached_tokens' => $cachedTokens,
                 'total_tokens' => $totalTokens,
-                'cost' => round($cost, 6),
             ];
         }
 
@@ -177,44 +131,17 @@ class ClaudeUsageService
     {
         $buckets = $this->aggregateAllWindows();
 
-        $sumCost = static function (array $rows): float {
-            $total = 0.0;
-            foreach ($rows as $row) {
-                $total += (float) ($row['cost'] ?? 0.0);
-            }
-            return round($total, 6);
-        };
-
-        $totalCost24h = $sumCost($buckets['24h']);
-        $totalCost7d = $sumCost($buckets['7d']);
-        $totalCost30d = $sumCost($buckets['30d']);
-
-        $snapshot = $this->latestUsageSummary();
-        $spendLimit = $snapshot['spend_limit'] ?? null;
-        $spendUsed = $snapshot['spend_used'] ?? $totalCost30d;
-        $spendPercent = ($spendLimit !== null && $spendLimit > 0)
-            ? round(($spendUsed / $spendLimit) * 100, 2)
-            : null;
-
         return [
-            'current_spend' => [
-                'used' => (float) $spendUsed,
-                'limit' => $spendLimit !== null ? (float) $spendLimit : null,
-                'percent' => $spendPercent,
-            ],
             'usage_24h' => $buckets['24h'],
             'usage_7d' => $buckets['7d'],
             'usage_30d' => $buckets['30d'],
-            'total_cost_24h' => $totalCost24h,
-            'total_cost_7d' => $totalCost7d,
-            'total_cost_30d' => $totalCost30d,
         ];
     }
 
     /**
      * Single-query aggregate for all three time windows.
      *
-     * @return array<string, list<array{model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int, cost: float}>>
+     * @return array<string, list<array{model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int}>>
      */
     private function aggregateAllWindows(): array
     {
@@ -274,14 +201,12 @@ class ClaudeUsageService
         foreach ($accum as $window => $models) {
             foreach ($models as $model => $tokens) {
                 $total = $tokens['input'] + $tokens['output'] + $tokens['cached'];
-                $cost = self::calculateCost($model, $tokens['input'], $tokens['output'], $tokens['cached']);
                 $result[$window][] = [
                     'model' => $model,
                     'input_tokens' => $tokens['input'],
                     'output_tokens' => $tokens['output'],
                     'cached_tokens' => $tokens['cached'],
                     'total_tokens' => $total,
-                    'cost' => round($cost, 6),
                 ];
             }
             usort($result[$window], fn($a, $b) => $b['total_tokens'] <=> $a['total_tokens']);
@@ -296,7 +221,7 @@ class ClaudeUsageService
      * @param string $bucket One of 'hourly', 'daily'
      * @param string $period How far back: '24h', '7d', '30d'
      * @param string|null $model Filter by model
-     * @return array<int, array{bucket: string, model: string, input_tokens: int, output_tokens: int, cached_tokens: int, cost: float}>
+     * @return array<int, array{bucket: string, model: string, input_tokens: int, output_tokens: int, cached_tokens: int, total_tokens: int}>
      */
     public function history(string $bucket = 'daily', string $period = '7d', ?string $model = null): array
     {
@@ -337,7 +262,6 @@ class ClaudeUsageService
             $inputTokens = (int) ($row['input_tokens'] ?? 0);
             $outputTokens = (int) ($row['output_tokens'] ?? 0);
             $cachedTokens = (int) ($row['cached_tokens'] ?? 0);
-            $cost = self::calculateCost($rowModel, $inputTokens, $outputTokens, $cachedTokens);
 
             $results[] = [
                 'bucket' => (string) ($row['time_bucket'] ?? ''),
@@ -345,7 +269,7 @@ class ClaudeUsageService
                 'input_tokens' => $inputTokens,
                 'output_tokens' => $outputTokens,
                 'cached_tokens' => $cachedTokens,
-                'cost' => round($cost, 6),
+                'total_tokens' => $inputTokens + $outputTokens + $cachedTokens,
             ];
         }
 
@@ -353,9 +277,9 @@ class ClaudeUsageService
     }
 
     /**
-     * Advanced history with per-model cost series for charting.
+     * Advanced history with per-model token series for charting.
      *
-     * @return array{series: array<string, list<array{bucket: string, cost: float, tokens: int}>>, totals: array<string, float>}
+     * @return array{series: array<string, list<array{bucket: string, tokens: int}>>, totals: array<string, int>}
      */
     public function historyAdvanced(string $bucket = 'daily', string $period = '30d'): array
     {
@@ -368,16 +292,15 @@ class ClaudeUsageService
             $model = $row['model'];
             if (!isset($series[$model])) {
                 $series[$model] = [];
-                $totals[$model] = 0.0;
+                $totals[$model] = 0;
             }
 
             $tokens = $row['input_tokens'] + $row['output_tokens'] + $row['cached_tokens'];
             $series[$model][] = [
                 'bucket' => $row['bucket'],
-                'cost' => $row['cost'],
                 'tokens' => $tokens,
             ];
-            $totals[$model] = round($totals[$model] + $row['cost'], 6);
+            $totals[$model] += $tokens;
         }
 
         return [
@@ -416,11 +339,6 @@ class ClaudeUsageService
 
         $snapshotData = [
             'status' => 'ok',
-            'spend_used' => $summary['current_spend']['used'],
-            'spend_limit' => $summary['current_spend']['limit'],
-            'total_cost_24h' => $summary['total_cost_24h'],
-            'total_cost_7d' => $summary['total_cost_7d'],
-            'total_cost_30d' => $summary['total_cost_30d'],
             'models' => $summary['usage_30d'],
         ];
 

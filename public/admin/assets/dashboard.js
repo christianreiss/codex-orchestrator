@@ -88,11 +88,6 @@
     const usageHistorySubtitle = document.getElementById('usageHistorySubtitle');
     const usageHistoryMeta = document.getElementById('usageHistoryMeta');
     const usageHistoryCloseBtn = document.getElementById('usageHistoryClose');
-    const costHistoryModal = document.getElementById('costHistoryModal');
-    const costHistoryChart = document.getElementById('costHistoryChart');
-    const costHistorySubtitle = document.getElementById('costHistorySubtitle');
-    const costHistoryMeta = document.getElementById('costHistoryMeta');
-    const costHistoryCloseBtn = document.getElementById('costHistoryClose');
     const deleteHostModal = document.getElementById('deleteHostModal');
     const deleteHostText = document.getElementById('delete-host-text');
     const cancelDeleteHostBtn = document.getElementById('cancelDeleteHost');
@@ -253,12 +248,6 @@
     const heroTitle = pageHero?.querySelector('h1');
     const heroCopy = pageHero?.querySelector('p.muted');
     const USAGE_HISTORY_DAYS = 60;
-    const COST_SERIES = [
-      { key: 'total', label: 'Total', color: '#312e81', emphasis: true },
-      { key: 'input', label: 'Input', color: '#0ea5e9' },
-      { key: 'output', label: 'Output', color: '#16a34a' },
-      { key: 'cached', label: 'Cached', color: '#f97316' },
-    ];
     const QUOTA_SERIES_META = [
       { key: 'normal_primary', label: '5-hour runway', color: '#0b7c73' },
       { key: 'normal_secondary', label: 'Weekly runway', color: '#2563eb' },
@@ -614,10 +603,6 @@
     let chatgptUsageHistoryPromise = null;
     const chatgptUsageHistoryCache = new Map();
     const chatgptUsageHistoryPromiseCache = new Map();
-    let costHistory = null;
-    let costHistoryPromise = null;
-    const costHistoryCache = new Map();
-    const costHistoryPromiseCache = new Map();
     let activeHostId = null;
     let activeInsecureApproval = null;
     const insecureApprovalQueue = [];
@@ -658,7 +643,7 @@
       dashboard: {
         eyebrow: 'Dashboard',
         title: 'Fleet Mission Control',
-        copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, quota, and spend.`,
+        copy: `At-a-glance ${dashboardYear} posture across hosts, auth, usage, and quota.`,
         show: ['stats', 'chatgpt-usage-card', 'claude-usage-card', 'dashboardStatusBar', 'dashboardTrends'],
       },
       hosts: {
@@ -808,20 +793,6 @@
         }).format(num);
       } catch (_) {
         return formatNumber(num);
-      }
-    }
-
-    function formatCurrency(value, currency = 'USD') {
-      const num = Number(value);
-      if (!Number.isFinite(num)) return '—';
-      try {
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency,
-          maximumFractionDigits: 2,
-        }).format(num);
-      } catch {
-        return `${currency} ${num.toFixed(2)}`;
       }
     }
 
@@ -3578,11 +3549,6 @@
       updateUsageResetLabels();
     }
 
-    function formatMoney(amount, currency = 'USD') {
-      if (!Number.isFinite(amount)) return `${currency} —`;
-      return `${currency} ${amount.toFixed(2)}`;
-    }
-
     function hostPruneMeta(host) {
       if (!Number.isFinite(inactivityWindowDays) || inactivityWindowDays <= 0) {
         return { daysLeft: null };
@@ -6042,16 +6008,13 @@
       'auth.',
       'host.',
       'admin.host.',
-      'pricing.',
       'admin.insecure.',
     ];
     const DASHBOARD_CHART_LIVE_ACTIONS = new Set([
       'token.usage',
       'chatgpt.usage',
     ]);
-    const DASHBOARD_CHART_LIVE_PREFIXES = [
-      'pricing.',
-    ];
+    const DASHBOARD_CHART_LIVE_PREFIXES = [];
     const SETTINGS_GENERAL_LIVE_ACTIONS = new Set([
       'admin.api.state',
       'admin.openai_api.state',
@@ -6304,10 +6267,6 @@
         evaluateSeedRequirement(currentOverview, currentHosts);
       }
 
-      if (needDashboardCharts && isDashboardView()) {
-        refreshDashboardTrends({ force: true });
-      }
-
       if (needSettingsGeneral && currentOverview) {
         await loadCodexVersionControl();
         await loadClaudeVersion();
@@ -6368,13 +6327,6 @@
           const windowRaw = raw.includes(':') ? raw.split(':', 2)[1] : raw;
           const windowKey = windowRaw === 'secondary' ? 'secondary' : 'primary';
           openUsageHistory('normal', windowKey);
-        };
-      });
-      document.querySelectorAll('.cost-history-btn').forEach((el) => {
-        el.onclick = (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          openCostHistory();
         };
       });
     }
@@ -6581,565 +6533,6 @@
         }
         if (usageHistoryChart) {
           usageHistoryChart.innerHTML = `<div class="error">Unable to load history: ${escapeHtml(err.message)}</div>`;
-        }
-      }
-    }
-
-    function showCostHistoryModal(show) {
-      if (!costHistoryModal) return;
-      if (show) {
-        costHistoryModal.classList.add('show');
-        setInertBehindModal(costHistoryModal, true);
-      } else {
-        costHistoryModal.classList.remove('show');
-        setInertBehindModal(costHistoryModal, false);
-      }
-    }
-
-    function buildCostTicks(maxValue) {
-      if (!Number.isFinite(maxValue) || maxValue <= 0) {
-        return [0, 0.25, 0.5, 0.75, 1];
-      }
-      const rawStep = maxValue / 4;
-      const exponent = Math.floor(Math.log10(rawStep || 1));
-      const magnitude = 10 ** exponent;
-      const candidates = [1, 2, 2.5, 5, 10];
-      let step = candidates.find((candidate) => (rawStep / magnitude) <= candidate) ?? 10;
-      step *= magnitude;
-      if (step <= 0) {
-        step = maxValue || 1;
-      }
-
-      const ticks = [];
-      for (let v = 0; v <= maxValue + step; v += step) {
-        ticks.push(Number(v.toFixed(6)));
-        if (ticks.length > 14) break;
-      }
-      if (ticks.length && ticks[0] !== 0) {
-        ticks.unshift(0);
-      }
-      return ticks;
-    }
-
-    function buildCostSeries(history) {
-      const series = COST_SERIES.map((item) => ({ ...item, values: [] }));
-      const points = Array.isArray(history?.points) ? history.points : [];
-      points.forEach((pt) => {
-        const date = parseDateOnly(pt?.date);
-        if (!date) return;
-        series.forEach((seriesItem) => {
-          const raw = Number(pt?.costs?.[seriesItem.key] ?? 0);
-          if (!Number.isFinite(raw)) return;
-          seriesItem.values.push({ x: date.getTime(), y: Math.max(0, raw), date: pt.date });
-        });
-      });
-      series.forEach((s) => s.values.sort((a, b) => a.x - b.x));
-      return series;
-    }
-
-    function renderCostHistoryChart(history) {
-      if (!costHistoryChart) return;
-      const series = buildCostSeries(history);
-      const allPoints = series.flatMap((s) => s.values);
-      if (allPoints.length === 0) {
-        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
-        return;
-      }
-      const pointIndex = buildCostPointIndex(history);
-      if (!pointIndex.length) {
-        costHistoryChart.innerHTML = '<div class="muted">No cost history yet.</div>';
-        return;
-      }
-      const currency = history?.currency || 'USD';
-
-      const width = 800;
-      const height = 260;
-      const minX = Math.min(...allPoints.map((p) => p.x));
-      const maxX = Math.max(...allPoints.map((p) => p.x));
-      const spanX = Math.max(1, maxX - minX || 1);
-      const maxY = Math.max(...allPoints.map((p) => p.y), 0);
-      const ticks = buildCostTicks(maxY);
-      const yMax = Math.max(maxY, ticks[ticks.length - 1] ?? 0.01);
-
-      const gridLines = ticks.map((tick) => {
-        const y = height - ((tick / yMax) * height);
-        return `<g class="grid-row"><line x1="0" y1="${y.toFixed(2)}" x2="${width}" y2="${y.toFixed(2)}"></line><text x="${width}" y="${(y - 4).toFixed(2)}" text-anchor="end" class="tick">${formatMoney(tick, currency)}</text></g>`;
-      }).join('');
-
-      const paths = series.map((s) => {
-        if (!s.values.length) return '';
-        const coords = s.values.map((pt) => {
-          const x = ((pt.x - minX) / spanX) * width;
-          const y = height - ((pt.y / yMax) * height);
-          return { x, y };
-        });
-        const path = coords.map((c, idx) => `${idx === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ');
-        const latest = coords[coords.length - 1];
-        const lineClass = `line line-${s.key}${s.emphasis ? ' line-emphasis' : ''}`;
-        const dotClass = `dot dot-${s.key}${s.emphasis ? ' dot-emphasis' : ''}`;
-        return `${path ? `<path d="${path}" class="${lineClass}"></path>` : ''}${latest ? `<circle cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4" class="${dotClass}"></circle>` : ''}`;
-      }).join('');
-
-      const legend = series.map((s) => {
-        const latest = s.values[s.values.length - 1];
-        const value = latest ? latest.y : 0;
-        const color = s.color || '#0f172a';
-        const classes = ['legend-item'];
-        if (s.key === 'total' || s.emphasis) classes.push('legend-total');
-        return `<span class="${classes.join(' ')}"><span class="swatch" style="background:${color};"></span>${s.label}<strong>${formatMoney(value, currency)}</strong></span>`;
-      }).join('');
-
-      const latestPoint = pointIndex[pointIndex.length - 1];
-      const detailHtml = renderCostDetail(latestPoint, currency);
-      const tableRows = renderCostTableRows(pointIndex, currency);
-
-      costHistoryChart.innerHTML = `
-        <div class="legend">${legend}</div>
-        <div class="cost-chart-shell" data-chart-shell>
-          <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Cost history over time">
-            <g class="grid">${gridLines}</g>
-            ${paths}
-          </svg>
-          <div class="cost-chart-overlay" data-chart-overlay aria-hidden="true"></div>
-          <div class="cost-chart-crosshair" data-cost-crosshair hidden></div>
-          <div class="cost-chart-tooltip" data-cost-tooltip hidden></div>
-        </div>
-        <div class="cost-detail" data-cost-detail>${detailHtml}</div>
-        <div class="cost-table-wrap">
-          <table class="cost-table">
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Total</th>
-                <th scope="col">Input</th>
-                <th scope="col">Output</th>
-                <th scope="col">Cached</th>
-                <th scope="col">Tokens</th>
-              </tr>
-            </thead>
-            <tbody data-cost-table>${tableRows}</tbody>
-          </table>
-        </div>
-      `;
-
-      attachCostHistoryInteractions(costHistoryChart, {
-        points: pointIndex,
-        currency,
-        minX,
-        spanX,
-      });
-    }
-
-    function attachCostHistoryInteractions(root, config) {
-      const { points, currency, minX, spanX } = config || {};
-      if (!root || !Array.isArray(points) || points.length === 0) return;
-      const tooltip = root.querySelector('[data-cost-tooltip]');
-      const detailEl = root.querySelector('[data-cost-detail]');
-      const tableBody = root.querySelector('[data-cost-table]');
-      const overlay = root.querySelector('[data-chart-overlay]');
-      const crosshair = root.querySelector('[data-cost-crosshair]');
-      if (!detailEl || !tableBody) return;
-
-      const dateLookup = new Map(points.map((pt, idx) => [pt.date, { point: pt, idx }]));
-      let selectedIdx = points.length - 1;
-      let lockedIdx = selectedIdx;
-      let activeRow = null;
-
-      function positionCrosshair(point) {
-        if (!crosshair) return;
-        if (!point) {
-          crosshair.hidden = true;
-          return;
-        }
-        const range = spanX || 1;
-        const ratio = range === 0 ? 0 : (point.x - minX) / range;
-        const percent = clamp(ratio, 0, 1);
-        crosshair.style.left = `${(percent * 100).toFixed(2)}%`;
-        crosshair.hidden = false;
-      }
-
-      function updateRowSelection(date) {
-        if (!tableBody) return;
-        if (activeRow && activeRow.dataset.costRow !== date) {
-          activeRow.classList.remove('is-active');
-          activeRow.setAttribute('aria-selected', 'false');
-          activeRow = null;
-        }
-        if (!date) return;
-        const nextRow = tableBody.querySelector(`tr[data-cost-row="${date}"]`);
-        if (nextRow && nextRow !== activeRow) {
-          nextRow.classList.add('is-active');
-          nextRow.setAttribute('aria-selected', 'true');
-          activeRow = nextRow;
-        }
-      }
-
-      function setSelection(idx, opts = {}) {
-        if (!Number.isFinite(idx) || idx < 0 || idx >= points.length) return null;
-        const point = points[idx];
-        const force = opts.force ?? false;
-        if (!force && selectedIdx === idx) {
-          if (opts.lock) lockedIdx = idx;
-          return point;
-        }
-        selectedIdx = idx;
-        if (opts.lock) lockedIdx = idx;
-        if (detailEl) {
-          detailEl.innerHTML = renderCostDetail(point, currency);
-        }
-        updateRowSelection(point.date);
-        positionCrosshair(point);
-        return point;
-      }
-
-      function hideTooltip() {
-        if (!tooltip) return;
-        tooltip.hidden = true;
-        tooltip.innerHTML = '';
-      }
-
-      setSelection(selectedIdx, { lock: true, force: true });
-
-      function showOverlayTooltip(point, clientX) {
-        if (!tooltip || !overlay || !point) return;
-        tooltip.innerHTML = renderCostTooltip(point, currency);
-        tooltip.hidden = false;
-        const rect = overlay.getBoundingClientRect();
-        if (rect.width <= 0) return;
-        const relative = clamp((clientX - rect.left) / rect.width, 0, 1);
-        const tipWidth = tooltip.offsetWidth || 0;
-        const leftPx = clamp((relative * rect.width) - (tipWidth / 2), 0, Math.max(rect.width - tipWidth, 0));
-        tooltip.style.left = `${leftPx}px`;
-        tooltip.style.top = '12px';
-      }
-
-      if (overlay) {
-        overlay.addEventListener('pointermove', (ev) => {
-          const rect = overlay.getBoundingClientRect();
-          if (rect.width <= 0) return;
-          const relative = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
-          const targetX = minX + ((spanX || 1) * relative);
-          const point = findNearestCostPoint(points, targetX);
-          if (!point) return;
-          const lookup = dateLookup.get(point.date);
-          if (!lookup) return;
-          setSelection(lookup.idx, { lock: false });
-          showOverlayTooltip(point, ev.clientX);
-        });
-        overlay.addEventListener('pointerleave', () => {
-          hideTooltip();
-          if (lockedIdx !== null) {
-            setSelection(lockedIdx, { lock: false, force: true });
-          }
-        });
-        overlay.addEventListener('click', (ev) => {
-          const rect = overlay.getBoundingClientRect();
-          if (rect.width <= 0) return;
-          const relative = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
-          const targetX = minX + ((spanX || 1) * relative);
-          const point = findNearestCostPoint(points, targetX);
-          if (point) {
-            const lookup = dateLookup.get(point.date);
-            if (!lookup) return;
-            setSelection(lookup.idx, { lock: true, force: true });
-            showOverlayTooltip(point, ev.clientX);
-          }
-        });
-      }
-
-      const handleRowFocus = (event, lock = false) => {
-        const row = event.target.closest('tr[data-cost-row]');
-        if (!row) return;
-        const date = row.dataset.costRow;
-        if (!date) return;
-        const lookup = dateLookup.get(date);
-        if (!lookup) return;
-        setSelection(lookup.idx, { lock, force: lock });
-        if (!lock) hideTooltip();
-      };
-
-      tableBody.addEventListener('mouseover', (event) => handleRowFocus(event, false));
-      tableBody.addEventListener('focusin', (event) => handleRowFocus(event, false));
-      tableBody.addEventListener('mouseleave', () => {
-        hideTooltip();
-        if (lockedIdx !== null) {
-          setSelection(lockedIdx, { lock: false, force: true });
-        }
-      });
-      tableBody.addEventListener('click', (event) => {
-        event.preventDefault();
-        handleRowFocus(event, true);
-      });
-      tableBody.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        handleRowFocus(event, true);
-      });
-    }
-
-    function buildCostPointIndex(history) {
-      const points = Array.isArray(history?.points) ? history.points : [];
-      const indexed = [];
-      points.forEach((pt) => {
-        const dateObj = parseDateOnly(pt?.date);
-        if (!dateObj) return;
-        indexed.push({
-          ...pt,
-          dateObj,
-          x: dateObj.getTime(),
-        });
-      });
-      indexed.sort((a, b) => a.x - b.x);
-      return indexed;
-    }
-
-    function renderCostDetail(point, currency) {
-      if (!point) {
-        return '<div class="muted">Hover the chart or select a day to inspect the exact costs.</div>';
-      }
-      const totalCost = formatMoney(point?.costs?.total ?? 0, currency);
-      const totalTokens = formatNumber(point?.tokens?.total ?? 0);
-      const dateLabel = point.dateObj ? formatShortDate(point.dateObj) : point.date;
-      const chips = COST_SERIES
-        .filter((s) => s.key !== 'total')
-        .map((seriesItem) => {
-          const safeCost = Number.isFinite(point?.costs?.[seriesItem.key]) ? point.costs[seriesItem.key] : 0;
-          const safeTokens = Number.isFinite(point?.tokens?.[seriesItem.key]) ? point.tokens[seriesItem.key] : 0;
-          return `
-            <div class="cost-detail-chip" data-series="${seriesItem.key}">
-              <span>${seriesItem.label}</span>
-              <strong>${formatMoney(safeCost, currency)}</strong>
-              <small>${formatNumber(safeTokens)} tokens</small>
-            </div>
-          `;
-        }).join('');
-      return `
-        <div class="cost-detail-head">
-          <div>
-            <div class="cost-detail-date">${dateLabel}</div>
-            <div class="cost-detail-total">${totalCost}</div>
-          </div>
-          <div class="cost-detail-note">${totalTokens} tokens</div>
-        </div>
-        <div class="cost-detail-chips">${chips}</div>
-      `;
-    }
-
-    function renderCostTooltip(point, currency) {
-      if (!point) return '';
-      const dateLabel = point.dateObj ? formatShortDate(point.dateObj) : point.date;
-      const breakdown = COST_SERIES
-        .filter((s) => s.key !== 'total')
-        .map((seriesItem) => {
-          const safeCost = Number.isFinite(point?.costs?.[seriesItem.key]) ? point.costs[seriesItem.key] : 0;
-          return `<div><span>${seriesItem.label}</span><strong>${formatMoney(safeCost, currency)}</strong></div>`;
-        }).join('');
-      return `
-        <div class="cost-tooltip-date">${dateLabel}</div>
-        <div class="cost-tooltip-total">${formatMoney(point?.costs?.total ?? 0, currency)}</div>
-        <div class="cost-tooltip-breakdown">${breakdown}</div>
-      `;
-    }
-
-    function renderCostTableRows(points, currency) {
-      if (!Array.isArray(points) || points.length === 0) {
-        return '<tr><td colspan="6" class="muted">No cost data yet.</td></tr>';
-      }
-      const rows = [...points]
-        .sort((a, b) => b.x - a.x)
-        .map((pt) => {
-          const dateLabel = pt.dateObj ? formatShortDate(pt.dateObj) : pt.date;
-          const totalTokens = formatNumber(pt?.tokens?.total ?? 0);
-          const col = (key) => formatMoney(pt?.costs?.[key] ?? 0, currency);
-          const tok = (key) => formatNumber(pt?.tokens?.[key] ?? 0);
-          return `
-            <tr data-cost-row="${pt.date}" tabindex="0" aria-selected="false">
-              <td><span class="cost-table-date" title="${pt.date}">${dateLabel}</span></td>
-              <td><strong>${col('total')}</strong></td>
-              <td><span>${col('input')}</span><small>${tok('input')} tok</small></td>
-              <td><span>${col('output')}</span><small>${tok('output')} tok</small></td>
-              <td><span>${col('cached')}</span><small>${tok('cached')} tok</small></td>
-              <td class="tokens-col"><strong>${totalTokens}</strong><small>tokens</small></td>
-            </tr>
-          `;
-        }).join('');
-      return rows;
-    }
-
-    function findNearestCostPoint(points, targetX) {
-      if (!Array.isArray(points) || points.length === 0) return null;
-      let nearest = null;
-      let bestDelta = Infinity;
-      points.forEach((pt) => {
-        const delta = Math.abs(pt.x - targetX);
-        if (delta < bestDelta) {
-          bestDelta = delta;
-          nearest = pt;
-        }
-      });
-      return nearest;
-    }
-
-    function clamp(value, min, max) {
-      if (!Number.isFinite(value)) return min;
-      if (value < min) return min;
-      if (value > max) return max;
-      return value;
-    }
-
-    function normalizeCostHistoryOptions(options = {}) {
-      const source = options && typeof options === 'object' ? options : {};
-      const days = Number.isFinite(Number(source.days))
-        ? Math.max(1, Math.min(180, Math.round(Number(source.days))))
-        : USAGE_HISTORY_DAYS;
-      const intervalRaw = String(source.interval || '').trim().toLowerCase();
-      const interval = ['day', 'week'].includes(intervalRaw) ? intervalRaw : 'day';
-      const groupByRaw = String(source.group_by || source.groupBy || '').trim().toLowerCase();
-      const groupBy = ['component', 'total'].includes(groupByRaw) ? groupByRaw : 'component';
-      const includeTokens = source.include_tokens === false || source.includeTokens === false
-        ? false
-        : true;
-      const from = parseTimestamp(source.from) || null;
-      const until = parseTimestamp(source.until) || null;
-      return {
-        days,
-        interval,
-        group_by: groupBy,
-        include_tokens: includeTokens,
-        from: from ? from.toISOString() : null,
-        until: until ? until.toISOString() : null,
-      };
-    }
-
-    function costHistoryCacheKey(options = {}) {
-      const normalized = normalizeCostHistoryOptions(options);
-      return JSON.stringify(normalized);
-    }
-
-    function costHistoryQueryString(options = {}) {
-      const normalized = normalizeCostHistoryOptions(options);
-      const params = new URLSearchParams();
-      params.set('days', String(normalized.days));
-      params.set('interval', normalized.interval);
-      params.set('group_by', normalized.group_by);
-      params.set('include_tokens', normalized.include_tokens ? '1' : '0');
-      if (normalized.from) params.set('from', normalized.from);
-      if (normalized.until) params.set('until', normalized.until);
-      return params.toString();
-    }
-
-    async function loadCostHistory(force = false, options = {}) {
-      const hasCustomOptions = options && Object.keys(options).length > 0;
-      const cacheKey = costHistoryCacheKey(options);
-      if (!force && !hasCustomOptions && costHistory) return costHistory;
-      if (!force && !hasCustomOptions && costHistoryPromise) return costHistoryPromise;
-      if (!force && costHistoryCache.has(cacheKey)) return costHistoryCache.get(cacheKey);
-      if (!force && costHistoryPromiseCache.has(cacheKey)) return costHistoryPromiseCache.get(cacheKey);
-
-      const url = `/admin/usage/cost-history?${costHistoryQueryString(options)}`;
-      const request = api(url).then((res) => {
-        const data = res?.data || {};
-        const rawPoints = Array.isArray(data.points) ? data.points : [];
-        const normalizeNumber = (value) => {
-          const num = Number(value);
-          return Number.isFinite(num) ? num : 0;
-        };
-        const points = rawPoints.map((pt) => {
-          const date = typeof pt?.date === 'string' ? pt.date : null;
-          if (!date) return null;
-          return {
-            date,
-            costs: {
-              input: normalizeNumber(pt?.costs?.input),
-              output: normalizeNumber(pt?.costs?.output),
-              cached: normalizeNumber(pt?.costs?.cached),
-              total: normalizeNumber(pt?.costs?.total),
-            },
-            tokens: {
-              input: normalizeNumber(pt?.tokens?.input),
-              output: normalizeNumber(pt?.tokens?.output),
-              cached: normalizeNumber(pt?.tokens?.cached),
-              total: normalizeNumber(pt?.tokens?.total),
-            },
-          };
-        }).filter(Boolean);
-
-        const result = {
-          points,
-          series: Array.isArray(data.series) ? data.series : [],
-          currency: data.currency || 'USD',
-          has_pricing: data.has_pricing ?? false,
-          pricing: data.pricing || {},
-          since: data.since || null,
-          from: data.from || data.since || null,
-          until: data.until || null,
-          interval: typeof data.interval === 'string' ? data.interval : 'day',
-          group_by: typeof data.group_by === 'string' ? data.group_by : 'component',
-          include_tokens: data.include_tokens !== false,
-          days: data.days ?? USAGE_HISTORY_DAYS,
-        };
-        costHistoryCache.set(cacheKey, result);
-        if (!hasCustomOptions) {
-          costHistory = result;
-        }
-        return result;
-      }).finally(() => {
-        costHistoryPromiseCache.delete(cacheKey);
-        if (!hasCustomOptions) {
-          costHistoryPromise = null;
-        }
-      });
-
-      costHistoryPromiseCache.set(cacheKey, request);
-      if (!hasCustomOptions) {
-        costHistoryPromise = request;
-      }
-      return request;
-    }
-
-    async function openCostHistory() {
-      if (!costHistoryModal) return;
-      if (costHistorySubtitle) {
-        costHistorySubtitle.textContent = 'Loading cost history…';
-      }
-      if (costHistoryChart) {
-        costHistoryChart.innerHTML = '<div class="muted">Loading…</div>';
-      }
-      if (costHistoryMeta) {
-        costHistoryMeta.textContent = '';
-      }
-      showCostHistoryModal(true);
-      try {
-        const history = await loadCostHistory();
-        const points = Array.isArray(history?.points) ? history.points : [];
-        const startDate = parseTimestamp(history?.since) || parseDateOnly(points[0]?.date);
-        const endDate = parseTimestamp(history?.until) || parseDateOnly(points[points.length - 1]?.date);
-        const latestTotal = Number(points[points.length - 1]?.costs?.total ?? 0);
-        if (points.length === 0) {
-          if (costHistorySubtitle) {
-            costHistorySubtitle.textContent = 'No cost data yet';
-          }
-          if (costHistoryChart) {
-            costHistoryChart.innerHTML = '<div class="muted">No token usage has been recorded yet.</div>';
-          }
-          return;
-        }
-
-        renderCostHistoryChart(history);
-        if (costHistorySubtitle) {
-          costHistorySubtitle.textContent = `Last ${history?.days ?? USAGE_HISTORY_DAYS} days`;
-        }
-        if (costHistoryMeta) {
-          const latestLabel = formatMoney(latestTotal, history?.currency || 'USD');
-          const pricingNote = history?.has_pricing ? '' : ' Pricing missing — costs shown as zero.';
-          costHistoryMeta.textContent = `Showing ${points.length} days from ${formatShortDate(startDate || new Date())} to ${formatShortDate(endDate || new Date())}. Latest total: ${latestLabel}.${pricingNote}`;
-        }
-      } catch (err) {
-        if (costHistorySubtitle) {
-          costHistorySubtitle.textContent = 'Error loading costs';
-        }
-        if (costHistoryChart) {
-          costHistoryChart.innerHTML = `<div class="error">Unable to load cost history: ${escapeHtml(err.message)}</div>`;
         }
       }
     }
@@ -7754,7 +7147,6 @@
 
     function computeDashboardPulse(fleetSummary, {
       runnerInfo = null,
-      monthPercentOfPlan = null,
       quotaHardStop = false,
       quotaLimit = QUOTA_LIMIT_DEFAULT,
     } = {}) {
@@ -7818,18 +7210,6 @@
         }
       } else {
         addRadar('neutral', 'Runner disabled', 'Auth uploads are accepted without live runner validation.');
-      }
-
-      if (Number.isFinite(monthPercentOfPlan)) {
-        if (monthPercentOfPlan >= 100) {
-          score -= 8;
-          addRadar('warn', `${formatPercent(monthPercentOfPlan, 0)} of plan consumed`, 'Estimated monthly spend is at or above plan baseline.');
-        } else if (monthPercentOfPlan >= 85) {
-          score -= 4;
-          addRadar('warn', `${formatPercent(monthPercentOfPlan, 0)} of plan consumed`, 'Spend is approaching plan baseline.');
-        } else if (monthPercentOfPlan <= 55) {
-          addRadar('ok', `Spend efficiency ${formatPercent(monthPercentOfPlan, 0)}`, 'Current API spend remains well below plan baseline.');
-        }
       }
 
       if (quotaHardStop) {
@@ -7916,41 +7296,6 @@
         ? `${clipText(topTokenHost.fqdn || `host #${topTokenHost.id}`, 24)} · ${formatCompactNumber(topTokenHost.token_usage.total)}`
         : 'No host usage yet';
 
-      const currency = typeof safeData?.pricing?.currency === 'string'
-        ? safeData.pricing.currency.toUpperCase()
-        : 'USD';
-      const normalizeCost = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
-      };
-      const dayCost = normalizeCost(safeData?.pricing_day_cost);
-      const weekCost = normalizeCost(safeData?.pricing_week_cost);
-      const monthCost = normalizeCost(safeData?.pricing_month_cost);
-      const subscriptionPlans = safeData?.subscription_plans || {};
-      const planCurrency = typeof subscriptionPlans?.currency === 'string' && subscriptionPlans.currency.trim() !== ''
-        ? subscriptionPlans.currency.trim().toUpperCase()
-        : currency;
-      const planPlusCost = normalizeCost(subscriptionPlans?.plus_cost);
-      const planProCost = normalizeCost(subscriptionPlans?.pro_cost);
-      const planOptions = [];
-      if (planPlusCost > 0) planOptions.push({ key: 'plus', label: 'Plus', cost: planPlusCost });
-      if (planProCost > 0) planOptions.push({ key: 'pro', label: 'Pro', cost: planProCost });
-      const planKeyFromStats = (() => {
-        const planType = safeData?.chatgpt_usage?.plan_type;
-        if (typeof planType !== 'string') return null;
-        const lower = planType.toLowerCase();
-        if (lower.includes('pro')) return 'pro';
-        if (lower.includes('plus')) return 'plus';
-        return null;
-      })();
-      const selectedPlanKey = planOptions.some((p) => p.key === planKeyFromStats)
-        ? planKeyFromStats
-        : (planOptions.some((p) => p.key === 'pro') ? 'pro' : (planOptions[0]?.key ?? null));
-      const selectedPlan = selectedPlanKey ? (planOptions.find((p) => p.key === selectedPlanKey) || null) : null;
-      const planCost = selectedPlan ? selectedPlan.cost : 0;
-      const monthPercentOfPlan = planCost > 0 ? (monthCost / planCost) * 100 : null;
-      const isOverpaying = planCost > 0 && monthCost < planCost;
-
       runnerSummary = runnerInfo;
       const validation = runnerInfo?.latest_validation || null;
       const validationStatus = validation?.status ?? (runnerInfo?.enabled ? 'no runs' : 'disabled');
@@ -7976,7 +7321,6 @@
       const apiState = apiDisabled === true ? 'Disabled' : (apiDisabled === false ? 'Enabled' : 'Unknown');
       const pulse = computeDashboardPulse(fleetSummary, {
         runnerInfo,
-        monthPercentOfPlan,
         quotaHardStop: quotaHardFail,
         quotaLimit: quotaLimitPercent,
       });
@@ -8018,10 +7362,6 @@
       dashboardStatusBar.innerHTML = items;
     }
 
-    let dashboardTrendsHistory = null;
-    let dashboardTrendsLoading = false;
-    const DASHBOARD_TRENDS_DAYS = 30;
-
     function renderTrendSparkline(values) {
       const numeric = (Array.isArray(values) ? values : [])
         .map((v) => Number(v))
@@ -8057,31 +7397,13 @@
     function renderDashboardTrends(overview) {
       if (!dashboardTrends) return;
       const data = overview || {};
-      const currency = (data?.pricing?.currency || 'USD').toString().toUpperCase();
-      const dayCost = Number(data?.pricing_day_cost) || 0;
-      const monthCost = Number(data?.pricing_month_cost) || 0;
       const tokensDayTotal = Number(data?.tokens_day?.total) || 0;
+      const tokensWeekTotal = Number(data?.tokens_week?.total) || 0;
+      const tokensMonthTotal = Number(data?.tokens_month?.total) || 0;
       const hostsTotal = Number(data?.totals?.hosts) || 0;
       const hostsActiveToday = countHostsActiveToday(currentHosts);
-
-      const points = Array.isArray(dashboardTrendsHistory?.points) ? dashboardTrendsHistory.points : [];
-      const recent = points.slice(-DASHBOARD_TRENDS_DAYS);
-      const half = Math.floor(recent.length / 2);
-      const costValues = recent.map((p) => Number(p?.costs?.total) || 0);
-      const tokenValues = recent.map((p) => Number(p?.tokens?.total) || 0);
-
-      const costSum = (arr) => arr.reduce((acc, v) => acc + v, 0);
-      const costRecentSum = costSum(costValues);
-      const costPriorSum = costSum(costValues.slice(0, half));
-      const costLatestSum = costSum(costValues.slice(half));
-      const tokenRecentSum = costSum(tokenValues);
-      const tokenPriorSum = costSum(tokenValues.slice(0, half));
-      const tokenLatestSum = costSum(tokenValues.slice(half));
-
-      const costDelta = formatTrendDelta(costLatestSum, costPriorSum);
-      const tokensDelta = formatTrendDelta(tokenLatestSum, tokenPriorSum);
-
-      const costSpark = renderTrendSparkline(costValues);
+      const tokenValues = [tokensDayTotal, tokensWeekTotal, tokensMonthTotal];
+      const tokensDelta = formatTrendDelta(tokensWeekTotal, tokensMonthTotal);
       const tokensSpark = renderTrendSparkline(tokenValues);
 
       const tile = (label, value, deltaLabel, deltaTone, sparkHtml, subline) => `
@@ -8097,47 +7419,20 @@
       `;
 
       const hostsActive = `${formatNumber(hostsActiveToday)} <span class="dashboard-trend-denom">/ ${formatNumber(hostsTotal)}</span>`;
-      const todayLine = `${formatCurrency(dayCost, currency)} <span class="dashboard-trend-denom">· ${formatCompactNumber(tokensDayTotal)} tok</span>`;
+      const todayLine = `${formatCompactNumber(tokensDayTotal)} <span class="dashboard-trend-denom">tok</span>`;
 
       dashboardTrends.innerHTML = [
         tile(
-          'Cost (30d)',
-          recent.length ? formatCurrency(costRecentSum, currency) : '—',
-          costDelta.label,
-          costDelta.tone,
-          costSpark,
-          recent.length ? `Month-to-date ${formatCurrency(monthCost, currency)}` : 'No cost history yet',
-        ),
-        tile(
-          'Tokens (30d)',
-          recent.length ? formatCompactNumber(tokenRecentSum) : '—',
+          'Tokens (month)',
+          formatCompactNumber(tokensMonthTotal),
           tokensDelta.label,
           tokensDelta.tone,
           tokensSpark,
-          '',
+          `Week ${formatCompactNumber(tokensWeekTotal)}`,
         ),
         tile('Hosts active', hostsActive, '', '', '', 'Online today'),
-        tile('Today', todayLine, '', '', '', 'Spend & tokens'),
+        tile('Today', todayLine, '', '', '', 'Recorded usage'),
       ].join('');
-
-      if (!dashboardTrendsHistory && !dashboardTrendsLoading && isDashboardView()) {
-        refreshDashboardTrends({ force: false });
-      }
-    }
-
-    async function refreshDashboardTrends({ force = false } = {}) {
-      if (!dashboardTrends) return;
-      if (dashboardTrendsLoading && !force) return;
-      dashboardTrendsLoading = true;
-      try {
-        const history = await loadCostHistory(force, { days: DASHBOARD_TRENDS_DAYS, interval: 'day', group_by: 'total', include_tokens: true });
-        dashboardTrendsHistory = history || null;
-        if (lastOverview) renderDashboardTrends(lastOverview);
-      } catch (err) {
-        console.warn('dashboard trends', err);
-      } finally {
-        dashboardTrendsLoading = false;
-      }
     }
 
     function wireRunnerCardControls() {
@@ -9176,10 +8471,8 @@
         const data = res?.data || {};
         const modelEl = document.getElementById('claudeDefaultModel');
         const maxEl = document.getElementById('claudeMaxTokens');
-        const spendEl = document.getElementById('claudeSpendLimit');
         if (modelEl && data.default_model) modelEl.value = data.default_model;
         if (maxEl && typeof data.max_tokens === 'number') maxEl.value = String(data.max_tokens);
-        if (spendEl && typeof data.spend_limit === 'number') spendEl.value = String(data.spend_limit);
       } catch (err) {
         console.error('loadClaudeSettings failed', err);
       }
@@ -9189,13 +8482,11 @@
       const saveBtn = document.getElementById('claudeSettingsSaveBtn');
       const modelEl = document.getElementById('claudeDefaultModel');
       const maxEl = document.getElementById('claudeMaxTokens');
-      const spendEl = document.getElementById('claudeSpendLimit');
       if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
       try {
         const body = {
           default_model: modelEl?.value || 'claude-sonnet-4-6',
           max_tokens: parseInt(maxEl?.value || '8192', 10) || 8192,
-          spend_limit: parseFloat(spendEl?.value || '0') || 0,
         };
         await api('/admin/claude/settings', { method: 'POST', json: body });
         toast('Claude settings saved', 'success');
@@ -9255,7 +8546,6 @@
       const totalInput = Number(totals.input_tokens) || 0;
       const totalOutput = Number(totals.output_tokens) || 0;
       const totalCached = Number(totals.cached_tokens) || 0;
-      const totalCost = Number(totals.cost) || 0;
       const period = usage.period || '24h';
       const fetchedAt = usage.fetched_at ? formatRelative(usage.fetched_at) : 'never';
 
@@ -9268,12 +8558,11 @@
             <td>${formatCompactNumber(Number(m.input_tokens) || 0)}</td>
             <td>${formatCompactNumber(Number(m.output_tokens) || 0)}</td>
             <td>${formatCompactNumber(Number(m.cached_tokens) || 0)}</td>
-            <td>${typeof m.cost === 'number' ? '$' + m.cost.toFixed(4) : '\u2014'}</td>
           </tr>`;
         }).join('');
         modelsHtml = `
           <table class="claude-usage-table">
-            <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached</th><th>Cost</th></tr></thead>
+            <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached</th></tr></thead>
             <tbody>${modelRows}</tbody>
           </table>
         `;
@@ -9306,10 +8595,6 @@
           <div class="claude-usage-stat">
             <div class="stat-label">Cached tokens</div>
             <div class="stat-value">${formatCompactNumber(totalCached)}</div>
-          </div>
-          <div class="claude-usage-stat">
-            <div class="stat-label">Total cost</div>
-            <div class="stat-value">${totalCost > 0 ? '$' + totalCost.toFixed(4) : '\u2014'}</div>
           </div>
         </div>
         ${modelsHtml}
@@ -10068,7 +9353,6 @@
       [claudeRunnerModal,     () => showClaudeRunnerModal(false)],
       [upgradeModal,          () => showUpgradeNotesModal(false)],
       [usageHistoryModal,     () => showUsageHistoryModal(false)],
-      [costHistoryModal,      () => showCostHistoryModal(false)],
       [seedModal,             () => showSeedModal(false)],
       [insecureApprovalModal, () => denyInsecureApproval()],
       [confirmModal,          () => closeConfirmModal(false)],
@@ -10115,14 +9399,6 @@
     }
     if (usageHistoryCloseBtn) {
       usageHistoryCloseBtn.addEventListener('click', () => showUsageHistoryModal(false));
-    }
-    if (costHistoryModal) {
-      costHistoryModal.addEventListener('click', (e) => {
-        if (e.target === costHistoryModal) showCostHistoryModal(false);
-      });
-    }
-    if (costHistoryCloseBtn) {
-      costHistoryCloseBtn.addEventListener('click', () => showCostHistoryModal(false));
     }
     if (insecureApprovalApprove) {
       insecureApprovalApprove.addEventListener('click', () => approveInsecureApproval());

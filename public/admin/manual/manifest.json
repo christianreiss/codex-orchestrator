@@ -77,8 +77,8 @@
       "slug": "dashboard",
       "title": "Dashboard metrics",
       "section": "Admin workspace",
-      "summary": "KPIs, ChatGPT quota lanes, Claude usage, cost history, and how the charts are fed.",
-      "tags": ["dashboard", "usage", "cost"],
+      "summary": "KPIs, ChatGPT quota lanes, Claude usage, usage history, and how the charts are fed.",
+      "tags": ["dashboard", "usage", "usage"],
       "verified": "2026-04-19"
     },
     {

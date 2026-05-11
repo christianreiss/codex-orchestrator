@@ -717,20 +717,6 @@
             <div class="muted panel-meta" id="usageHistoryMeta"></div>
           </div>
         </div>
-        <div class="modal-backdrop" id="costHistoryModal" role="dialog" aria-modal="true">
-          <div class="modal usage-history-modal">
-            <div class="modal-head">
-              <div>
-                <h3>Cost Trend</h3>
-                <p class="muted" id="costHistorySubtitle">Loading…</p>
-              </div>
-              <button class="ghost tiny-btn" id="costHistoryClose">Close</button>
-            </div>
-            <div class="usage-history-chart cost-history-chart" id="costHistoryChart">Loading…</div>
-            <div class="muted panel-meta" id="costHistoryMeta"></div>
-          </div>
-        </div>
-
         <!-- Dashboard -->
         <section class="panel-set dashboard-shell" data-panel="dashboard">
           <div class="dashboard-status-bar" id="dashboardStatusBar" hidden></div>
@@ -1287,11 +1273,10 @@
                           <th class="sortable" data-sort="output">Output</th>
                           <th class="sortable" data-sort="cached">Cached</th>
                           <th class="sortable" data-sort="reasoning">Reasoning</th>
-                          <th class="sortable" data-sort="cost">Cost</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr class="loading-row"><td colspan="8">Loading…</td></tr>
+                        <tr class="loading-row"><td colspan="7">Loading…</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -1511,7 +1496,7 @@
                     <div class="setting-head">
                       <div>
                         <h3>Usage Scaling <span class="pill-quiet" id="scalingBadge">Loading…</span></h3>
-                        <p class="muted panel-subtitle-sm">Step down model on projected overspend.</p>
+                        <p class="muted panel-subtitle-sm">Step down model on projected quota pressure.</p>
                       </div>
                       <label class="toggle" for="scalingToggle">
                         <input type="checkbox" id="scalingToggle">
@@ -1747,7 +1732,7 @@
                           <div class="prune-window-value" id="logRetentionDaysGraphStatsLabel">180 days</div>
                         </div>
                         <input type="range" min="1" max="365" step="1" value="180" id="logRetentionDaysGraphStatsSlider" class="prune-window-slider">
-                        <p class="muted prune-window-foot">Dashboard quota and cost chart history survives verbose log cleanup here.</p>
+                        <p class="muted prune-window-foot">Dashboard quota chart history survives verbose log cleanup here.</p>
                       </div>
                       <p class="muted prune-window-foot">Cleanup runs automatically during auth/register cycles. Disabled = keep forever.</p>
                     </div>
@@ -2025,11 +2010,6 @@
                     <label class="modal-label" for="claudeMaxTokens">Default Max Tokens</label>
                     <input type="number" id="claudeMaxTokens" value="8192" min="256" max="200000">
                   </div>
-                  <div class="field">
-                    <label class="modal-label" for="claudeSpendLimit">Monthly Spend Limit (USD)</label>
-                    <input type="number" id="claudeSpendLimit" value="0" min="0" step="10" placeholder="0 = unlimited">
-                    <p class="panel-subtitle-sm">Set to 0 for no spend cap. Quota policy (hard fail) applies when reached.</p>
-                  </div>
                 </div>
               </div>
               <div class="config-card" style="margin-top:14px" data-config-card="claude-usage" data-config-title="Usage">
@@ -2037,15 +2017,7 @@
                   <h3 style="margin:0;">Claude Usage &amp; Quotas</h3>
                 </div>
                 <div class="config-card-body" id="claudeUsagePanel">
-                  <p class="muted">Claude usage tracking is active. Token costs are tracked per-host using current model pricing.</p>
-                  <table class="tbl" style="margin-top:0.5rem">
-                    <thead><tr><th>Model</th><th>Input / 1K</th><th>Output / 1K</th><th>Cached / 1K</th></tr></thead>
-                    <tbody>
-                      <tr><td>Opus 4.6</td><td>$0.015</td><td>$0.075</td><td>$0.0075</td></tr>
-                      <tr><td>Sonnet 4.6</td><td>$0.003</td><td>$0.015</td><td>$0.0015</td></tr>
-                      <tr><td>Haiku 4.5</td><td>$0.0008</td><td>$0.004</td><td>$0.0004</td></tr>
-                    </tbody>
-                  </table>
+                  <p class="muted">Claude usage tracking records token totals per host and model.</p>
                 </div>
               </div>
               <div class="config-card" style="margin-top:14px" data-config-card="claude-runner" data-config-title="Runner">
@@ -2788,7 +2760,6 @@
     const claudeToggleLabel = document.getElementById('claudeApiToggleLabel');
     const claudeDefaultModel = document.getElementById('claudeDefaultModel');
     const claudeMaxTokens = document.getElementById('claudeMaxTokens');
-    const claudeSpendLimit = document.getElementById('claudeSpendLimit');
     const claudeSaveBtn = document.getElementById('claudeSettingsSaveBtn');
     let claudeLoaded = false;
 
@@ -2800,7 +2771,6 @@
           const d = json.data;
           if (claudeDefaultModel) claudeDefaultModel.value = d.default_model || 'claude-sonnet-4-6';
           if (claudeMaxTokens) claudeMaxTokens.value = d.max_tokens || 8192;
-          if (claudeSpendLimit) claudeSpendLimit.value = d.spend_limit || 0;
           if (claudeToggle) {
             claudeToggle.checked = !d.disabled;
             claudeToggle.disabled = false;
@@ -2836,7 +2806,6 @@
           const body = {
             default_model: claudeDefaultModel ? claudeDefaultModel.value : 'claude-sonnet-4-6',
             max_tokens: parseInt(claudeMaxTokens ? claudeMaxTokens.value : '8192', 10),
-            spend_limit: parseFloat(claudeSpendLimit ? claudeSpendLimit.value : '0'),
           };
           const json = await api('/admin/claude/settings', { method: 'POST', json: body });
           if (json.status === 'ok') {

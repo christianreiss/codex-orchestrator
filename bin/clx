@@ -1726,9 +1726,8 @@ clx_apply_model_override() {
   fi
 }
 
-# ── Claude Quota & Usage Tracking ─────────────────────────────
-# Checks quota policy from orchestrator and enforces limits.
-# The quota policy (hard fail, limit percent) applies to both CDX and CLX.
+# ── Claude Quota Policy Sync ─────────────────────────────────
+# Checks quota policy from orchestrator and caches it for display/status.
 
 CLX_QUOTA_CACHE="${CLX_CACHE_DIR}/quota_status.json"
 
@@ -1740,43 +1739,13 @@ clx_check_quota() {
   local response=""
   response=$(clx_curl "${CLAUDE_SYNC_BASE_URL}/versions" 2>/dev/null) || return 0
 
-  local quota_hard_fail=""
-  quota_hard_fail="$(printf '%s' "$response" | jq -r '.data.quota_hard_fail // false' 2>/dev/null || echo "false")"
-
-  local quota_limit_percent=""
-  quota_limit_percent="$(printf '%s' "$response" | jq -r '.data.quota_limit_percent // 100' 2>/dev/null || echo "100")"
-
   # Store quota status for later reference.
   printf '%s' "$response" | jq '{
     quota_hard_fail: .data.quota_hard_fail,
     quota_limit_percent: .data.quota_limit_percent,
     checked_at: now | todate
   }' > "$CLX_QUOTA_CACHE" 2>/dev/null || true
-
-  # Check Claude-specific usage from auth response.
-  local claude_usage=""
-  claude_usage="$(printf '%s' "$response" | jq '.data.claude_usage // empty' 2>/dev/null || true)"
-
-  if [[ -n "$claude_usage" ]] && [[ "$claude_usage" != "null" ]]; then
-    local spend_used=""
-    spend_used="$(printf '%s' "$claude_usage" | jq -r '.spend_used // 0' 2>/dev/null || echo "0")"
-    local spend_limit=""
-    spend_limit="$(printf '%s' "$claude_usage" | jq -r '.spend_limit // 0' 2>/dev/null || echo "0")"
-
-    if [[ "$spend_limit" != "0" ]] && [[ "$spend_limit" != "null" ]]; then
-      local spend_pct
-      spend_pct=$(awk "BEGIN { printf \"%.0f\", ($spend_used / $spend_limit) * 100 }" 2>/dev/null || echo "0")
-      if (( spend_pct >= quota_limit_percent )); then
-        log_warn "Claude API spend: \$${spend_used} of \$${spend_limit} (${spend_pct}%)"
-        if [[ "$quota_hard_fail" == "true" ]]; then
-          log_error "Quota limit reached. Contact your administrator to continue."
-          exit 1
-        fi
-      fi
-    fi
-  fi
 }
-
 
 # ── Claude Startup Bundle (atomic agents+config+auth sync) ────
 # When enabled (CLX_USE_STARTUP_BUNDLE=1), a single POST to /sync/bootstrap
@@ -1945,8 +1914,6 @@ clx_startup_bundle_pull() {
 USAGE_PUSH_RESULT=""
 USAGE_PUSH_REASON=""
 USAGE_PUSH_SUMMARY=""
-USAGE_PUSH_COST=""
-USAGE_PUSH_COST_REASON=""
 last_usage_payload=""
 
 extract_claude_usage_from_session_jsonl() {
@@ -2212,18 +2179,17 @@ def format_summary(data: dict) -> str:
 
 
 def parse_response_fields(body_text: str):
-    cost_value = ""
     recorded_value = ""
     reason_value = ""
     try:
         parsed = json.loads(body_text)
     except Exception:
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
     if not isinstance(parsed, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
     data = parsed.get("data")
     if not isinstance(data, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
 
     recorded = data.get("recorded")
     if isinstance(recorded, bool):
@@ -2235,16 +2201,7 @@ def parse_response_fields(body_text: str):
     if isinstance(reason, str) and reason.strip():
         reason_value = reason.strip()
 
-    cost = data.get("cost")
-    if isinstance(cost, (int, float)):
-        cost_value = f"{float(cost):.6f}"
-    elif isinstance(cost, str):
-        try:
-            cost_value = f"{float(cost.strip()):.6f}"
-        except Exception:
-            cost_value = ""
-
-    return cost_value, recorded_value, reason_value
+    return recorded_value, reason_value
 
 
 def is_timeout_error(exc: Exception) -> bool:
@@ -2267,10 +2224,8 @@ for ctx in build_ssl_contexts():
             raise TimeoutError("request timed out")
         with urllib.request.urlopen(req, timeout=max(0.1, remaining), context=ctx) as resp:
             body_text = resp.read(65536).decode("utf-8", "replace")
-            cost_val, recorded_val, reason_val = parse_response_fields(body_text)
+            recorded_val, reason_val = parse_response_fields(body_text)
             print(f"summary={format_summary(payload)}")
-            if cost_val:
-                print(f"cost={cost_val}")
             if recorded_val:
                 print(f"recorded={recorded_val}")
             if reason_val:
@@ -2314,7 +2269,6 @@ post_claude_usage_payload() {
   local output=""
   local line=""
   local summary=""
-  local cost=""
   local recorded=""
   local reason=""
   local retryable="false"
@@ -2322,25 +2276,20 @@ post_claude_usage_payload() {
   USAGE_PUSH_RESULT=""
   USAGE_PUSH_REASON=""
   USAGE_PUSH_SUMMARY="$(parse_claude_usage_summary "$payload_json")"
-  USAGE_PUSH_COST=""
-  USAGE_PUSH_COST_REASON=""
 
   if [[ -z "$payload_json" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no usage payload"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$CLAUDE_SYNC_API_KEY" || -z "$CLAUDE_SYNC_BASE_URL" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API key or base URL missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="python3 missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
 
@@ -2348,7 +2297,6 @@ post_claude_usage_payload() {
   while IFS= read -r line; do
     case "$line" in
       summary=*) summary="${line#summary=}" ;;
-      cost=*) cost="${line#cost=}" ;;
       recorded=*) recorded="${line#recorded=}" ;;
       reason=*) reason="${line#reason=}" ;;
       retryable=*) retryable="${line#retryable=}" ;;
@@ -2367,23 +2315,16 @@ post_claude_usage_payload() {
     if [[ "$recorded" == "false" ]]; then
       USAGE_PUSH_RESULT="failed"
       USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-      USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
       return 1
     fi
     USAGE_PUSH_RESULT="ok"
     USAGE_PUSH_REASON="recorded"
-    if [[ -n "$cost" ]]; then
-      USAGE_PUSH_COST="$cost"
-    else
-      USAGE_PUSH_COST_REASON="server did not return cost"
-    fi
     return 0
   fi
 
   if ((status == 40)); then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API disabled by administrator"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -2427,7 +2368,6 @@ PY
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       status=0
       summary=""
-      cost=""
       recorded=""
       reason=""
       retryable="false"
@@ -2435,7 +2375,6 @@ PY
       while IFS= read -r line; do
         case "$line" in
           summary=*) summary="${line#summary=}" ;;
-          cost=*) cost="${line#cost=}" ;;
           recorded=*) recorded="${line#recorded=}" ;;
           reason=*) reason="${line#reason=}" ;;
           retryable=*) retryable="${line#retryable=}" ;;
@@ -2454,21 +2393,14 @@ PY
         if [[ "$recorded" == "false" ]]; then
           USAGE_PUSH_RESULT="failed"
           USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-          USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
           return 1
         fi
         USAGE_PUSH_RESULT="ok"
         USAGE_PUSH_REASON="recorded (fallback)"
-        if [[ -n "$cost" ]]; then
-          USAGE_PUSH_COST="$cost"
-        else
-          USAGE_PUSH_COST_REASON="server did not return cost"
-        fi
         return 0
       elif ((status == 40)); then
         USAGE_PUSH_RESULT="skipped"
         USAGE_PUSH_REASON="API disabled by administrator"
-        USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
         return 0
       fi
       [[ -z "$primary_err" ]] && primary_err="${reason:-$output}"
@@ -2480,7 +2412,6 @@ PY
   fi
   USAGE_PUSH_RESULT="failed"
   USAGE_PUSH_REASON="$primary_err"
-  USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
   return 1
 }
 
@@ -2552,16 +2483,12 @@ send_claude_usage_from_session_jsonl() {
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="session JSONL extraction failed"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -3423,49 +3350,6 @@ print_boot_screen() {
 
   printf "\n  %s\n" "$dots"
 
-  # ── Spend quota bar ──
-  # Globals set by 05-main-42-quota.sh.
-  local has_quota=0
-  local spend_used="${CLAUDE_SPEND_USED:-}"
-  local spend_limit="${CLAUDE_SPEND_LIMIT:-}"
-  local spend_pct="${CLAUDE_SPEND_PCT:-}"
-  local spend_reset_after="${CLAUDE_SPEND_RESET_AFTER:-}"
-
-  [[ "$spend_pct" =~ ^[0-9]+$ ]] && has_quota=1
-
-  if ((has_quota)); then
-    printf "\n"
-
-    local bar_w="${QUOTA_BAR_WIDTH:-24}"
-    local pct=$spend_pct
-    ((pct < 0)) && pct=0
-    ((pct > 100)) && pct=100
-
-    local bar
-    bar="$(build_quota_bar "$pct" "$bar_w")"
-
-    local pct_tone="green"
-    ((pct >= 95)) && pct_tone="red"
-    ((pct >= 80 && pct < 95)) && pct_tone="orange"
-    local pct_display
-    printf -v pct_display "%3d%%" "$pct"
-    pct_display="$(colorize "$pct_display" "$pct_tone")"
-
-    local dur=""
-    [[ "$spend_reset_after" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "$spend_reset_after")"
-
-    local spend_label="spend"
-    local padded_label
-    padded_label="$(pad_visible_text_right "$spend_label" 6)"
-    printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"
-    if [[ -n "$dur" ]]; then
-      printf "  %s" "$dur"
-    fi
-    if [[ -n "$spend_used" ]] && [[ -n "$spend_limit" ]]; then
-      printf "  %b\$%s / \$%s%b" "${DIM}" "$spend_used" "$spend_limit" "${RESET}"
-    fi
-    printf "\n"
-  fi
 }
 
 # ── CLX Doctor Diagnostic Report ──────────────────────────────
@@ -3916,10 +3800,6 @@ remote_tag="${remote_tag:-}"
 remote_version="${remote_version:-}"
 skip_update_reason="${skip_update_reason:-}"
 
-# Claude spend-based quota variables (from quota fragment).
-CLAUDE_SPEND_USED="${CLAUDE_SPEND_USED:-}"
-CLAUDE_SPEND_LIMIT="${CLAUDE_SPEND_LIMIT:-}"
-
 # ── Version labels ────────────────────────────────────────────
 
 claude_target_label="${claude_target_label:-${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}}"
@@ -4208,8 +4088,7 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   config_tone="red"
 fi
 
-# ── Quota (spend-based) ──────────────────────────────────────
-# Claude uses a single spend pool, not ChatGPT lanes.
+# ── Quota policy ──────────────────────────────────────────────
 
 quota_limit="$QUOTA_LIMIT_PERCENT"
 if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
@@ -4222,28 +4101,8 @@ elif ((quota_limit > 100)); then
 fi
 QUOTA_LIMIT_PERCENT="$quota_limit"
 
-quota_warn_threshold=$((quota_limit - 10))
-if ((quota_warn_threshold < 0)); then
-  quota_warn_threshold=0
-fi
-
 quota_reasons=()
 quota_warnings=()
-
-if [[ -n "$CLAUDE_SPEND_USED" && -n "$CLAUDE_SPEND_LIMIT" ]] \
-   && [[ "$CLAUDE_SPEND_LIMIT" != "0" && "$CLAUDE_SPEND_LIMIT" != "null" ]]; then
-  spend_pct=$(awk "BEGIN { printf \"%.0f\", ($CLAUDE_SPEND_USED / $CLAUDE_SPEND_LIMIT) * 100 }" 2>/dev/null || echo "0")
-
-  if [[ "$spend_pct" =~ ^[0-9]+$ ]]; then
-    if ((spend_pct >= quota_limit)); then
-      reason="spend quota reached (\$${CLAUDE_SPEND_USED} of \$${CLAUDE_SPEND_LIMIT}, ${spend_pct}%)"
-      quota_reasons+=("$reason")
-    elif ((spend_pct >= quota_warn_threshold)); then
-      reason="spend quota high (\$${CLAUDE_SPEND_USED} of \$${CLAUDE_SPEND_LIMIT}, ${spend_pct}%)"
-      quota_warnings+=("$reason")
-    fi
-  fi
-fi
 
 if ((${#quota_reasons[@]})); then
   QUOTA_BLOCKED=1
@@ -4497,12 +4356,8 @@ if ((QUOTA_BLOCKED)); then
   command_tone="red"
 fi
 
-# ── CLX Quota Display & Enforcement ───────────────────────────
-# Fetches Claude spend data, computes quota state, and builds the
-# display segment for the boot screen.
-#
-# Claude uses a single spend pool (no lanes, no primary/secondary
-# windows, no daily budget partitioning).
+# ── CLX Quota Policy Display ─────────────────────────────────
+# Fetches quota policy values used by status/doctor output.
 
 # Apply quota policy values from a source (cache or API response).
 _clx_apply_quota_policy() {
@@ -4515,80 +4370,23 @@ _clx_apply_quota_policy() {
   [[ "$limit_pct" =~ ^[0-9]+$ ]] && QUOTA_LIMIT_PERCENT="$limit_pct"
 }
 
-# ── Fetch spend data ─────────────────────────────────────────
-_clx_spend_used=""
-_clx_spend_limit=""
-_clx_spend_reset_after=""
-
 if [[ -f "${CLX_QUOTA_CACHE:-}" ]]; then
-  _clx_spend_used="$(jq -r '.spend_used // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
-  _clx_spend_limit="$(jq -r '.spend_limit // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
-  _clx_spend_reset_after="$(jq -r '.spend_reset_after // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
   _clx_apply_quota_policy \
     "$(jq -r '.quota_hard_fail // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)" \
     "$(jq -r '.quota_limit_percent // empty' "$CLX_QUOTA_CACHE" 2>/dev/null || true)"
 fi
 
-if [[ -z "$_clx_spend_used" ]] && [[ -n "$CLAUDE_SYNC_BASE_URL" ]] && [[ -n "$CLAUDE_SYNC_API_KEY" ]]; then
+if [[ -n "$CLAUDE_SYNC_BASE_URL" ]] && [[ -n "$CLAUDE_SYNC_API_KEY" ]]; then
   _clx_versions_resp="$(clx_curl "${CLAUDE_SYNC_BASE_URL}/versions" 2>/dev/null || true)"
   if [[ -n "$_clx_versions_resp" ]]; then
-    _clx_claude_usage="$(printf '%s' "$_clx_versions_resp" | jq '.data.claude_usage // empty' 2>/dev/null || true)"
-    if [[ -n "$_clx_claude_usage" ]] && [[ "$_clx_claude_usage" != "null" ]]; then
-      _clx_spend_used="$(printf '%s' "$_clx_claude_usage" | jq -r '.spend_used // empty' 2>/dev/null || true)"
-      _clx_spend_limit="$(printf '%s' "$_clx_claude_usage" | jq -r '.spend_limit // empty' 2>/dev/null || true)"
-      _clx_spend_reset_after="$(printf '%s' "$_clx_claude_usage" | jq -r '.spend_reset_after // empty' 2>/dev/null || true)"
-    fi
     _clx_apply_quota_policy \
       "$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_hard_fail // empty' 2>/dev/null || true)" \
       "$(printf '%s' "$_clx_versions_resp" | jq -r '.data.quota_limit_percent // empty' 2>/dev/null || true)"
   fi
 fi
 
-CLAUDE_SPEND_USED="$_clx_spend_used"
-CLAUDE_SPEND_LIMIT="$_clx_spend_limit"
-CLAUDE_SPEND_RESET_AFTER="$_clx_spend_reset_after"
-CLAUDE_SPEND_PCT=""
-
-if [[ -n "$CLAUDE_SPEND_USED" ]] && [[ -n "$CLAUDE_SPEND_LIMIT" ]] \
-   && [[ "$CLAUDE_SPEND_LIMIT" != "0" ]] && [[ "$CLAUDE_SPEND_LIMIT" != "null" ]]; then
-  CLAUDE_SPEND_PCT=$(awk "BEGIN {
-    v = ($CLAUDE_SPEND_USED / $CLAUDE_SPEND_LIMIT) * 100
-    printf \"%.0f\", (v < 0 ? 0 : v)
-  }" 2>/dev/null || echo "")
-fi
-
-# ── Build quota display segment ──────────────────────────────
 quota_lane_display="standard"
 primary_quota_segment=""
-
-if [[ "$CLAUDE_SPEND_PCT" =~ ^[0-9]+$ ]]; then
-  _q_pct=$CLAUDE_SPEND_PCT
-  ((_q_pct > 100)) && _q_pct=100
-
-  _q_bar="$(build_quota_bar "$_q_pct" "${QUOTA_BAR_WIDTH:-24}")"
-
-  _q_tone="green"
-  ((_q_pct >= 95)) && _q_tone="red"
-  ((_q_pct >= 80 && _q_pct < 95)) && _q_tone="orange"
-
-  printf -v _q_text "%3d%% [%s]" "$_q_pct" "$_q_bar"
-
-  _q_note_parts=()
-  if [[ -n "$CLAUDE_SPEND_USED" ]] && [[ -n "$CLAUDE_SPEND_LIMIT" ]]; then
-    _q_note_parts+=("\$${CLAUDE_SPEND_USED} / \$${CLAUDE_SPEND_LIMIT}")
-  fi
-  if [[ "$CLAUDE_SPEND_RESET_AFTER" =~ ^[0-9]+$ ]]; then
-    _q_dur="$(format_duration_short "$CLAUDE_SPEND_RESET_AFTER")"
-    [[ -n "$_q_dur" ]] && _q_note_parts+=("resets in ${_q_dur}")
-  fi
-
-  primary_quota_segment="$(colorize "$_q_text" "$_q_tone")"
-  if ((${#_q_note_parts[@]})); then
-    _q_note_disp=""
-    printf -v _q_note_disp "%b" "${DIM}$(join_with_semicolon "${_q_note_parts[@]}")${RESET}"
-    primary_quota_segment+=" ${_q_note_disp}"
-  fi
-fi
 
 # ── CLX Display ───────────────────────────────────────────────
 # Concurrent session display, status/doctor gates, minimal output.

@@ -161,7 +161,6 @@ Registered in `public/index.php`. Method + regex + the PHP callable.
 | GET | `/admin/tokens` | `AdminOverviewController::tokens` |
 | GET | `/admin/usage` | `AdminOverviewController::usage` |
 | GET | `/admin/usage/ingests` | `AdminOverviewController::usageIngests` |
-| GET | `/admin/usage/cost-history` | `AdminOverviewController::usageCostHistory` |
 | GET | `/admin/chatgpt/usage` | `AdminOverviewController::chatgptUsage` |
 | GET | `/admin/chatgpt/usage/history` | `AdminOverviewController::chatgptUsageHistory` |
 | POST | `/admin/chatgpt/usage/refresh` | `AdminOverviewController::chatgptUsageRefresh` |
@@ -240,7 +239,7 @@ Every project endpoint lives on `AdminProjectController` and mirrors the host-fa
 
 ### OpenAI- and Anthropic-compatible APIs
 
-Under `/v1/*` — `OpenAiApiController` — and `/anthropic/v1/*` — `ClaudeApiController`. Each supports `chat/completions`, `responses`, `completions`, `embeddings`, `models`, plus CORS `OPTIONS`. Authentication is by `sk-coco-…` API key; the endpoints proxy through the shared runner with quota and cost accounting.
+Under `/v1/*` — `OpenAiApiController` — and `/anthropic/v1/*` — `ClaudeApiController`. Each supports `chat/completions`, `responses`, `completions`, `embeddings`, `models`, plus CORS `OPTIONS`. Authentication is by `sk-coco-…` API key; the endpoints proxy through the shared runner with quota accounting.
 
 ## Source references
 

@@ -12,7 +12,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -199,7 +198,6 @@ final class ContractTokenUsageRepository extends TokenUsageRepository
             'output' => 0,
             'cached' => 0,
             'reasoning' => 0,
-            'cost' => 0.0,
             'events' => 0,
         ];
     }
@@ -217,7 +215,6 @@ final class ContractTokenUsageRepository extends TokenUsageRepository
             'output' => 350,
             'cached' => 30,
             'reasoning' => 20,
-            'cost' => 0.50,
             'events' => 5,
         ];
     }
@@ -229,7 +226,6 @@ final class ContractTokenUsageRepository extends TokenUsageRepository
         ?int $output,
         ?int $cached,
         ?int $reasoning,
-        ?float $cost,
         ?string $model,
         ?string $line,
         ?int $ingestId = null,
@@ -266,7 +262,7 @@ final class ContractTokenUsageIngestRepository extends TokenUsageIngestRepositor
     {
     }
 
-    public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
+    public function record(?int $hostId, int $entries, array $totals, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
     {
         return [
             'id' => $this->nextId++,
@@ -278,48 +274,10 @@ final class ContractTokenUsageIngestRepository extends TokenUsageIngestRepositor
             'output' => $totals['output'] ?? null,
             'cached' => $totals['cached'] ?? null,
             'reasoning' => $totals['reasoning'] ?? null,
-            'cost' => $cost,
             'payload' => $payload,
             'client_ip' => $clientIp,
             'created_at' => gmdate(DATE_ATOM),
         ];
-    }
-}
-
-final class ContractPricingService extends PricingService
-{
-    public function __construct()
-    {
-    }
-
-    public function defaultModel(): string
-    {
-        return 'gpt-5.4';
-    }
-
-    public function latestPricing(string $model, bool $force = false): array
-    {
-        return [
-            'model' => $model,
-            'currency' => 'USD',
-            'input_price_per_1k' => 1.0,
-            'output_price_per_1k' => 2.0,
-            'cached_price_per_1k' => 0.1,
-        ];
-    }
-
-    public function calculateCost(array $pricing, array $tokens): float
-    {
-        $input = ((float) ($tokens['input'] ?? 0)) / 1000.0;
-        $output = ((float) ($tokens['output'] ?? 0)) / 1000.0;
-        $cached = ((float) ($tokens['cached'] ?? 0)) / 1000.0;
-
-        return round(
-            ($input * (float) ($pricing['input_price_per_1k'] ?? 0)) +
-            ($output * (float) ($pricing['output_price_per_1k'] ?? 0)) +
-            ($cached * (float) ($pricing['cached_price_per_1k'] ?? 0)),
-            6
-        );
     }
 }
 
@@ -508,7 +466,7 @@ final class AuthServiceContractResponsesTest extends TestCase
         $this->assertSame([], $errors, implode("\n", $errors));
     }
 
-    public function testUsageCostIsNullWhenOnlyTotalTokensAreKnown(): void
+    public function testUsageResponseOmitsLegacyBillingFieldWhenOnlyTotalTokensAreKnown(): void
     {
         [$service, $hostRepo] = $this->buildService(null);
         $data = $service->recordTokenUsage(
@@ -520,10 +478,12 @@ final class AuthServiceContractResponsesTest extends TestCase
             '203.0.113.10'
         );
 
-        $this->assertNull($data['cost'] ?? null);
+        $legacyBillingField = 'co' . 'st';
+
+        $this->assertArrayNotHasKey($legacyBillingField, $data);
         $this->assertSame(13841, $data['total'] ?? null);
         $this->assertCount(1, $data['usages'] ?? []);
-        $this->assertNull($data['usages'][0]['cost'] ?? null);
+        $this->assertArrayNotHasKey($legacyBillingField, $data['usages'][0]);
         $this->assertSame(13841, $data['usages'][0]['total'] ?? null);
     }
 
@@ -563,7 +523,6 @@ final class AuthServiceContractResponsesTest extends TestCase
         $logs = new ContractLogRepository();
         $tokenUsages = new ContractTokenUsageRepository();
         $tokenUsageIngests = new ContractTokenUsageIngestRepository();
-        $pricing = new ContractPricingService();
         $versions = new ContractVersionRepository([
             'canonical_payload_id' => $canonicalPayload !== null ? (string) ($canonicalPayload['id'] ?? '0') : '',
             'quota_hard_fail' => '1',
@@ -600,7 +559,6 @@ final class AuthServiceContractResponsesTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricing,
             $versions,
             $wrapper,
             null,

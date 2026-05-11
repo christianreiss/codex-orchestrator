@@ -24,7 +24,7 @@ final class AdminDashboardGraphControlsTest extends TestCase
         $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
         $this->assertIsString($js);
         $this->assertStringContainsString('function renderDashboardTrends(', $js);
-        $this->assertStringContainsString('function refreshDashboardTrends(', $js);
+        $this->assertStringNotContainsString('function refreshDashboardTrends(', $js);
         $this->assertStringContainsString('function renderTrendSparkline(', $js);
         $this->assertStringContainsString('class="dashboard-trend-tile"', $js);
         $this->assertStringNotContainsString('renderDashboardGrid', $js);

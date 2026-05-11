@@ -31,13 +31,6 @@
             "null"
           ]
         },
-        "cost": {
-          "type": [
-            "number",
-            "integer",
-            "null"
-          ]
-        },
         "usages": {
           "type": "array",
           "items": {
@@ -50,7 +43,6 @@
               "output",
               "cached",
               "reasoning",
-              "cost",
               "model"
             ],
             "properties": {
@@ -93,13 +85,6 @@
                   "null"
                 ]
               },
-              "cost": {
-                "type": [
-                  "number",
-                  "integer",
-                  "null"
-                ]
-              },
               "model": {
                 "type": [
                   "string",
@@ -120,7 +105,6 @@
             "recorded",
             "host_id",
             "ingest_id",
-            "cost",
             "usages"
           ],
           "properties": {

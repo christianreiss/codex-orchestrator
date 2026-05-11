@@ -35,7 +35,7 @@ For large deltas the wrapper uses `POST /sync/bootstrap` which returns everythin
 
 ## Reporting back
 
-When a wrapped CLI exits, the wrapper sends a usage report to `POST /usage` (`HostApiController::recordUsage`) with token counts and per-model cost input. `HostApiController::recordUsers` reports the set of OS users observed during the run. These feed the cost charts on the dashboard.
+When a wrapped CLI exits, the wrapper sends a usage report to `POST /usage` (`HostApiController::recordUsage`) with token counts. `HostApiController::recordUsers` reports the set of OS users observed during the run. These feed the usage charts on the dashboard.
 
 On successful first sync after registration, the wrapper reports its capability set — which engines it can actually run — so the admin UI can hide irrelevant settings per host (e.g. Claude model select on a Codex-only host).
 
@@ -59,7 +59,7 @@ cdx "prompt text"
  ├─ POST /sync/status → response says "all up to date"
  │    (or) fetch new auth / agents / skills / wrapper
  ├─ exec codex "prompt text" (real OpenAI CLI, now authenticated from ~/.codex/auth.json)
- └─ POST /usage    → server records token counts and cost
+ └─ POST /usage    → server records token counts
 ```
 
 `clx` is the same shape but `exec`s Claude instead.

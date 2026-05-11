@@ -38,7 +38,7 @@ Admin routes require both a valid admin session cookie and mTLS fingerprint (`X-
 
 8) Usage logging
 - Missing fields → `422`: `curl -s -X POST http://localhost:8488/usage -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' -d '{}'`
-- Success (`200`) returns `status=ok` with `data.recorded`, `data.usages`, and aggregate `data.cost`: `curl -s -X POST http://localhost:8488/usage -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' -d '{"line":"Token usage: total=10 input=6 output=4"}'`
+- Success (`200`) returns `status=ok` with `data.recorded` and `data.usages`: `curl -s -X POST http://localhost:8488/usage -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' -d '{"line":"Token usage: total=10 input=6 output=4"}'`
 - Ingestion exceptions still return `200` with `data.recorded=false` and `data.reason="usage ingestion failed"`.
 
 9) Admin visibility

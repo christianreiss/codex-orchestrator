@@ -88,58 +88,5 @@ class EngineMigration implements MigrationInterface
         // ── insecure_auth_requests ────────────────────────────
         $this->ensureColumnExists($pdo, $databaseName, 'insecure_auth_requests', 'engine', "VARCHAR(16) NOT NULL DEFAULT 'codex'");
 
-        // ── Claude pricing defaults ───────────────────────────
-        // Seed pricing for Claude models if not already present.
-        $this->seedClaudePricing($pdo);
-    }
-
-    private function seedClaudePricing(PDO $pdo): void
-    {
-        $models = [
-            [
-                'model' => 'claude-opus-4-6',
-                'input_price_per_1k' => 0.015,
-                'output_price_per_1k' => 0.075,
-                'cached_price_per_1k' => 0.0075,
-            ],
-            [
-                'model' => 'claude-sonnet-4-6',
-                'input_price_per_1k' => 0.003,
-                'output_price_per_1k' => 0.015,
-                'cached_price_per_1k' => 0.0015,
-            ],
-            [
-                'model' => 'claude-haiku-4-5',
-                'input_price_per_1k' => 0.0008,
-                'output_price_per_1k' => 0.004,
-                'cached_price_per_1k' => 0.0004,
-            ],
-        ];
-
-        $now = gmdate(DATE_ATOM);
-
-        foreach ($models as $m) {
-            $check = $pdo->prepare('SELECT COUNT(*) FROM pricing_snapshots WHERE model = :model');
-            $check->execute(['model' => $m['model']]);
-
-            if ((int) $check->fetchColumn() > 0) {
-                continue;
-            }
-
-            $insert = $pdo->prepare(
-                'INSERT INTO pricing_snapshots (model, currency, input_price_per_1k, output_price_per_1k, cached_price_per_1k, source_url, fetched_at, created_at)
-                 VALUES (:model, :currency, :input, :output, :cached, :source, :fetched, :created)'
-            );
-            $insert->execute([
-                'model' => $m['model'],
-                'currency' => 'USD',
-                'input' => $m['input_price_per_1k'],
-                'output' => $m['output_price_per_1k'],
-                'cached' => $m['cached_price_per_1k'],
-                'source' => 'https://docs.anthropic.com/en/docs/about-claude/pricing',
-                'fetched' => $now,
-                'created' => $now,
-            ]);
-        }
     }
 }

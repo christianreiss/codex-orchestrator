@@ -12,7 +12,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\RunnerValidationService;
 use App\Services\RunnerVerifier;
 use App\Services\WrapperService;
@@ -70,11 +69,9 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
             'output' => 0,
             'cached' => 0,
             'reasoning' => 0,
-            'cost' => 0.0,
             'events' => 0,
         ]);
         $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
-        $pricing = $this->createMock(PricingService::class);
 
         if ($versions === null) {
             $versions = $this->createMock(VersionRepository::class);
@@ -102,7 +99,6 @@ final class AuthServiceRunnerStoreGateTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricing,
             $versions,
             $wrapper,
             null,

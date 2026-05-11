@@ -15,7 +15,7 @@ This doc walks through setting up the Codex Auth stack with Docker, admin login,
   - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
 - Optional internet egress for helper services:
    - The auth runner pings Codex clients to validate auth.json (clear `AUTH_RUNNER_URL` to disable it).
-   - The quota cron fetches ChatGPT usage; pricing lookups can pull from `PRICING_URL` when configured.
+   - The quota cron fetches ChatGPT usage.
 
 ## Recommended: one-command setup
 
@@ -104,7 +104,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - Startup behavior: `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` (default off in production; use `scripts/migrate.php` for explicit schema/backfill runs).
    - Token TTLs: `INSTALL_TOKEN_TTL_SECONDS` (default 1800) and `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
-  - Usage/pricing telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `PRICING_URL`, `PRICING_CURRENCY`, and the static GPT-5.4 price hints (`GPT54_INPUT_PER_1K`, `GPT54_OUTPUT_PER_1K`, `GPT54_CACHED_PER_1K`; legacy `GPT51_*` is still accepted when unset). `quota-cron` health defaults to a worker heartbeat file at `CHATGPT_USAGE_HEALTH_PATH` and treats success as stale after `CHATGPT_USAGE_CRON_INTERVAL + 300s` unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides it.
+  - Usage telemetry: `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`. `quota-cron` health defaults to a worker heartbeat file at `CHATGPT_USAGE_HEALTH_PATH` and treats success as stale after `CHATGPT_USAGE_CRON_INTERVAL + 300s` unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides it.
    - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (runner/debug surfaces), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
 
@@ -133,10 +133,9 @@ docker compose up --build
    - **Custom cert**: set `CADDY_TLS_FRAGMENT=/etc/caddy/tls-custom.caddy` and drop `tls.crt` / `tls.key` (or update `CADDY_TLS_CERT_FILE`/`CADDY_TLS_KEY_FILE`) into `${CADDY_TLS_DIR}`.
 4. Start the stack with Caddy: `docker compose --profile caddy up --build -d`. External clients should use `https://<CADDY_DOMAIN>`; the API remains on host loopback `127.0.0.1:8488`.
 
-## Backups & cost visibility
+## Backups
 
 - Nightly SQL dumps run automatically via the `mysql-backup` sidecar. Tune `DB_BACKUP_CRON` (cron spec), `DB_BACKUP_MAX` (retained files), `DB_BACKUP_BEGIN`, and `DB_BACKUP_FREQUENCY`. Dumps land in `${DATA_ROOT}/backups`.
-- Admin cost estimates read GPT-5.4 unit prices from env (`GPT54_*`, `PRICING_CURRENCY`, with legacy `GPT51_*` fallback) or, when `PRICING_URL` is set, from that JSON endpoint. This only affects dashboard calculations, not enforcement.
 
 ## First-Time Flow
 

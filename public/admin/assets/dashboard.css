@@ -163,11 +163,6 @@ body {
   gap: 6px;
 }
 
-/* Cost card color variants */
-.primary-card-value.cost-red { color: var(--danger); }
-.primary-card-value.cost-yellow { color: var(--warning); }
-.primary-card-value.cost-green { color: var(--success); }
-.primary-card-value.cost-blue { color: var(--accent); }
 
 /* Trends grid: 4-tile compact strip with optional sparkline. */
 .dashboard-trends-grid {
@@ -1320,8 +1315,6 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
     .stat-head { display:flex; justify-content: space-between; align-items:center; gap:10px; }
     .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     .stat-sub { color: var(--muted); font-size: 12px; font-weight: 700; }
-    .stat-sub.cost-head-actions { display: inline-flex; align-items: center; gap: 6px; }
-    .stat-sub .cost-history-emoji { padding: 2px 6px; line-height: 1; }
     .stat-badge {
       padding: 6px 10px;
       border-radius: 999px;
@@ -1453,26 +1446,6 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
       border-bottom: 1px dashed rgba(var(--accent-rgb), 0.55);
       color: var(--accent-2);
     }
-    .cost-card.stat-card-2026 .cost-meta {
-      margin-top: 10px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .cost-card.stat-card-2026 .cost-chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 5px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: color-mix(in srgb, var(--card) 90%, transparent);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .cost-card.stat-card-2026 .stat-note {
-      margin-top: 8px;
-    }
 
 @media (max-width: 1100px) {
   .dashboard-hero {
@@ -1513,63 +1486,6 @@ body[data-theme="dark-pink"] .config-search { background: rgba(40,30,20,0.26); }
       border-top: 1px solid var(--border);
       font-size: 12px;
       color: var(--muted);
-    }
-    .cost-card .stat-value { transition: color 0.12s ease; }
-    .cost-card.cost-red .stat-value { color: var(--danger); }
-    .cost-card.cost-yellow .stat-value { color: var(--warning); }
-    .cost-card.cost-green .stat-value { color: var(--success); }
-    .cost-card.cost-blue .stat-value { color: var(--accent); }
-    .cost-plan-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 2px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .cost-plan-controls {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    button.cost-plan-btn[aria-pressed="true"] {
-      background: rgba(var(--accent-rgb),0.12);
-      border-color: rgba(var(--accent-rgb),0.35);
-      font-weight: 800;
-    }
-    .cost-plan-note {
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-    }
-    .cost-savings {
-      margin-top: 8px;
-      text-align: center;
-      font-size: 13px;
-      font-weight: 800;
-      border-radius: 999px;
-      padding: 6px 10px;
-    }
-    .cost-savings-inline {
-      margin-top: 0;
-      font-size: 12px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-    .cost-savings-ok {
-      color: var(--accent-2);
-      background: rgba(var(--accent-rgb),0.10);
-      border: 1px solid rgba(var(--accent-rgb),0.22);
-    }
-    .cost-savings-warn {
-      color: var(--text);
-      background: rgba(40,30,20,0.06);
-      border: 1px solid rgba(40,30,20,0.18);
     }
     .info-grid {
       display: grid;
@@ -3210,152 +3126,6 @@ body.auth-locked .rail-tools {
     .usage-history-chart .line { fill: none; stroke: var(--accent-2); stroke-width: 3; }
     .usage-history-chart .area { fill: rgba(var(--accent-rgb),0.15); }
     .usage-history-chart .dot { fill: var(--panel); stroke: var(--accent-2); stroke-width: 2; }
-    .cost-history-chart { padding-top: 2px; }
-    .cost-history-chart .legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; font-size: 13px; }
-    .cost-history-chart .legend-item { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: var(--frost); border: 1px solid var(--border); }
-    .cost-history-chart .legend-item.legend-total { border-color: rgba(49,46,129,0.35); background: rgba(49,46,129,0.08); }
-    .cost-history-chart .legend-item strong { margin-left: 2px; }
-    .cost-history-chart .swatch { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
-    .cost-history-chart .line-input { stroke: var(--accent); }
-    .cost-history-chart .line-output { stroke: #16a34a; }
-    .cost-history-chart .line-cached { stroke: #f97316; }
-    .cost-history-chart .line-total { stroke: var(--accent-2); }
-    .cost-history-chart .dot-input { stroke: var(--accent); }
-    .cost-history-chart .dot-output { stroke: #16a34a; }
-    .cost-history-chart .dot-cached { stroke: #f97316; }
-    .cost-history-chart .dot-total { stroke: var(--accent-2); }
-    .cost-history-chart .dot-input,
-    .cost-history-chart .dot-output,
-    .cost-history-chart .dot-cached,
-    .cost-history-chart .dot-total { fill: var(--panel); stroke-width: 2; }
-    .cost-history-chart .cost-chart-shell { position: relative; margin-bottom: 12px; }
-    .cost-history-chart .cost-chart-shell svg { width: 100%; height: 260px; display: block; border-radius: 14px; background: var(--surface-tint); }
-    .cost-history-chart .cost-chart-overlay { position: absolute; inset: 0; cursor: crosshair; }
-    .cost-history-chart .cost-chart-crosshair { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(40,30,20,0.25); pointer-events: none; }
-    .cost-history-chart .cost-chart-tooltip { position: absolute; min-width: 190px; max-width: 240px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; pointer-events: none; box-shadow: 0 18px 36px rgba(40,30,20,0.16); }
-    .cost-history-chart .cost-tooltip-date { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
-    .cost-history-chart .cost-tooltip-total { font-size: 20px; font-weight: 900; margin: 4px 0; }
-    .cost-history-chart .cost-tooltip-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; font-size: 12px; }
-    .cost-history-chart .cost-tooltip-breakdown span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
-    .cost-history-chart .cost-tooltip-breakdown strong { display: block; color: var(--text); font-weight: 700; }
-    .cost-history-chart .cost-detail { border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; background: var(--panel); box-shadow: inset 0 1px 0 rgba(40,30,20,0.04); display: flex; flex-direction: column; gap: 12px; }
-    .cost-history-chart .cost-detail-head { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-start; }
-    .cost-history-chart .cost-detail-date { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
-    .cost-history-chart .cost-detail-total { font-size: 30px; font-weight: 900; letter-spacing: -0.3px; color: var(--text); }
-    .cost-history-chart .cost-detail-note { font-size: 13px; color: var(--muted); align-self: flex-end; }
-    .cost-history-chart .cost-detail-chips { display: flex; flex-wrap: wrap; gap: 12px; }
-    .cost-history-chart .cost-detail-chip { flex: 1 1 200px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--card-strong); box-shadow: inset 0 1px 0 rgba(40,30,20,0.04); }
-    .cost-history-chart .cost-detail-chip span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
-    .cost-history-chart .cost-detail-chip strong { display: block; font-size: 18px; font-weight: 800; margin: 4px 0; }
-    .cost-history-chart .cost-detail-chip small { font-size: 12px; color: var(--muted); }
-    .cost-history-chart .cost-detail-chip[data-series="input"] { border-color: rgba(14,165,233,0.4); }
-    .cost-history-chart .cost-detail-chip[data-series="output"] { border-color: rgba(22,163,74,0.4); }
-    .cost-history-chart .cost-detail-chip[data-series="cached"] { border-color: rgba(249,115,22,0.4); }
-    .cost-history-chart .cost-table-wrap { margin-top: 18px; border: 1px solid var(--border); border-radius: 16px; overflow-y: auto; max-height: 360px; }
-    .cost-history-chart .cost-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .cost-history-chart .cost-table thead th { position: sticky; top: 0; background: var(--frost); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-    .cost-history-chart .cost-table tbody td { padding: 12px; border-top: 1px solid rgba(40,30,20,0.08); vertical-align: top; }
-    .cost-history-chart .cost-table tbody tr { cursor: pointer; transition: background 0.15s ease; }
-    .cost-history-chart .cost-table tbody tr:hover { background: rgba(14,165,233,0.08); }
-    .cost-history-chart .cost-table tbody tr.is-active { background: rgba(14,165,233,0.12); box-shadow: inset 3px 0 0 var(--accent); }
-    .cost-history-chart .cost-table tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-    .cost-history-chart .cost-table td strong { display: block; font-size: 14px; font-weight: 800; }
-    .cost-history-chart .cost-table td small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .cost-history-chart .cost-table .tokens-col { text-align: right; white-space: nowrap; }
-    .cost-history-chart .cost-table-date { font-weight: 700; }
-    .cost-history-chart .line-emphasis { stroke-width: 3; }
-    .cost-history-chart .dot-emphasis { stroke-width: 3; }
-    .cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
-    .cost-card { padding: 14px; border-radius: var(--radius-xl); border: 1px solid var(--border); background: var(--card); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; min-height: 170px; }
-    .cost-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
-    .cost-card .value { font-size: 20px; font-weight: 800; letter-spacing: -0.2px; margin: 4px 0; }
-    .cost-card .stat-line { color: var(--text); font-weight: 700; font-size: 14px; }
-    .cost-card .stat-line.strong { font-size: 15px; }
-    .cost-card small { color: var(--muted); display: block; margin-top: auto; }
-    .cost-card .cost-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 8px 0 10px;
-    }
-    .cost-card .cost-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--frost);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .cost-card .cost-chip.subtle {
-      color: var(--muted);
-      font-weight: 600;
-    }
-    .cost-card .cost-foot {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-      color: var(--muted);
-      font-size: 13px;
-      margin-top: 6px;
-    }
-    .cost-card.total {
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(135deg, rgba(var(--accent-rgb),0.15), rgba(255,255,255,0.9));
-      border-color: var(--accent-ring);
-      box-shadow: 0 25px 60px rgba(var(--accent-rgb),0.2);
-    }
-    .cost-card.total::after { content: ''; position: absolute; inset: 0; background: radial-gradient(160px 160px at 90% -10%, rgba(var(--accent-rgb),0.15), transparent); opacity: 0.8; pointer-events: none; }
-    .cost-card .total-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .cost-card .total-kicker {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--text);
-      font-weight: 800;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .cost-card .total-kicker .total-icon-btn {
-      border: none;
-      background: transparent;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-    }
-    .cost-card .total-kicker .total-icon-btn:focus-visible {
-      outline: 2px solid var(--accent-2);
-      outline-offset: 2px;
-    }
-    .cost-card .total-kicker .total-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 6px;
-      background: rgba(255,255,255,0.85);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
-      font-size: 12px;
-      line-height: 1;
-    }
-    .cost-card .total-main { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 10px; position: relative; z-index: 1; }
-    .cost-card .total-amount { font-size: 30px; font-weight: 900; letter-spacing: -0.3px; color: var(--text); }
-    .cost-card .total-sub { color: var(--text); opacity: 0.8; font-weight: 700; }
-    .cost-card .total-breakdown { display: flex; flex-wrap: wrap; gap: 8px; position: relative; z-index: 1; margin-top: auto; }
-    .cost-card .cost-chip { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-2); box-shadow: none; min-width: 0; flex: 1 1 120px; }
-    .cost-card .cost-chip span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
-    .cost-card .cost-chip strong { font-size: 16px; font-weight: 800; letter-spacing: -0.1px; color: var(--text); }
-
     @media (max-width: 960px) {
       .content { padding: 16px 12px 52px; }
       .topbar { margin: 0 0 10px; padding: 10px 0; grid-template-columns: 1fr; position: sticky; top: 0; }
@@ -4457,11 +4227,6 @@ button:not(.primary):not(.ghost):not(.danger):not(.warn):not(.api-enabled):not(.
 .modal,
 .settings-panel .setting-block,
 .config-card,
-.cost-card {
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-soft);
-}
 .panel-head {
   border-bottom: 1px solid var(--border);
 }
@@ -4964,9 +4729,6 @@ body[data-view-mode="dashboard"] .content {
   font-size: 12px;
 }
 
-.panel-set[data-panel="dashboard"] #stats .dashboard-stat-card .cost-history-emoji {
-  padding: 2px 5px;
-}
 
 @media (max-width: 1220px) {
   .panel-set[data-panel="dashboard"] #stats {

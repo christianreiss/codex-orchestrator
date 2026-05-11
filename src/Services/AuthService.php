@@ -81,7 +81,6 @@ class AuthService
         private readonly LogRepository $logs,
         private readonly TokenUsageRepository $tokenUsages,
         private readonly TokenUsageIngestRepository $tokenUsageIngests,
-        private readonly PricingService $pricingService,
         private readonly VersionRepository $versions,
         private readonly WrapperService $wrapperService,
         private readonly ?InsecureAuthRequestRepository $insecureAuthRequests = null,
@@ -99,7 +98,6 @@ class AuthService
         $this->tokenUsageTracker = new TokenUsageTracker(
             $tokenUsages,
             $tokenUsageIngests,
-            $pricingService,
             $versions,
             $dashboardGraphStats
         );

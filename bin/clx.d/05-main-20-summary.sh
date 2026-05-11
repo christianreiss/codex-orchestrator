@@ -124,47 +124,4 @@ print_boot_screen() {
 
   printf "\n  %s\n" "$dots"
 
-  # ── Spend quota bar ──
-  # Globals set by 05-main-42-quota.sh.
-  local has_quota=0
-  local spend_used="${CLAUDE_SPEND_USED:-}"
-  local spend_limit="${CLAUDE_SPEND_LIMIT:-}"
-  local spend_pct="${CLAUDE_SPEND_PCT:-}"
-  local spend_reset_after="${CLAUDE_SPEND_RESET_AFTER:-}"
-
-  [[ "$spend_pct" =~ ^[0-9]+$ ]] && has_quota=1
-
-  if ((has_quota)); then
-    printf "\n"
-
-    local bar_w="${QUOTA_BAR_WIDTH:-24}"
-    local pct=$spend_pct
-    ((pct < 0)) && pct=0
-    ((pct > 100)) && pct=100
-
-    local bar
-    bar="$(build_quota_bar "$pct" "$bar_w")"
-
-    local pct_tone="green"
-    ((pct >= 95)) && pct_tone="red"
-    ((pct >= 80 && pct < 95)) && pct_tone="orange"
-    local pct_display
-    printf -v pct_display "%3d%%" "$pct"
-    pct_display="$(colorize "$pct_display" "$pct_tone")"
-
-    local dur=""
-    [[ "$spend_reset_after" =~ ^[0-9]+$ ]] && dur="$(format_duration_short "$spend_reset_after")"
-
-    local spend_label="spend"
-    local padded_label
-    padded_label="$(pad_visible_text_right "$spend_label" 6)"
-    printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"
-    if [[ -n "$dur" ]]; then
-      printf "  %s" "$dur"
-    fi
-    if [[ -n "$spend_used" ]] && [[ -n "$spend_limit" ]]; then
-      printf "  %b\$%s / \$%s%b" "${DIM}" "$spend_used" "$spend_limit" "${RESET}"
-    fi
-    printf "\n"
-  fi
 }

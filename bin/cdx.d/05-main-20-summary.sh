@@ -330,22 +330,6 @@ format_footer_sync_fragment() {
   printf "%s %s" "$dot_colored" "$text"
 }
 
-format_run_cost_value() {
-  local raw="$1"
-  if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-    # Use 4 decimal places for sub-cent amounts so "$0.0012" shows instead of "$0.00".
-    local formatted
-    if LC_NUMERIC=C awk -v v="$raw" 'BEGIN { exit !(v < 0.01 && v > -0.01) }' 2>/dev/null; then
-      formatted="$(LC_NUMERIC=C printf "%.4f" "$raw")"
-    else
-      formatted="$(LC_NUMERIC=C printf "%.2f" "$raw")"
-    fi
-    printf '$%s' "$formatted"
-    return
-  fi
-  printf "%s" "$raw"
-}
-
 should_suppress_empty_run_footer() {
   [[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1
   [[ -z "${last_usage_payload:-}" ]] || return 1
@@ -360,12 +344,7 @@ print_run_exit_footer() {
   fi
 
   local usage_label="Run usage"
-  local cost_label="Run cost"
   local run_time_label="Run time"
-  local cost_prefix=""
-  if output_supports_unicode; then
-    cost_prefix="💰 "
-  fi
   local sync_label="Sync"
 
   local usage_text="${USAGE_PUSH_SUMMARY:-}"
@@ -379,37 +358,6 @@ print_run_exit_footer() {
     usage_text="$(colorize "$usage_text" "red")"
   elif [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]]; then
     usage_text="$(colorize "$usage_text" "yellow")"
-  fi
-
-  local cost_text=""
-  local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
-  if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    local cost_raw="${USAGE_PUSH_COST}"
-    local cost_formatted
-    cost_formatted="$(format_run_cost_value "$cost_raw")"
-    # Colorize cost by magnitude.
-    local cost_tone=""
-    if [[ "$cost_raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-      if LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 10) }' 2>/dev/null; then
-        cost_tone="orange"
-      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 2) }' 2>/dev/null; then
-        cost_tone="yellow"
-      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v < 0.50) }' 2>/dev/null; then
-        cost_tone="green"
-      fi
-    fi
-    if [[ -n "$cost_tone" ]]; then
-      cost_text="${cost_prefix}$(colorize "$cost_formatted" "$cost_tone")"
-    else
-      cost_text="${cost_prefix}${cost_formatted}"
-    fi
-  else
-    cost_text="${cost_prefix}unavailable (${cost_reason})"
-    if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
-      cost_text="$(colorize "$cost_text" "red")"
-    else
-      cost_text="$(colorize "$cost_text" "yellow")"
-    fi
   fi
 
   local run_time_text=""
@@ -446,7 +394,6 @@ print_run_exit_footer() {
   log_info "$(summary_divider)"
   log_info "$(summary_header "Run summary")"
   log_info "$(summary_row "$usage_label" "$usage_text")"
-  log_info "$(summary_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
     log_info "$(summary_row "$run_time_label" "$run_time_text")"
   fi

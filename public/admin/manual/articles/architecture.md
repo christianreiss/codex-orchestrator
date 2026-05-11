@@ -17,7 +17,7 @@ Orchestrator is a single-process PHP application with a small Python sidecar and
 ## Layers
 
 - **Controllers** — `src/Http/Controllers/*Controller.php`. Thin dispatchers that parse input, call services or repositories, and emit JSON via `App\Http\Response::json()` or `AnthropicResponse` / `OpenAiResponse` for the API-compat routes.
-- **Services** — `src/Services/*Service.php`. Where business rules live: `AuthService` (auth distribution and host lifecycle), `AdminAuthService` (admin login, sessions, role matrix), `WrapperService` (baking per-host `cdx` / `clx`), `AgentsService`, `SkillService`, `ProjectCoordinationService`, `StartupSyncService`, and the usage/cost services behind the dashboard.
+- **Services** — `src/Services/*Service.php`. Where business rules live: `AuthService` (auth distribution and host lifecycle), `AdminAuthService` (admin login, sessions, role matrix), `WrapperService` (baking per-host `cdx` / `clx`), `AgentsService`, `SkillService`, `ProjectCoordinationService`, `StartupSyncService`, and the usage services behind the dashboard.
 - **Repositories** — `src/Repositories/*Repository.php`. All SQL lives here. No ORM; these classes take a `PDO` and return arrays. Schema evolution is handled by `src/DatabaseMigrator.php` at boot.
 - **MCP** — `src/Mcp/`. `McpServer` implements the JSON-RPC dispatch and exposes the tools defined in `McpToolDefinitions`. The HTTP entry point is `/mcp` (handled by `McpRouteController`); auth uses either a per-host API key or an MCP session token from `McpSessionTokenRepository`.
 - **Security primitives** — `src/Security/`. `SecretBox` (libsodium authenticated encryption), `EncryptionKeyManager` (keyring rotation), and `RateLimiter`. Auth payloads are stored encrypted at rest using this primitive stack.
@@ -49,7 +49,7 @@ Schema is MySQL / MariaDB. Migrations are embedded in `src/DatabaseMigrator.php`
 - `host_auth_digests` — per-host snapshots so sync-status can say "nothing changed" cheaply.
 - `admin_users`, `admin_sessions`, `admin_passkeys`, `admin_password_resets` — the admin identity stack.
 - `projects`, `project_notes`, `project_todos`, `project_files`, `project_feedback`, `project_events` — the Projects module.
-- `token_usage`, `token_usage_ingests`, `chatgpt_usage`, `pricing_snapshots`, `dashboard_graph_stats` — cost and usage telemetry.
+- `token_usage`, `token_usage_ingests`, `chatgpt_usage`, `dashboard_graph_stats` — usage telemetry.
 - `mcp_session_tokens`, `mcp_access_log`, `memories` — MCP identity and memory store.
 
 The MariaDB container lives next to the app in `docker-compose.yml`; backups are your responsibility.

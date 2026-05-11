@@ -34,7 +34,6 @@ class DashboardGraphStatsService
             'output' => (int) ($usage['output'] ?? 0),
             'cached' => (int) ($usage['cached'] ?? 0),
             'reasoning' => (int) ($usage['reasoning'] ?? 0),
-            'cost' => isset($usage['cost']) ? (float) $usage['cost'] : null,
         ], $recordedAt);
     }
 
@@ -69,7 +68,6 @@ class DashboardGraphStatsService
                     'output' => (int) ($row['output'] ?? 0),
                     'cached' => (int) ($row['cached'] ?? 0),
                     'reasoning' => (int) ($row['reasoning'] ?? 0),
-                    'cost' => isset($row['cost']) ? (float) $row['cost'] : null,
                 ]);
             }
         }
@@ -112,7 +110,7 @@ class DashboardGraphStatsService
             }
         }
 
-        return isset($usage['cost']) && $usage['cost'] !== null && (float) $usage['cost'] > 0;
+        return false;
     }
 
     private function ensureBackfilled(): void

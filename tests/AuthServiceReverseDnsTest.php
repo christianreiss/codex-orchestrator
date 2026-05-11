@@ -15,7 +15,6 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Security\SecretBox;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -87,7 +86,6 @@ final class AuthServiceReverseDnsTest extends TestCase
             $this->logs,
             $this->createMock(TokenUsageRepository::class),
             $this->createMock(TokenUsageIngestRepository::class),
-            $this->createMock(PricingService::class),
             $this->versions,
             $this->createMock(WrapperService::class),
             null,

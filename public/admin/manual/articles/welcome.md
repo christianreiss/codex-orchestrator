@@ -5,7 +5,7 @@ verified: 2026-04-19
 sources: README.md, public/admin/index.html, public/index.php, public/admin/index.php, src/Services/AdminAuthService.php
 ---
 
-Codex Orchestrator is a self-hosted PHP service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared `AGENTS.md`, serves canonical skills through MCP, and collects usage and cost data back from every run. Each host gets its own API key baked into a wrapper binary (`cdx` for Codex, `clx` for Claude); there is no shared token pasted across machines.
+Codex Orchestrator is a self-hosted PHP service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared `AGENTS.md`, serves canonical skills through MCP, and collects usage back from every run. Each host gets its own API key baked into a wrapper binary (`cdx` for Codex, `clx` for Claude); there is no shared token pasted across machines.
 
 This manual is the in-app operator reference. Every article on the left is written from the live codebase — filenames and line numbers in each *Source references* footer point at the exact code the article describes.
 

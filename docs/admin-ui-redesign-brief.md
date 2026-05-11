@@ -24,7 +24,7 @@ over polish.
 | Surface | Notes |
 |---|---|
 | Login | Username-first; passkey or password; codex+claude brand mark |
-| Dashboard | Status bar · ChatGPT card + Claude card · ops strip · Quota & Cost charts |
+| Dashboard | Status bar · ChatGPT card + Claude card · ops strip · Quota & Usage charts |
 | Hosts list | Tabs: All / Secure / Insecure / Unprovisioned; sortable table; chip states |
 | Host detail | 4 sections: Stats / Action items / Technical context / Host controls |
 | Logs | 3 tabs: API logs / MCP logs / Events (audit) — filter-heavy tables |
@@ -60,7 +60,7 @@ Move the cold default away from midnight-navy + cyan toward warm cream + amber/t
 | `--accent` | `#C2410C` (terracotta) | `#F59E0B` (amber) |
 | `--btn-text` | `#FFF8F0` | `#1A1614` |
 
-**Surfaces:** drop gradients (except CTA + cost-chart fill), favour 1px hairlines over shadows,
+**Surfaces:** drop gradients (except CTA), favour 1px hairlines over shadows,
 radii bump from 8→10 for cards.
 **Type:** keep Inter for UI, add a self-hosted **serif** for h1/h2 (Source Serif 4 or
 Newsreader); body 14px, h2 22px serif, h1 30px serif, tabular-nums on every number.

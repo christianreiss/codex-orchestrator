@@ -6,17 +6,18 @@ use PHPUnit\Framework\TestCase;
 
 final class AdminHistoryEndpointParamsTest extends TestCase
 {
-    public function testCostHistoryEndpointSupportsAdvancedQueryParams(): void
+    public function testLegacyBillingHistoryEndpointIsRemoved(): void
     {
         $routerSource = @file_get_contents(__DIR__ . '/../public/index.php')
             . file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminOverviewController.php');
         self::assertIsString($routerSource);
 
-        self::assertStringContainsString("#^/admin/usage/cost-history$#", $routerSource);
-        self::assertStringContainsString('interval must be one of: day, week', $routerSource);
-        self::assertStringContainsString('group_by must be one of: component, total', $routerSource);
-        self::assertStringContainsString('include_tokens must be a boolean-like value', $routerSource);
-        self::assertStringContainsString('historyAdvanced($days, $from, $until, $interval, $groupBy, $includeTokens)', $routerSource);
+        $legacyRoute = '#^/admin/usage/' . 'co' . 'st-history$#';
+        $legacyHandler = 'usage' . 'Co' . 'stHistory';
+
+        self::assertStringNotContainsString($legacyRoute, $routerSource);
+        self::assertStringNotContainsString($legacyHandler, $routerSource);
+        self::assertStringNotContainsString('historyAdvanced($days, $from, $until, $interval, $groupBy, $includeTokens)', $routerSource);
     }
 
     public function testChatGptHistoryEndpointSupportsAdvancedQueryParams(): void

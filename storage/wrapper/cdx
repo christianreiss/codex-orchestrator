@@ -829,8 +829,6 @@ AUTH_PUSH_REASON=""
 USAGE_PUSH_RESULT=""
 USAGE_PUSH_REASON=""
 USAGE_PUSH_SUMMARY=""
-USAGE_PUSH_COST=""
-USAGE_PUSH_COST_REASON=""
 AUTH_STATUS=""
 AUTH_ACTION=""
 AUTH_MESSAGE=""
@@ -949,7 +947,7 @@ INSECURE_APPROVAL_CHECK_COUNT=0
 INSECURE_APPROVAL_LAST_CHECK=""
 INSECURE_APPROVAL_LAST_STATUS=""
 
-WRAPPER_VERSION="2026.04.24-01"
+WRAPPER_VERSION="2026.05.11-01"
 MAX_LOCAL_AUTH_AGE_SECONDS=$((24 * 3600))
 MAX_LOCAL_AUTH_RECENT_SECONDS=$((7 * 24 * 3600))
 RUNNER_STALE_WARN_SECONDS=$((36 * 3600))
@@ -2731,16 +2729,10 @@ detect_codex_asset_name() {
     Linux)
       case "$arch_name" in
         x86_64 | amd64)
-          local glibc_version
-          glibc_version="$(detect_glibc_version)"
-          if [[ -z "$glibc_version" ]] || version_lt "$glibc_version" "2.39"; then
-            printf "codex-x86_64-unknown-linux-musl.tar.gz"
-          else
-            printf "codex-x86_64-unknown-linux-gnu.tar.gz"
-          fi
+          printf "codex-x86_64-unknown-linux-musl.tar.gz"
           ;;
         aarch64 | arm64)
-          printf "codex-aarch64-unknown-linux-gnu.tar.gz"
+          printf "codex-aarch64-unknown-linux-musl.tar.gz"
           ;;
         *)
           return 1
@@ -6012,19 +6004,18 @@ def format_summary(data: dict) -> str:
 
 
 def parse_response_fields(body_text: str):
-    cost_value = ""
     recorded_value = ""
     reason_value = ""
     try:
         parsed = json.loads(body_text)
     except Exception:  # noqa: BLE001
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
 
     if not isinstance(parsed, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
     data = parsed.get("data")
     if not isinstance(data, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
 
     recorded = data.get("recorded")
     if isinstance(recorded, bool):
@@ -6036,16 +6027,7 @@ def parse_response_fields(body_text: str):
     if isinstance(reason, str) and reason.strip():
         reason_value = reason.strip()
 
-    cost = data.get("cost")
-    if isinstance(cost, (int, float)):
-        cost_value = f"{float(cost):.6f}"
-    elif isinstance(cost, str):
-        try:
-            cost_value = f"{float(cost.strip()):.6f}"
-        except Exception:  # noqa: BLE001
-            cost_value = ""
-
-    return cost_value, recorded_value, reason_value
+    return recorded_value, reason_value
 
 
 def is_timeout_error(exc: Exception) -> bool:
@@ -6068,10 +6050,8 @@ for ctx in build_contexts():
             raise TimeoutError("request timed out")
         with urllib.request.urlopen(req, timeout=max(0.1, remaining), context=ctx) as resp:  # noqa: S310
             body_text = resp.read(65536).decode("utf-8", "replace")
-            cost_val, recorded_val, reason_val = parse_response_fields(body_text)
+            recorded_val, reason_val = parse_response_fields(body_text)
             print(f"summary={format_summary(payload)}")
-            if cost_val:
-                print(f"cost={cost_val}")
             if recorded_val:
                 print(f"recorded={recorded_val}")
             if reason_val:
@@ -6115,7 +6095,6 @@ post_token_usage_payload() {
   local output=""
   local line=""
   local summary=""
-  local cost=""
   local recorded=""
   local reason=""
   local retryable="false"
@@ -6123,25 +6102,20 @@ post_token_usage_payload() {
   USAGE_PUSH_RESULT=""
   USAGE_PUSH_REASON=""
   USAGE_PUSH_SUMMARY="$(parse_usage_summary "$payload_json")"
-  USAGE_PUSH_COST=""
-  USAGE_PUSH_COST_REASON=""
 
   if [[ -z "$payload_json" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no usage payload"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API key or base URL missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="python3 missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
 
@@ -6149,7 +6123,6 @@ post_token_usage_payload() {
   while IFS= read -r line; do
     case "$line" in
       summary=*) summary="${line#summary=}" ;;
-      cost=*) cost="${line#cost=}" ;;
       recorded=*) recorded="${line#recorded=}" ;;
       reason=*) reason="${line#reason=}" ;;
       retryable=*) retryable="${line#retryable=}" ;;
@@ -6168,23 +6141,16 @@ post_token_usage_payload() {
     if [[ "$recorded" == "false" ]]; then
       USAGE_PUSH_RESULT="failed"
       USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-      USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
       return 1
     fi
     USAGE_PUSH_RESULT="ok"
     USAGE_PUSH_REASON="recorded"
-    if [[ -n "$cost" ]]; then
-      USAGE_PUSH_COST="$cost"
-    else
-      USAGE_PUSH_COST_REASON="server did not return cost"
-    fi
     return 0
   fi
 
   if ((status == 40)); then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API disabled by administrator"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -6228,7 +6194,6 @@ PY
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       status=0
       summary=""
-      cost=""
       recorded=""
       reason=""
       retryable="false"
@@ -6236,7 +6201,6 @@ PY
       while IFS= read -r line; do
         case "$line" in
           summary=*) summary="${line#summary=}" ;;
-          cost=*) cost="${line#cost=}" ;;
           recorded=*) recorded="${line#recorded=}" ;;
           reason=*) reason="${line#reason=}" ;;
           retryable=*) retryable="${line#retryable=}" ;;
@@ -6255,21 +6219,14 @@ PY
         if [[ "$recorded" == "false" ]]; then
           USAGE_PUSH_RESULT="failed"
           USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-          USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
           return 1
         fi
         USAGE_PUSH_RESULT="ok"
         USAGE_PUSH_REASON="recorded (fallback)"
-        if [[ -n "$cost" ]]; then
-          USAGE_PUSH_COST="$cost"
-        else
-          USAGE_PUSH_COST_REASON="server did not return cost"
-        fi
         return 0
       elif ((status == 40)); then
         USAGE_PUSH_RESULT="skipped"
         USAGE_PUSH_REASON="API disabled by administrator"
-        USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
         return 0
       fi
       [[ -z "$primary_err" ]] && primary_err="${reason:-$output}"
@@ -6281,7 +6238,6 @@ PY
   fi
   USAGE_PUSH_RESULT="failed"
   USAGE_PUSH_REASON="$primary_err"
-  USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
   return 1
 }
 
@@ -6350,16 +6306,12 @@ send_token_usage_if_present() {
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="usage extraction failed"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -6521,16 +6473,12 @@ send_token_usage_from_session_jsonl() {
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="session JSONL extraction failed"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -7434,9 +7382,6 @@ skip_update_reason=""
 if ((CDX_ACTIVE_RUN_DETECTED)); then
   skip_update_check=1
   skip_update_reason="active_run"
-elif [[ "${SYNC_REMOTE_AUTO_UPDATE_CRON:-}" == "1" ]] && ((AUTO_UPDATE_CRON_READY)); then
-  skip_update_check=1
-  skip_update_reason="cron_managed"
 elif ((!can_manage_codex)); then
   skip_update_check=1
   skip_update_reason="privilege"
@@ -7582,9 +7527,6 @@ if ((skip_update_check)); then
   case "$skip_update_reason" in
     active_run)
       codex_status_note="active cdx run"
-      ;;
-    cron_managed)
-      codex_status_note="cron-managed updates"
       ;;
     unsupported_platform)
       codex_status_note="unsupported platform (${platform_os}/${platform_arch})"
@@ -8096,22 +8038,6 @@ format_footer_sync_fragment() {
   printf "%s %s" "$dot_colored" "$text"
 }
 
-format_run_cost_value() {
-  local raw="$1"
-  if [[ "$raw" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-    # Use 4 decimal places for sub-cent amounts so "$0.0012" shows instead of "$0.00".
-    local formatted
-    if LC_NUMERIC=C awk -v v="$raw" 'BEGIN { exit !(v < 0.01 && v > -0.01) }' 2>/dev/null; then
-      formatted="$(LC_NUMERIC=C printf "%.4f" "$raw")"
-    else
-      formatted="$(LC_NUMERIC=C printf "%.2f" "$raw")"
-    fi
-    printf '$%s' "$formatted"
-    return
-  fi
-  printf "%s" "$raw"
-}
-
 should_suppress_empty_run_footer() {
   [[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1
   [[ -z "${last_usage_payload:-}" ]] || return 1
@@ -8126,12 +8052,7 @@ print_run_exit_footer() {
   fi
 
   local usage_label="Run usage"
-  local cost_label="Run cost"
   local run_time_label="Run time"
-  local cost_prefix=""
-  if output_supports_unicode; then
-    cost_prefix="💰 "
-  fi
   local sync_label="Sync"
 
   local usage_text="${USAGE_PUSH_SUMMARY:-}"
@@ -8145,37 +8066,6 @@ print_run_exit_footer() {
     usage_text="$(colorize "$usage_text" "red")"
   elif [[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]]; then
     usage_text="$(colorize "$usage_text" "yellow")"
-  fi
-
-  local cost_text=""
-  local cost_reason="${USAGE_PUSH_COST_REASON:-${USAGE_PUSH_REASON:-not available}}"
-  if [[ -n "${USAGE_PUSH_COST:-}" ]]; then
-    local cost_raw="${USAGE_PUSH_COST}"
-    local cost_formatted
-    cost_formatted="$(format_run_cost_value "$cost_raw")"
-    # Colorize cost by magnitude.
-    local cost_tone=""
-    if [[ "$cost_raw" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-      if LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 10) }' 2>/dev/null; then
-        cost_tone="orange"
-      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v > 2) }' 2>/dev/null; then
-        cost_tone="yellow"
-      elif LC_NUMERIC=C awk -v v="$cost_raw" 'BEGIN { exit !(v < 0.50) }' 2>/dev/null; then
-        cost_tone="green"
-      fi
-    fi
-    if [[ -n "$cost_tone" ]]; then
-      cost_text="${cost_prefix}$(colorize "$cost_formatted" "$cost_tone")"
-    else
-      cost_text="${cost_prefix}${cost_formatted}"
-    fi
-  else
-    cost_text="${cost_prefix}unavailable (${cost_reason})"
-    if [[ "${USAGE_PUSH_RESULT:-}" == "failed" ]]; then
-      cost_text="$(colorize "$cost_text" "red")"
-    else
-      cost_text="$(colorize "$cost_text" "yellow")"
-    fi
   fi
 
   local run_time_text=""
@@ -8212,7 +8102,6 @@ print_run_exit_footer() {
   log_info "$(summary_divider)"
   log_info "$(summary_header "Run summary")"
   log_info "$(summary_row "$usage_label" "$usage_text")"
-  log_info "$(summary_row "$cost_label" "$cost_text")"
   if [[ -n "$run_time_text" ]]; then
     log_info "$(summary_row "$run_time_label" "$run_time_text")"
   fi
@@ -8458,7 +8347,7 @@ toml_table_enabled() {
 
 extract_version_token() {
   local display="$1"
-  if [[ "$display" =~ ([0-9]+[0-9A-Za-z\.\-\+_]*) ]]; then
+  if [[ "$display" =~ ([0-9]+[0-9A-Za-z.+_-]*) ]]; then
     printf "%s" "${BASH_REMATCH[1]}"
   fi
 }

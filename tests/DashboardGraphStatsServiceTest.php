@@ -27,7 +27,7 @@ final class DashboardGraphStatsServiceTest extends TestCase
                     && $usage['input'] === 1000
                     && $usage['output'] === 500
                     && $usage['cached'] === 200
-                    && abs(((float) $usage['cost']) - 0.021) < 0.000001;
+                    && $usage['reasoning'] === 50;
             }));
         $repository->expects($this->once())
             ->method('recordQuotaSnapshot')
@@ -52,7 +52,6 @@ final class DashboardGraphStatsServiceTest extends TestCase
                     'output' => 500,
                     'cached' => 200,
                     'reasoning' => 50,
-                    'cost' => 0.021,
                 ],
             ]);
 

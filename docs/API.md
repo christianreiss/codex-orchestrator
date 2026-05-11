@@ -223,7 +223,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 **Response fields (varies by status)**
 - `auth` (when server copy is newer or after store), `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on retrieve paths that require upload.
 - `host`: `fqdn`, `status`, `last_refresh`, `claude_last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `claude_client_version`, `claude_client_version_override`, `agents_document_id_override`, `wrapper_version`, `claude_wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `engines`, `engines_list`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`, and optional `claude_model_override` / `claude_reasoning_effort_override`.
-- `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`cost`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
+- `api_calls`, `token_usage_month` (month-to-date totals including `cached`/`reasoning`/`events`), `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
 - `chatgpt_usage`: latest usage window summary when available (`normal_window`, optional `spark_window`, `active_quota_lane`; legacy `primary_window`/`secondary_window` also present).
@@ -232,7 +232,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 Deregisters the calling host; IP binding enforced unless `?force=1`. Logs `host.delete` and removes host + digests.
 
 ### `POST /usage`
-Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas/underscores/whitespace separators and must be non-negative. `line` is sanitized (ANSI/escape/control stripped, backslashes collapsed, non-ASCII removed, length capped). Each request writes `token_usage_ingests` (aggregates + normalized payload + optional client IP) and `token_usages` rows linked by `ingest_id`. Per-entry and aggregate `cost` use latest pricing (`PRICING_URL` or preferred `GPT54_*` + `PRICING_CURRENCY` fallback, with legacy `GPT51_*` still accepted when the new vars are unset). Response includes `recorded`, per-entry echoes, `host_id`, ingest `cost`, and `ingest_id`. Internal ingestion failures return HTTP 200 with `recorded:false`.
+Token-usage ingest. Body may be a single entry or `usages` array; each entry may include `line`, `total`, `input`, `output`, `cached`, `reasoning`, `model` (at least one numeric field or `line` required). Numbers accept commas/underscores/whitespace separators and must be non-negative. `line` is sanitized (ANSI/escape/control stripped, backslashes collapsed, non-ASCII removed, length capped). Each request writes `token_usage_ingests` (aggregates + normalized payload + optional client IP) and `token_usages` rows linked by `ingest_id`. Response includes `recorded`, per-entry echoes, `host_id`, and `ingest_id`. Internal ingestion failures return HTTP 200 with `recorded:false`.
 
 ### `POST /host/users`
 Records `username` and optional `hostname` for the calling host, returning known users with `first_seen`/`last_seen`. Auth + IP binding required.
@@ -297,7 +297,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/codex-version` — set fleet Codex version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`.
 
 ## Admin Endpoints (mTLS)
-- `GET /admin/overview` — host totals, refresh stats, `versions`, canonical-auth/seed status, token totals (`tokens_day`/`tokens_week`/`tokens_month`), pricing snapshot + cost totals, subscription plan pricing, ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, optional client-version lock metadata, and mTLS metadata.
+- `GET /admin/overview` — host totals, refresh stats, `versions`, canonical-auth/seed status, token totals (`tokens_day`/`tokens_week`/`tokens_month`), ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, optional client-version lock metadata, and mTLS metadata.
 - `GET /admin/ws/info` — websocket bootstrap (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
 - Admin auth + users:
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
@@ -353,8 +353,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability.
-  - `GET /admin/claude/settings` — get Claude fleet settings. Returns `{status, data: {default_model, max_tokens, spend_limit, disabled}}`.
-  - `POST /admin/claude/settings` — update Claude fleet settings. Body: `{default_model?, max_tokens? (256-200000), spend_limit? (>=0)}`. Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
+  - `GET /admin/claude/settings` — get Claude fleet settings. Returns `{status, data: {default_model, max_tokens, disabled}}`.
+  - `POST /admin/claude/settings` — update Claude fleet settings. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
@@ -364,9 +364,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/logs?limit=50`
   - `GET /admin/mcp/logs?limit=200`
   - `GET /admin/usage?limit=50`
-  - `GET /admin/usage/ingests?page=&per_page=&q=&sort=&direction=&host_id=` (adds current pricing `currency`)
+  - `GET /admin/usage/ingests?page=&per_page=&q=&sort=&direction=&host_id=`
   - `GET /admin/tokens?limit=50`
-- Cost history: `GET /admin/usage/cost-history?days=60[&from=&until=&interval=day|week&group_by=component|total&include_tokens=1|0]` (up to 180 days).
 - ChatGPT usage:
   - `GET /admin/chatgpt/usage[?force=1]`
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
@@ -385,4 +384,4 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 
 ## Housekeeping & Storage
 - Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude`), with per-target entries in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
-- Auth/register/runner/usage events are logged in `logs`. Token usage rows include total/input/output/cached/reasoning/model/cost; `/usage` also writes audit rows in `token_usage_ingests` linked by `ingest_id`.
+- Auth/register/runner/usage events are logged in `logs`. Token usage rows include total/input/output/cached/reasoning/model; `/usage` also writes audit rows in `token_usage_ingests` linked by `ingest_id`.

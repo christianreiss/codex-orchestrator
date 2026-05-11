@@ -22,7 +22,7 @@ Display labels live in `AdminAuthService::ROLE_LABELS` (*Admin*, *Fleet Operator
 
 Also constants on `AdminAuthService`:
 
-- `CAP_SETTINGS = 'settings.manage'` — change any global configuration (quota, auto-update, agents, skills, profiles, pricing, OpenAI/Claude state, Joplin, API keys, runner trigger, auth upload).
+- `CAP_SETTINGS = 'settings.manage'` — change any global configuration (quota, auto-update, agents, skills, profiles, OpenAI/Claude state, Joplin, API keys, runner trigger, auth upload).
 - `CAP_HOSTS_MANAGE = 'hosts.manage'` — register, mutate, delete hosts; change their per-host knobs.
 - `CAP_HOSTS_ACTIVATE = 'hosts.activate'` — approve/deny insecure auth requests, approve CLI device-code authentications.
 - `CAP_USERS_MANAGE = 'users.manage'` — create, edit, delete admin users and wipe all users.
@@ -44,7 +44,7 @@ Also constants on `AdminAuthService`:
 
 Exhaustive grep over `src/Http/Controllers/*.php` for `requireAdminCapability`:
 
-- **settings.manage** — all of `AdminSettingsController` (general toggles, quota, pricing, logs retention, scaling, Claude settings, OpenAI/Claude state); all of `AdminConfigController` (agents, skills, memories, profile/config render, config store); `AdminOverviewController::authUpload`, `seedCommand`, `runnerRun`, `runnerRunClaude`; `AdminJoplinController` entry points.
+- **settings.manage** — all of `AdminSettingsController` (general toggles, quota, logs retention, scaling, Claude settings, OpenAI/Claude state); all of `AdminConfigController` (agents, skills, memories, profile/config render, config store); `AdminOverviewController::authUpload`, `seedCommand`, `runnerRun`, `runnerRunClaude`; `AdminJoplinController` entry points.
 - **hosts.manage** — every mutating route in `AdminHostController` (delete, clear, roaming, secure, vip, scaling-exempt, auto-update, curl-insecure, reverse-dns, model, codex-version, agents-version, register).
 - **hosts.activate** — insecure approval routes (`AdminOverviewController::hostsInsecureExtend`, `hostsInsecureDisableAll`, and the `AdminHostController::insecureApproval*` endpoints), plus CLI device-code approval (`CliAuthController::approve`, `deny`).
 - **users.manage** — every route in `AdminUserController` (create, update, delete, wipe).

@@ -16,7 +16,6 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringContainsString('usage_label="Run usage"', $wrapperSource);
         self::assertStringContainsString('sync_label="Sync"', $wrapperSource);
         self::assertStringContainsString('summary_row "$usage_label" "$usage_text"', $wrapperSource);
-        self::assertStringContainsString('summary_row "$cost_label" "$cost_text"', $wrapperSource);
         self::assertStringContainsString('summary_row "$sync_label" "$sync_text"', $wrapperSource);
         self::assertStringContainsString('print_run_exit_footer || true', $wrapperSource);
     }
@@ -47,31 +46,18 @@ final class CdxWrapperRunFooterTest extends TestCase
         self::assertStringNotContainsString('Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}', $wrapperSource);
     }
 
-    public function testWrapperKeepsRunCostLabelAsciiAndPrefixesUnicodeCostValue(): void
+    public function testWrapperDoesNotRenderBillingFooter(): void
     {
         $wrapperPath = __DIR__ . '/../bin/cdx';
         $wrapperSource = @file_get_contents($wrapperPath);
         self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
 
-        $moneyPrefix = 'cost_prefix="' . "\u{1F4B0}" . ' "';
-        self::assertStringContainsString($moneyPrefix, $wrapperSource);
-        self::assertStringContainsString('cost_label="Run cost"', $wrapperSource);
-        self::assertStringContainsString('cost_text="${cost_prefix}unavailable (${cost_reason})"', $wrapperSource);
-    }
+        $legacyFormatter = 'format_run_' . 'co' . 'st_value() {';
+        $legacyLabel = 'co' . 'st_label="Run ' . 'co' . 'st"';
+        $legacyEnv = 'USAGE_PUSH_' . 'CO' . 'ST';
 
-    public function testWrapperFormatsRunCostWithCurrencyPrefixAndVariableDecimals(): void
-    {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
-
-        self::assertStringContainsString('format_run_cost_value() {', $wrapperSource);
-        // Dollar sign is now a prefix: printf '$%s' "$formatted"
-        self::assertStringContainsString("printf '\$%s' \"\$formatted\"", $wrapperSource);
-        // Sub-cent values use 4 decimal places; larger amounts use 2.
-        self::assertStringContainsString('LC_NUMERIC=C printf "%.4f" "$raw"', $wrapperSource);
-        self::assertStringContainsString('LC_NUMERIC=C printf "%.2f" "$raw"', $wrapperSource);
-        self::assertStringContainsString('cost_formatted="$(format_run_cost_value "$cost_raw")"', $wrapperSource);
-        self::assertStringContainsString('cost_text="${cost_prefix}${cost_formatted}"', $wrapperSource);
+        self::assertStringNotContainsString($legacyFormatter, $wrapperSource);
+        self::assertStringNotContainsString($legacyLabel, $wrapperSource);
+        self::assertStringNotContainsString($legacyEnv, $wrapperSource);
     }
 }

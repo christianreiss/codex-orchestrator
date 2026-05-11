@@ -400,19 +400,18 @@ def format_summary(data: dict) -> str:
 
 
 def parse_response_fields(body_text: str):
-    cost_value = ""
     recorded_value = ""
     reason_value = ""
     try:
         parsed = json.loads(body_text)
     except Exception:  # noqa: BLE001
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
 
     if not isinstance(parsed, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
     data = parsed.get("data")
     if not isinstance(data, dict):
-        return cost_value, recorded_value, reason_value
+        return recorded_value, reason_value
 
     recorded = data.get("recorded")
     if isinstance(recorded, bool):
@@ -424,16 +423,7 @@ def parse_response_fields(body_text: str):
     if isinstance(reason, str) and reason.strip():
         reason_value = reason.strip()
 
-    cost = data.get("cost")
-    if isinstance(cost, (int, float)):
-        cost_value = f"{float(cost):.6f}"
-    elif isinstance(cost, str):
-        try:
-            cost_value = f"{float(cost.strip()):.6f}"
-        except Exception:  # noqa: BLE001
-            cost_value = ""
-
-    return cost_value, recorded_value, reason_value
+    return recorded_value, reason_value
 
 
 def is_timeout_error(exc: Exception) -> bool:
@@ -456,10 +446,8 @@ for ctx in build_contexts():
             raise TimeoutError("request timed out")
         with urllib.request.urlopen(req, timeout=max(0.1, remaining), context=ctx) as resp:  # noqa: S310
             body_text = resp.read(65536).decode("utf-8", "replace")
-            cost_val, recorded_val, reason_val = parse_response_fields(body_text)
+            recorded_val, reason_val = parse_response_fields(body_text)
             print(f"summary={format_summary(payload)}")
-            if cost_val:
-                print(f"cost={cost_val}")
             if recorded_val:
                 print(f"recorded={recorded_val}")
             if reason_val:
@@ -503,7 +491,6 @@ post_token_usage_payload() {
   local output=""
   local line=""
   local summary=""
-  local cost=""
   local recorded=""
   local reason=""
   local retryable="false"
@@ -511,25 +498,20 @@ post_token_usage_payload() {
   USAGE_PUSH_RESULT=""
   USAGE_PUSH_REASON=""
   USAGE_PUSH_SUMMARY="$(parse_usage_summary "$payload_json")"
-  USAGE_PUSH_COST=""
-  USAGE_PUSH_COST_REASON=""
 
   if [[ -z "$payload_json" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no usage payload"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$CODEX_SYNC_API_KEY" || -z "$CODEX_SYNC_BASE_URL" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API key or base URL missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
   if ! command -v python3 >/dev/null 2>&1; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="python3 missing"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 1
   fi
 
@@ -537,7 +519,6 @@ post_token_usage_payload() {
   while IFS= read -r line; do
     case "$line" in
       summary=*) summary="${line#summary=}" ;;
-      cost=*) cost="${line#cost=}" ;;
       recorded=*) recorded="${line#recorded=}" ;;
       reason=*) reason="${line#reason=}" ;;
       retryable=*) retryable="${line#retryable=}" ;;
@@ -556,23 +537,16 @@ post_token_usage_payload() {
     if [[ "$recorded" == "false" ]]; then
       USAGE_PUSH_RESULT="failed"
       USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-      USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
       return 1
     fi
     USAGE_PUSH_RESULT="ok"
     USAGE_PUSH_REASON="recorded"
-    if [[ -n "$cost" ]]; then
-      USAGE_PUSH_COST="$cost"
-    else
-      USAGE_PUSH_COST_REASON="server did not return cost"
-    fi
     return 0
   fi
 
   if ((status == 40)); then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="API disabled by administrator"
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -616,7 +590,6 @@ PY
     if [[ -n "$fallback_payload" && "$fallback_payload" != "$payload_json" ]]; then
       status=0
       summary=""
-      cost=""
       recorded=""
       reason=""
       retryable="false"
@@ -624,7 +597,6 @@ PY
       while IFS= read -r line; do
         case "$line" in
           summary=*) summary="${line#summary=}" ;;
-          cost=*) cost="${line#cost=}" ;;
           recorded=*) recorded="${line#recorded=}" ;;
           reason=*) reason="${line#reason=}" ;;
           retryable=*) retryable="${line#retryable=}" ;;
@@ -643,21 +615,14 @@ PY
         if [[ "$recorded" == "false" ]]; then
           USAGE_PUSH_RESULT="failed"
           USAGE_PUSH_REASON="${reason:-usage ingestion failed}"
-          USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
           return 1
         fi
         USAGE_PUSH_RESULT="ok"
         USAGE_PUSH_REASON="recorded (fallback)"
-        if [[ -n "$cost" ]]; then
-          USAGE_PUSH_COST="$cost"
-        else
-          USAGE_PUSH_COST_REASON="server did not return cost"
-        fi
         return 0
       elif ((status == 40)); then
         USAGE_PUSH_RESULT="skipped"
         USAGE_PUSH_REASON="API disabled by administrator"
-        USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
         return 0
       fi
       [[ -z "$primary_err" ]] && primary_err="${reason:-$output}"
@@ -669,7 +634,6 @@ PY
   fi
   USAGE_PUSH_RESULT="failed"
   USAGE_PUSH_REASON="$primary_err"
-  USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
   return 1
 }
 
@@ -738,16 +702,12 @@ send_token_usage_if_present() {
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="usage extraction failed"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 
@@ -909,16 +869,12 @@ send_token_usage_from_session_jsonl() {
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="session JSONL extraction failed"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
   if [[ -z "$payload" ]]; then
     USAGE_PUSH_RESULT="skipped"
     USAGE_PUSH_REASON="no token usage captured"
     USAGE_PUSH_SUMMARY=""
-    USAGE_PUSH_COST=""
-    USAGE_PUSH_COST_REASON="$USAGE_PUSH_REASON"
     return 0
   fi
 

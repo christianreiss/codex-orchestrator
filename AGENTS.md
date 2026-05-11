@@ -39,21 +39,18 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
 - Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
-- Pricing snapshots are for model `gpt-5.4` with 24h refresh (`PRICING_URL` when set, otherwise preferred `GPT54_*` + `PRICING_CURRENCY` env fallbacks with legacy `GPT51_*` compatibility). `UsageCostService` backfills missing token usage + ingest costs once on boot.
 - When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
-- Pricing snapshots now cover both GPT models (via `PRICING_URL`/`GPT51_*`) and Claude models (via `CLAUDE_OPUS_*`/`CLAUDE_SONNET_*`/`CLAUDE_HAIKU_*` env fallbacks). `EngineMigration` seeds initial Claude pricing.
-- Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine cost breakdowns.
+- Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine usage breakdowns.
 
 ## Repo Snapshot
 
-- `public/index.php` is the entrypoint/router: boots env + migrations, runs one-time auth encryption backfills, wires services/repositories/rate limits, seeds wrapper metadata, backfills usage costs, and registers all HTTP routes.
+- `public/index.php` is the entrypoint/router: boots env + migrations, runs one-time auth encryption backfills, wires services/repositories/rate limits, seeds wrapper metadata, and registers all HTTP routes.
 - `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight/recovery, token usage logging, and pruning.
 - `RunnerVerifier` probes `AUTH_RUNNER_URL`, validates uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
 - `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, and renders host-baked wrapper content for `/wrapper` + `/wrapper/download`.
 - `SkillService`, `AgentsService`, `ClientConfigService`, and `MemoryService` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
 - `App\Security\RateLimiter` + `IpRateLimitRepository` enforce the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block).
-- `PricingService`, `UsageCostService`, and `CostHistoryService` refresh pricing, compute per-entry/aggregate costs for `/usage`, and expose up-to-180-day cost history.
-- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, pricing snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
+- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
 
 ## Request Flow & Behavior Cheatsheet
 
@@ -75,7 +72,7 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
    - Runner IP bypass requires `AUTH_RUNNER_IP_BYPASS` enabled and matching CIDRs in `AUTH_RUNNER_BYPASS_SUBNETS`.
 
 4. **Telemetry + sync extras**
-   - `/usage` accepts `line` and/or numeric fields (`total`, `input`, `output`, `cached`, `reasoning`; commas allowed), stores per-entry + ingest rows, computes `cost`, and returns HTTP 200 with `recorded:false` if ingestion throws.
+   - `/usage` accepts `line` and/or numeric fields (`total`, `input`, `output`, `cached`, `reasoning`; commas allowed), stores per-entry + ingest rows, and returns HTTP 200 with `recorded:false` if ingestion throws.
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
    - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
@@ -98,7 +95,6 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - Insecure hosts auto-open on register for 30 minutes unless `duration_minutes` overrides it; stored sliding window is clamped 0–480 minutes (default 10). Insecure retrieve/MCP/lane calls extend the active window.
 - Pruning runs on register/auth flows and admin stale-host passes: removes expired hosts, inactive hosts (`inactivity_window_days`, default 30, max 60, 0 disables inactivity pruning), and never-provisioned hosts older than 30 minutes; logs `host.pruned`.
 - ChatGPT snapshots use `ChatGptUsageService` with 5-minute minimum refresh cadence; errors/success log under `chatgpt.usage`.
-- Pricing refresh cadence is daily (24h cache) with env fallback pricing when remote pricing is unavailable.
 
 ## cdx Wrapper & Scripts
 

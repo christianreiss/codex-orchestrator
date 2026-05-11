@@ -16,14 +16,14 @@ final class AdminClaudeSettingsEndpointTest extends TestCase
         self::assertStringContainsString("postClaudeSettings", $router);
     }
 
-    public function testGetEndpointReturnsDefaultModelMaxTokensSpendLimit(): void
+    public function testGetEndpointReturnsDefaultModelAndMaxTokens(): void
     {
         $controller = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminSettingsController.php');
         self::assertIsString($controller);
 
         self::assertStringContainsString("'default_model'", $controller);
         self::assertStringContainsString("'max_tokens'", $controller);
-        self::assertStringContainsString("'spend_limit'", $controller);
+        self::assertStringNotContainsString("'" . 'sp' . 'end_limit' . "'", $controller);
         self::assertStringContainsString("'disabled'", $controller);
     }
 

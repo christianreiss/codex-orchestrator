@@ -26,10 +26,9 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 - A global kill switch lets you cut API access fleet-wide in seconds if something goes sideways.
 
 **See what's happening**
-- Track token usage and costs per host and per engine with built-in dashboards.
+- Track token usage per host and per engine with built-in dashboards.
 - Quota warnings nudge you before you hit limits. VIP hosts can bypass them when it matters.
 - ChatGPT quota snapshots refresh automatically so you always know where you stand.
-- Claude model pricing (Opus, Sonnet, Haiku) tracked alongside Codex/GPT costs.
 
 **Stay in control**
 - Pin Codex or Claude to a specific version fleet-wide, or let individual hosts override.
@@ -51,7 +50,7 @@ You'll get the most out of this if:
 
 - You run Codex and/or Claude Code on **more than one machine** and want a single source of truth for auth and config.
 - You want **per-host API keys** with IP binding, instead of one token pasted everywhere.
-- You need **visibility** into who's using what across both engines, how much it costs, and a way to set limits.
+- You need **visibility** into who's using what across both engines, which hosts and engines are using tokens, and a way to set limits.
 - You'd like to manage **skills and agent documents** from one place instead of scattering files across machines.
 - You want a **kill switch** and quota controls you can pull from a dashboard.
 - You want **OpenAI and Anthropic compatible APIs** you can point third-party tools at without exposing your real API keys.

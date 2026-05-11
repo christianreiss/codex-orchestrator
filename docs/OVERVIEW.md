@@ -2,7 +2,7 @@
 
 ## What it is
 
-Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx` wrappers. The same API also ships Skills, shared project coordination, token-usage telemetry, ChatGPT/Claude usage snapshots, and pricing data for dashboards.
+Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx` wrappers. The same API also ships Skills, shared project coordination, token-usage telemetry, ChatGPT/Claude usage snapshots,.
 
 ## Primary use cases
 
@@ -29,11 +29,11 @@ Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials 
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth on scheduled preflight checks (default ~8h) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (canonical-auth-changing uploads, including admin/seed uploads, require a reachable runner when enabled).
-- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots, and pricing pulls for dashboard costs.
+- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots.
 
 ## Key components (code map)
 
-- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/skills/projects/agents/config/MCP/usage/pricing/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
+- **`public/index.php` router** — boots env, key manager + secretbox, repositories/services, scheduled preflight (8h), global rate limiting, and all routes (host/admin/installer/seed/auth/sync/skills/projects/agents/config/MCP/usage/chatgpt/versions). Production expects schema/backfills via `scripts/migrate.php`; request-path migration/backfill is controlled by `RUN_MIGRATIONS_ON_BOOT` / `RUN_BACKFILLS_ON_BOOT`.
 - **`App\Services\AuthService`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`RunnerVerifier`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, requests skill summaries, requests memory summaries, requests admin skill drafts, requests admin project metadata drafts, and returns runner telemetry.
 - **`WrapperService`** — seeds `storage/wrapper/cdx` from bundled `bin/cdx`, derives `WRAPPER_VERSION`, and bakes per-host script with API key/base URL/FQDN/security flag/CA path; hash + size returned by `/wrapper`. If storage drift is detected but `storage/wrapper/cdx` is not writable, it serves bundled `bin/cdx` directly and logs a warning so stale wrappers are not served.
@@ -43,9 +43,8 @@ Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials 
 - **`AgentsService`** — stores versioned AGENTS.md editions, serves either the latest/pinned fleet version or a per-host pin, exposes read-only history fetches for the admin UI, and can revert an older edition by cloning it into a fresh latest version while returning fleet serving to `latest`. Canonical AGENTS history can also enforce a configurable historical-backup cap (`versions.agents_backup_limit`): the newest latest draft is always kept, while currently served or host-pinned versions are protected from automatic pruning. Served host copies may append managed Skills and Memories inventory blocks at render time, report per-section presence/count/reason metadata through the host sync APIs, and can backfill missing memory summaries lazily through the runner while the AGENTS document is being rendered.
 - **`MemoryService` + `McpServer`** — MCP memory storage per host (content, tags, optional metadata, optional runner-generated summary) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`), host-safe resource helpers, unconditional `skill://{slug}` read-only resources for synced Skill manifests, and optional project-aware MCP tools/resources (`project_*`, `project://{slug}`) when the Projects module is enabled. Coordinator filesystem helpers are retained for operator/internal use and are not exposed on the host-authenticated `/mcp` route.
 - **`ClientConfigService`** — renders/stores canonical `config.toml` from structured settings (sha + TOML body + saved builder payload) for the admin config page and wrapper sync; `/config/retrieve` bakes a per-host copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry.
-- **`ChatGptUsageService` & `PricingService`** — use canonical auth to poll ChatGPT quotas (cooldown, cron-friendly), capture both normal and Spark (`additional_rate_limits`) quota lanes, and fetch GPT-5.4 pricing (HTTP or env fallback) for cost calculations.
-- **`UsageCostService` & `CostHistoryService`** — backfill missing costs in token usage rows/ingests (boot-gated by `RUN_BACKFILLS_ON_BOOT`) using the latest pricing snapshot, and expose up to 180 days of daily token + cost time series for dashboards.
-- Admin dashboard charts use local Chart.js assets (with zoom plugin) for inline quota/cost analytics on the main dashboard; history APIs now support richer range/interval filters for those graphs.
+- **`ChatGptUsageService` — uses canonical auth to poll ChatGPT quotas (cooldown, cron-friendly) and capture normal plus Spark quota lanes.
+- Admin dashboard charts use local Chart.js assets (with zoom plugin) for inline quota and usage analytics on the main dashboard; history APIs now support richer range/interval filters for those graphs.
 - Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated) and a username-first flow that requires passkeys for passkey-enabled admins. Personal session controls now live under the navbar brand account menu: theme selection is always available, while authenticated users also get self-service password change (`/admin/account/password`), personal passkey management (`/admin/account/passkeys`), and logout. Admin users and roles stay in the Users panel; personal passkeys no longer live there, and password reset endpoints remain disabled.
 - Admin Settings includes a Joplin integration panel. Joplin activation is intentionally three-step: save URL/token/interval, run a successful connection test against the saved config, then enable the module. Saving changed connection credentials clears the previous verification and drops the module back to disabled until the saved config is tested again.
 - Host management now uses dedicated host detail pages at `/admin/hosts/{id}` (Action Items, Features, Stats, Infos) instead of the legacy host detail modal.
@@ -85,20 +84,19 @@ Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials 
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - The normal boot summary is now sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language labels and grouped numbers for calls/tokens.
-   - Non-empty post-run output ends with a compact footer (`Run usage`, `Run cost`, `Sync`) that includes server-calculated run cost as `Run cost | 💰 <amount>` on UTF-8 terminals when `/usage` returns `data.cost` (ASCII fallback omits the icon); displayed cost is rounded to two decimals with a trailing `$` (example `0.43$`). Empty runs with no captured token usage now skip the footer entirely. Usage extraction now checks the last ~256 KiB of the PTY capture first for a final legacy `Token usage:` line, then falls back to session JSONL / full-log parsing only when needed. `/usage` upload stays best effort with roughly a 3-second total request budget so wrapper exit remains prompt even when telemetry is slow.
+   - Non-empty post-run output ends with a compact footer (`Run usage`, `Sync`). `/usage` upload stays best effort with roughly a 3-second total request budget so wrapper exit remains prompt even when telemetry is slow.
    - Summary blocks are compacted into aligned columns (default up to three entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW`), with Quota defaulting to one metric per row via `CODEX_SUMMARY_ITEMS_PER_ROW_QUOTA=1` and Versions defaulting to two entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW_VERSIONS=2`.
    - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
 
 5) **Usage and host telemetry**
-   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, computes cost per entry from the latest pricing snapshot when billable token splits are present, stores per-row entries with their resolved engine (`codex` or `claude`), and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, engine, and total cost.
+   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, stores per-row entries with their resolved engine (`codex` or `claude`), and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, engine.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync. When project coordination is enabled, this same path auto-ships the managed `coco` skill to clients.
    - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
 
-6) **Quotas and pricing**
+6) **Quotas**
    - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards with dual-lane metadata: normal + Spark windows and active-lane hints.
-   - Pricing snapshots (default GPT-5.4) are fetched at most daily from `PRICING_URL` or env defaults; `/admin/overview` shows monthly token totals + estimated cost.
 
 ## Safety rails
 
@@ -113,7 +111,7 @@ Small PHP 8.2 + MySQL service that keeps canonical Codex and Claude credentials 
 
 - Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). Those canonical payloads are engine-scoped (`codex` and `claude`), `host_auth_states` tracks what each host last saw per engine, and `host_auth_digests` caches up to 3 recent digests per host per engine.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, token usages, Skills, project coordination tables, ChatGPT/pricing snapshots, and version flags all live in MySQL; storage is the compose volume.
+- Logs, token usages, Skills, project coordination tables, ChatGPT snapshots, and version flags all live in MySQL; storage is the compose volume.
 
 ## Fleet workflow at a glance
 

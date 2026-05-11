@@ -7,7 +7,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\DashboardGraphStatsService;
-use App\Services\PricingService;
 use App\Services\TokenUsageTracker;
 use App\Support\Engine;
 use PHPUnit\Framework\TestCase;
@@ -17,7 +16,6 @@ require_once __DIR__ . '/../vendor/autoload.php';
 final class TokenUsageTrackerTest extends TestCase
 {
     private TokenUsageTracker $tracker;
-    private PricingService $pricingService;
 
     protected function setUp(): void
     {
@@ -27,10 +25,6 @@ final class TokenUsageTrackerTest extends TestCase
         $tokenUsageIngests = $this->getMockBuilder(TokenUsageIngestRepository::class)
             ->disableOriginalConstructor()
             ->getMock();
-        $this->pricingService = $this->getMockBuilder(PricingService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['defaultModel', 'latestPricing', 'calculateCost'])
-            ->getMock();
         $versions = $this->getMockBuilder(VersionRepository::class)
             ->disableOriginalConstructor()
             ->getMock();
@@ -38,7 +32,6 @@ final class TokenUsageTrackerTest extends TestCase
         $this->tracker = new TokenUsageTracker(
             $tokenUsages,
             $tokenUsageIngests,
-            $this->pricingService,
             $versions
         );
     }
@@ -373,84 +366,6 @@ final class TokenUsageTrackerTest extends TestCase
         $this->assertStringContainsString('Token usage:', $result[0]['line']);
     }
 
-    // -------------------------------------------------------------------------
-    // normalizeUsageCost
-    // -------------------------------------------------------------------------
-
-    public function testNormalizeUsageCostReturnsNullWhenNoBillableFields(): void
-    {
-        $usage = ['total' => 100, 'line' => 'Token usage: 100'];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertNull($result);
-    }
-
-    public function testNormalizeUsageCostCalculatesWhenInputPresent(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(0.015);
-        $usage = ['input' => 500, 'output' => null, 'cached' => null];
-        $pricing = ['input_price_per_1k' => 0.01, 'output_price_per_1k' => 0.03, 'cached_price_per_1k' => 0.005];
-        $result = $this->tracker->normalizeUsageCost($usage, $pricing);
-        $this->assertSame(0.015, $result);
-    }
-
-    public function testNormalizeUsageCostCalculatesWhenOutputPresent(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(0.030);
-        $usage = ['input' => null, 'output' => 1000, 'cached' => null];
-        $pricing = ['input_price_per_1k' => 0.01, 'output_price_per_1k' => 0.03, 'cached_price_per_1k' => 0.005];
-        $result = $this->tracker->normalizeUsageCost($usage, $pricing);
-        $this->assertSame(0.03, $result);
-    }
-
-    public function testNormalizeUsageCostCalculatesWhenCachedPresent(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(0.001);
-        $usage = ['input' => null, 'output' => null, 'cached' => 200];
-        $pricing = ['input_price_per_1k' => 0.01, 'output_price_per_1k' => 0.03, 'cached_price_per_1k' => 0.005];
-        $result = $this->tracker->normalizeUsageCost($usage, $pricing);
-        $this->assertSame(0.001, $result);
-    }
-
-    public function testNormalizeUsageCostRoundsToSixDecimals(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(0.1234567890);
-        $usage = ['input' => 100, 'output' => 0, 'cached' => 0];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertSame(round(0.1234567890, 6), $result);
-    }
-
-    public function testNormalizeUsageCostReturnsNullForNanResult(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(NAN);
-        $usage = ['input' => 100, 'output' => 0, 'cached' => 0];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertNull($result);
-    }
-
-    public function testNormalizeUsageCostReturnsNullForNegativeResult(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(-0.5);
-        $usage = ['input' => 100, 'output' => 0, 'cached' => 0];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertNull($result);
-    }
-
-    public function testNormalizeUsageCostReturnsNullForInfiniteResult(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(INF);
-        $usage = ['input' => 100, 'output' => 0, 'cached' => 0];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertNull($result);
-    }
-
-    public function testNormalizeUsageCostZeroIsValid(): void
-    {
-        $this->pricingService->method('calculateCost')->willReturn(0.0);
-        $usage = ['input' => 0, 'output' => 0, 'cached' => 0];
-        $result = $this->tracker->normalizeUsageCost($usage, []);
-        $this->assertSame(0.0, $result);
-    }
-
     public function testRecordTokenUsageCopiesAggregatesIntoSetAsideGraphStats(): void
     {
         $tokenUsages = $this->getMockBuilder(TokenUsageRepository::class)
@@ -464,14 +379,6 @@ final class TokenUsageTrackerTest extends TestCase
             ->onlyMethods(['record'])
             ->getMock();
         $tokenUsageIngests->method('record')->willReturn(['id' => 77]);
-
-        $pricingService = $this->getMockBuilder(PricingService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['defaultModel', 'latestPricing', 'calculateCost'])
-            ->getMock();
-        $pricingService->method('defaultModel')->willReturn('gpt-5.4');
-        $pricingService->method('latestPricing')->willReturn(['currency' => 'USD']);
-        $pricingService->method('calculateCost')->willReturn(0.0125);
 
         $versions = $this->getMockBuilder(VersionRepository::class)
             ->disableOriginalConstructor()
@@ -489,8 +396,7 @@ final class TokenUsageTrackerTest extends TestCase
                         && $aggregates['input'] === 1000
                         && $aggregates['output'] === 500
                         && $aggregates['cached'] === 200
-                        && $aggregates['reasoning'] === 50
-                        && abs(((float) $aggregates['cost']) - 0.0125) < 0.000001;
+                        && $aggregates['reasoning'] === 50;
                 }),
                 $this->callback(static fn (?string $recordedAt): bool => is_string($recordedAt) && $recordedAt !== '')
             );
@@ -498,7 +404,6 @@ final class TokenUsageTrackerTest extends TestCase
         $tracker = new TokenUsageTracker(
             $tokenUsages,
             $tokenUsageIngests,
-            $pricingService,
             $versions,
             $graphStats
         );
@@ -534,7 +439,6 @@ final class TokenUsageTrackerTest extends TestCase
                 $this->equalTo(50),
                 $this->equalTo(null),
                 $this->equalTo(null),
-                $this->equalTo(0.42),
                 $this->equalTo('claude-sonnet-4-6'),
                 $this->equalTo(null),
                 $this->equalTo(88),
@@ -551,23 +455,11 @@ final class TokenUsageTrackerTest extends TestCase
                 $this->equalTo(123),
                 $this->equalTo(1),
                 $this->callback(static fn (array $totals): bool => $totals['total'] === 150 && $totals['input'] === 100 && $totals['output'] === 50),
-                $this->equalTo(0.42),
                 $this->callback(static fn (?string $payload): bool => is_string($payload) && str_contains($payload, '"engine":"claude"')),
                 $this->equalTo('127.0.0.1'),
                 $this->equalTo(Engine::CLAUDE)
             )
             ->willReturn(['id' => 88, 'engine' => Engine::CLAUDE]);
-
-        $pricingService = $this->getMockBuilder(PricingService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['defaultModel', 'latestPricing', 'calculateCost'])
-            ->getMock();
-        $pricingService->expects($this->never())->method('defaultModel');
-        $pricingService->expects($this->once())
-            ->method('latestPricing')
-            ->with('claude-sonnet-4-6', false)
-            ->willReturn(['currency' => 'USD']);
-        $pricingService->method('calculateCost')->willReturn(0.42);
 
         $versions = $this->getMockBuilder(VersionRepository::class)
             ->disableOriginalConstructor()
@@ -576,7 +468,6 @@ final class TokenUsageTrackerTest extends TestCase
         $tracker = new TokenUsageTracker(
             $tokenUsages,
             $tokenUsageIngests,
-            $pricingService,
             $versions
         );
 

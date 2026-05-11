@@ -16,7 +16,6 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Security\SecretBox;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -100,7 +99,6 @@ final class AuthServiceMcpCredentialTest extends TestCase
             new AuthServiceMcpCredentialLogRepository(),
             $this->createMock(TokenUsageRepository::class),
             $this->createMock(TokenUsageIngestRepository::class),
-            $this->createMock(PricingService::class),
             $this->createMock(VersionRepository::class),
             $this->createMock(WrapperService::class),
             null,

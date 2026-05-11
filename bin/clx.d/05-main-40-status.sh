@@ -49,10 +49,6 @@ remote_tag="${remote_tag:-}"
 remote_version="${remote_version:-}"
 skip_update_reason="${skip_update_reason:-}"
 
-# Claude spend-based quota variables (from quota fragment).
-CLAUDE_SPEND_USED="${CLAUDE_SPEND_USED:-}"
-CLAUDE_SPEND_LIMIT="${CLAUDE_SPEND_LIMIT:-}"
-
 # ── Version labels ────────────────────────────────────────────
 
 claude_target_label="${claude_target_label:-${remote_tag:-${remote_version:-${LOCAL_VERSION:-unknown}}}}"
@@ -341,8 +337,7 @@ elif [[ "$CONFIG_SYNC_STATUS" == "error" ]]; then
   config_tone="red"
 fi
 
-# ── Quota (spend-based) ──────────────────────────────────────
-# Claude uses a single spend pool, not ChatGPT lanes.
+# ── Quota policy ──────────────────────────────────────────────
 
 quota_limit="$QUOTA_LIMIT_PERCENT"
 if [[ ! "$quota_limit" =~ ^[0-9]+$ ]]; then
@@ -355,28 +350,8 @@ elif ((quota_limit > 100)); then
 fi
 QUOTA_LIMIT_PERCENT="$quota_limit"
 
-quota_warn_threshold=$((quota_limit - 10))
-if ((quota_warn_threshold < 0)); then
-  quota_warn_threshold=0
-fi
-
 quota_reasons=()
 quota_warnings=()
-
-if [[ -n "$CLAUDE_SPEND_USED" && -n "$CLAUDE_SPEND_LIMIT" ]] \
-   && [[ "$CLAUDE_SPEND_LIMIT" != "0" && "$CLAUDE_SPEND_LIMIT" != "null" ]]; then
-  spend_pct=$(awk "BEGIN { printf \"%.0f\", ($CLAUDE_SPEND_USED / $CLAUDE_SPEND_LIMIT) * 100 }" 2>/dev/null || echo "0")
-
-  if [[ "$spend_pct" =~ ^[0-9]+$ ]]; then
-    if ((spend_pct >= quota_limit)); then
-      reason="spend quota reached (\$${CLAUDE_SPEND_USED} of \$${CLAUDE_SPEND_LIMIT}, ${spend_pct}%)"
-      quota_reasons+=("$reason")
-    elif ((spend_pct >= quota_warn_threshold)); then
-      reason="spend quota high (\$${CLAUDE_SPEND_USED} of \$${CLAUDE_SPEND_LIMIT}, ${spend_pct}%)"
-      quota_warnings+=("$reason")
-    fi
-  fi
-fi
 
 if ((${#quota_reasons[@]})); then
   QUOTA_BLOCKED=1

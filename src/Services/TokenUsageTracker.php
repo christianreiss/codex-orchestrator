@@ -21,7 +21,6 @@ class TokenUsageTracker
     public function __construct(
         private readonly TokenUsageRepository $tokenUsages,
         private readonly TokenUsageIngestRepository $tokenUsageIngests,
-        private readonly PricingService $pricingService,
         private readonly VersionRepository $versions,
         private readonly ?DashboardGraphStatsService $dashboardGraphStats = null
     ) {
@@ -44,22 +43,13 @@ class TokenUsageTracker
             'output' => null,
             'cached' => null,
             'reasoning' => null,
-            'cost' => 0.0,
         ];
-        $pricingCache = [];
-        $resolvePricing = function (?string $model) use (&$pricingCache, $engine): array {
-            $resolvedModel = $this->resolvePricingModel($model, $engine);
-            if (!array_key_exists($resolvedModel, $pricingCache)) {
-                $pricingCache[$resolvedModel] = $this->pricingService->latestPricing($resolvedModel, false);
-            }
-            return $pricingCache[$resolvedModel];
-        };
 
         $recordedAt = gmdate(DATE_ATOM);
 
         foreach ($usageRows as $idx => $usage) {
             if ($engine === Engine::CLAUDE && empty($usage['model'])) {
-                $usageRows[$idx]['model'] = $this->resolvePricingModel(null, $engine);
+                $usageRows[$idx]['model'] = 'claude-sonnet-4-6';
                 $usage['model'] = $usageRows[$idx]['model'];
             }
 
@@ -68,13 +58,6 @@ class TokenUsageTracker
                     $aggregates[$field] = ($aggregates[$field] ?? 0) + (int) $usage[$field];
                 }
             }
-
-            $pricing = $resolvePricing($usage['model'] ?? null);
-            $usageCost = $this->normalizeUsageCost($usage, $pricing);
-            if ($usageCost !== null) {
-                $aggregates['cost'] = ($aggregates['cost'] ?? 0.0) + $usageCost;
-            }
-            $usageRows[$idx]['cost'] = $usageCost;
         }
 
         $encodedPayload = null;
@@ -88,7 +71,6 @@ class TokenUsageTracker
             $hostId,
             count($usageRows),
             $aggregates,
-            $aggregates['cost'] ?? null,
             $encodedPayload,
             $clientIp !== null && $clientIp !== '' ? $clientIp : null,
             $engine
@@ -103,7 +85,6 @@ class TokenUsageTracker
                 'output' => $usage['output'],
                 'cached' => $usage['cached'],
                 'reasoning' => $usage['reasoning'],
-                'cost' => $usage['cost'],
                 'model' => $usage['model'],
                 'ingest_id' => $ingestId,
             ], static fn ($value) => $value !== null && $value !== '');
@@ -115,7 +96,6 @@ class TokenUsageTracker
                 $usage['output'],
                 $usage['cached'],
                 $usage['reasoning'],
-                $usage['cost'],
                 $usage['model'],
                 $usage['line'],
                 $ingestId,
@@ -131,7 +111,6 @@ class TokenUsageTracker
                 'output' => $usage['output'],
                 'cached' => $usage['cached'],
                 'reasoning' => $usage['reasoning'],
-                'cost' => $usage['cost'],
                 'model' => $usage['model'],
             ];
         }
@@ -144,7 +123,6 @@ class TokenUsageTracker
             'recorded' => count($records),
             'usages' => $records,
             'ingest_id' => $ingestId,
-            'cost' => $aggregates['cost'] ?? null,
         ];
 
         if (count($records) === 1) {
@@ -152,15 +130,6 @@ class TokenUsageTracker
         }
 
         return $response;
-    }
-
-    private function resolvePricingModel(?string $model, string $engine): string
-    {
-        if ($model !== null && trim($model) !== '') {
-            return trim($model);
-        }
-
-        return $engine === Engine::CLAUDE ? 'claude-sonnet-4-6' : $this->pricingService->defaultModel();
     }
 
     public function normalizeUsagePayloads(array $payload): array
@@ -218,34 +187,6 @@ class TokenUsageTracker
             'reasoning' => $reasoning,
             'model' => $model !== '' ? $model : null,
         ];
-    }
-
-    public function normalizeUsageCost(array $usage, array $pricing): ?float
-    {
-        $hasBillableBreakdown = false;
-        foreach (['input', 'output', 'cached'] as $field) {
-            if (array_key_exists($field, $usage) && $usage[$field] !== null) {
-                $hasBillableBreakdown = true;
-                break;
-            }
-        }
-
-        if (!$hasBillableBreakdown) {
-            return null;
-        }
-
-        $cost = $this->pricingService->calculateCost($pricing, [
-            'input' => $usage['input'] ?? 0,
-            'output' => $usage['output'] ?? 0,
-            'cached' => $usage['cached'] ?? 0,
-        ]);
-
-        $value = (float) $cost;
-        if (is_nan($value) || is_infinite($value) || $value < 0) {
-            return null;
-        }
-
-        return round($value, 6);
     }
 
     public function sanitizeUsageLine(string $line): string

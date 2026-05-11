@@ -12,7 +12,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -32,7 +31,6 @@ final class AuthServiceClientVersionLockTest extends TestCase
         $logs = $this->createMock(LogRepository::class);
         $tokenUsages = $this->createMock(TokenUsageRepository::class);
         $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
-        $pricingService = $this->createMock(PricingService::class);
 
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
@@ -62,7 +60,6 @@ final class AuthServiceClientVersionLockTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricingService,
             $versions,
             $wrapperService,
             null
@@ -88,7 +85,6 @@ final class AuthServiceClientVersionLockTest extends TestCase
         $logs = $this->createMock(LogRepository::class);
         $tokenUsages = $this->createMock(TokenUsageRepository::class);
         $tokenUsageIngests = $this->createMock(TokenUsageIngestRepository::class);
-        $pricingService = $this->createMock(PricingService::class);
 
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
@@ -118,7 +114,6 @@ final class AuthServiceClientVersionLockTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricingService,
             $versions,
             $wrapperService,
             null

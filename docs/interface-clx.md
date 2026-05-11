@@ -120,7 +120,7 @@ Host-baked string values are shell-escaped before download so malformed or opera
 
 ## Intentional deltas vs `cdx`
 
-- **No quota lanes / Spark lane.** ChatGPT-specific. Claude's quota is a monthly spend cap + per-minute RPM; see `ClaudeUsageService`.
+- **No quota lanes / Spark lane.** ChatGPT-specific. Claude exposes usage windows without wrapper-side lane selection.
 - **No `--lane` command.** Absence of lanes → absence of lane-selection UI. Operators configure `claude_model_override` per host instead.
 - **No `reasoning_effort` override.** Anthropic's API has no such parameter.
 - **No device-code CLI login.** Claude Code CLI accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.json and exports the key at exec time.

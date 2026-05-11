@@ -211,7 +211,6 @@ Summary layout:
 - On retryable non-timeout `/usage` failures with `line` present, wrapper retries once with `line` stripped.
 - Exit footer reports for non-empty runs:
   - `Run usage`
-  - `Run cost` (uses response `data.cost` when present; remains unavailable when the client only reported total tokens without input/output/cached breakdown)
   - `Sync` (`usage` + `auth` push states)
 - Empty runs with no captured token usage skip the exit footer entirely.
 

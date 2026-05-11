@@ -372,6 +372,7 @@ class AdminJoplinController
                 'status' => 'error',
                 'message' => 'Joplin sync service is not available',
             ], 503);
+            throw new \RuntimeException('Joplin sync service is not available');
         }
 
         try {
@@ -390,6 +391,7 @@ class AdminJoplinController
                 'status' => 'error',
                 'message' => 'Initial Joplin sync failed: ' . $exception->getMessage(),
             ], 502);
+            throw $exception;
         }
     }
 

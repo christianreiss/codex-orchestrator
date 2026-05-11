@@ -32,15 +32,12 @@ final class DashboardGraphStatsRetentionContractTest extends TestCase
     public function testChartHistoryServicesUseSetAsideGraphStatsStore(): void
     {
         $php = file_get_contents(__DIR__ . '/../src/Services/DashboardGraphStatsService.php')
-            . file_get_contents(__DIR__ . '/../src/Services/CostHistoryService.php')
             . file_get_contents(__DIR__ . '/../src/Services/ChatGptUsageService.php')
             . file_get_contents(__DIR__ . '/../src/Services/TokenUsageTracker.php');
         $this->assertIsString($php);
 
         $this->assertStringContainsString("dashboard_graph_stats_backfill_v1", $php);
         $this->assertStringContainsString("\$this->dashboardGraphStats?->recordTokenUsage(\$aggregates, \$recordedAt);", $php);
-        $this->assertStringContainsString("\$this->dashboardGraphStats?->firstUsageRecordedAt()", $php);
-        $this->assertStringContainsString("\$this->dashboardGraphStats?->usageDailySince(", $php);
         $this->assertStringContainsString("\$this->dashboardGraphStats?->quotaHistory(", $php);
         $this->assertStringContainsString("\$this->dashboardGraphStats?->recordQuotaSnapshot(\$snapshot);", $php);
     }

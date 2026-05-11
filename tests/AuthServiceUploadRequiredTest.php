@@ -13,7 +13,6 @@ use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
 use App\Services\WrapperService;
-use App\Services\PricingService;
 use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -170,7 +169,6 @@ class NullTokenUsageRepository extends TokenUsageRepository
             'output' => 0,
             'cached' => 0,
             'reasoning' => 0,
-            'cost' => 0.0,
             'events' => 0,
         ];
     }
@@ -192,7 +190,6 @@ class NullTokenUsageRepository extends TokenUsageRepository
         ?int $output,
         ?int $cached,
         ?int $reasoning,
-        ?float $cost,
         ?string $model,
         ?string $line,
         ?int $ingestId = null,
@@ -228,7 +225,7 @@ class NullTokenUsageIngestRepository extends TokenUsageIngestRepository
     {
     }
 
-    public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
+    public function record(?int $hostId, int $entries, array $totals, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
     {
         return [
             'id' => 0,
@@ -240,39 +237,10 @@ class NullTokenUsageIngestRepository extends TokenUsageIngestRepository
             'output' => $totals['output'] ?? null,
             'cached' => $totals['cached'] ?? null,
             'reasoning' => $totals['reasoning'] ?? null,
-            'cost' => $cost,
             'client_ip' => $clientIp,
             'payload' => $payload,
             'created_at' => gmdate(DATE_ATOM),
         ];
-    }
-}
-
-class NullPricingService extends PricingService
-{
-    public function __construct()
-    {
-    }
-
-    public function defaultModel(): string
-    {
-        return 'gpt-5.4';
-    }
-
-    public function latestPricing(string $model, bool $force = false): array
-    {
-        return [
-            'model' => $model,
-            'currency' => 'USD',
-            'input_price_per_1k' => 0.0,
-            'output_price_per_1k' => 0.0,
-            'cached_price_per_1k' => 0.0,
-        ];
-    }
-
-    public function calculateCost(array $pricing, array $tokens): float
-    {
-        return 0.0;
     }
 }
 
@@ -388,7 +356,6 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new NullLogRepository(),
             new NullTokenUsageRepository(),
             new NullTokenUsageIngestRepository(),
-            new NullPricingService(),
             new InMemoryVersionRepository(['canonical_payload_id' => 99]),
             new StubWrapperService(),
             null
@@ -456,7 +423,6 @@ final class AuthServiceUploadRequiredTest extends TestCase
             new NullLogRepository(),
             new NullTokenUsageRepository(),
             new NullTokenUsageIngestRepository(),
-            new NullPricingService(),
             new InMemoryVersionRepository(['canonical_payload_id' => 100]),
             new StubWrapperService(),
             null

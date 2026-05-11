@@ -24,19 +24,18 @@ class TokenUsageIngestRepository
      *
      * @param ?int $hostId
      * @param int $entries
-     * @param array{total:?int,input:?int,output:?int,cached:?int,reasoning:?int,cost?:?float} $totals
-     * @param ?float $cost
+     * @param array{total:?int,input:?int,output:?int,cached:?int,reasoning:?int} $totals
      * @param ?string $payload Normalized payload JSON (already sanitized)
      * @param ?string $clientIp
      *
-     * @return array{id:int,host_id:?int,engine:string,entries:int,total:?int,input:?int,output:?int,cached:?int,reasoning:?int,cost:?float,client_ip:?string,payload:?string,created_at:string}
+     * @return array{id:int,host_id:?int,engine:string,entries:int,total:?int,input:?int,output:?int,cached:?int,reasoning:?int,client_ip:?string,payload:?string,created_at:string}
      */
-    public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = Engine::DEFAULT): array
+    public function record(?int $hostId, int $entries, array $totals, ?string $payload, ?string $clientIp = null, string $engine = Engine::DEFAULT): array
     {
         $engine = Engine::validate($engine);
         $statement = $this->database->connection()->prepare(
-            'INSERT INTO token_usage_ingests (host_id, engine, entries, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, cost, client_ip, payload, created_at)
-             VALUES (:host_id, :engine, :entries, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :cost, :client_ip, :payload, :created_at)'
+            'INSERT INTO token_usage_ingests (host_id, engine, entries, total, input_tokens, output_tokens, cached_tokens, reasoning_tokens, client_ip, payload, created_at)
+             VALUES (:host_id, :engine, :entries, :total, :input_tokens, :output_tokens, :cached_tokens, :reasoning_tokens, :client_ip, :payload, :created_at)'
         );
 
         $createdAt = gmdate(DATE_ATOM);
@@ -49,7 +48,6 @@ class TokenUsageIngestRepository
             'output_tokens' => $totals['output'] ?? null,
             'cached_tokens' => $totals['cached'] ?? null,
             'reasoning_tokens' => $totals['reasoning'] ?? null,
-            'cost' => $cost,
             'client_ip' => $clientIp !== null && $clientIp !== '' ? substr($clientIp, 0, 64) : null,
             'payload' => $payload,
             'created_at' => $createdAt,
@@ -67,7 +65,6 @@ class TokenUsageIngestRepository
             'output' => isset($totals['output']) ? (int) $totals['output'] : null,
             'cached' => isset($totals['cached']) ? (int) $totals['cached'] : null,
             'reasoning' => isset($totals['reasoning']) ? (int) $totals['reasoning'] : null,
-            'cost' => $cost,
             'client_ip' => $clientIp !== null && $clientIp !== '' ? substr($clientIp, 0, 64) : null,
             'payload' => $payload,
             'created_at' => $createdAt,
@@ -87,7 +84,6 @@ class TokenUsageIngestRepository
             'output'     => isset($row['output'])    ? (int) $row['output']    : null,
             'cached'     => isset($row['cached'])    ? (int) $row['cached']    : null,
             'reasoning'  => isset($row['reasoning']) ? (int) $row['reasoning'] : null,
-            'cost'       => isset($row['cost'])      ? (float) $row['cost']    : null,
             'client_ip'  => $row['client_ip'] ?? null,
             'payload'    => $row['payload']   ?? null,
             'created_at' => $row['created_at'] ?? null,
@@ -108,7 +104,6 @@ class TokenUsageIngestRepository
                     tui.output_tokens AS output,
                     tui.cached_tokens AS cached,
                     tui.reasoning_tokens AS reasoning,
-                    tui.cost,
                     tui.client_ip,
                     tui.payload,
                     tui.created_at
@@ -157,7 +152,6 @@ class TokenUsageIngestRepository
             'output' => 'tui.output_tokens',
             'cached' => 'tui.cached_tokens',
             'reasoning' => 'tui.reasoning_tokens',
-            'cost' => 'tui.cost',
             'host' => 'h.fqdn',
             'client_ip' => 'tui.client_ip',
             'id' => 'tui.id',
@@ -203,7 +197,6 @@ class TokenUsageIngestRepository
                        tui.output_tokens AS output,
                        tui.cached_tokens AS cached,
                        tui.reasoning_tokens AS reasoning,
-                       tui.cost,
                        tui.client_ip,
                        tui.payload,
                        tui.created_at
@@ -238,20 +231,4 @@ class TokenUsageIngestRepository
         ];
     }
 
-    public function backfillCosts(float $inputPricePer1k, float $outputPricePer1k, float $cachedPricePer1k): void
-    {
-        $statement = $this->database->connection()->prepare(
-            "UPDATE token_usage_ingests
-             SET cost = (COALESCE(input_tokens, 0) / 1000) * :input_price
-                      + (COALESCE(output_tokens, 0) / 1000) * :output_price
-                      + (COALESCE(cached_tokens, 0) / 1000) * :cached_price
-             WHERE cost IS NULL AND (engine IS NULL OR engine = 'codex')"
-        );
-
-        $statement->execute([
-            'input_price' => $inputPricePer1k,
-            'output_price' => $outputPricePer1k,
-            'cached_price' => $cachedPricePer1k,
-        ]);
-    }
 }

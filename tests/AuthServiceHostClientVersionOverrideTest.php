@@ -12,7 +12,6 @@ use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use PHPUnit\Framework\TestCase;
 
@@ -156,7 +155,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                     'output' => 0,
                     'cached' => 0,
                     'reasoning' => 0,
-                    'cost' => 0.0,
                     'events' => 0,
                 ];
             }
@@ -178,7 +176,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 ?int $output,
                 ?int $cached,
                 ?int $reasoning,
-                ?float $cost,
                 ?string $model,
                 ?string $line,
                 ?int $ingestId = null,
@@ -212,7 +209,7 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
 
-            public function record(?int $hostId, int $entries, array $totals, ?float $cost, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
+            public function record(?int $hostId, int $entries, array $totals, ?string $payload, ?string $clientIp = null, string $engine = 'codex'): array
             {
                 return [
                     'id' => 0,
@@ -224,38 +221,10 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                     'output' => $totals['output'] ?? null,
                     'cached' => $totals['cached'] ?? null,
                     'reasoning' => $totals['reasoning'] ?? null,
-                    'cost' => $cost,
                     'client_ip' => $clientIp,
                     'payload' => $payload,
                     'created_at' => gmdate(DATE_ATOM),
                 ];
-            }
-        };
-
-        $pricing = new class() extends PricingService {
-            public function __construct()
-            {
-            }
-
-            public function defaultModel(): string
-            {
-                return 'gpt-5.4';
-            }
-
-            public function latestPricing(string $model, bool $force = false): array
-            {
-                return [
-                    'model' => $model,
-                    'currency' => 'USD',
-                    'input_price_per_1k' => 0.0,
-                    'output_price_per_1k' => 0.0,
-                    'cached_price_per_1k' => 0.0,
-                ];
-            }
-
-            public function calculateCost(array $pricing, array $tokens): float
-            {
-                return 0.0;
             }
         };
 
@@ -322,7 +291,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricing,
             $versions,
             $wrapper,
             null
@@ -484,7 +452,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                     'output' => 0,
                     'cached' => 0,
                     'reasoning' => 0,
-                    'cost' => 0.0,
                     'events' => 0,
                 ];
             }
@@ -506,7 +473,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
                 ?int $output,
                 ?int $cached,
                 ?int $reasoning,
-                ?float $cost,
                 ?string $model,
                 ?string $line,
                 ?int $ingestId = null,
@@ -540,8 +506,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             {
             }
         };
-
-        $pricing = $this->createMock(PricingService::class);
         $versions = $this->createMock(VersionRepository::class);
         $versions->method('getWithMetadata')->willReturnCallback(static function (string $name): ?array {
             if ($name === 'client_available') {
@@ -605,7 +569,6 @@ final class AuthServiceHostClientVersionOverrideTest extends TestCase
             $logs,
             $tokenUsages,
             $tokenUsageIngests,
-            $pricing,
             $versions,
             $wrapper,
             null

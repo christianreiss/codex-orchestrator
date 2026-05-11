@@ -221,7 +221,6 @@
             "output",
             "cached",
             "reasoning",
-            "cost",
             "events"
           ],
           "properties": {
@@ -251,13 +250,6 @@
             },
             "reasoning": {
               "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "cost": {
-              "type": [
-                "number",
                 "integer",
                 "null"
               ]

@@ -14,7 +14,6 @@ use App\Repositories\HostAuthStateRepository;
 use App\Repositories\HostRepository;
 use App\Repositories\HostUserRepository;
 use App\Repositories\LogRepository;
-use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\VersionRepository;
@@ -23,7 +22,6 @@ use App\Security\SecretBox;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\DashboardGraphStatsService;
-use App\Services\PricingService;
 use App\Services\WrapperService;
 use App\Support\WorkerHeartbeat;
 use Dotenv\Dotenv;
@@ -77,17 +75,7 @@ try {
     $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
     $dashboardGraphStatsRepository = new DashboardGraphStatsRepository($database);
     $versionRepository = new VersionRepository($database);
-    $pricingSnapshotRepository = new PricingSnapshotRepository($database);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
-
-    $pricingModel = 'gpt-5.4';
-    $pricingService = new PricingService(
-        $pricingSnapshotRepository,
-        $logRepository,
-        $pricingModel,
-        (string) Config::get('PRICING_URL', ''),
-        null
-    );
 
     $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
     $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
@@ -108,7 +96,6 @@ try {
         $logRepository,
         $tokenUsageRepository,
         $tokenUsageIngestRepository,
-        $pricingService,
         $versionRepository,
         $wrapperService,
         null,

@@ -23,7 +23,7 @@ final class AdminClaudePanelUiTest extends TestCase
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         self::assertIsString($html);
 
-        foreach (['claudeDefaultModel', 'claudeMaxTokens', 'claudeSpendLimit', 'claudeApiToggle', 'claudeSettingsSaveBtn', 'claudeRunnerChip'] as $id) {
+        foreach (['claudeDefaultModel', 'claudeMaxTokens', 'claudeApiToggle', 'claudeSettingsSaveBtn', 'claudeRunnerChip'] as $id) {
             self::assertSame(
                 1,
                 substr_count($html, 'id="' . $id . '"'),

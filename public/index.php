@@ -40,7 +40,6 @@ use App\Repositories\JoplinNoteRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
-use App\Repositories\PricingSnapshotRepository;
 use App\Repositories\ProjectEventRepository;
 use App\Repositories\ProjectFeedbackRepository;
 use App\Repositories\ProjectFileRepository;
@@ -62,13 +61,10 @@ use App\Services\WrapperService;
 use App\Services\RunnerVerifier;
 use App\Services\RunnerValidationService;
 use App\Services\ChatGptUsageService;
-use App\Services\PricingService;
-use App\Services\CostHistoryService;
 use App\Services\DashboardGraphStatsService;
 use App\Services\ProjectCoordinationService;
 use App\Services\ProjectDraftService;
 use App\Services\ProjectModuleService;
-use App\Services\UsageCostService;
 use App\Services\AgentsService;
 use App\Services\JoplinCacheService;
 use App\Services\JoplinService;
@@ -287,15 +283,6 @@ $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $dashboardGraphStatsRepository = new DashboardGraphStatsRepository($database);
-$pricingSnapshotRepository = new PricingSnapshotRepository($database);
-$pricingModel = 'gpt-5.4';
-$pricingService = new PricingService(
-    $pricingSnapshotRepository,
-    $logRepository,
-    $pricingModel,
-    (string) Config::get('PRICING_URL', ''),
-    null
-);
 $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
 $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
 $clxStoragePath = Config::get('CLX_WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/clx');
@@ -338,7 +325,6 @@ $service = new AuthService(
     $logRepository,
     $tokenUsageRepository,
     $tokenUsageIngestRepository,
-    $pricingService,
     $versionRepository,
     $wrapperService,
     $insecureAuthRequestRepository,
@@ -427,8 +413,6 @@ if ($joplinUrl !== '' && $joplinEmail !== '' && $joplinPassword !== '') {
 }
 $mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root, $joplinCacheService);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
-$costHistoryService = new CostHistoryService($tokenUsageRepository, $pricingService, $pricingModel, $dashboardGraphStatsService);
-$usageCostService = new UsageCostService($tokenUsageRepository, $tokenUsageIngestRepository, $pricingService, $versionRepository, $pricingModel);
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
 $wrapperService->ensureAllSeeded();
 if ($runBackfillsOnBoot) {
@@ -441,7 +425,6 @@ if ($runBackfillsOnBoot) {
             error_log('[models] supported model backfill failed: ' . $exception->getMessage());
         }
     }
-    $usageCostService->backfillMissingCosts();
     $dashboardGraphStatsService->backfillMissingHistory();
 }
 
@@ -521,7 +504,7 @@ $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService
 $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository, $payload, __DIR__);
 $adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService, $claudeUsageService);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository, $agentsService);
-$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $pricingService, $costHistoryService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $claudeUsageService, $pricingModel);
+$adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $claudeUsageService);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
 $adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
@@ -730,7 +713,6 @@ $router->add('GET', '#^/admin/logs$#', function () use ($adminOverviewCtrl): voi
 // Admin usage
 $router->add('GET', '#^/admin/usage/ingests$#', fn() => $adminOverviewCtrl->usageIngests());
 $router->add('GET', '#^/admin/usage$#', fn() => $adminOverviewCtrl->usage());
-$router->add('GET', '#^/admin/usage/cost-history$#', fn() => $adminOverviewCtrl->usageCostHistory());
 $router->add('GET', '#^/admin/chatgpt/usage$#', fn() => $adminOverviewCtrl->chatgptUsage());
 $router->add('GET', '#^/admin/chatgpt/usage/history$#', fn() => $adminOverviewCtrl->chatgptUsageHistory());
 $router->add('POST', '#^/admin/chatgpt/usage/refresh$#', fn() => $adminOverviewCtrl->chatgptUsageRefresh());

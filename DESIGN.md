@@ -33,7 +33,7 @@ codex-api/
       AdminClaudeKeyController.php  # Admin Claude API key CRUD
     Services/
       ClaudeModelService.php   # Model allowlist, legacy upgrades, default resolution
-      ClaudeUsageService.php   # Token usage aggregation, pricing, dashboard summary
+      ClaudeUsageService.php   # Token usage aggregation and dashboard summary
     Support/
       Engine.php               # Engine enum (codex/claude) with per-engine config maps
 ```
@@ -471,33 +471,13 @@ CORS headers include `x-api-key` and `anthropic-version` in
 
 ---
 
-### 8g. Pricing & Usage Tracking (`ClaudeUsageService`)
+### 8g. Claude Usage Tracking (`ClaudeUsageService`)
 
-`src/Services/ClaudeUsageService.php` tracks Anthropic API costs and provides
-dashboard summaries.
+`src/Services/ClaudeUsageService.php` tracks Anthropic/Claude API token usage and quota metadata for dashboard summaries.
 
-**Per-model pricing** (configurable via ENV vars):
+**`aggregateRecentUsage(period)`:** Queries `token_usages` table where `engine = "claude"` for the given window (`24h`, `7d`, or `30d`), grouped by model. Returns per-model token counts.
 
-| Model | Input/1K | Output/1K | Cached/1K | ENV prefix |
-|---|---|---|---|---|
-| `claude-opus-4-6` | $0.015 | $0.075 | $0.0075 | `CLAUDE_OPUS_*` |
-| `claude-sonnet-4-6` | $0.003 | $0.015 | $0.0015 | `CLAUDE_SONNET_*` |
-| `claude-haiku-4-5` | $0.0008 | $0.004 | $0.0004 | `CLAUDE_HAIKU_*` |
-
-**`calculateCost(model, inputTokens, outputTokens, cachedTokens)`:**
-Token-level cost calculation; unknown models fall back to Sonnet pricing.
-
-**`aggregateRecentUsage(period)`:** Queries `token_usages` table where
-`engine = "claude"` for the given window (`24h`, `7d`, or `30d`), grouped
-by model. Returns per-model token counts and calculated costs.
-
-**`dashboardSummary()`:** Aggregates all three time windows and computes
-spend-limit utilization percentage from the latest snapshot. Returns:
-```
-{current_spend:{used, limit, percent},
- usage_24h, usage_7d, usage_30d,
- total_cost_24h, total_cost_7d, total_cost_30d}
-```
+**`dashboardSummary()`:** Aggregates all three time windows and returns `{usage_24h, usage_7d, usage_30d}`.
 
 ---
 

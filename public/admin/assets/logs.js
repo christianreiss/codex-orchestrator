@@ -42,7 +42,6 @@
       total: 0,
       pages: 1,
       loading: false,
-      currency: 'USD',
     };
 
     function escapeHtml(str) {
@@ -80,14 +79,6 @@
       return num.toLocaleString('en-US');
     }
 
-    function formatCost(value) {
-      if (value === null || value === undefined) return '—';
-      const num = Number(value);
-      if (!Number.isFinite(num)) return '—';
-      const formatted = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      return state.currency ? `${formatted} ${state.currency}` : formatted;
-    }
-
     function applySortState() {
       sortableHeaders.forEach((th) => {
         th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
@@ -102,7 +93,7 @@
     function renderTable(items) {
       if (!tableBody) return;
       if (!items.length) {
-        tableBody.innerHTML = '<tr class="empty-row"><td colspan="8">No client reports yet.</td></tr>';
+        tableBody.innerHTML = '<tr class="empty-row"><td colspan="7">No client reports yet.</td></tr>';
         return;
       }
 
@@ -114,7 +105,6 @@
         const outputTokens = formatNumber(item.output);
         const cachedTokens = formatNumber(item.cached);
         const reasoningTokens = formatNumber(item.reasoning);
-        const costValue = formatCost(item.cost);
 
         return `<tr>
           <td><div class="mono">${created}</div></td>
@@ -124,7 +114,6 @@
           <td><span class="mono">${outputTokens}</span></td>
           <td><span class="mono">${cachedTokens}</span></td>
           <td><span class="mono">${reasoningTokens}</span></td>
-          <td><span class="mono">${costValue}</span></td>
         </tr>`;
       });
 
@@ -147,7 +136,7 @@
       if (state.loading) return;
       state.loading = true;
       applySortState();
-      renderSkeletonRows(tableBody, ['80px', '120px', '90px', '60px', '60px', '60px', '70px', '70px']);
+      renderSkeletonRows(tableBody, ['80px', '120px', '90px', '60px', '60px', '60px', '70px']);
       statusEl.textContent = 'Loading…';
 
       const params = new URLSearchParams({
@@ -166,15 +155,12 @@
         state.total = Number(data.total || 0);
         state.pages = Number(data.pages || 1);
         state.page = Number(data.page || state.page);
-        if (data.currency) {
-          state.currency = data.currency;
-        }
         renderTable(data.items || []);
         renderPagination();
       } catch (err) {
         console.error('load logs', err);
         if (tableBody) {
-          tableBody.innerHTML = '<tr class="error-row"><td colspan="8">Could not load logs.</td></tr>';
+          tableBody.innerHTML = '<tr class="error-row"><td colspan="7">Could not load logs.</td></tr>';
         }
         if (statusEl) statusEl.textContent = 'Error loading logs';
       } finally {

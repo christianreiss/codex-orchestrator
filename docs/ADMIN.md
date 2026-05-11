@@ -53,8 +53,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 
 ## Page-by-Page (Code-Backed)
 - **Theme**: Auto/Auto Pink/Light/Dark/Bright Pink/Dark Pink cycle stored in `localStorage.adminTheme` and mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
-- **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, pricing snapshot/costs, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
-- **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota/cost history store rather than raw verbose logs.
+- **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
+- **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota and usage history store rather than raw verbose logs.
 - **Hosts**:
   - List: `GET /admin/hosts`.
   - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body; `engine` can be supplied via body/query/header and defaults to `codex`).
@@ -111,10 +111,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Runner**:
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
   - Manual run: `POST /admin/runner/run` (`settings.manage`).
-- **Usage, Cost, ChatGPT, Logs**:
+- **Usage, ChatGPT, Logs**:
   - Usage rows: `GET /admin/usage` (`limit`, repository clamps to `1..500`).
   - Usage ingests: `GET /admin/usage/ingests` (`page`, `per_page<=200`, `host_id`, `q`, `sort`, `direction`).
-  - Cost history: `GET /admin/usage/cost-history` (`days`, `from`, `until`, `interval=day|week`, `group_by=component|total`, `include_tokens`).
   - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
   - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
   - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh` (`settings.manage`).
@@ -159,4 +158,3 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - Project creation remains API-driven for now; the admin UI intentionally focuses on browsing, opening, and deleting existing projects.
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
 - Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
-- Pricing fallback path when remote pricing is unavailable: prefer `GPT54_INPUT_PER_1K`, `GPT54_OUTPUT_PER_1K`, `GPT54_CACHED_PER_1K`, `PRICING_CURRENCY`; legacy `GPT51_*` vars are still accepted when the new ones are unset.

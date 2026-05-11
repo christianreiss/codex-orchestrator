@@ -23,8 +23,6 @@ use App\Services\AdminAuthService;
 use App\Services\AuthService;
 use App\Services\ChatGptUsageService;
 use App\Services\ClaudeUsageService;
-use App\Services\CostHistoryService;
-use App\Services\PricingService;
 use App\Services\UsageScalingService;
 use App\Support\AdminTheme;
 use App\Support\CodexVersionPolicy;
@@ -43,15 +41,12 @@ class AdminOverviewController
         private TokenUsageRepository $tokenUsageRepository,
         private TokenUsageIngestRepository $tokenUsageIngestRepository,
         private ChatGptUsageService $chatGptUsageService,
-        private PricingService $pricingService,
-        private CostHistoryService $costHistoryService,
         private AdminEventRepository $adminEventRepository,
         private HostAuthDigestRepository $digestRepository,
         private HostUserRepository $hostUserRepository,
         private InsecureDomainAllowRepository $insecureDomainAllowRepository,
         private ?UsageScalingService $usageScalingService = null,
         private ?ClaudeUsageService $claudeUsageService = null,
-        private string $pricingModel = 'gpt-5.4',
     ) {}
 
     /**
@@ -437,34 +432,6 @@ class AdminOverviewController
         $tokensDay = $this->tokenUsageRepository->totalsForRange($dayStart, $dayEnd);
         $tokensMonth = $this->tokenUsageRepository->totalsForRange($monthStart, $monthEnd);
         $tokensWeek = $this->tokenUsageRepository->totalsForRange($weekStart, $weekEnd);
-        $pricing = $this->pricingService->latestPricing($this->pricingModel, false);
-        $dailyCost = $this->pricingService->calculateCost($pricing, $tokensDay);
-        $monthlyCost = $this->pricingService->calculateCost($pricing, $tokensMonth);
-        $weeklyCost = $this->pricingService->calculateCost($pricing, $tokensWeek);
-        $moneyEnv = static function (mixed $value): ?float {
-            if ($value === null) {
-                return null;
-            }
-            if (is_string($value)) {
-                $trim = trim($value);
-                if ($trim === '' || !is_numeric($trim)) {
-                    return null;
-                }
-                return (float) $trim;
-            }
-            if (is_int($value) || is_float($value)) {
-                return (float) $value;
-            }
-            return null;
-        };
-        $planCurrency = is_array($pricing) && isset($pricing['currency']) && is_string($pricing['currency']) && $pricing['currency'] !== ''
-            ? strtoupper($pricing['currency'])
-            : strtoupper((string) Config::get('PRICING_CURRENCY', 'USD'));
-        $subscriptionPlans = [
-            'currency' => $planCurrency,
-            'plus_cost' => $moneyEnv(Config::get('CHATGPT_PLUS_PLAN_COST', 20)) ?? 20.0,
-            'pro_cost' => $moneyEnv(Config::get('CHATGPT_PRO_PLAN_COST', 200)) ?? 200.0,
-        ];
         $quotaHardFail = $this->versionRepository->getFlag('quota_hard_fail', true);
         $quotaLimitPercent = quotaLimitPercent($this->versionRepository);
         $quotaWeekPartition = quotaWeekPartition($this->versionRepository);
@@ -507,11 +474,6 @@ class AdminOverviewController
                 'tokens_day' => $tokensDay,
                 'tokens_month' => $tokensMonth,
                 'tokens_week' => $tokensWeek,
-                'pricing' => $pricing,
-                'pricing_day_cost' => $dailyCost,
-                'pricing_month_cost' => $monthlyCost,
-                'pricing_week_cost' => $weeklyCost,
-                'subscription_plans' => $subscriptionPlans,
                 'chatgpt_usage' => $chatgpt['snapshot'] ?? null,
                 'chatgpt_usage_summary' => $chatgptSummary,
                 'chatgpt_cached' => $chatgpt['cached'] ?? false,
@@ -1177,9 +1139,6 @@ class AdminOverviewController
         $direction = isset($_GET['direction']) && !is_array($_GET['direction']) ? (string) $_GET['direction'] : 'desc';
 
         $result = $this->tokenUsageIngestRepository->search($query, $hostId, $page, $perPage, $sort, $direction);
-        $pricing = $this->pricingService->latestPricing($this->pricingModel, false);
-        $currency = isset($pricing['currency']) && is_string($pricing['currency']) ? $pricing['currency'] : 'USD';
-        $result['currency'] = $currency;
 
         Response::json([
             'status' => 'ok',
@@ -1206,77 +1165,6 @@ class AdminOverviewController
             'data' => [
                 'usages' => $usages,
             ],
-        ]);
-    }
-
-    /**
-     * GET /admin/usage/cost-history
-     */
-    public function usageCostHistory(): void
-    {
-        requireAdminAccess();
-
-        $days = resolveIntQuery('days') ?? 60;
-        if ($days < 1) {
-            $days = 60;
-        }
-        $from = resolveStringQuery('from');
-        $until = resolveStringQuery('until');
-        $interval = strtolower(resolveStringQuery('interval') ?? 'day');
-        $groupBy = strtolower(resolveStringQuery('group_by') ?? 'component');
-        $includeTokensRaw = resolveStringQuery('include_tokens');
-        $includeTokens = true;
-
-        if ($from !== null && strtotime($from) === false) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Invalid from timestamp (expected RFC3339/date string)',
-            ], 400);
-        }
-        if ($until !== null && strtotime($until) === false) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'Invalid until timestamp (expected RFC3339/date string)',
-            ], 400);
-        }
-        if ($from !== null && $until !== null) {
-            $fromTs = strtotime($from);
-            $untilTs = strtotime($until);
-            if ($fromTs !== false && $untilTs !== false && $fromTs > $untilTs) {
-                Response::json([
-                    'status' => 'error',
-                    'message' => 'from must be before until',
-                ], 400);
-            }
-        }
-        if (!in_array($interval, ['day', 'week'], true)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'interval must be one of: day, week',
-            ], 400);
-        }
-        if (!in_array($groupBy, ['component', 'total'], true)) {
-            Response::json([
-                'status' => 'error',
-                'message' => 'group_by must be one of: component, total',
-            ], 400);
-        }
-        if ($includeTokensRaw !== null) {
-            $normalizedIncludeTokens = normalizeBoolean($includeTokensRaw);
-            if ($normalizedIncludeTokens === null) {
-                Response::json([
-                    'status' => 'error',
-                    'message' => 'include_tokens must be a boolean-like value',
-                ], 400);
-            }
-            $includeTokens = $normalizedIncludeTokens;
-        }
-
-        $history = $this->costHistoryService->historyAdvanced($days, $from, $until, $interval, $groupBy, $includeTokens);
-
-        Response::json([
-            'status' => 'ok',
-            'data' => $history,
         ]);
     }
 

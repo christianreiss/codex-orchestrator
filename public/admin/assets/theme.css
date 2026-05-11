@@ -608,7 +608,6 @@ body[data-view-mode="dashboard"] .feature-toggle,
 body[data-view-mode="dashboard"] .row-card,
 body[data-view-mode="dashboard"] .empty-state-box,
 body[data-view-mode="dashboard"] .token-usage,
-body[data-view-mode="dashboard"] .cost-card,
 body[data-view-mode="dashboard"] .token-summary-card,
 body[data-view-mode="dashboard"] .usage-card {
   border-color: var(--border);

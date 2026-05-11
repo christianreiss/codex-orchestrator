@@ -29,7 +29,7 @@ file_put_contents(%s, "hit\n", FILE_APPEND);
 if (($_SERVER['REQUEST_URI'] ?? '') === '/usage') {
     sleep(10);
     header('Content-Type: application/json');
-    echo json_encode(['data' => ['recorded' => true, 'cost' => 1.23]]);
+    echo json_encode(['data' => ['recorded' => true]]);
     return true;
 }
 http_response_code(404);
