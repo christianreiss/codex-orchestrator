@@ -3,6 +3,7 @@
 - Admin UI / hosts: added a Quick VM flow that mints an insecure temporary throwaway host with an auto-generated `tmp-*` name and immediately copies a Codex, Claude, or dual-engine installer.
 - Cost tracking removal: stripped API cost/pricing calculation, pricing snapshots, cost history, wrapper run-cost reporting, and Claude spend-limit UI/enforcement. Usage reporting is now token-only, and boot migrations drop the legacy pricing/cost tables and columns.
 - Admin UI / dashboard: fixed the Hosts active card to count hosts with recent `last_refresh`, `updated_at`, or latest token usage within the last 24h instead of strictly "today".
+- Admin UI / dashboard: made `Hosts active` compute from the latest available host timestamp (`last_cron_check`, `updated_at`, `last_refresh`, `created_at`, and token usage time) to avoid false-zero when one stale field is present.
 
 # 2026-05-05
 - `cdx` cron-managed updates: fixed `/cron/check` to return the host-baked wrapper checksum, matching `/wrapper/download`, so older cron jobs no longer fail wrapper self-update with `hash mismatch` and abort before Codex CLI updates.

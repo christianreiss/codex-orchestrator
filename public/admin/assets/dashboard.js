@@ -810,11 +810,31 @@
     function countHostsActiveToday(hostsList = []) {
       if (!Array.isArray(hostsList)) return 0;
       const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+      const getMostRecentHostTimestamp = (host) => {
+        const candidates = [
+          host?.last_seen,
+          host?.last_cron_check,
+          host?.last_refresh,
+          host?.updated_at,
+          host?.created_at,
+          host?.token_usage?.created_at,
+        ];
+        let latest = null;
+        candidates.forEach((candidate) => {
+          const parsed = parseTimestamp(candidate);
+          if (!parsed) return;
+          const value = parsed.getTime();
+          if (!Number.isFinite(value)) return;
+          if (latest === null || value > latest) {
+            latest = value;
+          }
+        });
+        return latest;
+      };
       return hostsList.reduce((count, host) => {
-        const activeAt = host?.last_seen || host?.last_refresh || host?.updated_at || host?.token_usage?.created_at || null;
-        const active = parseTimestamp(activeAt);
-        if (!active) return count;
-        return active.getTime() >= cutoff ? count + 1 : count;
+        const latestTs = getMostRecentHostTimestamp(host);
+        if (latestTs === null) return count;
+        return latestTs >= cutoff ? count + 1 : count;
       }, 0);
     }
 
