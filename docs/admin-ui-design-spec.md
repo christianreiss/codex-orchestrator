@@ -292,7 +292,7 @@ drawer on mobile. Structure on desktop:
      - "Refresh" tiny-btn.
    - **Claude usage card** (`#claude-usage-card`) — sibling card showing:
      - 24h / 7d / 30d token counts split by model (Opus/Sonnet/Haiku).
-     - Spend-limit meter (used / limit / percent), if a monthly cap is set.
+    - Cap meter (used / limit / percent), if a monthly cap is set.
 
 3. **Ops strip** (`#dashboardOpsStrip`, hidden when nothing to show) — horizontal pill row
    surfacing:
@@ -907,7 +907,7 @@ General settings: **32px** between groups, **20px** between blocks.
   numbers set in mono with tabular-nums.
 - The lane meter bar: chunky 12px height, rounded ends (`--radius-sm`), with a subtle 1px
   inset border for definition.
-- Spend-limit meter: same treatment, with a tick at 100% and a marker dot at current value.
+- Cap meter: same treatment, with a tick at 100% and a marker dot at current value.
 
 #### 9.6.4 Tables
 - Header: solid `--bg-2`, no gradient, with bottom 2px `--border-2`.
