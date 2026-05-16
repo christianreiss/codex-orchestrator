@@ -118,3 +118,101 @@ export interface AnthropicErrorEnvelope {
   type: "error";
   error: { message?: string; type?: string; code?: string };
 }
+
+// settings feature ↓
+export interface ApiStateValue {
+  disabled: boolean;
+}
+
+export interface CdxSilentValue {
+  silent: boolean;
+}
+
+export interface ReverseDnsValue {
+  enabled: boolean;
+}
+
+export interface AutoUpdateValue {
+  enabled: boolean;
+}
+
+export interface InsecureApprovalValue {
+  enabled: boolean;
+}
+
+export interface ClaudeSettingsValue {
+  default_model: string;
+  max_tokens: number;
+  disabled: boolean;
+}
+
+export interface ClaudeVersionValue {
+  version: string | null;
+  locked: boolean;
+  updated_at: string | null;
+}
+
+export interface QuotaModeValue {
+  hard_fail: boolean;
+  limit_percent: number;
+  week_partition: number;
+}
+
+export interface LogRetentionValue {
+  enabled: boolean;
+  days_logs: number;
+  days_mcp: number;
+  days_events: number;
+  days_graph_stats: number;
+}
+
+export interface PrunePolicyValue {
+  inactivity_window_days: number;
+}
+
+export interface CodexVersionLockValue {
+  locked_version: string | null;
+  locked_at: string | null;
+}
+
+export interface CodexVersionsSummary {
+  client_version: string | null;
+  client_version_checked_at?: string | null;
+  client_version_source?: string | null;
+  client_version_enforce_exact?: boolean;
+  wrapper_version?: string | null;
+  reported_client_version?: string | null;
+  reported_wrapper_version?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CodexVersionsCheckResult {
+  available_client: {
+    version?: string | null;
+    updated_at?: string | null;
+    source?: string | null;
+    [key: string]: unknown;
+  };
+  versions: CodexVersionsSummary;
+}
+
+export interface ScalingTierRule {
+  threshold_percent?: number;
+  factor?: number;
+  [key: string]: unknown;
+}
+
+export interface ScalingRules {
+  enabled?: boolean;
+  tiers?: ScalingTierRule[];
+  [key: string]: unknown;
+}
+
+export interface ScalingStatus {
+  enabled: boolean;
+  rules: ScalingRules | null;
+  normal?: unknown;
+  spark?: unknown;
+  active_state?: unknown;
+  [key: string]: unknown;
+}

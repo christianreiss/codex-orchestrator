@@ -33,6 +33,13 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "usage.refreshed": [["usage"], ["dashboard"]],
 };
 
+// settings feature ↓
+// The base map already invalidates the root ['settings'] key on
+// `settings.changed`. svelte-query's invalidateQueries does a
+// hierarchical prefix match, so per-setting query keys like
+// ['settings', 'api-state'], ['settings', 'reverse-dns'], etc.
+// are refreshed automatically — no additional entries required.
+
 /**
  * Subscribe the supplied WebSocket event stream to the query client.
  * Returns an unsubscribe function.
