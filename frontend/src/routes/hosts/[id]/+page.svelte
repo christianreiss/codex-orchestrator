@@ -1,6 +1,433 @@
 <script lang="ts">
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
+  import { base } from "$app/paths";
+  import { useQueryClient } from "@tanstack/svelte-query";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Skeleton } from "$lib/components/ui/skeleton";
+  import * as Card from "$lib/components/ui/card";
+  import StatusPill from "$lib/components/hosts/StatusPill.svelte";
+  import EngineBadge from "$lib/components/hosts/EngineBadge.svelte";
+  import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
+  import ConfirmDialog from "$lib/components/hosts/ConfirmDialog.svelte";
+  import InputDialog from "$lib/components/hosts/InputDialog.svelte";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import KeyRound from "@lucide/svelte/icons/key-round";
+  import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
+  import { relativeTime } from "$lib/utils/format";
+  import {
+    hostDetailQuery,
+    hostsKeys,
+    hostEngines,
+    isInsecureWindowActive,
+    createDeleteHostMutation,
+    createClearHostAuthMutation,
+    createSecureToggleMutation,
+    createVipToggleMutation,
+    createRoamingToggleMutation,
+    createAutoUpdateToggleMutation,
+    createScalingExemptToggleMutation,
+    createCurlInsecureToggleMutation,
+    createModelOverrideMutation,
+    createCodexVersionMutation,
+    createClaudeVersionMutation,
+  } from "$lib/api/hosts";
+  import {
+    createEnableInsecureMutation,
+    createDisableInsecureMutation,
+  } from "$lib/api/insecure";
+  import { toast } from "svelte-sonner";
+
+  const qc = useQueryClient();
+  const id = $derived(page.params.id ?? "");
+  const detail = $derived(hostDetailQuery(id));
+
+  // Mutations
+  const deleteMut = createDeleteHostMutation(qc);
+  const clearAuth = createClearHostAuthMutation(qc);
+  const secure = createSecureToggleMutation(qc);
+  const vip = createVipToggleMutation(qc);
+  const roaming = createRoamingToggleMutation(qc);
+  const autoUpdate = createAutoUpdateToggleMutation(qc);
+  const scaling = createScalingExemptToggleMutation(qc);
+  const curlInsecure = createCurlInsecureToggleMutation(qc);
+  const modelOverride = createModelOverrideMutation(qc);
+  const codexVersion = createCodexVersionMutation(qc);
+  const claudeVersion = createClaudeVersionMutation(qc);
+  const insecureEnable = createEnableInsecureMutation(qc);
+  const insecureDisable = createDisableInsecureMutation(qc);
+
+  const host = $derived($detail.data?.host);
+  const overview = $derived($detail.data?.overview);
+
+  async function run<T>(label: string, p: Promise<T>): Promise<void> {
+    try {
+      await p;
+      toast.success(label);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Action failed";
+      toast.error(msg);
+    }
+  }
+
+  async function refresh(): Promise<void> {
+    await qc.invalidateQueries({ queryKey: hostsKeys.detail(id) });
+    toast.success("Refreshing…");
+  }
+
+  // Dialog state
+  let confirmDeleteOpen = $state(false);
+  let confirmClearOpen = $state(false);
+  let codexDialogOpen = $state(false);
+  let claudeDialogOpen = $state(false);
+  let codexModelDialogOpen = $state(false);
+  let claudeModelDialogOpen = $state(false);
+
+  async function doDelete(): Promise<void> {
+    try {
+      await $deleteMut.mutateAsync({ id });
+      toast.success("Host deleted");
+      void goto(`${base}/hosts`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Delete failed";
+      toast.error(msg);
+    }
+  }
+
+  async function doClear(): Promise<void> {
+    await run("Auth cleared", $clearAuth.mutateAsync({ id }));
+  }
+
+  // Derived action items
+  const actionItems = $derived.by<Array<{ tone: "warning" | "info"; text: string }>>(() => {
+    if (!host || !overview) return [];
+    const items: Array<{ tone: "warning" | "info"; text: string }> = [];
+    const cv = overview.versions.client_version;
+    const hv = host.client_version_override ?? host.client_version;
+    if (hostEngines(host).includes("codex") && cv && hv && cv !== hv) {
+      items.push({ tone: "warning", text: `Codex version drift: host on ${hv}, fleet on ${cv}.` });
+    }
+    const ccv = overview.versions.claude_version;
+    const chv = host.claude_client_version_override ?? host.claude_client_version;
+    if (hostEngines(host).includes("claude") && ccv && chv && ccv !== chv) {
+      items.push({ tone: "warning", text: `Claude version drift: host on ${chv}, fleet on ${ccv}.` });
+    }
+    if (host.authed === false) {
+      items.push({ tone: "warning", text: "Host has not authenticated yet (no payload digest)." });
+    } else if (host.auth_outdated) {
+      items.push({ tone: "warning", text: "Auth payload is stale relative to fleet canonical digest." });
+    }
+    if (isInsecureWindowActive(host)) {
+      items.push({ tone: "info", text: `Insecure window open until ${host.insecure_enabled_until}.` });
+    }
+    return items;
+  });
+
+  // For controls panel
+  const codexEngine = $derived(host ? hostEngines(host).includes("codex") : false);
+  const claudeEngine = $derived(host ? hostEngines(host).includes("claude") : false);
 </script>
 
-<PageHeader title="Host detail" subtitle="Coming in Phase 2" />
-<p class="text-sm text-muted-foreground">This page is being implemented in a feature worktree.</p>
+{#if $detail.isLoading}
+  <div class="space-y-3">
+    <Skeleton class="h-10 w-64" />
+    <Skeleton class="h-40 w-full" />
+    <Skeleton class="h-40 w-full" />
+  </div>
+{:else if $detail.isError || !host}
+  <div class="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+    Failed to load host: {$detail.error?.message ?? "not found"}
+  </div>
+{:else}
+  <PageHeader title={host.fqdn} subtitle="Host #{host.id}">
+    {#snippet actions()}
+      <a
+        href={`${base}/hosts`}
+        class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input hover:bg-accent"
+        aria-label="Back"
+      >
+        <ArrowLeft class="h-4 w-4" />
+      </a>
+      <Button variant="outline" onclick={refresh}>
+        <RefreshCw class="h-4 w-4" /> Refresh
+      </Button>
+    {/snippet}
+  </PageHeader>
+
+  <div class="mb-5 flex flex-wrap items-center gap-1.5">
+    {#if isInsecureWindowActive(host)}
+      <StatusPill tone="warning" label="Insecure" />
+    {:else if host.secure}
+      <StatusPill tone="secure" label="Secure" />
+    {:else}
+      <StatusPill tone="muted" label="Insecure (closed)" />
+    {/if}
+    {#if (host.status ?? "").toLowerCase() === "active"}
+      <StatusPill tone="online" label="Online" />
+    {:else}
+      <StatusPill tone="offline" label={host.status || "Unknown"} />
+    {/if}
+    {#if host.vip}
+      <StatusPill tone="info" label="VIP" />
+    {/if}
+    {#if host.allow_roaming_ips}
+      <StatusPill tone="info" label="Roaming" />
+    {/if}
+    {#if host.effective_auto_update_enabled}
+      <StatusPill tone="online" label="Auto-update" />
+    {/if}
+    {#each hostEngines(host) as engine}
+      <EngineBadge {engine} />
+    {/each}
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <!-- Stats -->
+    <Card.Root>
+      <Card.Header>
+        <Card.Title>Stats</Card.Title>
+      </Card.Header>
+      <Card.Content class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-muted-foreground">Last contact</span>
+          <span>{relativeTime(host.last_refresh) || "—"}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-muted-foreground">Last cron check</span>
+          <span>{relativeTime(host.last_cron_check) || "—"}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-muted-foreground">API calls (recent)</span>
+          <span>{host.api_calls ?? "—"}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-muted-foreground">Insecure window</span>
+          <InsecureCountdown until={host.insecure_enabled_until} />
+        </div>
+      </Card.Content>
+    </Card.Root>
+
+    <!-- Action items -->
+    <Card.Root>
+      <Card.Header>
+        <Card.Title>Action items</Card.Title>
+      </Card.Header>
+      <Card.Content class="text-sm">
+        {#if actionItems.length === 0}
+          <p class="text-muted-foreground">Nothing requires attention.</p>
+        {:else}
+          <ul class="space-y-2">
+            {#each actionItems as item}
+              <li
+                class="flex items-start gap-2 rounded-md border px-2.5 py-1.5 {item.tone === 'warning'
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                  : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'}"
+              >
+                <AlertTriangle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{item.text}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </Card.Content>
+    </Card.Root>
+
+    <!-- Technical context -->
+    <Card.Root class="lg:col-span-2">
+      <Card.Header>
+        <Card.Title>Technical context</Card.Title>
+        <Card.Description>Configuration and runtime state pulled from the host record.</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          {@render dt("Host ID", String(host.id))}
+          {@render dt("FQDN", host.fqdn)}
+          {@render dt("IP (v4)", host.ip4 ?? "—")}
+          {@render dt("IP (v6)", host.ip6 ?? "—")}
+          {@render dt("Codex version", host.client_version_override ?? host.client_version ?? "—")}
+          {@render dt("Claude version", host.claude_client_version_override ?? host.claude_client_version ?? "—")}
+          {@render dt("Wrapper (Codex)", host.wrapper_version ?? "—")}
+          {@render dt("Wrapper (Claude)", host.claude_wrapper_version ?? "—")}
+          {@render dt("Model override", host.model_override ?? "—")}
+          {@render dt("Reasoning override", host.reasoning_effort_override ?? "—")}
+          {@render dt("Claude model", host.claude_model_override ?? "—")}
+          {@render dt("Binary digest", host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—")}
+          {@render dt("VIP", host.vip ? "yes" : "no")}
+          {@render dt("Auto-update", host.effective_auto_update_enabled ? host.auto_update_label || "on" : "off")}
+          {@render dt(
+            "Insecure",
+            host.secure
+              ? "secure"
+              : host.insecure_enabled_until
+                ? `until ${host.insecure_enabled_until}`
+                : "off",
+          )}
+          {@render dt("Roaming", host.allow_roaming_ips ? "allowed" : "static")}
+          {@render dt("Lane", host.lane_preference ?? "—")}
+          {@render dt("Reverse DNS", host.reverse_dns_mode ?? "—")}
+          {@render dt("Agents doc override", host.agents_document_id_override ? String(host.agents_document_id_override) : "—")}
+        </dl>
+      </Card.Content>
+    </Card.Root>
+
+    <!-- Controls -->
+    <Card.Root class="lg:col-span-2">
+      <Card.Header>
+        <Card.Title>Controls</Card.Title>
+        <Card.Description>Optimistic toggles and lifecycle actions.</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {@render toggleRow("Secure", host.secure, (v) =>
+            run(v ? "Secure" : "Insecure", $secure.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("Auto-update", host.effective_auto_update_enabled, (v) =>
+            run(v ? "Auto-update on" : "Auto-update off", $autoUpdate.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("VIP", host.vip, (v) =>
+            run(v ? "VIP on" : "VIP off", $vip.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("Roaming", host.allow_roaming_ips, (v) =>
+            run(v ? "Roaming on" : "Roaming off", $roaming.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("Scaling exempt", host.lane_preference === "exempt", (v) =>
+            run("Scaling pref updated", $scaling.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("Curl insecure", host.curl_insecure, (v) =>
+            run("Curl insecure updated", $curlInsecure.mutateAsync({ id, value: v })),
+          )}
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2 border-t pt-4">
+          {#if isInsecureWindowActive(host)}
+            <Button
+              variant="outline"
+              onclick={() => run("Window extended", $insecureEnable.mutateAsync({ id }))}
+            >
+              Extend window
+            </Button>
+            <Button
+              variant="ghost"
+              onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
+            >
+              Close window
+            </Button>
+          {:else if host.secure === false}
+            <Button onclick={() => run("Window opened", $insecureEnable.mutateAsync({ id }))}>
+              Open insecure window
+            </Button>
+          {/if}
+
+          {#if codexEngine}
+            <Button variant="outline" onclick={() => (codexDialogOpen = true)}>
+              Codex version
+            </Button>
+            <Button variant="outline" onclick={() => (codexModelDialogOpen = true)}>
+              Codex model override
+            </Button>
+          {/if}
+          {#if claudeEngine}
+            <Button variant="outline" onclick={() => (claudeDialogOpen = true)}>
+              Claude version
+            </Button>
+            <Button variant="outline" onclick={() => (claudeModelDialogOpen = true)}>
+              Claude model override
+            </Button>
+          {/if}
+
+          <div class="ml-auto flex gap-2">
+            <Button variant="outline" onclick={() => (confirmClearOpen = true)}>
+              <KeyRound class="h-4 w-4" /> Clear auth
+            </Button>
+            <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
+              <Trash2 class="h-4 w-4" /> Delete host
+            </Button>
+          </div>
+        </div>
+      </Card.Content>
+    </Card.Root>
+  </div>
+
+  <ConfirmDialog
+    bind:open={confirmDeleteOpen}
+    onOpenChange={(v) => (confirmDeleteOpen = v)}
+    title="Delete host?"
+    description={`Permanently remove ${host.fqdn} from the fleet. This cannot be undone.`}
+    confirmLabel="Delete"
+    destructive
+    onConfirm={doDelete}
+  />
+  <ConfirmDialog
+    bind:open={confirmClearOpen}
+    onOpenChange={(v) => (confirmClearOpen = v)}
+    title="Clear auth?"
+    description={`Drop ${host.fqdn}'s API key and payload digest. The host will re-pair on next contact.`}
+    confirmLabel="Clear"
+    destructive
+    onConfirm={doClear}
+  />
+  <InputDialog
+    bind:open={codexDialogOpen}
+    onOpenChange={(v) => (codexDialogOpen = v)}
+    title="Codex version override"
+    description="Pin a specific Codex client version for this host (semver). Empty clears."
+    label="Version"
+    placeholder={overview?.versions.client_version ?? "0.30.0"}
+    initialValue={host.client_version_override ?? ""}
+    onSubmit={(v) => run("Version updated", $codexVersion.mutateAsync({ id, version: v }))}
+  />
+  <InputDialog
+    bind:open={claudeDialogOpen}
+    onOpenChange={(v) => (claudeDialogOpen = v)}
+    title="Claude version override"
+    description="Pin a specific Claude client version for this host. Empty clears."
+    label="Version"
+    placeholder={overview?.versions.claude_version ?? "1.0.0"}
+    initialValue={host.claude_client_version_override ?? ""}
+    onSubmit={(v) => run("Version updated", $claudeVersion.mutateAsync({ id, version: v }))}
+  />
+  <InputDialog
+    bind:open={codexModelDialogOpen}
+    onOpenChange={(v) => (codexModelDialogOpen = v)}
+    title="Codex model override"
+    description="Pin a specific model (e.g. gpt-5). Empty clears the override."
+    label="Model"
+    placeholder="gpt-5"
+    initialValue={host.model_override ?? ""}
+    onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }))}
+  />
+  <InputDialog
+    bind:open={claudeModelDialogOpen}
+    onOpenChange={(v) => (claudeModelDialogOpen = v)}
+    title="Claude model override"
+    description="Pin a specific Claude model. Empty clears the override."
+    label="Model"
+    placeholder="claude-sonnet-4-7"
+    initialValue={host.claude_model_override ?? ""}
+    onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }))}
+  />
+{/if}
+
+{#snippet dt(label: string, value: string)}
+  <div class="flex flex-col">
+    <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+    <dd class="font-mono text-xs">{value}</dd>
+  </div>
+{/snippet}
+
+{#snippet toggleRow(label: string, checked: boolean, onchange: (v: boolean) => void | Promise<void>)}
+  <div class="flex items-center justify-between rounded-md border p-2.5">
+    <span class="text-sm">{label}</span>
+    <Switch
+      {checked}
+      onCheckedChange={(v) => {
+        void onchange(Boolean(v));
+      }}
+      aria-label={label}
+    />
+  </div>
+{/snippet}
