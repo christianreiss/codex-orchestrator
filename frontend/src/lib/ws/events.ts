@@ -64,6 +64,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "insecure.domain.allowed": [["hosts", "insecure"]],
   "insecure.domain.revoked": [["hosts", "insecure"]],
   // hosts feature ↑
+  // integrations feature ↓
+  "joplin.synced": [["integrations", "joplin"]],
 };
 
 /**
