@@ -18,6 +18,14 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "host.updated": [["hosts"], ["overview"]],
   "host.created": [["hosts"], ["overview"]],
   "host.deleted": [["hosts"], ["overview"]],
+  // logs feature ↓
+  "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
+  "log.updated": [["logs"], ["logs", "events"]],
+  "mcp.invoked": [["logs", "mcp"]],
+  // ↑ logs feature
+  "host.updated": [["hosts"]],
+  "host.created": [["hosts"]],
+  "host.deleted": [["hosts"]],
   "user.updated": [["users"]],
   "user.created": [["users"]],
   "user.deleted": [["users"]],

@@ -582,4 +582,61 @@ export interface JoplinConfigPayload {
   password?: string;
   sync_interval_minutes?: number;
   enabled?: boolean;
+// logs feature ↓
+/** A row from `/admin/usage/ingests`. */
+export interface UsageIngestRow {
+  id: number | string;
+  host_id: number | null;
+  engine?: string | null;
+  fqdn?: string | null;
+  entries?: number | null;
+  total?: number | null;
+  input?: number | null;
+  output?: number | null;
+  cached?: number | null;
+  reasoning?: number | null;
+  client_ip?: string | null;
+  payload?: unknown;
+  created_at?: string | null;
+}
+
+/** Paginated envelope returned from `/admin/usage/ingests`. */
+export interface UsageIngestPage {
+  items: UsageIngestRow[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}
+
+/** A row from `/admin/mcp/logs`. */
+export interface McpAccessLogRow {
+  id: number | string;
+  host_id: number | null;
+  host_fqdn?: string | null;
+  client_ip?: string | null;
+  method?: string | null;
+  name?: string | null;
+  success: boolean | number;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  params?: unknown;
+}
+
+/** A row from `/admin/logs` (admin audit trail). */
+export interface AdminAuditLogRow {
+  id: number | string;
+  host_id: number | null;
+  action: string;
+  details?: unknown;
+  created_at?: string | null;
+}
+
+/** Minimal host shape used by the logs host-FQDN map. */
+export interface HostFqdnSummary {
+  id: number | string;
+  fqdn?: string | null;
+  hostname?: string | null;
+  display_name?: string | null;
 }
