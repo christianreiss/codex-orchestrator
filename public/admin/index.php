@@ -65,14 +65,14 @@ function renderAdminErrorPage(int $status, string $title, string $message, ?stri
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Orchestrator &mdash; Admin access</title>
-  <link rel="stylesheet" href="/admin/assets/theme.css?v=2026-03-30-02">
+  <link rel="stylesheet" href="/admin/error.css">
 </head>
-<body class="admin-error-body" data-theme="auto">
+<body class="admin-error-body">
   <main class="admin-error-shell" aria-labelledby="adminErrorTitle">
     <section class="admin-error-card">
       <div class="admin-error-header">
         <div class="admin-error-mark">
-          <img class="admin-error-logo" src="/admin/assets/openai-logo.svg" alt="OpenAI logo">
+          <img class="admin-error-logo" src="/admin/error-logo.svg" alt="">
         </div>
         <div>
           <span class="admin-error-eyebrow">HTTP ' . $status . '</span>
@@ -90,11 +90,6 @@ function renderAdminErrorPage(int $status, string $title, string $message, ?stri
 </body>
 </html>';
     exit;
-}
-
-function isMobileUserAgent(string $userAgent): bool
-{
-    return preg_match('/android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i', $userAgent) === 1;
 }
 
 $fpRaw = is_string($mtlsFingerprint) && $mtlsFingerprint !== '' ? $mtlsFingerprint : $mtlsPresent;
@@ -199,28 +194,17 @@ if ($isLoginRoute && (!$loginEnforced || $isAuthenticated)) {
     redirectTo('/admin/');
 }
 
-$html = $isLoginRoute ? __DIR__ . '/login.html' : __DIR__ . '/index.html';
+// The SvelteKit SPA emits a single shell (`index.html`) with adapter-static's
+// fallback enabled, so any admin route under the SPA lands on the same file
+// and the client router takes over.
+$html = __DIR__ . '/index.html';
 if (!is_file($html)) {
     renderAdminErrorPage(
         500,
         'Admin UI missing',
-        $isLoginRoute
-            ? 'The standalone admin login page could not be found on disk.'
-            : 'The admin dashboard shell could not be found on disk.',
+        'The admin SPA shell could not be found on disk.',
         $html
     );
-}
-
-$shouldServeMobile = false;
-if (!$isLoginRoute) {
-    $viewParam = $_GET['view'] ?? '';
-    if (is_array($viewParam)) {
-        $viewParam = '';
-    }
-    $viewParam = strtolower(trim((string) $viewParam));
-    $forceMobile = $viewParam === 'mobile';
-    $forceDesktop = $viewParam === 'desktop';
-    $shouldServeMobile = !$forceDesktop && ($forceMobile || isMobileUserAgent($_SERVER['HTTP_USER_AGENT'] ?? ''));
 }
 
 $content = file_get_contents($html);
@@ -228,18 +212,9 @@ if ($content === false) {
     renderAdminErrorPage(
         500,
         'Admin UI unreadable',
-        $isLoginRoute
-            ? 'The admin login page exists, but PHP could not read it.'
-            : 'The admin dashboard shell exists, but PHP could not read it.',
+        'The admin SPA shell exists, but PHP could not read it.',
         $html
     );
-}
-
-if (!$isLoginRoute && $shouldServeMobile) {
-    $content = str_replace('data-view="desktop"', 'data-view="mobile"', $content, $count);
-    if ($count === 0) {
-        $content = preg_replace('/<body(\\s*)>/', '<body data-view="mobile">', $content, 1);
-    }
 }
 
 $bootstrap = [
@@ -248,51 +223,9 @@ $bootstrap = [
     'user' => $isAuthenticated ? ($adminSession['user'] ?? null) : null,
 ];
 
-if (!$isLoginRoute && $isAuthenticated) {
-    $accountName = htmlspecialchars((string) (($adminSession['user']['name'] ?? $adminSession['user']['username'] ?? 'Authenticated user')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $content = str_replace(
-        'id="navAccountGroup" data-nav="account" style="display:none;"',
-        'id="navAccountGroup" data-nav="account"',
-        $content
-    );
-    $content = str_replace(
-        'id="navAccountTriggerLabel">Authenticated user</span>',
-        'id="navAccountTriggerLabel">' . $accountName . '</span>',
-        $content
-    );
-    $content = str_replace(
-        'id="navAccountSummary" style="display:none;"',
-        'id="navAccountSummary"',
-        $content
-    );
-    $content = str_replace(
-        'id="navAccountName">Authenticated user</div>',
-        'id="navAccountName">' . $accountName . '</div>',
-        $content
-    );
-    $content = str_replace(
-        'id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem" style="display:none;"',
-        'id="navAccountPasswordLink" href="/admin/account/password" data-nav="account" data-account-tab="password" role="menuitem"',
-        $content
-    );
-    $content = str_replace(
-        'id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem" style="display:none;"',
-        'id="navAccountPasskeysLink" href="/admin/account/passkeys" data-nav="account" data-account-tab="passkeys" role="menuitem"',
-        $content
-    );
-    $content = str_replace(
-        'id="navLogout" type="button" role="menuitem" style="display:none;"',
-        'id="navLogout" type="button" role="menuitem"',
-        $content
-    );
-}
-
 $bootstrapScript = '<script>window.__adminBootstrap = ' . json_encode($bootstrap, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ';</script>';
 $content = str_replace('</body>', $bootstrapScript . "\n</body>", $content);
 
 header('Content-Type: text/html; charset=utf-8');
 header('X-Admin-Page: ' . ($isLoginRoute ? 'login' : 'dashboard'));
-if (!$isLoginRoute) {
-    header('X-Dashboard-View: ' . ($shouldServeMobile ? 'mobile' : 'desktop'));
-}
 echo $content;
