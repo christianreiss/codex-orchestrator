@@ -161,3 +161,49 @@ export interface PasswordChangeRequest {
 export interface PasswordChangeResponse {
   user: User;
 }
+
+// api-keys feature ↓
+
+export type ApiKeyEngine = "openai" | "claude";
+
+/**
+ * Shape of a row returned by `GET /admin/{openai|claude}/keys`.
+ *
+ * Mirrors the columns selected by `OpenaiApiKeyRepository::listByEngine()`:
+ *   id, name, key_prefix, admin_user_id, rate_limit_rpm, is_active,
+ *   use_count, last_used_at, expires_at, engine, created_at, updated_at.
+ */
+export interface AdminApiKey {
+  id: number;
+  name: string;
+  key_prefix: string;
+  admin_user_id?: number | null;
+  rate_limit_rpm: number;
+  is_active: number | boolean;
+  use_count: number;
+  last_used_at?: string | null;
+  expires_at?: string | null;
+  engine?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/**
+ * Shape returned by `POST /admin/{openai|claude}/keys`: the freshly minted
+ * plaintext key (shown exactly once) plus the persisted record.
+ */
+export interface AdminApiKeyCreated {
+  key: string;
+  record: AdminApiKey;
+}
+
+export interface AdminApiKillSwitchState {
+  disabled: boolean;
+}
+
+export interface CreateApiKeyPayload {
+  name: string;
+  rate_limit_rpm: number;
+  /** ISO 8601 timestamp or `null` to never expire. */
+  expires_at?: string | null;
+}

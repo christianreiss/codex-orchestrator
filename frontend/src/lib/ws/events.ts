@@ -34,6 +34,19 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // account feature ↓
   "passkey.registered": [["passkeys"]],
   "passkey.deleted": [["passkeys"]],
+  // api-keys feature ↓
+  "apikey.created": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
+  "apikey.toggled": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
+  "apikey.deleted": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
 };
 
 /**
