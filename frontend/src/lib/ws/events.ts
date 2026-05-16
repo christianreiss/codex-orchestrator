@@ -13,8 +13,11 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 
 /** Default invalidation map. Feature agents extend this in-place or via merge. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
-  "log.created": [["logs"]],
-  "log.updated": [["logs"]],
+  // logs feature ↓
+  "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
+  "log.updated": [["logs"], ["logs", "events"]],
+  "mcp.invoked": [["logs", "mcp"]],
+  // ↑ logs feature
   "host.updated": [["hosts"]],
   "host.created": [["hosts"]],
   "host.deleted": [["hosts"]],
