@@ -25,12 +25,17 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.updated": [["projects"]],
   "project.created": [["projects"]],
   "project.deleted": [["projects"]],
-  "agents.stored": [["authoring", "agents"]],
-  "skill.updated": [["authoring", "skills"]],
-  "memory.changed": [["authoring", "memories"]],
+  "agents.stored": [["agents"]],
+  "skill.updated": [["skills"]],
+  "memory.changed": [["memories"]],
   "api-key.changed": [["api-keys"]],
   "settings.changed": [["settings"]],
   "usage.refreshed": [["usage"], ["dashboard"]],
+  // authoring feature ↓
+  "skill.stored": [["skills"]],
+  "skill.deleted": [["skills"]],
+  "memory.created": [["memories"]],
+  "memory.deleted": [["memories"]],
 };
 
 /**

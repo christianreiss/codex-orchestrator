@@ -118,3 +118,138 @@ export interface AnthropicErrorEnvelope {
   type: "error";
   error: { message?: string; type?: string; code?: string };
 }
+
+// authoring feature ↓
+// ---------------------------------------------------------------------------
+// Skills
+
+export interface SkillRow {
+  slug: string;
+  display_name?: string | null;
+  description?: string | null;
+  sha256?: string | null;
+  manifest?: string | null;
+  uri?: string | null;
+  canonical_uri?: string | null;
+  managed?: boolean;
+  status?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  deleted_at?: string | null;
+  engine?: string | null;
+}
+
+export interface SkillListResponse {
+  skills: SkillRow[];
+}
+
+export interface SkillDetail extends SkillRow {
+  manifest: string;
+}
+
+export interface SkillStoreResult {
+  status: "created" | "updated" | "unchanged" | string;
+  slug: string;
+  sha256: string;
+  updated_at?: string | null;
+  managed?: boolean;
+  uri?: string;
+  canonical_uri?: string;
+}
+
+export interface SkillGenerateResult {
+  slug: string;
+  display_name?: string;
+  description?: string;
+  manifest: string;
+  tags?: string[];
+  what?: string;
+  when?: string;
+  steps?: string;
+  latency_ms?: number | null;
+  codex_version?: string | null;
+}
+
+export interface SkillAssistMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface SkillAssistResult {
+  slug?: string;
+  display_name?: string;
+  description?: string;
+  manifest?: string;
+  assistant_message?: SkillAssistMessage | null;
+  tags?: string[];
+  what?: string;
+  when?: string;
+  steps?: string;
+  latency_ms?: number | null;
+}
+
+// Agents (AGENTS.md)
+
+export interface AgentsVersionMeta {
+  id: number;
+  sha256: string;
+  updated_at?: string | null;
+  created_at?: string | null;
+  size_bytes?: number;
+  is_latest?: boolean;
+  is_active?: boolean;
+  is_served?: boolean;
+}
+
+export interface AgentsDocument {
+  status: "ok" | "missing" | string;
+  mode: "latest" | "locked" | string;
+  active_id?: number | null;
+  served_id?: number | null;
+  latest_id?: number | null;
+  backup_limit?: number;
+  sha256?: string;
+  updated_at?: string | null;
+  size_bytes?: number;
+  content?: string;
+  versions: AgentsVersionMeta[];
+  pruned_count?: number;
+}
+
+export interface AgentsVersion extends AgentsVersionMeta {
+  content: string;
+}
+
+export interface AgentsStoreResult {
+  status: string;
+  version_id?: number | null;
+  sha256?: string;
+  updated_at?: string | null;
+  size_bytes?: number;
+  pruned_count?: number;
+}
+
+// Memories
+
+export interface MemoryEntry {
+  id: string | number | null;
+  record_id?: number | null;
+  host_id?: number | string | null;
+  host?: string | null;
+  content: string;
+  metadata?: Record<string, unknown> | null;
+  tags?: string[];
+  summary?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  score?: number | null;
+}
+
+export interface MemoriesListResponse {
+  status: "ok" | string;
+  query?: string;
+  host_id?: number | string | null;
+  limit?: number;
+  count?: number;
+  matches: MemoryEntry[];
+}
