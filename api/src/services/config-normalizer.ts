@@ -1,0 +1,327 @@
+/**
+ * Port of src/Services/ConfigNormalizer.php (the essential subset). This
+ * service exposes the constants the legacy admin config form relies on
+ * (supported models, reasoning efforts, personalities) and produces a
+ * normalized settings object that the TOML renderer in `client-config.ts`
+ * consumes. The shape preserves the legacy section order:
+ *
+ *   model / model_provider / local_provider / profile / personality /
+ *   approval_policy / sandbox_mode / web_search / model_reasoning_effort /
+ *   model_reasoning_summary / model_verbosity / model_supports_reasoning_summaries /
+ *   model_context_window / model_max_output_tokens / notify
+ *
+ * followed by section tables: [features], [notice], [security],
+ * [sandbox_workspace_write], [shell_environment_policy], [[profiles]],
+ * [[mcp_servers]].
+ */
+
+import { createHash } from 'node:crypto';
+
+export const FORCE_UPGRADE_MODEL = 'gpt-5.4';
+export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
+
+export const SUPPORTED_MODELS: readonly string[] = [
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex',
+  'gpt-5.2',
+];
+
+export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
+  'gpt-5.3-codex-spark': FORCE_UPGRADE_MODEL,
+  'gpt-5.2-codex': FORCE_UPGRADE_MODEL,
+  'gpt-5.1-codex-max': FORCE_UPGRADE_MODEL,
+  'gpt-5.1-codex-mini': FORCE_UPGRADE_MODEL,
+};
+
+export const CLAUDE_SUPPORTED_MODELS: readonly string[] = [
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+];
+
+export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
+  'claude-3-opus-20240229': 'claude-opus-4-6',
+  'claude-3-sonnet-20240229': 'claude-sonnet-4-6',
+  'claude-3-haiku-20240307': 'claude-haiku-4-5',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
+  'claude-opus-4-20250514': 'claude-opus-4-6',
+  'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+};
+
+export const REASONING_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh'];
+
+export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.2': ['low', 'medium', 'high', 'xhigh'],
+};
+
+export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];
+
+export const APPROVAL_POLICIES: readonly string[] = ['untrusted', 'on-request', 'on-failure', 'never'];
+
+export const DROPPED_FEATURE_KEYS: readonly string[] = [
+  'steer',
+  'collaboration_modes',
+  'elevated_windows_sandbox',
+  'experimental_windows_sandbox',
+  'enable_experimental_windows_sandbox',
+  'remote_models',
+  'request_permissions',
+  'request_rule',
+  'responses_websockets',
+  'responses_websockets_v2',
+  'search_tool',
+  'sqlite',
+  'use_linux_sandbox_bwrap',
+  'web_search_cached',
+  'web_search_request',
+];
+
+export interface NormalizedSettings {
+  model: string | null;
+  model_provider: string | null;
+  local_provider: string | null;
+  profile: string | null;
+  personality: string;
+  approval_policy: string | null;
+  sandbox_mode: string | null;
+  web_search: boolean | null;
+  model_reasoning_effort: string | null;
+  model_reasoning_summary: string | null;
+  model_verbosity: string | null;
+  model_supports_reasoning_summaries: boolean | null;
+  model_context_window: number | null;
+  model_max_output_tokens: number | null;
+  notify: string[];
+  orchestrator_mcp_enabled: boolean;
+  security: { dangerously_bypass_approvals_and_sandbox: boolean | null };
+  features: Record<string, unknown>;
+  notice: Record<string, unknown>;
+  sandbox_workspace_write: Record<string, unknown>;
+  shell_environment_policy: Record<string, unknown>;
+  profiles: Array<Record<string, unknown>>;
+  mcp_servers: Array<Record<string, unknown>>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export function normalizeString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+export function normalizeBool(value: unknown, fallback: boolean | null = null): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1' || value === 'true' || value === 'yes' || value === 'on') return true;
+  if (value === 0 || value === '0' || value === 'false' || value === 'no' || value === 'off') return false;
+  if (value === null || value === undefined) return fallback;
+  return fallback;
+}
+
+export function normalizeInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim() !== '' && /^-?\d+$/.test(value.trim())) {
+    return parseInt(value.trim(), 10);
+  }
+  return null;
+}
+
+export function normalizeStoredModel(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const upgraded = LEGACY_MODEL_UPGRADES[s];
+  if (upgraded !== undefined) return upgraded;
+  if (SUPPORTED_MODELS.includes(s)) return s;
+  // Pass-through any other model so wrappers can self-test newer models.
+  return s;
+}
+
+export function isLegacyModelUpgrade(value: unknown): boolean {
+  const s = normalizeString(value);
+  if (s === null) return false;
+  return s in LEGACY_MODEL_UPGRADES;
+}
+
+export function normalizeSupportedModel(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const upgraded = LEGACY_MODEL_UPGRADES[s];
+  if (upgraded !== undefined) return upgraded;
+  return SUPPORTED_MODELS.includes(s) ? s : null;
+}
+
+export function normalizeClaudeModel(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const upgraded = CLAUDE_LEGACY_MODEL_UPGRADES[s];
+  if (upgraded !== undefined) return upgraded;
+  return CLAUDE_SUPPORTED_MODELS.includes(s) ? s : s;
+}
+
+export function normalizeReasoningEffort(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const lower = s.toLowerCase();
+  return REASONING_EFFORTS.includes(lower) ? lower : null;
+}
+
+export function normalizeReasoningEffortForModel(value: unknown, model: string | null): string | null {
+  const effort = normalizeReasoningEffort(value);
+  if (effort === null) return null;
+  if (model === null) return effort;
+  const supported = MODEL_REASONING_EFFORTS[model];
+  if (!supported) return effort;
+  return supported.includes(effort) ? effort : null;
+}
+
+export function normalizePersonality(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const lower = s.toLowerCase();
+  return PERSONALITIES.includes(lower) ? lower : null;
+}
+
+export function normalizeApprovalPolicy(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const lower = s.toLowerCase();
+  return APPROVAL_POLICIES.includes(lower) ? lower : null;
+}
+
+export function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const s = normalizeString(item);
+    if (s !== null) out.push(s);
+  }
+  return out;
+}
+
+function normalizeWebSearch(value: unknown): boolean | null {
+  if (value === null || value === undefined) return null;
+  return normalizeBool(value);
+}
+
+function normalizeFeatures(value: unknown): Record<string, unknown> {
+  const features = asRecord(value);
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(features)) {
+    if (DROPPED_FEATURE_KEYS.includes(key)) continue;
+    if (key === 'web_search' || key === 'web_search_request' || key === 'web_search_cached') continue;
+    cleaned[key] = typeof raw === 'boolean' ? raw : normalizeBool(raw, null);
+  }
+  return cleaned;
+}
+
+function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<Record<string, unknown>> = [];
+  for (const entry of value) {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      out.push({ ...(entry as Record<string, unknown>) });
+    }
+  }
+  return out;
+}
+
+function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<Record<string, unknown>> = [];
+  for (const entry of value) {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      out.push({ ...(entry as Record<string, unknown>) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Produce a fully normalized settings object matching the legacy PHP shape.
+ */
+export function normalizeSettings(raw: unknown): NormalizedSettings {
+  const settings = asRecord(raw);
+  const rawModel = settings.model;
+  const model = normalizeStoredModel(rawModel);
+  const forceUpgraded = isLegacyModelUpgrade(rawModel);
+
+  const personality = normalizePersonality(settings.personality) ?? 'friendly';
+  const reasoning = forceUpgraded && model !== null
+    ? FORCE_UPGRADE_REASONING_EFFORT
+    : normalizeReasoningEffortForModel(settings.model_reasoning_effort, model);
+
+  const security = asRecord(settings.security);
+  const securityBypass = normalizeBool(security.dangerously_bypass_approvals_and_sandbox);
+
+  return {
+    model,
+    model_provider: normalizeString(settings.model_provider),
+    local_provider: normalizeString(settings.local_provider),
+    profile: normalizeString(settings.profile),
+    personality,
+    approval_policy: normalizeApprovalPolicy(settings.approval_policy),
+    sandbox_mode: normalizeString(settings.sandbox_mode),
+    web_search: normalizeWebSearch(settings.web_search),
+    model_reasoning_effort: reasoning,
+    model_reasoning_summary: normalizeString(settings.model_reasoning_summary),
+    model_verbosity: normalizeString(settings.model_verbosity),
+    model_supports_reasoning_summaries: normalizeBool(settings.model_supports_reasoning_summaries),
+    model_context_window: normalizeInt(settings.model_context_window),
+    model_max_output_tokens: normalizeInt(settings.model_max_output_tokens),
+    notify: normalizeStringList(settings.notify),
+    orchestrator_mcp_enabled: normalizeBool(settings.orchestrator_mcp_enabled, true) ?? true,
+    security: { dangerously_bypass_approvals_and_sandbox: securityBypass },
+    features: normalizeFeatures(settings.features),
+    notice: asRecord(settings.notice),
+    sandbox_workspace_write: asRecord(settings.sandbox_workspace_write),
+    shell_environment_policy: asRecord(settings.shell_environment_policy),
+    profiles: normalizeProfiles(settings.profiles),
+    mcp_servers: normalizeMcpServers(settings.mcp_servers),
+  };
+}
+
+/**
+ * Settings-only hash used to detect "settings changed" vs "TOML body changed".
+ * Sorted-key serialization keeps the hash stable across reorderings.
+ */
+export function settingsHash(value: unknown): string {
+  const sorted = sortKeysDeep(value);
+  return createHash('sha256').update(JSON.stringify(sorted)).digest('hex');
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    const out: Record<string, unknown> = {};
+    for (const k of keys) out[k] = sortKeysDeep((value as Record<string, unknown>)[k]);
+    return out;
+  }
+  return value;
+}
+
+export function assertSha256(value: unknown, allowNull = false): void {
+  if (value === null || value === undefined) {
+    if (allowNull) return;
+    throw new Error('sha256 is required');
+  }
+  if (typeof value !== 'string') throw new Error('sha256 must be a string');
+  const v = value.trim().toLowerCase();
+  if (v === '' && allowNull) return;
+  if (!/^[a-f0-9]{64}$/.test(v)) {
+    throw new Error('sha256 must be 64 hex characters');
+  }
+}
