@@ -255,6 +255,7 @@ class HostRepository
     public function updateClaudeModelOverride(int $hostId, ?string $modelOverride): void
     {
         $this->updateHostFields($hostId, 'claude_model_override = :claude_model_override', ['claude_model_override' => $modelOverride]);
+        $this->bumpConfigVersion($hostId);
     }
 
     public function updateClaudeClientVersionOverride(int $hostId, ?string $clientVersionOverride): void
@@ -277,6 +278,7 @@ class HostRepository
             'id' => $hostId,
         ]);
 
+        $this->bumpConfigVersion($hostId);
         $host = $this->findById($hostId);
         if ($host) {
             $host['api_key_plain'] = $apiKey;
@@ -432,6 +434,7 @@ class HostRepository
     public function updateSecure(int $hostId, bool $secure): void
     {
         $this->updateHostFields($hostId, 'secure = :secure', ['secure' => $secure ? 1 : 0], false);
+        $this->bumpConfigVersion($hostId);
     }
 
     public function updateExpiresAt(int $hostId, ?string $expiresAt): void
@@ -455,6 +458,7 @@ class HostRepository
             'model_override' => $modelOverride,
             'reasoning_effort_override' => $reasoningEffortOverride,
         ]);
+        $this->bumpConfigVersion($hostId);
     }
 
     public function backfillUnsupportedModelOverrides(): void
@@ -536,6 +540,7 @@ class HostRepository
     public function updateCurlInsecure(int $hostId, bool $curlInsecure): void
     {
         $this->updateHostFields($hostId, 'curl_insecure = :curl_insecure', ['curl_insecure' => $curlInsecure ? 1 : 0]);
+        $this->bumpConfigVersion($hostId);
     }
 
     public function updateReverseDnsMode(int $hostId, ?bool $enabled): void
@@ -561,6 +566,68 @@ class HostRepository
             "UPDATE hosts SET {$set} WHERE id = :id"
         );
         $statement->execute($params);
+    }
+
+    /**
+     * Atomic increment of hosts.config_version for one host. Callers invoke
+     * this from every mutator that changes a field embedded in the v2 baked
+     * config (api_key, fqdn, secure, model overrides, etc.) so the next
+     * `/wrapper/v2/config` request re-bakes rather than serving stale state.
+     */
+    public function bumpConfigVersion(int $hostId): void
+    {
+        if ($hostId <= 0) {
+            return;
+        }
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET config_version = config_version + 1 WHERE id = :id'
+        );
+        $statement->execute(['id' => $hostId]);
+    }
+
+    /**
+     * Bump config_version on every host. Used when a global setting that
+     * shows up in the baked output changes (e.g. cdx_silent, admin_theme,
+     * the wrapper signing key, the active binary version).
+     *
+     * @return int rows affected
+     */
+    public function bumpAllConfigVersions(): int
+    {
+        $statement = $this->database->connection()->prepare(
+            'UPDATE hosts SET config_version = config_version + 1'
+        );
+        $statement->execute();
+        return $statement->rowCount();
+    }
+
+    /**
+     * Return the current config_version for a host without bumping it. Used
+     * by the v2 wrapper controller to detect cache staleness.
+     */
+    public function configVersion(int $hostId): int
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT config_version FROM hosts WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $hostId]);
+        $value = $statement->fetchColumn();
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    /**
+     * Return hosts.wrapper_track for kill-switch checks. 'v2' (the default
+     * after the v2 cutover) means wrapper endpoints serve normally; 'disabled'
+     * means the operator has taken this host out of rotation.
+     */
+    public function wrapperTrack(int $hostId): string
+    {
+        $statement = $this->database->connection()->prepare(
+            'SELECT wrapper_track FROM hosts WHERE id = :id LIMIT 1'
+        );
+        $statement->execute(['id' => $hostId]);
+        $value = $statement->fetchColumn();
+        return is_string($value) && $value !== '' ? $value : 'v2';
     }
 
     /**

@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Response;
 use App\Http\VersionHelper;
+use App\Repositories\HostRepository;
 use App\Services\AuthService;
 use App\Services\Wrapper\V2\BakeCache;
 use App\Services\Wrapper\V2\BinaryRegistry;
@@ -27,7 +28,29 @@ class WrapperV2Controller
         private readonly ConfigBaker $baker,
         private readonly BakeCache $cache,
         private readonly BinaryRegistry $binaries,
+        private readonly ?HostRepository $hosts = null,
     ) {
+    }
+
+    /**
+     * Returns true and writes a 410 response when this host's wrapper_track is
+     * set to 'disabled'. Operators flip the column to take a host out of
+     * rotation without deleting it. Returns false on the normal 'v2' path.
+     */
+    private function killSwitchEngaged(int $hostId): bool
+    {
+        if ($this->hosts === null || $hostId <= 0) {
+            return false;
+        }
+        $track = $this->hosts->wrapperTrack($hostId);
+        if ($track !== 'disabled') {
+            return false;
+        }
+        Response::json([
+            'status'  => 'error',
+            'message' => 'wrapper bakery disabled for this host (wrapper_track=disabled)',
+        ], 410);
+        return true; // unreachable — Response::json calls exit
     }
 
     /** GET /wrapper/v2/meta — return current binary version + signing fingerprint per engine. */
@@ -58,9 +81,19 @@ class WrapperV2Controller
         $host = $this->service->authenticate($apiKey, $clientIp);
         $baseUrl = resolveBaseUrl();
         $hostId = (int) ($host['id'] ?? 0);
+        if ($this->killSwitchEngaged($hostId)) {
+            return;
+        }
 
+        // Freshness check: compare hosts.config_version with the cache pointer.
+        // Any host mutator (api_key rotation, model_override, secure, …) and
+        // any global setting that affects the bake bumps config_version; if it
+        // doesn't match the cache, we must re-bake before serving.
         $current = $this->cache->getCurrent($hostId, $engine);
-        if ($current === null) {
+        $authoritative = $this->hosts !== null ? $this->hosts->configVersion($hostId) : null;
+        $stale = $current === null
+            || ($authoritative !== null && $authoritative > (int) $current['config_version']);
+        if ($stale) {
             $current = $this->baker->bakeForHost($hostId, $engine, $baseUrl);
         }
         $configVersion = (int) $current['config_version'];
@@ -102,6 +135,10 @@ class WrapperV2Controller
         $engine = VersionHelper::extractEngine(null);
         $host = $this->service->authenticate($apiKey, $clientIp);
         $baseUrl = resolveBaseUrl();
+        $hostId = (int) ($host['id'] ?? 0);
+        if ($this->killSwitchEngaged($hostId)) {
+            return;
+        }
         $hostApiKey = $apiKey ?? '';
         $shim = BootstrapShimBuilder::build($engine, $baseUrl, $hostApiKey);
 

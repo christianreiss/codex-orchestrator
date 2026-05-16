@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Response;
+use App\Repositories\HostRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\VersionRepository;
 use App\Services\AuthService;
@@ -23,7 +24,26 @@ class AdminSettingsController
         private LogRepository $logRepository,
         private ?UsageScalingService $usageScalingService = null,
         private ?ClaudeUsageService $claudeUsageService = null,
+        private ?HostRepository $hostRepository = null,
     ) {}
+
+    /**
+     * Bump config_version on every host so the v2 wrapper bakery re-bakes
+     * each per-host config on next fetch. Called after global settings that
+     * the bake embeds (cdx_silent, admin_theme) are mutated. Safe no-op when
+     * the controller was constructed without a HostRepository (legacy tests).
+     */
+    private function invalidateAllWrapperConfigs(): void
+    {
+        if ($this->hostRepository === null) {
+            return;
+        }
+        try {
+            $this->hostRepository->bumpAllConfigVersions();
+        } catch (\Throwable $e) {
+            error_log('[wrapper-v2] failed to bump all config_versions: ' . $e->getMessage());
+        }
+    }
 
     /**
      * GET /admin/api/state
@@ -229,6 +249,7 @@ class AdminSettingsController
         }
 
         $this->versionRepository->set('cdx_silent', $silent ? '1' : '0');
+        $this->invalidateAllWrapperConfigs();
         $this->logRepository->log(null, 'admin.cdx_silent', [
             'silent' => $silent,
         ]);
@@ -285,6 +306,7 @@ class AdminSettingsController
         }
 
         $this->versionRepository->set('admin_theme', $theme);
+        $this->invalidateAllWrapperConfigs();
         $this->logRepository->log(null, 'admin.theme', [
             'theme' => $theme,
         ]);

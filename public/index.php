@@ -508,7 +508,7 @@ $versionCtrl = new VersionController($service);
 $adminPageCtrl = new AdminPageController(__DIR__);
 $adminAuthCtrl = new AdminAuthController($adminAuthService, $adminPasskeyService, $adminUserRepository, $adminPasskeyRepository, $payload);
 $adminUserCtrl = new AdminUserController($adminUserService, $adminUserRepository, $payload, __DIR__);
-$adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService, $claudeUsageService);
+$adminSettingsCtrl = new AdminSettingsController($service, $versionRepository, $logRepository, $usageScalingService, $claudeUsageService, $hostRepository);
 $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, $authPayloadRepository, $digestRepository, $insecureAuthRequestRepository, $insecureDomainAllowRepository, $agentsRepository, $logRepository, $service, $installTokenRepository, $agentsService);
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $claudeUsageService);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
@@ -539,7 +539,7 @@ if (is_file($wrapperV2KeyPath)) {
             $database->connection(),
             $installationId,
         );
-        $wrapperV2Ctrl = new WrapperV2Controller($service, $wrapperV2Baker, $wrapperV2Cache, $wrapperV2BinaryRegistry);
+        $wrapperV2Ctrl = new WrapperV2Controller($service, $wrapperV2Baker, $wrapperV2Cache, $wrapperV2BinaryRegistry, $hostRepository);
         $installV2Ctrl = new InstallV2Controller($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository, $versionRepository);
     } catch (\Throwable $e) {
         error_log('[wrapper-v2] disabled: ' . $e->getMessage());
