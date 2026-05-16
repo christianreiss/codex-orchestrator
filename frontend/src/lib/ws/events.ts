@@ -15,9 +15,9 @@ export type WsInvalidationMap = Record<string, QueryKey[]>;
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "log.created": [["logs"]],
   "log.updated": [["logs"]],
-  "host.updated": [["hosts"]],
-  "host.created": [["hosts"]],
-  "host.deleted": [["hosts"]],
+  "host.updated": [["hosts"], ["overview"]],
+  "host.created": [["hosts"], ["overview"]],
+  "host.deleted": [["hosts"], ["overview"]],
   "user.updated": [["users"]],
   "user.created": [["users"]],
   "user.deleted": [["users"]],
@@ -52,6 +52,11 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "skill.deleted": [["skills"]],
   "memory.created": [["memories"]],
   "memory.deleted": [["memories"]],
+  // dashboard feature ↓
+  "usage.refresh": [["usage", "chatgpt"], ["usage", "claude"]],
+  "chatgpt.usage.updated": [["usage", "chatgpt"]],
+  "claude.usage.updated": [["usage", "claude"]],
+  "insecure.approval.changed": [["overview", "insecure-approvals"]],
 };
 
 /**
