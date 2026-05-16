@@ -639,4 +639,40 @@ export interface HostFqdnSummary {
   fqdn?: string | null;
   hostname?: string | null;
   display_name?: string | null;
+// manual feature ↓
+
+export interface ManualArticleSummary {
+  slug: string;
+  title: string;
+  section: string;
+  summary: string;
+  tags?: string[];
+  verified?: string;
+}
+
+export interface ManualManifest {
+  version: string;
+  articles: ManualArticleSummary[];
+}
+
+export interface ManualAnchor {
+  id: string;
+  text: string;
+  level: number;
+}
+
+export interface ManualSearchDoc {
+  slug: string;
+  title: string;
+  section: string;
+  summary: string;
+  anchors: ManualAnchor[];
+  /** Optional preview / body excerpts present in some indexes. */
+  body?: string;
+  tokens?: string[];
+}
+
+export interface ManualSearchIndex {
+  version: string;
+  docs: ManualSearchDoc[];
 }
