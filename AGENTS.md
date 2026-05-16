@@ -115,4 +115,13 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - Keep schema migrations + repositories aligned whenever adding columns/tables.
 - Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `tests/`.
 - For cdx changes, edit `bin/cdx.d/`, rebuild via `scripts/build-cdx.sh`, bump `WRAPPER_VERSION`, and rebuild Docker images so `storage/wrapper/cdx` seeds correctly.
-- Behavioral changes that affect hosts/operators require matching dashboard updates (`public/admin/`) and a `CHANGELOG.md` entry.
+- Behavioral changes that affect hosts/operators require matching dashboard updates and a `CHANGELOG.md` entry.
+
+## Admin WebUI
+
+- Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
+- Build output: `public/admin/` (committed). The PHP gateway `public/admin/index.php` enforces mTLS + session, injects `window.__adminBootstrap`, and serves the SPA's `index.html` for any admin route. `public/admin/manual/` ships article content consumed by the in-app help system.
+- Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
+- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `integrations`, `settings`, `account`, `manual`, `cli-auth/verify`, `login`).
+- Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
+- Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.
