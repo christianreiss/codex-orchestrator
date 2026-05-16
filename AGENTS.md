@@ -2,6 +2,18 @@
 
 Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
 
+## Backend stack (post BACKEND-redo)
+
+The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted at `api/`. The legacy PHP under `src/` and `public/index.php` is retained for one release as a reference; the next release deletes it.
+
+- Entrypoint: `api/src/server.ts` (Fastify boot, plugin registration, `LISTEN_PORT`/`LISTEN_HOST`).
+- Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration).
+- Crypto: `api/src/security/secret-box.ts` reads/writes the legacy `sbox:v1[:kid=…]:<b64>` envelope via `libsodium-wrappers`. Password verifier (`api/src/security/password.ts`) accepts bcrypt + phpass + argon2id and transparently rehashes to argon2id on next login.
+- Response envelopes: three formatters (`standard` / `openai` / `anthropic`) wired by `api/src/http/envelope/select.ts`; one `onSend` hook reshapes any handler's return value into the right shape based on URL prefix.
+- Routes live under `api/src/routes/<group>/` and are mounted by `api/src/routes/index.ts`. Services live under `api/src/services/` — no god services.
+- WebSocket admin events are native (`/admin/ws` via `@fastify/websocket`). Services publish via `wsPublisher.publish(type, payload)`.
+- Tests: `vitest` with `light-my-request` for in-process integration. The contract suite under `api/test/contract/` replays recorded golden responses captured from the legacy PHP by `tests/contract/record.sh`.
+
 ## Multi-Engine Architecture
 
 The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
