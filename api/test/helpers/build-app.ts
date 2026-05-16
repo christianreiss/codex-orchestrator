@@ -1,15 +1,84 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import { envelopePlugin } from '../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../src/http/plugins/request-id.js';
+import { makeClientIpPlugin } from '../../src/http/plugins/client-ip.js';
+import { makeRateLimiter, makeRateLimitPlugin } from '../../src/http/plugins/rate-limit.js';
+import { makeAuthHostPlugin } from '../../src/http/plugins/auth-host.js';
+import { makeAuthAdminPlugin } from '../../src/http/plugins/auth-admin.js';
+import { authMtlsPlugin } from '../../src/http/plugins/auth-mtls.js';
+import { corsPlugin } from '../../src/http/plugins/cors.js';
+import type { Database } from '../../src/db/client.js';
+import type { Env } from '../../src/env.js';
+import { loadTestEnv, testKeyring } from './test-keyring.js';
+import type { Keyring } from '../../src/security/keyring.js';
 
 /**
  * Lightweight app for plugin-level integration tests. No DB, no static, no WS.
+ *
+ * Use this when the test only exercises envelope/request-id behaviour.
+ * For DB-backed integration tests use {@link buildAppWithDb}.
  */
 export async function buildTestApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(cookie);
   await app.register(requestIdPlugin);
   await app.register(envelopePlugin);
+  return app;
+}
+
+export interface BuildAppOptions {
+  env?: Partial<Env>;
+  keyring?: Keyring;
+  /** Skip registering rate limit + auth plugins. Useful for narrow plugin tests. */
+  minimal?: boolean;
+}
+
+/**
+ * Build a Fastify app pre-wired with the same plugin stack as `src/server.ts`
+ * (cookie, cors, multipart, request-id, client-ip, auth-mtls, auth-host,
+ * auth-admin, rate-limit, envelope) but without the static handler, route
+ * registration, or WS server. Routes can be added by the caller via
+ * `app.get(...)` etc. before invoking `inject()`.
+ *
+ * The plugin registration order matches production so guard hooks
+ * (`requireAdmin`, `requireHost`) and the envelope error handler behave
+ * exactly as they do under `node dist/server.js`.
+ */
+export async function buildAppWithDb(
+  db: Database,
+  opts: BuildAppOptions = {},
+): Promise<FastifyInstance> {
+  const env = { ...loadTestEnv(), ...(opts.env ?? {}) } as Env;
+  const keyring = opts.keyring ?? testKeyring();
+
+  const app = Fastify({
+    logger: false,
+    trustProxy: env.TRUST_X_FORWARDED,
+    disableRequestLogging: true,
+    bodyLimit: 32 * 1024 * 1024,
+    ignoreTrailingSlash: true,
+    caseSensitive: true,
+  });
+
+  app.decorate('db', db);
+  app.decorate('env', env);
+  app.decorate('keyring', keyring);
+  app.decorate('rateLimiter', makeRateLimiter(db));
+
+  await app.register(cookie, { hook: 'onRequest' });
+  await app.register(corsPlugin);
+  await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
+  await app.register(requestIdPlugin);
+  await app.register(makeClientIpPlugin(env));
+  await app.register(authMtlsPlugin);
+  if (!opts.minimal) {
+    await app.register(makeAuthHostPlugin(db));
+    await app.register(makeAuthAdminPlugin(db, env));
+    await app.register(makeRateLimitPlugin(env));
+  }
+  await app.register(envelopePlugin);
+
   return app;
 }
