@@ -1,0 +1,88 @@
+import { describe, it, expect } from 'vitest';
+import { ApiError } from '../../../src/http/errors.js';
+import {
+  CLAUDE_DEFAULT_MODEL,
+  CLAUDE_LEGACY_MODEL_UPGRADES,
+  CLAUDE_SUPPORTED_MODELS,
+  createClaudeModelsService,
+} from '../../../src/services/claude-models.js';
+import type { Database } from '../../../src/db/client.js';
+
+/**
+ * Stub Database that pretends `versions` has no `claude_models_disabled` row
+ * (i.e. all models enabled). The service is exercised at a unit level — no
+ * MySQL connection is opened. Real integration coverage lives elsewhere once
+ * the contract suite lands.
+ */
+function fakeDb(): Database {
+  const fluent = (rows: unknown[]) => ({
+    from: () => fluent(rows),
+    where: () => fluent(rows),
+    limit: async () => rows,
+    orderBy: () => fluent(rows),
+  });
+  return {
+    select: () => fluent([]),
+    insert: () => ({ values: async () => undefined }),
+    update: () => ({ set: () => ({ where: async () => undefined }) }),
+    delete: () => ({ where: async () => undefined }),
+  } as unknown as Database;
+}
+
+describe('claude-models', () => {
+  it('exposes a non-empty static catalog and a sane default', () => {
+    expect(CLAUDE_SUPPORTED_MODELS.length).toBeGreaterThan(0);
+    expect((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(CLAUDE_DEFAULT_MODEL)).toBe(true);
+    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-opus-4-7');
+    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-sonnet-4-6');
+    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-haiku-4-5-20251001');
+  });
+
+  it('maps legacy model ids onto the current generation', () => {
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-sonnet-4-5']).toBe('claude-sonnet-4-6');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-7');
+  });
+
+  it('resolves missing/blank model strings to the default', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    expect(await svc.resolveRequestedModel(undefined)).toBe(CLAUDE_DEFAULT_MODEL);
+    expect(await svc.resolveRequestedModel('')).toBe(CLAUDE_DEFAULT_MODEL);
+    expect(await svc.resolveRequestedModel('   ')).toBe(CLAUDE_DEFAULT_MODEL);
+  });
+
+  it('resolves canonical and legacy model strings', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    expect(await svc.resolveRequestedModel('claude-opus-4-7')).toBe('claude-opus-4-7');
+    expect(await svc.resolveRequestedModel('CLAUDE-SONNET-4-6')).toBe('claude-sonnet-4-6');
+    expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-4-6');
+  });
+
+  it('throws Anthropic-shaped 400 for unsupported ids', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    let err: unknown = null;
+    try {
+      await svc.resolveRequestedModel('gpt-4o');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ApiError);
+    const apiErr = err as ApiError;
+    expect(apiErr.status).toBe(400);
+    expect(apiErr.type).toBe('invalid_request_error');
+    expect(apiErr.code).toBe('model_not_found');
+    expect(apiErr.param).toBe('model');
+  });
+
+  it('builds an Anthropic-shaped models response body', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    const out = await svc.modelsResponse();
+    expect(out.object).toBe('list');
+    expect(out.data.length).toBe(CLAUDE_SUPPORTED_MODELS.length);
+    for (const m of out.data) {
+      expect(m.object).toBe('model');
+      expect(m.owned_by).toBe('anthropic');
+      expect(typeof m.created).toBe('number');
+      expect((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(m.id)).toBe(true);
+    }
+  });
+});
