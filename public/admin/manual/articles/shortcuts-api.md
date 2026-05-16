@@ -215,11 +215,13 @@ Every project endpoint lives on `AdminProjectController` and mirrors the host-fa
 | POST | `/sync/status` | `AuthController::syncStatus` |
 | POST | `/sync/bootstrap` | `AuthController::syncBootstrap` |
 | DELETE | `/auth` | `AuthController::deleteAuth` |
-| GET | `/wrapper` | `WrapperController::meta` |
-| GET | `/wrapper/download` | `WrapperController::download` |
-| GET | `/install/{token}` | `InstallController::install` |
-| GET | `/seed/auth/{token}` | `InstallController::seedAuthScript` |
-| POST | `/seed/auth/{token}` | `InstallController::seedAuthStore` |
+| GET | `/wrapper` | `WrapperV2Controller::meta` (alias of `/wrapper/v2/meta`) |
+| GET | `/wrapper/download` | `WrapperV2Controller::download` (alias of `/wrapper/v2/download`) |
+| GET | `/wrapper/v2/config[?sig=1]` | `WrapperV2Controller::config` |
+| GET | `/wrapper/v2/bin/{engine}/{os}-{arch}/v{version}/{binary}` | `WrapperV2Controller::binary` |
+| GET | `/install/{token}` | `InstallV2Controller::install` (alias of `/install/v2/{token}`) |
+| GET | `/seed/auth/{token}` | `InstallV2Controller::seedAuthScript` (alias of `/seed/v2/auth/{token}`) |
+| POST | `/seed/auth/{token}` | `InstallV2Controller::seedAuthStore` |
 | POST | `/cli/auth/start` | `CliAuthController::start` |
 | POST | `/cli/auth/poll/{id}` | `CliAuthController::poll` |
 | GET | `/cli/auth/verify` | `CliAuthController::verifyPage` |

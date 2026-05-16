@@ -25,6 +25,8 @@ use App\Migrations\MigrationInterface;
 use App\Migrations\OpenaiApiMigration;
 use App\Migrations\ProjectMigration;
 use App\Migrations\UsageMigration;
+use App\Migrations\WrapperV2CutoverMigration;
+use App\Migrations\WrapperV2Migration;
 use PDO;
 
 class DatabaseMigrator
@@ -87,6 +89,8 @@ class DatabaseMigrator
             new EngineHostAuthScopeMigration(),
             new ClaudeUsageSnapshotsMigration(),
             new CostRemovalMigration(),
+            new WrapperV2Migration(),
+            new WrapperV2CutoverMigration(),
         ];
 
         foreach ($migrations as $migration) {

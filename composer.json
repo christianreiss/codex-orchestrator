@@ -27,15 +27,14 @@
             "vendor/bin/phpunit -c phpunit.xml.dist tests/ContractSchemasTest.php tests/AuthServiceContractResponsesTest.php tests/AuthReasonContractsTest.php"
         ],
         "test:wrapper": [
-            "scripts/build-cdx.sh",
-            "vendor/bin/phpunit -c phpunit.xml.dist tests/CdxWrapper*.php"
+            "vendor/bin/phpunit -c phpunit.xml.dist tests/WrapperV2*.php"
         ],
+        "test:wrapper-go": "cd wrappers/cdx && go test ./... && cd ../clx && go test ./...",
         "lint:phpstan": "vendor/bin/phpstan analyse --configuration=phpstan.neon.dist --memory-limit=1G",
         "lint:shell": "bash scripts/lint-shell.sh",
         "verify:wrapper": [
-            "scripts/build-cdx.sh",
-            "git diff --exit-code -- bin/cdx",
-            "bash scripts/verify-wrapper-version-bump.sh"
+            "cd wrappers/cdx && go vet ./... && go test ./...",
+            "cd ../clx && go vet ./... && go test ./..."
         ],
         "audit:composer-unused": "vendor/bin/composer-unused --no-progress --excludeDir=.github --excludeDir=docs --excludeDir=storage --excludeDir=vendor --excludePackage=vlucas/phpdotenv"
     },

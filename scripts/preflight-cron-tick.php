@@ -90,11 +90,14 @@ try {
         $runnerVerifier
     );
 
-    $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
-    $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-    $clxStoragePath = Config::get('CLX_WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/clx');
-    $clxSeedPath = Config::get('CLX_WRAPPER_SEED_PATH', $root . '/bin/clx');
-    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, null, $secretBox, $clxStoragePath, $clxSeedPath);
+    // wrapper bakery v2: WrapperService is a thin adapter over BinaryRegistry,
+    // and the legacy storage/seed paths are noop placeholders.
+    $wrapperV2BinRoot = (string) Config::get('WRAPPER_V2_BIN_ROOT', $root . '/storage/wrapper/v2/bin');
+    $wrapperService = new WrapperService(
+        $versionRepository,
+        '', '', null, $secretBox, null, null,
+        new \App\Services\Wrapper\V2\BinaryRegistry($wrapperV2BinRoot),
+    );
     $clientVersionService = new ClientVersionService($hostRepository, $versionRepository, $wrapperService, $runnerVerifier, null);
 
     $runnerInterval = (int) Config::get('PREFLIGHT_RUNNER_INTERVAL', 600);

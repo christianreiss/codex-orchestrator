@@ -270,13 +270,15 @@ should_include_component_file() {
       ;;
     wrapper)
       case "${path}" in
-        composer.json|composer.lock|docker-compose.yml|bin/*|scripts/*.sh) return 0 ;;
+        composer.json|composer.lock|docker-compose.yml|scripts/*.sh) return 0 ;;
+        wrappers/*) return 0 ;;
         public/cli-auth-verify.html|public/admin/assets/cli-auth-verify.js) return 0 ;;
         src/Http/InstallerHelper.php|src/Http/VersionHelper.php) return 0 ;;
-        src/Http/Controllers/CliAuthController.php|src/Http/Controllers/ConfigApiController.php|src/Http/Controllers/HostApiController.php|src/Http/Controllers/InstallController.php|src/Http/Controllers/WrapperController.php) return 0 ;;
+        src/Http/Controllers/CliAuthController.php|src/Http/Controllers/ConfigApiController.php|src/Http/Controllers/HostApiController.php|src/Http/Controllers/InstallV2Controller.php|src/Http/Controllers/WrapperV2Controller.php) return 0 ;;
         src/Services/AgentsService.php|src/Services/ClientConfigService.php|src/Services/CliAuthService.php|src/Services/SkillService.php|src/Services/StartupSyncService.php|src/Services/WrapperService.php) return 0 ;;
-        src/Support/CodexVersionPolicy.php|src/Support/Installation.php|src/Support/InstallerScriptBuilder.php|src/Support/SeedAuthScriptBuilder.php) return 0 ;;
-        tests/CdxWrapper*|tests/InstallationTest.php|tests/InstallerScriptBuilderTest.php|tests/SeedAuthScriptBuilderTest.php|tests/StartupSync*|tests/WrapperServiceHostOverridesTest.php) return 0 ;;
+        src/Services/Wrapper/V2/*) return 0 ;;
+        src/Support/CodexVersionPolicy.php|src/Support/Installation.php) return 0 ;;
+        tests/WrapperV2*|tests/InstallationTest.php|tests/StartupSync*) return 0 ;;
       esac
       ;;
     runner)

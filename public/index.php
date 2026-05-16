@@ -89,9 +89,7 @@ use App\Services\AuthEncryptionMigrator;
 use App\Security\RateLimiter;
 use App\Support\CodexVersionPolicy;
 use App\Support\Installation;
-use App\Support\InstallerScriptBuilder;
 use App\Support\Mailer;
-use App\Support\SeedAuthScriptBuilder;
 use App\Http\Controllers\CronController;
 use App\Http\Controllers\VersionController;
 use App\Http\Controllers\AdminPageController;
@@ -102,8 +100,13 @@ use App\Http\Controllers\AdminHostController;
 use App\Http\Controllers\AdminOverviewController;
 use App\Http\Controllers\AdminConfigController;
 use App\Http\Controllers\AdminProjectController;
-use App\Http\Controllers\WrapperController;
-use App\Http\Controllers\InstallController;
+use App\Http\Controllers\WrapperV2Controller;
+use App\Http\Controllers\InstallV2Controller;
+use App\Services\Wrapper\V2\BakeCache;
+use App\Services\Wrapper\V2\BinaryRegistry;
+use App\Services\Wrapper\V2\ConfigBaker;
+use App\Services\Wrapper\V2\ConfigSigner;
+use App\Support\Engine;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ConfigApiController;
 use App\Http\Controllers\ProjectApiController;
@@ -283,11 +286,14 @@ $ipRateLimitRepository = new IpRateLimitRepository($database);
 $tokenUsageRepository = new TokenUsageRepository($database);
 $tokenUsageIngestRepository = new TokenUsageIngestRepository($database);
 $dashboardGraphStatsRepository = new DashboardGraphStatsRepository($database);
-$wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
-$wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-$clxStoragePath = Config::get('CLX_WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/clx');
-$clxSeedPath = Config::get('CLX_WRAPPER_SEED_PATH', $root . '/bin/clx');
-$wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, $installationId, $secretBox, $clxStoragePath, $clxSeedPath);
+// v2 wrapper: storage/seed paths are vestigial (kept in WrapperService signature
+// for back-compat); the BinaryRegistry is the real source of truth.
+$wrapperV2BinRootForService = (string) Config::get('WRAPPER_V2_BIN_ROOT', $root . '/storage/wrapper/v2/bin');
+$wrapperService = new WrapperService(
+    $versionRepository,
+    '', '', $installationId, $secretBox, null, null,
+    new BinaryRegistry($wrapperV2BinRootForService),
+);
 $dashboardGraphStatsService = new DashboardGraphStatsService(
     $dashboardGraphStatsRepository,
     $tokenUsageRepository,
@@ -508,8 +514,39 @@ $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $log
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
 $adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
-$wrapperCtrl = new WrapperController($service, $wrapperService);
-$installCtrl = new InstallController($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository, $versionRepository);
+// v1 WrapperController / InstallController are gone — the legacy /wrapper, /install,
+// /seed/auth routes are aliased to the v2 controllers below.
+unset($wrapperCtrl, $installCtrl); // belt-and-braces in case of stale globals
+
+// --- Wrapper bakery v2 wiring -------------------------------------------------
+$wrapperV2Root = $root . '/storage/wrapper/v2';
+$wrapperV2BinRoot = (string) Config::get('WRAPPER_V2_BIN_ROOT', $wrapperV2Root . '/bin');
+$wrapperV2CacheRoot = (string) Config::get('WRAPPER_V2_CACHE_ROOT', $wrapperV2Root . '/cache');
+$wrapperV2KeyPath = (string) Config::get('WRAPPER_V2_SIGNING_KEY', $wrapperV2Root . '/keys/signing.ed25519');
+$wrapperV2BinaryRegistry = new BinaryRegistry($wrapperV2BinRoot);
+$wrapperV2Cache = new BakeCache($wrapperV2CacheRoot);
+$wrapperV2Ctrl = null;
+$installV2Ctrl = null;
+if (is_file($wrapperV2KeyPath)) {
+    try {
+        $wrapperV2Signer = new ConfigSigner($wrapperV2KeyPath);
+        $wrapperV2Baker = new ConfigBaker(
+            $hostRepository,
+            $versionRepository,
+            $wrapperV2Signer,
+            $wrapperV2BinaryRegistry,
+            $wrapperV2Cache,
+            $database->connection(),
+            $installationId,
+        );
+        $wrapperV2Ctrl = new WrapperV2Controller($service, $wrapperV2Baker, $wrapperV2Cache, $wrapperV2BinaryRegistry);
+        $installV2Ctrl = new InstallV2Controller($installTokenRepository, $hostRepository, $logRepository, $service, $seedTokenRepository, $versionRepository);
+    } catch (\Throwable $e) {
+        error_log('[wrapper-v2] disabled: ' . $e->getMessage());
+    }
+} else {
+    error_log('[wrapper-v2] signing key absent at ' . $wrapperV2KeyPath . ' — run scripts/wrapper-v2-init-keys.sh');
+}
 $cliAuthCtrl = new CliAuthController($cliAuthService, $adminAuthService, __DIR__);
 $authCtrl = new AuthController($service, $chatGptUsageService, $startupSyncService, $versionRepository, $claudeUsageService);
 $configApiCtrl = new ConfigApiController($service, $agentsService, $clientConfigService);
@@ -609,14 +646,69 @@ $router->add('POST', '#^/admin/users/(\d+)$#', fn($id) => $adminUserCtrl->update
 $router->add('DELETE', '#^/admin/users/(\d+)$#', fn($id) => $adminUserCtrl->delete($id));
 $router->add('POST', '#^/admin/users/wipe$#', fn() => $adminUserCtrl->wipe());
 
-// Wrapper
-$router->add('GET', '#^/wrapper$#', fn() => $wrapperCtrl->meta());
-$router->add('GET', '#^/wrapper/download$#', fn() => $wrapperCtrl->download());
+// Wrapper — unversioned routes alias to v2 controllers (legacy code paths deleted).
+$router->add('GET', '#^/wrapper$#', function () use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->meta();
+});
+$router->add('GET', '#^/wrapper/download$#', function () use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->download();
+});
 
-// Install / seed auth
-$router->add('GET', '#^/install/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->install($token));
-$router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->seedAuthScript($token));
-$router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#', fn($token) => $installCtrl->seedAuthStore($token));
+// Install / seed auth — unversioned routes alias to v2 controllers.
+$router->add('GET', '#^/install/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->install($token);
+});
+$router->add('GET', '#^/seed/auth/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->seedAuthScript($token);
+});
+$router->add('POST', '#^/seed/auth/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->seedAuthStore($token);
+});
+
+// Wrapper bakery v2 — typed signed JSON + static binary delivery.
+// These routes are wired unconditionally; if the signing key is absent the
+// controller is null and we return 503 so operators see a clear failure mode.
+$v2Available = static fn(): bool => isset($wrapperV2Ctrl) && $wrapperV2Ctrl instanceof WrapperV2Controller;
+$v2Unavailable = static function () use (&$wrapperV2KeyPath): void {
+    Response::json(['status' => 'error', 'message' => 'wrapper v2 not initialised (missing signing key at ' . $wrapperV2KeyPath . ')'], 503);
+};
+$router->add('GET', '#^/wrapper/v2/meta$#', function () use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->meta();
+});
+$router->add('GET', '#^/wrapper/v2/config$#', function () use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->config();
+});
+$router->add('GET', '#^/wrapper/v2/download$#', function () use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->download();
+});
+$router->add('GET', '#^/wrapper/v2/manifest/([a-z]+)$#', function (string $engine) use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->manifest($engine);
+});
+$router->add('GET', '#^/wrapper/v2/bin/([a-z]+)/([a-z0-9]+-[a-z0-9]+)/v([0-9A-Za-z.+\-_]+)/([a-z]+)$#', function (string $engine, string $platform, string $version, string $binary) use (&$wrapperV2Ctrl, $v2Available, $v2Unavailable): void {
+    if (!$v2Available()) { $v2Unavailable(); return; }
+    $wrapperV2Ctrl->binary($engine, $platform, $version, $binary);
+});
+$router->add('GET', '#^/install/v2/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->install($token);
+});
+$router->add('GET', '#^/seed/v2/auth/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->seedAuthScript($token);
+});
+$router->add('POST', '#^/seed/v2/auth/([a-f0-9\-]{36})$#', function (string $token) use (&$installV2Ctrl, $v2Unavailable): void {
+    if ($installV2Ctrl === null) { $v2Unavailable(); return; }
+    $installV2Ctrl->seedAuthStore($token);
+});
 
 // CLI auth (device-code login flow)
 $router->add('POST', '#^/cli/auth/start$#', fn() => $cliAuthCtrl->start($payload));

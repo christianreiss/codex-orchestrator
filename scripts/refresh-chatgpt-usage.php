@@ -77,9 +77,13 @@ try {
     $versionRepository = new VersionRepository($database);
     $chatGptUsageRepository = new ChatGptUsageRepository($database);
 
-    $wrapperStoragePath = Config::get('WRAPPER_STORAGE_PATH', $root . '/storage/wrapper/cdx');
-    $wrapperSeedPath = Config::get('WRAPPER_SEED_PATH', $root . '/bin/cdx');
-    $wrapperService = new WrapperService($versionRepository, $wrapperStoragePath, $wrapperSeedPath, null, $secretBox);
+    // wrapper bakery v2: WrapperService is now a thin adapter over BinaryRegistry.
+    $wrapperV2BinRoot = (string) Config::get('WRAPPER_V2_BIN_ROOT', $root . '/storage/wrapper/v2/bin');
+    $wrapperService = new WrapperService(
+        $versionRepository,
+        '', '', null, $secretBox, null, null,
+        new \App\Services\Wrapper\V2\BinaryRegistry($wrapperV2BinRoot),
+    );
     $dashboardGraphStatsService = new DashboardGraphStatsService(
         $dashboardGraphStatsRepository,
         $tokenUsageRepository,

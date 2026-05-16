@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
+# Shellcheck / shfmt pass over the scripts/ tree. The wrapper-v2 cutover dropped
+# bin/cdx, bin/clx, and the bin/*.d/ fragments, so this no longer scans those.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-mapfile -t fragment_targets < <(find bin/cdx.d bin/clx.d -type f -name '*.sh' -print | LC_ALL=C sort)
-mapfile -t script_targets < <(
-  {
-    find scripts -type f -name '*.sh' -print
-    printf '%s\n' bin/cdx
-    printf '%s\n' bin/clx
-  } | LC_ALL=C sort
-)
+mapfile -t script_targets < <(find scripts -type f -name '*.sh' -print | LC_ALL=C sort)
 
-if ((${#fragment_targets[@]} == 0 && ${#script_targets[@]} == 0)); then
+if ((${#script_targets[@]} == 0)); then
   echo "No shell targets found."
   exit 0
 fi
@@ -23,13 +18,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   exit 1
 fi
 
-if ((${#script_targets[@]} > 0)); then
-  shellcheck -S warning -e SC2034 "${script_targets[@]}"
-fi
-
-if ((${#fragment_targets[@]} > 0)); then
-  shellcheck -S warning -s bash -e SC2034,SC2148,SC2154 "${fragment_targets[@]}"
-fi
+shellcheck -S warning -e SC2034 "${script_targets[@]}"
 
 if ! command -v shfmt >/dev/null 2>&1; then
   if [[ -n "${CI:-}" ]]; then
@@ -40,10 +29,4 @@ if ! command -v shfmt >/dev/null 2>&1; then
   exit 0
 fi
 
-if ((${#script_targets[@]} > 0)); then
-  shfmt -ln=bash -d -i 2 -ci -bn "${script_targets[@]}"
-fi
-
-if ((${#fragment_targets[@]} > 0)); then
-  shfmt -ln=bash -d -i 2 -ci -bn "${fragment_targets[@]}"
-fi
+shfmt -ln=bash -d -i 2 -ci -bn "${script_targets[@]}"

@@ -1,8 +1,8 @@
 ---
 title: Architecture at a glance
 section: Orientation
-verified: 2026-04-19
-sources: public/index.php, src/Http/Router.php, src/Http/Controllers/AdminPageController.php, src/Services/AuthService.php, runner/app.py, scripts/admin-ws.php, bin/cdx, bin/clx, src/Mcp/McpServer.php
+verified: 2026-05-16
+sources: public/index.php, src/Http/Router.php, src/Http/Controllers/AdminPageController.php, src/Services/AuthService.php, runner/app.py, scripts/admin-ws.php, wrappers/cdx, wrappers/clx, src/Mcp/McpServer.php
 ---
 
 Orchestrator is a single-process PHP application with a small Python sidecar and a pair of shell wrappers that run on your hosts. There is no framework: `public/index.php` is the front controller, `src/Http/Router.php` is a regex dispatcher, and domain logic lives as plain PHP classes under `src/`.
@@ -17,7 +17,7 @@ Orchestrator is a single-process PHP application with a small Python sidecar and
 ## Layers
 
 - **Controllers** — `src/Http/Controllers/*Controller.php`. Thin dispatchers that parse input, call services or repositories, and emit JSON via `App\Http\Response::json()` or `AnthropicResponse` / `OpenAiResponse` for the API-compat routes.
-- **Services** — `src/Services/*Service.php`. Where business rules live: `AuthService` (auth distribution and host lifecycle), `AdminAuthService` (admin login, sessions, role matrix), `WrapperService` (baking per-host `cdx` / `clx`), `AgentsService`, `SkillService`, `ProjectCoordinationService`, `StartupSyncService`, and the usage services behind the dashboard.
+- **Services** — `src/Services/*Service.php`. Where business rules live: `AuthService` (auth distribution and host lifecycle), `AdminAuthService` (admin login, sessions, role matrix), `WrapperService` (a thin adapter over the v2 bakery, exposing the per-engine version manifest to other services), `AgentsService`, `SkillService`, `ProjectCoordinationService`, `StartupSyncService`, and the usage services behind the dashboard. The wrapper bakery itself lives in `src/Services/Wrapper/V2/` (`ConfigBaker`, `BakeCache`, `BinaryRegistry`, `BootstrapShimBuilder`, …).
 - **Repositories** — `src/Repositories/*Repository.php`. All SQL lives here. No ORM; these classes take a `PDO` and return arrays. Schema evolution is handled by `src/DatabaseMigrator.php` at boot.
 - **MCP** — `src/Mcp/`. `McpServer` implements the JSON-RPC dispatch and exposes the tools defined in `McpToolDefinitions`. The HTTP entry point is `/mcp` (handled by `McpRouteController`); auth uses either a per-host API key or an MCP session token from `McpSessionTokenRepository`.
 - **Security primitives** — `src/Security/`. `SecretBox` (libsodium authenticated encryption), `EncryptionKeyManager` (keyring rotation), and `RateLimiter`. Auth payloads are stored encrypted at rest using this primitive stack.
@@ -28,13 +28,13 @@ The `runner/` directory contains a small FastAPI service (`runner/app.py`) that 
 
 ## The wrappers
 
-`bin/cdx` and `bin/clx` are shell scripts that orchestrate a local install of Codex / Claude CLIs. When you onboard a host, `WrapperService::bakedForHost()` copies the canonical script and substitutes the host-specific URL, API key, and CA bundle. The wrapper does three things on every run:
+`cdx` and `clx` are static Go binaries built from `wrappers/cdx/` and `wrappers/clx/`. When you onboard a host, the orchestrator emits a ~50-line POSIX `sh` bootstrap shim (`BootstrapShimBuilder::build`) and a typed signed JSON config (`ConfigBaker::bakeForHost`). The shim fetches the config + the right binary for the host's platform, verifies SHA256, and `exec`s the binary. The binary does three things on every run:
 
-1. Hit `/sync/status` to ask whether any content changed (auth, config, agents, skills). This is the `StartupSyncService::collect()` contract.
-2. If needed, hit `/sync/bootstrap` to pull new content.
-3. Launch the real CLI with the correct environment, then record token usage back via `/usage` when it exits.
+1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
+2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).
+3. Execs the upstream `codex` / `claude` CLI with the prepared env, then reports token usage to `/usage`.
 
-The wrappers also self-update: if the server reports a newer wrapper version via `/wrapper`, the next run replaces the local copy.
+The binary self-updates if `wrapper.auto_update` is true in its config: when the server-side SHA256 differs from the local copy, the bootstrap shim downloads the new binary, verifies its hash, and atomically replaces it.
 
 ## Admin websocket (admin-ws)
 
@@ -65,10 +65,12 @@ Everything that can vary by engine takes an `App\Support\Engine` constant — `E
 - src/Http/Controllers/AdminPageController.php (SPA shell handlers)
 - src/Services/AuthService.php (auth distribution, host lifecycle)
 - src/Services/StartupSyncService.php (`/sync/status` collect)
-- src/Services/WrapperService.php (baked wrapper materialisation)
+- src/Services/Wrapper/V2/ConfigBaker.php (signed per-host config bakery)
+- src/Services/Wrapper/V2/BootstrapShimBuilder.php (POSIX shim emission)
+- src/Services/Wrapper/V2/BinaryRegistry.php (per-platform binary inventory)
 - src/Services/RunnerVerifier.php, src/Services/RunnerValidationService.php
 - runner/app.py (FastAPI verify / exec endpoints)
-- bin/cdx, bin/clx (host wrappers)
+- wrappers/cdx, wrappers/clx (Go modules — host wrappers)
 - scripts/admin-ws.php (websocket relay)
 - src/Mcp/McpServer.php (JSON-RPC dispatch)
 - src/DatabaseMigrator.php (schema evolution)
