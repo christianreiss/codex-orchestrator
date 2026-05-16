@@ -2,8 +2,7 @@
  * WebSocket event → svelte-query invalidation map.
  *
  * Single source of truth for which query keys get invalidated by which
- * WS event types. Feature agents in Phase 2 append to this map as they
- * add features; views never wire their own listeners.
+ * WS event types. Consolidated after Phase 2 feature merges.
  */
 import type { QueryClient, QueryKey } from "@tanstack/svelte-query";
 import type { Readable } from "svelte/store";
@@ -11,33 +10,28 @@ import type { WsEvent } from "./client";
 
 export type WsInvalidationMap = Record<string, QueryKey[]>;
 
-/** Default invalidation map. Feature agents extend this in-place or via merge. */
+/** Default invalidation map. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
-  "log.created": [["logs"]],
-  "log.updated": [["logs"]],
-  "host.updated": [["hosts"], ["overview"]],
-  "host.created": [["hosts"], ["overview"]],
-  "host.deleted": [["hosts"], ["overview"]],
-  // logs feature ↓
+  // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
   "log.updated": [["logs"], ["logs", "events"]],
   "mcp.invoked": [["logs", "mcp"]],
-  // ↑ logs feature
-  "host.updated": [["hosts"]],
-  "host.created": [["hosts"]],
-  "host.deleted": [["hosts"]],
-  // users feature ↓
+
+  // Hosts + overview dashboard counters
+  "host.updated": [["hosts"], ["overview"]],
+  "host.created": [["hosts"], ["overview"]],
+  "host.deleted": [["hosts"], ["overview"]],
+
+  // Users
   "user.updated": [["users"]],
   "user.created": [["users"]],
   "user.deleted": [["users"]],
+
+  // Projects (both list and project-scoped detail; per-project keys handled in wireWsToQueryClient)
   "project.changed": [["projects"]],
   "project.updated": [["projects"]],
   "project.created": [["projects"]],
   "project.deleted": [["projects"]],
-  "agents.stored": [["agents"]],
-  "skill.updated": [["skills"]],
-  "memory.changed": [["memories"]],
-  // projects feature ↓
   "project.note.created": [["projects"]],
   "project.note.updated": [["projects"]],
   "project.note.deleted": [["projects"]],
@@ -48,17 +42,18 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.file.updated": [["projects"]],
   "project.file.deleted": [["projects"]],
   "project.feedback.created": [["projects"]],
-  // projects feature ↑
-  "agents.stored": [["authoring", "agents"]],
-  "skill.updated": [["authoring", "skills"]],
-  "memory.changed": [["authoring", "memories"]],
+
+  // Authoring
+  "agents.stored": [["agents"], ["authoring", "agents"]],
+  "skill.updated": [["skills"], ["authoring", "skills"]],
+  "skill.stored": [["skills"], ["authoring", "skills"]],
+  "skill.deleted": [["skills"], ["authoring", "skills"]],
+  "memory.changed": [["memories"], ["authoring", "memories"]],
+  "memory.created": [["memories"], ["authoring", "memories"]],
+  "memory.deleted": [["memories"], ["authoring", "memories"]],
+
+  // API keys
   "api-key.changed": [["api-keys"]],
-  "settings.changed": [["settings"]],
-  "usage.refreshed": [["usage"], ["dashboard"]],
-  // account feature ↓
-  "passkey.registered": [["passkeys"]],
-  "passkey.deleted": [["passkeys"]],
-  // api-keys feature ↓
   "apikey.created": [
     ["keys", "openai"],
     ["keys", "claude"],
@@ -71,28 +66,35 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
     ["keys", "openai"],
     ["keys", "claude"],
   ],
-  // authoring feature ↓
-  "skill.stored": [["skills"]],
-  "skill.deleted": [["skills"]],
-  "memory.created": [["memories"]],
-  "memory.deleted": [["memories"]],
-  // dashboard feature ↓
-  "usage.refresh": [["usage", "chatgpt"], ["usage", "claude"]],
+
+  // Settings (root key triggers hierarchical match on all per-setting keys)
+  "settings.changed": [["settings"]],
+
+  // Usage / dashboard
+  "usage.refreshed": [["usage"], ["dashboard"]],
+  "usage.refresh": [
+    ["usage", "chatgpt"],
+    ["usage", "claude"],
+  ],
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
   "claude.usage.updated": [["usage", "claude"]],
-  "insecure.approval.changed": [["overview", "insecure-approvals"]],
-  // hosts feature ↓
+  "insecure.approval.changed": [["overview"], ["insecure-approvals"]],
+
+  // Account
+  "passkey.registered": [["passkeys"]],
+  "passkey.deleted": [["passkeys"]],
+
+  // Hosts: insecure window state
   "insecure.requested": [["insecure-approvals"], ["hosts", "insecure"]],
   "insecure.approved": [["insecure-approvals"], ["hosts"], ["hosts", "insecure"]],
   "insecure.denied": [["insecure-approvals"]],
   "insecure.domain.allowed": [["hosts", "insecure"]],
   "insecure.domain.revoked": [["hosts", "insecure"]],
-  // hosts feature ↑
-  // integrations feature ↓
+
+  // Integrations
   "joplin.synced": [["integrations", "joplin"]],
 };
 
-// projects feature ↓
 /** WS event types whose payload contains a `slug` we use to scope invalidation. */
 const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.changed",
@@ -111,7 +113,6 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.feedback.created",
 ]);
 
-/** Map a scoped project event to the detail sub-key it should invalidate. */
 function projectDetailSubKey(eventType: string): string | null {
   if (eventType.startsWith("project.note")) return "notes";
   if (eventType.startsWith("project.todo")) return "todos";
@@ -120,20 +121,12 @@ function projectDetailSubKey(eventType: string): string | null {
   return null;
 }
 
-/** Extract a `slug` (or `project`) string from a WS event payload, if present. */
 function extractProjectSlug(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const p = payload as Record<string, unknown>;
   const slug = p.slug ?? p.project ?? (p.project_slug as unknown);
   return typeof slug === "string" && slug.length > 0 ? slug : null;
 }
-// projects feature ↑
-// settings feature ↓
-// The base map already invalidates the root ['settings'] key on
-// `settings.changed`. svelte-query's invalidateQueries does a
-// hierarchical prefix match, so per-setting query keys like
-// ['settings', 'api-state'], ['settings', 'reverse-dns'], etc.
-// are refreshed automatically — no additional entries required.
 
 /**
  * Subscribe the supplied WebSocket event stream to the query client.
@@ -152,7 +145,6 @@ export function wireWsToQueryClient(
         void qc.invalidateQueries({ queryKey: key });
       }
     }
-    // projects feature ↓
     if (PROJECT_SCOPED_EVENTS.has(event.type)) {
       const slug = extractProjectSlug((event as { payload?: unknown }).payload);
       if (slug) {
@@ -164,10 +156,8 @@ export function wireWsToQueryClient(
           void qc.invalidateQueries({ queryKey: ["project", slug] });
         }
       }
-      // also always refresh the list
       void qc.invalidateQueries({ queryKey: ["projects"] });
     }
-    // projects feature ↑
   });
 }
 

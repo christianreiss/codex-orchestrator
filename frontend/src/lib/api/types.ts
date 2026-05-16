@@ -711,6 +711,8 @@ export interface JoplinConfigPayload {
   password?: string;
   sync_interval_minutes?: number;
   enabled?: boolean;
+}
+
 // logs feature ↓
 /** A row from `/admin/usage/ingests`. */
 export interface UsageIngestRow {
@@ -768,6 +770,8 @@ export interface HostFqdnSummary {
   fqdn?: string | null;
   hostname?: string | null;
   display_name?: string | null;
+}
+
 // manual feature ↓
 
 export interface ManualArticleSummary {
@@ -804,6 +808,8 @@ export interface ManualSearchDoc {
 export interface ManualSearchIndex {
   version: string;
   docs: ManualSearchDoc[];
+}
+
 // settings feature ↓
 export interface ApiStateValue {
   disabled: boolean;
@@ -900,6 +906,8 @@ export interface ScalingStatus {
   spark?: unknown;
   active_state?: unknown;
   [key: string]: unknown;
+}
+
 // users feature ↓
 export const USER_ROLES = [
   "admin",
