@@ -1,0 +1,1 @@
+import{X as e,mt as t}from"./BRIFdySE.js";import"./C3IDSI3B.js";function n(n){let r=t(n());return e(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};
