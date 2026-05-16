@@ -31,6 +31,19 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "api-key.changed": [["api-keys"]],
   "settings.changed": [["settings"]],
   "usage.refreshed": [["usage"], ["dashboard"]],
+  // api-keys feature ↓
+  "apikey.created": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
+  "apikey.toggled": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
+  "apikey.deleted": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
 };
 
 /**
