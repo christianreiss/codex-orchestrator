@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex-orchestrator/schemas/host-config-v1.json",
+  "title": "Codex Orchestrator host wrapper config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "engine", "issued_at", "orchestrator", "host", "engine_options", "wrapper"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "engine": { "type": "string", "enum": ["codex", "claude"] },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": ["string", "null"], "format": "date-time" },
+    "orchestrator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url", "api_key", "installation_id"],
+      "properties": {
+        "base_url": { "type": "string", "format": "uri" },
+        "api_key": { "type": "string", "minLength": 8 },
+        "ca_bundle_path": { "type": ["string", "null"] },
+        "allow_insecure": { "type": "boolean", "default": false },
+        "installation_id": { "type": "string" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fqdn", "secure"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "fqdn": { "type": "string", "minLength": 1 },
+        "secure": { "type": "boolean" }
+      }
+    },
+    "engine_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "silent": { "type": "boolean", "default": false },
+        "model_override": { "type": ["string", "null"] },
+        "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high"] },
+        "admin_theme_hint": { "type": ["string", "null"], "enum": [null, "auto", "light", "dark"] },
+        "claude_model_override": { "type": ["string", "null"] }
+      }
+    },
+    "wrapper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "track", "auto_update", "binary_url", "binary_sha256"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "track": { "type": "string", "enum": ["stable", "beta", "dev"] },
+        "auto_update": { "type": "boolean" },
+        "binary_url": { "type": "string", "format": "uri" },
+        "binary_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "config_version": { "type": "integer", "minimum": 0 }
+  }
+}

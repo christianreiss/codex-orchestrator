@@ -1,0 +1,107 @@
+name: wrappers
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wrappers/**'
+      - '.github/workflows/wrappers.yml'
+  pull_request:
+    paths:
+      - 'wrappers/**'
+      - '.github/workflows/wrappers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [cdx, clx]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+          cache-dependency-path: 'wrappers/${{ matrix.engine }}/go.sum'
+      - name: go vet
+        working-directory: wrappers/${{ matrix.engine }}
+        run: go vet ./...
+      - name: go test
+        working-directory: wrappers/${{ matrix.engine }}
+        run: go test ./...
+
+  build:
+    name: build ${{ matrix.engine }} ${{ matrix.os }}/${{ matrix.arch }}
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [cdx, clx]
+        os: [linux, darwin]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: cross-compile
+        working-directory: wrappers/${{ matrix.engine }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          mkdir -p ../bin
+          go build -trimpath \
+            -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${GITHUB_SHA::7} -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "../bin/${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}" ./cmd/${{ matrix.engine }}
+          (cd ../bin && sha256sum "${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}" > "${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            wrappers/bin/${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}
+            wrappers/bin/${{ matrix.engine }}-${{ matrix.os }}-${{ matrix.arch }}.sha256
+          retention-days: 14
+
+  release:
+    name: release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: stage layout
+        run: |
+          mkdir -p staged
+          for f in artifacts/*; do
+            base=$(basename "$f")
+            # cdx-linux-amd64 -> cdx linux amd64
+            engine=$(echo "$base" | awk -F- '{print $1}')
+            os=$(echo "$base" | awk -F- '{print $2}')
+            arch=$(echo "$base" | awk -F- '{print $3}' | sed 's/\..*//')
+            v=${GITHUB_REF_NAME#v}
+            dst="staged/$engine/$os-$arch/v$v"
+            mkdir -p "$dst"
+            case "$base" in
+              *.sha256) cp "$f" "$dst/${engine}.sha256";;
+              *)        cp "$f" "$dst/${engine}"; chmod +x "$dst/${engine}";;
+            esac
+          done
+          ls -R staged
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*

@@ -1,0 +1,58 @@
+// Package ipc provides a process-wide single-instance lock for the wrapper.
+// Concurrent invocations on the same host race the same orchestrator state,
+// which is why the v1 wrapper had a bash flock wrapper around the whole thing.
+package ipc
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
+)
+
+// Lock represents an acquired flock; Release closes the underlying fd.
+type Lock struct {
+	f *os.File
+}
+
+// Acquire takes an exclusive non-blocking flock on a per-user lock file. If
+// another instance holds it, returns ErrHeld.
+var ErrHeld = errors.New("another wrapper instance is running")
+
+func Acquire(name string) (*Lock, error) {
+	path := lockPath(name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open lock %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrHeld
+		}
+		return nil, err
+	}
+	_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
+	return &Lock{f: f}, nil
+}
+
+func (l *Lock) Release() error {
+	if l == nil || l.f == nil {
+		return nil
+	}
+	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	err := l.f.Close()
+	l.f = nil
+	return err
+}
+
+func lockPath(name string) string {
+	if runtime := os.Getenv("XDG_RUNTIME_DIR"); runtime != "" {
+		return filepath.Join(runtime, name+".lock")
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%d.lock", name, os.Getuid()))
+}

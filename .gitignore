@@ -12,3 +12,7 @@ __pycache__/
 /.home/
 /.docker-config/
 /.ssh/
+
+# Wrapper bakery v2: local dev build output goes into wrappers/bin/ via `make all`;
+# committed binaries live under storage/wrapper/v2/bin/ (handled by their own .gitignore).
+/wrappers/bin/
