@@ -7,20 +7,21 @@ services:
       mysql:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8488:80"
+      - "127.0.0.1:8488:8080"
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "php -r 'exit(@file_get_contents(\"http://127.0.0.1/versions\", false, stream_context_create([\"http\"=>[\"header\"=>\"Host: codex-auth.uggs.io\\r\\nX-Forwarded-Proto: https\\r\\n\"]]))===false ? 1 : 0);'",
-        ]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 20s
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
       APP_ENV: ${APP_ENV:-production}
-      DB_DRIVER: mysql
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: 8080
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: ${LOG_PRETTY:-0}
+      STATIC_ROOT: /app/public/admin
       DB_HOST: ${DB_HOST:-mysql}
       DB_PORT: ${DB_PORT:-3306}
       DB_DATABASE: ${DB_DATABASE:-codex_auth}
@@ -40,45 +41,12 @@ services:
       RUN_MIGRATIONS_ON_BOOT: ${RUN_MIGRATIONS_ON_BOOT:-0}
       RUN_BACKFILLS_ON_BOOT: ${RUN_BACKFILLS_ON_BOOT:-0}
       ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
+      ADMIN_WS_ENABLED: ${ADMIN_WS_ENABLED:-1}
     volumes:
-      - ${ENV_FILE:-./.env}:/var/www/html/.env
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+      - ${ENV_FILE:-./.env}:/app/api/dist/.env:ro
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/app/storage
     networks:
       - codex_auth
-    command: ["bash", "-lc", "php /var/www/html/scripts/migrate.php && exec apache2-foreground"]
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/run/apache2
-      - /var/lock/apache2
-      - /var/log/apache2
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  admin-ws:
-    build: .
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:8091:8091"
-    environment:
-      APP_ENV: ${APP_ENV:-production}
-      DB_DRIVER: mysql
-      DB_HOST: ${DB_HOST:-mysql}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_DATABASE: ${DB_DATABASE:-codex_auth}
-      DB_USERNAME: ${DB_USERNAME:-codex}
-      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
-    volumes:
-      - ${ENV_FILE:-./.env}:/var/www/html/.env
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
-    networks:
-      - codex_auth
-    command: ["php", "/var/www/html/scripts/admin-ws.php"]
     read_only: true
     tmpfs:
       - /tmp
@@ -87,239 +55,58 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
-  quota-cron:
-    build: .
-    depends_on:
-      api:
-        condition: service_healthy
+  mysql:
+    image: mysql:8.4
     environment:
-      APP_ENV: ${APP_ENV:-production}
-      DB_DRIVER: mysql
-      DB_HOST: ${DB_HOST:-mysql}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_DATABASE: ${DB_DATABASE:-codex_auth}
-      DB_USERNAME: ${DB_USERNAME:-codex}
-      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
-      CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/quota-cron-health.json}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-pass}
+      MYSQL_DATABASE: ${DB_DATABASE:-codex_auth}
+      MYSQL_USER: ${DB_USERNAME:-codex}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-codex-pass}
     volumes:
-      - ${ENV_FILE:-./.env}:/var/www/html/.env
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
-    networks:
-      - codex_auth
-    command: >
-      bash -c "interval=${CHATGPT_USAGE_CRON_INTERVAL:-3600};
-        if [[ -z \"$$interval\" || ! \"$$interval\" =~ ^[0-9]+$ ]]; then interval=3600; fi;
-        while true; do
-          if php /var/www/html/scripts/refresh-chatgpt-usage.php; then
-            sleep \"$$interval\";
-          else
-            echo '[quota-cron] refresh failed; retrying in 60s' >&2;
-            sleep 60;
-          fi
-        done"
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "php", "/var/www/html/scripts/check-quota-cron-health.php"]
-      interval: 60s
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASSWORD:-root-pass}"]
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 120s
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
-  preflight-cron:
-    build: .
-    depends_on:
-      api:
-        condition: service_healthy
-    environment:
-      APP_ENV: ${APP_ENV:-production}
-      DB_DRIVER: mysql
-      DB_HOST: ${DB_HOST:-mysql}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_DATABASE: ${DB_DATABASE:-codex_auth}
-      DB_USERNAME: ${DB_USERNAME:-codex}
-      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      AUTH_RUNNER_URL: ${AUTH_RUNNER_URL:-http://auth-runner:8080/verify}
-      AUTH_RUNNER_CODEX_BASE_URL: ${AUTH_RUNNER_CODEX_BASE_URL:-https://codex-auth.example.com}
-      AUTH_RUNNER_TIMEOUT: ${AUTH_RUNNER_TIMEOUT:-8}
-      AUTH_RUNNER_SHARED_SECRET: ${AUTH_RUNNER_SHARED_SECRET:-}
-      PREFLIGHT_CRON_INTERVAL: ${PREFLIGHT_CRON_INTERVAL:-60}
-      PREFLIGHT_RUNNER_INTERVAL: ${PREFLIGHT_RUNNER_INTERVAL:-600}
-      PREFLIGHT_VERSION_INTERVAL: ${PREFLIGHT_VERSION_INTERVAL:-10800}
-      PREFLIGHT_CRON_HEALTH_PATH: ${PREFLIGHT_CRON_HEALTH_PATH:-/tmp/preflight-cron-health.json}
-    volumes:
-      - ${ENV_FILE:-./.env}:/var/www/html/.env
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/var/www/html/storage
+      retries: 5
+      start_period: 30s
     networks:
       - codex_auth
-    command: >
-      bash -c "interval=${PREFLIGHT_CRON_INTERVAL:-60};
-        if [[ -z \"$$interval\" || ! \"$$interval\" =~ ^[0-9]+$ ]]; then interval=60; fi;
-        while true; do
-          if php /var/www/html/scripts/preflight-cron-tick.php; then
-            sleep \"$$interval\";
-          else
-            echo '[preflight-cron] tick failed; retrying in 60s' >&2;
-            sleep 60;
-          fi
-        done"
-    healthcheck:
-      test: ["CMD", "php", "/var/www/html/scripts/check-preflight-cron-health.php"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
     restart: unless-stopped
 
   auth-runner:
     build:
-      context: .
-      dockerfile: runner/Dockerfile
-    depends_on:
-      api:
-        condition: service_healthy
+      context: ./runner
     environment:
-      APP_ENV: ${APP_ENV:-production}
-      CODEX_SYNC_BASE_URL: ${CODEX_SYNC_BASE_URL:-https://codex-auth.example.com}
-      CODEX_DEBUG: ${CODEX_DEBUG:-0}
-      RUNNER_CODEX_PROBE_MODEL: ${RUNNER_CODEX_PROBE_MODEL:-gpt-5.4}
+      RUNNER_PORT: 8080
       RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET:-}
-      RUNNER_DEBUG_DUMP_AUTH: ${RUNNER_DEBUG_DUMP_AUTH:-0}
-      RUNNER_ALLOW_SECRET_DUMP: ${RUNNER_ALLOW_SECRET_DUMP:-0}
-    expose:
-      - "8080"
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health').status==200 else 1)\""]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     networks:
       - codex_auth
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
     restart: unless-stopped
 
   caddy:
-    image: caddy:2.8
-    profiles:
-      - caddy
+    profiles: ["caddy"]
+    image: caddy:2
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN:-codex-auth.example.com}
-      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-ops@example.com}
       CADDY_TLS_FRAGMENT: ${CADDY_TLS_FRAGMENT:-/etc/caddy/tls-acme.caddy}
-      CADDY_TLS_CERT_FILE: ${CADDY_TLS_CERT_FILE:-/etc/caddy/tls/tls.crt}
-      CADDY_TLS_KEY_FILE: ${CADDY_TLS_KEY_FILE:-/etc/caddy/tls/tls.key}
-      CADDY_MTLS_CA_FILE: ${CADDY_MTLS_CA_FILE:-/etc/caddy/mtls/ca.crt}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-ops@example.com}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/tls-acme.caddy:/etc/caddy/tls-acme.caddy:ro
       - ./caddy/tls-custom.caddy:/etc/caddy/tls-custom.caddy:ro
-      - ${CADDY_TLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/tls}:/etc/caddy/tls:ro
       - ${CADDY_MTLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/mtls}:/etc/caddy/mtls:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ${CADDY_TLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/tls}:/etc/caddy/tls:ro
     networks:
       - codex_auth
-    healthcheck:
-      test: ["CMD", "caddy", "version"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  mysql:
-    image: mysql:8.0
-    command: --default-authentication-plugin=mysql_native_password
-    environment:
-      MYSQL_DATABASE: ${DB_DATABASE:-codex_auth}
-      MYSQL_USER: ${DB_USERNAME:-codex}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-pass}
-    volumes:
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/mysql_data:/var/lib/mysql
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store/sql:/docker-entrypoint-initdb.d:ro
-    networks:
-      - codex_auth
-    healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h 127.0.0.1 -u\"$$MYSQL_USER\" --silent"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
-  mysql-backup:
-    image: databack/mysql-backup
-    user: "0:0"
-    environment:
-      DB_SERVER: mysql
-      DB_PORT: 3306
-      DB_USER: ${DB_USERNAME:-codex}
-      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      DB_NAMES: ${DB_DATABASE:-codex_auth}
-      CRON_TIME: ${DB_BACKUP_CRON:-0 2 * * *}
-      MAX_BACKUPS: ${DB_BACKUP_MAX:-30}
-      TZ: ${TZ:-UTC}
-    command:
-      - dump
-      - --server
-      - ${DB_HOST:-mysql}
-      - --port
-      - "${DB_PORT:-3306}"
-      - --user
-      - ${DB_USERNAME:-codex}
-      - --pass
-      - ${DB_PASSWORD:-codex-pass}
-      - --include
-      - ${DB_NAMES:-codex_auth}
-      - --target
-      - file:///backup
-      - --begin
-      - "${DB_BACKUP_BEGIN:-0200}"
-      - --frequency
-      - "${DB_BACKUP_FREQUENCY:-1440}"
-      - --retention
-      - "${DB_BACKUP_MAX:-30}c"
-    volumes:
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/backups:/backup
-    depends_on:
-      - mysql
-    networks:
-      - codex_auth
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 60s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     restart: unless-stopped
 
 networks:
   codex_auth:
-
-volumes:
-  caddy_data:
-  caddy_config:
+    driver: bridge
