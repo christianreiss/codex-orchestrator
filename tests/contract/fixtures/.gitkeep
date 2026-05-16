@@ -1,0 +1,3 @@
+# Populated by `tests/contract/record.sh`. Fixtures are then copied to
+# api/test/contract/fixtures/ and committed once before the legacy backend is
+# deleted.

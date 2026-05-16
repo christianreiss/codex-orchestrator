@@ -1,0 +1,4 @@
+# This directory is populated by running tests/contract/record.sh against the
+# legacy PHP backend, then committed once before the legacy backend is deleted.
+# Empty in the repo by default; CI uses the meta-test in ../contract.test.ts
+# to detect the empty case and skip cleanly.
