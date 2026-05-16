@@ -900,4 +900,53 @@ export interface ScalingStatus {
   spark?: unknown;
   active_state?: unknown;
   [key: string]: unknown;
+// users feature ↓
+export const USER_ROLES = [
+  "admin",
+  "fleet_operator",
+  "trusted_user",
+  "user",
+] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+/** Admin user shape as returned by `AdminAuthService::sanitizeUser`. */
+export interface AdminUser {
+  id: number;
+  name: string;
+  username: string;
+  email: string;
+  access_level: UserRole | string;
+  active: boolean;
+  last_login_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AdminUserListResponse {
+  users: AdminUser[];
+}
+
+export interface AdminUserResponse {
+  user: AdminUser;
+}
+
+export interface AdminUserPayload {
+  name?: string;
+  username: string;
+  email?: string;
+  access_level: UserRole | string;
+  active: boolean;
+  password?: string;
+}
+
+export interface AdminAuthStatusResponse {
+  has_users: boolean;
+  admin_count: number;
+  enforced: boolean;
+  authenticated: boolean;
+  user: AdminUser | null;
+  /** Role key → human-readable label, e.g. `{admin: "Admin", ...}`. */
+  roles: Record<string, string>;
+  passkeys_registered?: number;
+  passkey_login_available?: boolean;
 }

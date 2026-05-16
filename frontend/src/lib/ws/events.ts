@@ -26,6 +26,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "host.updated": [["hosts"]],
   "host.created": [["hosts"]],
   "host.deleted": [["hosts"]],
+  // users feature ↓
   "user.updated": [["users"]],
   "user.created": [["users"]],
   "user.deleted": [["users"]],
