@@ -31,6 +31,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "api-key.changed": [["api-keys"]],
   "settings.changed": [["settings"]],
   "usage.refreshed": [["usage"], ["dashboard"]],
+  // integrations feature ↓
+  "joplin.synced": [["integrations", "joplin"]],
 };
 
 /**
