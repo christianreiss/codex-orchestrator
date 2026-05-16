@@ -1,0 +1,99 @@
+import { eq } from 'drizzle-orm';
+import { hostUsers, type Host } from '../db/schema.js';
+import type { Database } from '../db/client.js';
+import { nowIso } from '../util/timestamp.js';
+import type { Engine } from '../util/engine.js';
+import type { VersionSnapshotService, VersionSnapshot } from './version-snapshot.js';
+import type { TokenUsageService } from './token-usage.js';
+
+/**
+ * Port of StartupSyncService::collect (used for /sync/status + /sync/bootstrap
+ * responses). The legacy service also mixes in skill manifest + agents-doc +
+ * client-config rendering — those live in their own worktrees, so this
+ * service returns a minimal-but-honest payload and lets routes attach the
+ * `auth` envelope separately.
+ */
+
+export interface SyncCollectInput {
+  host: Host;
+  engine: Engine;
+  bootstrap: boolean;
+}
+
+export interface SyncCollectResult {
+  status: 'ok' | 'update';
+  reasons: string[];
+  engine: Engine;
+  versions: VersionSnapshot;
+  api_calls: number;
+  token_usage_month: { total: number; input: number; output: number; cached: number; reasoning: number };
+  host_users: Array<{ username: string; hostname: string | null; last_seen: string }>;
+  bootstrap: boolean;
+  // Free-form extras (auth envelope etc. injected by route handlers)
+  [key: string]: unknown;
+}
+
+export interface HostSyncService {
+  collect(input: SyncCollectInput): Promise<SyncCollectResult>;
+  recordHostUser(hostId: number, username: string | null, hostname: string | null): Promise<Array<{ username: string; hostname: string | null; last_seen: string }>>;
+}
+
+export interface HostSyncDeps {
+  db: Database;
+  versions: VersionSnapshotService;
+  tokenUsage: TokenUsageService;
+}
+
+export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
+  const { db, versions, tokenUsage } = deps;
+
+  return {
+    async collect({ host, engine, bootstrap }) {
+      const summary = await versions.summary(engine);
+      const totals = await tokenUsage.totalsForMonth(host.id);
+      const users = await readUsers(db, host.id);
+      return {
+        status: 'ok',
+        reasons: [],
+        engine,
+        versions: summary,
+        api_calls: Number(host.apiCalls ?? 0),
+        token_usage_month: totals,
+        host_users: users,
+        bootstrap,
+      };
+    },
+
+    async recordHostUser(hostId, username, hostname) {
+      const u = (username ?? '').trim();
+      if (u !== '') {
+        const now = nowIso();
+        const existing = await db.select().from(hostUsers).where(eq(hostUsers.hostId, hostId)).limit(50);
+        const found = existing.find((e) => e.username === u);
+        if (found) {
+          await db
+            .update(hostUsers)
+            .set({ lastSeen: now, hostname: hostname ?? found.hostname ?? null })
+            .where(eq(hostUsers.id, found.id));
+        } else {
+          await db.insert(hostUsers).values({
+            hostId,
+            username: u,
+            hostname: hostname ?? undefined,
+            firstSeen: now,
+            lastSeen: now,
+          });
+        }
+      }
+      return readUsers(db, hostId);
+    },
+  };
+}
+
+async function readUsers(
+  db: Database,
+  hostId: number,
+): Promise<Array<{ username: string; hostname: string | null; last_seen: string }>> {
+  const rows = await db.select().from(hostUsers).where(eq(hostUsers.hostId, hostId));
+  return rows.map((r) => ({ username: r.username, hostname: r.hostname ?? null, last_seen: r.lastSeen }));
+}

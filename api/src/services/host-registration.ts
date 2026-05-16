@@ -1,0 +1,110 @@
+import { eq } from 'drizzle-orm';
+import {
+  adminEvents,
+  hosts as hostsTable,
+  logs as logsTable,
+  type Host,
+} from '../db/schema.js';
+import type { Database } from '../db/client.js';
+import { generateApiKey } from '../util/api-key-helpers.js';
+import { encrypt } from '../security/secret-box.js';
+import type { Keyring } from '../security/keyring.js';
+import { nowIso } from '../util/timestamp.js';
+import { wsPublisher } from '../ws/publisher.js';
+import type { InsecureWindowService } from './insecure-window.js';
+
+/**
+ * Host create + API-key rotate. Reused by the CLI auth approve path and the
+ * seed-token consume path. Emits a host.created / host.updated WS event and
+ * writes an admin_events audit row.
+ */
+
+export interface RegisteredHost {
+  host: Host;
+  apiKey: string;
+}
+
+export interface HostRegistrationService {
+  registerOrRotate(input: {
+    fqdn: string;
+    secure?: boolean;
+    insecureWindowMinutes?: number;
+    engines?: string;
+    createdBy?: string | null;
+  }): Promise<RegisteredHost>;
+}
+
+export interface HostRegistrationDeps {
+  db: Database;
+  keyring: Keyring;
+  insecure: InsecureWindowService;
+}
+
+export function createHostRegistrationService(deps: HostRegistrationDeps): HostRegistrationService {
+  const { db, keyring, insecure } = deps;
+  return {
+    async registerOrRotate({ fqdn, secure = true, insecureWindowMinutes, engines = 'codex', createdBy }) {
+      const trimmed = fqdn.trim();
+      const now = nowIso();
+      const existing = await db.select().from(hostsTable).where(eq(hostsTable.fqdn, trimmed)).limit(1);
+
+      const { key: apiKey, hash: apiKeyHash } = generateApiKey('sk-codex-');
+      const apiKeyEnc = encrypt(apiKey, keyring);
+
+      if (existing[0]) {
+        const prev = existing[0];
+        await db
+          .update(hostsTable)
+          .set({
+            apiKey,
+            apiKeyHash,
+            apiKeyEnc,
+            secure: secure ? 1 : 0,
+            engines,
+            updatedAt: now,
+          })
+          .where(eq(hostsTable.id, prev.id));
+        const updatedRows = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
+        let host = updatedRows[0]!;
+        if (!secure) {
+          await insecure.openInitial(host.id, insecureWindowMinutes);
+          const refreshed = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
+          host = refreshed[0] ?? host;
+        }
+        await audit(db, host.id, 'host.rotated', { fqdn: host.fqdn, createdBy: createdBy ?? null, engines });
+        wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn });
+        return { host, apiKey };
+      }
+
+      const ins = await db.insert(hostsTable).values({
+        fqdn: trimmed,
+        apiKey,
+        apiKeyHash,
+        apiKeyEnc,
+        status: 'active',
+        secure: secure ? 1 : 0,
+        engines,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const insertedRow = ins[0] as { insertId?: number | bigint } | undefined;
+      const insertedId = insertedRow?.insertId !== undefined ? Number(insertedRow.insertId) : 0;
+      const inserted = await db.select().from(hostsTable).where(eq(hostsTable.id, insertedId)).limit(1);
+      let host = inserted[0]!;
+      if (!secure) {
+        await insecure.openInitial(host.id, insecureWindowMinutes);
+        const refreshed = await db.select().from(hostsTable).where(eq(hostsTable.id, host.id)).limit(1);
+        host = refreshed[0] ?? host;
+      }
+      await audit(db, host.id, 'host.created', { fqdn: host.fqdn, createdBy: createdBy ?? null, engines });
+      wsPublisher.publish('host.created', { id: host.id, fqdn: host.fqdn });
+      return { host, apiKey };
+    },
+  };
+}
+
+async function audit(db: Database, hostId: number, type: string, payload: Record<string, unknown>): Promise<void> {
+  const now = nowIso();
+  await db.insert(adminEvents).values({ type, hostId, payload, createdAt: now });
+  await db.insert(logsTable).values({ hostId, action: type, details: JSON.stringify(payload), createdAt: now });
+}
