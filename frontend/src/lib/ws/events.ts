@@ -57,6 +57,13 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
   "claude.usage.updated": [["usage", "claude"]],
   "insecure.approval.changed": [["overview", "insecure-approvals"]],
+  // hosts feature ↓
+  "insecure.requested": [["insecure-approvals"], ["hosts", "insecure"]],
+  "insecure.approved": [["insecure-approvals"], ["hosts"], ["hosts", "insecure"]],
+  "insecure.denied": [["insecure-approvals"]],
+  "insecure.domain.allowed": [["hosts", "insecure"]],
+  "insecure.domain.revoked": [["hosts", "insecure"]],
+  // hosts feature ↑
 };
 
 /**
