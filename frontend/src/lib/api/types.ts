@@ -51,6 +51,135 @@ export interface Project {
   updated_at?: string | null;
 }
 
+// projects feature ↓
+export interface ProjectAbout {
+  title?: string | null;
+  name?: string | null;
+  description?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ProjectCounts {
+  notes: number;
+  open_todos: number;
+  done_todos: number;
+  files: number;
+  feedback: number;
+}
+
+export interface ProjectSummary {
+  slug: string;
+  title: string;
+  name: string;
+  description: string;
+  about: ProjectAbout | null;
+  latest_seq: number;
+  created_at: string | null;
+  updated_at: string | null;
+  /** Counts strip — present on the list endpoint. */
+  counts?: ProjectCounts;
+}
+
+export interface ProjectListResponse {
+  projects: ProjectSummary[];
+}
+
+export interface ProjectDetailProject {
+  slug: string;
+  about: ProjectAbout | null;
+  roster_markdown: string;
+  latest_seq: number;
+  created_at: string | null;
+  updated_at: string | null;
+  counts: ProjectCounts;
+}
+
+export interface ProjectNote {
+  id: number;
+  header: string;
+  body: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProjectTodo {
+  id: number;
+  title: string;
+  detail?: string | null;
+  done: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProjectFile {
+  id: number;
+  stored_name: string;
+  description?: string | null;
+  content_sha256?: string | null;
+  mime_type?: string | null;
+  size_bytes: number;
+  content: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type ProjectFeedbackType = "bug" | "feature" | "note";
+
+export interface ProjectFeedback {
+  id: number;
+  project_id?: number | null;
+  type: ProjectFeedbackType;
+  title: string;
+  body: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProjectChange {
+  id?: number;
+  seq: number;
+  event_type?: string;
+  action: string;
+  entity_type?: string | null;
+  entity_id?: number | string | null;
+  payload?: Record<string, unknown> | null;
+  source_host_id?: number | string | null;
+  created_at?: string | null;
+}
+
+export interface ProjectDetailResponse {
+  project: ProjectDetailProject;
+  notes: ProjectNote[];
+  todos: ProjectTodo[];
+  files: ProjectFile[];
+  feedback: ProjectFeedback[];
+  recent_changes: ProjectChange[];
+}
+
+export interface ProjectModuleState {
+  enabled: boolean;
+  updated_at?: string | null;
+  managed_skill?: unknown;
+}
+
+export interface ProjectAssistResponse {
+  project: string;
+  about: ProjectAbout | null;
+  roster_markdown: string;
+  assistant_message: string;
+  changed_fields: string[];
+  latency_ms?: number | null;
+  codex_version?: string | null;
+}
+
+export interface ProjectChangesResponse {
+  project: string;
+  since: number;
+  latest_seq: number;
+  changes: ProjectChange[];
+}
+// projects feature ↑
+
 export interface Skill {
   id?: number | string;
   slug: string;
