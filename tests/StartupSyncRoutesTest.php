@@ -14,17 +14,15 @@ final class StartupSyncRoutesTest extends TestCase
         self::assertStringContainsString("#^/sync/bootstrap$#", $source);
     }
 
-    public function testWrapperUsesBundledSyncWithEndpointMissingFallbackOnly(): void
+    public function testGoBinariesHandleStartupSync(): void
     {
-        $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
-        self::assertStringContainsString('sync_startup_bundle_pull()', $wrapperSource);
-        self::assertStringContainsString('/sync/status', $wrapperSource);
-        self::assertStringContainsString('/sync/bootstrap', $wrapperSource);
-        self::assertStringContainsString('if ! sync_startup_bundle_pull; then', $wrapperSource);
-        self::assertStringContainsString('if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then', $wrapperSource);
-        self::assertStringContainsString('sync_skills_pull || true', $wrapperSource);
-        self::assertStringContainsString('sync_agents_pull || true', $wrapperSource);
-        self::assertStringContainsString('sync_config_pull || true', $wrapperSource);
+        // The wrapper bakery v2 cutover moved the bash wrapper logic into Go.
+        // The Codex lifecycle calls /auth, /sync/status, /agents/retrieve, and
+        // /config/retrieve from wrappers/cdx/internal/lifecycle/run.go.
+        $lifecycle = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($lifecycle, 'wrappers/cdx/internal/lifecycle/run.go missing');
+        self::assertStringContainsString('client.AuthRetrieve', $lifecycle);
+        self::assertStringContainsString('client.RetrieveAgents', $lifecycle);
+        self::assertStringContainsString('client.RetrieveConfig', $lifecycle);
     }
 }
