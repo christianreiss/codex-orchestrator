@@ -118,3 +118,46 @@ export interface AnthropicErrorEnvelope {
   type: "error";
   error: { message?: string; type?: string; code?: string };
 }
+
+// account feature ↓
+export interface Passkey {
+  id: number;
+  name: string;
+  transports?: string | string[] | null;
+  created_at?: string | null;
+  last_used_at?: string | null;
+}
+
+export interface PasskeyListResponse {
+  passkeys: Passkey[];
+}
+
+export interface PasskeyRegisterResponse {
+  passkey: Passkey;
+}
+
+/**
+ * PublicKeyCredentialCreationOptionsJSON-compatible shape returned by
+ * `POST /admin/auth/passkey/register/options`. Strings are base64url —
+ * @simplewebauthn/browser consumes this directly via startRegistration().
+ */
+export interface PasskeyRegistrationOptionsJSON {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  pubKeyCredParams: Array<{ type: "public-key"; alg: number }>;
+  timeout?: number;
+  attestation?: string;
+  authenticatorSelection?: Record<string, unknown>;
+  excludeCredentials?: Array<{ type: "public-key"; id: string; transports?: string[] }>;
+}
+
+export interface PasswordChangeRequest {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
+export interface PasswordChangeResponse {
+  user: User;
+}
