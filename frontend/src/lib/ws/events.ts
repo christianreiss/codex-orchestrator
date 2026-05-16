@@ -31,6 +31,13 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "api-key.changed": [["api-keys"]],
   "settings.changed": [["settings"]],
   "usage.refreshed": [["usage"], ["dashboard"]],
+  // hosts feature ↓
+  "insecure.requested": [["insecure-approvals"], ["hosts", "insecure"]],
+  "insecure.approved": [["insecure-approvals"], ["hosts"], ["hosts", "insecure"]],
+  "insecure.denied": [["insecure-approvals"]],
+  "insecure.domain.allowed": [["hosts", "insecure"]],
+  "insecure.domain.revoked": [["hosts", "insecure"]],
+  // hosts feature ↑
 };
 
 /**
