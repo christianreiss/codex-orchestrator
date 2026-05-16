@@ -118,3 +118,28 @@ export interface AnthropicErrorEnvelope {
   type: "error";
   error: { message?: string; type?: string; code?: string };
 }
+
+// cli-auth-verify feature ↓
+/**
+ * Response payload from `POST /cli/auth/lookup`. Describes a pending
+ * device-code login request the browser is asked to approve.
+ */
+export interface CliAuthLookup {
+  id: number;
+  /** Fully-qualified hostname the CLI was started from. */
+  fqdn: string;
+  /** Whether the host will be registered as secure (mTLS). */
+  secure: boolean;
+  /** Source IP that initiated the request, if recorded. */
+  ip: string | null;
+  /** ISO timestamp the CLI started the request. */
+  created_at: string | null;
+  /** ISO timestamp at which the user code expires. */
+  expires_at: string | null;
+}
+
+export interface CliAuthApprove {
+  fqdn: string;
+  host_id: number;
+}
+// cli-auth-verify feature ↑
