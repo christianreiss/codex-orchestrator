@@ -127,6 +127,12 @@ function extractProjectSlug(payload: unknown): string | null {
   return typeof slug === "string" && slug.length > 0 ? slug : null;
 }
 // projects feature ↑
+// settings feature ↓
+// The base map already invalidates the root ['settings'] key on
+// `settings.changed`. svelte-query's invalidateQueries does a
+// hierarchical prefix match, so per-setting query keys like
+// ['settings', 'api-state'], ['settings', 'reverse-dns'], etc.
+// are refreshed automatically — no additional entries required.
 
 /**
  * Subscribe the supplied WebSocket event stream to the query client.
