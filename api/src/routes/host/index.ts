@@ -203,23 +203,9 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     return { recorded: true };
   });
 
-  // POST /agents/retrieve — engine-aware agents/CLAUDE.md sync.
-  app.post('/agents/retrieve', async (req) => {
-    const host = await hostAuth.authenticate(req);
-    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-    const engine = parseEngine(body.engine);
-    // Phase 2.1 ships a minimal-but-honest response. The admin-content worktree
-    // owns the canonical agents-doc selection and sha256 negotiation.
-    return await readAgentsDocument(ctx, engine, typeof body.sha256 === 'string' ? body.sha256 : null, host.id);
-  });
-
-  // POST /config/retrieve — engine-aware client config sync.
-  app.post('/config/retrieve', async (req) => {
-    const host = await hostAuth.authenticate(req);
-    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-    const engine = parseEngine(body.engine);
-    return await readClientConfigDocument(ctx, engine, typeof body.sha256 === 'string' ? body.sha256 : null, host.id);
-  });
+  // /agents/retrieve and /config/retrieve are owned by the projects-client
+  // worktree (Phase 2.6) via its host-agents service. Registration moved
+  // there to avoid Fastify duplicate-route errors at boot.
 }
 
 function normalizeLane(value: unknown): 'normal' | 'spark' | null {
@@ -247,53 +233,3 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-async function readAgentsDocument(
-  ctx: RouteContext,
-  engine: 'codex' | 'claude',
-  requestedSha: string | null,
-  hostId: number,
-): Promise<Record<string, unknown>> {
-  const { agentsDocumentState, agentsDocuments } = await import('../../db/schema.js');
-  const stateRow = await ctx.db
-    .select()
-    .from(agentsDocumentState)
-    .where(eq(agentsDocumentState.id, 1))
-    .limit(1);
-  const state = stateRow[0];
-  if (!state || !state.activeDocumentId) {
-    return { engine, sha256: null, body: null, host_id: hostId, status: 'missing' };
-  }
-  const docs = await ctx.db
-    .select()
-    .from(agentsDocuments)
-    .where(eq(agentsDocuments.id, state.activeDocumentId))
-    .limit(1);
-  const doc = docs[0];
-  if (!doc) return { engine, sha256: null, body: null, host_id: hostId, status: 'missing' };
-  if (requestedSha && requestedSha === doc.sha256) {
-    return { engine, sha256: doc.sha256, status: 'valid', host_id: hostId };
-  }
-  return { engine, sha256: doc.sha256, body: doc.body, status: 'updated', host_id: hostId };
-}
-
-async function readClientConfigDocument(
-  ctx: RouteContext,
-  engine: 'codex' | 'claude',
-  requestedSha: string | null,
-  hostId: number,
-): Promise<Record<string, unknown>> {
-  const { clientConfigDocuments } = await import('../../db/schema.js');
-  const rows = await ctx.db
-    .select()
-    .from(clientConfigDocuments)
-    .where(eq(clientConfigDocuments.engine, engine))
-    .limit(1);
-  const doc = rows[0];
-  if (!doc) {
-    throw new NotFoundError('No client config available', 'config_missing');
-  }
-  if (requestedSha && requestedSha === doc.sha256) {
-    return { engine, sha256: doc.sha256, status: 'valid', host_id: hostId };
-  }
-  return { engine, sha256: doc.sha256, body: doc.body, status: 'updated', host_id: hostId };
-}

@@ -69,12 +69,10 @@ export const envelopePlugin = fp(
         .send(JSON.stringify(formatter.failure(apiErr)));
     });
 
-    app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
-      const formatter = selectFormatter(request.url);
-      const err = new ApiError('Route not found', { status: 404, code: 'not_found' });
-      reply.envelopeRaw = true;
-      reply.status(404).header('content-type', 'application/json; charset=utf-8').send(JSON.stringify(formatter.failure(err)));
-    });
+    // Not-found is intentionally left to the route layer (routes/index.ts wires
+    // the SPA fallback under /admin/* and a default JSON 404 elsewhere). That
+    // keeps the static plugin and the envelope plugin from fighting over which
+    // 404 wins.
   },
   { name: 'envelope' },
 );
