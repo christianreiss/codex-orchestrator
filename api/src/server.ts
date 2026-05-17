@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
-import { createLogger } from './util/log.js';
+import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
 import { Keyring } from './security/keyring.js';
 import { runBootChecks } from './ops/boot-checks.js';
@@ -22,14 +22,13 @@ import { registerWsServer } from './ws/server.js';
 
 export async function buildServer() {
   const env = loadEnv();
-  const logger = createLogger(env);
   const { db, pool } = createDb(env);
 
   await runBootChecks(env, db);
   const keyring = Keyring.fromEnv(env);
 
   const app = Fastify({
-    logger,
+    logger: loggerOptions(env),
     trustProxy: env.TRUST_X_FORWARDED,
     disableRequestLogging: false,
     bodyLimit: 32 * 1024 * 1024,

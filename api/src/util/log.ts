@@ -1,13 +1,14 @@
-import pino, { type Logger } from 'pino';
+import pino, { type Logger, type LoggerOptions } from 'pino';
 import type { Env } from '../env.js';
 
-export function createLogger(env: Env): Logger {
+/** Build the pino options object Fastify expects in its `logger` field. */
+export function loggerOptions(env: Env): LoggerOptions {
   const transport =
     env.LOG_PRETTY && env.NODE_ENV !== 'production'
       ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard' } }
       : undefined;
 
-  return pino({
+  return {
     level: env.LOG_LEVEL,
     base: {
       app: 'codex-orchestrator-api',
@@ -28,5 +29,10 @@ export function createLogger(env: Env): Logger {
       remove: true,
     },
     transport,
-  });
+  };
+}
+
+/** Standalone pino instance (for code paths outside Fastify's request scope). */
+export function createLogger(env: Env): Logger {
+  return pino(loggerOptions(env));
 }
