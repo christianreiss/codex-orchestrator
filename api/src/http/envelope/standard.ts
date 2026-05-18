@@ -19,8 +19,14 @@ export function success<T>(data: T): StandardSuccess<T> {
   if (data === null || data === undefined) return { status: 'ok' };
   if (typeof data === 'object' && !Array.isArray(data) && data !== null) {
     const obj = data as Record<string, unknown>;
-    if ('status' in obj && obj.status === 'ok') return obj as StandardSuccess<T>;
-    return { status: 'ok', ...obj } as StandardSuccess<T>;
+    if ('data' in obj) {
+      if ('status' in obj && obj.status === 'ok') return obj as StandardSuccess<T>;
+      return { status: 'ok', ...obj } as StandardSuccess<T>;
+    }
+    // Keep object fields at the root for the rewritten clients, but also
+    // preserve the legacy `{status:"ok",data:{...}}` envelope shape consumed
+    // by still-installed bash wrappers.
+    return { status: 'ok', data: obj, ...obj } as StandardSuccess<T>;
   }
   return { status: 'ok', data };
 }

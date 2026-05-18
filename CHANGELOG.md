@@ -1,4 +1,5 @@
 # 2026-05-18
+- Legacy wrapper compatibility: restored the standard `data` envelope alongside root response fields so still-installed bash `cdx` wrappers can parse `/auth`, `/versions`, `/cron/check`, and related host API responses after the Node cutover.
 - Ops / Node cutover: fixed the live Docker wiring for the rewritten API by loading the mounted env file, keeping the existing `mysql_data` volume path, waiting for the auth runner healthcheck, publishing runner/wrapper-v2 state during API boot, and serving the `/admin` SPA entrypoint cleanly for direct operator probes.
 - Wrapper v2 / cdx bakery: fixed local release output so `cdx`/`clx` builds are served under the API's `codex`/`claude` paths with platform manifests, and embedded the active live signing public key in both wrappers.
 - Auth sync: kept Node `/auth` compatible with legacy `sbox:v1` canonical payloads, allowed first-run retrieve without a local digest, and ensured new host/seed auth writes keep payloads and tokens encrypted.

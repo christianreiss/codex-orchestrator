@@ -3,12 +3,29 @@ import { buildTestApp } from '../helpers/build-app.js';
 import { ApiError } from '../../src/http/errors.js';
 
 describe('envelope plugin integration', () => {
-  it('wraps standard handler payload as { status: ok, ... }', async () => {
+  it('wraps standard handler payload with root fields and legacy data copy', async () => {
     const app = await buildTestApp();
     app.get('/echo', async () => ({ hello: 'world' }));
     const r = await app.inject({ method: 'GET', url: '/echo' });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload)).toEqual({ status: 'ok', hello: 'world' });
+    expect(JSON.parse(r.payload)).toEqual({
+      status: 'ok',
+      data: { hello: 'world' },
+      hello: 'world',
+    });
+    await app.close();
+  });
+
+  it('keeps non-ok domain status at root while preserving legacy data envelope', async () => {
+    const app = await buildTestApp();
+    app.get('/auth-like', async () => ({ status: 'outdated', auth: { ok: true } }));
+    const r = await app.inject({ method: 'GET', url: '/auth-like' });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toEqual({
+      status: 'outdated',
+      data: { status: 'outdated', auth: { ok: true } },
+      auth: { ok: true },
+    });
     await app.close();
   });
 
