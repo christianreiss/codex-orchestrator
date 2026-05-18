@@ -27,6 +27,7 @@ import {
   extractAuthPayload,
 } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
+import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
@@ -105,6 +106,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({ host: enforced, engine, bootstrap: false });
+    out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
     out.host_users = users;
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
@@ -132,6 +134,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({ host: enforced, engine, bootstrap: true });
+    out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
     out.host_users = users;
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
@@ -182,7 +185,11 @@ async function handleRetrieve(
     .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: nowIso() })
     .where(eq(hostsTable.id, host.id));
 
-  const versions = await versionSvc.summary(engine);
+  const versions = withLegacyShellWrapperTransition(
+    await versionSvc.summary(engine),
+    payload.wrapper_version,
+    engine,
+  );
   const totals = await tokenUsage.totalsForMonth(host.id);
   const baseResponse: Record<string, unknown> = {
     canonical_last_refresh: canonicalLast,
@@ -337,7 +344,11 @@ async function handleStore(
   });
 
   const totals = await tokenUsage.totalsForMonth(host.id);
-  const summary = await versionSvc.summary(engine);
+  const summary = withLegacyShellWrapperTransition(
+    await versionSvc.summary(engine),
+    payload.wrapper_version,
+    engine,
+  );
 
   return {
     status: 'updated',

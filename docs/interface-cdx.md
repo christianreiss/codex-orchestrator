@@ -12,16 +12,18 @@
 |---|---|---|
 | GET | `/wrapper/v2/meta` | per-platform manifest + signing fingerprint |
 | GET | `/wrapper/v2/config[?sig=1]` | signed per-host config JSON (or detached signature) |
-| GET | `/wrapper/v2/download` | bootstrap shim for this host (legacy `/wrapper/download` is an alias) |
+| GET | `/wrapper/v2/download` | raw Go binary for the calling host's detected platform |
+| GET | `/wrapper/download` | legacy shell-transition shim that writes v2 config, installs the binary, then execs it |
 | GET | `/wrapper/v2/bin/cdx/<os>-<arch>/v<ver>/cdx` | the binary itself; ETag = SHA256 |
 
 ## Per-host config (typed, signed)
 
-The orchestrator's `App\Services\Wrapper\V2\ConfigBaker` produces a JSON blob
+The orchestrator's `WrapperConfigService` produces a JSON blob
 matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
-shim writes the result to `~/.config/codex-orchestrator/cdx.json` (and its
-detached signature next door). On startup the Go binary verifies the signature
-against the public key embedded at build time, then loads the config:
+installer and the legacy transition shim write the result to
+`~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
+On startup the Go binary verifies the signature against the public key embedded
+at build time, then loads the config:
 
 ```jsonc
 {

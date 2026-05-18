@@ -4,6 +4,7 @@ import type { Database } from '../db/client.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../util/engine.js';
+import { buildWrapperV2InstallerScript } from './wrapper-transition.js';
 
 /**
  * Install + auth-seed token lookup, expiry checks, mark-used. Plus shell
@@ -105,45 +106,7 @@ export function buildInstallerScript(opts: {
   baseUrl: string;
   engine: Engine;
 }): string {
-  if (!opts.apiKey) throw new Error('Installer host API key missing');
-  if (!opts.fqdn) throw new Error('Installer host FQDN missing');
-  const name = opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
-  const cliName = opts.engine === ENGINE_CLAUDE ? 'claude' : 'codex';
-  const apiKeyQ = shellQuote(opts.apiKey);
-  const baseUrlQ = shellQuote(opts.baseUrl.replace(/\/+$/, ''));
-  const fqdnQ = shellQuote(opts.fqdn);
-  const cliHint =
-    opts.engine === ENGINE_CLAUDE
-      ? `command -v ${cliName} >/dev/null 2>&1 || echo ">> Install Claude CLI manually (e.g. npm install -g @anthropic-ai/claude-code) and re-run."`
-      : `command -v ${cliName} >/dev/null 2>&1 || echo ">> Install Codex CLI manually (e.g. via the upstream installer) and re-run."`;
-  return `#!/bin/sh
-# Codex Orchestrator wrapper-v2 installer for ${name}.
-# Generated for host ${fqdnQ}.
-set -eu
-
-BASE_URL=${baseUrlQ}
-HOST_API_KEY=${apiKeyQ}
-BIN_DIR=\${BIN_DIR:-$HOME/.local/bin}
-mkdir -p "$BIN_DIR"
-echo ">> Installing the ${name} wrapper into $BIN_DIR"
-
-# 1. Friendly engine CLI hint (the wrapper invokes this binary).
-${cliHint}
-
-# 2. Download the engine-specific bootstrap shim from the orchestrator.
-curl -fsSL "$BASE_URL/wrapper/v2/download?engine=${opts.engine}" -o "$BIN_DIR/${name}" || {
-  echo "Failed to download wrapper from $BASE_URL/wrapper/v2/download" >&2
-  exit 1
-}
-chmod +x "$BIN_DIR/${name}"
-
-# 3. First sync — pulls the signed config + the platform-specific binary.
-echo ">> First sync"
-"$BIN_DIR/${name}" status || true
-
-echo
-echo "Done. Try: ${name} run    (or ${name} doctor for a self-check)."
-`;
+  return buildWrapperV2InstallerScript(opts);
 }
 
 export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engine: Engine }): string {

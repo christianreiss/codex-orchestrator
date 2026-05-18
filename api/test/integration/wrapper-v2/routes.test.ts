@@ -249,6 +249,7 @@ import {
 } from '../../../src/http/errors.js';
 import { isEngine, parseEngine } from '../../../src/util/engine.js';
 import { BinaryNotFoundError } from '../../../src/services/wrapper-bin-registry.js';
+import { buildLegacyWrapperShimScript } from '../../../src/services/wrapper-transition.js';
 
 async function registerRoutesWithSigningOverride(
   app: FastifyInstance,
@@ -338,10 +339,33 @@ async function registerRoutesWithSigningOverride(
 
   app.get('/wrapper/download', { preHandler: [app.requireHost] }, async (req, reply) => {
     await guard();
+    const host = req.authHost!;
     const eng = parseEngine((req.query as { engine?: string }).engine, 'codex');
-    const cur = await binaries.currentBuild(eng, 'linux', 'amd64');
-    if (!cur) throw new NotFoundError('no binary', 'binary_not_found');
-    return stream(req, reply, eng, 'linux', 'amd64', cur.version);
+    let r;
+    try {
+      r = await configService.bakeForHost(host, eng, baseUrl(req));
+    } catch (err) {
+      if (err instanceof WrapperSigningUnavailableError) {
+        throw new ServiceUnavailableError(
+          'wrapper v2 signing key not configured',
+          'wrapper_v2_unavailable',
+        );
+      }
+      throw err;
+    }
+    if (r.bumped) {
+      publishHostEvent('host.updated', host.id, { config_version: r.configVersion });
+    }
+    const body = buildLegacyWrapperShimScript({
+      fqdn: host.fqdn,
+      apiKey: r.payload.orchestrator.api_key,
+      baseUrl: r.payload.orchestrator.base_url,
+      engine: eng,
+    });
+    reply.envelopeRaw = true;
+    reply.header('content-type', 'text/x-shellscript; charset=utf-8');
+    reply.header('cache-control', 'no-store');
+    return body;
   });
 
   app.get<{ Params: { engine: string } }>(
@@ -525,6 +549,23 @@ describe('wrapper-v2 routes', () => {
     // host.updated published
     expect(events.some((e) => (e as { type: string }).type === 'host.updated')).toBe(true);
     unsub();
+    await app.close();
+  });
+
+  it('GET /wrapper/download returns a legacy transition shim instead of the raw binary', async () => {
+    const host = fakeHost();
+    const app = await buildApp(
+      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+      makeSigner(kp.privateKey),
+      host,
+    );
+    const r = await app.inject({ method: 'GET', url: '/wrapper/download?engine=codex' });
+    expect(r.statusCode).toBe(200);
+    expect(String(r.headers['content-type'])).toMatch(/^text\/x-shellscript/);
+    expect(r.payload).toContain('legacy transition shim');
+    expect(r.payload).toContain('/wrapper/v2/config?engine=$ENGINE');
+    expect(r.payload).toContain('exec "$TARGET_BIN" "$@"');
+    expect(r.payload).not.toContain('cdx-binary-v1.0.1-payload');
     await app.close();
   });
 

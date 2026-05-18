@@ -17,13 +17,14 @@ import {
 } from '../../services/wrapper-config.js';
 import { createWrapperMetaService } from '../../services/wrapper-meta.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
+import { buildLegacyWrapperShimScript } from '../../services/wrapper-transition.js';
 import { publishHostEvent } from '../../services/ws-bridge.js';
 
 /**
  * Wrapper bakery v2 endpoints.
  *
  *   GET  /wrapper                        → alias for /wrapper/v2/meta
- *   GET  /wrapper/download               → alias for /wrapper/v2/download
+ *   GET  /wrapper/download               → legacy shell transition shim
  *   GET  /wrapper/v2/meta                → per-engine version + sha256 + signing kid
  *   GET  /wrapper/v2/config              → signed per-host config JSON
  *   GET  /wrapper/v2/download            → binary stream for the calling host's platform
@@ -170,9 +171,11 @@ export async function registerWrapperV2Routes(
   app.get('/wrapper/v2/download', { preHandler: [app.requireHost] }, (req, reply) =>
     downloadHandler(req, reply),
   );
-  // Alias: GET /wrapper/download
+  // GET /wrapper/download — date-versioned shell wrappers update through this
+  // URL, so serve a tiny transition script that writes the signed v2 config
+  // before it execs the Go binary.
   app.get('/wrapper/download', { preHandler: [app.requireHost] }, (req, reply) =>
-    downloadHandler(req, reply),
+    legacyShimHandler(req, reply),
   );
 
   async function downloadHandler(req: FastifyRequest, reply: FastifyReply) {
@@ -186,6 +189,46 @@ export async function registerWrapperV2Routes(
         'binary_not_found',
       );
     return streamBinary(req, reply, engine, os, arch, build.version);
+  }
+
+  async function legacyShimHandler(req: FastifyRequest, reply: FastifyReply) {
+    await unavailableGuard();
+    const host = req.authHost;
+    if (!host)
+      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+    const engine = engineFromQuery(req);
+    const baseUrl = resolvePublicBaseUrl(req);
+
+    let result;
+    try {
+      result = await configService.bakeForHost(host, engine, baseUrl);
+    } catch (err) {
+      if (err instanceof WrapperSigningUnavailableError) {
+        throw new ServiceUnavailableError(
+          'wrapper v2 signing key not configured',
+          'wrapper_v2_unavailable',
+        );
+      }
+      throw err;
+    }
+
+    if (result.bumped) {
+      publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
+    }
+
+    const body = buildLegacyWrapperShimScript({
+      fqdn: host.fqdn,
+      apiKey: result.payload.orchestrator.api_key,
+      baseUrl: result.payload.orchestrator.base_url,
+      engine,
+    });
+    reply.envelopeRaw = true;
+    reply.header('content-type', 'text/x-shellscript; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="${engine === 'claude' ? 'clx' : 'cdx'}"`);
+    reply.header('cache-control', 'no-store');
+    reply.header('x-config-version', String(result.configVersion));
+    reply.header('content-length', Buffer.byteLength(body));
+    return body;
   }
 
   // GET /wrapper/v2/manifest/:engine

@@ -24,7 +24,7 @@ describe('install-token: tokenExpired', () => {
 });
 
 describe('install-token: shell builders', () => {
-  it('builds a codex installer that references the wrapper download URL and host fqdn', () => {
+  it('builds a codex installer that writes config before installing the wrapper binary', () => {
     const out = buildInstallerScript({
       fqdn: 'host.example.com',
       apiKey: 'sk-codex-deadbeef',
@@ -34,7 +34,10 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('#!/bin/sh');
     expect(out).toContain('host.example.com');
     expect(out).toContain('sk-codex-deadbeef');
-    expect(out).toContain('/wrapper/v2/download?engine=codex');
+    expect(out).toContain('/wrapper/v2/config?engine=$ENGINE');
+    expect(out).toContain('-H "X-API-Key: $HOST_API_KEY"');
+    expect(out).toContain('CONFIG_FILE=\'cdx.json\'');
+    expect(out).toContain('INSTALL_MODE=installer');
     expect(out).toContain('Install Codex CLI manually');
     // strip trailing slashes on baseUrl
     expect(out).not.toContain("baseUrl '''https://orchestrator.example.com/");
@@ -49,7 +52,8 @@ describe('install-token: shell builders', () => {
     });
     expect(out).toContain('Claude CLI manually');
     expect(out).toContain('@anthropic-ai/claude-code');
-    expect(out).toContain('/wrapper/v2/download?engine=claude');
+    expect(out).toContain('CONFIG_FILE=\'clx.json\'');
+    expect(out).toContain('ENGINE=\'claude\'');
   });
 
   it('rejects missing fqdn or api key', () => {

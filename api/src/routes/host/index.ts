@@ -13,6 +13,7 @@ import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
+import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 
 /**
  * Registers /host/users, /host/lane (GET+POST), /usage, /versions, /cron/check,
@@ -119,9 +120,13 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const engine = parseEngine(body.engine);
-    const summary = await versions.summary(engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
+    const summary = withLegacyShellWrapperTransition(
+      await versions.summary(engine),
+      submittedWrapper,
+      engine,
+    );
 
     await ctx.db
       .update(hostsTable)
@@ -232,4 +237,3 @@ function compareSemver(a: string, b: string): number {
   }
   return 0;
 }
-
