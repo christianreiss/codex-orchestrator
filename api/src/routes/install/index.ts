@@ -4,7 +4,7 @@ import { hosts as hostsTable, logs as logsTable, authEntries, authPayloads, host
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
-import { decryptOrNull } from '../../security/secret-box.js';
+import { decryptOrNull, encrypt } from '../../security/secret-box.js';
 import { sha256 } from '../../security/hash.js';
 import {
   buildInstallerScript,
@@ -36,7 +36,7 @@ const HEX36 = /^[a-f0-9-]{36}$/;
  */
 export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const installSvc = createInstallTokenService({ db: ctx.db });
-  const runnerValidation = createRunnerValidationService({ db: ctx.db });
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
 
   const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
     if (!HEX36.test(token)) return shellishError(reply, 'Installer not found', 404);
@@ -133,7 +133,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       sha256: digest,
       sourceHostId: null,
       createdAt: now,
-      body: encoded,
+      body: encrypt(encoded, ctx.keyring),
       verificationState: 'verified', // seed paths bypass runner verification
       verificationCheckedAt: now,
       engine,
@@ -144,7 +144,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       await ctx.db.insert(authEntries).values({
         payloadId: payloadIdNum,
         target: e.target,
-        token: e.token,
+        token: encrypt(e.token, ctx.keyring),
         tokenType: e.tokenType ?? undefined,
         organization: e.organization ?? undefined,
         project: e.project ?? undefined,

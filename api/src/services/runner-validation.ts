@@ -2,6 +2,8 @@ import { and, desc, eq } from 'drizzle-orm';
 import { authPayloads } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { sha256 } from '../security/hash.js';
+import { decryptOrNull } from '../security/secret-box.js';
+import type { Keyring } from '../security/keyring.js';
 import { ValidationError } from '../http/errors.js';
 import { isRfc3339 } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
@@ -58,6 +60,7 @@ export interface RunnerValidationService {
 
 export interface RunnerValidationDeps {
   db: Database;
+  keyring?: Keyring;
 }
 
 export function createRunnerValidationService(deps: RunnerValidationDeps): RunnerValidationService {
@@ -93,9 +96,11 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
 
     validateCanonicalPayload(row) {
       if (!row || !row.body) return null;
+      const body = decodePayloadBody(row.body, deps.keyring);
+      if (!body) return null;
       let parsed: unknown;
       try {
-        parsed = JSON.parse(row.body);
+        parsed = JSON.parse(body);
       } catch {
         return null;
       }
@@ -108,8 +113,10 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
 
     canonicalAuthFromPayload(row) {
       if (!row.body) return null;
+      const body = decodePayloadBody(row.body, deps.keyring);
+      if (!body) return null;
       try {
-        return JSON.parse(row.body) as Record<string, unknown>;
+        return JSON.parse(body) as Record<string, unknown>;
       } catch {
         return null;
       }
@@ -180,6 +187,10 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       return sha256(canonicalJson);
     },
   };
+}
+
+function decodePayloadBody(body: string, keyring?: Keyring): string | null {
+  return keyring ? decryptOrNull(body, keyring) : body;
 }
 
 export function extractAuthPayload(payload: Record<string, unknown>): Record<string, unknown> {

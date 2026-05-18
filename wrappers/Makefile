@@ -45,13 +45,22 @@ release:
 	@set -e; \
 	v=$$(echo "$(VERSION)" | sed 's/^v//'); \
 	for engine in cdx clx; do \
+		route_engine="codex"; \
+		if [ "$$engine" = "clx" ]; then route_engine="claude"; fi; \
 		for plat in $(PLATFORMS); do \
 			os=$${plat%/*}; arch=$${plat##*/}; \
-			outdir="$(OUTROOT)/$$engine/$$os-$$arch/v$$v"; \
+			platform="$$os-$$arch"; \
+			platform_dir="$(OUTROOT)/$$route_engine/$$platform"; \
+			outdir="$$platform_dir/v$$v"; \
 			mkdir -p "$$outdir"; \
-			echo ">> $$engine $$os/$$arch -> $$outdir/$$engine"; \
-			(cd $$engine && GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o "../$$outdir/$$engine" ./cmd/$$engine); \
-			(cd "$$outdir" && sha256sum "$$engine" > "$$engine.sha256"); \
+			outbin="$$(cd "$$outdir" && pwd)/$$engine"; \
+			echo ">> $$engine $$os/$$arch -> $$outbin"; \
+			(cd $$engine && GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o "$$outbin" ./cmd/$$engine); \
+			sha=$$(sha256sum "$$outbin" | awk '{print $$1}'); \
+			size=$$(wc -c < "$$outbin" | tr -d ' '); \
+			printf '%s  %s\n' "$$sha" "$$engine" > "$$outdir/$$engine.sha256"; \
+			printf '{\n  "engine": "%s",\n  "os": "%s",\n  "arch": "%s",\n  "current": "%s",\n  "builds": [\n    {\n      "version": "%s",\n      "sha256": "%s",\n      "size_bytes": %s,\n      "signature": null,\n      "published_at": "%s"\n    }\n  ]\n}\n' \
+				"$$route_engine" "$$os" "$$arch" "$$v" "$$v" "$$sha" "$$size" "$(DATE)" > "$$platform_dir/manifest.json"; \
 		done; \
 	done
 

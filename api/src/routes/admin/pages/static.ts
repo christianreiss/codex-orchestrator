@@ -48,12 +48,13 @@ export async function registerStaticAdminRoutes(
   // SPA index for HTML GETs under /admin and falls through to the standard
   // envelope's not-found JSON otherwise.
   app.setNotFoundHandler((req, reply) => {
+    const wantsHtml =
+      typeof req.headers.accept === 'string' && req.headers.accept.includes('text/html');
     if (
       indexHtml &&
       req.method === 'GET' &&
       req.url.startsWith('/admin') &&
-      typeof req.headers.accept === 'string' &&
-      req.headers.accept.includes('text/html')
+      (req.url === '/admin' || req.url === '/admin/' || wantsHtml)
     ) {
       reply.envelopeRaw = true;
       reply.header('content-type', 'text/html; charset=utf-8');

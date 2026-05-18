@@ -41,14 +41,12 @@ RUN npm install -g @anthropic-ai/claude-code \
 
 WORKDIR /app
 
-COPY runner/requirements.txt requirements.txt
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY runner/app.py runner/entrypoint.sh /app/
-COPY bin/cdx /app/cdx
-COPY bin/clx /app/clx
+COPY app.py entrypoint.sh /app/
 
-RUN chmod +x /app/entrypoint.sh /app/cdx /app/clx
+RUN chmod +x /app/entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
 ENV RUNNER_HOME_PARENT=/dev/shm

@@ -6,6 +6,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      auth-runner:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8488:8080"
     healthcheck:
@@ -42,6 +44,8 @@ services:
       RUN_BACKFILLS_ON_BOOT: ${RUN_BACKFILLS_ON_BOOT:-0}
       ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
       ADMIN_WS_ENABLED: ${ADMIN_WS_ENABLED:-1}
+      ENV_FILE: /app/api/dist/.env
+      DATA_ROOT: /app/storage
     volumes:
       - ${ENV_FILE:-./.env}:/app/api/dist/.env:ro
       - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/app/storage
@@ -63,7 +67,7 @@ services:
       MYSQL_USER: ${DB_USERNAME:-codex}
       MYSQL_PASSWORD: ${DB_PASSWORD:-codex-pass}
     volumes:
-      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/mysql:/var/lib/mysql
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASSWORD:-root-pass}"]
       interval: 10s
@@ -82,6 +86,16 @@ services:
       RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET:-}
     networks:
       - codex_auth
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   caddy:

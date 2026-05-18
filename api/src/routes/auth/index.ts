@@ -14,6 +14,7 @@ import { ApiError, ServiceUnavailableError, UnauthorizedError, ValidationError }
 import { nowIso, isRfc3339 } from '../../util/timestamp.js';
 import { parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
+import { encrypt } from '../../security/secret-box.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { createHostAuthService } from '../../services/host-auth.js';
@@ -55,7 +56,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
   const tokenUsage = createTokenUsageService({ db: ctx.db });
   const syncService = createHostSyncService({ db: ctx.db, versions, tokenUsage });
-  const runnerValidation = createRunnerValidationService({ db: ctx.db });
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
 
   // POST /auth — primary wrapper probe.
@@ -162,9 +163,12 @@ async function handleRetrieve(
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
   tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
-  const providedDigest = extractDigest(payload, true);
-  const incomingLast = extractLastRefresh(payload, 'last_refresh');
-  assertReasonableLastRefresh(incomingLast, 'last_refresh');
+  const providedDigest = extractDigest(payload, false);
+  const incomingLast =
+    typeof payload.last_refresh === 'string' && payload.last_refresh.trim() !== ''
+      ? payload.last_refresh.trim()
+      : null;
+  if (incomingLast) assertReasonableLastRefresh(incomingLast, 'last_refresh');
 
   const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
@@ -200,7 +204,7 @@ async function handleRetrieve(
     };
   }
 
-  const incomingTs = Date.parse(incomingLast);
+  const incomingTs = incomingLast ? Date.parse(incomingLast) : 0;
   const canonicalTs = canonicalLast ? Date.parse(canonicalLast) : 0;
   const matchesCanonical = providedDigest && canonicalDigest && providedDigest === canonicalDigest;
 
@@ -249,6 +253,7 @@ async function handleStore(
   let canonicalToStore = canonical;
   let encodedToStore = encoded;
   let digestToStore = incomingDigest;
+  let entriesToStore = entries;
 
   if (runner.isConfigured()) {
     const verdict = engine === ENGINE_CLAUDE ? await runner.verifyClaude({ authJson: canonical }) : await runner.verify({ authJson: canonical });
@@ -265,6 +270,7 @@ async function handleStore(
           canonicalToStore = upCanon;
           encodedToStore = upEnc;
           digestToStore = runnerValidation.calculateDigest(upEnc);
+          entriesToStore = upEntries;
           runnerApplied = true;
         }
       }
@@ -283,7 +289,7 @@ async function handleStore(
     sha256: digestToStore,
     sourceHostId: host.id,
     createdAt: now,
-    body: encodedToStore,
+    body: encrypt(encodedToStore, ctx.keyring),
     verificationState,
     verificationCheckedAt: verificationState === 'verified' ? now : null,
     verificationReason: null,
@@ -293,11 +299,11 @@ async function handleStore(
   const payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
 
   // Insert per-entry rows for auths{}.
-  for (const e of entries) {
+  for (const e of entriesToStore) {
     await ctx.db.insert(authEntries).values({
       payloadId,
       target: e.target,
-      token: e.token,
+      token: encrypt(e.token, ctx.keyring),
       tokenType: e.tokenType ?? undefined,
       organization: e.organization ?? undefined,
       project: e.project ?? undefined,
@@ -411,14 +417,6 @@ function extractDigest(payload: Record<string, unknown>, required: boolean): str
   }
   if (required) throw new ValidationError('digest is required', { param: 'digest' });
   return null;
-}
-
-function extractLastRefresh(payload: Record<string, unknown>, field: string): string {
-  const v = payload[field];
-  if (typeof v !== 'string' || v.trim() === '') {
-    throw new ValidationError(`${field} is required`, { param: field });
-  }
-  return v.trim();
 }
 
 function assertReasonableLastRefresh(value: string, field: string): void {
