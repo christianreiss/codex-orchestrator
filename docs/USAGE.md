@@ -43,6 +43,7 @@ Operational reality:
 
 - Installer tokens are **single-use**, expire based on `INSTALL_TOKEN_TTL_SECONDS` (default 1800 seconds), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
 - Re-registering the same host rotates its API key; older wrappers/tokens keep the old key and then fail authenticated API calls.
+- Existing hosts can mint a fresh installer from the host detail page with **Mint installer**. That keeps the current API key and replaces any pending installer token for that host.
 
 #### Optional: mint an installer token via the admin API (automation)
 
@@ -68,6 +69,20 @@ curl --fail-with-body -sS \
 
 The response includes `data.installer.url`, `data.installer.command`, and installer mode metadata (`data.installer.mode`, `data.installer.label`) so callers can tell whether the command installs Codex, Claude, or both.
 If `ADMIN_ACCESS_MODE=none`, log in via `/admin` and reuse the session cookie for API automation (see `LOGIN.md`).
+
+For an already registered host, prefer the non-rotating mint endpoint:
+
+```bash
+BASE_URL="https://codex-auth.example.com"
+HOST_ID="42"
+
+curl --fail-with-body -sS \
+  --cert ./client-admin.crt \
+  --key ./client-admin.key \
+  --cacert ./ca.crt \
+  -X POST \
+  "$BASE_URL/admin/hosts/$HOST_ID/installer"
+```
 
 ### 2) Run the installer on the target host
 

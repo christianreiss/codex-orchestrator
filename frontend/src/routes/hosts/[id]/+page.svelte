@@ -5,6 +5,9 @@
   import { useQueryClient } from "@tanstack/svelte-query";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
+  import * as Dialog from "$lib/components/ui/dialog";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
   import { Switch } from "$lib/components/ui/switch";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Card from "$lib/components/ui/card";
@@ -17,6 +20,8 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import KeyRound from "@lucide/svelte/icons/key-round";
+  import Copy from "@lucide/svelte/icons/copy";
+  import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
   import {
@@ -26,6 +31,7 @@
     isInsecureWindowActive,
     createDeleteHostMutation,
     createClearHostAuthMutation,
+    createMintInstallerMutation,
     createSecureToggleMutation,
     createVipToggleMutation,
     createRoamingToggleMutation,
@@ -36,6 +42,7 @@
     createCodexVersionMutation,
     createClaudeVersionMutation,
   } from "$lib/api/hosts";
+  import type { InstallerInfo } from "$lib/api/types";
   import {
     createEnableInsecureMutation,
     createDisableInsecureMutation,
@@ -49,6 +56,7 @@
   // Mutations
   const deleteMut = createDeleteHostMutation(qc);
   const clearAuth = createClearHostAuthMutation(qc);
+  const mintInstaller = createMintInstallerMutation(qc);
   const secure = createSecureToggleMutation(qc);
   const vip = createVipToggleMutation(qc);
   const roaming = createRoamingToggleMutation(qc);
@@ -86,6 +94,8 @@
   let claudeDialogOpen = $state(false);
   let codexModelDialogOpen = $state(false);
   let claudeModelDialogOpen = $state(false);
+  let installerDialogOpen = $state(false);
+  let installerResult = $state<InstallerInfo | null>(null);
 
   async function doDelete(): Promise<void> {
     try {
@@ -100,6 +110,38 @@
 
   async function doClear(): Promise<void> {
     await run("Auth cleared", $clearAuth.mutateAsync({ id }));
+  }
+
+  async function doMintInstaller(): Promise<void> {
+    try {
+      const result = await $mintInstaller.mutateAsync({ id });
+      installerResult = result.installer;
+      installerDialogOpen = true;
+      toast.success("Installer minted");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Installer mint failed";
+      toast.error(msg);
+    }
+  }
+
+  async function copyInstallerCommand(): Promise<void> {
+    if (!installerResult?.command) return;
+    try {
+      await navigator.clipboard.writeText(installerResult.command);
+      toast.success("Installer command copied");
+    } catch {
+      toast.error("Copy failed");
+    }
+  }
+
+  async function copyInstallerUrl(): Promise<void> {
+    if (!installerResult?.url) return;
+    try {
+      await navigator.clipboard.writeText(installerResult.url);
+      toast.success("Installer URL copied");
+    } catch {
+      toast.error("Copy failed");
+    }
   }
 
   // Derived action items
@@ -339,6 +381,10 @@
             </Button>
           {/if}
 
+          <Button variant="outline" onclick={doMintInstaller} disabled={$mintInstaller.isPending}>
+            <Download class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
+          </Button>
+
           <div class="ml-auto flex gap-2">
             <Button variant="outline" onclick={() => (confirmClearOpen = true)}>
               <KeyRound class="h-4 w-4" /> Clear auth
@@ -410,6 +456,42 @@
     initialValue={host.claude_model_override ?? ""}
     onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }))}
   />
+  <Dialog.Root bind:open={installerDialogOpen}>
+    <Dialog.Content class="sm:max-w-xl">
+      <Dialog.Header>
+        <Dialog.Title>Installer minted</Dialog.Title>
+        <Dialog.Description>
+          {installerResult?.label ?? "Host"} installer for {host.fqdn}. Token expires {installerResult
+            ? new Date(installerResult.expires_at).toLocaleString()
+            : "—"}.
+        </Dialog.Description>
+      </Dialog.Header>
+      <div class="space-y-3">
+        <div class="space-y-1.5">
+          <Label for="host-installer-url">Installer URL</Label>
+          <Input id="host-installer-url" readonly value={installerResult?.url ?? ""} class="font-mono text-xs" />
+        </div>
+        <div class="space-y-1.5">
+          <Label for="host-installer-command">Installer command</Label>
+          <textarea
+            id="host-installer-command"
+            readonly
+            class="h-36 w-full resize-none rounded-md border border-input bg-muted/40 p-3 font-mono text-xs"
+            value={installerResult?.command ?? ""}
+          ></textarea>
+        </div>
+      </div>
+      <Dialog.Footer>
+        <Button variant="outline" onclick={copyInstallerUrl} disabled={!installerResult?.url}>
+          <Copy class="h-4 w-4" /> Copy URL
+        </Button>
+        <Button variant="outline" onclick={copyInstallerCommand} disabled={!installerResult?.command}>
+          <Copy class="h-4 w-4" /> Copy command
+        </Button>
+        <Button variant="ghost" onclick={() => (installerDialogOpen = false)}>Close</Button>
+      </Dialog.Footer>
+    </Dialog.Content>
+  </Dialog.Root>
 {/if}
 
 {#snippet dt(label: string, value: string)}

@@ -5,13 +5,13 @@
  * write is folded into `admin-events-writer` so the call sites are short.
  */
 import { eq } from 'drizzle-orm';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import type { Env } from '../env.js';
 import { hosts, installTokens, hostAuthDigests, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
-import { encrypt as sboxEncrypt } from '../security/secret-box.js';
+import { decryptOrNull, encrypt as sboxEncrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
@@ -201,14 +201,17 @@ export class HostManagementService {
 
   // ────────── Register / Quick register ──────────
 
-  async register(req: RegisterRequest): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
+  async register(
+    req: RegisterRequest,
+  ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
     const fqdn = (req.fqdn ?? '').trim();
     if (!fqdn) throw new ValidationError('fqdn is required', { param: 'fqdn' });
 
     const secure = req.secure ?? true;
-    const enginesIn = req.engines && req.engines.length
-      ? req.engines
-      : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+    const enginesIn =
+      req.engines && req.engines.length
+        ? req.engines
+        : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     const engines = enginesIn.length ? enginesIn : [ENGINE_CODEX];
 
     const apiKeyPlain = `sk-codex-${randomBytes(32).toString('hex')}`;
@@ -289,9 +292,7 @@ export class HostManagementService {
     const patch: Partial<Host> = {};
     if (typeof req.vip === 'boolean') patch.vip = req.vip ? 1 : 0;
     if (typeof req.temporary === 'boolean') {
-      patch.expiresAt = req.temporary
-        ? isoOffsetSeconds(QUICK_REGISTER_TTL_SECONDS)
-        : null;
+      patch.expiresAt = req.temporary ? isoOffsetSeconds(QUICK_REGISTER_TTL_SECONDS) : null;
     }
     if (typeof req.curl_insecure === 'boolean') patch.curlInsecure = req.curl_insecure ? 1 : 0;
     if (req.reverse_dns_mode) {
@@ -331,10 +332,13 @@ export class HostManagementService {
     return { host, apiKeyPlain, installer };
   }
 
-  async quickRegister(req: QuickRegisterRequest): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
-    const engines = req.engines && req.engines.length
-      ? req.engines
-      : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+  async quickRegister(
+    req: QuickRegisterRequest,
+  ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
+    const engines =
+      req.engines && req.engines.length
+        ? req.engines
+        : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     if (!engines.length) {
       throw new ValidationError('engines must contain at least one of: codex, claude', { param: 'engines' });
     }
@@ -354,6 +358,39 @@ export class HostManagementService {
       expires_at: result.host.expiresAt,
     });
     return result;
+  }
+
+  async mintInstaller(id: number): Promise<{ host: Host; installer: InstallerInfo }> {
+    const host = await this.requireById(id);
+    const legacyPlainApiKey = host.apiKey && !/^[a-f0-9]{64}$/.test(host.apiKey) ? host.apiKey : null;
+    const apiKeyPlain = decryptOrNull(host.apiKeyEnc ?? null, this.keyring) ?? legacyPlainApiKey;
+    if (!apiKeyPlain) {
+      throw new ApiError('Host API key is not recoverable; rotate the host before minting an installer', {
+        status: 409,
+        code: 'host_api_key_unavailable',
+      });
+    }
+    const parsedEngines = parseEnginesInput(host.engines, [ENGINE_CODEX]);
+    const engines = parsedEngines.length ? parsedEngines : [ENGINE_CODEX];
+    const installer = await this.issueInstallerToken(host, apiKeyPlain, engines);
+
+    await this.events.appendAndPublish(
+      'host.installer.minted',
+      {
+        host_id: host.id,
+        fqdn: host.fqdn,
+        engines: serializeEngines(engines),
+        installer_mode: installer.mode,
+        expires_at: installer.expires_at,
+      },
+      {
+        hostId: host.id,
+        wsType: 'host.updated',
+        wsPayload: { id: host.id, fqdn: host.fqdn },
+      },
+    );
+
+    return { host, installer };
   }
 
   private async generateQuickHostName(): Promise<string> {
@@ -381,7 +418,7 @@ export class HostManagementService {
     // Replace any existing pending install token for this host.
     await this.db.delete(installTokens).where(eq(installTokens.hostId, host.id));
 
-    const token = randomBytes(16).toString('hex'); // 32 hex chars (UUID-shape replacement)
+    const token = randomUUID();
     // Schema column is CHAR(64), the legacy code stores sha256 of the token in
     // `token` and the encrypted real token in `token_enc`.
     const tokenHash = sha256(token);
@@ -426,10 +463,10 @@ export class HostManagementService {
     const candidate = this.env.PUBLIC_BASE_URL ?? this.env.CODEX_SYNC_BASE_URL;
     if (!candidate || !candidate.trim()) {
       if (this.env.PUBLIC_BASE_URL_REQUIRED) {
-        throw new ApiError(
-          'Unable to determine public base URL for installer. Set PUBLIC_BASE_URL.',
-          { status: 500, code: 'server_misconfigured' },
-        );
+        throw new ApiError('Unable to determine public base URL for installer. Set PUBLIC_BASE_URL.', {
+          status: 500,
+          code: 'server_misconfigured',
+        });
       }
       return 'http://localhost';
     }
@@ -448,7 +485,7 @@ export class HostManagementService {
     await this.events.appendAndPublish(
       'host.deleted',
       { host_id: id, fqdn: host.fqdn },
-      { hostId: id, wsType: 'host.deleted', wsPayload: { id, fqdn: host.fqdn } },
+      { hostId: null, wsType: 'host.deleted', wsPayload: { id, fqdn: host.fqdn } },
     );
     return { host };
   }
@@ -499,14 +536,10 @@ export class HostManagementService {
       // unexpired window, we set a grace until = now + graceMinutes (default
       // env INSECURE_GRACE_MINUTES) so trailing operations still finish.
       const hadOpenWindow =
-        host.insecureEnabledUntil instanceof Date &&
-        host.insecureEnabledUntil.getTime() > Date.now();
+        host.insecureEnabledUntil instanceof Date && host.insecureEnabledUntil.getTime() > Date.now();
       patch.insecureEnabledUntil = null;
       if (hadOpenWindow) {
-        const gm = clampInsecureMinutes(
-          graceMinutes ?? this.env.INSECURE_GRACE_MINUTES ?? 60,
-          60,
-        );
+        const gm = clampInsecureMinutes(graceMinutes ?? this.env.INSECURE_GRACE_MINUTES ?? 60, 60);
         patch.insecureGraceUntil = gm > 0 ? new Date(Date.now() + gm * 60_000) : null;
       } else {
         patch.insecureGraceUntil = null;
@@ -567,10 +600,7 @@ export class HostManagementService {
   async setReverseDnsMode(id: number, mode: ReverseDnsModeInput): Promise<Host> {
     const host = await this.requireById(id);
     const value = modeStringToTinyint(mode);
-    await this.db
-      .update(hosts)
-      .set({ reverseDnsMode: value, updatedAt: nowIso() })
-      .where(eq(hosts.id, id));
+    await this.db.update(hosts).set({ reverseDnsMode: value, updatedAt: nowIso() }).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.reverse_dns', {
       fqdn: host.fqdn,
       reverse_dns_mode: mode,
@@ -592,9 +622,7 @@ export class HostManagementService {
     const host = await this.requireById(id);
     const patch: Partial<Host> = { updatedAt: nowIso() };
     if (payload.model_override !== undefined) {
-      patch.modelOverride = payload.model_override
-        ? payload.model_override.trim() || null
-        : null;
+      patch.modelOverride = payload.model_override ? payload.model_override.trim() || null : null;
     }
     if (payload.reasoning_effort_override !== undefined) {
       patch.reasoningEffortOverride = payload.reasoning_effort_override
@@ -603,18 +631,15 @@ export class HostManagementService {
     }
     if (payload.includeClaudeOverride) {
       patch.claudeModelOverride = payload.claude_model_override
-        ? (payload.claude_model_override.trim() || null)
+        ? payload.claude_model_override.trim() || null
         : null;
     }
     await this.db.update(hosts).set(patch).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.model_overrides', {
       fqdn: host.fqdn,
       model_override: patch.modelOverride ?? host.modelOverride ?? null,
-      reasoning_effort_override:
-        patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
-      ...(payload.includeClaudeOverride
-        ? { claude_model_override: patch.claudeModelOverride ?? null }
-        : {}),
+      reasoning_effort_override: patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
+      ...(payload.includeClaudeOverride ? { claude_model_override: patch.claudeModelOverride ?? null } : {}),
     });
     return await this.publishUpdate(id, host.fqdn, { model_overrides_changed: true });
   }
@@ -671,8 +696,7 @@ export class HostManagementService {
     const host = await this.requireById(id);
     let stored: number | null = null;
     if (selection !== null && selection !== '' && selection !== 'global') {
-      const num =
-        typeof selection === 'number' ? selection : Number.parseInt(String(selection), 10);
+      const num = typeof selection === 'number' ? selection : Number.parseInt(String(selection), 10);
       if (!Number.isFinite(num) || num <= 0) {
         throw new ValidationError('selection must be a valid agents document id', {
           param: 'selection',
@@ -693,11 +717,7 @@ export class HostManagementService {
 
   // ────────── Helper ──────────
 
-  private async publishUpdate(
-    id: number,
-    fqdn: string,
-    payload: Record<string, unknown>,
-  ): Promise<Host> {
+  private async publishUpdate(id: number, fqdn: string, payload: Record<string, unknown>): Promise<Host> {
     const fresh = (await this.findById(id))!;
     await this.events.appendAndPublish(
       'host.updated',

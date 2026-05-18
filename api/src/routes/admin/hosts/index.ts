@@ -21,10 +21,7 @@ import {
   MAX_INSECURE_WINDOW_MINUTES,
 } from '../../../services/host-management.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
-import {
-  parseReverseDnsModeInput,
-  tinyintToModeString,
-} from '../../../services/reverse-dns.js';
+import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
 import type { Host } from '../../../db/schema.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../../../util/engine.js';
 
@@ -41,17 +38,15 @@ const booleanish = z.union([z.boolean(), z.number(), z.string()]).transform((v) 
   throw new Error(`not a boolean: ${v}`);
 });
 
-const optionalBooleanishOrNull = z
-  .union([z.boolean(), z.number(), z.string(), z.null()])
-  .transform((v) => {
-    if (v === null) return null;
-    if (typeof v === 'boolean') return v;
-    if (typeof v === 'number') return v !== 0;
-    const s = v.toLowerCase().trim();
-    if (['1', 'true', 'yes', 'on', 't', 'y'].includes(s)) return true;
-    if (['0', 'false', 'no', 'off', 'f', 'n'].includes(s)) return false;
-    throw new Error(`not a boolean or null: ${v}`);
-  });
+const optionalBooleanishOrNull = z.union([z.boolean(), z.number(), z.string(), z.null()]).transform((v) => {
+  if (v === null) return null;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  const s = v.toLowerCase().trim();
+  if (['1', 'true', 'yes', 'on', 't', 'y'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off', 'f', 'n'].includes(s)) return false;
+  throw new Error(`not a boolean or null: ${v}`);
+});
 
 const durationMinutesSchema = z
   .union([z.string(), z.number()])
@@ -155,9 +150,7 @@ function hostToWire(h: Host): Record<string, unknown> {
     scaling_exempt: h.scalingExempt === 1,
     curl_insecure: h.curlInsecure === 1,
     auto_update_override:
-      h.autoUpdateOverride === null || h.autoUpdateOverride === undefined
-        ? null
-        : h.autoUpdateOverride === 1,
+      h.autoUpdateOverride === null || h.autoUpdateOverride === undefined ? null : h.autoUpdateOverride === 1,
     reverse_dns_mode: tinyintToModeString(h.reverseDnsMode ?? null),
     model_override: h.modelOverride,
     reasoning_effort_override: h.reasoningEffortOverride,
@@ -211,9 +204,7 @@ export async function registerAdminHostsRoutes(
       keyring: ctx.keyring,
       events,
     });
-  const insecure =
-    overrides.insecure ??
-    new InsecureWindowAdminService({ db: ctx.db, env: ctx.env, events });
+  const insecure = overrides.insecure ?? new InsecureWindowAdminService({ db: ctx.db, env: ctx.env, events });
 
   // ─── #1 POST /admin/hosts/register ───
   app.route({
@@ -222,9 +213,10 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const body = parseZod(registerSchema, req.body);
-      const engines = body.engines && body.engines.length
-        ? body.engines
-        : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+      const engines =
+        body.engines && body.engines.length
+          ? body.engines
+          : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
       let mode: 'global' | 'enabled' | 'disabled' | null = null;
       if (body.reverse_dns_mode !== undefined && body.reverse_dns_mode !== null) {
         const m = parseReverseDnsModeInput(body.reverse_dns_mode);
@@ -259,9 +251,10 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const body = parseZod(quickRegisterSchema, req.body);
-      const engines = body.engines && body.engines.length
-        ? body.engines
-        : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+      const engines =
+        body.engines && body.engines.length
+          ? body.engines
+          : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
       if (!engines.length) {
         throw new ValidationError('engines must contain at least one of: codex, claude', {
           param: 'engines',
@@ -298,7 +291,22 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #4 DELETE /admin/hosts/:id ───
+  // ─── #4 POST /admin/hosts/:id/installer ───
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/:id/installer',
+    preHandler: [app.requireAdmin],
+    handler: async (req) => {
+      const id = parseId((req.params as { id: string }).id);
+      const { host, installer } = await hostService.mintInstaller(id);
+      return {
+        host: hostToWire(host),
+        installer,
+      };
+    },
+  });
+
+  // ─── #5 DELETE /admin/hosts/:id ───
   app.route({
     method: 'DELETE',
     url: '/admin/hosts/:id',
@@ -310,7 +318,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #5 POST /admin/hosts/:id/clear ───
+  // ─── #6 POST /admin/hosts/:id/clear ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/clear',
@@ -322,7 +330,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #6 POST /admin/hosts/:id/roaming ───
+  // ─── #7 POST /admin/hosts/:id/roaming ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/roaming',
@@ -335,7 +343,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #7 POST /admin/hosts/:id/secure ───
+  // ─── #8 POST /admin/hosts/:id/secure ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/secure',
@@ -361,7 +369,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #8 POST /admin/hosts/:id/vip ───
+  // ─── #9 POST /admin/hosts/:id/vip ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/vip',
@@ -374,7 +382,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #9 POST /admin/hosts/:id/scaling-exempt ───
+  // ─── #10 POST /admin/hosts/:id/scaling-exempt ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/scaling-exempt',
@@ -387,7 +395,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #10 POST /admin/hosts/:id/auto-update ───
+  // ─── #11 POST /admin/hosts/:id/auto-update ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/auto-update',
@@ -395,14 +403,13 @@ export async function registerAdminHostsRoutes(
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(autoUpdateSchema, req.body);
-      const override =
-        body.override === undefined ? null : (body.override as boolean | null);
+      const override = body.override === undefined ? null : (body.override as boolean | null);
       const host = await hostService.setAutoUpdateOverride(id, override);
       return { host: hostToWire(host) };
     },
   });
 
-  // ─── #11 POST /admin/hosts/:id/insecure/enable ───
+  // ─── #12 POST /admin/hosts/:id/insecure/enable ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/insecure/enable',
@@ -415,7 +422,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #12 POST /admin/hosts/:id/insecure/disable ───
+  // ─── #13 POST /admin/hosts/:id/insecure/disable ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/insecure/disable',
@@ -427,7 +434,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #13 GET /admin/insecure-approvals/pending ───
+  // ─── #14 GET /admin/insecure-approvals/pending ───
   app.route({
     method: 'GET',
     url: '/admin/insecure-approvals/pending',
@@ -438,7 +445,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #14 POST /admin/insecure-approvals/:id/allow-domain ───
+  // ─── #15 POST /admin/insecure-approvals/:id/allow-domain ───
   app.route({
     method: 'POST',
     url: '/admin/insecure-approvals/:id/allow-domain',
@@ -446,11 +453,7 @@ export async function registerAdminHostsRoutes(
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(allowDomainSchema, req.body);
-      const result = await insecure.allowDomain(
-        id,
-        body.domain ?? null,
-        body.duration_minutes ?? null,
-      );
+      const result = await insecure.allowDomain(id, body.domain ?? null, body.duration_minutes ?? null);
       return {
         request: { id: result.requestId, status: 'approved' },
         host: hostToWire(result.host),
@@ -464,7 +467,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #15 POST /admin/insecure-approvals/:id/approve ───
+  // ─── #16 POST /admin/insecure-approvals/:id/approve ───
   app.route({
     method: 'POST',
     url: '/admin/insecure-approvals/:id/approve',
@@ -480,7 +483,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #16 POST /admin/insecure-approvals/:id/deny ───
+  // ─── #17 POST /admin/insecure-approvals/:id/deny ───
   app.route({
     method: 'POST',
     url: '/admin/insecure-approvals/:id/deny',
@@ -494,7 +497,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #17 POST /admin/insecure-domain-allows/:id/revoke ───
+  // ─── #18 POST /admin/insecure-domain-allows/:id/revoke ───
   app.route({
     method: 'POST',
     url: '/admin/insecure-domain-allows/:id/revoke',
@@ -512,7 +515,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #18 POST /admin/hosts/:id/curl-insecure ───
+  // ─── #19 POST /admin/hosts/:id/curl-insecure ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/curl-insecure',
@@ -525,7 +528,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #19 POST /admin/hosts/:id/reverse-dns ───
+  // ─── #20 POST /admin/hosts/:id/reverse-dns ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/reverse-dns',
@@ -544,7 +547,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #20 POST /admin/hosts/:id/model ───
+  // ─── #21 POST /admin/hosts/:id/model ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/model',
@@ -557,23 +560,18 @@ export async function registerAdminHostsRoutes(
         'claude_model_override',
       );
       const host = await hostService.setModelOverrides(id, {
-        model_override:
-          body.model_override === undefined ? undefined : body.model_override,
+        model_override: body.model_override === undefined ? undefined : body.model_override,
         reasoning_effort_override:
-          body.reasoning_effort_override === undefined
-            ? undefined
-            : body.reasoning_effort_override,
+          body.reasoning_effort_override === undefined ? undefined : body.reasoning_effort_override,
         claude_model_override:
-          body.claude_model_override === undefined
-            ? undefined
-            : body.claude_model_override,
+          body.claude_model_override === undefined ? undefined : body.claude_model_override,
         includeClaudeOverride: includesClaude,
       });
       return { host: hostToWire(host) };
     },
   });
 
-  // ─── #21 POST /admin/hosts/:id/codex-version ───
+  // ─── #22 POST /admin/hosts/:id/codex-version ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/codex-version',
@@ -590,7 +588,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #22 POST /admin/hosts/:id/claude-version ───
+  // ─── #23 POST /admin/hosts/:id/claude-version ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/claude-version',
@@ -598,9 +596,7 @@ export async function registerAdminHostsRoutes(
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(versionSelectionSchema, req.body);
-      const raw = (body.selection ?? body.claude_client_version_override ?? null) as
-        | string
-        | null;
+      const raw = (body.selection ?? body.claude_client_version_override ?? null) as string | null;
       const sel = typeof raw === 'string' ? raw.trim() : null;
       const isGlobal =
         sel === null || sel === '' || ['global', 'fleet', 'default'].includes(sel.toLowerCase());
@@ -609,7 +605,7 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #23 POST /admin/hosts/:id/agents-version ───
+  // ─── #24 POST /admin/hosts/:id/agents-version ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/agents-version',
@@ -630,5 +626,4 @@ export async function registerAdminHostsRoutes(
       return { host: hostToWire(host) };
     },
   });
-
 }

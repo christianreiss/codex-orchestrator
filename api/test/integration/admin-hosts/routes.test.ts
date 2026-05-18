@@ -91,6 +91,13 @@ function makeMocks() {
         installer,
       };
     },
+    mintInstaller: async (id: number) => {
+      calls.push({ method: 'mintInstaller', args: [id] });
+      return {
+        host: fakeHost({ id }),
+        installer,
+      };
+    },
     requireById: async (id: number) => {
       calls.push({ method: 'requireById', args: [id] });
       return fakeHost({ id });
@@ -271,7 +278,11 @@ describe('admin hosts routes', () => {
   describe('auth gating', () => {
     it('returns 401 when no admin session is present', async () => {
       const { app } = await build({ authenticated: false });
-      const r = await app.inject({ method: 'POST', url: '/admin/hosts/register', payload: { fqdn: 'x.example.com' } });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/register',
+        payload: { fqdn: 'x.example.com' },
+      });
       expect(r.statusCode).toBe(401);
       const body = JSON.parse(r.payload);
       expect(body.status).toBe('error');
@@ -353,6 +364,25 @@ describe('admin hosts routes', () => {
       const { app } = await build({ authenticated: true });
       const r = await app.inject({ method: 'GET', url: '/admin/hosts/abc/auth' });
       // matched route, fails the parseId helper
+      expect(r.statusCode).toBe(422);
+      await app.close();
+    });
+  });
+
+  describe('POST /admin/hosts/:id/installer', () => {
+    it('returns a fresh installer for the existing host', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/42/installer' });
+      expect(r.statusCode).toBe(200);
+      const body = JSON.parse(r.payload);
+      expect(body.installer.command).toContain('/install/tok-deadbeef');
+      expect(calls.find((c) => c.method === 'mintInstaller')?.args).toEqual([42]);
+      await app.close();
+    });
+
+    it('rejects a non-numeric host id', async () => {
+      const { app } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/nope/installer' });
       expect(r.statusCode).toBe(422);
       await app.close();
     });
@@ -495,11 +525,7 @@ describe('admin hosts routes', () => {
       const body = JSON.parse(r.payload);
       expect(body.request).toEqual({ id: 3, status: 'approved' });
       expect(body.domain).toMatchObject({ domain: 'example.com' });
-      expect(calls.find((c) => c.method === 'insecure.allowDomain')?.args).toEqual([
-        3,
-        'example.com',
-        null,
-      ]);
+      expect(calls.find((c) => c.method === 'insecure.allowDomain')?.args).toEqual([3, 'example.com', null]);
       await app.close();
     });
 
@@ -602,9 +628,7 @@ describe('admin hosts routes', () => {
         payload: { selection: 'global' },
       });
       expect(r2.statusCode).toBe(200);
-      const ids = calls
-        .filter((c) => c.method === 'setAgentsDocumentOverride')
-        .map((c) => c.args[1]);
+      const ids = calls.filter((c) => c.method === 'setAgentsDocumentOverride').map((c) => c.args[1]);
       expect(ids).toEqual(['17', null]);
       await app.close();
     });

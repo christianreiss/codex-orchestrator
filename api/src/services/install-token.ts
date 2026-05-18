@@ -1,6 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { authSeedTokens, installTokens } from '../db/schema.js';
 import type { Database } from '../db/client.js';
+import type { Keyring } from '../security/keyring.js';
+import { decryptOrNull } from '../security/secret-box.js';
+import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../util/engine.js';
@@ -42,25 +45,36 @@ export interface InstallTokenService {
 
 export interface InstallTokenDeps {
   db: Database;
+  keyring?: Keyring;
 }
 
 function asEngine(value: string | null | undefined): Engine {
   return value === ENGINE_CLAUDE ? ENGINE_CLAUDE : ENGINE_CODEX;
 }
 
+function looksLikeSha256(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
 export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenService {
   const { db } = deps;
   return {
     async findInstall(token) {
-      const rows = await db.select().from(installTokens).where(eq(installTokens.token, token)).limit(1);
+      const tokenHash = sha256(token);
+      let rows = await db.select().from(installTokens).where(eq(installTokens.token, tokenHash)).limit(1);
+      if (!rows[0]) {
+        rows = await db.select().from(installTokens).where(eq(installTokens.token, token)).limit(1);
+      }
       const r = rows[0];
       if (!r) return null;
+      const decryptedApiKey = deps.keyring ? decryptOrNull(r.apiKeyEnc ?? null, deps.keyring) : null;
+      const apiKey = decryptedApiKey ?? (looksLikeSha256(r.apiKey) ? '' : r.apiKey);
       return {
         id: r.id,
-        token: r.token,
+        token,
         hostId: r.hostId,
         fqdn: r.fqdn,
-        apiKey: r.apiKey,
+        apiKey,
         baseUrl: r.baseUrl ?? null,
         expiresAt: r.expiresAt,
         usedAt: r.usedAt ?? null,
@@ -71,12 +85,17 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       await db.update(installTokens).set({ usedAt: nowIso() }).where(eq(installTokens.id, id));
     },
     async findSeed(token) {
-      const rows = await db.select().from(authSeedTokens).where(eq(authSeedTokens.token, token)).limit(1);
+      const tokenHash = sha256(token);
+      let rows = await db.select().from(authSeedTokens).where(eq(authSeedTokens.token, tokenHash)).limit(1);
+      if (!rows[0]) {
+        rows = await db.select().from(authSeedTokens).where(eq(authSeedTokens.token, token)).limit(1);
+      }
       const r = rows[0];
       if (!r) return null;
+      const tokenPlain = deps.keyring ? (decryptOrNull(r.tokenEnc ?? null, deps.keyring) ?? token) : token;
       return {
         id: r.id,
-        token: r.token,
+        token: tokenPlain,
         baseUrl: r.baseUrl ?? null,
         expiresAt: r.expiresAt,
         usedAt: r.usedAt ?? null,
@@ -117,7 +136,8 @@ export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engi
     throw new Error('Seed base URL invalid');
   }
   const postUrl = `${baseUrl}/seed/v2/auth/${token}`;
-  const authPath = opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : '$HOME/.codex/auth.json';
+  const authPath =
+    opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : '$HOME/.codex/auth.json';
   const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : 'Codex auth.json';
   const postUrlQ = shellQuote(postUrl);
   return `#!/bin/sh

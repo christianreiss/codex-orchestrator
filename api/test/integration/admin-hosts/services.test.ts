@@ -5,13 +5,12 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createMockDb } from '../../helpers/in-memory-db.js';
-import {
-  HostManagementService,
-} from '../../../src/services/host-management.js';
+import { HostManagementService } from '../../../src/services/host-management.js';
 import { InsecureWindowAdminService } from '../../../src/services/insecure-window-admin.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { decrypt as sboxDecrypt } from '../../../src/security/secret-box.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 import type { Env } from '../../../src/env.js';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -83,7 +82,7 @@ describe('HostManagementService.register', () => {
     const out = await svc.register({ fqdn: 'a.example.com', secure: true });
     expect(out.host.id).toBeGreaterThan(0);
     expect(out.apiKeyPlain).toMatch(/^sk-codex-[0-9a-f]{64}$/);
-    expect(out.installer.token).toMatch(/^[0-9a-f]{32}$/);
+    expect(out.installer.token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
     const stored = mock.rows('hosts');
     expect(stored).toHaveLength(1);
@@ -117,6 +116,29 @@ describe('HostManagementService.register', () => {
     expect(mock.rows('install_tokens')).toHaveLength(1);
   });
 
+  it('mints an installer for an existing host without rotating the api key', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const first = await svc.register({
+      fqdn: 'mint.example.com',
+      secure: true,
+      engines: [ENGINE_CODEX, ENGINE_CLAUDE],
+    });
+    const originalHash = mock.rows('hosts')[0]!.api_key_hash;
+    const minted = await svc.mintInstaller(first.host.id);
+
+    expect(minted.host.id).toBe(first.host.id);
+    expect(minted.installer.mode).toBe('both');
+    expect(minted.installer.command).toContain('/install/');
+    expect(mock.rows('hosts')[0]!.api_key_hash).toBe(originalHash);
+    expect(mock.rows('install_tokens')).toHaveLength(1);
+    expect(mock.rows('admin_events').some((e) => e.type === 'host.installer.minted')).toBe(true);
+  });
+
   it('opens a provisioning window when secure=false', async () => {
     const mock = createMockDb();
     const env = buildEnv();
@@ -141,6 +163,22 @@ describe('HostManagementService.register', () => {
     await svc.register({ fqdn: 'pub.example.com', secure: true });
     const evt = mock.rows('admin_events');
     expect(evt.some((e) => e.type === 'host.created')).toBe(true);
+  });
+
+  it('deletes a host and writes a non-FK admin event', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const out = await svc.register({ fqdn: 'delete.example.com', secure: true });
+    await svc.delete(out.host.id);
+
+    expect(mock.rows('hosts')).toHaveLength(0);
+    const event = mock.rows('admin_events').find((e) => e.type === 'host.deleted');
+    expect(event?.host_id).toBeNull();
+    expect(event?.payload).toMatchObject({ host_id: out.host.id, fqdn: 'delete.example.com' });
   });
 });
 
@@ -415,9 +453,7 @@ describe('InsecureWindowAdminService', () => {
     expect(out.host.insecureEnabledUntil).toBeInstanceOf(Date);
     expect(mock.rows('insecure_domain_allows')).toHaveLength(1);
     expect(mock.rows('insecure_auth_requests')[0]!.status).toBe('approved');
-    expect(
-      mock.rows('admin_events').some((e) => e.type === 'insecure.domain.allowed'),
-    ).toBe(true);
+    expect(mock.rows('admin_events').some((e) => e.type === 'insecure.domain.allowed')).toBe(true);
   });
 
   it('allowDomain rejects when the domain is not a parent of the host FQDN', async () => {
@@ -454,8 +490,6 @@ describe('InsecureWindowAdminService', () => {
     const allow = await svc.revokeDomain(1);
     expect(allow.revoked_at).toBeTruthy();
     expect(mock.rows('insecure_domain_allows')[0]!.revoked_at).toBeTruthy();
-    expect(
-      mock.rows('admin_events').some((e) => e.type === 'insecure.domain.revoked'),
-    ).toBe(true);
+    expect(mock.rows('admin_events').some((e) => e.type === 'insecure.domain.revoked')).toBe(true);
   });
 });

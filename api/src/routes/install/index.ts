@@ -1,6 +1,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { hosts as hostsTable, logs as logsTable, authEntries, authPayloads, hostAuthDigests, hostAuthStates } from '../../db/schema.js';
+import {
+  hosts as hostsTable,
+  logs as logsTable,
+  authEntries,
+  authPayloads,
+  hostAuthDigests,
+  hostAuthStates,
+} from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -15,7 +22,7 @@ import {
 } from '../../services/install-token.js';
 import { createRunnerValidationService, extractAuthPayload } from '../../services/runner-validation.js';
 
-const HEX36 = /^[a-f0-9-]{36}$/;
+const INSTALL_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9-]{36})$/;
 
 /**
  * Install / seed-auth flow.
@@ -35,11 +42,11 @@ const HEX36 = /^[a-f0-9-]{36}$/;
  * terminal.
  */
 export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  const installSvc = createInstallTokenService({ db: ctx.db });
+  const installSvc = createInstallTokenService({ db: ctx.db, keyring: ctx.keyring });
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
 
   const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!HEX36.test(token)) return shellishError(reply, 'Installer not found', 404);
+    if (!INSTALL_TOKEN_RE.test(token)) return shellishError(reply, 'Installer not found', 404);
     const row = await installSvc.findInstall(token);
     if (!row) return shellishError(reply, 'Installer not found', 404);
     if (row.usedAt) return shellishError(reply, 'Installer already used', 410, row.expiresAt);
@@ -69,20 +76,30 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     try {
       body = buildInstallerScript({ fqdn: host.fqdn, apiKey, baseUrl, engine: row.engine });
     } catch (err) {
-      return shellishError(reply, err instanceof Error ? err.message : 'installer build failed', 500, row.expiresAt);
+      return shellishError(
+        reply,
+        err instanceof Error ? err.message : 'installer build failed',
+        500,
+        row.expiresAt,
+      );
     }
     emitInstaller(reply, body, 200, row.expiresAt);
   };
 
-  app.get<{ Params: { token: string } }>('/install/:token', async (req, reply) => installHandler(req.params.token, reply));
-  app.get<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) => installHandler(req.params.token, reply));
+  app.get<{ Params: { token: string } }>('/install/:token', async (req, reply) =>
+    installHandler(req.params.token, reply),
+  );
+  app.get<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) =>
+    installHandler(req.params.token, reply),
+  );
 
   const seedScriptHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!HEX36.test(token)) return shellishSeedError(reply, 'Seed token not found', 404);
+    if (!INSTALL_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 404);
     const row = await installSvc.findSeed(token);
     if (!row) return shellishSeedError(reply, 'Seed token not found', 404);
     if (row.usedAt) return shellishSeedError(reply, 'Seed token already used', 410, row.expiresAt);
-    if (tokenExpired(row.expiresAt)) return shellishSeedError(reply, 'Seed token expired', 410, row.expiresAt);
+    if (tokenExpired(row.expiresAt))
+      return shellishSeedError(reply, 'Seed token expired', 410, row.expiresAt);
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
     if (!baseUrl) return shellishSeedError(reply, 'Seed base URL invalid', 500, row.expiresAt);
 
@@ -90,16 +107,25 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     try {
       body = buildSeedAuthScript({ baseUrl, token: row.token, engine: row.engine });
     } catch (err) {
-      return shellishSeedError(reply, err instanceof Error ? err.message : 'seed build failed', 500, row.expiresAt);
+      return shellishSeedError(
+        reply,
+        err instanceof Error ? err.message : 'seed build failed',
+        500,
+        row.expiresAt,
+      );
     }
     emitSeed(reply, body, 200, row.expiresAt);
   };
 
-  app.get<{ Params: { token: string } }>('/seed/auth/:token', async (req, reply) => seedScriptHandler(req.params.token, reply));
-  app.get<{ Params: { token: string } }>('/seed/v2/auth/:token', async (req, reply) => seedScriptHandler(req.params.token, reply));
+  app.get<{ Params: { token: string } }>('/seed/auth/:token', async (req, reply) =>
+    seedScriptHandler(req.params.token, reply),
+  );
+  app.get<{ Params: { token: string } }>('/seed/v2/auth/:token', async (req, reply) =>
+    seedScriptHandler(req.params.token, reply),
+  );
 
   const seedStoreHandler = async (token: string, body: unknown): Promise<Record<string, unknown>> => {
-    if (!HEX36.test(token)) throw new NotFoundError('Seed token not found');
+    if (!INSTALL_TOKEN_RE.test(token)) throw new NotFoundError('Seed token not found');
     const row = await installSvc.findSeed(token);
     if (!row) throw new NotFoundError('Seed token not found');
     if (row.usedAt) throw new ApiError('Seed token already used', { status: 410, code: 'seed_used' });
@@ -172,8 +198,12 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     };
   };
 
-  app.post<{ Params: { token: string } }>('/seed/auth/:token', async (req) => seedStoreHandler(req.params.token, req.body));
-  app.post<{ Params: { token: string } }>('/seed/v2/auth/:token', async (req) => seedStoreHandler(req.params.token, req.body));
+  app.post<{ Params: { token: string } }>('/seed/auth/:token', async (req) =>
+    seedStoreHandler(req.params.token, req.body),
+  );
+  app.post<{ Params: { token: string } }>('/seed/v2/auth/:token', async (req) =>
+    seedStoreHandler(req.params.token, req.body),
+  );
 }
 
 function resolveBaseUrl(tokenBaseUrl: string | null, ctx: RouteContext): string {

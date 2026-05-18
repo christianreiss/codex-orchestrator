@@ -61,10 +61,12 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Register/rotate host key + installer token: `POST /admin/hosts/register` (`hosts.manage`).
     - Required: `fqdn`.
     - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
+  - Re-mint installer for existing host key: `POST /admin/hosts/{id}/installer` (`hosts.manage`).
   - Quick throwaway host + installer token: `POST /admin/hosts/quick-register` (`hosts.manage`).
     - Required: `engines` (`codex`, `claude`, or both).
     - Always creates an insecure temporary `tmp-*` host with a 2-hour host expiry.
   - Host actions:
+    - Mint existing-key installer: `POST /admin/hosts/{id}/installer` (`hosts.manage`; replaces pending installer tokens for that host).
     - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).
     - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`; clears both Codex and Claude host auth linkage/digests for that host).
     - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool, `hosts.manage`).

@@ -21,6 +21,7 @@ import type {
   HostRegisterPayload,
   HostQuickRegisterPayload,
   HostRegisterResponse,
+  HostInstallerResponse,
 } from "./types";
 
 // --- query keys -----------------------------------------------------------
@@ -59,7 +60,11 @@ export function createRegisterHostMutation() {
 }
 
 export function createQuickRegisterMutation() {
-  return createMutation<HostRegisterResponse, ApiError, HostQuickRegisterPayload>({
+  return createMutation<
+    HostRegisterResponse,
+    ApiError,
+    HostQuickRegisterPayload
+  >({
     mutationFn: (payload) =>
       api.post<HostRegisterResponse>("/admin/hosts/quick-register", payload),
   });
@@ -77,6 +82,21 @@ export function createDeleteHostMutation(qc: QueryClient) {
 export function createClearHostAuthMutation(qc: QueryClient) {
   return createMutation<void, ApiError, { id: number | string }>({
     mutationFn: ({ id }) => api.post<void>(`/admin/hosts/${id}/clear`),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+    },
+  });
+}
+
+export function createMintInstallerMutation(qc: QueryClient) {
+  return createMutation<
+    HostInstallerResponse,
+    ApiError,
+    { id: number | string }
+  >({
+    mutationFn: ({ id }) =>
+      api.post<HostInstallerResponse>(`/admin/hosts/${id}/installer`),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
@@ -123,12 +143,19 @@ interface ToggleVars {
  * a refresh from the server.
  */
 function makeBoolToggle(qc: QueryClient, cfg: ToggleConfig) {
-  return createMutation<unknown, ApiError, ToggleVars, { previous?: HostDetailResponse }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    ToggleVars,
+    { previous?: HostDetailResponse }
+  >({
     mutationFn: ({ id, value }) =>
       api.post(`/admin/hosts/${id}/${cfg.endpoint}`, { [cfg.bodyKey]: value }),
     onMutate: async ({ id, value }) => {
       await qc.cancelQueries({ queryKey: hostsKeys.detail(id) });
-      const previous = qc.getQueryData<HostDetailResponse>(hostsKeys.detail(id));
+      const previous = qc.getQueryData<HostDetailResponse>(
+        hostsKeys.detail(id),
+      );
       if (previous && previous.host) {
         qc.setQueryData<HostDetailResponse>(hostsKeys.detail(id), {
           ...previous,
@@ -150,11 +177,19 @@ function makeBoolToggle(qc: QueryClient, cfg: ToggleConfig) {
 }
 
 export function createSecureToggleMutation(qc: QueryClient) {
-  return makeBoolToggle(qc, { endpoint: "secure", detailField: "secure", bodyKey: "secure" });
+  return makeBoolToggle(qc, {
+    endpoint: "secure",
+    detailField: "secure",
+    bodyKey: "secure",
+  });
 }
 
 export function createVipToggleMutation(qc: QueryClient) {
-  return makeBoolToggle(qc, { endpoint: "vip", detailField: "vip", bodyKey: "vip" });
+  return makeBoolToggle(qc, {
+    endpoint: "vip",
+    detailField: "vip",
+    bodyKey: "vip",
+  });
 }
 
 export function createRoamingToggleMutation(qc: QueryClient) {
@@ -166,12 +201,19 @@ export function createRoamingToggleMutation(qc: QueryClient) {
 }
 
 export function createAutoUpdateToggleMutation(qc: QueryClient) {
-  return createMutation<unknown, ApiError, ToggleVars, { previous?: HostDetailResponse }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    ToggleVars,
+    { previous?: HostDetailResponse }
+  >({
     mutationFn: ({ id, value }) =>
       api.post(`/admin/hosts/${id}/auto-update`, { auto_update: value }),
     onMutate: async ({ id, value }) => {
       await qc.cancelQueries({ queryKey: hostsKeys.detail(id) });
-      const previous = qc.getQueryData<HostDetailResponse>(hostsKeys.detail(id));
+      const previous = qc.getQueryData<HostDetailResponse>(
+        hostsKeys.detail(id),
+      );
       if (previous && previous.host) {
         qc.setQueryData<HostDetailResponse>(hostsKeys.detail(id), {
           ...previous,
@@ -185,7 +227,8 @@ export function createAutoUpdateToggleMutation(qc: QueryClient) {
       return { previous };
     },
     onError: (_err, vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(hostsKeys.detail(vars.id), ctx.previous);
+      if (ctx?.previous)
+        qc.setQueryData(hostsKeys.detail(vars.id), ctx.previous);
     },
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
@@ -214,7 +257,11 @@ export function createCurlInsecureToggleMutation(qc: QueryClient) {
 // --- version / model / reverse-dns / agents-version ----------------------
 
 export function createReverseDnsMutation(qc: QueryClient) {
-  return createMutation<unknown, ApiError, { id: number | string; mode: "global" | "enabled" | "disabled" }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    { id: number | string; mode: "global" | "enabled" | "disabled" }
+  >({
     mutationFn: ({ id, mode }) =>
       api.post(`/admin/hosts/${id}/reverse-dns`, { reverse_dns_mode: mode }),
     onSuccess: (_d, vars) => {
@@ -249,7 +296,11 @@ export function createModelOverrideMutation(qc: QueryClient) {
 }
 
 export function createCodexVersionMutation(qc: QueryClient) {
-  return createMutation<unknown, ApiError, { id: number | string; version: string | null }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    { id: number | string; version: string | null }
+  >({
     mutationFn: ({ id, version }) =>
       api.post(`/admin/hosts/${id}/codex-version`, { client_version: version }),
     onSuccess: (_d, vars) => {
@@ -260,9 +311,15 @@ export function createCodexVersionMutation(qc: QueryClient) {
 }
 
 export function createClaudeVersionMutation(qc: QueryClient) {
-  return createMutation<unknown, ApiError, { id: number | string; version: string | null }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    { id: number | string; version: string | null }
+  >({
     mutationFn: ({ id, version }) =>
-      api.post(`/admin/hosts/${id}/claude-version`, { client_version: version }),
+      api.post(`/admin/hosts/${id}/claude-version`, {
+        client_version: version,
+      }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
@@ -271,9 +328,15 @@ export function createClaudeVersionMutation(qc: QueryClient) {
 }
 
 export function createAgentsVersionMutation(qc: QueryClient) {
-  return createMutation<unknown, ApiError, { id: number | string; document_id: number | null }>({
+  return createMutation<
+    unknown,
+    ApiError,
+    { id: number | string; document_id: number | null }
+  >({
     mutationFn: ({ id, document_id }) =>
-      api.post(`/admin/hosts/${id}/agents-version`, { agents_document_id: document_id }),
+      api.post(`/admin/hosts/${id}/agents-version`, {
+        agents_document_id: document_id,
+      }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
     },
@@ -283,7 +346,10 @@ export function createAgentsVersionMutation(qc: QueryClient) {
 // --- helpers --------------------------------------------------------------
 
 /** Returns true if the host's insecure window is currently open. */
-export function isInsecureWindowActive(host: { secure?: boolean; insecure_enabled_until?: string | null }): boolean {
+export function isInsecureWindowActive(host: {
+  secure?: boolean;
+  insecure_enabled_until?: string | null;
+}): boolean {
   if (host.secure) return false;
   const until = host.insecure_enabled_until;
   if (!until) return false;
@@ -293,11 +359,16 @@ export function isInsecureWindowActive(host: { secure?: boolean; insecure_enable
 }
 
 /** Engine list as canonical lowercase strings. */
-export function hostEngines(h: Pick<HostListItem, "engines_list" | "engines">): string[] {
+export function hostEngines(
+  h: Pick<HostListItem, "engines_list" | "engines">,
+): string[] {
   const list = Array.isArray(h.engines_list) ? h.engines_list : [];
   if (list.length > 0) return list as string[];
   if (typeof h.engines === "string" && h.engines.trim() !== "") {
-    return h.engines.split(",").map((s) => s.trim()).filter(Boolean);
+    return h.engines
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [];
 }
@@ -313,14 +384,23 @@ export type HostFilterId =
   | "vip"
   | "roaming";
 
-export function hostMatchesFilter(host: HostListItem, filter: HostFilterId): boolean {
+export function hostMatchesFilter(
+  host: HostListItem,
+  filter: HostFilterId,
+): boolean {
   switch (filter) {
     case "all":
       return true;
     case "online":
-      return (host.status ?? "").toLowerCase() === "active" || (host.status ?? "").toLowerCase() === "online";
+      return (
+        (host.status ?? "").toLowerCase() === "active" ||
+        (host.status ?? "").toLowerCase() === "online"
+      );
     case "offline":
-      return (host.status ?? "").toLowerCase() === "stale" || (host.status ?? "").toLowerCase() === "offline";
+      return (
+        (host.status ?? "").toLowerCase() === "stale" ||
+        (host.status ?? "").toLowerCase() === "offline"
+      );
     case "secure":
       return host.secure === true;
     case "insecure":

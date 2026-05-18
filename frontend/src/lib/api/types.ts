@@ -248,7 +248,6 @@ export interface AnthropicErrorEnvelope {
   error: { message?: string; type?: string; code?: string };
 }
 
-
 // account feature ↓
 export interface Passkey {
   id: number;
@@ -279,7 +278,11 @@ export interface PasskeyRegistrationOptionsJSON {
   timeout?: number;
   attestation?: string;
   authenticatorSelection?: Record<string, unknown>;
-  excludeCredentials?: Array<{ type: "public-key"; id: string; transports?: string[] }>;
+  excludeCredentials?: Array<{
+    type: "public-key";
+    id: string;
+    transports?: string[];
+  }>;
 }
 
 export interface PasswordChangeRequest {
@@ -471,7 +474,6 @@ export interface MemoriesListResponse {
   limit?: number;
   count?: number;
   matches: MemoryEntry[];
-
 }
 // cli-auth-verify feature ↓
 /**
@@ -574,7 +576,11 @@ export interface HostListItem {
   auth_outdated: boolean;
   auth_source: boolean;
   token_usage: HostTokenUsage | null;
-  users: Array<{ user_id?: number | string; username?: string; [key: string]: unknown }>;
+  users: Array<{
+    user_id?: number | string;
+    username?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 export interface HostDetail extends HostListItem {}
@@ -646,7 +652,16 @@ export interface InstallerInfo {
 }
 
 export interface HostRegisterResponse {
-  host: Record<string, unknown> & { id: number; fqdn?: string; api_key?: string };
+  host: Record<string, unknown> & {
+    id: number;
+    fqdn?: string;
+    api_key?: string;
+  };
+  installer: InstallerInfo;
+}
+
+export interface HostInstallerResponse {
+  host: HostDetail;
   installer: InstallerInfo;
 }
 

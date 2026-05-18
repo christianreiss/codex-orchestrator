@@ -9,6 +9,8 @@ import {
   authEntries,
 } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
+import { sha256 } from '../../../src/security/hash.js';
+import { encrypt } from '../../../src/security/secret-box.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -33,7 +35,53 @@ const seedToken = '11111111-2222-3333-4444-555555555555';
 describe('GET /install/:token', () => {
   it('emits a text/x-shellscript installer for a valid token', async () => {
     const db = createDbShim();
-    db.tables.set(hostsTable, [{ id: 9, fqdn: 'install.example', apiKey: 'sk-x', apiKeyEnc: null, status: 'active', secure: 1, allowRoamingIps: 0, reverseDnsMode: null, apiCalls: 0, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', engines: 'codex', vip: 0, scalingExempt: 0, curlInsecure: 0, configVersion: 0, wrapperTrack: 'v2', apiKeyHash: null, lastRefresh: null, authDigest: null, ip4: null, ip6: null, clientVersion: null, clientVersionOverride: null, wrapperVersion: null, agentsDocumentIdOverride: null, insecureEnabledUntil: null, insecureGraceUntil: null, insecureWindowMinutes: null, expiresAt: null, lanePreference: null, modelOverride: null, reasoningEffortOverride: null, autoUpdateOverride: null, lastCronCheck: null, claudeClientVersion: null, claudeClientVersionOverride: null, claudeWrapperVersion: null, claudeAuthDigest: null, claudeModelOverride: null, claudeReasoningEffortOverride: null, claudeLastRefresh: null, configBakedAt: null }]);
+    db.tables.set(hostsTable, [
+      {
+        id: 9,
+        fqdn: 'install.example',
+        apiKey: 'sk-x',
+        apiKeyEnc: null,
+        status: 'active',
+        secure: 1,
+        allowRoamingIps: 0,
+        reverseDnsMode: null,
+        apiCalls: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        engines: 'codex',
+        vip: 0,
+        scalingExempt: 0,
+        curlInsecure: 0,
+        configVersion: 0,
+        wrapperTrack: 'v2',
+        apiKeyHash: null,
+        lastRefresh: null,
+        authDigest: null,
+        ip4: null,
+        ip6: null,
+        clientVersion: null,
+        clientVersionOverride: null,
+        wrapperVersion: null,
+        agentsDocumentIdOverride: null,
+        insecureEnabledUntil: null,
+        insecureGraceUntil: null,
+        insecureWindowMinutes: null,
+        expiresAt: null,
+        lanePreference: null,
+        modelOverride: null,
+        reasoningEffortOverride: null,
+        autoUpdateOverride: null,
+        lastCronCheck: null,
+        claudeClientVersion: null,
+        claudeClientVersionOverride: null,
+        claudeWrapperVersion: null,
+        claudeAuthDigest: null,
+        claudeModelOverride: null,
+        claudeReasoningEffortOverride: null,
+        claudeLastRefresh: null,
+        configBakedAt: null,
+      },
+    ]);
     db.tables.set(installTokens, [
       {
         id: 1,
@@ -63,6 +111,82 @@ describe('GET /install/:token', () => {
     await app.close();
   });
 
+  it('resolves hashed installer tokens and decrypts the embedded api key', async () => {
+    const db = createDbShim();
+    const keyring = makeKeyring();
+    const token = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const apiKey = 'sk-install-encrypted';
+    db.tables.set(hostsTable, [
+      {
+        id: 9,
+        fqdn: 'install.example',
+        apiKey: sha256(apiKey),
+        apiKeyEnc: encrypt(apiKey, keyring),
+        status: 'active',
+        secure: 1,
+        allowRoamingIps: 0,
+        reverseDnsMode: null,
+        apiCalls: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        engines: 'codex',
+        vip: 0,
+        scalingExempt: 0,
+        curlInsecure: 0,
+        configVersion: 0,
+        wrapperTrack: 'v2',
+        apiKeyHash: sha256(apiKey),
+        lastRefresh: null,
+        authDigest: null,
+        ip4: null,
+        ip6: null,
+        clientVersion: null,
+        clientVersionOverride: null,
+        wrapperVersion: null,
+        agentsDocumentIdOverride: null,
+        insecureEnabledUntil: null,
+        insecureGraceUntil: null,
+        insecureWindowMinutes: null,
+        expiresAt: null,
+        lanePreference: null,
+        modelOverride: null,
+        reasoningEffortOverride: null,
+        autoUpdateOverride: null,
+        lastCronCheck: null,
+        claudeClientVersion: null,
+        claudeClientVersionOverride: null,
+        claudeWrapperVersion: null,
+        claudeAuthDigest: null,
+        claudeModelOverride: null,
+        claudeReasoningEffortOverride: null,
+        claudeLastRefresh: null,
+        configBakedAt: null,
+      },
+    ]);
+    db.tables.set(installTokens, [
+      {
+        id: 1,
+        token: sha256(token),
+        tokenEnc: encrypt(token, keyring),
+        hostId: 9,
+        fqdn: 'install.example',
+        apiKey: sha256(apiKey),
+        apiKeyEnc: encrypt(apiKey, keyring),
+        baseUrl: 'https://o.example',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-05-01T00:00:00Z',
+        engine: 'codex',
+      },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring });
+    const r = await app.inject({ method: 'GET', url: `/install/${token}` });
+    expect(r.statusCode).toBe(200);
+    expect(r.payload).toContain(apiKey);
+    expect(db.tables.get(installTokens)![0]!.usedAt).toBeTruthy();
+    await app.close();
+  });
+
   it('returns shell error 404 for unknown token', async () => {
     const db = createDbShim();
     db.tables.set(installTokens, []);
@@ -79,7 +203,27 @@ describe('GET /install/:token', () => {
 
   it('returns shell error 410 for expired token', async () => {
     const db = createDbShim();
-    db.tables.set(hostsTable, [{ id: 9, fqdn: 'install.example', apiKey: 'k', status: 'active', secure: 1, allowRoamingIps: 0, apiCalls: 0, createdAt: 'x', updatedAt: 'x', engines: 'codex', vip: 0, scalingExempt: 0, curlInsecure: 0, configVersion: 0, wrapperTrack: 'v2', apiKeyHash: null, apiKeyEnc: null }]);
+    db.tables.set(hostsTable, [
+      {
+        id: 9,
+        fqdn: 'install.example',
+        apiKey: 'k',
+        status: 'active',
+        secure: 1,
+        allowRoamingIps: 0,
+        apiCalls: 0,
+        createdAt: 'x',
+        updatedAt: 'x',
+        engines: 'codex',
+        vip: 0,
+        scalingExempt: 0,
+        curlInsecure: 0,
+        configVersion: 0,
+        wrapperTrack: 'v2',
+        apiKeyHash: null,
+        apiKeyEnc: null,
+      },
+    ]);
     db.tables.set(installTokens, [
       {
         id: 1,
