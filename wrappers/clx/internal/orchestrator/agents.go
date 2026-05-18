@@ -15,11 +15,11 @@ type AgentsResponse struct {
 func (c *Client) RetrieveAgents(ctx context.Context, digest string) (json.RawMessage, error) {
 	body := map[string]any{"engine": "claude"}
 	if digest != "" {
-		body["digest"] = digest
+		body["sha256"] = digest
 	}
 	out := &AgentsResponse{}
 	if err := c.JSON(ctx, http.MethodPost, "/agents/retrieve", body, out, 1); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	return resourceContent(out.Data)
 }

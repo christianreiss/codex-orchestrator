@@ -82,7 +82,7 @@ func syncAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Log
 		return err
 	}
 	switch resp.Status {
-	case "current", "ok", "":
+	case "current", "ok", "valid", "unchanged", "":
 		return nil
 	case "outdated", "missing":
 		if len(resp.Auth) == 0 {
