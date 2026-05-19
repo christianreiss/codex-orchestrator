@@ -1,0 +1,47 @@
+// Package orchestrator — bundle.go (clx mirror) defines the typed shape for
+// /sync/bootstrap. Server-side contract is engine-aware (engine=claude maps
+// to the Anthropic auth retriever): api/src/routes/auth/index.ts:127-153.
+package orchestrator
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+)
+
+// BundleRequest is the POST body for /sync/bootstrap.
+type BundleRequest struct {
+	Engine        string          `json:"engine"`
+	IncludeAuth   bool            `json:"include_auth"`
+	AuthDigest    string          `json:"auth_digest,omitempty"`
+	AuthCandidate json.RawMessage `json:"auth_candidate,omitempty"`
+	Agents        string          `json:"agents,omitempty"`
+	Config        string          `json:"config,omitempty"`
+	Home          string          `json:"home,omitempty"`
+	Username      string          `json:"username,omitempty"`
+}
+
+// BundleResponse matches the envelope returned by /sync/bootstrap. Auth block,
+// when present, is the same shape as a standalone /auth retrieve.
+type BundleResponse struct {
+	Status  string                `json:"status"`
+	Reasons []string              `json:"reasons,omitempty"`
+	Auth    *AuthRetrieveResponse `json:"auth,omitempty"`
+	Agents  json.RawMessage       `json:"agents,omitempty"`
+	Config  json.RawMessage       `json:"config,omitempty"`
+	Host    *HostInfo             `json:"host,omitempty"`
+}
+
+// SyncBootstrap calls POST /sync/bootstrap. On 404/501 the caller is expected
+// to detect that string in the returned error and fall back to per-resource
+// pulls.
+func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleResponse, error) {
+	if req.Engine == "" {
+		req.Engine = "claude"
+	}
+	out := &BundleResponse{}
+	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, out, 2); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

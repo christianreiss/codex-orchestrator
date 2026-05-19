@@ -12,6 +12,8 @@ import (
 )
 
 // PreExec performs side-effect setup that must happen before Codex is spawned:
+//  0. Refuses to launch if the runtime hostname does not match the FQDN baked
+//     into config (override with CODEX_ALLOW_FQDN_MISMATCH=1).
 //  1. Adds [projects."<cwd>"] trust_level=trusted to ~/.codex/config.toml.
 //  2. Exports OTEL_* env vars from any [otel] block in config.toml.
 //  3. Starts the IPv4 proxy when CODEX_FORCE_IPV4=1.
@@ -19,6 +21,13 @@ import (
 // Returns a teardown function the caller must defer; it stops the proxy.
 func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	teardown := func() {}
+
+	// 0) FQDN guard. A signed config has the FQDN baked in; if we boot on a
+	// different host (cloned image, mis-deployed wrapper) we refuse rather
+	// than mint usage against the wrong host id.
+	if err := guardFQDN(cfg); err != nil {
+		return teardown, err
+	}
 
 	// 1) Project-trust auto-add.
 	if err := EnsureProjectTrust(); err != nil {
@@ -44,6 +53,37 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	}
 	_ = cfg
 	return teardown, nil
+}
+
+// guardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
+// the runtime hostname. Suffix match counts (so a baked "alpha.example.com"
+// matches a short hostname "alpha"). Override with CODEX_ALLOW_FQDN_MISMATCH=1.
+func guardFQDN(cfg *config.Config) error {
+	if cfg == nil || strings.TrimSpace(cfg.Host.FQDN) == "" {
+		return nil
+	}
+	if os.Getenv("CODEX_ALLOW_FQDN_MISMATCH") == "1" {
+		return nil
+	}
+	real, err := os.Hostname()
+	if err != nil || strings.TrimSpace(real) == "" {
+		// Couldn't determine hostname — fail open so we never block over a
+		// transient OS quirk; this matches the legacy bash behaviour.
+		return nil
+	}
+	baked := strings.ToLower(strings.TrimSpace(cfg.Host.FQDN))
+	got := strings.ToLower(strings.TrimSpace(real))
+	if baked == got {
+		return nil
+	}
+	// Suffix match in either direction handles short hostnames.
+	if strings.HasSuffix(got, "."+baked) || strings.HasSuffix(baked, "."+got) {
+		return nil
+	}
+	if strings.HasPrefix(baked, got+".") || strings.HasPrefix(got, baked+".") {
+		return nil
+	}
+	return fmt.Errorf("cdx: hostname %q does not match baked FQDN %q (set CODEX_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
 }
 
 // EnsureProjectTrust adds [projects."<cwd>"] trust_level="trusted" to

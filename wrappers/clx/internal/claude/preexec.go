@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ipv4"
@@ -11,12 +12,18 @@ import (
 
 // PreExec performs side-effect setup before Claude Code is spawned. Currently:
 //
+//  0. Refuses launch if the runtime hostname does not match the FQDN baked
+//     into config (override with CLAUDE_ALLOW_FQDN_MISMATCH=1).
 //  1. Exports ANTHROPIC_API_KEY from credentials.json if present.
 //  2. Starts an IPv4-forcing local proxy when CLAUDE_FORCE_IPV4=1.
 //
 // Returns a teardown function the caller must defer.
 func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	teardown := func() {}
+
+	if err := guardFQDN(cfg); err != nil {
+		return teardown, err
+	}
 
 	if err := exportAnthropicAPIKey(); err != nil {
 		fmt.Fprintln(os.Stderr, "clx: ANTHROPIC_API_KEY export failed:", err)
@@ -35,6 +42,34 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	}
 	_ = cfg
 	return teardown, nil
+}
+
+// guardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
+// the runtime hostname. Suffix match counts (a baked "alpha.example.com"
+// matches the short hostname "alpha"). Override with CLAUDE_ALLOW_FQDN_MISMATCH=1.
+func guardFQDN(cfg *config.Config) error {
+	if cfg == nil || strings.TrimSpace(cfg.Host.FQDN) == "" {
+		return nil
+	}
+	if os.Getenv("CLAUDE_ALLOW_FQDN_MISMATCH") == "1" {
+		return nil
+	}
+	real, err := os.Hostname()
+	if err != nil || strings.TrimSpace(real) == "" {
+		return nil
+	}
+	baked := strings.ToLower(strings.TrimSpace(cfg.Host.FQDN))
+	got := strings.ToLower(strings.TrimSpace(real))
+	if baked == got {
+		return nil
+	}
+	if strings.HasSuffix(got, "."+baked) || strings.HasSuffix(baked, "."+got) {
+		return nil
+	}
+	if strings.HasPrefix(baked, got+".") || strings.HasPrefix(got, baked+".") {
+		return nil
+	}
+	return fmt.Errorf("clx: hostname %q does not match baked FQDN %q (set CLAUDE_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
 }
 
 // exportAnthropicAPIKey reads ~/.claude/.credentials.json and pulls the first

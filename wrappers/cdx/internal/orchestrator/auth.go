@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // AuthRetrieveResponse mirrors POST /auth retrieve. The orchestrator may add
@@ -147,6 +148,22 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 	return nil
 }
 
+// CheckAuthStatus is the minimal shape ui.PollApproval consumes: re-runs
+// /auth retrieve and returns just the lower-cased status + a one-line reason
+// (the server may surface deny details under message/action). Wraps the
+// general retry/timeout machinery in JSON().
+func (c *Client) CheckAuthStatus(ctx context.Context) (string, string, error) {
+	resp, err := c.AuthRetrieve(ctx, "")
+	if err != nil {
+		return "", "", err
+	}
+	reason := resp.Message
+	if reason == "" {
+		reason = resp.Action
+	}
+	return strings.ToLower(strings.TrimSpace(resp.Status)), reason, nil
+}
+
 // SyncStatus mirrors POST /sync/status — small object with lane / version hints.
 type SyncStatus struct {
 	Status string         `json:"status"`
@@ -161,11 +178,4 @@ func (c *Client) SyncStatus(ctx context.Context) (*SyncStatus, error) {
 	return out, nil
 }
 
-// SyncBootstrap is the first-contact handshake.
-func (c *Client) SyncBootstrap(ctx context.Context) (map[string]any, error) {
-	out := map[string]any{}
-	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", map[string]any{"engine": "codex"}, &out, 2); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
+// SyncBootstrap is implemented in bundle.go (typed request + response).

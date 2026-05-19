@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
@@ -103,6 +104,22 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 	return nil
 }
 
+// CheckAuthStatus runs /auth retrieve and returns just the lower-cased
+// status + a free-form reason string. Used by ui.PollApproval as the polling
+// callback (the UI package does not depend on this concrete client type;
+// PollApproval takes a minimal interface).
+func (c *Client) CheckAuthStatus(ctx context.Context) (string, string, error) {
+	resp, err := c.AuthRetrieve(ctx, "")
+	if err != nil {
+		return "", "", err
+	}
+	reason := resp.Message
+	if reason == "" {
+		reason = resp.Action
+	}
+	return strings.ToLower(strings.TrimSpace(resp.Status)), reason, nil
+}
+
 type SyncStatus struct {
 	Status string         `json:"status"`
 	Data   map[string]any `json:"data,omitempty"`
@@ -116,10 +133,4 @@ func (c *Client) SyncStatus(ctx context.Context) (*SyncStatus, error) {
 	return out, nil
 }
 
-func (c *Client) SyncBootstrap(ctx context.Context) (map[string]any, error) {
-	out := map[string]any{}
-	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", map[string]any{"engine": "claude"}, &out, 2); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
+// SyncBootstrap is implemented in bundle.go (typed request + response).
