@@ -131,20 +131,28 @@ func installUserCron(bin string, min, hr int) error {
 // entry runs as root (so the wrapper can rewrite itself in /usr/local/bin) but
 // is pinned to the installing user's config + log via env vars so cron-as-root
 // reuses the same orchestrator credentials.
+//
+// HOME is deliberately pinned to /root, not the install user's home: the
+// upstream codex CLI unpacks its argv[0] sandbox into `$HOME/.codex/tmp/arg0/`
+// on every invocation (even `codex --version`). If the cron job's HOME points
+// at the user's home, root's codex leaves root-owned scratch dirs under the
+// user's ~/.codex/tmp/, which the user's next interactive `codex` then fails
+// to clean (`Permission denied`). Keeping HOME=/root isolates that scratch
+// space; CDX_CONFIG_PATH explicitly tells the wrapper where the user's
+// orchestrator credentials live, so we don't need HOME for that anymore.
 func installSystemCron(bin string, min, hr int) error {
 	configPath := config.DefaultPath()
-	user, home := installUserContext()
-	logFile := filepath.Join(home, ".codex", "cron.log")
+	_, userHome := installUserContext()
+	logFile := filepath.Join(userHome, ".codex", "cron.log")
 	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
 	body := fmt.Sprintf(`# cdx-managed — auto-update tick. Managed by `+"`cdx --cron install`"+`; do not edit by hand.
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-HOME=%s
+HOME=/root
 CDX_CONFIG_PATH=%s
 %d %d * * * root %s
-`, home, configPath, min, hr, cmd)
-	_ = user // currently informational only; reserved for future per-user diagnostics
+`, configPath, min, hr, cmd)
 	if err := sudoWriteFile(systemCronPath, body, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", systemCronPath, err)
 	}

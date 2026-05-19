@@ -103,19 +103,23 @@ func installUserCron(bin string, min, hr int) error {
 	return writeCrontab(strings.Join(lines, "\n") + "\n")
 }
 
+// HOME pinned to /root for the same reason cdx does it — see the matching
+// comment in cdx/internal/cron/cron.go. The upstream CLI scratchpad lives
+// under $HOME/.claude/tmp/, and cron-as-root must not leak root-owned dirs
+// into the install user's home.
 func installSystemCron(bin string, min, hr int) error {
 	configPath := config.DefaultPath()
-	_, home := installUserContext()
-	logFile := filepath.Join(home, ".claude", "cron.log")
+	_, userHome := installUserContext()
+	logFile := filepath.Join(userHome, ".claude", "cron.log")
 	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
 	body := fmt.Sprintf(`# clx-managed — auto-update tick. Managed by `+"`clx --cron install`"+`; do not edit by hand.
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-HOME=%s
+HOME=/root
 CLX_CONFIG_PATH=%s
 %d %d * * * root %s
-`, home, configPath, min, hr, cmd)
+`, configPath, min, hr, cmd)
 	if err := sudoWriteFile(systemCronPath, body, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", systemCronPath, err)
 	}
