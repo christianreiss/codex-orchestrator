@@ -16,12 +16,15 @@
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
   import ConfirmDialog from "$lib/components/hosts/ConfirmDialog.svelte";
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
+  import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
+  import InsecureWindowPopover from "$lib/components/hosts/InsecureWindowPopover.svelte";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
+  import Plus from "@lucide/svelte/icons/plus";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
   import {
@@ -41,6 +44,8 @@
     createModelOverrideMutation,
     createCodexVersionMutation,
     createClaudeVersionMutation,
+    createReverseDnsMutation,
+    createAgentsVersionMutation,
   } from "$lib/api/hosts";
   import type { InstallerInfo } from "$lib/api/types";
   import {
@@ -66,6 +71,8 @@
   const modelOverride = createModelOverrideMutation(qc);
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
+  const reverseDns = createReverseDnsMutation(qc);
+  const agentsVersion = createAgentsVersionMutation(qc);
   const insecureEnable = createEnableInsecureMutation(qc);
   const insecureDisable = createDisableInsecureMutation(qc);
 
@@ -94,8 +101,10 @@
   let claudeDialogOpen = $state(false);
   let codexModelDialogOpen = $state(false);
   let claudeModelDialogOpen = $state(false);
+  let agentsDialogOpen = $state(false);
   let installerDialogOpen = $state(false);
   let installerResult = $state<InstallerInfo | null>(null);
+  let seedAuthOpen = $state(false);
 
   async function doDelete(): Promise<void> {
     try {
@@ -112,9 +121,9 @@
     await run("Auth cleared", $clearAuth.mutateAsync({ id }));
   }
 
-  async function doMintInstaller(): Promise<void> {
+  async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
     try {
-      const result = await $mintInstaller.mutateAsync({ id });
+      const result = await $mintInstaller.mutateAsync({ id, engines });
       installerResult = result.installer;
       installerDialogOpen = true;
       toast.success("Installer minted");
@@ -172,6 +181,34 @@
   // For controls panel
   const codexEngine = $derived(host ? hostEngines(host).includes("codex") : false);
   const claudeEngine = $derived(host ? hostEngines(host).includes("claude") : false);
+  // Pre-select an engine on the Seed Auth dialog when the host has only one.
+  const seedDefaultEngine = $derived<"codex" | "claude">(
+    codexEngine && !claudeEngine
+      ? "codex"
+      : !codexEngine && claudeEngine
+        ? "claude"
+        : "codex",
+  );
+
+  // Reverse-DNS tri-state segmented control.
+  type ReverseDnsMode = "global" | "enabled" | "disabled";
+  const reverseDnsValue = $derived.by<ReverseDnsMode>(() => {
+    const raw = (host?.reverse_dns_mode ?? "").toString().toLowerCase();
+    if (raw === "enabled" || raw === "1" || raw === "true") return "enabled";
+    if (raw === "disabled" || raw === "0" || raw === "false") return "disabled";
+    return "global";
+  });
+
+  async function setReverseDns(mode: ReverseDnsMode): Promise<void> {
+    if (reverseDnsValue === mode) return;
+    const label =
+      mode === "global"
+        ? "Reverse DNS inherits fleet default"
+        : mode === "enabled"
+          ? "Reverse DNS forced on"
+          : "Reverse DNS forced off";
+    await run(label, $reverseDns.mutateAsync({ id, mode }));
+  }
 </script>
 
 {#if $detail.isLoading}
@@ -310,7 +347,30 @@
           )}
           {@render dt("Roaming", host.allow_roaming_ips ? "allowed" : "static")}
           {@render dt("Lane", host.lane_preference ?? "—")}
-          {@render dt("Reverse DNS", host.reverse_dns_mode ?? "—")}
+          <div class="flex flex-col">
+            <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Reverse DNS</dt>
+            <dd class="mt-1">
+              <div class="inline-flex overflow-hidden rounded-md border border-input text-[11px]">
+                {#each [
+                  { id: "global", label: "Inherit" },
+                  { id: "enabled", label: "Force on" },
+                  { id: "disabled", label: "Force off" },
+                ] as opt (opt.id)}
+                  <button
+                    type="button"
+                    class="px-2 py-1 transition-colors hover:bg-accent {reverseDnsValue === opt.id
+                      ? 'bg-foreground text-background'
+                      : 'bg-background text-foreground'}"
+                    disabled={$reverseDns.isPending}
+                    aria-pressed={reverseDnsValue === opt.id}
+                    onclick={() => void setReverseDns(opt.id as ReverseDnsMode)}
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </dd>
+          </div>
           {@render dt("Agents doc override", host.agents_document_id_override ? String(host.agents_document_id_override) : "—")}
         </dl>
       </Card.Content>
@@ -346,12 +406,14 @@
 
         <div class="mt-4 flex flex-wrap gap-2 border-t pt-4">
           {#if isInsecureWindowActive(host)}
-            <Button
+            <InsecureWindowPopover
+              label="Extend window"
               variant="outline"
-              onclick={() => run("Window extended", $insecureEnable.mutateAsync({ id }))}
-            >
-              Extend window
-            </Button>
+              heading="Extend insecure window"
+              confirmLabel="Extend"
+              onConfirm={(duration_minutes) =>
+                run("Window extended", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+            />
             <Button
               variant="ghost"
               onclick={() => run("Window closed", $insecureDisable.mutateAsync({ id }))}
@@ -359,9 +421,13 @@
               Close window
             </Button>
           {:else if host.secure === false}
-            <Button onclick={() => run("Window opened", $insecureEnable.mutateAsync({ id }))}>
-              Open insecure window
-            </Button>
+            <InsecureWindowPopover
+              label="Open insecure window"
+              heading="Open insecure window"
+              confirmLabel="Open"
+              onConfirm={(duration_minutes) =>
+                run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
+            />
           {/if}
 
           {#if codexEngine}
@@ -371,6 +437,14 @@
             <Button variant="outline" onclick={() => (codexModelDialogOpen = true)}>
               Codex model override
             </Button>
+          {:else}
+            <Button
+              variant="outline"
+              onclick={() => doMintInstaller(["codex"])}
+              disabled={$mintInstaller.isPending}
+            >
+              <Plus class="h-4 w-4" /> Add Codex
+            </Button>
           {/if}
           {#if claudeEngine}
             <Button variant="outline" onclick={() => (claudeDialogOpen = true)}>
@@ -379,13 +453,28 @@
             <Button variant="outline" onclick={() => (claudeModelDialogOpen = true)}>
               Claude model override
             </Button>
+          {:else}
+            <Button
+              variant="outline"
+              onclick={() => doMintInstaller(["claude"])}
+              disabled={$mintInstaller.isPending}
+            >
+              <Plus class="h-4 w-4" /> Add Claude
+            </Button>
           {/if}
 
-          <Button variant="outline" onclick={doMintInstaller} disabled={$mintInstaller.isPending}>
+          <Button variant="outline" onclick={() => (agentsDialogOpen = true)}>
+            Agents version
+          </Button>
+
+          <Button variant="outline" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
             <Download class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
           </Button>
 
           <div class="ml-auto flex gap-2">
+            <Button variant="outline" onclick={() => (seedAuthOpen = true)}>
+              <KeyRound class="h-4 w-4" /> Seed auth
+            </Button>
             <Button variant="outline" onclick={() => (confirmClearOpen = true)}>
               <KeyRound class="h-4 w-4" /> Clear auth
             </Button>
@@ -456,6 +545,23 @@
     initialValue={host.claude_model_override ?? ""}
     onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }))}
   />
+  <InputDialog
+    bind:open={agentsDialogOpen}
+    onOpenChange={(v) => (agentsDialogOpen = v)}
+    title="Agents version override"
+    description="Pin a specific agents document by id for this host. Empty clears."
+    label="Agents document id"
+    placeholder="42"
+    initialValue={host.agents_document_id_override ? String(host.agents_document_id_override) : ""}
+    onSubmit={(v) => {
+      const parsed = v === null || v === "" ? null : Number.parseInt(v, 10);
+      return run(
+        "Agents version updated",
+        $agentsVersion.mutateAsync({ id, document_id: Number.isFinite(parsed) ? parsed : null }),
+      );
+    }}
+  />
+  <SeedAuthDialog bind:open={seedAuthOpen} defaultEngine={seedDefaultEngine} />
   <Dialog.Root bind:open={installerDialogOpen}>
     <Dialog.Content class="sm:max-w-xl">
       <Dialog.Header>
