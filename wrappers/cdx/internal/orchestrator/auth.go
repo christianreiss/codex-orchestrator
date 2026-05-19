@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // AuthRetrieveResponse mirrors POST /auth retrieve. The orchestrator may add
@@ -81,14 +82,14 @@ type HostInfo struct {
 // ChatGPTQuota is the per-host ChatGPT usage snapshot. All percent fields are
 // 0-100 ints (or nil if the server has no current data).
 type ChatGPTQuota struct {
-	Status      string `json:"status,omitempty"`
-	PlanType    string `json:"plan_type,omitempty"`
-	FetchedAt   string `json:"fetched_at,omitempty"`
-	SparkLimit  string `json:"spark_limit_name,omitempty"`
-	SparkFeat   string `json:"spark_metered_feature,omitempty"`
-	ActiveLane  string `json:"active_quota_lane,omitempty"`
-	DailyUsed   *int   `json:"daily_used_percent,omitempty"`
-	WeekPart    *int   `json:"week_partition,omitempty"`
+	Status     string `json:"status,omitempty"`
+	PlanType   string `json:"plan_type,omitempty"`
+	FetchedAt  string `json:"fetched_at,omitempty"`
+	SparkLimit string `json:"spark_limit_name,omitempty"`
+	SparkFeat  string `json:"spark_metered_feature,omitempty"`
+	ActiveLane string `json:"active_quota_lane,omitempty"`
+	DailyUsed  *int   `json:"daily_used_percent,omitempty"`
+	WeekPart   *int   `json:"week_partition,omitempty"`
 
 	PrimaryUsed       *int   `json:"primary_used_percent,omitempty"`
 	PrimaryLimitSec   *int64 `json:"primary_limit_seconds,omitempty"`
@@ -147,6 +148,22 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 	return nil
 }
 
+// CheckAuthStatus is the minimal shape ui.PollApproval consumes: re-runs
+// /auth retrieve and returns just the lower-cased status + a one-line reason
+// (the server may surface deny details under message/action). Wraps the
+// general retry/timeout machinery in JSON().
+func (c *Client) CheckAuthStatus(ctx context.Context) (string, string, error) {
+	resp, err := c.AuthRetrieve(ctx, "")
+	if err != nil {
+		return "", "", err
+	}
+	reason := resp.Message
+	if reason == "" {
+		reason = resp.Action
+	}
+	return strings.ToLower(strings.TrimSpace(resp.Status)), reason, nil
+}
+
 // SyncStatus mirrors POST /sync/status — small object with lane / version hints.
 type SyncStatus struct {
 	Status string         `json:"status"`
@@ -161,11 +178,4 @@ func (c *Client) SyncStatus(ctx context.Context) (*SyncStatus, error) {
 	return out, nil
 }
 
-// SyncBootstrap is the first-contact handshake.
-func (c *Client) SyncBootstrap(ctx context.Context) (map[string]any, error) {
-	out := map[string]any{}
-	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", map[string]any{"engine": "codex"}, &out, 2); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
+// SyncBootstrap is implemented in bundle.go (typed request + response).
