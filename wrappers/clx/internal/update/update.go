@@ -10,9 +10,42 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 )
+
+// ReExecAfterUpdate replaces the current process with a fresh exec of `exe`
+// using the snapshotted argv (captured at process start). Sets
+// CLAUDE_WRAPPER_RESTARTED=1 and increments CLAUDE_WRAPPER_RESTART_DEPTH so
+// main.go can detect runaway restart loops.
+func ReExecAfterUpdate(exe string, argv []string) error {
+	if exe == "" {
+		return errors.New("ReExecAfterUpdate: empty exe path")
+	}
+	full := append([]string{exe}, argv...)
+	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
+	env := os.Environ()
+	env = setEnvKV(env, "CLAUDE_WRAPPER_RESTARTED", "1")
+	env = setEnvKV(env, "CLAUDE_WRAPPER_RESTART_DEPTH", strconv.Itoa(depth+1))
+	return syscall.Exec(exe, full, env)
+}
+
+func setEnvKV(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if len(e) > len(prefix) && e[:len(prefix)] == prefix {
+			env[i] = prefix + val
+			return env
+		}
+		if e == key {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
+}
 
 func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	exe, err := os.Executable()
@@ -64,5 +97,20 @@ func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) er
 		return errors.New("atomic swap failed: " + err.Error())
 	}
 	logger.Info("self-update complete", "version", cfg.Wrapper.Version, "path", exe)
+
+	if len(SnapshottedArgv) > 0 || os.Getenv("CLAUDE_WRAPPER_NO_REEXEC") == "" {
+		argv := SnapshottedArgv
+		if argv == nil {
+			argv = os.Args[1:]
+		}
+		if err := ReExecAfterUpdate(exe, argv); err != nil {
+			return fmt.Errorf("re-exec after self-update: %w", err)
+		}
+	}
 	return nil
 }
+
+// SnapshottedArgv holds the argv as captured at process start (excluding the
+// program name in argv[0]). main.go sets this so SelfUpdate and the cron Tick
+// path can re-exec with the same args the user originally typed.
+var SnapshottedArgv []string
