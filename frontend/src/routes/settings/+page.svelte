@@ -10,6 +10,7 @@
   import InsecureApprovalSection from "$lib/components/settings/InsecureApprovalSection.svelte";
   import QuotasSection from "$lib/components/settings/QuotasSection.svelte";
   import CodexVersionSection from "$lib/components/settings/CodexVersionSection.svelte";
+  import ClaudeVersionSection from "$lib/components/settings/ClaudeVersionSection.svelte";
   import ScalingSection from "$lib/components/settings/ScalingSection.svelte";
   import PrunePolicySection from "$lib/components/settings/PrunePolicySection.svelte";
   import LogRetentionSection from "$lib/components/settings/LogRetentionSection.svelte";
@@ -24,6 +25,7 @@
     { id: "insecure-approval", label: "Insecure approval" },
     { id: "quotas", label: "Quotas" },
     { id: "codex-version", label: "Codex version" },
+    { id: "claude-version", label: "Claude version" },
     { id: "scaling", label: "Scaling" },
     { id: "prune-policy", label: "Prune policy" },
     { id: "log-retention", label: "Log retention" },
@@ -45,6 +47,7 @@
     <InsecureApprovalSection />
     <QuotasSection />
     <CodexVersionSection />
+    <ClaudeVersionSection />
     <ScalingSection />
     <PrunePolicySection />
     <LogRetentionSection />
