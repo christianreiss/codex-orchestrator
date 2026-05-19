@@ -1,10 +1,11 @@
 /**
  * MCP resource URI routing.
  *
- * Supports three URI families:
- *   - `memory://<key>`     — host-scoped MCP memory
- *   - `project://<slug>`   — shared project (bootstrap payload)
- *   - `skill://<slug>`     — skill manifest
+ * Supports the following URI families:
+ *   - `memory://<key>`                          — host-scoped MCP memory
+ *   - `project://<slug>`                        — shared project bootstrap payload
+ *   - `project://<slug>/files/<stored_name>`    — single project file (raw content)
+ *   - `skill://<slug>`                          — skill manifest
  */
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
@@ -38,11 +39,62 @@ export interface ResourceReadResponse {
 }
 
 const URI_RE = /^([a-z]+):\/\/(.+)$/;
+const FILES_INFIX = '/files/';
+const PROJECT_FILES_LIST_CAP = 50;
 
-function parseUri(uri: string): { scheme: string; id: string } {
+interface ProjectFileSubResource {
+  storedName: string;
+}
+
+interface ParsedUri {
+  scheme: string;
+  id: string;
+  subPath: string | null;
+  projectFile: ProjectFileSubResource | null;
+}
+
+function parseUri(uri: string): ParsedUri {
   const m = URI_RE.exec(uri);
   if (!m || !m[1] || !m[2]) throw new Error('Invalid resource URI: ' + uri);
-  return { scheme: m[1], id: decodeURIComponent(m[2]) };
+  const scheme = m[1];
+  const rest = m[2];
+  // Slug must not contain a slash; treat any leading slash-delimited token as
+  // the resource id and the remainder as the sub-path.
+  const slashIdx = rest.indexOf('/');
+  if (slashIdx === -1) {
+    return {
+      scheme,
+      id: decodeURIComponent(rest),
+      subPath: null,
+      projectFile: null,
+    };
+  }
+  const id = decodeURIComponent(rest.slice(0, slashIdx));
+  const subPath = rest.slice(slashIdx); // includes the leading '/'
+  let projectFile: ProjectFileSubResource | null = null;
+  if (scheme === 'project' && subPath.startsWith(FILES_INFIX)) {
+    const storedNameRaw = subPath.slice(FILES_INFIX.length);
+    if (storedNameRaw.length > 0) {
+      projectFile = { storedName: decodeURIComponent(storedNameRaw) };
+    }
+  }
+  return { scheme, id, subPath, projectFile };
+}
+
+function isBinaryMime(mime: string | null | undefined): boolean {
+  if (!mime) return false;
+  const lower = mime.toLowerCase();
+  if (lower.startsWith('text/')) return false;
+  if (lower === 'application/json') return false;
+  if (lower === 'application/xml') return false;
+  if (lower === 'application/javascript') return false;
+  if (lower.endsWith('+json') || lower.endsWith('+xml')) return false;
+  return true;
+}
+
+function buildProjectFileUri(slug: string, storedName: string): string {
+  const segments = storedName.split('/').map((s) => encodeURIComponent(s));
+  return `project://${encodeURIComponent(slug)}/files/${segments.join('/')}`;
 }
 
 export class McpResourcesService {
@@ -52,6 +104,12 @@ export class McpResourcesService {
     return [
       { uriTemplate: 'memory://{key}', name: 'memory', description: 'Host-scoped MCP memory by key', mimeType: 'application/json' },
       { uriTemplate: 'project://{slug}', name: 'project', description: 'Shared project (bootstrap payload)', mimeType: 'application/json' },
+      {
+        uriTemplate: 'project://{slug}/files/{stored_name}',
+        name: 'project_file',
+        description: 'Single project file (raw content)',
+        mimeType: 'text/plain',
+      },
       { uriTemplate: 'skill://{slug}', name: 'skill', description: 'Skill manifest by slug', mimeType: 'text/markdown' },
     ];
   }
@@ -69,6 +127,32 @@ export class McpResourcesService {
         description: p.description,
         mimeType: 'application/json',
       });
+      // Enumerate per-project files (capped) so MCP clients can discover them
+      // without an additional tools/call round-trip.
+      try {
+        const filesResp = (await this.deps.projects.listFiles(p.slug, host)) as {
+          files?: Array<{
+            stored_name?: string;
+            description?: string | null;
+            mime_type?: string | null;
+          }>;
+        };
+        const files = filesResp?.files ?? [];
+        for (const f of files.slice(0, PROJECT_FILES_LIST_CAP)) {
+          const storedName = typeof f.stored_name === 'string' ? f.stored_name : '';
+          if (!storedName) continue;
+          const mime = (typeof f.mime_type === 'string' && f.mime_type) || 'text/plain';
+          const descr = typeof f.description === 'string' ? f.description : '';
+          resources.push({
+            uri: buildProjectFileUri(p.slug, storedName),
+            name: storedName,
+            description: descr,
+            mimeType: mime,
+          });
+        }
+      } catch {
+        // Skip projects whose file listing fails — keep the top-level entry.
+      }
     }
     for (const s of skills.skills as Array<Record<string, unknown>>) {
       const slug = String(s['slug'] ?? '');
@@ -84,7 +168,8 @@ export class McpResourcesService {
   }
 
   async read(uri: string, host: Host): Promise<ResourceReadResponse> {
-    const { scheme, id } = parseUri(uri);
+    const parsed = parseUri(uri);
+    const { scheme, id } = parsed;
     if (scheme === 'memory') {
       const result = await this.deps.memories.retrieve({ id }, host);
       return {
@@ -99,6 +184,21 @@ export class McpResourcesService {
       };
     }
     if (scheme === 'project') {
+      if (parsed.projectFile) {
+        const { file } = await this.deps.projects.readFile(
+          id,
+          { storedName: parsed.projectFile.storedName },
+          host,
+        );
+        const mime = file.mime_type ?? 'text/plain';
+        const content: ResourceContent = {
+          uri,
+          name: file.stored_name,
+          mimeType: isBinaryMime(mime) ? 'application/octet-stream' : mime,
+          text: file.content,
+        };
+        return { contents: [content] };
+      }
       const bootstrap = await this.deps.projects.bootstrap(id, host);
       return {
         contents: [

@@ -22,6 +22,28 @@ const stubProjects = {
   upsertNote: async () => ({ note: {} }),
   createTodo: async () => ({ todo: {} }),
   createFeedback: async () => ({ feedback: {} }),
+  listFiles: async (slug: string) => ({ project: slug, files: [] }),
+  readFile: async (slug: string, locator: { storedName?: string | null; id?: number | null }) => ({
+    project: slug,
+    file: {
+      id: 1,
+      project_id: 1,
+      stored_name: locator.storedName ?? 'file.txt',
+      description: null,
+      content: 'hello-world',
+      content_sha256: 'sha',
+      mime_type: 'text/plain',
+      size_bytes: 11,
+      source_host_id: null,
+      created_at: null,
+      updated_at: null,
+    },
+  }),
+  upsertFile: async (slug: string, payload: Record<string, unknown>) => ({
+    project: slug,
+    file: { id: 1, stored_name: payload['stored_name'] ?? 'a.txt', content: payload['content'] ?? '' },
+  }),
+  deleteFile: async (slug: string, id: number) => ({ project: slug, deleted: id }),
 } as unknown as HostProjectsService;
 
 const stubSkills = {
@@ -42,6 +64,44 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('memory_delete');
     expect(list).toContain('skill_list');
     expect(list).toContain('project_bootstrap');
+  });
+
+  it('registers the project_file_* CRUD tools', () => {
+    const list = registry.list().map((t) => t.name);
+    expect(list).toContain('project_file_list');
+    expect(list).toContain('project_file_read');
+    expect(list).toContain('project_file_upsert');
+    expect(list).toContain('project_file_delete');
+  });
+
+  it('dispatch project_file_read returns the file content', async () => {
+    const r = await registry.dispatch(
+      'project_file_read',
+      { slug: 'demo', stored_name: 'README.md' },
+      host,
+    );
+    expect(r).toMatchObject({ isError: false });
+    const text = (r as { content: Array<{ text: string }> }).content[0]!.text;
+    expect(text).toContain('hello-world');
+    expect(text).toContain('README.md');
+  });
+
+  it('dispatch project_file_upsert echoes stored_name + content', async () => {
+    const r = await registry.dispatch(
+      'project_file_upsert',
+      { slug: 'demo', stored_name: 'NOTES.md', content: 'new body' },
+      host,
+    );
+    expect(r).toMatchObject({ isError: false });
+    const text = (r as { content: Array<{ text: string }> }).content[0]!.text;
+    expect(text).toContain('NOTES.md');
+    expect(text).toContain('new body');
+  });
+
+  it('dispatch project_file_delete returns the deleted id', async () => {
+    const r = await registry.dispatch('project_file_delete', { slug: 'demo', id: 42 }, host);
+    expect(r).toMatchObject({ isError: false });
+    expect((r as { content: Array<{ text: string }> }).content[0]!.text).toContain('42');
   });
 
   it('reports has() correctly for known + unknown tools', () => {

@@ -413,6 +413,37 @@ export class HostProjectsService {
     return { project: project.slug, files };
   }
 
+  async readFile(
+    slug: string,
+    locator: { storedName?: string | null; id?: number | null },
+    host: Host,
+  ): Promise<{ project: string; file: FileRow }> {
+    const project = await this.requireProject(slug);
+    let file: FileRow | null = null;
+    if (typeof locator.id === 'number' && Number.isFinite(locator.id) && locator.id > 0) {
+      file = await this.fetchFileById(project.id, locator.id);
+    } else if (typeof locator.storedName === 'string' && locator.storedName.trim() !== '') {
+      const storedName = this.normalizeStoredName(locator.storedName);
+      const rows = await this.db
+        .select()
+        .from(coordProjectFiles)
+        .where(and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.storedName, storedName)))
+        .limit(1);
+      file = rows[0] ? this.hydrateFile(rows[0]) : null;
+    } else {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { locator: ['stored_name or id is required'] } },
+      });
+    }
+    if (!file) throw new NotFoundError('Project file not found');
+    await this.recordLog(host.id, 'project.file.read', {
+      slug: project.slug,
+      file_id: file.id,
+      stored_name: file.stored_name,
+    });
+    return { project: project.slug, file };
+  }
+
   async upsertFile(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const { storedName, description, content, mimeType } = this.normalizeFilePayload(payload);
