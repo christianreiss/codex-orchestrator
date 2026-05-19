@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   buildLegacyWrapperShimScript,
+  buildWrapperV2InstallerScript,
   isLegacyShellWrapperVersion,
   withLegacyShellWrapperTransition,
 } from '../../../src/services/wrapper-transition.js';
@@ -61,6 +62,18 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('CONFIG_FILE=\'cdx.json\'');
     expect(out).toContain('INSTALL_MODE=shim');
     expect(out).toContain('exec "$TARGET_BIN" "$@"');
+  });
+
+  it('installer warns when a shell may still resolve an older wrapper', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('command -v "$NAME"');
+    expect(out).toContain('this shell resolves $NAME to $RESOLVED_BIN');
+    expect(out).toContain('If your shell cached an older $NAME');
   });
 
   it('emits POSIX shell syntax that sh can parse', () => {

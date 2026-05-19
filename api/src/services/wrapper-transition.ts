@@ -231,7 +231,14 @@ if [ "$INSTALL_MODE" = "shim" ]; then
   exec "$TARGET_BIN" "$@"
 fi
 
-"$TARGET_BIN" status || true`;
+"$TARGET_BIN" status || true
+
+RESOLVED_BIN=$(command -v "$NAME" 2>/dev/null || true)
+if [ -n "$RESOLVED_BIN" ] && [ "$RESOLVED_BIN" != "$TARGET_BIN" ]; then
+  echo ">> Note: this shell resolves $NAME to $RESOLVED_BIN, not $TARGET_BIN."
+  echo ">> Put $BIN_ROOT earlier in PATH or run directly: $TARGET_BIN run"
+fi
+echo ">> If your shell cached an older $NAME, run: hash -r 2>/dev/null || rehash 2>/dev/null || true"`;
 }
 
 function binaryName(engine: Engine): 'cdx' | 'clx' {
