@@ -611,6 +611,10 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 	if current == target {
 		return ""
 	}
+	// See the cdx-side counterpart: defer "latest" alias upgrades to cron.
+	if target == "" || target == "latest" {
+		return ""
+	}
 	if current == "" || current == "unknown" {
 		fmt.Fprintf(os.Stderr, "clx: installing claude CLI %s…\n", target)
 	} else {

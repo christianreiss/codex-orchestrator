@@ -661,6 +661,16 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	if current == target {
 		return ""
 	}
+	// `target == "latest"` is a moving alias; the wrapper can't tell whether
+	// the locally-installed version matches without a GitHub round-trip,
+	// which EnsureCodex does unconditionally. Doing that on every
+	// interactive `cdx run` is wasteful (5–10 s reinstall every launch).
+	// Defer "latest" upgrades to the cron tick, where the cost is amortised
+	// once per day. Interactive runs only auto-update when the target is a
+	// specific version the wrapper can string-match.
+	if target == "" || target == "latest" {
+		return ""
+	}
 	// EnsureCodex is a 5-10s blocking operation when an install actually
 	// downloads from GitHub. Surface a single human-readable progress line
 	// on stderr so the user knows what's happening — the structured-log
