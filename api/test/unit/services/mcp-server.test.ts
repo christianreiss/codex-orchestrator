@@ -68,10 +68,9 @@ describe('McpServer.handlePayload', () => {
     expect((r as { error: { code: number } }).error.code).toBe(-32700);
   });
 
-  it('handles tools/call missing tool with isError wrap', async () => {
+  it('handles tools/call for unknown tool with -32601 method-not-found', async () => {
     const r = await server.handlePayload({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'nope' } }, ctx);
-    const result = (r as { result: { isError: boolean } }).result;
-    expect(result.isError).toBe(true);
+    expect((r as { error: { code: number } }).error.code).toBe(-32601);
   });
 
   it('returns null for notifications batch (no responses)', async () => {

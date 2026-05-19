@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerMcpRoutes } from '../../../src/routes/mcp/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
@@ -25,7 +28,14 @@ function makeStubHost(): Host {
   } as unknown as Host;
 }
 
-async function buildApp(mcpAllow = false): Promise<FastifyInstance> {
+interface BuildOpts {
+  mcpAllow?: boolean;
+  operatorToken?: string;
+  fsRoot?: string;
+}
+
+async function buildApp(opts: BuildOpts | boolean = {}): Promise<FastifyInstance> {
+  const o: BuildOpts = typeof opts === 'boolean' ? { mcpAllow: opts } : opts;
   const app = Fastify({ logger: false });
   await app.register(envelopePlugin);
 
@@ -62,7 +72,14 @@ async function buildApp(mcpAllow = false): Promise<FastifyInstance> {
 
   const ctx: RouteContext = {
     db: fakeDb as never,
-    env: { MCP_ALLOW_REQUEST_HOST_ORIGIN: mcpAllow } as never,
+    env: {
+      MCP_ALLOW_REQUEST_HOST_ORIGIN: o.mcpAllow ?? false,
+      MCP_OPERATOR_TOKEN: o.operatorToken,
+      MCP_FS_ROOT: o.fsRoot,
+      MCP_FS_MAX_READ_BYTES: 1024 * 1024,
+      MCP_FS_MAX_LIST_ENTRIES: 1000,
+      MCP_FS_MAX_SEARCH_HITS: 200,
+    } as never,
     keyring: {} as never,
   };
   await registerMcpRoutes(app, ctx);
@@ -118,6 +135,127 @@ describe('MCP transport', () => {
       expect(body.jsonrpc).toBe('2.0');
       expect(body.result?.protocolVersion).toBeDefined();
     }
+    await app.close();
+  });
+});
+
+describe('MCP capability split', () => {
+  let fsRoot: string;
+  const OPERATOR_TOKEN = 'op-' + 'z'.repeat(48);
+
+  beforeAll(() => {
+    fsRoot = mkdtempSync(join(tmpdir(), 'mcp-cap-'));
+    writeFileSync(join(fsRoot, 'hello.txt'), 'hi from operator');
+  });
+
+  afterAll(() => {
+    rmSync(fsRoot, { recursive: true, force: true });
+  });
+
+  it('tools/list returns only host tools without operator bearer', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN, fsRoot });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: 'Bearer host-session-token' },
+      payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    const names: string[] = body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('memory_store');
+    expect(names).not.toContain('fs_read_file');
+    expect(names).not.toContain('fs_write_file');
+    await app.close();
+  });
+
+  it('tools/list returns host + operator tools with valid operator bearer', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN, fsRoot });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    const names: string[] = body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('memory_store');
+    expect(names).toContain('fs_read_file');
+    expect(names).toContain('fs_search_in_files');
+    await app.close();
+  });
+
+  it('tools/call on an operator tool from a host caller returns -32601 (not-found)', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN, fsRoot });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: 'Bearer host-session-token' },
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'fs_read_file', arguments: { path: 'hello.txt' } },
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.error?.code).toBe(-32601);
+    // Must not contain content (so existence does not leak).
+    expect(body.result).toBeUndefined();
+    await app.close();
+  });
+
+  it('tools/call on an operator tool succeeds with operator bearer', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN, fsRoot });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'fs_read_file', arguments: { path: 'hello.txt' } },
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.result?.isError).toBe(false);
+    const text: string = body.result.content[0].text;
+    expect(text).toContain('hi from operator');
+    await app.close();
+  });
+
+  it('without MCP_FS_ROOT, fs_* tools are not registered even for operators', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    });
+    const body = JSON.parse(r.payload);
+    const names: string[] = body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).not.toContain('fs_read_file');
+    // memory_store is still listed.
+    expect(names).toContain('memory_store');
+
+    // Operator caller invoking fs_read_file gets -32601 (tool not registered).
+    const r2 = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      payload: {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'fs_read_file', arguments: { path: 'x' } },
+      },
+    });
+    const body2 = JSON.parse(r2.payload);
+    expect(body2.error?.code).toBe(-32601);
     await app.close();
   });
 });

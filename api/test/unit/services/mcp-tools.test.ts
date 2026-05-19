@@ -3,6 +3,7 @@ import { McpToolsRegistry, wrapContent } from '../../../src/services/mcp-tools.j
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
+import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -74,5 +75,71 @@ describe('McpToolsRegistry', () => {
   it('wrapContent preserves an already-wrapped content envelope', () => {
     const x = wrapContent({ content: [{ type: 'text', text: 'hi' }] });
     expect(x).toMatchObject({ isError: false });
+  });
+
+  describe('capability gating', () => {
+    const stubFs = {
+      readFile: async () => ({ path: 'a.txt', content: 'x', size: 1, sha256: 'h', truncated: false }),
+      writeFile: async () => ({ path: 'a.txt', bytes_written: 1 }),
+      listDir: async () => ({ path: '.', entries: [], truncated: false }),
+      fileExists: async () => ({ path: 'a.txt', exists: false }),
+      stat: async () => ({ path: 'a.txt', type: 'file' as const, size: 0, mode: 0, mtime: '', ctime: '', uid: 0, gid: 0 }),
+      searchInFiles: async () => ({ path: '.', matches: [], truncated: false }),
+    } as unknown as McpFsTools;
+
+    const reg = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: stubSkills,
+      fs: stubFs,
+    });
+
+    it('exposes only host tools to a host caller', () => {
+      const hostNames = reg.list('host').map((t) => t.name);
+      expect(hostNames).toContain('memory_store');
+      expect(hostNames).toContain('skill_list');
+      // Operator-only fs_* tools must be invisible.
+      expect(hostNames).not.toContain('fs_read_file');
+      expect(hostNames).not.toContain('fs_write_file');
+      expect(hostNames).not.toContain('fs_list_dir');
+      expect(hostNames).not.toContain('fs_stat');
+      expect(hostNames).not.toContain('fs_file_exists');
+      expect(hostNames).not.toContain('fs_search_in_files');
+    });
+
+    it('exposes operator + host tools to an operator caller', () => {
+      const names = reg.list('operator').map((t) => t.name);
+      expect(names).toContain('memory_store');
+      expect(names).toContain('fs_read_file');
+      expect(names).toContain('fs_write_file');
+      expect(names).toContain('fs_list_dir');
+      expect(names).toContain('fs_stat');
+      expect(names).toContain('fs_file_exists');
+      expect(names).toContain('fs_search_in_files');
+    });
+
+    it('has() respects capability', () => {
+      expect(reg.has('fs_read_file', 'host')).toBe(false);
+      expect(reg.has('fs_read_file', 'operator')).toBe(true);
+      expect(reg.has('memory_store', 'host')).toBe(true);
+      expect(reg.has('memory_store', 'operator')).toBe(true);
+    });
+
+    it('dispatch rejects operator tools from a host caller as method-not-found', async () => {
+      const r = await reg.dispatch('fs_read_file', { path: 'x' }, host, 'host');
+      expect((r as { isError: boolean }).isError).toBe(true);
+      expect((r as { content: Array<{ text: string }> }).content[0]!.text).toMatch(/not found/i);
+    });
+
+    it('dispatch allows operator callers to invoke operator tools', async () => {
+      const r = await reg.dispatch('fs_read_file', { path: 'x' }, host, 'operator');
+      expect((r as { isError: boolean }).isError).toBe(false);
+    });
+
+    it('registry built without fs deps does not expose fs_* at all', () => {
+      const noFs = new McpToolsRegistry({ memories: stubMemories, projects: stubProjects, skills: stubSkills });
+      const opNames = noFs.list('operator').map((t) => t.name);
+      expect(opNames).not.toContain('fs_read_file');
+    });
   });
 });

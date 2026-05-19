@@ -115,6 +115,19 @@ const schema = z
     RUN_MIGRATIONS_ON_BOOT: boolish.default(false),
     RUN_BACKFILLS_ON_BOOT: boolish.default(false),
 
+    // MCP operator-capability auth + filesystem tools.
+    // When MCP_OPERATOR_TOKEN is set, requests presenting `Authorization:
+    // Bearer <token>` matching it are granted operator capability (full tool
+    // registry). All other authenticated callers stay at host capability.
+    MCP_OPERATOR_TOKEN: z.string().optional(),
+    // fs_* tools are only registered when MCP_FS_ROOT resolves to an existing
+    // directory. Every path argument is confined to this root after symlink
+    // resolution.
+    MCP_FS_ROOT: z.string().optional(),
+    MCP_FS_MAX_READ_BYTES: intish(1024 * 1024),
+    MCP_FS_MAX_LIST_ENTRIES: intish(1000),
+    MCP_FS_MAX_SEARCH_HITS: intish(200),
+
     // Default engines
     DEFAULT_HOST_ENGINES: z.string().default('codex'),
 
