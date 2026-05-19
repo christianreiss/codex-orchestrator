@@ -90,6 +90,18 @@ describe('wrapper transition helpers', () => {
     expect(out).not.toContain('BIN_DIR=${BIN_DIR:-$HOME/.local/bin}');
   });
 
+  it('installer replaces a canonical path symlink before cleanup', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('if [ -L "$dst" ]; then');
+    expect(out).toContain('sudo rm -f "$dst"');
+    expect(out).toContain('if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then');
+  });
+
   it('installer removes known per-user and global stale wrapper relics', () => {
     const out = buildWrapperV2InstallerScript({
       fqdn: 'h.example',

@@ -127,6 +127,13 @@ ensure_bin_root() {
 install_bin() {
   src=$1
   dst=$2
+  if [ -L "$dst" ]; then
+    if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+      sudo rm -f "$dst"
+    else
+      rm -f "$dst"
+    fi
+  fi
   if [ "$INSTALL_WITH_SUDO" = "1" ]; then
     sudo install -m 755 "$src" "$dst"
   else
@@ -264,7 +271,7 @@ cleanup_known_relics() {
   done
 }
 
-if [ -x "$TARGET_BIN" ]; then
+if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
   EXISTING_SHA=$(sha256_file "$TARGET_BIN" || true)
   if [ "$EXISTING_SHA" = "$BINARY_SHA256" ]; then
     if [ "$INSTALL_MODE" = "shim" ]; then

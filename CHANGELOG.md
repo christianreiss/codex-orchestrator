@@ -1,4 +1,5 @@
 # 2026-05-19
+- Wrapper v2 installer: hardened cleanup for legacy symlink layouts where `/usr/local/bin/cdx` pointed at `/usr/local/sbin/cdx`; canonical symlinks are now replaced with a real wrapper binary before relic cleanup removes the old target path.
 - Wrapper v2 installer: after a canonical `/usr/local/bin` install, stale or duplicate wrapper relics in the installing user's `~/.local/bin` and `/usr/local/sbin` are now removed when possible, with explicit `sudo rm` remediation when they cannot be cleaned automatically.
 - Wrapper v2 installer: system install is now the default. Fresh `cdx`/`clx` installs target `/usr/local/bin` and use passwordless sudo when required, avoiding one wrapper copy per user on shared hosts; per-user installs now require an explicit `BIN_DIR=...` override.
 - Wrapper v2 installer: after installing the Go wrapper, the generated installer now warns when the current shell may still resolve or cache another `cdx`/`clx` binary, and prints the direct installed path so operators can bypass stale shell hashes.
