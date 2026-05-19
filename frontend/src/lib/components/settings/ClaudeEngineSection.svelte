@@ -11,8 +11,6 @@
     claudeSettingsQuery,
     claudeStateMutation,
     claudeStateQuery,
-    claudeVersionMutation,
-    claudeVersionQuery,
   } from "$lib/api/settings";
 
   /* ---------------- engine toggle ---------------- */
@@ -56,52 +54,22 @@
     });
   }
 
-  /* ---------------- claude version ---------------- */
-  const versionQ = claudeVersionQuery();
-  const versionM = claudeVersionMutation({
-    onSuccess: () => {
-      lastSavedAt = new Date();
-      toast.success("Claude version saved");
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  let versionInput = $state("");
-  let lockedInput = $state(false);
-  let initializedVersion = false;
-
-  $effect(() => {
-    const d = $versionQ.data;
-    if (d && !initializedVersion) {
-      versionInput = d.version ?? "";
-      lockedInput = d.locked;
-      initializedVersion = true;
-    }
-  });
-
-  function saveVersion() {
-    $versionM.mutate({
-      version: versionInput.trim() === "" ? null : versionInput.trim(),
-      locked: lockedInput,
-    });
-  }
-
   const status = $derived.by(() => {
-    if ($stateM.isPending || $settingsM.isPending || $versionM.isPending) return "saving" as const;
-    if ($stateM.isError || $settingsM.isError || $versionM.isError) return "error" as const;
-    if ($stateM.isSuccess || $settingsM.isSuccess || $versionM.isSuccess) return "saved" as const;
+    if ($stateM.isPending || $settingsM.isPending) return "saving" as const;
+    if ($stateM.isError || $settingsM.isError) return "error" as const;
+    if ($stateM.isSuccess || $settingsM.isSuccess) return "saved" as const;
     return "idle" as const;
   });
 
   const errorMsg = $derived(
-    $stateM.error?.message ?? $settingsM.error?.message ?? $versionM.error?.message ?? null,
+    $stateM.error?.message ?? $settingsM.error?.message ?? null,
   );
 </script>
 
 <SectionCard
   id="claude-engine"
   title="Claude engine"
-  description="Claude API state, default model, max tokens, and fleet wrapper version."
+  description="Claude API state, default model, and max tokens."
   {status}
   savedAt={lastSavedAt}
   error={errorMsg}
@@ -136,34 +104,5 @@
     <div>
       <Button size="sm" disabled={$settingsM.isPending} onclick={saveSettings}>Save model defaults</Button>
     </div>
-  </div>
-
-  <Separator />
-
-  <div class="grid gap-3">
-    <p class="text-sm font-medium">Claude wrapper version</p>
-    <div class="grid gap-3 sm:grid-cols-[1fr_auto]">
-      <div class="grid gap-1.5">
-        <Label for="claude-version">Version</Label>
-        <Input id="claude-version" bind:value={versionInput} placeholder="e.g. 0.2.4 or empty for latest" />
-      </div>
-      <div class="flex items-end gap-2 pb-0.5">
-        <SwitchRow
-          id="claude-version-locked"
-          label="Lock"
-          description="Pin fleet to this exact version"
-          checked={lockedInput}
-          onCheckedChange={(v) => (lockedInput = v)}
-        />
-      </div>
-    </div>
-    <div>
-      <Button size="sm" disabled={$versionM.isPending} onclick={saveVersion}>Save Claude version</Button>
-    </div>
-    {#if $versionQ.data?.updated_at}
-      <p class="text-xs text-muted-foreground">
-        Last set at <span class="tabular-nums">{$versionQ.data.updated_at}</span>
-      </p>
-    {/if}
   </div>
 </SectionCard>
