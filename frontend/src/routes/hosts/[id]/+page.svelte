@@ -104,6 +104,7 @@
   let agentsDialogOpen = $state(false);
   let installerDialogOpen = $state(false);
   let installerResult = $state<InstallerInfo | null>(null);
+  let installerEngines = $state<Array<"codex" | "claude"> | undefined>(undefined);
   let seedAuthOpen = $state(false);
 
   async function doDelete(): Promise<void> {
@@ -123,6 +124,7 @@
 
   async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
     try {
+      installerEngines = engines ? [...engines] : undefined;
       const result = await $mintInstaller.mutateAsync({ id, engines });
       installerResult = result.installer;
       installerDialogOpen = true;
@@ -131,6 +133,10 @@
       const msg = err instanceof Error ? err.message : "Installer mint failed";
       toast.error(msg);
     }
+  }
+
+  async function recreateInstaller(): Promise<void> {
+    await doMintInstaller(installerEngines);
   }
 
   async function copyInstallerCommand(): Promise<void> {
@@ -588,6 +594,9 @@
         </div>
       </div>
       <Dialog.Footer>
+        <Button variant="secondary" onclick={recreateInstaller} disabled={$mintInstaller.isPending}>
+          <RefreshCw class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Re-create"}
+        </Button>
         <Button variant="outline" onclick={copyInstallerUrl} disabled={!installerResult?.url}>
           <Copy class="h-4 w-4" /> Copy URL
         </Button>
