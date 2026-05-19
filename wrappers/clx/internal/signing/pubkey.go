@@ -5,9 +5,9 @@ package signing
 import (
 	"crypto/ed25519"
 	"crypto/x509"
+	_ "embed"
 	"encoding/pem"
 	"errors"
-	_ "embed"
 )
 
 //go:embed pubkey.pem

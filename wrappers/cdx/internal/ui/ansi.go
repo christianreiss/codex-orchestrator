@@ -123,8 +123,8 @@ func DetectCaps(adminTheme string) Caps {
 		BoxTL: "╭", BoxTR: "╮", BoxBL: "╰", BoxBR: "╯", BoxH: "─", BoxV: "│",
 		BarFill: "█", BarEmpty: "░",
 		DotOK: "●", DotWarn: "●", DotFail: "●",
-		DotUp:   "⬆",
-		IconOK:  "✅", IconWarn: "⚠", IconFail: "⛔", IconSpark: "⚡",
+		DotUp:  "⬆",
+		IconOK: "✅", IconWarn: "⚠", IconFail: "⛔", IconSpark: "⚡",
 	}
 	if dumb || !utf8 {
 		g = BannerGlyphs{

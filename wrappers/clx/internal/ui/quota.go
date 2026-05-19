@@ -12,14 +12,14 @@ const BarWidth = 24
 
 // QuotaRow describes one quota bar (5h, weekly, daily allowance, …).
 type QuotaRow struct {
-	Label       string // "5h", "weekly", "⚡ 5h", …
-	Used        int    // 0..100
-	ResetAfter  time.Duration
-	Lane        string // "normal" | "spark"  (informational)
-	Note        string // free-form trailing dim text
-	Projection  string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
-	WarnAtPct   int    // default 80
-	BlockAtPct  int    // default 95
+	Label      string // "5h", "weekly", "⚡ 5h", …
+	Used       int    // 0..100
+	ResetAfter time.Duration
+	Lane       string // "normal" | "spark"  (informational)
+	Note       string // free-form trailing dim text
+	Projection string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
+	WarnAtPct  int    // default 80
+	BlockAtPct int    // default 95
 }
 
 // PrintQuotaRow renders "  label   pct% [bar]  resetLabel  note".
