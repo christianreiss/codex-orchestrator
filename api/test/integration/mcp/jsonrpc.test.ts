@@ -25,7 +25,13 @@ function makeStubHost(): Host {
   } as unknown as Host;
 }
 
-async function buildApp(mcpAllow = false): Promise<FastifyInstance> {
+interface BuildOpts {
+  mcpAllow?: boolean;
+  operatorToken?: string;
+}
+
+async function buildApp(opts: BuildOpts | boolean = {}): Promise<FastifyInstance> {
+  const o: BuildOpts = typeof opts === 'boolean' ? { mcpAllow: opts } : opts;
   const app = Fastify({ logger: false });
   await app.register(envelopePlugin);
 
@@ -62,7 +68,10 @@ async function buildApp(mcpAllow = false): Promise<FastifyInstance> {
 
   const ctx: RouteContext = {
     db: fakeDb as never,
-    env: { MCP_ALLOW_REQUEST_HOST_ORIGIN: mcpAllow } as never,
+    env: {
+      MCP_ALLOW_REQUEST_HOST_ORIGIN: o.mcpAllow ?? false,
+      MCP_OPERATOR_TOKEN: o.operatorToken,
+    } as never,
     keyring: {} as never,
   };
   await registerMcpRoutes(app, ctx);
@@ -117,6 +126,26 @@ describe('MCP transport', () => {
       const body = JSON.parse(r.payload);
       expect(body.jsonrpc).toBe('2.0');
       expect(body.result?.protocolVersion).toBeDefined();
+    }
+    await app.close();
+  });
+
+  it('host-capability callers receive the host tool catalog', async () => {
+    const app = await buildApp({ mcpAllow: true, operatorToken: 'op-' + 'z'.repeat(48) });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { authorization: 'Bearer host-session-token' },
+      payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    const names: string[] = body.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('memory_store');
+    expect(names).toContain('skill_list');
+    // Each entry now carries an explicit capability tag.
+    for (const t of body.result.tools as Array<{ capability: string }>) {
+      expect(['host', 'operator']).toContain(t.capability);
     }
     await app.close();
   });

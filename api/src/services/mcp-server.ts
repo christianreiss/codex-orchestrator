@@ -2,7 +2,7 @@
  * MCP JSON-RPC 2.0 dispatcher.
  */
 import type { Host } from '../db/schema.js';
-import type { McpToolsRegistry } from './mcp-tools.js';
+import type { Capability, McpToolsRegistry } from './mcp-tools.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { McpAccessLogService } from './mcp-access-log.js';
 
@@ -24,6 +24,12 @@ export interface DispatchContext {
   host: Host;
   clientIp: string | null;
   serverVersion: string;
+  /**
+   * Caller capability. Defaults to 'host' when omitted so tests + callers
+   * that pre-date the split stay restrictive. The MCP route resolves this
+   * from the bearer token (matches MCP_OPERATOR_TOKEN → 'operator').
+   */
+  capability?: Capability;
 }
 
 export class McpServer {
@@ -70,6 +76,7 @@ export class McpServer {
       raw.params && typeof raw.params === 'object' && !Array.isArray(raw.params)
         ? (raw.params as Record<string, unknown>)
         : {};
+    const capability: Capability = ctx.capability ?? 'host';
     let response: JsonRpcResponse | null = null;
     let logName: string | null = null;
     let logSuccess = true;
@@ -98,7 +105,7 @@ export class McpServer {
         case 'tools/list':
         case 'tools.list':
         case 'list_tools': {
-          response = okResponse(id, { tools: this.tools.list() });
+          response = okResponse(id, { tools: this.tools.list(capability) });
           break;
         }
         case 'tools/call':
@@ -112,12 +119,16 @@ export class McpServer {
             logSuccess = false;
             break;
           }
-          if (!this.tools.has(name)) {
-            response = okResponse(id, { isError: true, content: [{ type: 'text', text: 'Method not found: ' + name }] });
+          // has() applies capability filtering so operator-only tools look
+          // like method-not-found to host callers (no leak of existence).
+          if (!this.tools.has(name, capability)) {
+            response = errorResponse(id, -32601, 'Method not found', { tool: name });
             logSuccess = false;
+            logErrorCode = -32601;
+            logErrorMessage = 'Method not found';
             break;
           }
-          const result = await this.tools.dispatch(name, args, ctx.host);
+          const result = await this.tools.dispatch(name, args, ctx.host, capability);
           response = okResponse(id, result);
           if (typeof result === 'object' && result !== null && (result as { isError?: boolean }).isError === true) {
             logSuccess = false;

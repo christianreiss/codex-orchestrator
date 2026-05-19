@@ -115,6 +115,12 @@ const schema = z
     RUN_MIGRATIONS_ON_BOOT: boolish.default(false),
     RUN_BACKFILLS_ON_BOOT: boolish.default(false),
 
+    // MCP operator-capability auth. When MCP_OPERATOR_TOKEN is set, requests
+    // presenting `Authorization: Bearer <token>` matching it are granted
+    // operator capability (full tool registry). All other authenticated
+    // callers stay at host capability.
+    MCP_OPERATOR_TOKEN: z.string().optional(),
+
     // Default engines
     DEFAULT_HOST_ENGINES: z.string().default('codex'),
 

@@ -1,5 +1,11 @@
 /**
- * MCP tool registry + dispatcher (host capability).
+ * MCP tool registry + dispatcher.
+ *
+ * Tools are tagged with a capability: `host` (default) for normal wrapper
+ * clients, `operator` for trusted callers who present the operator bearer
+ * token. The registry exposes only the subset matching the caller's
+ * capability — operator-only tools are invisible to host callers (not just
+ * blocked) so their existence does not leak.
  */
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
@@ -9,10 +15,14 @@ import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
+export type Capability = 'host' | 'operator';
+
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** Defaults to 'host' when omitted. */
+  capability?: Capability;
 }
 
 export interface ToolDeps {
@@ -27,32 +37,59 @@ export type ToolResult =
 
 type ToolHandler = (args: Record<string, unknown>, host: Host) => Promise<unknown>;
 
+interface ToolEntry {
+  definition: ToolDefinition;
+  handler: ToolHandler;
+  capability: Capability;
+}
+
 export class McpToolsRegistry {
-  private definitions: ToolDefinition[];
-  private handlers: Map<string, ToolHandler>;
+  private entries: Map<string, ToolEntry>;
 
   constructor(deps: ToolDeps) {
-    this.definitions = buildDefinitions();
-    this.handlers = buildHandlers(deps);
+    this.entries = buildEntries(deps);
   }
 
-  list(): ToolDefinition[] {
-    return this.definitions.slice();
+  /**
+   * Return tool definitions visible to the given capability. Operator-only
+   * tools are filtered out for host callers. Defaults to 'host' so accidental
+   * omission stays safe.
+   */
+  list(capability: Capability = 'host'): ToolDefinition[] {
+    const out: ToolDefinition[] = [];
+    for (const entry of this.entries.values()) {
+      if (!canAccess(capability, entry.capability)) continue;
+      out.push(entry.definition);
+    }
+    return out;
   }
 
-  has(name: string): boolean {
-    return this.handlers.has(this.normalizeName(name));
+  /**
+   * Check whether `name` is callable at `capability`. Operator tools return
+   * false for host callers (so the dispatcher can answer method-not-found
+   * without leaking existence).
+   */
+  has(name: string, capability: Capability = 'host'): boolean {
+    let normalized: string;
+    try {
+      normalized = this.normalizeName(name);
+    } catch {
+      return false;
+    }
+    const entry = this.entries.get(normalized);
+    if (!entry) return false;
+    return canAccess(capability, entry.capability);
   }
 
-  async dispatch(name: string, args: unknown, host: Host): Promise<ToolResult> {
+  async dispatch(name: string, args: unknown, host: Host, capability: Capability = 'host'): Promise<ToolResult> {
     const normalized = this.normalizeName(name);
-    const handler = this.handlers.get(normalized);
-    if (!handler) {
+    const entry = this.entries.get(normalized);
+    if (!entry || !canAccess(capability, entry.capability)) {
       return wrapContent('Method not found: ' + name, true);
     }
     const argsObj = normalizeArgs(normalized, args);
     try {
-      const result = await handler(argsObj, host);
+      const result = await entry.handler(argsObj, host);
       return wrapContent(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -66,6 +103,11 @@ export class McpToolsRegistry {
     if (!TOOL_NAME_RE.test(normalized)) throw new Error('Tool name must match ' + String(TOOL_NAME_RE));
     return normalized;
   }
+}
+
+function canAccess(caller: Capability, required: Capability): boolean {
+  if (required === 'host') return true; // host tools are visible to operators too
+  return caller === 'operator';
 }
 
 export function wrapContent(data: unknown, isError = false): ToolResult {
@@ -115,46 +157,17 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
   }
 }
 
-function buildHandlers(deps: ToolDeps): Map<string, ToolHandler> {
-  const handlers = new Map<string, ToolHandler>();
-  handlers.set('memory_store', async (args, host) => deps.memories.store(args, host));
-  handlers.set('memory_retrieve', async (args, host) => deps.memories.retrieve(args, host));
-  handlers.set('memory_search', async (args, host) => deps.memories.search(args, host));
-  handlers.set('memory_delete', async (args, host) => deps.memories.delete(args, host));
-
-  handlers.set('project_list', async (_args, host) => deps.projects.listProjects(host));
-  handlers.set('project_bootstrap', async (args, host) => deps.projects.bootstrap(String(args['slug'] ?? ''), host));
-  handlers.set('project_detail', async (args, host) => deps.projects.projectDetail(String(args['slug'] ?? ''), host));
-  handlers.set('project_changes', async (args, host) =>
-    deps.projects.listChanges(String(args['slug'] ?? ''), Number(args['since'] ?? 0), host),
-  );
-  handlers.set('project_create', async (args, host) => deps.projects.createProject(args, host));
-  handlers.set('project_note_create', async (args, host) =>
-    deps.projects.upsertNote(String(args['slug'] ?? ''), null, args, host),
-  );
-  handlers.set('project_todo_create', async (args, host) =>
-    deps.projects.createTodo(String(args['slug'] ?? ''), args, host),
-  );
-  handlers.set('project_feedback_create', async (args, host) =>
-    deps.projects.createFeedback(String(args['slug'] ?? ''), args, host),
-  );
-
-  handlers.set('skill_list', async (args, host) => {
-    const engine = isEngine(args['engine']) ? (args['engine'] as Engine) : ENGINE_CODEX;
-    return deps.skills.listSkills(host, engine);
-  });
-  handlers.set('skill_retrieve', async (args, host) => {
-    const slug = String(args['slug'] ?? '');
-    const sha = typeof args['sha256'] === 'string' ? args['sha256'] : null;
-    return deps.skills.retrieve(slug, sha, host);
-  });
-
-  return handlers;
+interface RegistrationInput {
+  definition: ToolDefinition;
+  handler: ToolHandler;
 }
 
-function buildDefinitions(): ToolDefinition[] {
-  return [
-    {
+function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
+  const inputs: RegistrationInput[] = [];
+
+  // Host-capability tools (memory_*, project_*, skill_*).
+  inputs.push({
+    definition: {
       name: 'memory_store',
       description: 'Store MCP memory content with optional tags and metadata',
       inputSchema: {
@@ -168,7 +181,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['content'],
       },
     },
-    {
+    handler: async (args, host) => deps.memories.store(args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'memory_retrieve',
       description: 'Retrieve a stored memory by id',
       inputSchema: {
@@ -177,7 +193,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['id'],
       },
     },
-    {
+    handler: async (args, host) => deps.memories.retrieve(args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'memory_search',
       description: 'Search stored memories by full-text query and optional tags',
       inputSchema: {
@@ -190,7 +209,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['query'],
       },
     },
-    {
+    handler: async (args, host) => deps.memories.search(args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'memory_delete',
       description: 'Delete a stored memory by id (soft delete)',
       inputSchema: {
@@ -199,12 +221,18 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['id'],
       },
     },
-    {
+    handler: async (args, host) => deps.memories.delete(args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_list',
       description: 'List shared projects available to this host',
       inputSchema: { type: 'object', properties: {} },
     },
-    {
+    handler: async (_args, host) => deps.projects.listProjects(host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_bootstrap',
       description: 'Read compact shared project bootstrap context',
       inputSchema: {
@@ -213,7 +241,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug'],
       },
     },
-    {
+    handler: async (args, host) => deps.projects.bootstrap(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_detail',
       description: 'Read full shared project state',
       inputSchema: {
@@ -222,7 +253,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug'],
       },
     },
-    {
+    handler: async (args, host) => deps.projects.projectDetail(String(args['slug'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_changes',
       description: 'List project changes since a sequence number',
       inputSchema: {
@@ -231,7 +265,11 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug'],
       },
     },
-    {
+    handler: async (args, host) =>
+      deps.projects.listChanges(String(args['slug'] ?? ''), Number(args['since'] ?? 0), host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_create',
       description: 'Create a shared project',
       inputSchema: {
@@ -244,7 +282,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug'],
       },
     },
-    {
+    handler: async (args, host) => deps.projects.createProject(args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_note_create',
       description: 'Create a project note',
       inputSchema: {
@@ -257,7 +298,11 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug', 'header', 'body'],
       },
     },
-    {
+    handler: async (args, host) =>
+      deps.projects.upsertNote(String(args['slug'] ?? ''), null, args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_todo_create',
       description: 'Create a project todo item',
       inputSchema: {
@@ -270,7 +315,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug', 'title'],
       },
     },
-    {
+    handler: async (args, host) => deps.projects.createTodo(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_feedback_create',
       description: 'Create a project feedback entry for later triage',
       inputSchema: {
@@ -284,7 +332,10 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug', 'type', 'title', 'body'],
       },
     },
-    {
+    handler: async (args, host) => deps.projects.createFeedback(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'skill_list',
       description: 'List skills available to this host',
       inputSchema: {
@@ -292,7 +343,13 @@ function buildDefinitions(): ToolDefinition[] {
         properties: { engine: { type: 'string', enum: ['codex', 'claude'] } },
       },
     },
-    {
+    handler: async (args, host) => {
+      const engine = isEngine(args['engine']) ? (args['engine'] as Engine) : ENGINE_CODEX;
+      return deps.skills.listSkills(host, engine);
+    },
+  });
+  inputs.push({
+    definition: {
       name: 'skill_retrieve',
       description: 'Retrieve a skill manifest by slug (optionally with sha256 for cache check)',
       inputSchema: {
@@ -301,5 +358,30 @@ function buildDefinitions(): ToolDefinition[] {
         required: ['slug'],
       },
     },
-  ];
+    handler: async (args, host) => {
+      const slug = String(args['slug'] ?? '');
+      const sha = typeof args['sha256'] === 'string' ? args['sha256'] : null;
+      return deps.skills.retrieve(slug, sha, host);
+    },
+  });
+
+  // Operator-capability tools are registered by separate setup steps (e.g.,
+  // McpFsTools is wired in by the MCP route when MCP_FS_ROOT is configured).
+
+  const entries = new Map<string, ToolEntry>();
+  for (const input of inputs) {
+    const capability: Capability = input.definition.capability ?? 'host';
+    // Normalize: ensure capability is reflected in the definition we expose
+    // so list() consumers don't need to re-derive it.
+    const def: ToolDefinition =
+      input.definition.capability === undefined
+        ? { ...input.definition, capability }
+        : input.definition;
+    entries.set(def.name, {
+      definition: def,
+      handler: input.handler,
+      capability,
+    });
+  }
+  return entries;
 }

@@ -75,4 +75,30 @@ describe('McpToolsRegistry', () => {
     const x = wrapContent({ content: [{ type: 'text', text: 'hi' }] });
     expect(x).toMatchObject({ isError: false });
   });
+
+  describe('capability gating', () => {
+    it('host caller sees host tools', () => {
+      const hostNames = registry.list('host').map((t) => t.name);
+      expect(hostNames).toContain('memory_store');
+      expect(hostNames).toContain('skill_list');
+      // Every visible tool reports a capability tag.
+      for (const t of registry.list('host')) {
+        expect(t.capability).toBe('host');
+      }
+    });
+
+    it('operator caller sees host tools too (operator is a superset)', () => {
+      const names = registry.list('operator').map((t) => t.name);
+      expect(names).toContain('memory_store');
+      expect(names).toContain('skill_list');
+    });
+
+    it('has() respects capability defaulting', () => {
+      expect(registry.has('memory_store', 'host')).toBe(true);
+      expect(registry.has('memory_store', 'operator')).toBe(true);
+      // Non-existent tool is false at either capability (does not throw).
+      expect(registry.has('fs_read_file', 'host')).toBe(false);
+      expect(registry.has('fs_read_file', 'operator')).toBe(false);
+    });
+  });
 });

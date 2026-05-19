@@ -11,17 +11,18 @@
  * with cdx/clx clients that go straight from auth to MCP.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { timingSafeEqual } from 'node:crypto';
 import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
-import { extractApiKey } from '../../util/api-key-helpers.js';
+import { extractApiKey, parseBearer } from '../../util/api-key-helpers.js';
 
 import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
-import { McpToolsRegistry } from '../../services/mcp-tools.js';
+import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
 import type { Host } from '../../db/schema.js';
@@ -36,12 +37,27 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const resources = new McpResourcesService({ memories, projects, skills });
   const server = new McpServer(tools, resources, accessLog);
 
+  const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();
+
   async function resolveHost(req: FastifyRequest): Promise<Host | null> {
     const key = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
     if (!key) return null;
     const fromSession = await sessions.verify(key);
     if (fromSession) return fromSession;
     return app.resolveHostFromKey(req);
+  }
+
+  function detectCapability(req: FastifyRequest): Capability {
+    if (!operatorToken) return 'host';
+    // Operator privilege is granted only via Authorization: Bearer <token>.
+    // The X-Api-Key fallback is host-only by design.
+    const bearer = parseBearer(req.headers['authorization']);
+    if (!bearer) return 'host';
+    if (bearer.length !== operatorToken.length) return 'host';
+    const a = Buffer.from(bearer);
+    const b = Buffer.from(operatorToken);
+    if (a.length !== b.length) return 'host';
+    return timingSafeEqual(a, b) ? 'operator' : 'host';
   }
 
   function clientIp(req: FastifyRequest): string | null {
@@ -87,6 +103,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
       host,
       clientIp: clientIp(req),
       serverVersion: '2.0.0',
+      capability: detectCapability(req),
     });
 
     if (result === null) {
