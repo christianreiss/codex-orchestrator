@@ -117,6 +117,62 @@ func TestRetrieveAgentsUnwrapsContent(t *testing.T) {
 	}
 }
 
+func TestPostUsagesArrayShape(t *testing.T) {
+	var gotBody string
+	var gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	batch := UsagesBatch{
+		Engine: "codex",
+		FQDN:   "h.example.com",
+		Usages: []UsageEntry{
+			{Model: "gpt-5.4", Total: 100, Input: 70, Output: 30, Line: "Token usage: total=100 input=70 output=30"},
+		},
+	}
+	if err := c.PostUsages(context.Background(), batch); err != nil {
+		t.Fatalf("post usages: %v", err)
+	}
+	if gotPath != "/usage" {
+		t.Errorf("path = %q want /usage", gotPath)
+	}
+	for _, want := range []string{
+		`"engine":"codex"`,
+		`"fqdn":"h.example.com"`,
+		`"usages":[`,
+		`"total":100`,
+		`"input":70`,
+		`"output":30`,
+		`"line":"Token usage: total=100 input=70 output=30"`,
+	} {
+		if !strings.Contains(gotBody, want) {
+			t.Errorf("body missing %q\nbody=%s", want, gotBody)
+		}
+	}
+	// Zero counters must be omitted to match legacy bash payload semantics.
+	if strings.Contains(gotBody, `"cached":0`) || strings.Contains(gotBody, `"reasoning":0`) {
+		t.Errorf("zero counters should be omitted, body=%s", gotBody)
+	}
+}
+
+func TestPostUsagesDefaultsEngine(t *testing.T) {
+	var gotBody string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	if err := c.PostUsages(context.Background(), UsagesBatch{Usages: []UsageEntry{{Total: 1}}}); err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	if !strings.Contains(gotBody, `"engine":"codex"`) {
+		t.Errorf("engine default missing: %s", gotBody)
+	}
+}
+
 func TestRetryOn5xx(t *testing.T) {
 	attempts := 0
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
