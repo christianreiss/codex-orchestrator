@@ -78,6 +78,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	copy(snap, args)
 	update.SnapshottedArgv = snap
 
+	// Propagate the build-time wrapper version into the cron package so its
+	// /cron/check + /cron/report payloads carry the right wrapper_version.
+	cron.WrapperVersion = Version
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -392,7 +396,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	}
 	switch action {
 	case "install":
-		if err := cron.Install(); err != nil {
+		if err := cron.Install(cfg); err != nil {
 			fmt.Fprintln(stderr, "cdx --cron install:", err)
 			return 1
 		}

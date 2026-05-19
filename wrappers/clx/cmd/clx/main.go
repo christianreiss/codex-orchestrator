@@ -69,6 +69,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	copy(snap, args)
 	update.SnapshottedArgv = snap
 
+	cron.WrapperVersion = Version
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -298,7 +300,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	}
 	switch action {
 	case "install":
-		if err := cron.Install(); err != nil {
+		if err := cron.Install(cfg); err != nil {
 			fmt.Fprintln(stderr, "clx --cron install:", err)
 			return 1
 		}
