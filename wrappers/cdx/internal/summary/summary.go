@@ -31,6 +31,21 @@ type Inputs struct {
 	// path actually swapped the binary this run, empty otherwise. Surfaced as
 	// a `● codex X.Y.Z` badge in the exit footer's Sync row.
 	CodexUpdated string
+	// Sessions carries the fleet-wide session counts the boot-screen
+	// "sessions" block renders. Nil when the server didn't supply them
+	// (older /sync/bootstrap response, offline mode, etc.) — the block is
+	// then skipped entirely. LocalNow is computed wrapper-side.
+	Sessions *SessionCounts
+}
+
+// SessionCounts is what the boot-screen "sessions" block needs. LocalNow is
+// determined by walking /proc on the host; the rest are server-supplied
+// fleet-wide aggregates.
+type SessionCounts struct {
+	LocalNow int64
+	FleetNow int64
+	Today    int64
+	Month    int64
 }
 
 // Build converts the auth response + local state into a ScreenInput.
@@ -137,9 +152,26 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		QuotaRows:      quotaRows,
 		QuotaWarn:      warnText,
 		QuotaBlock:     blockText,
+		SessionRows:    sessionRows(in.Sessions),
 		ResultLabel:    result,
 		ResultTone:     resultTone,
 		Theme:          theme,
+	}
+}
+
+// sessionRows turns the per-run SessionCounts struct into the labeled rows
+// the boot-screen renderer expects. Returns nil when the server omitted the
+// fleet block (legacy server / offline / etc.) so the screen renderer skips
+// the entire section.
+func sessionRows(s *SessionCounts) []ui.SessionRow {
+	if s == nil {
+		return nil
+	}
+	return []ui.SessionRow{
+		{Label: "local now", Count: s.LocalNow},
+		{Label: "fleet now", Count: s.FleetNow},
+		{Label: "today", Count: s.Today},
+		{Label: "month", Count: s.Month},
 	}
 }
 

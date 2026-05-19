@@ -84,11 +84,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		configUpdated bool
 		skillsUpdated bool
 		codexUpdated  string
+		fleetSessions *orchestrator.FleetSessions
 		dec           orchestrator.AuthDecision
 	)
 
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+		authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 		dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 
 		// Insecure-host approval polling — block here until status flips or
@@ -100,7 +101,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				logger.Warn("approval poll failed", "err", perr)
 			}
 			if resolved {
-				authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+				authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 			}
 		}
@@ -112,7 +113,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				if err := pushAuthCandidate(ctx, client, raw); err != nil {
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
-					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
 			}
@@ -148,6 +149,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		ConfigUpdated:  configUpdated,
 		AuthSynced:     authSynced,
 		CodexUpdated:   codexUpdated,
+		Sessions:       buildSessionCounts(fleetSessions),
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
@@ -213,10 +215,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 
 // bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
 // per-resource pulls. Returns the same tuple regardless of which path ran.
+// The last value carries the fleet-session counts when the bundle path was
+// taken (nil on the legacy path or when the server didn't supply them).
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string,
-) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool, *orchestrator.FleetSessions) {
 	digest, _ := codex.LocalDigest()
 
 	agentsDigest := fileDigest(agentsPath())
@@ -254,12 +258,13 @@ func bootstrap(
 
 	if berr != nil && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back to per-resource pulls", "err", berr)
-		return legacySyncPath(ctx, client, logger, concurrent, authPath)
+		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
+		return a, e, s, ag, co, nil
 	}
 	if berr != nil {
 		// Treat network/server failure as "offline" for Decide().
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
-		return offline, berr, false, false, false
+		return offline, berr, false, false, false, nil
 	}
 
 	// Apply bundle outputs.
@@ -298,7 +303,7 @@ func bootstrap(
 			}
 		}
 	}
-	return authResp, nil, authSynced, agentsUpdated, configUpdated
+	return authResp, nil, authSynced, agentsUpdated, configUpdated, resp.Sessions
 }
 
 // legacySyncPath runs the per-resource sync (auth + agents + config) when the
@@ -690,4 +695,22 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	}
 	fmt.Fprintf(os.Stderr, "cdx: codex CLI updated to %s\n", post)
 	return post
+}
+
+// buildSessionCounts merges the wrapper-side local count (this host's
+// concurrent cdx processes, walked from /proc) with the fleet aggregates the
+// server returned in the /sync/bootstrap response. When the server omitted
+// the fleet block entirely (legacy server, offline, etc.), the whole
+// SessionCounts is nil so the boot screen skips the block — there's no
+// useful "local-only" rendering without the fleet context.
+func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
+	if fs == nil {
+		return nil
+	}
+	return &summary.SessionCounts{
+		LocalNow: int64(ipc.CountActive("cdx")),
+		FleetNow: fs.Now,
+		Today:    fs.Today,
+		Month:    fs.Month,
+	}
 }

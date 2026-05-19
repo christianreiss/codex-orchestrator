@@ -34,10 +34,22 @@ type ScreenInput struct {
 	QuotaWarn  string // ⚠ row text (empty to skip)
 	QuotaBlock string // ⛔ row text (empty to skip)
 
+	// SessionRows renders a label/count block under the quota bars (see
+	// PrintSessionsBlock). Empty/nil → block is skipped entirely.
+	SessionRows []SessionRow
+
 	ResultLabel string
 	ResultTone  Tone
 
 	Theme string
+}
+
+// SessionRow is one entry in the "sessions" block. Label is shown left-padded
+// to align with siblings; Count is rendered with thousands separators via
+// GroupedInt.
+type SessionRow struct {
+	Label string
+	Count int64
 }
 
 // PrintBootScreen draws the entire boot/status screen on stderr.
@@ -110,9 +122,44 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 		PrintQuotaReason(w, caps, "", in.QuotaBlock, ToneFail)
 	}
 
+	if len(in.SessionRows) > 0 {
+		PrintSessionsBlock(w, caps, in.SessionRows)
+	}
+
 	if in.ResultLabel != "" {
 		fmt.Fprintln(w)
 		PrintResult(w, caps, in.ResultLabel, in.ResultTone)
+	}
+}
+
+// PrintSessionsBlock renders the labeled session counts under the quota bars.
+// Indented one space deeper than the quota rows so the block reads as a
+// nested table. Counts use thousands separators (1,234) for legibility.
+func PrintSessionsBlock(w io.Writer, caps Caps, rows []SessionRow) {
+	if len(rows) == 0 {
+		return
+	}
+	maxLabel := 0
+	for _, r := range rows {
+		if l := len(r.Label); l > maxLabel {
+			maxLabel = l
+		}
+	}
+	maxCount := 0
+	formatted := make([]string, len(rows))
+	for i, r := range rows {
+		formatted[i] = GroupedInt(r.Count)
+		if l := len(formatted[i]); l > maxCount {
+			maxCount = l
+		}
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %ssessions%s\n", caps.Palette.Dim, caps.Palette.Reset)
+	for i, r := range rows {
+		fmt.Fprintf(w, "    %s%-*s%s  %*s\n",
+			caps.Palette.Dim, maxLabel, r.Label, caps.Palette.Reset,
+			maxCount, formatted[i],
+		)
 	}
 }
 

@@ -37,12 +37,26 @@ type BundleRequest struct {
 // BundleResponse matches the envelope returned by /sync/bootstrap. The auth
 // block, when present, is the same shape as a standalone /auth retrieve.
 type BundleResponse struct {
-	Status  string                `json:"status"`
-	Reasons []string              `json:"reasons,omitempty"`
-	Auth    *AuthRetrieveResponse `json:"auth,omitempty"`
-	Agents  json.RawMessage       `json:"agents,omitempty"`
-	Config  json.RawMessage       `json:"config,omitempty"`
-	Host    *HostInfo             `json:"host,omitempty"`
+	Status   string                `json:"status"`
+	Reasons  []string              `json:"reasons,omitempty"`
+	Auth     *AuthRetrieveResponse `json:"auth,omitempty"`
+	Agents   json.RawMessage       `json:"agents,omitempty"`
+	Config   json.RawMessage       `json:"config,omitempty"`
+	Host     *HostInfo             `json:"host,omitempty"`
+	Sessions *FleetSessions        `json:"sessions,omitempty"`
+}
+
+// FleetSessions carries the boot-screen "sessions" counts derived server-side
+// from the logs table. Nil-safe — older servers omit the block entirely and
+// the wrapper renders nothing in that case.
+//
+//   - Now    — distinct hosts with a cdx-run start in the last 30 minutes
+//   - Today  — total cdx-run starts across the fleet today (UTC day)
+//   - Month  — total cdx-run starts across the fleet this calendar month (UTC)
+type FleetSessions struct {
+	Now   int64 `json:"now"`
+	Today int64 `json:"today"`
+	Month int64 `json:"month"`
 }
 
 // SyncBootstrap calls POST /sync/bootstrap with the typed payload above. The

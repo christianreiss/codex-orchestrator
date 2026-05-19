@@ -186,4 +186,29 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(body.config.content).toBeUndefined();
     await app.close();
   });
+
+  it('includes a sessions block with now/today/month numeric counts', async () => {
+    const apiKey = 'sk-bootstrap-sessions';
+    const db = createDbShim();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'codex', include_auth: false }),
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.sessions).toBeDefined();
+    expect(typeof body.sessions.now).toBe('number');
+    expect(typeof body.sessions.today).toBe('number');
+    expect(typeof body.sessions.month).toBe('number');
+    expect(body.sessions.now).toBeGreaterThanOrEqual(0);
+    await app.close();
+  });
 });

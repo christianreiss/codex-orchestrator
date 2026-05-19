@@ -23,6 +23,7 @@ import { createVersionSnapshotService } from '../../services/version-snapshot.js
 import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { HostAgentsService } from '../../services/host-agents.js';
+import { HostSessionsService } from '../../services/host-sessions.js';
 import {
   createRunnerValidationService,
   extractAuthPayload,
@@ -60,6 +61,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   const tokenUsage = createTokenUsageService({ db: ctx.db });
   const syncService = createHostSyncService({ db: ctx.db, versions, tokenUsage });
   const agentsService = new HostAgentsService(ctx.db);
+  const sessionsService = new HostSessionsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
 
@@ -159,6 +161,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const configDigest = typeof payload.config === 'string' ? (payload.config as string) : null;
     out.agents = await agentsService.retrieve(agentsDigest, enforced, engine);
     out.config = await agentsService.retrieveConfig(configDigest, enforced, engine);
+
+    // Fleet-wide session counts for the cdx boot-screen "sessions" block.
+    // Cheap indexed COUNT queries against the existing logs table; the
+    // wrapper renders them next to the quota bars (or skips gracefully on
+    // older servers that don't return this block).
+    out.sessions = await sessionsService.fleetCounts();
 
     out.reasons = uniqueNonEmpty(out.reasons);
     out.status = out.reasons.length === 0 ? 'ok' : 'update';

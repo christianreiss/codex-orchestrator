@@ -56,3 +56,72 @@ func lockPath(name string) string {
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%d.lock", name, os.Getuid()))
 }
+
+// CountActive walks /proc and reports how many processes on this host share
+// the given short name (e.g. "cdx") and the caller's uid. Counts the caller
+// itself if it's running, so 1 ≈ "just me", 2+ ≈ at least one concurrent peer.
+//
+// /proc is Linux-only. On platforms without /proc (or when the walk fails for
+// any reason — restricted permissions, container weirdness, etc.) the
+// function returns 1 so callers can still render a usable value without
+// crashing.
+func CountActive(name string) int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 1
+	}
+	myUID := uint32(os.Getuid())
+	want := []byte(name)
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid := e.Name()
+		if pid == "" || pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+		comm, err := os.ReadFile(filepath.Join("/proc", pid, "comm"))
+		if err != nil {
+			continue
+		}
+		// /proc/<pid>/comm is the binary basename (truncated to 15 chars) +
+		// trailing newline; match exactly to avoid false positives like
+		// `cdx-debug` or `cdxhelper`.
+		trimmed := comm
+		for len(trimmed) > 0 && (trimmed[len(trimmed)-1] == '\n' || trimmed[len(trimmed)-1] == ' ') {
+			trimmed = trimmed[:len(trimmed)-1]
+		}
+		if !bytesEqual(trimmed, want) {
+			continue
+		}
+		st, err := os.Stat(filepath.Join("/proc", pid))
+		if err != nil {
+			continue
+		}
+		sys, ok := st.Sys().(*syscall.Stat_t)
+		if !ok || sys.Uid != myUID {
+			continue
+		}
+		count++
+	}
+	if count == 0 {
+		// At minimum the caller is alive; if /proc gave us 0 it usually means
+		// the caller's own /proc/<pid>/comm wasn't readable yet (race during
+		// startup), so treat that as 1 rather than reporting zero sessions.
+		return 1
+	}
+	return count
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
