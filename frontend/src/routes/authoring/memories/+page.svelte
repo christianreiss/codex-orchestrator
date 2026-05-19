@@ -1,13 +1,16 @@
 <script lang="ts">
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import { memoriesApi } from "$lib/api/memories";
+  import { memoriesApi, memoriesKeys } from "$lib/api/memories";
+  import { hostsListQuery } from "$lib/api/hosts";
   import type { MemoryEntry } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import { relativeTime, formatBytes } from "$lib/utils/format";
+  import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Badge } from "$lib/components/ui/badge";
+  import * as Select from "$lib/components/ui/select";
   import * as Table from "$lib/components/ui/table";
   import * as Dialog from "$lib/components/ui/dialog";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -15,10 +18,26 @@
 
   const qc = useQueryClient();
 
-  const query = createQuery({
-    queryKey: ["memories"],
-    queryFn: () => memoriesApi.list({ limit: 200 }),
-  });
+  // Host filter — "all" sentinel means no host_id parameter is sent.
+  const ALL_HOSTS = "all";
+  let hostFilter = $state<string>(ALL_HOSTS);
+  const hostsQuery = hostsListQuery();
+  const hosts = $derived($hostsQuery.data?.hosts ?? []);
+
+  const activeHostId = $derived(hostFilter === ALL_HOSTS ? null : hostFilter);
+
+  const query = createQuery(
+    reactiveOptions(() => ({
+      queryKey: memoriesKeys.list(activeHostId),
+      queryFn: () => memoriesApi.list({ limit: 200, host: activeHostId }),
+    })),
+  );
+
+  const selectedHostLabel = $derived(
+    hostFilter === ALL_HOSTS
+      ? "All hosts"
+      : (hosts.find((h) => String(h.id) === hostFilter)?.fqdn ?? `Host #${hostFilter}`),
+  );
 
   const all = $derived<MemoryEntry[]>($query.data?.matches ?? []);
 
@@ -53,7 +72,7 @@
     },
     onSuccess: () => {
       toast.success("Memory deleted");
-      void qc.invalidateQueries({ queryKey: ["memories"] });
+      void qc.invalidateQueries({ queryKey: memoriesKeys.all });
       deleteTarget = null;
     },
     onError: (err: unknown) => {
@@ -68,7 +87,22 @@
     <span class="text-xs uppercase tracking-wide text-muted-foreground">Memories</span>
     <span class="text-lg font-semibold">{all.length}</span>
   </div>
-  <div class="flex flex-1 items-center gap-2">
+  <div class="flex flex-1 flex-wrap items-center gap-2">
+    <Select.Root
+      type="single"
+      value={hostFilter}
+      onValueChange={(v) => (hostFilter = v || ALL_HOSTS)}
+    >
+      <Select.Trigger class="w-[200px]" aria-label="Filter by host">
+        <Select.Value placeholder="All hosts">{selectedHostLabel}</Select.Value>
+      </Select.Trigger>
+      <Select.Content>
+        <Select.Item value={ALL_HOSTS} label="All hosts">All hosts</Select.Item>
+        {#each hosts as host (host.id)}
+          <Select.Item value={String(host.id)} label={host.fqdn}>{host.fqdn}</Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
     <Input
       placeholder="Search keys, content, summary, tags…"
       bind:value={search}
@@ -81,7 +115,7 @@
   <Button
     size="sm"
     variant="outline"
-    onclick={() => void qc.invalidateQueries({ queryKey: ["memories"] })}
+    onclick={() => void qc.invalidateQueries({ queryKey: memoriesKeys.all })}
     disabled={$query.isFetching}
   >
     <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
