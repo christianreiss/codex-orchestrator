@@ -1,6 +1,6 @@
 // Package lifecycle orchestrates the startup sequence for a single `clx run`:
-// lock → auth-sync → resource-sync → boot screen → exec → usage report →
-// exit footer.
+// lock → bundle (auth + agents + settings in one POST) → decide → boot screen
+// → pre-exec → Claude → post-exec auth upload → usage report → exit footer.
 package lifecycle
 
 import (
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -31,6 +32,13 @@ type Options struct {
 	SkipBoot     bool
 	Minimal      bool
 	Logger       *slog.Logger
+}
+
+// localProbe binds the claude package freshness/validity helpers to the
+// engine-neutral LocalAuthProbe consumed by orchestrator.Decide.
+var localProbe = orchestrator.LocalAuthProbe{
+	IsValid: claude.IsValidLocalAuth,
+	IsFresh: claude.IsFresh,
 }
 
 func Run(ctx context.Context, opts Options) (int, error) {
@@ -62,19 +70,43 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		return 1, err
 	}
 
-	var authResp *orchestrator.AuthRetrieveResponse
-	var authErr error
-	authSynced := false
-	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced = syncAuth(ctx, client, logger, concurrent)
-		if authErr != nil {
-			logger.Warn("auth sync failed; continuing with whatever is on disk", "err", authErr)
-		}
-	}
+	authPath, _ := claude.AuthPath()
 
-	var agentsUpdated, configUpdated bool
-	if !concurrent {
-		agentsUpdated, configUpdated = syncResources(ctx, client, logger)
+	var (
+		authResp      *orchestrator.AuthRetrieveResponse
+		authErr       error
+		authSynced    bool
+		agentsUpdated bool
+		configUpdated bool
+		dec           orchestrator.AuthDecision
+	)
+
+	if !opts.SkipAuthSync {
+		authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+		dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+
+		if dec.NeedsApprovalPoll {
+			logger.Warn("auth status insecure; opening approval-pending box")
+			resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
+			if perr != nil && !errors.Is(perr, context.Canceled) {
+				logger.Warn("approval poll failed", "err", perr)
+			}
+			if resolved {
+				authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+			}
+		}
+
+		if dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
+			if raw, rerr := claude.ReadAuth(); rerr == nil && len(raw) > 0 {
+				if err := pushAuthCandidate(ctx, client, raw); err != nil {
+					logger.Warn("auth-candidate upload failed", "err", err)
+				} else {
+					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+				}
+			}
+		}
 	}
 
 	if !opts.SkipBoot {
@@ -87,6 +119,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			ConfigUpdated: configUpdated,
 			AuthSynced:    authSynced,
 		})
+		if !dec.Allowed && dec.Reason != "" {
+			state.ResultLabel = dec.Reason
+			state.ResultTone = ui.ToneFail
+		}
 		if opts.Minimal {
 			ui.PrintMinimalScreen(os.Stderr, state)
 		} else {
@@ -94,9 +130,17 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 	}
 
+	if !opts.SkipAuthSync && !dec.Allowed {
+		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
+	}
+
+	beforeHash, beforeRefresh := snapshotAuth(authPath)
+
 	started := time.Now()
 	exitCode, runErr := claude.Run(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
+
+	maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
 
 	usageResult, usageTone := reportUsage(client, cfg, duration, exitCode, logger)
 
@@ -117,14 +161,142 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	return exitCode, runErr
 }
 
-func syncAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
+func bootstrap(
+	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
+	concurrent bool, authPath string,
+) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+	digest, _ := claude.LocalDigest()
+	agentsDigest := fileDigest(agentsPath())
+	configDigest := fileDigest(settingsPath())
+
+	var candidate []byte
+	if raw, err := claude.ReadAuth(); err == nil {
+		candidate = raw
+	}
+
+	username := ""
+	home := ""
+	if u, err := user.Current(); err == nil && u != nil {
+		username = u.Username
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		home = h
+	}
+
+	bctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
+		Engine:        "claude",
+		IncludeAuth:   true,
+		AuthDigest:    digest,
+		AuthCandidate: candidate,
+		Agents:        agentsDigest,
+		Config:        configDigest,
+		Home:          home,
+		Username:      username,
+	})
+
+	if berr != nil && isBundleUnsupported(berr) {
+		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
+		return legacySyncPath(ctx, client, logger, concurrent, authPath)
+	}
+	if berr != nil {
+		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
+		return offline, berr, false, false, false
+	}
+
+	authResp := resp.Auth
+	if authResp == nil {
+		authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
+	}
+	authSynced := false
+	if !concurrent && len(authResp.Auth) > 0 {
+		switch strings.ToLower(authResp.Status) {
+		case "outdated", "updated", "missing":
+			if err := claude.WriteAuth(authResp.Auth); err != nil {
+				logger.Warn("credentials.json write from bundle failed", "err", err)
+			} else {
+				authSynced = true
+				logger.Info("credentials.json updated from /sync/bootstrap")
+			}
+		}
+	}
+
+	agentsUpdated := false
+	configUpdated := false
+	if !concurrent {
+		if len(resp.Agents) > 0 {
+			if err := atomicWrite(agentsPath(), resp.Agents, 0o644); err != nil {
+				logger.Debug("bundle agents write failed", "err", err)
+			} else {
+				agentsUpdated = true
+			}
+		}
+		if len(resp.Config) > 0 {
+			if err := atomicWrite(settingsPath(), resp.Config, 0o644); err != nil {
+				logger.Debug("bundle settings write failed", "err", err)
+			} else {
+				configUpdated = true
+			}
+		}
+	}
+	return authResp, nil, authSynced, agentsUpdated, configUpdated
+}
+
+func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
+
+	var agents, conf bool
+	if !concurrent {
+		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			u, err := writeAgents(syncCtx, client)
+			if err != nil {
+				logger.Debug("agents sync skipped", "err", err)
+			}
+			agents = u
+		}()
+		go func() {
+			defer wg.Done()
+			u, err := writeSettings(syncCtx, client)
+			if err != nil {
+				logger.Debug("settings sync skipped", "err", err)
+			}
+			conf = u
+		}()
+		wg.Wait()
+	}
+	_ = authPath
+	return authResp, authErr, authSynced, agents, conf
+}
+
+func isBundleUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, " -> 404") || strings.Contains(s, " -> 501") || strings.Contains(s, " -> 405")
+}
+
+func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []byte) error {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return client.AuthStore(cctx, raw)
+}
+
+func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
 	digest, err := claude.LocalDigest()
 	if err != nil {
 		return nil, err, false
 	}
 	resp, err := client.AuthRetrieve(ctx, digest)
 	if err != nil {
-		return nil, err, false
+		return &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}, err, false
 	}
 	switch strings.ToLower(resp.Status) {
 	case "current", "ok", "valid", "unchanged", "":
@@ -134,48 +306,20 @@ func syncAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Log
 			return resp, nil, false
 		}
 		if len(resp.Auth) == 0 {
-			return resp, errors.New("server reports outdated but did not return a payload"), false
+			return resp, nil, false
 		}
 		if err := claude.WriteAuth(resp.Auth); err != nil {
 			return resp, err, false
 		}
 		logger.Info("credentials.json updated from orchestrator")
 		return resp, nil, true
-	case "upload_required":
-		return resp, errors.New("server requires auth upload — run `clx auth-upload`"), false
 	default:
-		return resp, fmt.Errorf("unknown status %q", resp.Status), false
+		return resp, nil, false
 	}
 }
 
-func syncResources(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (agents, conf bool) {
-	syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		u, err := writeAgents(syncCtx, client)
-		if err != nil {
-			logger.Debug("agents sync skipped", "err", err)
-		}
-		agents = u
-	}()
-	go func() {
-		defer wg.Done()
-		u, err := writeSettings(syncCtx, client)
-		if err != nil {
-			logger.Debug("config sync skipped", "err", err)
-		}
-		conf = u
-	}()
-	wg.Wait()
-	return
-}
-
 func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	home, _ := os.UserHomeDir()
-	dst := filepath.Join(home, ".claude", "CLAUDE.md")
+	dst := agentsPath()
 	digest := fileDigest(dst)
 	body, err := client.RetrieveAgents(ctx, digest)
 	if err != nil {
@@ -188,8 +332,7 @@ func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error)
 }
 
 func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	home, _ := os.UserHomeDir()
-	dst := filepath.Join(home, ".claude", "settings.json")
+	dst := settingsPath()
 	digest := fileDigest(dst)
 	body, err := client.RetrieveConfig(ctx, digest)
 	if err != nil {
@@ -199,6 +342,16 @@ func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, erro
 		return false, nil
 	}
 	return true, atomicWrite(dst, body, 0o644)
+}
+
+func agentsPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", "CLAUDE.md")
+}
+
+func settingsPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", "settings.json")
 }
 
 func atomicWrite(path string, body []byte, mode os.FileMode) error {
@@ -219,6 +372,69 @@ func fileDigest(p string) string {
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func snapshotAuth(path string) (string, string) {
+	if path == "" {
+		return "", ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	sum := sha256.Sum256(raw)
+	hash := hex.EncodeToString(sum[:])
+	refresh := extractLastRefresh(raw)
+	return hash, refresh
+}
+
+func extractLastRefresh(raw []byte) string {
+	idx := strings.Index(string(raw), `"last_refresh"`)
+	if idx < 0 {
+		return ""
+	}
+	tail := string(raw)[idx+len(`"last_refresh"`):]
+	for i := 0; i < len(tail); i++ {
+		if tail[i] == ':' {
+			tail = tail[i+1:]
+			break
+		}
+	}
+	tail = strings.TrimLeft(tail, " \t")
+	if !strings.HasPrefix(tail, `"`) {
+		return ""
+	}
+	tail = tail[1:]
+	end := strings.IndexByte(tail, '"')
+	if end < 0 {
+		return ""
+	}
+	return tail[:end]
+}
+
+func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) {
+	if path == "" {
+		return
+	}
+	afterHash, afterRefresh := snapshotAuth(path)
+	if afterHash == "" {
+		return
+	}
+	if afterHash == beforeHash && afterRefresh == beforeRefresh {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		logger.Debug("post-run auth read failed", "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := client.AuthStore(ctx, raw); err != nil {
+		logger.Debug("post-run auth upload failed", "err", err)
+		return
+	}
+	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)
 }
 
 func reportUsage(client *orchestrator.Client, cfg *config.Config, dur time.Duration, exit int, logger *slog.Logger) (string, ui.Tone) {
