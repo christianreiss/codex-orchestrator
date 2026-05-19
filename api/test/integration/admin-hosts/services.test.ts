@@ -139,6 +139,48 @@ describe('HostManagementService.register', () => {
     expect(mock.rows('admin_events').some((e) => e.type === 'host.installer.minted')).toBe(true);
   });
 
+  it('unions caller-supplied engines with the host row and persists the result', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    // Host starts as codex-only.
+    const first = await svc.register({
+      fqdn: 'engines.example.com',
+      secure: true,
+      engines: [ENGINE_CODEX],
+    });
+    expect(mock.rows('hosts')[0]!.engines).toBe('codex');
+
+    // Operator requests adding Claude → union is codex,claude.
+    const minted = await svc.mintInstaller(first.host.id, [ENGINE_CLAUDE]);
+    expect(minted.installer.mode).toBe('both');
+    expect(mock.rows('hosts')[0]!.engines).toBe('codex,claude');
+    // engines_changed audit log appears alongside install_token.create.
+    const logKinds = mock.rows('logs').map((l) => l.action);
+    expect(logKinds).toContain('admin.host.engines_added');
+  });
+
+  it('is a no-op on the engines column when the requested engines are already present', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const first = await svc.register({
+      fqdn: 'noop.example.com',
+      secure: true,
+      engines: [ENGINE_CODEX, ENGINE_CLAUDE],
+    });
+    await svc.mintInstaller(first.host.id, [ENGINE_CODEX]);
+    expect(mock.rows('hosts')[0]!.engines).toBe('codex,claude');
+    const logKinds = mock.rows('logs').map((l) => l.action);
+    expect(logKinds).not.toContain('admin.host.engines_added');
+  });
+
   it('opens a provisioning window when secure=false', async () => {
     const mock = createMockDb();
     const env = buildEnv();
