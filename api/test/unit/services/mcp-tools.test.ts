@@ -13,14 +13,47 @@ const stubMemories = {
   delete: async (args: Record<string, unknown>) => ({ status: 'deleted', id: args['id'] }),
 } as unknown as McpMemoriesService;
 
+interface UpsertNoteCall {
+  slug: string;
+  id: number | null;
+  args: Record<string, unknown>;
+}
+
+interface TodoUpdateCall {
+  slug: string;
+  id: number;
+  args?: Record<string, unknown>;
+}
+
+interface TodoDoneCall {
+  slug: string;
+  id: number;
+  done: boolean;
+}
+
+const upsertNoteCalls: UpsertNoteCall[] = [];
+const todoUpdateCalls: TodoUpdateCall[] = [];
+const todoDoneCalls: TodoDoneCall[] = [];
+
 const stubProjects = {
   listProjects: async () => ({ projects: [] }),
   bootstrap: async (slug: string) => ({ project: slug }),
   projectDetail: async (slug: string) => ({ project: { slug } }),
   listChanges: async (slug: string) => ({ project: slug, changes: [] }),
   createProject: async () => ({ project: { slug: 'x' } }),
-  upsertNote: async () => ({ note: {} }),
+  upsertNote: async (slug: string, id: number | null, args: Record<string, unknown>) => {
+    upsertNoteCalls.push({ slug, id, args });
+    return { project: slug, note: { id: id ?? 99, header: args['header'] ?? '', body: args['body'] ?? '' } };
+  },
   createTodo: async () => ({ todo: {} }),
+  updateTodo: async (slug: string, id: number, args: Record<string, unknown>) => {
+    todoUpdateCalls.push({ slug, id, args });
+    return { project: slug, todo: { id, title: args['title'] ?? '', detail: args['detail'] ?? '' } };
+  },
+  setTodoDone: async (slug: string, id: number, done: boolean) => {
+    todoDoneCalls.push({ slug, id, done });
+    return { project: slug, todo: { id, done } };
+  },
   createFeedback: async () => ({ feedback: {} }),
   listFiles: async (slug: string) => ({ project: slug, files: [] }),
   readFile: async (slug: string, locator: { storedName?: string | null; id?: number | null }) => ({
@@ -135,6 +168,59 @@ describe('McpToolsRegistry', () => {
   it('wrapContent preserves an already-wrapped content envelope', () => {
     const x = wrapContent({ content: [{ type: 'text', text: 'hi' }] });
     expect(x).toMatchObject({ isError: false });
+  });
+
+  it('exposes project_note_upsert + project_todo update/done/undone in the catalog', () => {
+    const list = registry.list().map((t) => t.name);
+    expect(list).toContain('project_note_upsert');
+    expect(list).toContain('project_todo_update');
+    expect(list).toContain('project_todo_done');
+    expect(list).toContain('project_todo_undone');
+  });
+
+  it('project_note_upsert forwards id=null when id is missing', async () => {
+    upsertNoteCalls.length = 0;
+    const r = await registry.dispatch(
+      'project_note_upsert',
+      { slug: 'demo', header: 'h', body: 'b' },
+      host,
+    );
+    expect((r as { isError: boolean }).isError).toBe(false);
+    expect(upsertNoteCalls.at(-1)).toMatchObject({ slug: 'demo', id: null });
+    expect(upsertNoteCalls.at(-1)!.args).toMatchObject({ header: 'h', body: 'b' });
+  });
+
+  it('project_note_upsert forwards numeric id when provided', async () => {
+    upsertNoteCalls.length = 0;
+    await registry.dispatch(
+      'project_note_upsert',
+      { slug: 'demo', id: 42, header: 'h', body: 'b' },
+      host,
+    );
+    expect(upsertNoteCalls.at(-1)).toMatchObject({ slug: 'demo', id: 42 });
+  });
+
+  it('project_todo_update routes to updateTodo with numeric id', async () => {
+    todoUpdateCalls.length = 0;
+    await registry.dispatch(
+      'project_todo_update',
+      { slug: 'demo', id: 7, title: 'new', detail: 'd' },
+      host,
+    );
+    expect(todoUpdateCalls.at(-1)).toMatchObject({ slug: 'demo', id: 7 });
+    expect(todoUpdateCalls.at(-1)!.args).toMatchObject({ title: 'new', detail: 'd' });
+  });
+
+  it('project_todo_done calls setTodoDone with done=true', async () => {
+    todoDoneCalls.length = 0;
+    await registry.dispatch('project_todo_done', { slug: 'demo', id: 5 }, host);
+    expect(todoDoneCalls.at(-1)).toEqual({ slug: 'demo', id: 5, done: true });
+  });
+
+  it('project_todo_undone calls setTodoDone with done=false', async () => {
+    todoDoneCalls.length = 0;
+    await registry.dispatch('project_todo_undone', { slug: 'demo', id: 5 }, host);
+    expect(todoDoneCalls.at(-1)).toEqual({ slug: 'demo', id: 5, done: false });
   });
 
   describe('capability gating', () => {
