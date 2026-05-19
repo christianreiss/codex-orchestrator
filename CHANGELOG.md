@@ -1,4 +1,29 @@
+## Joplin removal — run on deploy
+
+The Joplin integration has been removed in full. Once the new code is deployed,
+run the following SQL on MySQL (crane) to drop the cache table and clean every
+`versions` row the integration owned:
+
+```sql
+DROP TABLE IF EXISTS joplin_notes_cache;
+DELETE FROM versions
+ WHERE name IN (
+   'joplin_url',
+   'joplin_email',
+   'joplin_password',
+   'joplin_enabled',
+   'joplin_sync_interval_minutes',
+   'joplin_verified_at',
+   'joplin_verified_config_hash'
+ )
+    OR name LIKE 'joplin\_%' ESCAPE '\\';
+```
+
+The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
+tokens, sync cursors, etc.) the legacy code may have written into `versions`.
+
 # 2026-05-19
+- Removed the Joplin integration in full: deleted the API services (`joplin-client`, `joplin-config`, `joplin-cache`, `joplin-skills`), the `/admin/joplin/*` admin routes, the `joplinNotesCache` Drizzle table + `joplin_notes_cache` MySQL table, the `joplin.synced` WS event, the `JOPLIN_URL` / `JOPLIN_TOKEN` env entries, the frontend integrations page + types + nav entry, the PHP `AdminJoplinController` / `JoplinService` / `JoplinCacheService` / `JoplinSkillService` / `JoplinNoteRepository` / `JoplinMigration`, the `joplin_*` MCP tools and PHP wiring, the runner `/joplin/summarize` and `/joplin/query` endpoints, and the matching manual / docs sections. See the `Joplin removal — run on deploy` block at the top of this file for the SQL the operator must run after deploy.
 - Admin WebUI hosts: the "Installer minted" modal now auto-copies the freshly minted installer command to the clipboard, while keeping the manual Copy command fallback.
 - Wrapper v2 installer: relic cleanup now checks whether `/usr/local/sbin/cdx` or other legacy paths resolve to the same file as `/usr/local/bin/cdx` before removing them, so systems with aliased standard directories no longer delete the freshly installed wrapper.
 - Admin WebUI hosts: the "Installer minted" modal now has a Re-create action that mints a fresh installer link in-place, preserving the selected engine set from the original mint action.

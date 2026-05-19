@@ -47,9 +47,6 @@ Defined in `src/Mcp/McpToolDefinitions.php` (`definitions()` method). What you g
 - `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
 - `project_file_upsert`, `project_feedback_create`
 
-**Joplin (conditional, both capabilities when Joplin enabled)**
-- `joplin_search`, `joplin_get_note`, `joplin_create_note`, `joplin_update_note`, `joplin_delete_note`, `joplin_list_notebooks`.
-
 Use `tools/list` at runtime for the authoritative set; what you see depends on who is calling.
 
 ## Resources
@@ -94,7 +91,6 @@ There is no per-host MCP kill-switch. The switches that exist:
 - Delete the host → per-host key is invalidated → MCP calls from it stop being authenticated.
 - Clear all MCP session tokens from the admin UI → operator-capability callers are immediately cut off.
 - Disable Projects → `project_*` and `project://` disappear.
-- Disable Joplin → `joplin_*` disappears.
 
 ## Source references
 

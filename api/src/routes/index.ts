@@ -19,7 +19,7 @@ import { registerAdminAuthAndUsersRoutes } from './admin-auth-users/index.js';
 import { registerAdminHostsRoutes } from './admin/hosts/index.js';
 import { registerAdminOverviewSettingsRoutes } from './admin-overview-settings/index.js';
 import { registerAdminContentRoutes } from './admin-content/index.js';
-import { registerJoplinManualRoutes } from './joplin-manual/index.js';
+import { registerAdminManualRoutes } from './admin/manual/index.js';
 
 /**
  * Top-level route mounter. Specific routes register before the static SPA
@@ -48,7 +48,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminHostsRoutes(app, ctx);
   await registerAdminOverviewSettingsRoutes(app, ctx);
   await registerAdminContentRoutes(app, ctx);
-  await registerJoplinManualRoutes(app, ctx);
+  await registerAdminManualRoutes(app, ctx);
 
   // SPA fallback last (catches HTML GET /admin/* that didn't match a JSON
   // route). registerStaticAdminRoutes installs its own setNotFoundHandler

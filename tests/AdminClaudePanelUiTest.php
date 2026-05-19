@@ -52,7 +52,7 @@ final class AdminClaudePanelUiTest extends TestCase
 
         // The settings section regex must include `claude` or the page 404s.
         self::assertMatchesRegularExpression(
-            '/settings\/\(general\|users\|agents\|memories\|projects\|profiles\|skills\|config\|claude\|apikeys\|joplin\)/',
+            '/settings\/\(general\|users\|agents\|memories\|projects\|profiles\|skills\|config\|claude\|apikeys\)/',
             $router
         );
     }

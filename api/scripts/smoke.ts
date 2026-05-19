@@ -116,7 +116,6 @@ async function main() {
     { method: 'GET', url: '/admin/hosts', expect: 401, kind: 'standard' },
     { method: 'GET', url: '/admin/skills', expect: 401, kind: 'standard' },
     { method: 'GET', url: '/admin/projects', expect: 401, kind: 'standard' },
-    { method: 'GET', url: '/admin/joplin/config', expect: 401, kind: 'standard' },
     { method: 'GET', url: '/admin/manual/manifest', expect: 401, kind: 'standard' },
     { method: 'GET', url: '/admin/openai/keys', expect: 401, kind: 'standard' },
     { method: 'GET', url: '/admin/claude/keys', expect: 401, kind: 'standard' },

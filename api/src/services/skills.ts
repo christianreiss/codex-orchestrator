@@ -220,11 +220,10 @@ export class SkillsService {
   async softDelete(rawSlug: string): Promise<boolean> {
     const slug = normalizeSlug(rawSlug);
     if (slug.startsWith('codex-') || slug.startsWith('claude-')) {
-      // The legacy ProjectModuleService / JoplinSkillService reserved certain
-      // slugs as managed. We don't manage anything here in admin-content, but
-      // we surface a clear error if callers hit those names.
-      if (slug === 'codex-project-coordination' || slug === 'claude-project-coordination'
-        || slug === 'codex-joplin' || slug === 'claude-joplin') {
+      // The legacy ProjectModuleService reserved certain slugs as managed.
+      // We don't manage anything here in admin-content, but we surface a
+      // clear error if callers hit those names.
+      if (slug === 'codex-project-coordination' || slug === 'claude-project-coordination') {
         throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
       }
     }

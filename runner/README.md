@@ -6,7 +6,7 @@ Both engines are supported end-to-end:
 
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
-- Skill/memory/project/joplin endpoints accept an `engine: "codex" | "claude"` field in the request body (defaults to `codex` for back-compat).
+- Skill/memory/project endpoints accept an `engine: "codex" | "claude"` field in the request body (defaults to `codex` for back-compat).
 - A dedicated `POST /verify-claude` endpoint validates Anthropic credentials against `api.anthropic.com/v1/messages` (lightweight ping, no CLI involved).
 
 ## Build
@@ -184,7 +184,7 @@ Behavior details:
 - `claude_version` comes from `/usr/local/bin/claude --version`, or `"unavailable"` when the CLI is not installed.
 - No temp `$HOME` is created; the probe only touches the HTTP client. Tokens never reach disk.
 
-### Engine routing on skill / memory / project / joplin endpoints
+### Engine routing on skill / memory / project endpoints
 
 The POST endpoints that generate or summarize content accept an optional `engine` field:
 

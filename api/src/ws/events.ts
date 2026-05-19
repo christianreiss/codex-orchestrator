@@ -69,9 +69,6 @@ export const WS_EVENT_TYPES = [
   'insecure.denied',
   'insecure.domain.allowed',
   'insecure.domain.revoked',
-
-  // Integrations
-  'joplin.synced',
 ] as const;
 
 export type WsEventType = (typeof WS_EVENT_TYPES)[number];

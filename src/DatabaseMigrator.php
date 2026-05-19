@@ -20,7 +20,6 @@ use App\Migrations\EngineHostAuthScopeMigration;
 use App\Migrations\HostMigration;
 use App\Migrations\InfrastructureMigration;
 use App\Migrations\InsecureMigration;
-use App\Migrations\JoplinMigration;
 use App\Migrations\MigrationInterface;
 use App\Migrations\OpenaiApiMigration;
 use App\Migrations\ProjectMigration;
@@ -83,7 +82,6 @@ class DatabaseMigrator
             new UsageMigration(),
             new InfrastructureMigration(),
             new OpenaiApiMigration(),
-            new JoplinMigration(),
             new EngineMigration(),
             new ClaudeHostFieldsMigration(),
             new EngineHostAuthScopeMigration(),

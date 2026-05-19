@@ -76,7 +76,7 @@ Both are also exposed under `/projects/{slug}/...` on the host-facing surface so
 
 ## The `coco` skill
 
-When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_todo_create`, …) and the expected workflow. `JoplinSkillService` and `SkillService` together ensure this skill is always at the latest orchestrator-wide version.
+When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_todo_create`, …) and the expected workflow. `SkillService` ensures this skill is always at the latest orchestrator-wide version.
 
 ## Bootstrapping an agent into a project
 

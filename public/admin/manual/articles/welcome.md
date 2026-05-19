@@ -33,7 +33,7 @@ The admin is a single-page shell served by `public/admin/index.php` for every `/
 - **Manual** — this manual, at `/admin/manual`.
 - **Hosts** — fleet tabs: all, secure, insecure, unprovisioned. Each host has its own detail page at `/admin/hosts/{id}`.
 - **Logs** — API logs (`/admin/logs`), MCP logs (`/admin/logs/mcp`), and audit events (`/admin/logs/events`).
-- **Settings** — grouped into Admin (general, users, agents, OpenAI, Claude, API keys), Authoring (skills, memories), Workspace (projects, profiles), and Integrations (Joplin).
+- **Settings** — grouped into Admin (general, users, agents, OpenAI, Claude, API keys), Authoring (skills, memories), and Workspace (projects, profiles).
 
 An account menu on the right holds theme selection (six variants via `data-theme`), passkey / password management, and the logout button. A keyboard-shortcut modal pops on `[?]`; press `[m]` from anywhere to jump back to the manual.
 

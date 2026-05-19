@@ -205,7 +205,6 @@ const TRUNCATE_ORDER = [
   'mcp_access_logs',
   'mcp_session_tokens',
   'openai_api_keys',
-  'joplin_notes_cache',
   // Insecure / rate / logs / wrappers
   'insecure_auth_requests',
   'insecure_domain_allows',

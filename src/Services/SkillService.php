@@ -25,8 +25,7 @@ class SkillService
         private readonly LogRepository $logs,
         private readonly ?ProjectModuleService $projectModule = null,
         private readonly ?SkillSummaryService $summaryService = null,
-        private readonly ?SkillManifestService $manifestService = null,
-        private readonly ?JoplinSkillService $joplinSkill = null
+        private readonly ?SkillManifestService $manifestService = null
     ) {
     }
 
@@ -176,9 +175,6 @@ class SkillService
         if ($this->isManagedSlug($slug)) {
             throw new ValidationException(['slug' => ['slug is reserved for the managed project coordination skill']]);
         }
-        if ($this->isJoplinManagedSlug($slug)) {
-            throw new ValidationException(['slug' => ['slug is reserved for the managed Joplin skill']]);
-        }
 
         $sha = hash('sha256', $manifest);
         if ($providedSha !== null && !hash_equals($sha, (string) $providedSha)) {
@@ -238,9 +234,6 @@ class SkillService
         if ($this->isManagedSlug($normalized)) {
             throw new ValidationException(['slug' => ['managed project coordination skill cannot be deleted directly']]);
         }
-        if ($this->isJoplinManagedSlug($normalized)) {
-            throw new ValidationException(['slug' => ['managed Joplin skill cannot be deleted directly']]);
-        }
         $deleted = $this->skills->delete($normalized);
         $this->logs->log($this->hostId($host), 'skill.delete', [
             'slug' => $normalized,
@@ -279,9 +272,6 @@ class SkillService
         if ($this->isManagedSlug($slug)) {
             return $this->managedSkill();
         }
-        if ($this->isJoplinManagedSlug($slug)) {
-            return $this->joplinSkill();
-        }
 
         return $this->skills->findBySlug($slug);
     }
@@ -291,16 +281,10 @@ class SkillService
         return $this->projectModule?->managedSkill();
     }
 
-    private function joplinSkill(): ?array
-    {
-        return $this->joplinSkill?->managedSkill();
-    }
-
     private function publishedSkills(bool $includeDeleted): array
     {
         $rows = $this->skills->all($includeDeleted);
         $rows = $this->injectManagedSkill($rows, ProjectModuleService::MANAGED_SKILL_SLUG, $this->managedSkill());
-        $rows = $this->injectManagedSkill($rows, JoplinSkillService::MANAGED_SKILL_SLUG, $this->joplinSkill());
 
         return array_map(
             fn (array $row): array => $this->decorateSkillRow($this->addCanonicalUri($row)),
@@ -356,11 +340,6 @@ class SkillService
     private function isManagedSlug(string $slug): bool
     {
         return $slug === ProjectModuleService::MANAGED_SKILL_SLUG && $this->managedSkill() !== null;
-    }
-
-    private function isJoplinManagedSlug(string $slug): bool
-    {
-        return $slug === JoplinSkillService::MANAGED_SKILL_SLUG && $this->joplinSkill() !== null;
     }
 
     private function addCanonicalUri(array $row): array

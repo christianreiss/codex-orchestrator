@@ -36,7 +36,6 @@ use App\Repositories\InsecureDomainAllowRepository;
 use App\Repositories\LogRepository;
 use App\Repositories\ChatGptUsageRepository;
 use App\Repositories\IpRateLimitRepository;
-use App\Repositories\JoplinNoteRepository;
 use App\Repositories\TokenUsageRepository;
 use App\Repositories\TokenUsageIngestRepository;
 use App\Repositories\VersionRepository;
@@ -66,9 +65,6 @@ use App\Services\ProjectCoordinationService;
 use App\Services\ProjectDraftService;
 use App\Services\ProjectModuleService;
 use App\Services\AgentsService;
-use App\Services\JoplinCacheService;
-use App\Services\JoplinService;
-use App\Services\JoplinSkillService;
 use App\Services\SkillService;
 use App\Services\SkillDraftService;
 use App\Services\SkillManifestService;
@@ -118,7 +114,6 @@ use App\Http\Controllers\OpenAiApiController;
 use App\Http\Controllers\ClaudeApiController;
 use App\Http\Controllers\AdminOpenAiKeyController;
 use App\Http\Controllers\AdminClaudeKeyController;
-use App\Http\Controllers\AdminJoplinController;
 use App\Http\Controllers\AdminManualController;
 use App\Http\OpenAiResponse;
 use App\Http\AnthropicResponse;
@@ -371,7 +366,6 @@ $adminPasskeyService = new AdminPasskeyService(
 $GLOBALS['adminAuthService'] = $adminAuthService;
 $cliAuthService = new CliAuthService($cliAuthRequestRepository, $service, $logRepository, $rateLimiter);
 $projectModuleService = new ProjectModuleService($versionRepository);
-$joplinSkillService = new JoplinSkillService($versionRepository);
 $chatGptUsageService = new ChatGptUsageService(
     $service,
     $chatGptUsageRepository,
@@ -387,7 +381,7 @@ $clientConfigService = new ClientConfigService($clientConfigRepository, $logRepo
 $skillManifestService = new SkillManifestService();
 $skillSummaryService = new SkillSummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $skillDraftService = new SkillDraftService($authPayloadRepository, $logRepository, $skillManifestService, $runnerVerifier, $runnerValidationService);
-$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService, $joplinSkillService);
+$skillService = new SkillService($skillRepository, $logRepository, $projectModuleService, $skillSummaryService, $skillManifestService);
 $memorySummaryService = new MemorySummaryService($authPayloadRepository, $logRepository, $runnerVerifier, $runnerValidationService);
 $memoryService = new MemoryService($memoryRepository, $logRepository, $memorySummaryService);
 $agentsService = new AgentsService($agentsRepository, $logRepository, $skillService, $clientConfigService, $memoryService, $versionRepository);
@@ -408,16 +402,7 @@ $projectDraftService = new ProjectDraftService(
     $runnerVerifier,
     $runnerValidationService
 );
-$joplinCacheService = null;
-$joplinUrl = trim((string) ($versionRepository->get('joplin_url') ?? ''));
-$joplinEmail = trim((string) ($versionRepository->get('joplin_email') ?? ''));
-$joplinPassword = (string) ($versionRepository->get('joplin_password') ?? '');
-if ($joplinUrl !== '' && $joplinEmail !== '' && $joplinPassword !== '') {
-    $joplinNoteRepository = new JoplinNoteRepository($database);
-    $joplinService = new JoplinService($joplinUrl, $joplinEmail, $joplinPassword);
-    $joplinCacheService = new JoplinCacheService($joplinService, $joplinNoteRepository, $versionRepository);
-}
-$mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root, $joplinCacheService);
+$mcpServer = new McpServer($memoryService, $projectCoordinationService, $skillService, $root);
 $startupSyncService = new StartupSyncService($agentsService, $clientConfigService);
 $agentsService->ensureSeededFromFile($root . '/AGENTS.md');
 $wrapperService->ensureAllSeeded();
@@ -513,7 +498,6 @@ $adminHostCtrl = new AdminHostController($hostRepository, $hostStateRepository, 
 $adminOverviewCtrl = new AdminOverviewController($service, $hostRepository, $logRepository, $versionRepository, $authPayloadRepository, $seedTokenRepository, $tokenUsageRepository, $tokenUsageIngestRepository, $chatGptUsageService, $adminEventRepository, $digestRepository, $hostUserRepository, $insecureDomainAllowRepository, $usageScalingService, $claudeUsageService);
 $adminConfigCtrl = new AdminConfigController($clientConfigService, $agentsService, $memoryService, $skillService, $skillDraftService, $mcpAccessLogRepository);
 $adminProjectCtrl = new AdminProjectController($projectCoordinationService, $projectDraftService);
-$adminJoplinCtrl = new AdminJoplinController($versionRepository, $logRepository, $joplinCacheService);
 // v1 WrapperController / InstallController are gone — the legacy /wrapper, /install,
 // /seed/auth routes are aliased to the v2 controllers below.
 unset($wrapperCtrl, $installCtrl); // belt-and-braces in case of stale globals
@@ -605,7 +589,7 @@ $router->add('GET', '#^/admin/dashboard$#', fn() => $adminPageCtrl->dashboard())
 $router->add('GET', '#^/admin/skills/new$#', fn() => $adminPageCtrl->skill());
 $router->add('GET', '#^/admin/account(?:/(password|passkeys))?$#', fn() => $adminPageCtrl->account());
 $router->add('GET', '#^/admin/settings$#', fn() => $adminPageCtrl->settings());
-$router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|claude|apikeys|joplin)$#', fn() => $adminPageCtrl->settingsSection());
+$router->add('GET', '#^/admin/settings/(general|users|agents|memories|projects|profiles|skills|config|claude|apikeys)$#', fn() => $adminPageCtrl->settingsSection());
 $router->add('GET', '#^/admin/hosts/secure$#', fn() => $adminPageCtrl->hostsSecure());
 $router->add('GET', '#^/admin/hosts/unprovisioned$#', fn() => $adminPageCtrl->hostsUnprovisioned());
 $router->add('GET', '#^/admin/logs/(mcp|events)$#', fn() => $adminPageCtrl->logs());
@@ -877,12 +861,6 @@ $router->add('POST', '#^/admin/projects/([^/]+)/files$#', fn($slug) => $adminPro
 $router->add('DELETE', '#^/admin/projects/([^/]+)/files/(\d+)$#', fn($slug, $id) => $adminProjectCtrl->fileDelete($slug, $id));
 $router->add('GET', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $adminProjectCtrl->feedback($slug));
 $router->add('POST', '#^/admin/projects/([^/]+)/feedback$#', fn($slug) => $adminProjectCtrl->feedbackCreate($slug, $payload));
-
-// Admin Joplin
-$router->add('GET', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->getConfig());
-$router->add('POST', '#^/admin/joplin/config$#', fn() => $adminJoplinCtrl->postConfig($payload));
-$router->add('POST', '#^/admin/joplin/test$#', fn() => $adminJoplinCtrl->postTest($payload));
-$router->add('POST', '#^/admin/joplin/sync$#', fn() => $adminJoplinCtrl->postSync());
 
 // Client-facing auth
 $router->add('POST', '#^/auth$#', fn() => $authCtrl->auth($payload));
