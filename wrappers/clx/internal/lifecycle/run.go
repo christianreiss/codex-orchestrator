@@ -347,8 +347,9 @@ func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, erro
 	// Legacy clx parity: mirror the same bytes to ~/.clx/config/settings.json
 	// so the clx-native config tree stays in sync. Best-effort — mirror
 	// failures are not surfaced to the caller.
-	mirror := filepath.Join(home, ".clx", "config", "settings.json")
-	_ = atomicWrite(mirror, body, 0o644)
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = atomicWrite(filepath.Join(home, ".clx", "config", "settings.json"), body, 0o644)
+	}
 	return true, nil
 }
 
