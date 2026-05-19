@@ -23,6 +23,8 @@
   import NewHostSheet from "$lib/components/hosts/NewHostSheet.svelte";
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
   import InsecureApprovalsDialog from "$lib/components/hosts/InsecureApprovalsDialog.svelte";
+  import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { isInsecureWindowActive } from "$lib/api/hosts";
   import { toast } from "svelte-sonner";
@@ -119,6 +121,7 @@
   let newOpen = $state(false);
   let quickOpen = $state(false);
   let insecureOpen = $state(false);
+  let seedOpen = $state(false);
 
   // /hosts/new path opens the sheet on landing
   $effect(() => {
@@ -147,6 +150,9 @@
           {$hostsSummary.activeInsecureWindows}
         </span>
       {/if}
+    </Button>
+    <Button variant="outline" onclick={() => (seedOpen = true)}>
+      <KeyRound class="h-4 w-4" /> Seed auth
     </Button>
     <Button variant="secondary" onclick={() => (quickOpen = true)}>
       <Rocket class="h-4 w-4" /> Quick VM
@@ -195,3 +201,4 @@
 />
 <QuickVmDialog bind:open={quickOpen} />
 <InsecureApprovalsDialog bind:open={insecureOpen} />
+<SeedAuthDialog bind:open={seedOpen} />

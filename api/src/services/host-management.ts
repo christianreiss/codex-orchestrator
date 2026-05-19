@@ -360,8 +360,11 @@ export class HostManagementService {
     return result;
   }
 
-  async mintInstaller(id: number): Promise<{ host: Host; installer: InstallerInfo }> {
-    const host = await this.requireById(id);
+  async mintInstaller(
+    id: number,
+    additionalEngines?: Engine[],
+  ): Promise<{ host: Host; installer: InstallerInfo }> {
+    let host = await this.requireById(id);
     const legacyPlainApiKey = host.apiKey && !/^[a-f0-9]{64}$/.test(host.apiKey) ? host.apiKey : null;
     const apiKeyPlain = decryptOrNull(host.apiKeyEnc ?? null, this.keyring) ?? legacyPlainApiKey;
     if (!apiKeyPlain) {
@@ -371,7 +374,30 @@ export class HostManagementService {
       });
     }
     const parsedEngines = parseEnginesInput(host.engines, [ENGINE_CODEX]);
-    const engines = parsedEngines.length ? parsedEngines : [ENGINE_CODEX];
+    const currentEngines: Engine[] = parsedEngines.length ? parsedEngines : [ENGINE_CODEX];
+    // Union with any caller-supplied engines (e.g. "add Claude" flow).
+    const union: Engine[] = [...currentEngines];
+    if (additionalEngines && additionalEngines.length) {
+      for (const e of additionalEngines) {
+        if (!union.includes(e)) union.push(e);
+      }
+    }
+    const engines = union.length ? union : [ENGINE_CODEX];
+    const enginesChanged = serializeEngines(engines) !== serializeEngines(currentEngines);
+
+    if (enginesChanged) {
+      await this.db
+        .update(hosts)
+        .set({ engines: serializeEngines(engines), updatedAt: nowIso() })
+        .where(eq(hosts.id, host.id));
+      host = (await this.findById(host.id))!;
+      await this.writeLog(host.id, 'admin.host.engines_added', {
+        fqdn: host.fqdn,
+        previous: serializeEngines(currentEngines),
+        engines: serializeEngines(engines),
+      });
+    }
+
     const installer = await this.issueInstallerToken(host, apiKeyPlain, engines);
 
     await this.events.appendAndPublish(
@@ -382,6 +408,7 @@ export class HostManagementService {
         engines: serializeEngines(engines),
         installer_mode: installer.mode,
         expires_at: installer.expires_at,
+        engines_changed: enginesChanged,
       },
       {
         hostId: host.id,

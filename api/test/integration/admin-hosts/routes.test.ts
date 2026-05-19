@@ -91,8 +91,8 @@ function makeMocks() {
         installer,
       };
     },
-    mintInstaller: async (id: number) => {
-      calls.push({ method: 'mintInstaller', args: [id] });
+    mintInstaller: async (id: number, additionalEngines?: string[]) => {
+      calls.push({ method: 'mintInstaller', args: [id, additionalEngines] });
       return {
         host: fakeHost({ id }),
         installer,
@@ -376,7 +376,50 @@ describe('admin hosts routes', () => {
       expect(r.statusCode).toBe(200);
       const body = JSON.parse(r.payload);
       expect(body.installer.command).toContain('/install/tok-deadbeef');
-      expect(calls.find((c) => c.method === 'mintInstaller')?.args).toEqual([42]);
+      const args = calls.find((c) => c.method === 'mintInstaller')?.args;
+      expect(args?.[0]).toBe(42);
+      expect(args?.[1]).toBeUndefined();
+      await app.close();
+    });
+
+    it('forwards requested engines when the body specifies them', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/installer',
+        payload: { engines: ['claude'] },
+      });
+      expect(r.statusCode).toBe(200);
+      const args = calls.find((c) => c.method === 'mintInstaller')?.args;
+      expect(args?.[0]).toBe(42);
+      expect(args?.[1]).toEqual(['claude']);
+      await app.close();
+    });
+
+    it('accepts a comma-separated engines string and normalises it', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/installer',
+        payload: { engines: 'codex,claude' },
+      });
+      expect(r.statusCode).toBe(200);
+      const args = calls.find((c) => c.method === 'mintInstaller')?.args;
+      expect(args?.[1]).toEqual(['codex', 'claude']);
+      await app.close();
+    });
+
+    it('ignores unrecognised engine names', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/installer',
+        payload: { engines: ['mystery'] },
+      });
+      expect(r.statusCode).toBe(200);
+      const args = calls.find((c) => c.method === 'mintInstaller')?.args;
+      // empty array filters down → service receives undefined
+      expect(args?.[1]).toBeUndefined();
       await app.close();
     });
 

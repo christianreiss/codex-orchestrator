@@ -93,10 +93,13 @@ export function createMintInstallerMutation(qc: QueryClient) {
   return createMutation<
     HostInstallerResponse,
     ApiError,
-    { id: number | string }
+    { id: number | string; engines?: ("codex" | "claude")[] }
   >({
-    mutationFn: ({ id }) =>
-      api.post<HostInstallerResponse>(`/admin/hosts/${id}/installer`),
+    mutationFn: ({ id, engines }) =>
+      api.post<HostInstallerResponse>(
+        `/admin/hosts/${id}/installer`,
+        engines && engines.length ? { engines } : undefined,
+      ),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });

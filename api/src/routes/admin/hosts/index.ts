@@ -129,6 +129,10 @@ const approveSchema = z.object({
   duration_minutes: durationMinutesSchema,
 });
 
+const mintInstallerSchema = z.object({
+  engines: enginesSchema,
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -298,7 +302,9 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
-      const { host, installer } = await hostService.mintInstaller(id);
+      const body = parseZod(mintInstallerSchema, req.body ?? {});
+      const requestedEngines = body.engines && body.engines.length ? body.engines : undefined;
+      const { host, installer } = await hostService.mintInstaller(id, requestedEngines);
       return {
         host: hostToWire(host),
         installer,
