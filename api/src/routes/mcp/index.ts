@@ -12,6 +12,8 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
+import { existsSync, statSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
@@ -23,6 +25,7 @@ import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
 import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
+import { McpFsTools } from '../../services/mcp-fs.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
 import type { Host } from '../../db/schema.js';
@@ -33,7 +36,24 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const memories = new McpMemoriesService(ctx.db);
   const projects = new HostProjectsService(ctx.db);
   const skills = new HostSkillsService(ctx.db);
-  const tools = new McpToolsRegistry({ memories, projects, skills });
+
+  // fs_* tools are only registered when MCP_FS_ROOT points at an existing
+  // directory. When unset (or invalid), the operator surface is empty.
+  const fsRootRaw = (ctx.env as { MCP_FS_ROOT?: string }).MCP_FS_ROOT;
+  let fsTools: McpFsTools | undefined;
+  if (fsRootRaw && fsRootRaw.trim()) {
+    const abs = resolvePath(fsRootRaw.trim());
+    if (existsSync(abs) && statSync(abs).isDirectory()) {
+      fsTools = new McpFsTools({
+        root: abs,
+        maxReadBytes: Number((ctx.env as { MCP_FS_MAX_READ_BYTES?: number }).MCP_FS_MAX_READ_BYTES) || 1024 * 1024,
+        maxListEntries: Number((ctx.env as { MCP_FS_MAX_LIST_ENTRIES?: number }).MCP_FS_MAX_LIST_ENTRIES) || 1000,
+        maxSearchHits: Number((ctx.env as { MCP_FS_MAX_SEARCH_HITS?: number }).MCP_FS_MAX_SEARCH_HITS) || 200,
+      });
+    }
+  }
+
+  const tools = new McpToolsRegistry({ memories, projects, skills, fs: fsTools });
   const resources = new McpResourcesService({ memories, projects, skills });
   const server = new McpServer(tools, resources, accessLog);
 

@@ -11,6 +11,7 @@ import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
+import type { McpFsTools } from './mcp-fs.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -29,6 +30,11 @@ export interface ToolDeps {
   memories: McpMemoriesService;
   projects: HostProjectsService;
   skills: HostSkillsService;
+  /**
+   * Optional filesystem tools. When omitted, fs_* tools are not registered
+   * (neither listed nor callable). Activated by setting MCP_FS_ROOT.
+   */
+  fs?: McpFsTools;
 }
 
 export type ToolResult =
@@ -365,8 +371,105 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
   });
 
-  // Operator-capability tools are registered by separate setup steps (e.g.,
-  // McpFsTools is wired in by the MCP route when MCP_FS_ROOT is configured).
+  // Operator-capability tools — only registered when their dependency is
+  // present. fs_* requires MCP_FS_ROOT to be set (caller wires in McpFsTools).
+  if (deps.fs) {
+    const fs = deps.fs;
+    inputs.push({
+      definition: {
+        name: 'fs_read_file',
+        description: 'Read a file under the configured filesystem root (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            max_bytes: { type: 'integer' },
+          },
+          required: ['path'],
+        },
+      },
+      handler: async (args) => fs.readFile(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'fs_write_file',
+        description: 'Write a file under the configured filesystem root (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            content: { type: 'string' },
+            mode: { type: 'integer' },
+          },
+          required: ['path', 'content'],
+        },
+      },
+      handler: async (args) => fs.writeFile(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'fs_list_dir',
+        description: 'List directory entries under the filesystem root (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            recursive: { type: 'boolean' },
+            max_entries: { type: 'integer' },
+          },
+          required: ['path'],
+        },
+      },
+      handler: async (args) => fs.listDir(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'fs_file_exists',
+        description: 'Check whether a path exists under the filesystem root (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
+      },
+      handler: async (args) => fs.fileExists(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'fs_stat',
+        description: 'Stat a path under the filesystem root (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
+      },
+      handler: async (args) => fs.stat(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'fs_search_in_files',
+        description: 'Search file contents under the filesystem root by regex (operator only).',
+        capability: 'operator',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            pattern: { type: 'string' },
+            glob: { type: 'string' },
+            max_hits: { type: 'integer' },
+          },
+          required: ['path', 'pattern'],
+        },
+      },
+      handler: async (args) => fs.searchInFiles(args),
+    });
+  }
 
   const entries = new Map<string, ToolEntry>();
   for (const input of inputs) {
