@@ -81,14 +81,14 @@ type HostInfo struct {
 // ChatGPTQuota is the per-host ChatGPT usage snapshot. All percent fields are
 // 0-100 ints (or nil if the server has no current data).
 type ChatGPTQuota struct {
-	Status      string `json:"status,omitempty"`
-	PlanType    string `json:"plan_type,omitempty"`
-	FetchedAt   string `json:"fetched_at,omitempty"`
-	SparkLimit  string `json:"spark_limit_name,omitempty"`
-	SparkFeat   string `json:"spark_metered_feature,omitempty"`
-	ActiveLane  string `json:"active_quota_lane,omitempty"`
-	DailyUsed   *int   `json:"daily_used_percent,omitempty"`
-	WeekPart    *int   `json:"week_partition,omitempty"`
+	Status     string `json:"status,omitempty"`
+	PlanType   string `json:"plan_type,omitempty"`
+	FetchedAt  string `json:"fetched_at,omitempty"`
+	SparkLimit string `json:"spark_limit_name,omitempty"`
+	SparkFeat  string `json:"spark_metered_feature,omitempty"`
+	ActiveLane string `json:"active_quota_lane,omitempty"`
+	DailyUsed  *int   `json:"daily_used_percent,omitempty"`
+	WeekPart   *int   `json:"week_partition,omitempty"`
 
 	PrimaryUsed       *int   `json:"primary_used_percent,omitempty"`
 	PrimaryLimitSec   *int64 `json:"primary_limit_seconds,omitempty"`

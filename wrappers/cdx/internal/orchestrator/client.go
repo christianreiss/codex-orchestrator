@@ -27,11 +27,11 @@ const (
 
 // Client wraps net/http with the per-host API key, retry logic, and a base URL.
 type Client struct {
-	BaseURL  string
-	APIKey   string
-	HTTP     *http.Client
+	BaseURL   string
+	APIKey    string
+	HTTP      *http.Client
 	UserAgent string
-	Logger   *slog.Logger
+	Logger    *slog.Logger
 }
 
 type Options struct {
