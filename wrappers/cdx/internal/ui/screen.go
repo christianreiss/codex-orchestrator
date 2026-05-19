@@ -132,22 +132,27 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 	}
 }
 
-// PrintSessionsBlock renders the labeled session counts under the quota bars.
-// Indented one space deeper than the quota rows so the block reads as a
-// nested table. Counts use thousands separators (1,234) for legibility.
+// PrintSessionsBlock renders the labeled session counts in a 2-column grid
+// under the quota bars. The four canonical rows pair naturally:
+//
+//	local now  N      fleet now  N
+//	today      N      month      N
+//
+// — "now" indicators left, totals right. Cell widths are computed across all
+// entries so both columns line up. When fewer than four rows are supplied
+// the trailing cell is left blank; the function still renders something
+// usable. Counts use thousands separators (1,234) for legibility.
 func PrintSessionsBlock(w io.Writer, caps Caps, rows []SessionRow) {
 	if len(rows) == 0 {
 		return
 	}
 	maxLabel := 0
-	for _, r := range rows {
+	formatted := make([]string, len(rows))
+	maxCount := 0
+	for i, r := range rows {
 		if l := len(r.Label); l > maxLabel {
 			maxLabel = l
 		}
-	}
-	maxCount := 0
-	formatted := make([]string, len(rows))
-	for i, r := range rows {
 		formatted[i] = GroupedInt(r.Count)
 		if l := len(formatted[i]); l > maxCount {
 			maxCount = l
@@ -155,12 +160,22 @@ func PrintSessionsBlock(w io.Writer, caps Caps, rows []SessionRow) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %ssessions%s\n", caps.Palette.Dim, caps.Palette.Reset)
-	for i, r := range rows {
-		fmt.Fprintf(w, "    %s%-*s%s  %*s\n",
-			caps.Palette.Dim, maxLabel, r.Label, caps.Palette.Reset,
-			maxCount, formatted[i],
-		)
+	const gridGap = "      " // visual separator between the two columns
+	for i := 0; i < len(rows); i += 2 {
+		left := sessionCell(caps, rows[i].Label, formatted[i], maxLabel, maxCount)
+		right := ""
+		if i+1 < len(rows) {
+			right = sessionCell(caps, rows[i+1].Label, formatted[i+1], maxLabel, maxCount)
+		}
+		fmt.Fprintf(w, "    %s%s%s\n", left, gridGap, right)
 	}
+}
+
+func sessionCell(caps Caps, label, value string, labelW, valueW int) string {
+	return fmt.Sprintf("%s%-*s%s  %*s",
+		caps.Palette.Dim, labelW, label, caps.Palette.Reset,
+		valueW, value,
+	)
 }
 
 // MinimalScreen renders the dumb-terminal two-line summary.
