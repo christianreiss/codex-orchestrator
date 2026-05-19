@@ -1,4 +1,5 @@
 # 2026-05-19
+- Admin WebUI hosts: the "Installer minted" modal now auto-copies the freshly minted installer command to the clipboard, while keeping the manual Copy command fallback.
 - Wrapper v2 installer: relic cleanup now checks whether `/usr/local/sbin/cdx` or other legacy paths resolve to the same file as `/usr/local/bin/cdx` before removing them, so systems with aliased standard directories no longer delete the freshly installed wrapper.
 - Admin WebUI hosts: the "Installer minted" modal now has a Re-create action that mints a fresh installer link in-place, preserving the selected engine set from the original mint action.
 - Wrapper v2 installer: hardened cleanup for legacy symlink layouts where `/usr/local/bin/cdx` pointed at `/usr/local/sbin/cdx`; canonical symlinks are now replaced with a real wrapper binary before relic cleanup removes the old target path.

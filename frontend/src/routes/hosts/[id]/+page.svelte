@@ -128,7 +128,9 @@
       const result = await $mintInstaller.mutateAsync({ id, engines });
       installerResult = result.installer;
       installerDialogOpen = true;
-      toast.success("Installer minted");
+      const copied = await writeInstallerCommandToClipboard(result.installer.command);
+      toast.success(copied ? "Installer minted and command copied" : "Installer minted");
+      if (!copied) toast.error("Auto-copy failed");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Installer mint failed";
       toast.error(msg);
@@ -141,11 +143,20 @@
 
   async function copyInstallerCommand(): Promise<void> {
     if (!installerResult?.command) return;
-    try {
-      await navigator.clipboard.writeText(installerResult.command);
+    const copied = await writeInstallerCommandToClipboard(installerResult.command);
+    if (copied) {
       toast.success("Installer command copied");
-    } catch {
+    } else {
       toast.error("Copy failed");
+    }
+  }
+
+  async function writeInstallerCommandToClipboard(command: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(command);
+      return true;
+    } catch {
+      return false;
     }
   }
 
