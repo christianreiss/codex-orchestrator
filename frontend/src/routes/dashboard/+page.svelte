@@ -3,6 +3,7 @@
   import StatCard from "./StatCard.svelte";
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
   import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
+  import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
   import DashboardAlerts from "./DashboardAlerts.svelte";
   import { overviewQuery } from "$lib/api/overview";
   import { formatTokens } from "$lib/utils/format";
@@ -103,5 +104,10 @@
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
     <ChatGptUsageCard />
     <ClaudeUsageCard />
+  </div>
+
+  <!-- Runner card -->
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <RunnerCard />
   </div>
 </div>
