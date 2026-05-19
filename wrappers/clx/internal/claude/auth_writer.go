@@ -35,6 +35,19 @@ func LocalDigest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ReadAuth returns the raw bytes of the local credentials.json.
+func ReadAuth() (json.RawMessage, error) {
+	p, err := AuthPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
 func WriteAuth(payload json.RawMessage) error {
 	if len(payload) == 0 {
 		return errors.New("empty auth payload")

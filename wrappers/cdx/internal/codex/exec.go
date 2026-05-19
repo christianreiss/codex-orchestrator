@@ -30,11 +30,22 @@ func FindCLI() (string, error) {
 
 // Run execs `codex` with the wrapper's prepared env. Signals are forwarded
 // and the child's exit status is propagated. The returned int is the exit code.
+//
+// Side effects:
+//   - Adds the current cwd to ~/.codex/config.toml under [projects.…] trust_level=trusted.
+//   - Exports OTEL_* env vars derived from the [otel] block in config.toml.
+//   - Starts an IPv4-forcing local proxy when CODEX_FORCE_IPV4=1.
+//   - Selects a model/profile based on lane preference when neither is given.
 func Run(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, err
 	}
+
+	teardown, _ := PreExec(ctx, cfg)
+	defer teardown()
+
+	args = applyLaneAndProfile(cfg, args)
 
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = BuildEnv(cfg)

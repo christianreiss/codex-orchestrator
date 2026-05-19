@@ -36,6 +36,19 @@ func LocalDigest() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// ReadAuth returns the raw bytes of the local auth.json (or error if missing).
+func ReadAuth() (json.RawMessage, error) {
+	p, err := AuthPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
 // WriteAuth materializes a new auth.json from the orchestrator response,
 // atomically replacing any existing file. payload is the raw JSON body the
 // server returns under the `auth` key.

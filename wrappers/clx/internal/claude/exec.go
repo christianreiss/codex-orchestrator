@@ -35,6 +35,8 @@ func Run(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 	if err != nil {
 		return 127, err
 	}
+	teardown, _ := PreExec(ctx, cfg)
+	defer teardown()
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = BuildEnv(cfg)
 	cmd.Stdin = os.Stdin

@@ -8,12 +8,65 @@ import (
 	"net/http"
 )
 
-// AuthRetrieveResponse mirrors POST /auth?engine=claude.
+// AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
+// add fields freely; unknown fields are tolerated.
 type AuthRetrieveResponse struct {
-	Status  string          `json:"status"`
-	Message string          `json:"message,omitempty"`
-	Digest  string          `json:"digest,omitempty"`
-	Auth    json.RawMessage `json:"auth,omitempty"`
+	Status               string          `json:"status"`
+	Action               string          `json:"action,omitempty"`
+	Message              string          `json:"message,omitempty"`
+	Digest               string          `json:"digest,omitempty"`
+	CanonicalDigest      string          `json:"canonical_digest,omitempty"`
+	CanonicalLastRefresh string          `json:"canonical_last_refresh,omitempty"`
+	Auth                 json.RawMessage `json:"auth,omitempty"`
+	APICalls             int64           `json:"api_calls,omitempty"`
+	TokenUsageMonth      *TokenUsage     `json:"token_usage_month,omitempty"`
+	Versions             *VersionSummary `json:"versions,omitempty"`
+	Host                 *HostInfo       `json:"host,omitempty"`
+	QuotaHardFail        bool            `json:"quota_hard_fail,omitempty"`
+	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
+	Engine               string          `json:"engine,omitempty"`
+	VerificationState    string          `json:"verification_state,omitempty"`
+}
+
+type TokenUsage struct {
+	Total     int64 `json:"total"`
+	Input     int64 `json:"input"`
+	Output    int64 `json:"output"`
+	Cached    int64 `json:"cached"`
+	Reasoning int64 `json:"reasoning"`
+}
+
+type VersionSummary struct {
+	ClientVersion             *string `json:"client_version"`
+	ClientVersionOverride     *string `json:"client_version_override"`
+	ClientVersionEnforceExact bool    `json:"client_version_enforce_exact"`
+	WrapperVersion            *string `json:"wrapper_version"`
+	WrapperSHA256             *string `json:"wrapper_sha256"`
+	WrapperURL                *string `json:"wrapper_url"`
+	RunnerState               *string `json:"runner_state"`
+	APIDisabled               bool    `json:"api_disabled"`
+	AutoUpdateEnabled         bool    `json:"auto_update_enabled"`
+	CdxSilent                 bool    `json:"cdx_silent"`
+	ClxSilent                 bool    `json:"clx_silent"`
+	InstallationID            *string `json:"installation_id"`
+	Engine                    string  `json:"engine,omitempty"`
+}
+
+type HostInfo struct {
+	FQDN                 string `json:"fqdn"`
+	Status               string `json:"status"`
+	ClaudeLastRefresh    string `json:"claude_last_refresh,omitempty"`
+	UpdatedAt            string `json:"updated_at,omitempty"`
+	ExpiresAt            string `json:"expires_at,omitempty"`
+	ClaudeClientVersion  string `json:"claude_client_version,omitempty"`
+	ClaudeWrapperVersion string `json:"claude_wrapper_version,omitempty"`
+	APICalls             int64  `json:"api_calls,omitempty"`
+	Secure               bool   `json:"secure"`
+	Vip                  bool   `json:"vip,omitempty"`
+	ClaudeModelOverride  string `json:"claude_model_override,omitempty"`
+	ReasoningEffort      string `json:"claude_reasoning_effort_override,omitempty"`
+	AutoUpdateOverride   *bool  `json:"auto_update_override,omitempty"`
+	LastCronCheck        string `json:"last_cron_check,omitempty"`
 }
 
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
