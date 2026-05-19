@@ -213,7 +213,6 @@ so the `cdx` CLI can match branding. **All six tokens sets must be defined in `t
 | `/admin/settings/config` | Settings → OpenAI | Codex/OpenAI config builder |
 | `/admin/settings/claude` | Settings → Claude | Anthropic fleet config |
 | `/admin/settings/apikeys` | Settings → API Keys | Self-issued bearer tokens |
-| `/admin/settings/joplin` | Settings → Joplin | Note integration |
 | `/admin/account/password` | Account → Password | |
 | `/admin/account/passkeys` | Account → Passkeys | |
 
@@ -238,7 +237,6 @@ drawer on mobile. Structure on desktop:
 | **Admin** | General, Users, Agents, OpenAI, Claude, API Keys |
 | **Authoring** | Skills, Memories |
 | **Workspace** | Projects, Profiles |
-| **Integrations** | Joplin |
 
 ### 3.4 Mobile nav
 - The rail collapses to a hamburger trigger (`#navMenuToggle`, label "Menu").
@@ -501,10 +499,7 @@ probe), "Save" primary button.
 List of self-issued bearer tokens. Columns: name, last 4 chars, created, last used, actions
 (revoke). "Create API Key" button opens a modal that shows the secret **once** and then masks it.
 
-### 4.16 Settings — Joplin (`/admin/settings/joplin`)
-Joplin integration: server URL, API key, sync toggle, last sync result.
-
-### 4.17 Project workspace (`/admin/settings/projects/{slug}`)
+### 4.16 Project workspace (`/admin/settings/projects/{slug}`)
 **Header (`.project-detail-head`):**
 - Eyebrow + project title.
 - Tab strip (`.project-tab-btn`):

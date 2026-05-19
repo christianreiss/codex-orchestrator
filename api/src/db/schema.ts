@@ -807,7 +807,7 @@ export const dashboardGraphQuotaSnapshots = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// logs / rate limits / mcp / versions / openai keys / joplin / claude usage
+// logs / rate limits / mcp / versions / openai keys / claude usage
 // ────────────────────────────────────────────────────────────────────────────
 
 export const logs = mysqlTable(
@@ -913,27 +913,6 @@ export const openaiApiKeys = mysqlTable(
     prefixIdx: index('idx_openai_keys_prefix').on(t.keyPrefix),
     adminIdx: index('idx_openai_keys_admin').on(t.adminUserId),
     engineIdx: index('idx_openai_keys_engine').on(t.engine),
-  }),
-);
-
-export const joplinNotesCache = mysqlTable(
-  'joplin_notes_cache',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    joplinId: varchar('joplin_id', { length: 32 }).notNull(),
-    title: varchar('title', { length: 1000 }).notNull().default(''),
-    body: longtext('body').notNull(),
-    notebookId: varchar('notebook_id', { length: 32 }).notNull().default(''),
-    tagsJson: json('tags_json'),
-    parentId: varchar('parent_id', { length: 32 }).notNull().default(''),
-    syncedAt: varchar('synced_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    joplinIdUnique: uniqueIndex('uniq_joplin_notes_joplin_id').on(t.joplinId),
-    notebookIdx: index('idx_joplin_notes_notebook').on(t.notebookId),
-    syncedIdx: index('idx_joplin_notes_synced').on(t.syncedAt),
   }),
 );
 

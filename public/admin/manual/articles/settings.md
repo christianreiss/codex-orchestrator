@@ -2,10 +2,10 @@
 title: Settings reference
 section: Admin workspace
 verified: 2026-04-19
-sources: src/Http/Controllers/AdminSettingsController.php, src/Http/Controllers/AdminConfigController.php, src/Http/Controllers/AdminOpenAiKeyController.php, src/Http/Controllers/AdminClaudeKeyController.php, src/Http/Controllers/AdminJoplinController.php, src/Services/AgentsService.php, src/Services/SkillService.php, src/Services/MemoryService.php, src/Services/ProjectModuleService.php, src/Services/JoplinService.php, src/Services/ClientConfigService.php, src/Services/TomlRenderer.php, public/admin/index.html
+sources: src/Http/Controllers/AdminSettingsController.php, src/Http/Controllers/AdminConfigController.php, src/Http/Controllers/AdminOpenAiKeyController.php, src/Http/Controllers/AdminClaudeKeyController.php, src/Services/AgentsService.php, src/Services/SkillService.php, src/Services/MemoryService.php, src/Services/ProjectModuleService.php, src/Services/ClientConfigService.php, src/Services/TomlRenderer.php, public/admin/index.html
 ---
 
-Settings is grouped into four rail sections in `public/admin/index.html` (Admin, Authoring, Workspace, Integrations). Each tab maps onto one or more API endpoints registered in `public/index.php`. All write operations require `settings.manage`.
+Settings is grouped into rail sections in `public/admin/index.html` (Admin, Authoring, Workspace). Each tab maps onto one or more API endpoints registered in `public/index.php`. All write operations require `settings.manage`.
 
 ## Admin → General
 
@@ -96,16 +96,6 @@ The Codex `config.toml` builder. Handled by `AdminConfigController`:
 
 `ConfigNormalizer` enforces valid shapes; `ClientConfigService` is what actually materialises the TOML a given host should get given its overrides.
 
-## Integrations → Joplin
-
-Optional Joplin integration for storing notes/skills. `AdminJoplinController`:
-
-- `GET /admin/joplin/config`, `POST /admin/joplin/config` (`getConfig`, `postConfig`).
-- `POST /admin/joplin/test` (`postTest`) — verify the token and endpoint.
-- `POST /admin/joplin/sync` (`postSync`) — force a sync now.
-
-When Joplin is enabled, the MCP server exposes `joplin_*` tools (see [mcp](/admin/manual/mcp)).
-
 ## Runner controls (Admin → General helpers)
 
 - `POST /admin/runner/run` — probe the Codex runner.
@@ -120,11 +110,9 @@ All of these are on `AdminOverviewController` and require `settings.manage`.
 - src/Http/Controllers/AdminSettingsController.php (general toggles, quota, retention, OpenAI/Claude state)
 - src/Http/Controllers/AdminConfigController.php (agents, skills, memories, profile builder)
 - src/Http/Controllers/AdminOpenAiKeyController.php, src/Http/Controllers/AdminClaudeKeyController.php
-- src/Http/Controllers/AdminJoplinController.php
 - src/Services/AgentsService.php (serve mode, versions)
 - src/Services/SkillService.php, src/Services/SkillDraftService.php, src/Services/SkillManifestService.php
 - src/Services/MemoryService.php
 - src/Services/ProjectModuleService.php
-- src/Services/JoplinService.php, src/Services/JoplinSkillService.php
 - src/Services/ClientConfigService.php, src/Services/TomlRenderer.php, src/Services/ConfigNormalizer.php
 - public/admin/index.html (rail sections for each settings tab)

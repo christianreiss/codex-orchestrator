@@ -11,7 +11,6 @@ import {
   BookOpen,
   ScrollText,
   Users,
-  Plug,
   Settings,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
@@ -32,12 +31,6 @@ export const NAV: NavItem[] = [
   { href: "/authoring", label: "Authoring", icon: BookOpen },
   { href: "/logs/api", label: "Logs", icon: ScrollText, match: /^\/logs(\/|$)/ },
   { href: "/users", label: "Users", icon: Users },
-  {
-    href: "/integrations/joplin",
-    label: "Integrations",
-    icon: Plug,
-    match: /^\/integrations(\/|$)/,
-  },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

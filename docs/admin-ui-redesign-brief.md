@@ -29,7 +29,7 @@ over polish.
 | Host detail | 4 sections: Stats / Action items / Technical context / Host controls |
 | Logs | 3 tabs: API logs / MCP logs / Events (audit) — filter-heavy tables |
 | Settings — General | 4 groups: Emergency (kill switch) / Security & Access / Fleet / DevEx |
-| Settings — Users / Agents / Memories / Projects / Profiles / Skills / OpenAI / Claude / API Keys / Joplin | Each panel is a `.card .panel`; consistent panel-head pattern |
+| Settings — Users / Agents / Memories / Projects / Profiles / Skills / OpenAI / Claude / API Keys | Each panel is a `.card .panel`; consistent panel-head pattern |
 | Project workspace | Tabs: Identity / Notes / Todos / Files / Feedback / Activity |
 | Skill detail | Two-pane: chat ↔ AI-managed fields |
 | Manual | Markdown viewer with TOC + search |

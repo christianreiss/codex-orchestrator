@@ -681,52 +681,6 @@ export interface HostQuickRegisterPayload {
   duration_minutes?: number;
 }
 // hosts feature ↑ ----------------------------------------------------------
-// integrations feature ↓
-/** Joplin module configuration + verification + activation state. */
-export interface JoplinConfigState {
-  enabled: boolean;
-  url: string;
-  email: string;
-  password_set: boolean;
-  sync_interval_minutes: number;
-  config_complete: boolean;
-  verified_connection: boolean;
-  verified_at: string | null;
-  can_activate: boolean;
-  activation_reason: string;
-  /** Present on the response of POST /admin/joplin/config when toggling enabled flipped off due to changed creds. */
-  auto_disabled?: boolean;
-  /** Present on POST /admin/joplin/config when initial sync ran. */
-  initial_sync?: JoplinSyncResult | null;
-}
-
-/** Result of POST /admin/joplin/test — extends config state with probe outcome. */
-export interface JoplinTestResult extends JoplinConfigState {
-  reachable: boolean;
-  status_code: number | null;
-  reason?: string | null;
-  version?: string | null;
-}
-
-/** Result of POST /admin/joplin/sync — extends config state with sync stats. */
-export interface JoplinSyncState extends JoplinConfigState {
-  sync?: JoplinSyncResult;
-}
-
-export interface JoplinSyncResult {
-  synced: number;
-  errors: number;
-  notebooks: number;
-}
-
-/** Payload accepted by POST /admin/joplin/config. */
-export interface JoplinConfigPayload {
-  url?: string;
-  email?: string;
-  password?: string;
-  sync_interval_minutes?: number;
-  enabled?: boolean;
-}
 
 // logs feature ↓
 /** A row from `/admin/usage/ingests`. */

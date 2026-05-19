@@ -90,9 +90,6 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "insecure.denied": [["insecure-approvals"]],
   "insecure.domain.allowed": [["hosts", "insecure"]],
   "insecure.domain.revoked": [["hosts", "insecure"]],
-
-  // Integrations
-  "joplin.synced": [["integrations", "joplin"]],
 };
 
 /** WS event types whose payload contains a `slug` we use to scope invalidation. */

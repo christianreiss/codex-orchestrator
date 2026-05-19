@@ -2,7 +2,7 @@
 title: Roles and capabilities
 section: Admin access and identity
 verified: 2026-04-19
-sources: src/Services/AdminAuthService.php, src/Http/AdminSessionHelper.php, src/Http/helpers.php, src/Http/Controllers/AdminUserController.php, src/Http/Controllers/AdminOverviewController.php, src/Http/Controllers/AdminSettingsController.php, src/Http/Controllers/AdminHostController.php, src/Http/Controllers/AdminConfigController.php, src/Http/Controllers/AdminProjectController.php, src/Http/Controllers/AdminJoplinController.php, src/Http/Controllers/CliAuthController.php
+sources: src/Services/AdminAuthService.php, src/Http/AdminSessionHelper.php, src/Http/helpers.php, src/Http/Controllers/AdminUserController.php, src/Http/Controllers/AdminOverviewController.php, src/Http/Controllers/AdminSettingsController.php, src/Http/Controllers/AdminHostController.php, src/Http/Controllers/AdminConfigController.php, src/Http/Controllers/AdminProjectController.php, src/Http/Controllers/CliAuthController.php
 ---
 
 Four roles and four capabilities. The mapping is defined in `AdminAuthService::roleAllows()` and enforced at every controller method that needs it via `requireAdminCapability()`.
@@ -22,7 +22,7 @@ Display labels live in `AdminAuthService::ROLE_LABELS` (*Admin*, *Fleet Operator
 
 Also constants on `AdminAuthService`:
 
-- `CAP_SETTINGS = 'settings.manage'` — change any global configuration (quota, auto-update, agents, skills, profiles, OpenAI/Claude state, Joplin, API keys, runner trigger, auth upload).
+- `CAP_SETTINGS = 'settings.manage'` — change any global configuration (quota, auto-update, agents, skills, profiles, OpenAI/Claude state, API keys, runner trigger, auth upload).
 - `CAP_HOSTS_MANAGE = 'hosts.manage'` — register, mutate, delete hosts; change their per-host knobs.
 - `CAP_HOSTS_ACTIVATE = 'hosts.activate'` — approve/deny insecure auth requests, approve CLI device-code authentications.
 - `CAP_USERS_MANAGE = 'users.manage'` — create, edit, delete admin users and wipe all users.
@@ -44,7 +44,7 @@ Also constants on `AdminAuthService`:
 
 Exhaustive grep over `src/Http/Controllers/*.php` for `requireAdminCapability`:
 
-- **settings.manage** — all of `AdminSettingsController` (general toggles, quota, logs retention, scaling, Claude settings, OpenAI/Claude state); all of `AdminConfigController` (agents, skills, memories, profile/config render, config store); `AdminOverviewController::authUpload`, `seedCommand`, `runnerRun`, `runnerRunClaude`; `AdminJoplinController` entry points.
+- **settings.manage** — all of `AdminSettingsController` (general toggles, quota, logs retention, scaling, Claude settings, OpenAI/Claude state); all of `AdminConfigController` (agents, skills, memories, profile/config render, config store); `AdminOverviewController::authUpload`, `seedCommand`, `runnerRun`, `runnerRunClaude`.
 - **hosts.manage** — every mutating route in `AdminHostController` (delete, clear, roaming, secure, vip, scaling-exempt, auto-update, curl-insecure, reverse-dns, model, codex-version, agents-version, register).
 - **hosts.activate** — insecure approval routes (`AdminOverviewController::hostsInsecureExtend`, `hostsInsecureDisableAll`, and the `AdminHostController::insecureApproval*` endpoints), plus CLI device-code approval (`CliAuthController::approve`, `deny`).
 - **users.manage** — every route in `AdminUserController` (create, update, delete, wipe).
@@ -83,5 +83,4 @@ While `isEnforced()` is false (zero admins), capability checks no-op. This is in
 - src/Http/Controllers/AdminHostController.php (hosts.manage + hosts.activate gates)
 - src/Http/Controllers/AdminConfigController.php (settings.manage gates)
 - src/Http/Controllers/AdminProjectController.php (settings.manage gates)
-- src/Http/Controllers/AdminJoplinController.php (settings.manage gates)
 - src/Http/Controllers/CliAuthController.php (hosts.activate gate)

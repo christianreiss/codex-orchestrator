@@ -145,7 +145,6 @@ api/                                                # NEW: TypeScript project ro
 │   │   │   ├── config/                             # /admin/config/{render,store}, /admin/agents/*, /admin/skills/*, /admin/mcp/{memories,logs}
 │   │   │   ├── projects/                           # /admin/projects/*
 │   │   │   ├── keys/                               # /admin/openai/keys/*, /admin/claude/keys/*
-│   │   │   ├── joplin/                             # /admin/joplin/{config,test,sync}
 │   │   │   ├── manual/                             # /admin/manual/{manifest,search,article/:slug}
 │   │   │   └── pages/                              # Static-file fallback for /admin and /admin/* (serves built SPA)
 │   │   └── projects-client/                        # Host-facing /projects/*, /skills/*, /agents/retrieve, /config/retrieve (client view of the same data — separate auth context)
@@ -176,9 +175,6 @@ api/                                                # NEW: TypeScript project ro
 │   │   ├── claude-usage.ts
 │   │   ├── usage-scaling.ts
 │   │   ├── dashboard-stats.ts
-│   │   ├── joplin-client.ts                        # HTTP client for Joplin
-│   │   ├── joplin-cache.ts                         # DB-backed cache
-│   │   ├── joplin-skills.ts
 │   │   ├── runner-client.ts                        # ex-RunnerVerifier
 │   │   ├── runner-validation.ts                    # ex-RunnerValidationService
 │   │   ├── openai-keys.ts                          # API key issuance + validation
@@ -416,7 +412,7 @@ await db.update(adminUsers).set({ active: false }).where(eq(adminUsers.id, id));
 events.publish('user.updated', { id });
 ```
 
-The frontend's `lib/ws/events.ts` already maps `user.updated` → invalidate `['users']`. The catalog of event types lives in `api/src/ws/events.ts` and is the source of truth; the frontend imports/copies the type list. Tracked: `log.created`, `host.{updated,created,deleted}`, `user.{updated,created,deleted}`, `project.{changed,note.*,todo.*,file.*,feedback.created}`, `skill.{stored,updated,deleted}`, `agents.stored`, `memory.{created,changed,deleted}`, `apikey.{created,toggled,deleted}`, `settings.changed`, `usage.{refresh,refreshed}`, `chatgpt.usage.updated`, `claude.usage.updated`, `insecure.{requested,approved,denied,approval.changed,domain.allowed,domain.revoked}`, `passkey.{registered,deleted}`, `joplin.synced`, `mcp.invoked`.
+The frontend's `lib/ws/events.ts` already maps `user.updated` → invalidate `['users']`. The catalog of event types lives in `api/src/ws/events.ts` and is the source of truth; the frontend imports/copies the type list. Tracked: `log.created`, `host.{updated,created,deleted}`, `user.{updated,created,deleted}`, `project.{changed,note.*,todo.*,file.*,feedback.created}`, `skill.{stored,updated,deleted}`, `agents.stored`, `memory.{created,changed,deleted}`, `apikey.{created,toggled,deleted}`, `settings.changed`, `usage.{refresh,refreshed}`, `chatgpt.usage.updated`, `claude.usage.updated`, `insecure.{requested,approved,denied,approval.changed,domain.allowed,domain.revoked}`, `passkey.{registered,deleted}`, `mcp.invoked`.
 
 The legacy env vars `ADMIN_WS_ENABLED` / `ADMIN_WS_PUBLIC_URL` are reinterpreted: when `ADMIN_WS_ENABLED=true` the Node server hosts the WS endpoint at `/admin/ws` and `/admin/ws/info` returns `{ url: 'wss://…/admin/ws', heartbeat: 30, backlog: 1000 }`. No external WS server is needed.
 
@@ -477,7 +473,7 @@ Each agent branches from post-Phase-1 main. Each owns its route tree + the servi
 | 6 | `api-redo/projects-client-mcp` | `routes/projects-client`, `routes/mcp`. The host-facing parts of projects + skills + agents + the MCP JSON-RPC endpoint. Services: `mcp-server`, `mcp-tools`, `mcp-resources` plus reuses from #5. |
 | 7 | `api-redo/openai-compat` | `routes/v1`, `routes/admin/keys` (OpenAI side). `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`, `/v1/models`. SSE streaming for `stream: true`. Services: `openai-keys`, `adapters/runner-openai`. |
 | 8 | `api-redo/anthropic-compat` | `routes/anthropic-v1`, the Claude half of `routes/admin/keys`. `/anthropic/v1/messages` (with streaming), completions, responses, embeddings (501), models. Services: `adapters/runner-claude`. |
-| 9 | `api-redo/joplin-manual-cli` | `routes/admin/joplin`, `routes/admin/manual`. Joplin config/test/sync, manual article serving. Services: `joplin-client`, `joplin-cache`, `joplin-skills`. Plus serves `public/admin/manual/articles/*.md` via `@fastify/static`. |
+| 9 | `api-redo/manual-cli` | `routes/admin/manual`. Manual article serving. Plus serves `public/admin/manual/articles/*.md` via `@fastify/static`. |
 | 10 | `api-redo/wrapper-v2-bridge-ws` | `routes/wrapper-v2`, `ws/`. Reads from `storage/wrapper/v2/` (the directory shape defined in `CDX-redo.md`). Bridges the wrapper bake cache to HTTP responses. Implements the admin WebSocket server + event publisher. Services: `wrapper-bin-registry`, `bake-cache`, `ws/publisher`. |
 | 11 | `api-redo/tests-contract` | Vitest contract suite: replay every endpoint from a recorded fixture set captured against the legacy PHP server (one run, before deletion, to record golden responses), then assert the new Node server produces the same shape. Factory + seed infrastructure for unit tests. Aims for ≥70% branch coverage across services. |
 

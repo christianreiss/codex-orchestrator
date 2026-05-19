@@ -152,10 +152,6 @@ const schema = z
     SMTP_PASSWORD: z.string().optional(),
     SMTP_FROM: z.string().optional(),
     SMTP_SECURE: boolish.default(false),
-
-    // Joplin
-    JOPLIN_URL: z.string().optional(),
-    JOPLIN_TOKEN: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const activeKey = env.ENCRYPTION_ACTIVE_KEY ?? env.AUTH_ENCRYPTION_KEY;
