@@ -270,12 +270,18 @@ func checkDisk() ui.DoctorRow {
 }
 
 func checkCron(cfg *config.Config) ui.DoctorRow {
+	// System-mode install lives in /etc/cron.d/ and runs as root — that's the
+	// preferred placement on hosts where the binary is system-owned, so look
+	// for it before falling back to the per-user crontab.
+	if _, err := os.Stat("/etc/cron.d/cdx-managed"); err == nil {
+		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (system /etc/cron.d/cdx-managed)"}
+	}
 	out, err := exec.Command("crontab", "-l").Output()
 	if err != nil {
 		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "no crontab"}
 	}
 	if strings.Contains(string(out), "# cdx-managed-cron") {
-		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed"}
+		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (user crontab)"}
 	}
 	return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "not installed (run `cdx --cron install`)"}
 }

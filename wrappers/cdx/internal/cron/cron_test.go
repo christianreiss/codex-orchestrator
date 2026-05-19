@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/user"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -268,4 +269,41 @@ func readAll(r *http.Request) (string, error) {
 	b := make([]byte, 4096)
 	n, _ := r.Body.Read(b)
 	return string(b[:n]), nil
+}
+
+func TestInstallUserContextPrefersSudoUser(t *testing.T) {
+	// When running under `sudo cdx --cron install`, $SUDO_USER points back at
+	// the human operator; we want the cron entry pinned to *their* config + log
+	// dir, not root's.
+	t.Setenv("SUDO_USER", "alice")
+	origLookup := userLookup
+	t.Cleanup(func() { userLookup = origLookup })
+	userLookup = func(name string) (*user.User, error) {
+		if name != "alice" {
+			t.Fatalf("expected lookup for alice, got %q", name)
+		}
+		return &user.User{Username: "alice", HomeDir: "/home/alice"}, nil
+	}
+	name, home := installUserContext()
+	if name != "alice" {
+		t.Errorf("name=%q want alice", name)
+	}
+	if home != "/home/alice" {
+		t.Errorf("home=%q want /home/alice", home)
+	}
+}
+
+func TestInstallUserContextIgnoresRootSudoUser(t *testing.T) {
+	// SUDO_USER=root happens when root sudo's to itself — meaningless; fall
+	// back to the current process's user record.
+	t.Setenv("SUDO_USER", "root")
+	origCurrent := userCurrent
+	t.Cleanup(func() { userCurrent = origCurrent })
+	userCurrent = func() (*user.User, error) {
+		return &user.User{Username: "root", HomeDir: "/root"}, nil
+	}
+	_, home := installUserContext()
+	if home != "/root" {
+		t.Errorf("home=%q want /root (fell back to current)", home)
+	}
 }

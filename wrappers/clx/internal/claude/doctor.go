@@ -251,12 +251,15 @@ func checkDisk() ui.DoctorRow {
 }
 
 func checkCron() ui.DoctorRow {
+	if _, err := os.Stat("/etc/cron.d/clx-managed"); err == nil {
+		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (system /etc/cron.d/clx-managed)"}
+	}
 	out, err := exec.Command("crontab", "-l").Output()
 	if err != nil {
 		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "no crontab"}
 	}
 	if strings.Contains(string(out), "# clx-managed-cron") {
-		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed"}
+		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (user crontab)"}
 	}
 	return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "not installed (run `clx --cron install`)"}
 }

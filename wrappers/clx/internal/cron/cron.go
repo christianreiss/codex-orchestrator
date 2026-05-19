@@ -16,8 +16,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/claude"
@@ -28,12 +30,23 @@ import (
 
 const marker = "# clx-managed-cron"
 
+// systemCronPath is the /etc/cron.d/ slot we own when the wrapper binary lives
+// outside the invoking user's writable scope. Filename must contain no dots.
+const systemCronPath = "/etc/cron.d/clx-managed"
+
 // WrapperVersion is the running wrapper's semantic version, set from main.go
 // via ldflags.
 var WrapperVersion = "dev"
 
-// Install writes a fresh crontab line (replacing any existing managed entry)
-// and pings /cron/check once so the server records an initial check-in.
+// Indirected for tests.
+var (
+	userCurrent = user.Current
+	userLookup  = user.Lookup
+)
+
+// Install writes a fresh cron entry (replacing any existing managed entry)
+// and pings /cron/check once so the server records an initial check-in. See
+// the cdx-side Install for the privilege-mode logic — it's mirrored here.
 // cfg may be nil — in which case the ping is skipped (used by tests).
 func Install(cfg *config.Config) error {
 	if err := installCrontab(); err != nil {
@@ -51,19 +64,81 @@ func Install(cfg *config.Config) error {
 }
 
 func installCrontab() error {
-	cur, _ := readCrontab()
-	lines := stripManaged(cur)
 	bin, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	home, _ := os.UserHomeDir()
-	logFile := filepath.Join(home, ".claude", "cron.log")
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+
 	host, _ := os.Hostname()
 	min, hr := deterministicTime(host)
+
+	if canWriteBinary(bin) {
+		return installUserCron(bin, min, hr)
+	}
+	if !passwordlessSudo() {
+		return fmt.Errorf(
+			"clx binary at %s is not writable by %s and passwordless sudo is unavailable; "+
+				"either grant the user passwordless sudo (so `clx --cron install` can drop %s) "+
+				"or reinstall the wrapper into a user-writable BIN_DIR so per-user cron can swap it",
+			bin, currentUserName(), systemCronPath,
+		)
+	}
+	if err := installSystemCron(bin, min, hr); err != nil {
+		return err
+	}
+	_ = stripUserCronManaged()
+	return nil
+}
+
+func installUserCron(bin string, min, hr int) error {
+	cur, _ := readCrontab()
+	lines := stripManaged(cur)
+	home, _ := os.UserHomeDir()
+	logFile := filepath.Join(home, ".claude", "cron.log")
 	entry := buildCronLine(min, hr, bin, logFile)
 	lines = append(lines, entry)
 	return writeCrontab(strings.Join(lines, "\n") + "\n")
+}
+
+func installSystemCron(bin string, min, hr int) error {
+	configPath := config.DefaultPath()
+	_, home := installUserContext()
+	logFile := filepath.Join(home, ".claude", "cron.log")
+	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
+	cmd = strings.ReplaceAll(cmd, "%", `\%`)
+	body := fmt.Sprintf(`# clx-managed — auto-update tick. Managed by `+"`clx --cron install`"+`; do not edit by hand.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOME=%s
+CLX_CONFIG_PATH=%s
+%d %d * * * root %s
+`, home, configPath, min, hr, cmd)
+	if err := sudoWriteFile(systemCronPath, body, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", systemCronPath, err)
+	}
+	_ = os.MkdirAll(filepath.Dir(logFile), 0o755)
+	if _, err := os.Stat(logFile); os.IsNotExist(err) {
+		if f, ferr := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
+			_ = f.Close()
+		}
+	}
+	return nil
+}
+
+func installUserContext() (string, string) {
+	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); sudoUser != "" && sudoUser != "root" {
+		if u, err := userLookup(sudoUser); err == nil && u != nil {
+			return u.Username, u.HomeDir
+		}
+	}
+	if u, err := userCurrent(); err == nil && u != nil {
+		return u.Username, u.HomeDir
+	}
+	home, _ := os.UserHomeDir()
+	return "", home
 }
 
 // buildCronLine assembles the crontab entry with shell-escaped paths and
@@ -99,6 +174,21 @@ func needsQuoting(s string) bool {
 }
 
 func Remove() error {
+	if err := stripUserCronManaged(); err != nil {
+		return err
+	}
+	if _, err := os.Stat(systemCronPath); err == nil {
+		if !passwordlessSudo() {
+			return fmt.Errorf("%s exists but passwordless sudo is unavailable; remove it manually with `sudo rm %s`", systemCronPath, systemCronPath)
+		}
+		if err := sudoRemoveFile(systemCronPath); err != nil {
+			return fmt.Errorf("remove %s: %w", systemCronPath, err)
+		}
+	}
+	return nil
+}
+
+func stripUserCronManaged() error {
 	cur, err := readCrontab()
 	if err != nil {
 		return err
@@ -367,4 +457,78 @@ func stripManaged(s string) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// canWriteBinary / canWriteDir / passwordlessSudo / sudoWriteFile /
+// sudoRemoveFile / currentUserName mirror the cdx implementations. Kept
+// in-package so each wrapper stays self-contained for cross-builds.
+func canWriteBinary(path string) bool {
+	if !canWriteDir(filepath.Dir(path)) {
+		return false
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err == nil {
+		_ = f.Close()
+		return true
+	}
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EROFS) {
+		return false
+	}
+	return false
+}
+
+func canWriteDir(dir string) bool {
+	if err := syscall.Access(dir, 2 /* W_OK */); err != nil {
+		return false
+	}
+	return true
+}
+
+func passwordlessSudo() bool {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return false
+	}
+	cmd := exec.Command("sudo", "-n", "true")
+	cmd.Stdin = nil
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
+}
+
+func sudoWriteFile(path, body string, mode os.FileMode) error {
+	var stderr bytes.Buffer
+	tee := exec.Command("sudo", "-n", "tee", path)
+	tee.Stdin = strings.NewReader(body)
+	tee.Stdout = io.Discard
+	tee.Stderr = &stderr
+	if err := tee.Run(); err != nil {
+		return fmt.Errorf("sudo tee: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	stderr.Reset()
+	chmod := exec.Command("sudo", "-n", "chmod", fmt.Sprintf("%o", mode), path)
+	chmod.Stderr = &stderr
+	if err := chmod.Run(); err != nil {
+		return fmt.Errorf("sudo chmod: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func sudoRemoveFile(path string) error {
+	var stderr bytes.Buffer
+	cmd := exec.Command("sudo", "-n", "rm", "-f", path)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sudo rm: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func currentUserName() string {
+	if u, err := userCurrent(); err == nil && u != nil && u.Username != "" {
+		return u.Username
+	}
+	if name := strings.TrimSpace(os.Getenv("USER")); name != "" {
+		return name
+	}
+	return "?"
 }
