@@ -69,7 +69,7 @@ at build time, then loads the config:
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
 | `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
-| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry (`run` is the action fired by cron itself) |
+| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0` |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |

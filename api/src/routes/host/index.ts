@@ -151,9 +151,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
 
     let needClient = false;
     if (targetClient && submittedClient) {
+      const submittedComparable = normalizeVersionForCompare(submittedClient);
+      const targetComparable = normalizeVersionForCompare(targetClient);
       needClient = summary.client_version_enforce_exact
-        ? submittedClient !== targetClient
-        : compareSemver(submittedClient, targetClient) < 0;
+        ? submittedComparable !== targetComparable
+        : compareSemver(submittedComparable, targetComparable) < 0;
     } else if (targetClient && !submittedClient) {
       needClient = true;
     }
@@ -218,6 +220,10 @@ function normalizeLane(value: unknown): 'normal' | 'spark' | null {
   const v = value.toLowerCase().trim();
   if (v === 'normal' || v === 'spark') return v;
   return null;
+}
+
+function normalizeVersionForCompare(value: string): string {
+  return value.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/)?.[0] ?? value;
 }
 
 function compareSemver(a: string, b: string): number {

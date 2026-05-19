@@ -48,6 +48,34 @@ describe('GET /versions', () => {
 });
 
 describe('POST /cron/check', () => {
+  it('normalizes labeled codex-cli versions before deciding client updates', async () => {
+    const db = createDbShim();
+    const apiKey = 'sk-codex-cron-test';
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.130.0' },
+      { name: 'wrapper_version_codex', version: '0.6.2' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        client_version: 'codex-cli 0.130.0',
+        wrapper_version: '0.6.2',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      action: 'no_update',
+      wrapper: { action: 'no_update' },
+    });
+    await app.close();
+  });
+
   it('returns the legacy transition shim URL for date-style shell wrappers', async () => {
     const db = createDbShim();
     const apiKey = 'sk-codex-cron-test';

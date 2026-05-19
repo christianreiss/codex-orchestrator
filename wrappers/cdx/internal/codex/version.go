@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"regexp"
 	"strings"
 )
+
+var versionTokenRE = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`)
 
 // Version invokes `codex -V` (or `--version`) and returns the parsed string.
 // Returns "unknown" if the CLI isn't installed.
@@ -22,10 +25,8 @@ func Version(ctx context.Context) string {
 		if err := cmd.Run(); err == nil {
 			s := strings.TrimSpace(out.String())
 			if s != "" {
-				// Trim "codex 0.4.2" -> "0.4.2" if the binary prints a label.
-				parts := strings.Fields(s)
-				if len(parts) >= 2 && strings.EqualFold(parts[0], "codex") {
-					return strings.Join(parts[1:], " ")
+				if v := versionTokenRE.FindString(s); v != "" {
+					return v
 				}
 				return s
 			}
