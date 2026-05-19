@@ -39,6 +39,27 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"agents":{"status":"updated","version_id":1,"content":"# CLAUDE.md\n"},
+			"config":{"status":"updated","version_id":2,"content":"{\n  \"model\": \"sonnet\"\n}\n"}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "claude"})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if string(resp.Agents) != "# CLAUDE.md\n" {
+		t.Errorf("agents: %q", string(resp.Agents))
+	}
+	if string(resp.Config) != "{\n  \"model\": \"sonnet\"\n}\n" {
+		t.Errorf("config: %q", string(resp.Config))
+	}
+}
+
 func TestSyncBootstrap_404(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)

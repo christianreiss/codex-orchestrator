@@ -47,10 +47,37 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	if resp.Host == nil || resp.Host.FQDN != "alpha.example" {
 		t.Errorf("host: %+v", resp.Host)
 	}
+	if string(resp.Agents) != "# AGENTS.md\n" {
+		t.Errorf("agents: %q", string(resp.Agents))
+	}
+	if string(resp.Config) != "model=\"gpt-5.4\"\n" {
+		t.Errorf("config: %q", string(resp.Config))
+	}
 	for _, want := range []string{`"engine":"codex"`, `"include_auth":true`, `"auth_digest":"deadbeef"`, `"agents":"a1"`, `"home":"/home/me"`, `"username":"me"`} {
 		if !strings.Contains(sawBody, want) {
 			t.Errorf("body missing %s; body=%s", want, sawBody)
 		}
+	}
+}
+
+func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"agents":{"status":"updated","version_id":1,"content":"# AGENTS.md\n"},
+			"config":{"status":"updated","version_id":2,"content":"model = \"gpt-5.5\"\n"}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "codex"})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if string(resp.Agents) != "# AGENTS.md\n" {
+		t.Errorf("agents: %q", string(resp.Agents))
+	}
+	if string(resp.Config) != "model = \"gpt-5.5\"\n" {
+		t.Errorf("config: %q", string(resp.Config))
 	}
 }
 

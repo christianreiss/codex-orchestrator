@@ -43,5 +43,21 @@ func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleR
 	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, out, 2); err != nil {
 		return nil, err
 	}
+	if err := out.unwrapResources(); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func (r *BundleResponse) unwrapResources() error {
+	var err error
+	r.Agents, err = resourceContent(r.Agents)
+	if err != nil {
+		return err
+	}
+	r.Config, err = resourceContent(r.Config)
+	if err != nil {
+		return err
+	}
+	return nil
 }

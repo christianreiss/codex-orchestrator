@@ -66,11 +66,12 @@ Identical to cdx with engine swapped:
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — single-instance
-flock, bundle (`/sync/bootstrap` with `include_auth=true`), typed auth
-decision matrix including approval-pending polling, FQDN runtime guard,
-Claude CLI version reconciliation, post-run credential re-upload on sha
-change, JSONL-based token usage extraction, and best-effort `/usage`
-batch POST. Engine-specific details:
+flock, bundle (`/sync/bootstrap` with `include_auth=true`; resource envelopes
+are unwrapped before `CLAUDE.md` / `settings.json` writes), typed auth decision
+matrix including approval-pending polling, FQDN runtime guard, Claude CLI
+version reconciliation, post-run credential re-upload on sha change, JSONL-based
+token usage extraction, and best-effort `/usage` batch POST. Engine-specific
+details:
 
 - Credentials read precedence: `~/.clx/auth/credentials.json` first, then
   `~/.claude/.credentials.json`; writes go to both so the upstream CLI sees
