@@ -262,6 +262,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "cron":
 		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
 	default:
+		// Reserved upstream subcommands (login, logout, mcp, resume, …)
+		// passthrough to the real claude binary with the token preserved. The
+		// wrapper-owned subcommands above win first; isHelpPassthrough has
+		// already caught `--help` variants.
+		if reservedClaudeSubcommands[sub] {
+			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+			exit, err := claude.Run(ctx, cfg, execArgs)
+			if err != nil {
+				fmt.Fprintln(stderr, "clx "+sub+":", err)
+			}
+			return exit
+		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot")

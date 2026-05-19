@@ -342,6 +342,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "cron":
 		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
 	default:
+		// Reserved upstream subcommands (resume, login, logout, mcp, review, …)
+		// passthrough to the real codex binary with the token preserved. The
+		// wrapper-owned subcommands above win first; isHelpPassthrough has
+		// already caught `--help` variants.
+		if reservedCodexSubcommands[sub] {
+			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+			exit, err := codex.Run(ctx, cfg, execArgs)
+			if err != nil {
+				fmt.Fprintln(stderr, "cdx "+sub+":", err)
+			}
+			return exit
+		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")

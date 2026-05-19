@@ -121,6 +121,23 @@ func TestRunAcceptsDepthAtCap(t *testing.T) {
 	}
 }
 
+// TestReservedSubcommandsCoverPassthrough guards the passthrough fallback in
+// the run() switch: each reserved Codex subcommand must be claimed (so
+// `cdx resume`, `cdx login`, etc. don't fall into the "unknown subcommand"
+// default). Either an explicit wrapper case owns it (`exec`) or the default
+// branch forwards it to the upstream binary via reservedCodexSubcommands[sub].
+func TestReservedSubcommandsCoverPassthrough(t *testing.T) {
+	for sub := range reservedCodexSubcommands {
+		if sub == "" {
+			t.Errorf("empty key in reservedCodexSubcommands")
+		}
+	}
+	// Sanity: resume is the one the user hit; lock it in explicitly.
+	if !reservedCodexSubcommands["resume"] {
+		t.Errorf("resume must be reserved so default-case passthrough fires")
+	}
+}
+
 // TestRunSnapshotsArgv verifies the package var update.SnapshottedArgv
 // reflects argv at process entry, before parseFlags touches anything.
 func TestRunSnapshotsArgv(t *testing.T) {
