@@ -38,18 +38,83 @@ func main() {
 }
 
 type flags struct {
-	configPath    string
-	silent        bool
-	debug         bool
-	minimal       bool
-	skipBoot      bool
-	versionFlag   bool
-	updateFlag    bool
-	uninstallFlag bool
-	cronArgs      []string
-	executePrompt string
-	forceIPv4     bool
-	allowConc     bool
+	configPath      string
+	silent          bool
+	debug           bool
+	minimal         bool
+	skipBoot        bool
+	versionFlag     bool
+	updateFlag      bool
+	uninstallFlag   bool
+	cronArgs        []string
+	executePrompt   string
+	forceIPv4       bool
+	allowConc       bool
+	helpPassthrough bool
+	// Forwarded straight to the upstream Claude CLI through the normal
+	// lifecycle. Recognised so parseFlags doesn't reject them.
+	continueSession bool
+	resumeSession   string
+}
+
+// reservedClaudeSubcommands lists Claude CLI subcommands whose `--help`
+// invocations route straight to the upstream binary.
+var reservedClaudeSubcommands = map[string]bool{
+	"login":    true,
+	"logout":   true,
+	"mcp":      true,
+	"config":   true,
+	"doctor":   true,
+	"sessions": true,
+	"resume":   true,
+	"help":     true,
+}
+
+// isHelpPassthrough returns true when argv requests upstream Claude help text.
+// Matched forms:
+//   - top-level `--help` / `-h` appearing before any positional token
+//   - bare `help` as the first positional token
+//   - `<reserved-subcommand> ... --help` / `<reserved-subcommand> ... -h`
+func isHelpPassthrough(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	firstPositional := ""
+	helpBeforePositional := false
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--help" || a == "-h" {
+			if firstPositional == "" {
+				helpBeforePositional = true
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if firstPositional == "" {
+			firstPositional = a
+		}
+	}
+	if firstPositional == "help" {
+		return true
+	}
+	if helpBeforePositional {
+		return true
+	}
+	if firstPositional != "" && reservedClaudeSubcommands[firstPositional] {
+		for _, a := range args {
+			if a == "--" {
+				break
+			}
+			if a == "--help" || a == "-h" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -57,6 +122,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	f, positional, passthrough := parseFlags(args)
+
+	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
+	// no update check, no boot screen, no footer. argv is unmodified.
+	if f.helpPassthrough {
+		cli, err := claude.FindCLI()
+		if err != nil {
+			fmt.Fprintln(stderr, "clx --help:", err)
+			return 127
+		}
+		execArgv := append([]string{cli}, args...)
+		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
+			fmt.Fprintln(stderr, "clx --help: exec failed:", err)
+			return 127
+		}
+		return 0
+	}
+
 	logger := log.Setup(f.silent || f.debug)
 
 	if f.versionFlag {
@@ -169,8 +251,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// parseFlags pulls flags + positional args out of argv, honouring "--" as
+// passthrough sentinel.
+//
+// Help passthrough is detected first so reserved Claude subcommands like
+// `clx mcp --help` route straight to the upstream binary without the wrapper
+// rejecting any unknown flags.
 func parseFlags(args []string) (flags, []string, []string) {
 	var f flags
+	if isHelpPassthrough(args) {
+		f.helpPassthrough = true
+		return f, nil, nil
+	}
 	var positional, passthrough []string
 	consumedDash := false
 	for i := 0; i < len(args); i++ {
@@ -216,6 +308,23 @@ func parseFlags(args []string) (flags, []string, []string) {
 				f.executePrompt = args[i+1]
 				i++
 			}
+		case a == "--continue" || a == "-c":
+			// Forwarded straight to the upstream `claude` CLI through the
+			// normal lifecycle.
+			f.continueSession = true
+			passthrough = append(passthrough, "--continue")
+		case a == "--resume":
+			f.resumeSession = ""
+			if i+1 < len(args) {
+				f.resumeSession = args[i+1]
+				passthrough = append(passthrough, "--resume", args[i+1])
+				i++
+			} else {
+				passthrough = append(passthrough, "--resume")
+			}
+		case strings.HasPrefix(a, "--resume="):
+			f.resumeSession = strings.TrimPrefix(a, "--resume=")
+			passthrough = append(passthrough, a)
 		case a == "--config" && i+1 < len(args):
 			f.configPath = args[i+1]
 			i++

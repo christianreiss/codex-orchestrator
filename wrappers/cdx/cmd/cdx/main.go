@@ -39,18 +39,94 @@ func main() {
 
 // Parsed flags shared across subcommands.
 type flags struct {
-	configPath    string
-	silent        bool
-	debug         bool
-	minimal       bool
-	skipBoot      bool
-	versionFlag   bool
-	updateFlag    bool
-	uninstallFlag bool
-	cronArgs      []string
-	executePrompt string
-	forceIPv4     bool
-	allowConc     bool
+	configPath      string
+	silent          bool
+	debug           bool
+	minimal         bool
+	skipBoot        bool
+	versionFlag     bool
+	updateFlag      bool
+	uninstallFlag   bool
+	cronArgs        []string
+	executePrompt   string
+	forceIPv4       bool
+	allowConc       bool
+	helpPassthrough bool
+}
+
+// reservedCodexSubcommands lists the Codex subcommands the wrapper must never
+// interpret as profile shorthand and whose `--help` invocations are passed
+// straight through to the upstream codex CLI.
+var reservedCodexSubcommands = map[string]bool{
+	"exec":       true,
+	"review":     true,
+	"login":      true,
+	"logout":     true,
+	"mcp":        true,
+	"mcp-server": true,
+	"app-server": true,
+	"completion": true,
+	"sandbox":    true,
+	"debug":      true,
+	"apply":      true,
+	"resume":     true,
+	"fork":       true,
+	"cloud":      true,
+	"features":   true,
+	"help":       true,
+}
+
+// isHelpPassthrough returns true when argv requests upstream Codex help text.
+// Matched forms (per legacy fe70ac3:docs/interface-cdx.md):
+//   - top-level `--help` / `-h` appearing before any positional token
+//   - bare `help` as the first positional token
+//   - `<reserved-subcommand> ... --help` / `<reserved-subcommand> ... -h`
+//
+// The wrapper must not perform any side effects (lock, sync, boot screen) in
+// these cases — argv is execed straight into the real codex binary.
+func isHelpPassthrough(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	firstPositional := ""
+	helpBeforePositional := false
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--help" || a == "-h" {
+			if firstPositional == "" {
+				helpBeforePositional = true
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if firstPositional == "" {
+			firstPositional = a
+		}
+	}
+	// `cdx help` is itself a Codex-recognised help token.
+	if firstPositional == "help" {
+		return true
+	}
+	// Top-level `--help` / `-h` with no positional before it.
+	if helpBeforePositional {
+		return true
+	}
+	// Reserved-subcommand help (e.g. `cdx exec --help`).
+	if firstPositional != "" && reservedCodexSubcommands[firstPositional] {
+		for _, a := range args {
+			if a == "--" {
+				break
+			}
+			if a == "--help" || a == "-h" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -58,6 +134,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	f, positional, passthrough := parseFlags(args)
+
+	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
+	// no update check, no boot screen, no footer. argv is unmodified.
+	if f.helpPassthrough {
+		cli, err := codex.FindCLI()
+		if err != nil {
+			fmt.Fprintln(stderr, "cdx --help:", err)
+			return 127
+		}
+		execArgv := append([]string{cli}, args...)
+		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
+			fmt.Fprintln(stderr, "cdx --help: exec failed:", err)
+			return 127
+		}
+		// Unreachable: syscall.Exec replaces this process on success.
+		return 0
+	}
 
 	logger := log.Setup(f.silent || f.debug)
 
@@ -180,8 +273,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // parseFlags pulls flags + positional args out of argv, honouring "--" as
 // passthrough sentinel.
+//
+// Help passthrough is detected first so reserved Codex subcommands like
+// `cdx exec --help` route straight to the upstream binary without the wrapper
+// rejecting any unknown flags.
 func parseFlags(args []string) (flags, []string, []string) {
 	var f flags
+	if isHelpPassthrough(args) {
+		f.helpPassthrough = true
+		return f, nil, nil
+	}
 	var positional []string
 	var passthrough []string
 	consumedDash := false
@@ -254,8 +355,8 @@ func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal boo
 	digest, _ := codex.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
 	state := summary.Build(ctx, summary.Inputs{
-		Config: cfg,
-		Auth:   resp,
+		Config:  cfg,
+		Auth:    resp,
 		AuthErr: authErr,
 	})
 	if minimal {
