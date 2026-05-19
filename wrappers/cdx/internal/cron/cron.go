@@ -87,8 +87,9 @@ func buildCronLine(min, hr int, bin, logFile string) string {
 }
 
 // shellEscape returns a single-quoted, shell-safe form of s. Embedded single
-// quotes are emitted as `'\''`. This matches the bash printf '%q' style used
-// by the legacy wrapper for crontab path escaping.
+// quotes are emitted as the four-character sequence (close-quote, backslash,
+// escaped-quote, open-quote), matching the bash printf %q style used by the
+// legacy wrapper for crontab path escaping.
 func shellEscape(s string) string {
 	if s == "" {
 		return "''"
@@ -378,4 +379,3 @@ func stripManaged(s string) []string {
 	}
 	return out
 }
-

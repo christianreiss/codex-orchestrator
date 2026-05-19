@@ -282,8 +282,8 @@ func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal boo
 	digest, _ := codex.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
 	state := summary.Build(ctx, summary.Inputs{
-		Config: cfg,
-		Auth:   resp,
+		Config:  cfg,
+		Auth:    resp,
 		AuthErr: authErr,
 	})
 	if minimal {
