@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -26,6 +27,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/update"
 )
+
+// maxRestartDepth caps how many times the wrapper may re-exec itself after a
+// self-update before bailing out. Each self-update increments
+// CLAUDE_WRAPPER_RESTART_DEPTH; >2 strongly implies a feedback loop.
+const maxRestartDepth = 2
 
 var (
 	Version   = "dev"
@@ -53,6 +59,16 @@ type flags struct {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
+	if depth > maxRestartDepth {
+		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d — refusing to continue\n", depth, maxRestartDepth)
+		return 70
+	}
+
+	snap := make([]string, len(args))
+	copy(snap, args)
+	update.SnapshottedArgv = snap
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
