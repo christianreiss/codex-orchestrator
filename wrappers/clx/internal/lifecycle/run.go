@@ -107,6 +107,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				}
 			}
 		}
+
+		// PR-2: keep the local Claude CLI within range of the server-declared
+		// target version when auto-update is enabled. Never blocks launch.
+		if dec.Allowed {
+			maybeEnsureClaude(ctx, authResp, concurrent, logger)
+		}
 	}
 
 	if !opts.SkipBoot {
@@ -469,4 +475,31 @@ func themeFromConfig(cfg *config.Config) string {
 		return ""
 	}
 	return *cfg.EngineOptions.AdminThemeHint
+}
+
+// maybeEnsureClaude repairs the local Claude CLI when the orchestrator
+// reports auto-update enabled and the local version differs from target.
+// Failures are logged but never block launch.
+func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) {
+	if concurrent || auth == nil || auth.Versions == nil {
+		return
+	}
+	v := auth.Versions
+	if !v.AutoUpdateEnabled {
+		return
+	}
+	if v.ClientVersion == nil || *v.ClientVersion == "" {
+		return
+	}
+	target := *v.ClientVersion
+	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
+		target = *v.ClientVersionOverride
+	}
+	current := strings.TrimSpace(claude.Version(ctx))
+	if current == target {
+		return
+	}
+	if err := claude.EnsureClaude(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
+		logger.Warn("claude auto-update skipped", "err", err, "target", target, "current", current)
+	}
 }

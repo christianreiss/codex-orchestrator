@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -26,6 +27,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/update"
 )
+
+// maxRestartDepth caps how many times the wrapper may re-exec itself after a
+// self-update before it bails out. Each self-update increments
+// CODEX_WRAPPER_RESTART_DEPTH; >2 means the new binary is also asking for
+// another update, which is almost certainly a feedback loop.
+const maxRestartDepth = 2
 
 var (
 	Version   = "dev"
@@ -130,6 +137,27 @@ func isHelpPassthrough(args []string) bool {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	// Restart-loop guard: each successful self-update increments
+	// CODEX_WRAPPER_RESTART_DEPTH and re-execs us. Cap that at maxRestartDepth
+	// so a misbehaving server (or a corrupt local binary that keeps reporting
+	// itself out-of-date) cannot fork-bomb our way out of the host.
+	depth, _ := strconv.Atoi(os.Getenv("CODEX_WRAPPER_RESTART_DEPTH"))
+	if depth > maxRestartDepth {
+		fmt.Fprintf(stderr, "cdx: restart depth %d exceeded cap %d — refusing to continue\n", depth, maxRestartDepth)
+		return 70
+	}
+
+	// Snapshot argv before any flag parsing so the update path can re-exec
+	// the freshly installed binary with the exact same command the operator
+	// originally typed.
+	snap := make([]string, len(args))
+	copy(snap, args)
+	update.SnapshottedArgv = snap
+
+	// Propagate the build-time wrapper version into the cron package so its
+	// /cron/check + /cron/report payloads carry the right wrapper_version.
+	cron.WrapperVersion = Version
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -469,7 +497,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	}
 	switch action {
 	case "install":
-		if err := cron.Install(); err != nil {
+		if err := cron.Install(cfg); err != nil {
 			fmt.Fprintln(stderr, "cdx --cron install:", err)
 			return 1
 		}

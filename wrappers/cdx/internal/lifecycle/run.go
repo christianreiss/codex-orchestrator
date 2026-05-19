@@ -115,6 +115,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				}
 			}
 		}
+
+		// PR-2: keep the local Codex CLI within range of the server-declared
+		// target version when auto-update is enabled. Never blocks launch.
+		if dec.Allowed {
+			maybeEnsureCodex(ctx, authResp, concurrent, logger)
+		}
 	}
 
 	// Boot screen.
@@ -509,4 +515,36 @@ func themeFromConfig(cfg *config.Config) string {
 		return ""
 	}
 	return *cfg.EngineOptions.AdminThemeHint
+}
+
+// maybeEnsureCodex repairs the local Codex CLI when the orchestrator says
+// auto-update is enabled, a target version is known, and the local CLI
+// version differs from that target. Failures are logged but never blocking
+// — the launch path continues regardless so a transient install error does
+// not prevent the user from running Codex.
+//
+// This is a no-op in concurrent (read-only) mode, when auth retrieval
+// failed, or when AutoUpdateEnabled is false.
+func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) {
+	if concurrent || auth == nil || auth.Versions == nil {
+		return
+	}
+	v := auth.Versions
+	if !v.AutoUpdateEnabled {
+		return
+	}
+	if v.ClientVersion == nil || *v.ClientVersion == "" {
+		return
+	}
+	target := *v.ClientVersion
+	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
+		target = *v.ClientVersionOverride
+	}
+	current := strings.TrimSpace(codex.Version(ctx))
+	if current == target {
+		return
+	}
+	if err := codex.EnsureCodex(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
+		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
+	}
 }

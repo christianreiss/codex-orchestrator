@@ -13,9 +13,50 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 )
+
+// ReExecAfterUpdate replaces the current process with a fresh exec of `exe`
+// using the supplied argv (which the caller should have snapshotted at
+// process start, before any flag parsing mutated it). The new process
+// inherits the current environment plus CODEX_WRAPPER_RESTARTED=1 and an
+// incremented CODEX_WRAPPER_RESTART_DEPTH counter that main.go enforces a
+// ceiling on.
+//
+// Cron callers reuse this helper after their own self-update so the restart
+// happens via the same code path as the interactive --update flow.
+func ReExecAfterUpdate(exe string, argv []string) error {
+	if exe == "" {
+		return errors.New("ReExecAfterUpdate: empty exe path")
+	}
+	full := append([]string{exe}, argv...)
+
+	depth, _ := strconv.Atoi(os.Getenv("CODEX_WRAPPER_RESTART_DEPTH"))
+	env := os.Environ()
+	env = setEnvKV(env, "CODEX_WRAPPER_RESTARTED", "1")
+	env = setEnvKV(env, "CODEX_WRAPPER_RESTART_DEPTH", strconv.Itoa(depth+1))
+
+	return syscall.Exec(exe, full, env)
+}
+
+// setEnvKV replaces (or appends) a single KEY=VAL entry in an environ slice.
+func setEnvKV(env []string, key, val string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if len(e) > len(prefix) && e[:len(prefix)] == prefix {
+			env[i] = prefix + val
+			return env
+		}
+		if e == key {
+			env[i] = prefix + val
+			return env
+		}
+	}
+	return append(env, prefix+val)
+}
 
 // SelfUpdate downloads cfg.Wrapper.BinaryURL, verifies the SHA256 against
 // cfg.Wrapper.BinarySHA256, then atomically renames it over the running
@@ -73,5 +114,26 @@ func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) er
 		return errors.New("atomic swap failed: " + err.Error())
 	}
 	logger.Info("self-update complete", "version", cfg.Wrapper.Version, "path", exe)
+
+	// Re-exec into the freshly-installed binary so the rest of this run
+	// uses the new code. The argv is whatever main.go snapshotted before
+	// any flag parsing happened; the cron path overrides it to `--cron run`.
+	if len(SnapshottedArgv) > 0 || os.Getenv("CODEX_WRAPPER_NO_REEXEC") == "" {
+		argv := SnapshottedArgv
+		if argv == nil {
+			argv = os.Args[1:]
+		}
+		// syscall.Exec only returns on error. If it does return, propagate
+		// so the caller can surface it instead of silently continuing on
+		// stale in-memory code.
+		if err := ReExecAfterUpdate(exe, argv); err != nil {
+			return fmt.Errorf("re-exec after self-update: %w", err)
+		}
+	}
 	return nil
 }
+
+// SnapshottedArgv holds the argv as captured at process start (excluding the
+// program name in argv[0]). main.go sets this so SelfUpdate and the cron Tick
+// path can re-exec with the same args the user originally typed.
+var SnapshottedArgv []string
