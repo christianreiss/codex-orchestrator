@@ -132,8 +132,25 @@ function buildHandlers(deps: ToolDeps): Map<string, ToolHandler> {
   handlers.set('project_note_create', async (args, host) =>
     deps.projects.upsertNote(String(args['slug'] ?? ''), null, args, host),
   );
+  handlers.set('project_note_upsert', async (args, host) => {
+    const idRaw = args['id'];
+    const noteId =
+      idRaw === null || idRaw === undefined || idRaw === ''
+        ? null
+        : Number(idRaw);
+    return deps.projects.upsertNote(String(args['slug'] ?? ''), noteId, args, host);
+  });
   handlers.set('project_todo_create', async (args, host) =>
     deps.projects.createTodo(String(args['slug'] ?? ''), args, host),
+  );
+  handlers.set('project_todo_update', async (args, host) =>
+    deps.projects.updateTodo(String(args['slug'] ?? ''), Number(args['id']), args, host),
+  );
+  handlers.set('project_todo_done', async (args, host) =>
+    deps.projects.setTodoDone(String(args['slug'] ?? ''), Number(args['id']), true, host),
+  );
+  handlers.set('project_todo_undone', async (args, host) =>
+    deps.projects.setTodoDone(String(args['slug'] ?? ''), Number(args['id']), false, host),
   );
   handlers.set('project_feedback_create', async (args, host) =>
     deps.projects.createFeedback(String(args['slug'] ?? ''), args, host),
@@ -258,6 +275,20 @@ function buildDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'project_note_upsert',
+      description: 'Create or update a project note (update when id is provided, create otherwise)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+          header: { type: 'string' },
+          body: { type: 'string' },
+        },
+        required: ['slug', 'header', 'body'],
+      },
+    },
+    {
       name: 'project_todo_create',
       description: 'Create a project todo item',
       inputSchema: {
@@ -268,6 +299,44 @@ function buildDefinitions(): ToolDefinition[] {
           detail: { type: 'string' },
         },
         required: ['slug', 'title'],
+      },
+    },
+    {
+      name: 'project_todo_update',
+      description: 'Update an existing project todo (title/detail)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+          title: { type: 'string' },
+          detail: { type: 'string' },
+        },
+        required: ['slug', 'id', 'title'],
+      },
+    },
+    {
+      name: 'project_todo_done',
+      description: 'Mark a project todo as done',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+        },
+        required: ['slug', 'id'],
+      },
+    },
+    {
+      name: 'project_todo_undone',
+      description: 'Reopen a project todo (clear the done flag)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+        },
+        required: ['slug', 'id'],
       },
     },
     {

@@ -23,6 +23,8 @@ const stubProjects = {
   createProject: async () => ({}),
   upsertNote: async () => ({}),
   createTodo: async () => ({}),
+  updateTodo: async () => ({}),
+  setTodoDone: async () => ({}),
   createFeedback: async () => ({}),
 } as unknown as HostProjectsService;
 const stubSkills = {
