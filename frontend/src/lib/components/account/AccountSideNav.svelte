@@ -4,10 +4,12 @@
   import { cn } from "$lib/utils/cn";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
+  import Palette from "@lucide/svelte/icons/palette";
 
   const items = [
     { href: "/account/password", label: "Password", icon: KeyRound },
     { href: "/account/passkeys", label: "Passkeys", icon: Fingerprint },
+    { href: "/account/theme", label: "Theme", icon: Palette },
   ];
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
