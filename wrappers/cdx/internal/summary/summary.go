@@ -27,6 +27,10 @@ type Inputs struct {
 	AgentsUpdated bool
 	ConfigUpdated bool
 	AuthSynced    bool
+	// CodexUpdated holds the post-install codex version when the auto-update
+	// path actually swapped the binary this run, empty otherwise. Surfaced as
+	// a `● codex X.Y.Z` badge in the exit footer's Sync row.
+	CodexUpdated string
 }
 
 // Build converts the auth response + local state into a ScreenInput.

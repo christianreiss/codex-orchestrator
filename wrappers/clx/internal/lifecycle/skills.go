@@ -129,7 +129,7 @@ func pruneLegacySkillDirs(version string, logger *slog.Logger) {
 			logger.Debug("legacy skill dir prune failed", "path", t, "err", err)
 			continue
 		}
-		logger.Info("pruned legacy skill cache", "path", t)
+		logger.Debug("pruned legacy skill cache", "path", t)
 	}
 	_ = os.MkdirAll(filepath.Dir(sentinel), 0o700)
 	_ = os.WriteFile(sentinel, []byte(version+"\n"), 0o600)

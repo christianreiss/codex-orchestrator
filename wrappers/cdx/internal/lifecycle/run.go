@@ -83,6 +83,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		agentsUpdated bool
 		configUpdated bool
 		skillsUpdated bool
+		codexUpdated  string
 		dec           orchestrator.AuthDecision
 	)
 
@@ -120,7 +121,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// PR-2: keep the local Codex CLI within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
-			maybeEnsureCodex(ctx, authResp, concurrent, logger)
+			codexUpdated = maybeEnsureCodex(ctx, authResp, concurrent, logger)
 		}
 
 		// Skills are MCP-served in v2; we still ping /skills to detect
@@ -146,6 +147,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		AgentsUpdated:  agentsUpdated,
 		ConfigUpdated:  configUpdated,
 		AuthSynced:     authSynced,
+		CodexUpdated:   codexUpdated,
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
@@ -195,13 +197,14 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		caps := ui.DetectCaps(themeFromConfig(cfg))
 		fmt.Fprintln(os.Stderr)
 		ui.PrintExitFooter(os.Stderr, caps, "cdx", ui.ExitFooter{
-			When:        time.Now(),
-			HeaderText:  "Run summary",
-			RunDuration: duration,
-			UsageStatus: usageResult,
-			UsageTone:   usageTone,
-			AuthStatus:  "not-needed",
-			AuthTone:    ui.ToneOK,
+			When:         time.Now(),
+			HeaderText:   "Run summary",
+			RunDuration:  duration,
+			UsageStatus:  usageResult,
+			UsageTone:    usageTone,
+			AuthStatus:   "not-needed",
+			AuthTone:     ui.ToneOK,
+			CodexVersion: codexUpdated,
 		})
 	}
 
@@ -272,7 +275,7 @@ func bootstrap(
 				logger.Warn("auth write from bundle failed", "err", err)
 			} else {
 				authSynced = true
-				logger.Info("auth.json updated from /sync/bootstrap")
+				logger.Debug("auth.json updated from /sync/bootstrap")
 			}
 		}
 	}
@@ -375,7 +378,7 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 		if err := codex.WriteAuth(resp.Auth); err != nil {
 			return resp, err, false
 		}
-		logger.Info("auth.json updated from orchestrator")
+		logger.Debug("auth.json updated from orchestrator")
 		return resp, nil, true
 	default:
 		// Unknown / refused / insecure — return the response as-is and let
@@ -632,18 +635,23 @@ func themeFromConfig(cfg *config.Config) string {
 // — the launch path continues regardless so a transient install error does
 // not prevent the user from running Codex.
 //
+// Returns the post-install version when an install actually ran successfully,
+// empty string otherwise (no-op cases + failures). The caller plumbs this
+// into summary.Inputs so the exit footer's Sync row can show a `● codex X.Y.Z`
+// badge.
+//
 // This is a no-op in concurrent (read-only) mode, when auth retrieval
 // failed, or when AutoUpdateEnabled is false.
-func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) {
+func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
-		return
+		return ""
 	}
 	v := auth.Versions
 	if !v.AutoUpdateEnabled {
-		return
+		return ""
 	}
 	if v.ClientVersion == nil || *v.ClientVersion == "" {
-		return
+		return ""
 	}
 	target := *v.ClientVersion
 	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
@@ -651,9 +659,25 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	}
 	current := strings.TrimSpace(codex.Version(ctx))
 	if current == target {
-		return
+		return ""
+	}
+	// EnsureCodex is a 5-10s blocking operation when an install actually
+	// downloads from GitHub. Surface a single human-readable progress line
+	// on stderr so the user knows what's happening — the structured-log
+	// emissions inside the installer are at Debug now.
+	if current == "" || current == "unknown" {
+		fmt.Fprintf(os.Stderr, "cdx: installing codex CLI %s…\n", target)
+	} else {
+		fmt.Fprintf(os.Stderr, "cdx: installing codex CLI %s → %s…\n", current, target)
 	}
 	if err := codex.EnsureCodex(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
 		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
+		return ""
 	}
+	post := strings.TrimSpace(codex.Version(ctx))
+	if post == "" || post == "unknown" {
+		post = target
+	}
+	fmt.Fprintf(os.Stderr, "cdx: codex CLI updated to %s\n", post)
+	return post
 }

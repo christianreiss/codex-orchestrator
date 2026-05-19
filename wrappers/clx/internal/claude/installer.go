@@ -35,7 +35,7 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	if target != "" && target != "latest" {
 		spec = "@anthropic-ai/claude-code@" + target
 	}
-	logger.Info("EnsureClaude: npm install", "spec", spec, "enforce_exact", enforceExact)
+	logger.Debug("EnsureClaude: npm install", "spec", spec, "enforce_exact", enforceExact)
 
 	args := []string{"install", "-g", spec}
 	cmd := exec.CommandContext(ctx, "npm", args...)
@@ -45,7 +45,7 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	}
 	if isPermErr(out, err) {
 		if _, lerr := exec.LookPath("sudo"); lerr == nil {
-			logger.Info("EnsureClaude: retrying npm install under sudo -n")
+			logger.Debug("EnsureClaude: retrying npm install under sudo -n")
 			sudoArgs := append([]string{"-n", "npm"}, args...)
 			cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
 			out2, serr := cmd.CombinedOutput()

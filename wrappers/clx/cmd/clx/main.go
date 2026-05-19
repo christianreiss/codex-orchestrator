@@ -157,7 +157,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	logger := log.Setup(f.silent || f.debug)
+	logger := log.Setup(f.silent, f.debug)
 
 	if f.versionFlag {
 		fmt.Fprintf(stdout, "clx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)

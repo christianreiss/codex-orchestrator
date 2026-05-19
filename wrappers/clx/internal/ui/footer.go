@@ -16,6 +16,11 @@ type ExitFooter struct {
 	UsageTone   Tone
 	AuthStatus  string // "not-needed" | "uploaded" | "skipped (...)"
 	AuthTone    Tone
+	// CodexVersion is mis-named for engine symmetry — for clx it holds the
+	// post-install claude version when the auto-update path swapped the
+	// binary on this run. Empty for the common no-op case; when set, an
+	// extra `● claude X.Y.Z` badge is added to the Sync row.
+	CodexVersion string
 }
 
 // TokenUsage mirrors the auth-response shape so callers can pass either.
@@ -73,11 +78,15 @@ func PrintExitFooter(w io.Writer, caps Caps, prefix string, f ExitFooter) {
 		durCol, DurationShort(f.RunDuration), caps.Palette.Reset,
 	)
 
-	fmt.Fprintf(w, "  %sSync      %s ·  %s  %s\n",
+	syncLine := fmt.Sprintf("  %sSync      %s ·  %s  %s",
 		caps.Palette.Dim, caps.Palette.Reset,
 		footerDot(caps, "usage "+f.UsageStatus, f.UsageTone),
 		footerDot(caps, "auth "+f.AuthStatus, f.AuthTone),
 	)
+	if f.CodexVersion != "" {
+		syncLine += "  " + footerDot(caps, "claude "+f.CodexVersion, ToneOK)
+	}
+	fmt.Fprintln(w, syncLine)
 	Divider(w, caps)
 }
 

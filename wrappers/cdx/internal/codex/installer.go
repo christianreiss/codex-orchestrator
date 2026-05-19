@@ -73,7 +73,7 @@ func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logge
 	if target != "" && target != "latest" {
 		spec = "codex-cli@" + target
 	}
-	logger.Info("EnsureCodex: npm install", "spec", spec, "enforce_exact", enforceExact)
+	logger.Debug("EnsureCodex: npm install", "spec", spec, "enforce_exact", enforceExact)
 
 	args := []string{"install", "-g", spec}
 	cmd := exec.CommandContext(ctx, "npm", args...)
@@ -84,7 +84,7 @@ func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logge
 	// Permission failure → retry under sudo when available (non-interactive).
 	if isPermErr(out, err) {
 		if _, lerr := exec.LookPath("sudo"); lerr == nil {
-			logger.Info("EnsureCodex: retrying npm install under sudo -n")
+			logger.Debug("EnsureCodex: retrying npm install under sudo -n")
 			args = append([]string{"-n", "npm"}, args...)
 			cmd = exec.CommandContext(ctx, "sudo", args...)
 			out2, serr := cmd.CombinedOutput()
@@ -281,7 +281,7 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, lo
 	}
 
 	dest := resolveCodexDest()
-	logger.Info("EnsureCodex: installing", "version", rel.TagName, "asset", asset.Name, "dest", dest)
+	logger.Debug("EnsureCodex: installing", "version", rel.TagName, "asset", asset.Name, "dest", dest)
 
 	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
 		return installFromTarball(dlPath, dest)

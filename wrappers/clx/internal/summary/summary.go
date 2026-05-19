@@ -22,6 +22,10 @@ type Inputs struct {
 	AgentsUpdated  bool
 	ConfigUpdated  bool
 	AuthSynced     bool
+	// ClaudeUpdated holds the post-install claude version when the auto-update
+	// path actually swapped the binary this run, empty otherwise. Surfaced as
+	// a `● claude X.Y.Z` badge in the exit footer's Sync row.
+	ClaudeUpdated string
 }
 
 func Build(ctx context.Context, in Inputs) ui.ScreenInput {
