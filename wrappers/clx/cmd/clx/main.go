@@ -435,10 +435,28 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		fmt.Fprintln(stdout, "cron: removed")
 		return 0
 	default:
-		if err := cron.Tick(ctx, cfg); err != nil {
+		res, err := cron.Tick(ctx, cfg)
+		if err != nil {
 			fmt.Fprintln(stderr, "clx --cron:", err)
 			return 1
 		}
+		fmt.Fprintln(stdout, formatCronResult(res))
 		return 0
+	}
+}
+
+// formatCronResult renders a one-line summary of a cron Tick for human
+// consumption — same shape as the cdx side. Keeps `clx --cron` from being
+// silent on the common no-op path.
+func formatCronResult(r cron.Result) string {
+	switch {
+	case r.WrapperAction == "disable":
+		return "cron: auto-update disabled by server; cron job removed"
+	case r.WrapperAction == "updated":
+		return fmt.Sprintf("cron: wrapper updated %s → %s (re-exec)", r.WrapperVersion, r.WrapperTarget)
+	case r.CodexAction == "updated":
+		return fmt.Sprintf("cron: claude updated %s → %s (wrapper %s, reported=%t)", r.CodexBefore, r.CodexVersion, r.WrapperVersion, r.Reported)
+	default:
+		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
 	}
 }

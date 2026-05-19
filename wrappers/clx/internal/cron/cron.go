@@ -111,9 +111,28 @@ func Remove() error {
 	return writeCrontab(body)
 }
 
+// Result mirrors the cdx side: it lets cmdCron render a one-line summary of
+// what a tick actually did. A no-op tick produces WrapperAction/CodexAction
+// == "no_update".
+type Result struct {
+	WrapperVersion string
+	WrapperAction  string
+	WrapperTarget  string
+	CodexVersion   string
+	CodexBefore    string
+	CodexAction    string
+	CodexTarget    string
+	Reported       bool
+}
+
 // Tick is the action taken by `clx --cron run`.
-func Tick(ctx context.Context, cfg *config.Config) error {
+func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	logger := slog.Default()
+	res := Result{
+		WrapperVersion: WrapperVersion,
+		WrapperAction:  "no_update",
+		CodexAction:    "no_update",
+	}
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -121,48 +140,54 @@ func Tick(ctx context.Context, cfg *config.Config) error {
 		Logger:        logger,
 	})
 	if err != nil {
-		return err
+		return res, err
 	}
 
 	claudeVer := strings.TrimSpace(claude.Version(ctx))
+	res.CodexBefore = claudeVer
+	res.CodexVersion = claudeVer
 	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
 		Engine:         "claude",
 		ClientVersion:  claudeVer,
 		WrapperVersion: WrapperVersion,
 	})
 	if err != nil {
-		return fmt.Errorf("cron check: %w", err)
+		return res, fmt.Errorf("cron check: %w", err)
 	}
 
 	if check.Action == "disable" {
 		logger.Info("cron: auto-update disabled by server; removing cron job")
 		_ = Remove()
-		return nil
+		res.WrapperAction = "disable"
+		res.CodexAction = "disable"
+		return res, nil
 	}
 
 	if check.Wrapper != nil && check.Wrapper.Action == "update" {
 		if os.Getenv("CLAUDE_WRAPPER_RESTARTED") == "1" {
-			return fmt.Errorf("cron: wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
+			return res, fmt.Errorf("cron: wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
 		}
 		if check.Wrapper.URL == "" || check.Wrapper.SHA256 == "" || check.Wrapper.TargetVersion == "" {
-			return fmt.Errorf("cron: wrapper update requested but metadata incomplete (%+v)", check.Wrapper)
+			return res, fmt.Errorf("cron: wrapper update requested but metadata incomplete (%+v)", check.Wrapper)
 		}
 		downloadURL := resolveURL(cfg.Orchestrator.BaseURL, check.Wrapper.URL)
 		exe, err := os.Executable()
 		if err != nil {
-			return fmt.Errorf("cron: resolve self path: %w", err)
+			return res, fmt.Errorf("cron: resolve self path: %w", err)
 		}
 		if exe, err = filepath.EvalSymlinks(exe); err != nil {
-			return fmt.Errorf("cron: eval self path: %w", err)
+			return res, fmt.Errorf("cron: eval self path: %w", err)
 		}
 		if err := downloadAndSwap(ctx, cfg, downloadURL, check.Wrapper.SHA256, exe); err != nil {
-			return fmt.Errorf("cron: wrapper self-update: %w", err)
+			return res, fmt.Errorf("cron: wrapper self-update: %w", err)
 		}
 		logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
+		res.WrapperAction = "updated"
+		res.WrapperTarget = check.Wrapper.TargetVersion
 		if err := update.ReExecAfterUpdate(exe, []string{"--cron", "run"}); err != nil {
-			return fmt.Errorf("cron: re-exec after wrapper update: %w", err)
+			return res, fmt.Errorf("cron: re-exec after wrapper update: %w", err)
 		}
-		return nil
+		return res, nil
 	}
 
 	targetClient := check.TargetVersion
@@ -171,12 +196,15 @@ func Tick(ctx context.Context, cfg *config.Config) error {
 	}
 	if check.Action == "update" && targetClient != "" {
 		logger.Info("cron: Claude update", "from", claudeVer, "to", targetClient, "enforce_exact", check.EnforceExact)
+		res.CodexAction = "updated"
+		res.CodexTarget = targetClient
 		if err := claude.EnsureClaude(ctx, targetClient, check.EnforceExact, logger); err != nil {
-			return fmt.Errorf("cron: claude update: %w", err)
+			return res, fmt.Errorf("cron: claude update: %w", err)
 		}
 	}
 
 	newVer := strings.TrimSpace(claude.Version(ctx))
+	res.CodexVersion = newVer
 	report := orchestrator.CronReportRequest{
 		Engine:         "claude",
 		ClientVersion:  newVer,
@@ -186,18 +214,19 @@ func Tick(ctx context.Context, cfg *config.Config) error {
 	for attempt := 1; attempt <= 2; attempt++ {
 		reportErr = client.CronReport(ctx, report)
 		if reportErr == nil {
-			return nil
+			res.Reported = true
+			return res, nil
 		}
 		logger.Warn("cron: /cron/report attempt failed", "attempt", attempt, "err", reportErr)
 		if attempt < 2 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return res, ctx.Err()
 			case <-time.After(2 * time.Second):
 			}
 		}
 	}
-	return fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
+	return res, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
 }
 
 func pingCronCheck(ctx context.Context, cfg *config.Config) error {

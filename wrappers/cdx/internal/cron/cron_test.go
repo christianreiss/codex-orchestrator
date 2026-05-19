@@ -120,8 +120,12 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
-	if err := Tick(context.Background(), cfg); err != nil {
+	res, err := Tick(context.Background(), cfg)
+	if err != nil {
 		t.Fatalf("Tick: %v", err)
+	}
+	if !res.Reported {
+		t.Errorf("expected Reported=true; got %+v", res)
 	}
 	if checkCalls != 1 || reportCalls != 1 {
 		t.Errorf("calls: check=%d report=%d", checkCalls, reportCalls)
@@ -152,8 +156,12 @@ func TestTickDisableRemovesCron(t *testing.T) {
 	// the important assertion is that Tick returns nil and doesn't attempt
 	// the codex install / report path.
 	cfg := minimalCfg(srv.URL)
-	if err := Tick(context.Background(), cfg); err != nil {
+	res, err := Tick(context.Background(), cfg)
+	if err != nil {
 		t.Fatalf("Tick disable: %v", err)
+	}
+	if res.WrapperAction != "disable" {
+		t.Errorf("expected WrapperAction=disable; got %+v", res)
 	}
 }
 
@@ -178,7 +186,7 @@ func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
-	err := Tick(context.Background(), cfg)
+	_, err := Tick(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected loop-detected error")
 	}
@@ -207,7 +215,7 @@ func TestTickWrapperUpdateRefusesIncompleteMetadata(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
-	err := Tick(context.Background(), cfg)
+	_, err := Tick(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected metadata-incomplete error")
 	}
@@ -250,7 +258,7 @@ func TestTickReportRetriesThenFails(t *testing.T) {
 		}
 		cancel()
 	}()
-	err := Tick(ctx, cfg)
+	_, err := Tick(ctx, cfg)
 	if err == nil {
 		t.Fatal("expected report failure error")
 	}

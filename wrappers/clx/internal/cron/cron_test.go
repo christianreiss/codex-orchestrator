@@ -90,8 +90,12 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
-	if err := Tick(context.Background(), cfg); err != nil {
+	res, err := Tick(context.Background(), cfg)
+	if err != nil {
 		t.Fatalf("Tick: %v", err)
+	}
+	if !res.Reported {
+		t.Errorf("expected Reported=true; got %+v", res)
 	}
 	if checkCalls != 1 || reportCalls != 1 {
 		t.Errorf("calls: check=%d report=%d", checkCalls, reportCalls)
@@ -119,7 +123,7 @@ func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
-	err := Tick(context.Background(), cfg)
+	_, err := Tick(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected loop-detected error")
 	}

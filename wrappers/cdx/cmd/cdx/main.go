@@ -587,10 +587,29 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		return 0
 	default:
 		// Non-interactive auto-update tick.
-		if err := cron.Tick(ctx, cfg); err != nil {
+		res, err := cron.Tick(ctx, cfg)
+		if err != nil {
 			fmt.Fprintln(stderr, "cdx --cron:", err)
 			return 1
 		}
+		fmt.Fprintln(stdout, formatCronResult(res))
 		return 0
+	}
+}
+
+// formatCronResult renders a one-line summary of a cron Tick for human
+// consumption. The current invocation either updated something, kept things
+// as-is, or saw the server disable cron entirely; the line states which and
+// names the versions involved so `cdx --cron` is never silent on success.
+func formatCronResult(r cron.Result) string {
+	switch {
+	case r.WrapperAction == "disable":
+		return "cron: auto-update disabled by server; cron job removed"
+	case r.WrapperAction == "updated":
+		return fmt.Sprintf("cron: wrapper updated %s → %s (re-exec)", r.WrapperVersion, r.WrapperTarget)
+	case r.CodexAction == "updated":
+		return fmt.Sprintf("cron: codex updated %s → %s (wrapper %s, reported=%t)", r.CodexBefore, r.CodexVersion, r.WrapperVersion, r.Reported)
+	default:
+		return fmt.Sprintf("cron: ok (wrapper %s, codex %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
 	}
 }
