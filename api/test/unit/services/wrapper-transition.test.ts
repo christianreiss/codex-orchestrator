@@ -90,17 +90,18 @@ describe('wrapper transition helpers', () => {
     expect(out).not.toContain('BIN_DIR=${BIN_DIR:-$HOME/.local/bin}');
   });
 
-  it('installer mirrors the new wrapper over known stale global paths', () => {
+  it('installer removes known per-user and global stale wrapper relics', () => {
     const out = buildWrapperV2InstallerScript({
       fqdn: 'h.example',
       apiKey: 'sk-codex-test',
       baseUrl: 'https://o.example/',
       engine: 'codex',
     });
-    expect(out).toContain('mirror_known_bins()');
-    expect(out).toContain('"/usr/local/bin/$NAME" "/usr/local/sbin/$NAME"');
-    expect(out).toContain('Updated stale $ALT_BIN');
-    expect(out).toContain('sudo install -m 755 "$TARGET_BIN" "$ALT_BIN"');
+    expect(out).toContain('cleanup_known_relics()');
+    expect(out).toContain('"$HOME/.local/bin/$NAME" "/usr/local/sbin/$NAME"');
+    expect(out).toContain('Removed $label wrapper relic $relic');
+    expect(out).toContain('sudo rm -f "$relic"');
+    expect(out).toContain('remove it with: sudo rm -f $relic');
   });
 
   it('emits POSIX shell syntax that sh can parse', () => {

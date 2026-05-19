@@ -230,27 +230,37 @@ print(h.hexdigest())
 PY
 }
 
-mirror_known_bins() {
+remove_relic() {
+  relic=$1
+  if [ "$relic" = "$TARGET_BIN" ] || [ ! -e "$relic" ]; then
+    return 0
+  fi
+  RELIC_SHA=$(sha256_file "$relic" 2>/dev/null || true)
+  if [ "$RELIC_SHA" = "$BINARY_SHA256" ] || [ "$RELIC_SHA" = "" ]; then
+    label="duplicate"
+  else
+    label="stale"
+  fi
+  if [ -w "$relic" ]; then
+    rm -f "$relic"
+    echo ">> Removed $label wrapper relic $relic"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo rm -f "$relic"
+    echo ">> Removed $label wrapper relic $relic via sudo"
+  else
+    echo ">> $label wrapper relic remains; remove it with: sudo rm -f $relic"
+  fi
+}
+
+cleanup_known_relics() {
   if [ "$INSTALL_MODE" != "installer" ]; then
     return 0
   fi
-  for ALT_BIN in "/usr/local/bin/$NAME" "/usr/local/sbin/$NAME"; do
-    if [ "$ALT_BIN" = "$TARGET_BIN" ] || [ ! -e "$ALT_BIN" ]; then
-      continue
-    fi
-    ALT_SHA=$(sha256_file "$ALT_BIN" 2>/dev/null || true)
-    if [ "$ALT_SHA" = "$BINARY_SHA256" ]; then
-      continue
-    fi
-    if [ "$INSTALL_WITH_SUDO" = "0" ] && [ -w "$ALT_BIN" ]; then
-      install_bin "$TARGET_BIN" "$ALT_BIN"
-      echo ">> Updated stale $ALT_BIN"
-    elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-      sudo install -m 755 "$TARGET_BIN" "$ALT_BIN"
-      echo ">> Updated stale $ALT_BIN via sudo"
-    else
-      echo ">> Stale $ALT_BIN remains; update it with: sudo install -m 755 $TARGET_BIN $ALT_BIN"
-    fi
+  if [ "$BIN_ROOT" != "/usr/local/bin" ]; then
+    return 0
+  fi
+  for RELIC_BIN in "$HOME/.local/bin/$NAME" "/usr/local/sbin/$NAME"; do
+    remove_relic "$RELIC_BIN"
   done
 }
 
@@ -260,7 +270,7 @@ if [ -x "$TARGET_BIN" ]; then
     if [ "$INSTALL_MODE" = "shim" ]; then
       exec "$TARGET_BIN" "$@"
     fi
-    mirror_known_bins
+    cleanup_known_relics
     "$TARGET_BIN" status || true
     exit 0
   fi
@@ -282,7 +292,7 @@ fi
 chmod 755 "$BIN_TMP"
 install_bin "$BIN_TMP" "$TARGET_BIN"
 rm -f "$BIN_TMP"
-mirror_known_bins
+cleanup_known_relics
 
 if [ "$INSTALL_MODE" = "shim" ]; then
   exec "$TARGET_BIN" "$@"
