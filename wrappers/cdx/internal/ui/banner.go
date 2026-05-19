@@ -41,7 +41,7 @@ func PrintBoot(w io.Writer, caps Caps, info BannerInfo) {
 	reset := caps.Palette.Reset
 
 	infoLines := []string{
-		"",                                          // L0 blank offset
+		"", // L0 blank offset
 		coloredOrEmpty(info.Title, caps.Palette.Bold+caps.BannerColor(), reset),
 		coloredOrEmpty(info.Tagline, caps.Palette.Dim, reset),
 		coloredOrEmpty(strings.Repeat("─", 25), caps.Palette.Dim, reset),
