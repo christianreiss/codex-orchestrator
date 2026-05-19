@@ -1,4 +1,5 @@
 # 2026-05-19
+- Wrapper v2 installer: relic cleanup now checks whether `/usr/local/sbin/cdx` or other legacy paths resolve to the same file as `/usr/local/bin/cdx` before removing them, so systems with aliased standard directories no longer delete the freshly installed wrapper.
 - Admin WebUI hosts: the "Installer minted" modal now has a Re-create action that mints a fresh installer link in-place, preserving the selected engine set from the original mint action.
 - Wrapper v2 installer: hardened cleanup for legacy symlink layouts where `/usr/local/bin/cdx` pointed at `/usr/local/sbin/cdx`; canonical symlinks are now replaced with a real wrapper binary before relic cleanup removes the old target path.
 - Wrapper v2 installer: after a canonical `/usr/local/bin` install, stale or duplicate wrapper relics in the installing user's `~/.local/bin` and `/usr/local/sbin` are now removed when possible, with explicit `sudo rm` remediation when they cannot be cleaned automatically.

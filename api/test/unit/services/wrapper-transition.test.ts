@@ -102,6 +102,18 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then');
   });
 
+  it('installer skips relic cleanup when standard paths resolve to the same file', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('same_path()');
+    expect(out).toContain('os.path.samefile(sys.argv[1], sys.argv[2])');
+    expect(out).toContain('same_path "$relic" "$TARGET_BIN"');
+  });
+
   it('installer removes known per-user and global stale wrapper relics', () => {
     const out = buildWrapperV2InstallerScript({
       fqdn: 'h.example',

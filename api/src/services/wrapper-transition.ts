@@ -237,9 +237,23 @@ print(h.hexdigest())
 PY
 }
 
+same_path() {
+  python3 - "$1" "$2" <<'PY' >/dev/null 2>&1
+import os
+import sys
+
+try:
+    if os.path.exists(sys.argv[1]) and os.path.exists(sys.argv[2]) and os.path.samefile(sys.argv[1], sys.argv[2]):
+        raise SystemExit(0)
+except OSError:
+    pass
+raise SystemExit(1)
+PY
+}
+
 remove_relic() {
   relic=$1
-  if [ "$relic" = "$TARGET_BIN" ] || [ ! -e "$relic" ]; then
+  if [ "$relic" = "$TARGET_BIN" ] || same_path "$relic" "$TARGET_BIN" || [ ! -e "$relic" ]; then
     return 0
   fi
   RELIC_SHA=$(sha256_file "$relic" 2>/dev/null || true)
