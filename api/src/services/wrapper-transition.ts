@@ -54,8 +54,7 @@ CONFIG_FILE=${shellQuote(`${name}.json`)}
 CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
 INSTALL_MODE=installer
 
-BIN_DIR=\${BIN_DIR:-$HOME/.local/bin}
-mkdir -p "$BIN_DIR"
+BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 echo ">> Installing the ${name} wrapper into $BIN_DIR"
 
 # 1. Friendly engine CLI hint (the wrapper invokes this binary).
@@ -106,13 +105,44 @@ case "$CONFIG_ENV" in
     ;;
 esac
 
+INSTALL_WITH_SUDO=0
+ensure_bin_root() {
+  if [ "$INSTALL_MODE" = "shim" ]; then
+    mkdir -p "$BIN_ROOT"
+    return 0
+  fi
+  if [ -d "$BIN_ROOT" ] && [ -w "$BIN_ROOT" ]; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo mkdir -p "$BIN_ROOT"
+    INSTALL_WITH_SUDO=1
+    return 0
+  fi
+  echo "Cannot install $NAME into $BIN_ROOT without write access or passwordless sudo." >&2
+  echo "Run with sudo, configure passwordless sudo, or explicitly set BIN_DIR for a per-user install." >&2
+  exit 1
+}
+
+install_bin() {
+  src=$1
+  dst=$2
+  if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+    sudo install -m 755 "$src" "$dst"
+  else
+    cp "$src" "$dst"
+    chmod 755 "$dst"
+  fi
+}
+
 if [ "$INSTALL_MODE" = "shim" ]; then
   BIN_ROOT="$DATA_HOME/codex-orchestrator/bin"
 else
   BIN_ROOT="$BIN_DIR"
 fi
 
-mkdir -p "$(dirname "$CONFIG_PATH")" "$BIN_ROOT"
+mkdir -p "$(dirname "$CONFIG_PATH")"
+ensure_bin_root
 BUNDLE_FILE=$(mktemp "\${TMPDIR:-/tmp}/$NAME.config.XXXXXX")
 BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$NAME.bin.XXXXXX")
 cleanup() {
@@ -200,12 +230,37 @@ print(h.hexdigest())
 PY
 }
 
+mirror_known_bins() {
+  if [ "$INSTALL_MODE" != "installer" ]; then
+    return 0
+  fi
+  for ALT_BIN in "/usr/local/bin/$NAME" "/usr/local/sbin/$NAME"; do
+    if [ "$ALT_BIN" = "$TARGET_BIN" ] || [ ! -e "$ALT_BIN" ]; then
+      continue
+    fi
+    ALT_SHA=$(sha256_file "$ALT_BIN" 2>/dev/null || true)
+    if [ "$ALT_SHA" = "$BINARY_SHA256" ]; then
+      continue
+    fi
+    if [ "$INSTALL_WITH_SUDO" = "0" ] && [ -w "$ALT_BIN" ]; then
+      install_bin "$TARGET_BIN" "$ALT_BIN"
+      echo ">> Updated stale $ALT_BIN"
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+      sudo install -m 755 "$TARGET_BIN" "$ALT_BIN"
+      echo ">> Updated stale $ALT_BIN via sudo"
+    else
+      echo ">> Stale $ALT_BIN remains; update it with: sudo install -m 755 $TARGET_BIN $ALT_BIN"
+    fi
+  done
+}
+
 if [ -x "$TARGET_BIN" ]; then
   EXISTING_SHA=$(sha256_file "$TARGET_BIN" || true)
   if [ "$EXISTING_SHA" = "$BINARY_SHA256" ]; then
     if [ "$INSTALL_MODE" = "shim" ]; then
       exec "$TARGET_BIN" "$@"
     fi
+    mirror_known_bins
     "$TARGET_BIN" status || true
     exit 0
   fi
@@ -225,7 +280,9 @@ if [ "$ACTUAL_SHA" != "$BINARY_SHA256" ]; then
 fi
 
 chmod 755 "$BIN_TMP"
-mv "$BIN_TMP" "$TARGET_BIN"
+install_bin "$BIN_TMP" "$TARGET_BIN"
+rm -f "$BIN_TMP"
+mirror_known_bins
 
 if [ "$INSTALL_MODE" = "shim" ]; then
   exec "$TARGET_BIN" "$@"

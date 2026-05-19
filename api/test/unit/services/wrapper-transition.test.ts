@@ -76,6 +76,33 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('If your shell cached an older $NAME');
   });
 
+  it('installer defaults to system-wide /usr/local/bin with sudo support', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('BIN_DIR=${BIN_DIR:-/usr/local/bin}');
+    expect(out).toContain('sudo mkdir -p "$BIN_ROOT"');
+    expect(out).toContain('sudo install -m 755 "$src" "$dst"');
+    expect(out).toContain('Cannot install $NAME into $BIN_ROOT');
+    expect(out).not.toContain('BIN_DIR=${BIN_DIR:-$HOME/.local/bin}');
+  });
+
+  it('installer mirrors the new wrapper over known stale global paths', () => {
+    const out = buildWrapperV2InstallerScript({
+      fqdn: 'h.example',
+      apiKey: 'sk-codex-test',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+    });
+    expect(out).toContain('mirror_known_bins()');
+    expect(out).toContain('"/usr/local/bin/$NAME" "/usr/local/sbin/$NAME"');
+    expect(out).toContain('Updated stale $ALT_BIN');
+    expect(out).toContain('sudo install -m 755 "$TARGET_BIN" "$ALT_BIN"');
+  });
+
   it('emits POSIX shell syntax that sh can parse', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wrapper-transition-'));
     try {
