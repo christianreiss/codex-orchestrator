@@ -10,6 +10,7 @@ type Skill struct {
 	Slug    string          `json:"slug"`
 	Name    string          `json:"name,omitempty"`
 	Version string          `json:"version,omitempty"`
+	SHA256  string          `json:"sha256,omitempty"`
 	Body    json.RawMessage `json:"body,omitempty"`
 }
 
@@ -18,9 +19,12 @@ type SkillsList struct {
 	Data   []Skill `json:"data,omitempty"`
 }
 
+// ListSkills calls GET /skills?engine=claude so the response is filtered to
+// skills marked for this engine (or unscoped/global ones). The server filter
+// at api/src/services/host-skills.ts:60-65 keeps rows with engine=null/” too.
 func (c *Client) ListSkills(ctx context.Context) ([]Skill, error) {
 	out := &SkillsList{}
-	if err := c.JSON(ctx, http.MethodGet, "/skills", nil, out, 1); err != nil {
+	if err := c.JSON(ctx, http.MethodGet, "/skills?engine=claude", nil, out, 1); err != nil {
 		return nil, err
 	}
 	return out.Data, nil

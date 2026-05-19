@@ -16,10 +16,11 @@ import (
 
 // Inputs is what callers pass when building a screen state.
 type Inputs struct {
-	Config     *config.Config
-	Auth       *orchestrator.AuthRetrieveResponse
-	AuthErr    error
-	Concurrent bool
+	Config         *config.Config
+	Auth           *orchestrator.AuthRetrieveResponse
+	AuthErr        error
+	Concurrent     bool
+	ConcurrentNote string // override text for the "concurrent" boot-screen row
 
 	// "updated this run" markers
 	SkillsUpdated bool
@@ -127,6 +128,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		TokenSum:       tokenSum,
 		APICalls:       apiCalls,
 		Concurrent:     in.Concurrent,
+		ConcurrentNote: in.ConcurrentNote,
 		Dots:           dots,
 		QuotaRows:      quotaRows,
 		QuotaWarn:      warnText,

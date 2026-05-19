@@ -122,29 +122,46 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if dec.Allowed {
 			maybeEnsureCodex(ctx, authResp, concurrent, logger)
 		}
+
+		// Skills are MCP-served in v2; we still ping /skills to detect
+		// fingerprint changes (lights the boot-screen "skills" dot) and
+		// purge bash-era on-disk caches once per wrapper version so they
+		// don't shadow MCP resolution. Both are best-effort.
+		if !concurrent {
+			skillsUpdated = syncSkills(ctx, client, logger)
+			pruneLegacySkillDirs(wrapperVersion(cfg), logger)
+		}
 	}
 
-	// Boot screen.
+	// Build the boot-screen state once: even when SkipBoot suppresses the
+	// rendered screen we still want the derived QuotaWarn text so headless
+	// callers (cron, --execute) see the warning on stderr.
+	state := summary.Build(ctx, summary.Inputs{
+		Config:         cfg,
+		Auth:           authResp,
+		AuthErr:        authErr,
+		Concurrent:     concurrent,
+		ConcurrentNote: concurrentNote(concurrent, dec),
+		SkillsUpdated:  skillsUpdated,
+		AgentsUpdated:  agentsUpdated,
+		ConfigUpdated:  configUpdated,
+		AuthSynced:     authSynced,
+	})
+	if !dec.Allowed && dec.Reason != "" {
+		state.ResultLabel = dec.Reason
+		state.ResultTone = ui.ToneFail
+	}
 	if !opts.SkipBoot {
-		state := summary.Build(ctx, summary.Inputs{
-			Config:        cfg,
-			Auth:          authResp,
-			AuthErr:       authErr,
-			Concurrent:    concurrent,
-			SkillsUpdated: skillsUpdated,
-			AgentsUpdated: agentsUpdated,
-			ConfigUpdated: configUpdated,
-			AuthSynced:    authSynced,
-		})
-		if !dec.Allowed && dec.Reason != "" {
-			state.ResultLabel = dec.Reason
-			state.ResultTone = ui.ToneFail
-		}
 		if opts.Minimal {
 			ui.PrintMinimalScreen(os.Stderr, state)
 		} else {
 			ui.PrintBootScreen(os.Stderr, state)
 		}
+	} else if state.QuotaWarn != "" {
+		// Headless path: surface the quota warning so cron/CI logs capture
+		// it. The boot-screen path already renders this text inline.
+		fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaWarn)
+		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 	}
 
 	// Refuse launch on auth decision.
@@ -574,6 +591,33 @@ func extractUsageLine(buf []byte) string {
 // the common control chars). codex/usage.go has the full triple-pass; here
 // we just need clean enough output for the audit string.
 var lineStripper = regexp.MustCompile(`\x1B\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+
+// concurrentNote picks the right "Concurrent" row text for the boot screen.
+// Empty string means PrintConcurrentRow uses its own default
+// ("Using local auth.json."); we override only when local auth is unusable so
+// the operator sees why a second run would block.
+func concurrentNote(concurrent bool, dec orchestrator.AuthDecision) string {
+	if !concurrent {
+		return ""
+	}
+	if dec.LocalUsable {
+		return "Using local auth.json."
+	}
+	if !dec.Allowed {
+		return "Local auth.json is missing or invalid."
+	}
+	return ""
+}
+
+// wrapperVersion returns a short identifier used to gate the one-shot legacy
+// skill-dir cleanup. Falls back to "dev" so the sentinel still works in
+// unconfigured local builds.
+func wrapperVersion(cfg *config.Config) string {
+	if cfg != nil && cfg.Wrapper.Version != "" {
+		return cfg.Wrapper.Version
+	}
+	return "dev"
+}
 
 func themeFromConfig(cfg *config.Config) string {
 	if cfg == nil || cfg.EngineOptions.AdminThemeHint == nil {

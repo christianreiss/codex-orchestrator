@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // AuthPath returns ~/.codex/auth.json (the upstream CLI's expected location).
@@ -47,6 +49,36 @@ func ReadAuth() (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(raw), nil
+}
+
+// BackfillLastRefresh returns raw with `last_refresh` set to the current UTC
+// RFC3339 timestamp when the field is absent or empty — matching the legacy
+// bash `normalize_auth_json_file` behaviour that lets a plain `codex login`
+// auth.json reach /auth store without bouncing on the server's RFC3339
+// validation. Returns (out, modified, error). On invalid JSON or empty input
+// the original bytes pass through unchanged so the server can reject them
+// authoritatively.
+func BackfillLastRefresh(raw []byte) (json.RawMessage, bool, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(raw), false, nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return json.RawMessage(raw), false, nil
+	}
+	if cur, ok := obj["last_refresh"]; ok {
+		var s string
+		if err := json.Unmarshal(cur, &s); err == nil && strings.TrimSpace(s) != "" {
+			return json.RawMessage(raw), false, nil
+		}
+	}
+	stamp, _ := json.Marshal(time.Now().UTC().Format(time.RFC3339))
+	obj["last_refresh"] = stamp
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return json.RawMessage(raw), false, err
+	}
+	return json.RawMessage(out), true, nil
 }
 
 // WriteAuth materializes a new auth.json from the orchestrator response,

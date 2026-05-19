@@ -61,6 +61,40 @@ type flags struct {
 	helpPassthrough bool
 }
 
+// wrapperOwnedSubcommands are subcommand tokens owned by the wrapper itself —
+// these must never be re-routed as profile shorthand even if a matching
+// [profiles.NAME] section exists in config.toml.
+var wrapperOwnedSubcommands = map[string]bool{
+	"run":         true,
+	"status":      true,
+	"doctor":      true,
+	"auth-upload": true,
+	"lane":        true,
+	"profile":     true,
+	"update":      true,
+	"uninstall":   true,
+	"cron":        true,
+	"execute":     true,
+	"ls":          true,
+}
+
+// isProfileShorthand reports whether `sub` is a candidate for the legacy
+// `cdx <profile-name>` shorthand: not empty, not a wrapper-owned subcommand,
+// and not one of the reserved Codex subcommand names. The caller still has
+// to confirm the profile actually exists in config.toml.
+func isProfileShorthand(sub string) bool {
+	if sub == "" {
+		return false
+	}
+	if wrapperOwnedSubcommands[sub] {
+		return false
+	}
+	if reservedCodexSubcommands[sub] {
+		return false
+	}
+	return true
+}
+
 // reservedCodexSubcommands lists the Codex subcommands the wrapper must never
 // interpret as profile shorthand and whose `--help` invocations are passed
 // straight through to the upstream codex CLI.
@@ -228,6 +262,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		subArgs = f.cronArgs
 	case f.executePrompt != "":
 		sub = "execute"
+	}
+
+	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
+	// spark-switchers a one-keystroke path.
+	if sub == "ls" {
+		sub = "lane"
+		subArgs = []string{"spark"}
+	}
+
+	// Legacy shorthand: `cdx <profile-name>` dispatches to
+	// `codex --profile <name>` when ~/.codex/config.toml has a matching
+	// `[profiles.<name>]` section and the token is not one of our internal
+	// subcommands. Mirrors fe70ac3:bin/cdx.d/05-main-46-entry.sh.
+	if isProfileShorthand(sub) && codex.HasProfile(sub) {
+		profileArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+		return cmdProfile(ctx, cfg, profileArgs, stderr)
 	}
 
 	switch sub {
@@ -482,11 +532,24 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
+	// Legacy parity: a vanilla `codex login` auth.json has no `last_refresh`
+	// and the orchestrator would reject the POST. Backfill an RFC3339 stamp
+	// in-memory so the upload goes through; the server's canonical store
+	// rewrites `last_refresh` to its own clock anyway.
+	payload, backfilled, err := codex.BackfillLastRefresh(payload)
+	if err != nil {
+		fmt.Fprintln(stderr, "auth-upload:", err)
+		return 1
+	}
 	if err := client.AuthStore(ctx, payload); err != nil {
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "auth-upload: ok")
+	if backfilled {
+		fmt.Fprintln(stdout, "auth-upload: ok (last_refresh backfilled)")
+	} else {
+		fmt.Fprintln(stdout, "auth-upload: ok")
+	}
 	return 0
 }
 

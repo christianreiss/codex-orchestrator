@@ -61,27 +61,46 @@ at build time, then loads the config:
 | `run` (default) | One Codex session; the full startup sequence runs first |
 | `status` | Local config summary + remote `/sync/status` ping |
 | `doctor` | Self-diagnostic (config, CLI present, auth, reachability) |
-| `lane <normal\|spark>` | Set this host's quota lane (`/host/lane`) |
+| `auth-upload` | POST the local `~/.codex/auth.json` to canonical store. `last_refresh` is backfilled with the current UTC RFC3339 stamp if the file lacks one (legacy `normalize_auth_json_file` parity). |
+| `lane <normal\|spark\|clear>` | Set this host's quota lane (`/host/lane`) |
+| `ls` | Shorthand for `cdx lane spark` |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
+| `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
+| `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
+| `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
+| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry (`run` is the action fired by cron itself) |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
+| `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
 
 ## Startup sequence
 
-1. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` to enforce single-instance per host.
+1. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` to enforce single-instance per host. If held, the wrapper enters read-only mode and surfaces "Concurrent" on the boot screen with text picked from the auth-decision state.
 2. Load the signed config; refuse to proceed if the Ed25519 signature is invalid.
-3. Auth sync (`POST /auth`) — best-effort; failure does not block.
-4. Resource sync (`AGENTS.md`, `config.toml`) via `/agents/retrieve` and `/config/retrieve`.
-5. `exec` the upstream `codex` CLI; forward stdio + signals.
-6. Report `/usage` after exit (best-effort, non-blocking).
+3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. On 404/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`).
+4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Honours `versions.api_disabled` and `installation_id` mismatch as hard stops.
+5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response, lights the boot-screen "skills" dot on change. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`) are pruned so they don't shadow MCP.
+6. Runtime FQDN guard: compares `os.Hostname` against the baked FQDN; refuses unless `CODEX_ALLOW_FQDN_MISMATCH=1`.
+7. Codex CLI version reconciliation (`maybeEnsureCodex`) — keeps the local CLI on the server's declared target when `versions.auto_update_enabled` is true. Never blocks launch.
+8. Snapshot `auth.json` sha256 + `last_refresh`; `exec` the upstream `codex` CLI; forward stdio + signals.
+9. Post-exit auth re-upload: if either the sha or `last_refresh` changed during the run (token rotation, `codex login`), POST the new payload to `/auth` store.
+10. Token usage extraction (pipe-mode tee first, `~/.codex/sessions/**/*.jsonl` discovery as fallback) → POST `/usage` as `{engine, fqdn, usages: [...]}`. Best-effort, 5 s budget.
 
 ## Refusal modes
 
 - Missing or tampered signature → `config signature invalid`; exit 2 without launching `codex`.
 - `schema_version != 1` → `unsupported schema_version`; exit 2.
 - `engine != "codex"` → `engine "..." not supported by this binary`; exit 2.
-- Lock held by another PID → `another wrapper instance is running`; exit 1.
+- Lock held by another PID with invalid local auth → "Active cdx run detected and local auth.json is invalid or absent."; exit 1.
+- `versions.api_disabled=true` → "Auth API disabled by administrator."; exit 1.
+- `installation_id` mismatch → "Installation ID mismatch; refusing to sync."; exit 1.
+- Auth status `invalid` → "Invalid API key; download a fresh wrapper or rotate the key."; exit 1.
+- Auth status `insecure-denied` → "Insecure host approval denied; re-run or open the host window."; exit 1.
+- Auth status `offline` and cached auth older than 24 h (or 7 d on secure hosts) → "API offline and cached auth.json older than allowed window."; exit 1.
+- Hostname mismatch with baked FQDN and no override env → "hostname X does not match baked FQDN Y (set CODEX_ALLOW_FQDN_MISMATCH=1 to override)"; exit 1.
+- `quota_hard_fail` + ChatGPT quota over limit → "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."; exit 1.
+- Headless callers (`--skip-boot`, `--execute`) get the `QuotaWarn` text on stderr even when the boot screen is suppressed.
 
 ## Adding a new config field
 

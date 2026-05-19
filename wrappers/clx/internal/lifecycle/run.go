@@ -79,6 +79,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		authSynced    bool
 		agentsUpdated bool
 		configUpdated bool
+		skillsUpdated bool
 		dec           orchestrator.AuthDecision
 	)
 
@@ -114,28 +115,44 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if dec.Allowed {
 			maybeEnsureClaude(ctx, authResp, concurrent, logger)
 		}
+
+		// Skills are MCP-served in v2; we still ping /skills?engine=claude
+		// to detect fingerprint changes (lights the boot-screen "skills"
+		// dot) and purge bash-era on-disk caches once per wrapper version
+		// so they don't shadow MCP resolution. Both best-effort.
+		if !concurrent {
+			skillsUpdated = syncSkills(ctx, client, logger)
+			pruneLegacySkillDirs(wrapperVersion(cfg), logger)
+		}
 	}
 
+	// Build the boot-screen state once: even when SkipBoot suppresses the
+	// rendered screen we still want the derived QuotaWarn text so headless
+	// callers (cron, --execute) see the warning on stderr.
+	state := summary.Build(ctx, summary.Inputs{
+		Config:         cfg,
+		Auth:           authResp,
+		AuthErr:        authErr,
+		Concurrent:     concurrent,
+		ConcurrentNote: concurrentNote(concurrent, dec),
+		SkillsUpdated:  skillsUpdated,
+		AgentsUpdated:  agentsUpdated,
+		ConfigUpdated:  configUpdated,
+		AuthSynced:     authSynced,
+	})
+	if !dec.Allowed && dec.Reason != "" {
+		state.ResultLabel = dec.Reason
+		state.ResultTone = ui.ToneFail
+	}
 	if !opts.SkipBoot {
-		state := summary.Build(ctx, summary.Inputs{
-			Config:        cfg,
-			Auth:          authResp,
-			AuthErr:       authErr,
-			Concurrent:    concurrent,
-			AgentsUpdated: agentsUpdated,
-			ConfigUpdated: configUpdated,
-			AuthSynced:    authSynced,
-		})
-		if !dec.Allowed && dec.Reason != "" {
-			state.ResultLabel = dec.Reason
-			state.ResultTone = ui.ToneFail
-		}
 		if opts.Minimal {
 			ui.PrintMinimalScreen(os.Stderr, state)
 		} else {
 			ui.PrintBootScreen(os.Stderr, state)
 		}
 	}
+	// Claude has no quota bars in this orchestrator (see clx/internal/ui/screen.go);
+	// there is therefore no headless QuotaWarn emission to make here.
 
 	if !opts.SkipAuthSync && !dec.Allowed {
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
@@ -537,6 +554,33 @@ func themeFromConfig(cfg *config.Config) string {
 		return ""
 	}
 	return *cfg.EngineOptions.AdminThemeHint
+}
+
+// concurrentNote picks the right "Concurrent" row text for the boot screen.
+// Empty string means PrintConcurrentRow uses its own default
+// ("Using local credentials."); we override only when local auth is unusable
+// so the operator sees why a second run would block.
+func concurrentNote(concurrent bool, dec orchestrator.AuthDecision) string {
+	if !concurrent {
+		return ""
+	}
+	if dec.LocalUsable {
+		return "Using local credentials."
+	}
+	if !dec.Allowed {
+		return "Local credentials missing or invalid."
+	}
+	return ""
+}
+
+// wrapperVersion returns a short identifier used to gate the one-shot legacy
+// skill-dir cleanup. Falls back to "dev" so the sentinel still works in
+// unconfigured local builds.
+func wrapperVersion(cfg *config.Config) string {
+	if cfg != nil && cfg.Wrapper.Version != "" {
+		return cfg.Wrapper.Version
+	}
+	return "dev"
 }
 
 // maybeEnsureClaude repairs the local Claude CLI when the orchestrator

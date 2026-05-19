@@ -1,5 +1,11 @@
 # Wrapper v2 — Legacy Parity Gap Analysis
 
+**Status (2026-05-19):** every gap surfaced below has been closed in the
+all-in-one stub-removal pass tracked at `~/.claude/plans/create-a-plan-for-cosmic-kitten.md`.
+Sections A–B are kept as the closing record (the "before" snapshot); the
+ordered re-implementation plan in §C maps each row to the merged commit
+that landed it. Sections D–E are unchanged.
+
 Scope: compare the current **Go** `cdx` / `clx` binaries
 (`wrappers/{cdx,clx}/...`, fd85763 and prior) against the **legacy bash + python**
 wrappers that lived at `bin/cdx.d/`, `bin/clx.d/` up to commit `fe70ac3` (parent
@@ -388,6 +394,19 @@ is *not* in section B above is either already at parity (section A) or out of
 scope for v2.
 
 ---
+
+## D2. Status (2026-05-19) — all rows DONE
+
+| Phase | Status | Landed in |
+|---|---|---|
+| Phase 1 — Auth correctness, freshness windows, bundle path, post-run upload | DONE | PR-1 (`0d8d4971`, `1dd0ce3a`, `cdb1a879`) |
+| Phase 2 — Codex/Claude installers, full cron pipeline, restart-loop guard | DONE | PR-2 (`bf394f2f`, `f6f90f82`, `c8a3b63d`, `35799db6`, `ebf3f041`, `05c777c5`, `6da31d16`) |
+| Phase 3 — Help passthrough, `--execute` audit, concurrent-note, bundle path, `home`+`username`, `PROMPT_TOOLKIT_NO_CPR` | DONE | PR-4 (`c3830b25`, …) + this commit (concurrent-note, quota-warn) |
+| Phase 4 — Token usage extraction + pipe-mode tee + array `/usage` shape | DONE | PR-3 (`b5b96fda`, `cf5b8504`, `bbd20fb9`, `12551681`, `dc9883fa`) |
+| Phase 5 — Engine-aware uninstall with multi-user safety, clx settings mirror, CLAUDE_MD env, `--continue`/`--resume` | DONE | PR-4 (`12c41565`, `945543a9`, `108032c5`, `62d2f213`) |
+| Phase 6 — Skills probe + legacy skill-dir prune | DONE | this commit (`wrappers/{cdx,clx}/internal/lifecycle/skills.go`) |
+| Phase 7 — `cdx ls`, `cdx <profile>` shorthand, `last_refresh` backfill on `auth-upload` | DONE | this commit (`wrappers/cdx/internal/codex/profile.go`, backfill in `auth_writer.go`) |
+| Phase 8 — Docs refresh in lock-step | DONE | this commit (`docs/interface-cdx.md`, `docs/interface-clx.md`) |
 
 ## E. Suggested first PR
 

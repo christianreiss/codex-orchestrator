@@ -12,6 +12,7 @@ type Skill struct {
 	Slug    string          `json:"slug"`
 	Name    string          `json:"name,omitempty"`
 	Version string          `json:"version,omitempty"`
+	SHA256  string          `json:"sha256,omitempty"`
 	Body    json.RawMessage `json:"body,omitempty"`
 }
 

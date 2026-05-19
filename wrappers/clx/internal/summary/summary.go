@@ -13,14 +13,15 @@ import (
 )
 
 type Inputs struct {
-	Config        *config.Config
-	Auth          *orchestrator.AuthRetrieveResponse
-	AuthErr       error
-	Concurrent    bool
-	SkillsUpdated bool
-	AgentsUpdated bool
-	ConfigUpdated bool
-	AuthSynced    bool
+	Config         *config.Config
+	Auth           *orchestrator.AuthRetrieveResponse
+	AuthErr        error
+	Concurrent     bool
+	ConcurrentNote string // override text for the "concurrent" boot-screen row
+	SkillsUpdated  bool
+	AgentsUpdated  bool
+	ConfigUpdated  bool
+	AuthSynced     bool
 }
 
 func Build(ctx context.Context, in Inputs) ui.ScreenInput {
@@ -116,6 +117,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		TokenSum:       tokenSum,
 		APICalls:       apiCalls,
 		Concurrent:     in.Concurrent,
+		ConcurrentNote: in.ConcurrentNote,
 		Dots:           dots,
 		ResultLabel:    result,
 		ResultTone:     resultTone,
