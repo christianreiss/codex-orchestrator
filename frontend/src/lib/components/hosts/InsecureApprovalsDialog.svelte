@@ -16,9 +16,9 @@
     createRevokeDomainMutation,
   } from "$lib/api/insecure";
   import InsecureCountdown from "./InsecureCountdown.svelte";
+  import InsecureWindowPopover from "./InsecureWindowPopover.svelte";
   import ShieldOff from "@lucide/svelte/icons/shield-off";
   import Globe from "@lucide/svelte/icons/globe";
-  import Clock from "@lucide/svelte/icons/clock";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
 
@@ -123,7 +123,7 @@
               disabled={!$summary.data?.hosts.length}
               onclick={() => run("All windows extended", $extendAll.mutateAsync())}
             >
-              <Clock class="h-3.5 w-3.5" /> Extend all
+              Extend all
             </Button>
             <Button
               size="sm"
@@ -150,13 +150,18 @@
                   </div>
                 </div>
                 <div class="flex items-center gap-1">
-                  <Button
-                    size="sm"
+                  <InsecureWindowPopover
+                    label="Extend"
                     variant="outline"
-                    onclick={() => run("Window extended", $enableHost.mutateAsync({ id: h.id }))}
-                  >
-                    Extend
-                  </Button>
+                    size="sm"
+                    heading="Extend insecure window"
+                    confirmLabel="Extend"
+                    onConfirm={(duration_minutes) =>
+                      run(
+                        "Window extended",
+                        $enableHost.mutateAsync({ id: h.id, duration_minutes }),
+                      )}
+                  />
                   <Button
                     size="sm"
                     variant="ghost"
