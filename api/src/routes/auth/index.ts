@@ -22,6 +22,7 @@ import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
 import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
+import { HostAgentsService } from '../../services/host-agents.js';
 import {
   createRunnerValidationService,
   extractAuthPayload,
@@ -58,6 +59,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
   const tokenUsage = createTokenUsageService({ db: ctx.db });
   const syncService = createHostSyncService({ db: ctx.db, versions, tokenUsage });
+  const agentsService = new HostAgentsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
 
@@ -147,6 +149,17 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         out.reasons.push(`auth_${status !== '' ? status : 'unknown'}`);
       }
     }
+
+    // Inline the agents + client-config bodies so the wrapper's bundle path can
+    // refresh them in the same round-trip. The wrapper sends the local file
+    // digests as `agents`/`config`; the services return `status: 'unchanged'`
+    // when they match (no `content` field), and `status: 'updated'` with the
+    // full body otherwise — `resourceContent()` on the wrapper unwraps either.
+    const agentsDigest = typeof payload.agents === 'string' ? (payload.agents as string) : null;
+    const configDigest = typeof payload.config === 'string' ? (payload.config as string) : null;
+    out.agents = await agentsService.retrieve(agentsDigest, enforced, engine);
+    out.config = await agentsService.retrieveConfig(configDigest, enforced, engine);
+
     out.reasons = uniqueNonEmpty(out.reasons);
     out.status = out.reasons.length === 0 ? 'ok' : 'update';
     return out;
