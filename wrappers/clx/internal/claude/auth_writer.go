@@ -10,11 +10,22 @@ import (
 	"path/filepath"
 )
 
-// AuthPath returns ~/.claude/.credentials.json — the upstream CLI's location.
+// AuthPath returns the local credential file path.
+//
+// Dual-location precedence (legacy clx parity):
+//  1. ~/.clx/auth/credentials.json — preferred when it already exists
+//     (operator/installer can pre-stage credentials at the clx-native path).
+//  2. ~/.claude/.credentials.json — upstream Claude CLI's canonical location;
+//     always returned when neither exists yet, so first-write lands where the
+//     upstream CLI expects to read it.
 func AuthPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
+	}
+	clxPath := filepath.Join(home, ".clx", "auth", "credentials.json")
+	if _, statErr := os.Stat(clxPath); statErr == nil {
+		return clxPath, nil
 	}
 	return filepath.Join(home, ".claude", ".credentials.json"), nil
 }

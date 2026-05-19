@@ -4,6 +4,7 @@ package claude
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 )
@@ -24,5 +25,11 @@ func BuildEnv(cfg *config.Config) []string {
 	put("CLX_HOST_FQDN", cfg.Host.FQDN)
 	put("CLX_HOST_ID", fmt.Sprintf("%d", cfg.Host.ID))
 	put("CLX_WRAPPER_VERSION", cfg.Wrapper.Version)
+
+	// Legacy clx parity: surface the synced CLAUDE.md path so Claude's prompt
+	// scaffolding can pick it up without re-discovering home itself.
+	if home, err := os.UserHomeDir(); err == nil {
+		put("CLAUDE_MD", filepath.Join(home, ".claude", "CLAUDE.md"))
+	}
 	return env
 }
