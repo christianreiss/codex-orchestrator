@@ -165,10 +165,7 @@ export async function registerAdminAuthRoutes(
   // POST /admin/auth/passkey/login
   // -----------------------------------------------------------------------
   app.post('/admin/auth/passkey/login', async (req: FastifyRequest, reply: FastifyReply) => {
-    const body = (req.body ?? {}) as { response?: unknown };
-    if (!body || typeof body !== 'object' || !body.response) {
-      throw new ValidationError('Missing assertion response', { param: 'response' });
-    }
+    const body = normalizePasskeyAuthenticationBody(req.body);
     const user = await passkeys.completeAuthentication(
       body as Parameters<typeof passkeys.completeAuthentication>[0],
       req,
@@ -208,10 +205,7 @@ export async function registerAdminAuthRoutes(
     async (req: FastifyRequest) => {
       const adminCtx = req.admin;
       if (!adminCtx) throw new UnauthorizedError();
-      const body = (req.body ?? {}) as { response?: unknown; name?: unknown };
-      if (!body || typeof body !== 'object' || !body.response) {
-        throw new ValidationError('Missing attestation response', { param: 'response' });
-      }
+      const body = normalizePasskeyRegistrationBody(req.body);
       const passkey = await passkeys.completeRegistration(
         { id: adminCtx.user.id, username: adminCtx.user.username, name: adminCtx.user.name },
         body as Parameters<typeof passkeys.completeRegistration>[1],
@@ -275,4 +269,66 @@ export async function registerAdminAuthRoutes(
   );
 
   void ApiError; // referenced indirectly via error subclasses; keep import alive
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasString(value: Record<string, unknown>, key: string): boolean {
+  return typeof value[key] === 'string' && value[key].length > 0;
+}
+
+function looksLikeRegistrationCredential(value: unknown): boolean {
+  if (!isRecord(value) || !hasString(value, 'id') || !hasString(value, 'rawId')) return false;
+  const response = value.response;
+  return (
+    isRecord(response) &&
+    hasString(response, 'clientDataJSON') &&
+    hasString(response, 'attestationObject')
+  );
+}
+
+function looksLikeAuthenticationCredential(value: unknown): boolean {
+  if (!isRecord(value) || !hasString(value, 'id') || !hasString(value, 'rawId')) return false;
+  const response = value.response;
+  return (
+    isRecord(response) &&
+    hasString(response, 'clientDataJSON') &&
+    hasString(response, 'authenticatorData') &&
+    hasString(response, 'signature')
+  );
+}
+
+export function normalizePasskeyRegistrationBody(body: unknown): { response: unknown; name?: string } {
+  if (!isRecord(body)) {
+    throw new ValidationError('Missing attestation response', { param: 'response' });
+  }
+  const name = typeof body.name === 'string' ? body.name : undefined;
+  if (looksLikeRegistrationCredential(body)) {
+    return { response: body, name };
+  }
+  if (looksLikeRegistrationCredential(body.response)) {
+    return { response: body.response, name };
+  }
+  if (body.response) {
+    return { response: body.response, name };
+  }
+  throw new ValidationError('Missing attestation response', { param: 'response' });
+}
+
+export function normalizePasskeyAuthenticationBody(body: unknown): { response: unknown } {
+  if (!isRecord(body)) {
+    throw new ValidationError('Missing assertion response', { param: 'response' });
+  }
+  if (looksLikeAuthenticationCredential(body)) {
+    return { response: body };
+  }
+  if (looksLikeAuthenticationCredential(body.response)) {
+    return { response: body.response };
+  }
+  if (body.response) {
+    return { response: body.response };
+  }
+  throw new ValidationError('Missing assertion response', { param: 'response' });
 }

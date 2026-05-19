@@ -60,9 +60,9 @@ export function passkeyRegisterOptions() {
 }
 
 /**
- * POST /admin/auth/passkey/register — submits the attestation. The body shape
- * mirrors PublicKeyCredentialJSON as produced by @simplewebauthn/browser's
- * startRegistration().
+ * POST /admin/auth/passkey/register — submits `{ response: attestation }`,
+ * where `attestation` is the PublicKeyCredentialJSON produced by
+ * @simplewebauthn/browser's startRegistration().
  */
 export function passkeyRegister(payload: Record<string, unknown>) {
   return api.post<PasskeyRegisterResponse>("/admin/auth/passkey/register", payload);

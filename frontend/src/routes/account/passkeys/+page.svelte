@@ -62,7 +62,7 @@
     try {
       const options = await passkeyRegisterOptions();
       const attestation = await registerPasskey(options);
-      const result = await passkeyRegister(attestation as unknown as Record<string, unknown>);
+      const result = await passkeyRegister({ response: attestation });
       pendingPasskey = result.passkey;
       nameDialogOpen = true;
       // Optimistically prime the cache
