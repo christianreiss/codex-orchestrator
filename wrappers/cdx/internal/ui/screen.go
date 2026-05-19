@@ -11,7 +11,7 @@ import (
 // All fields are optional — missing data degrades gracefully.
 type ScreenInput struct {
 	WrapperVersion string
-	WrapperTone    Tone // green=current, yellow=update available, red=missing
+	WrapperTone    Tone   // green=current, yellow=update available, red=missing
 	WrapperTarget  string // shown next to wrapper line when not green
 
 	CodexVersion string
@@ -21,18 +21,18 @@ type ScreenInput struct {
 	HostFQDN string
 	Insecure bool
 
-	Lane      string // "normal" | "spark" | ""
-	TokenSum  int64  // current month total tokens — shown in compact format
-	APICalls  int64  // shown if TokenSum is 0
+	Lane     string // "normal" | "spark" | ""
+	TokenSum int64  // current month total tokens — shown in compact format
+	APICalls int64  // shown if TokenSum is 0
 
 	Concurrent     bool
 	ConcurrentNote string
 
 	Dots []HealthDot
 
-	QuotaRows    []QuotaRow
-	QuotaWarn    string // ⚠ row text (empty to skip)
-	QuotaBlock   string // ⛔ row text (empty to skip)
+	QuotaRows  []QuotaRow
+	QuotaWarn  string // ⚠ row text (empty to skip)
+	QuotaBlock string // ⛔ row text (empty to skip)
 
 	ResultLabel string
 	ResultTone  Tone
