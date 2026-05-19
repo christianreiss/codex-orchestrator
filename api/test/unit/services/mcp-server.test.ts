@@ -24,6 +24,10 @@ const stubProjects = {
   upsertNote: async () => ({}),
   createTodo: async () => ({}),
   createFeedback: async () => ({}),
+  listFiles: async () => ({ files: [] }),
+  readFile: async () => ({ project: 'x', file: { stored_name: 'f', content: '', mime_type: null } }),
+  upsertFile: async () => ({ file: {} }),
+  deleteFile: async () => ({ deleted: 0 }),
 } as unknown as HostProjectsService;
 const stubSkills = {
   listSkills: async () => ({ engine: 'codex', skills: [] }),

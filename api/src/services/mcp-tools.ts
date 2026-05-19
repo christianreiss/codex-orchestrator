@@ -107,6 +107,10 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_detail':
     case 'project_bootstrap':
     case 'project_changes':
+    case 'project_file_list':
+      return { slug: scalar };
+    case 'project_file_read':
+      // Scalar form is ambiguous between slug-only and stored-name; default to slug.
       return { slug: scalar };
     case 'skill_retrieve':
       return { slug: scalar };
@@ -137,6 +141,34 @@ function buildHandlers(deps: ToolDeps): Map<string, ToolHandler> {
   );
   handlers.set('project_feedback_create', async (args, host) =>
     deps.projects.createFeedback(String(args['slug'] ?? ''), args, host),
+  );
+
+  handlers.set('project_file_list', async (args, host) =>
+    deps.projects.listFiles(String(args['slug'] ?? ''), host),
+  );
+  handlers.set('project_file_read', async (args, host) => {
+    const slug = String(args['slug'] ?? '');
+    const storedNameRaw = args['stored_name'];
+    const idRaw = args['id'];
+    const storedName =
+      typeof storedNameRaw === 'string' && storedNameRaw.trim() !== '' ? storedNameRaw : null;
+    const idNum =
+      typeof idRaw === 'number'
+        ? idRaw
+        : typeof idRaw === 'string' && idRaw.trim() !== ''
+          ? Number(idRaw)
+          : null;
+    return deps.projects.readFile(
+      slug,
+      { storedName, id: idNum !== null && Number.isFinite(idNum) ? idNum : null },
+      host,
+    );
+  });
+  handlers.set('project_file_upsert', async (args, host) =>
+    deps.projects.upsertFile(String(args['slug'] ?? ''), args, host),
+  );
+  handlers.set('project_file_delete', async (args, host) =>
+    deps.projects.deleteFile(String(args['slug'] ?? ''), Number(args['id'] ?? 0), host),
   );
 
   handlers.set('skill_list', async (args, host) => {
@@ -282,6 +314,57 @@ function buildDefinitions(): ToolDefinition[] {
           body: { type: 'string' },
         },
         required: ['slug', 'type', 'title', 'body'],
+      },
+    },
+    {
+      name: 'project_file_list',
+      description: 'List all files attached to a project (returns full file rows with content)',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string' } },
+        required: ['slug'],
+      },
+    },
+    {
+      name: 'project_file_read',
+      description:
+        'Read a single project file by stored_name or numeric id (returns the full file row including content)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          stored_name: { type: 'string' },
+          id: { type: 'integer' },
+        },
+        required: ['slug'],
+      },
+    },
+    {
+      name: 'project_file_upsert',
+      description:
+        'Create or replace a project file by stored_name. Content is required; description and mime_type are optional.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          stored_name: { type: 'string' },
+          content: { type: 'string' },
+          description: { type: 'string' },
+          mime_type: { type: 'string' },
+        },
+        required: ['slug', 'stored_name', 'content'],
+      },
+    },
+    {
+      name: 'project_file_delete',
+      description: 'Delete a project file by numeric id',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          id: { type: 'integer' },
+        },
+        required: ['slug', 'id'],
       },
     },
     {
