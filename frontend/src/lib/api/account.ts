@@ -15,6 +15,25 @@ import type {
   PasswordChangeResponse,
 } from "./types";
 
+// ---- Theme ----
+
+/** Supported admin theme values mirror the server side ADMIN_THEMES list. */
+export type AccountTheme = "auto" | "light" | "dark";
+
+export interface ThemeResponse {
+  theme: AccountTheme | string;
+}
+
+/** GET /admin/theme — returns the currently persisted admin theme preference. */
+export function getTheme() {
+  return api.get<ThemeResponse>("/admin/theme");
+}
+
+/** POST /admin/theme — persist the admin theme preference. */
+export function setTheme(theme: AccountTheme) {
+  return api.post<ThemeResponse>("/admin/theme", { theme });
+}
+
 // ---- Password ----
 
 /** POST /admin/auth/password/change */
@@ -63,4 +82,5 @@ export function deletePasskey(id: number | string) {
 
 export const accountKeys = {
   passkeys: ["passkeys"] as const,
+  theme: ["settings", "theme"] as const,
 };
