@@ -71,13 +71,13 @@ func TestBuildBarFillsProportionally(t *testing.T) {
 	bar0 := BuildBar(caps, 0)
 	bar50 := BuildBar(caps, 50)
 	bar100 := BuildBar(caps, 100)
-	if !strings.Contains(bar0, "░") {
+	if !strings.Contains(bar0, caps.BannerSym.BarEmpty) {
 		t.Errorf("0%% bar should be empty: %q", bar0)
 	}
-	if !strings.Contains(bar50, "█") && !strings.Contains(bar50, "░") {
+	if !strings.Contains(bar50, caps.BannerSym.BarFill) || !strings.Contains(bar50, caps.BannerSym.BarEmpty) {
 		t.Errorf("50%% bar should have both fills: %q", bar50)
 	}
-	if strings.Contains(bar100, "░") {
+	if strings.Contains(bar100, caps.BannerSym.BarEmpty) {
 		t.Errorf("100%% bar should not have empty chars: %q", bar100)
 	}
 }

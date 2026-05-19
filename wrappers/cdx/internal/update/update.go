@@ -60,7 +60,9 @@ func setEnvKV(env []string, key, val string) []string {
 
 // SelfUpdate downloads cfg.Wrapper.BinaryURL, verifies the SHA256 against
 // cfg.Wrapper.BinarySHA256, then atomically renames it over the running
-// executable. Caller is responsible for re-exec'ing afterwards.
+// executable. The explicit `cdx --update` command exits after the swap; cron
+// callers use ReExecAfterUpdate with a sanitized argv when they need a second
+// pass on the freshly installed binary.
 func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -114,26 +116,10 @@ func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) er
 		return errors.New("atomic swap failed: " + err.Error())
 	}
 	logger.Info("self-update complete", "version", cfg.Wrapper.Version, "path", exe)
-
-	// Re-exec into the freshly-installed binary so the rest of this run
-	// uses the new code. The argv is whatever main.go snapshotted before
-	// any flag parsing happened; the cron path overrides it to `--cron run`.
-	if len(SnapshottedArgv) > 0 || os.Getenv("CODEX_WRAPPER_NO_REEXEC") == "" {
-		argv := SnapshottedArgv
-		if argv == nil {
-			argv = os.Args[1:]
-		}
-		// syscall.Exec only returns on error. If it does return, propagate
-		// so the caller can surface it instead of silently continuing on
-		// stale in-memory code.
-		if err := ReExecAfterUpdate(exe, argv); err != nil {
-			return fmt.Errorf("re-exec after self-update: %w", err)
-		}
-	}
 	return nil
 }
 
 // SnapshottedArgv holds the argv as captured at process start (excluding the
-// program name in argv[0]). main.go sets this so SelfUpdate and the cron Tick
-// path can re-exec with the same args the user originally typed.
+// program name in argv[0]). main.go sets this for diagnostics and parity with
+// the previous update flow; cron uses ReExecAfterUpdate with a sanitized argv.
 var SnapshottedArgv []string

@@ -192,8 +192,10 @@ func TestEnsureCodexGitHubHappyPath(t *testing.T) {
 	githubBaseURL = srv.URL
 	t.Cleanup(func() { githubBaseURL = prevBase })
 
-	// Re-route home + a fake /usr/local/bin so installBinary lands inside dir.
+	// Re-route the install destination so root test runs never touch the real
+	// system codex binary.
 	t.Setenv("HOME", dir)
+	t.Setenv("CDX_CODEX_INSTALL_DIR", filepath.Join(dir, ".local", "bin"))
 
 	// Force the GitHub path (not npm): unset PATH so FindCLI/isManagedByNpm fail.
 	t.Setenv("PATH", "")

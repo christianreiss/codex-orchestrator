@@ -17,11 +17,11 @@ function makeService(envPatch: Partial<Env> = {}): AdminPasskeyService {
 }
 
 describe('AdminPasskeyService env accessors', () => {
-  it('throws when rpId is unset', () => {
+  it('throws when rpId is unset and no request host is available', () => {
     expect(() => makeService().rpId()).toThrow(/ADMIN_WEBAUTHN_RP_ID/);
   });
 
-  it('throws when origin is unset', () => {
+  it('throws when origin is unset and no request host is available', () => {
     expect(() => makeService().origin()).toThrow(/ADMIN_WEBAUTHN_ORIGIN/);
   });
 
@@ -39,6 +39,46 @@ describe('AdminPasskeyService env accessors', () => {
     });
     expect(svc.rpId()).toBe('example.test');
     expect(svc.origin()).toBe('https://example.test');
+  });
+
+  it('derives rpId / origin from PUBLIC_BASE_URL when env overrides are absent', () => {
+    const svc = makeService({
+      PUBLIC_BASE_URL: 'https://admin.example.test/base' as Env['PUBLIC_BASE_URL'],
+    });
+    expect(svc.rpId()).toBe('admin.example.test');
+    expect(svc.origin()).toBe('https://admin.example.test');
+  });
+
+  it('derives rpId / origin from trusted forwarded request headers', () => {
+    const svc = makeService({
+      TRUST_X_FORWARDED: true as Env['TRUST_X_FORWARDED'],
+    });
+    const req = {
+      headers: {
+        host: 'internal:8080',
+        'x-forwarded-host': 'codex-auth.uggs.io',
+        'x-forwarded-proto': 'https',
+      },
+      protocol: 'http',
+    };
+    expect(svc.rpId(req)).toBe('codex-auth.uggs.io');
+    expect(svc.origin(req)).toBe('https://codex-auth.uggs.io');
+  });
+
+  it('falls back to the direct request host when forwarded headers are not trusted', () => {
+    const svc = makeService({
+      TRUST_X_FORWARDED: false as Env['TRUST_X_FORWARDED'],
+    });
+    const req = {
+      headers: {
+        host: 'local.example.test:8080',
+        'x-forwarded-host': 'codex-auth.uggs.io',
+        'x-forwarded-proto': 'https',
+      },
+      protocol: 'http',
+    };
+    expect(svc.rpId(req)).toBe('local.example.test');
+    expect(svc.origin(req)).toBe('http://local.example.test');
   });
 });
 

@@ -21,6 +21,30 @@ export type PublicKeyCredentialJSON = {
   };
 };
 
+export type PublicKeyAuthenticationOptionsJSON = Omit<
+  PublicKeyCredentialRequestOptions,
+  "challenge" | "allowCredentials"
+> & {
+  challenge: string;
+  allowCredentials?: Array<
+    Omit<PublicKeyCredentialDescriptor, "id"> & { id: string }
+  >;
+};
+
+export type PublicKeyAuthenticationJSON = {
+  id: string;
+  rawId: string;
+  type: "public-key";
+  clientExtensionResults: Record<string, unknown>;
+  authenticatorAttachment?: string | null;
+  response: {
+    authenticatorData: string;
+    clientDataJSON: string;
+    signature: string;
+    userHandle?: string;
+  };
+};
+
 export async function registerPasskey(
   options: PasskeyRegistrationOptionsJSON,
 ): Promise<PublicKeyCredentialJSON> {
@@ -36,6 +60,21 @@ export async function registerPasskey(
     optionsJSON: options as Parameters<typeof mod.startRegistration>[0]["optionsJSON"],
   });
   return result as unknown as PublicKeyCredentialJSON;
+}
+
+export async function authenticatePasskey(
+  options: PublicKeyAuthenticationOptionsJSON,
+): Promise<PublicKeyAuthenticationJSON> {
+  let mod: typeof import("@simplewebauthn/browser") | null = null;
+  try {
+    mod = await import("@simplewebauthn/browser");
+  } catch {
+    return handRolledAuthenticate(options);
+  }
+  const result = await mod.startAuthentication({
+    optionsJSON: options as Parameters<typeof mod.startAuthentication>[0]["optionsJSON"],
+  });
+  return result as unknown as PublicKeyAuthenticationJSON;
 }
 
 // ---------- Fallback helpers (base64url ↔ ArrayBuffer) ----------
@@ -106,4 +145,48 @@ async function handRolledRegister(
       transports,
     },
   };
+}
+
+async function handRolledAuthenticate(
+  options: PublicKeyAuthenticationOptionsJSON,
+): Promise<PublicKeyAuthenticationJSON> {
+  if (typeof navigator === "undefined" || !navigator.credentials || !("get" in navigator.credentials)) {
+    throw new Error("WebAuthn is not supported in this browser");
+  }
+
+  const publicKey: PublicKeyCredentialRequestOptions = {
+    challenge: base64UrlToBuffer(options.challenge),
+    timeout: options.timeout,
+    rpId: options.rpId,
+    userVerification: options.userVerification,
+    allowCredentials: options.allowCredentials?.map((c) => ({
+      type: c.type,
+      id: base64UrlToBuffer(c.id),
+      transports: c.transports as AuthenticatorTransport[] | undefined,
+    })),
+  };
+
+  const credential = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
+  if (!credential) {
+    throw new Error("Authentication cancelled");
+  }
+
+  const response = credential.response as AuthenticatorAssertionResponse;
+  const out: PublicKeyAuthenticationJSON = {
+    id: credential.id,
+    rawId: bufferToBase64Url(credential.rawId),
+    type: "public-key",
+    clientExtensionResults: (credential.getClientExtensionResults?.() ??
+      {}) as unknown as Record<string, unknown>,
+    authenticatorAttachment: credential.authenticatorAttachment ?? null,
+    response: {
+      authenticatorData: bufferToBase64Url(response.authenticatorData),
+      clientDataJSON: bufferToBase64Url(response.clientDataJSON),
+      signature: bufferToBase64Url(response.signature),
+    },
+  };
+  if (response.userHandle) {
+    out.response.userHandle = bufferToBase64Url(response.userHandle);
+  }
+  return out;
 }

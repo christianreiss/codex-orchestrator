@@ -97,20 +97,10 @@ func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) er
 		return errors.New("atomic swap failed: " + err.Error())
 	}
 	logger.Info("self-update complete", "version", cfg.Wrapper.Version, "path", exe)
-
-	if len(SnapshottedArgv) > 0 || os.Getenv("CLAUDE_WRAPPER_NO_REEXEC") == "" {
-		argv := SnapshottedArgv
-		if argv == nil {
-			argv = os.Args[1:]
-		}
-		if err := ReExecAfterUpdate(exe, argv); err != nil {
-			return fmt.Errorf("re-exec after self-update: %w", err)
-		}
-	}
 	return nil
 }
 
 // SnapshottedArgv holds the argv as captured at process start (excluding the
-// program name in argv[0]). main.go sets this so SelfUpdate and the cron Tick
-// path can re-exec with the same args the user originally typed.
+// program name in argv[0]). main.go sets this for parity with cdx; cron uses
+// ReExecAfterUpdate with a sanitized argv when it needs a second pass.
 var SnapshottedArgv []string

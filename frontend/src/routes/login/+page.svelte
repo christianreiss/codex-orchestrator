@@ -9,6 +9,7 @@
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
   import { api, ApiError } from "$lib/api/client";
+  import { authenticatePasskey, type PublicKeyAuthenticationOptionsJSON } from "$lib/components/account/webauthn";
   import { authActions, authStore } from "$lib/stores/auth";
 
   let username = $state("");
@@ -79,15 +80,12 @@
     error = null;
     submitting = true;
     try {
-      const options = await api.post<{ publicKey: PublicKeyCredentialRequestOptionsJSON }>(
+      const options = await api.post<PublicKeyAuthenticationOptionsJSON>(
         "/admin/auth/passkey/login/options",
         { username: username.trim() },
       );
-      const credential = await navigator.credentials.get({
-        publicKey: decodeRequestOptions(options.publicKey),
-      });
-      if (!credential) throw new Error("Passkey not selected.");
-      await api.post("/admin/auth/passkey/login", { credential, username: username.trim() });
+      const response = await authenticatePasskey(options);
+      await api.post("/admin/auth/passkey/login", { response, username: username.trim() });
       await authActions.refresh();
       void goto(`${base}/dashboard`, { replaceState: true });
     } catch (err) {
@@ -95,40 +93,6 @@
     } finally {
       submitting = false;
     }
-  }
-
-  type PublicKeyCredentialRequestOptionsJSON = Omit<
-    PublicKeyCredentialRequestOptions,
-    "challenge" | "allowCredentials"
-  > & {
-    challenge: string;
-    allowCredentials?: Array<
-      Omit<PublicKeyCredentialDescriptor, "id"> & { id: string }
-    >;
-  };
-
-  function decodeRequestOptions(
-    json: PublicKeyCredentialRequestOptionsJSON,
-  ): PublicKeyCredentialRequestOptions {
-    return {
-      ...json,
-      challenge: base64UrlDecode(json.challenge),
-      allowCredentials: json.allowCredentials?.map((c) => ({
-        ...c,
-        id: base64UrlDecode(c.id),
-      })),
-    };
-  }
-
-  function base64UrlDecode(input: string): ArrayBuffer {
-    const padded = input.replace(/-/g, "+").replace(/_/g, "/").padEnd(
-      Math.ceil(input.length / 4) * 4,
-      "=",
-    );
-    const binary = atob(padded);
-    const buf = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
-    return buf.buffer;
   }
 </script>
 

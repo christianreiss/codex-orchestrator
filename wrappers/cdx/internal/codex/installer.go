@@ -297,6 +297,9 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, lo
 // else ~/.local/bin/codex. Returns the path; caller may not actually have
 // permission, in which case installBinary triggers the sudo fallback.
 func resolveCodexDest() string {
+	if dir := strings.TrimSpace(os.Getenv("CDX_CODEX_INSTALL_DIR")); dir != "" {
+		return filepath.Join(dir, "codex")
+	}
 	const sys = "/usr/local/bin/codex"
 	if dirWritable("/usr/local/bin") {
 		return sys

@@ -62,6 +62,15 @@ export interface PasskeyOwner {
   name: string;
 }
 
+export interface WebAuthnRequestContext {
+  headers?: {
+    host?: string | string[];
+    'x-forwarded-host'?: string | string[];
+    'x-forwarded-proto'?: string | string[];
+  };
+  protocol?: string;
+}
+
 export class AdminPasskeyService {
   constructor(
     private readonly db: Database,
@@ -71,15 +80,23 @@ export class AdminPasskeyService {
 
   // ---------- helpers ----------
 
-  rpId(): string {
+  rpId(req?: WebAuthnRequestContext): string {
     const id = this.env.ADMIN_WEBAUTHN_RP_ID;
-    if (!id) throw new ValidationError('Passkeys are not configured (ADMIN_WEBAUTHN_RP_ID unset)');
-    return id;
+    if (id) return id;
+    const baseHost = this.publicBaseUrlHost();
+    if (baseHost) return baseHost;
+    const host = this.requestHost(req);
+    if (host) return host;
+    throw new ValidationError('Passkeys are not configured (ADMIN_WEBAUTHN_RP_ID unset)');
   }
-  origin(): string {
+  origin(req?: WebAuthnRequestContext): string {
     const o = this.env.ADMIN_WEBAUTHN_ORIGIN;
-    if (!o) throw new ValidationError('Passkeys are not configured (ADMIN_WEBAUTHN_ORIGIN unset)');
-    return o;
+    if (o) return o;
+    const baseOrigin = this.publicBaseUrlOrigin();
+    if (baseOrigin) return baseOrigin;
+    const host = this.requestHost(req);
+    if (host) return `${this.requestProtocol(req, host)}://${host}`;
+    throw new ValidationError('Passkeys are not configured (ADMIN_WEBAUTHN_ORIGIN unset)');
   }
   rpName(): string {
     return this.env.ADMIN_WEBAUTHN_RP_NAME ?? 'Codex Orchestrator';
@@ -121,7 +138,7 @@ export class AdminPasskeyService {
 
   // ---------- registration ----------
 
-  async beginRegistration(owner: PasskeyOwner): Promise<unknown> {
+  async beginRegistration(owner: PasskeyOwner, req?: WebAuthnRequestContext): Promise<unknown> {
     const userCount = await this.db
       .select({ c: count() })
       .from(adminPasskeys)
@@ -141,7 +158,7 @@ export class AdminPasskeyService {
 
     const options = await generateRegistrationOptions({
       rpName: this.rpName(),
-      rpID: this.rpId(),
+      rpID: this.rpId(req),
       userID: userIdBytes,
       userName: owner.username,
       userDisplayName: owner.name || owner.username,
@@ -165,6 +182,7 @@ export class AdminPasskeyService {
   async completeRegistration(
     owner: PasskeyOwner,
     body: { response?: RegistrationResponseJSON; name?: string },
+    req?: WebAuthnRequestContext,
   ): Promise<SanitizedPasskey> {
     const response = body.response;
     if (!response || typeof response !== 'object') {
@@ -193,8 +211,8 @@ export class AdminPasskeyService {
     const verification = await verifyRegistrationResponse({
       response,
       expectedChallenge: challenge,
-      expectedOrigin: this.origin(),
-      expectedRPID: this.rpId(),
+      expectedOrigin: this.origin(req),
+      expectedRPID: this.rpId(req),
       requireUserVerification: true,
     });
     if (!verification.verified || !verification.registrationInfo) {
@@ -251,7 +269,7 @@ export class AdminPasskeyService {
 
   // ---------- authentication ----------
 
-  async beginAuthentication(username: string): Promise<unknown> {
+  async beginAuthentication(username: string, req?: WebAuthnRequestContext): Promise<unknown> {
     const normalized = username.trim().toLowerCase();
     if (!normalized) throw new ValidationError('Username is required', { param: 'username' });
 
@@ -273,7 +291,7 @@ export class AdminPasskeyService {
     await this.purgeExpiredChallenges();
 
     const options = await generateAuthenticationOptions({
-      rpID: this.rpId(),
+      rpID: this.rpId(req),
       userVerification: 'required',
       allowCredentials: credentials.map((c) => ({
         id: this.credentialIdToBase64Url(c.credentialId),
@@ -287,7 +305,7 @@ export class AdminPasskeyService {
 
   async completeAuthentication(body: {
     response?: AuthenticationResponseJSON;
-  }): Promise<AdminUser> {
+  }, req?: WebAuthnRequestContext): Promise<AdminUser> {
     const response = body.response;
     if (!response || typeof response !== 'object') {
       throw new ValidationError('Missing assertion response', { param: 'response' });
@@ -334,8 +352,8 @@ export class AdminPasskeyService {
     const verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge: challenge,
-      expectedOrigin: this.origin(),
-      expectedRPID: this.rpId(),
+      expectedOrigin: this.origin(req),
+      expectedRPID: this.rpId(req),
       credential: webauthnCredential,
       requireUserVerification: true,
     });
@@ -379,6 +397,54 @@ export class AdminPasskeyService {
       created_at: row.createdAt ?? null,
       last_used_at: row.lastUsedAt ?? null,
     };
+  }
+
+  private publicBaseUrlHost(): string | null {
+    const parsed = this.publicBaseUrl();
+    return parsed?.hostname ?? null;
+  }
+
+  private publicBaseUrlOrigin(): string | null {
+    const parsed = this.publicBaseUrl();
+    return parsed?.origin ?? null;
+  }
+
+  private publicBaseUrl(): URL | null {
+    const value = this.env.PUBLIC_BASE_URL?.trim();
+    if (!value) return null;
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  private requestHost(req?: WebAuthnRequestContext): string | null {
+    const forwarded = this.env.TRUST_X_FORWARDED ? this.headerOne(req?.headers?.['x-forwarded-host']) : null;
+    const candidate = forwarded ?? this.headerOne(req?.headers?.host);
+    if (!candidate) return null;
+    const first = candidate.split(',')[0]?.trim();
+    if (!first) return null;
+    try {
+      const parsed = new URL(`http://${first}`);
+      return parsed.hostname || null;
+    } catch {
+      return first.split(':')[0]?.trim() || null;
+    }
+  }
+
+  private requestProtocol(req: WebAuthnRequestContext | undefined, host: string): 'http' | 'https' {
+    const forwarded = this.env.TRUST_X_FORWARDED ? this.headerOne(req?.headers?.['x-forwarded-proto']) : null;
+    const candidate = (forwarded ?? req?.protocol ?? '').split(',')[0]?.trim().toLowerCase();
+    if (candidate === 'https' || candidate === 'http') return candidate;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' ? 'http' : 'https';
+  }
+
+  private headerOne(value: string | string[] | undefined): string | null {
+    if (Array.isArray(value)) return value[0] ?? null;
+    return typeof value === 'string' && value.trim() !== '' ? value : null;
   }
 
   private async findById(id: number): Promise<AdminPasskey | null> {

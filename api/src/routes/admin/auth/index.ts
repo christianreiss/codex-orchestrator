@@ -157,7 +157,7 @@ export async function registerAdminAuthRoutes(
   // -----------------------------------------------------------------------
   app.post('/admin/auth/passkey/login/options', async (req: FastifyRequest) => {
     const body = z.object({ username: z.string() }).parse((req.body ?? {}) as Record<string, unknown>);
-    const options = await passkeys.beginAuthentication(body.username);
+    const options = await passkeys.beginAuthentication(body.username, req);
     return ok(options);
   });
 
@@ -169,7 +169,10 @@ export async function registerAdminAuthRoutes(
     if (!body || typeof body !== 'object' || !body.response) {
       throw new ValidationError('Missing assertion response', { param: 'response' });
     }
-    const user = await passkeys.completeAuthentication(body as Parameters<typeof passkeys.completeAuthentication>[0]);
+    const user = await passkeys.completeAuthentication(
+      body as Parameters<typeof passkeys.completeAuthentication>[0],
+      req,
+    );
     const session = await auth.createSession(user, clientIp(req), userAgent(req), 'admin.auth.passkey.login');
     auth.applySessionCookie(reply, session.token, session.expires_at);
     return ok({ user: session.user, expires_at: session.expires_at });
@@ -184,11 +187,14 @@ export async function registerAdminAuthRoutes(
     async (req: FastifyRequest) => {
       const adminCtx = req.admin;
       if (!adminCtx) throw new UnauthorizedError();
-      const options = await passkeys.beginRegistration({
-        id: adminCtx.user.id,
-        username: adminCtx.user.username,
-        name: adminCtx.user.name,
-      });
+      const options = await passkeys.beginRegistration(
+        {
+          id: adminCtx.user.id,
+          username: adminCtx.user.username,
+          name: adminCtx.user.name,
+        },
+        req,
+      );
       return ok(options);
     },
   );
@@ -209,6 +215,7 @@ export async function registerAdminAuthRoutes(
       const passkey = await passkeys.completeRegistration(
         { id: adminCtx.user.id, username: adminCtx.user.username, name: adminCtx.user.name },
         body as Parameters<typeof passkeys.completeRegistration>[1],
+        req,
       );
       return ok({ passkey });
     },

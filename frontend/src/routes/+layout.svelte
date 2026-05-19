@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import { onMount, onDestroy } from "svelte";
+  import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { browser } from "$app/environment";
@@ -37,6 +38,14 @@
   onMount(() => {
     if (!browser) return;
 
+    const unsubscribeAuth = authStore.subscribe((state) => {
+      const currentPath = window.location.pathname.replace(base, "") || "/";
+      const isStandalone = STANDALONE.some((p) => currentPath === p || currentPath.startsWith(p + "/"));
+      if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
+        void goto(`${base}/login`, { replaceState: true });
+      }
+    });
+
     unsubscribeShortcuts = bindGlobalShortcuts({
       "/": () => commandPalette.open(),
       Escape: () => commandPalette.close(),
@@ -51,11 +60,22 @@
     };
     window.addEventListener("keydown", cmdK);
 
-    wsHandle = createWsClient();
-    unsubscribeWs = wireWsToQueryClient(queryClient, wsHandle.events);
+    const unsubscribeWsAuth = authStore.subscribe((state) => {
+      if (state.authenticated && !wsHandle) {
+        wsHandle = createWsClient();
+        unsubscribeWs = wireWsToQueryClient(queryClient, wsHandle.events);
+      } else if (!state.authenticated && wsHandle) {
+        unsubscribeWs?.();
+        unsubscribeWs = null;
+        wsHandle.stop();
+        wsHandle = null;
+      }
+    });
 
     return () => {
       window.removeEventListener("keydown", cmdK);
+      unsubscribeAuth();
+      unsubscribeWsAuth();
     };
   });
 
@@ -74,6 +94,10 @@
   {:else if auth.loading}
     <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
       Loading…
+    </div>
+  {:else if auth.enforced && !auth.authenticated}
+    <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      Redirecting…
     </div>
   {:else}
     <AppShell>

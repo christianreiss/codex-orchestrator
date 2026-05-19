@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./h6qLnZTA.js";import"./idVUOa82.js";import{t as n}from"./CqiOh7WJ.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`circle`,{cx:`12`,cy:`12`,r:`10`}],[`line`,{x1:`12`,x2:`12`,y1:`8`,y2:`12`}],[`line`,{x1:`12`,x2:`12.01`,y1:`16`,y2:`16`}]];n(r,t({name:`circle-alert`},()=>a,{get iconNode(){return o}}))}export{r as t};
