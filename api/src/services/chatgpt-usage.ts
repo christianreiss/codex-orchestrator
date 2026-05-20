@@ -32,6 +32,147 @@ export interface FetchResult {
 
 type ChatGptSnapshotRow = typeof chatgptUsageSnapshots.$inferSelect;
 
+interface ChatGptWindow {
+  used_percent: number | null;
+  limit_seconds: number | null;
+  reset_after_seconds: number | null;
+  reset_at: string | null;
+  resets_at: string | null;
+}
+
+interface ChatGptHistoryPoint {
+  fetched_at: string;
+  primary_used_percent: number | null;
+  secondary_used_percent: number | null;
+  spark_primary_used_percent: number | null;
+  spark_secondary_used_percent: number | null;
+}
+
+interface ChatGptHistorySeries {
+  key: string;
+  label: string;
+  points: Array<{ ts: string; value: number }>;
+}
+
+function boolFromTinyint(value: number | null | undefined): boolean | null {
+  if (value === null || value === undefined) return null;
+  return Number(value) === 1;
+}
+
+function windowFrom(
+  usedPercent: number | null | undefined,
+  limitSeconds: number | null | undefined,
+  resetAfterSeconds: number | null | undefined,
+  resetAt: string | null | undefined,
+): ChatGptWindow {
+  return {
+    used_percent: usedPercent ?? null,
+    limit_seconds: limitSeconds ?? null,
+    reset_after_seconds: resetAfterSeconds ?? null,
+    reset_at: resetAt ?? null,
+    resets_at: resetAt ?? null,
+  };
+}
+
+export function normalizeChatGptUsageSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {
+  const primaryWindow = windowFrom(
+    row.primaryUsedPercent,
+    row.primaryLimitSeconds,
+    row.primaryResetAfterSeconds,
+    row.primaryResetAt,
+  );
+  const secondaryWindow = windowFrom(
+    row.secondaryUsedPercent,
+    row.secondaryLimitSeconds,
+    row.secondaryResetAfterSeconds,
+    row.secondaryResetAt,
+  );
+  const sparkPrimaryWindow = windowFrom(
+    row.sparkPrimaryUsedPercent,
+    row.sparkPrimaryLimitSeconds,
+    row.sparkPrimaryResetAfterSeconds,
+    row.sparkPrimaryResetAt,
+  );
+  const sparkSecondaryWindow = windowFrom(
+    row.sparkSecondaryUsedPercent,
+    row.sparkSecondaryLimitSeconds,
+    row.sparkSecondaryResetAfterSeconds,
+    row.sparkSecondaryResetAt,
+  );
+  const hasSpark =
+    row.sparkLimitName !== null ||
+    row.sparkMeteredFeature !== null ||
+    row.sparkRateAllowed !== null ||
+    row.sparkRateLimitReached !== null ||
+    row.sparkPrimaryUsedPercent !== null ||
+    row.sparkSecondaryUsedPercent !== null;
+
+  return {
+    id: row.id,
+    host_id: row.hostId,
+    status: row.status,
+    plan_type: row.planType,
+    rate_allowed: boolFromTinyint(row.rateAllowed),
+    rate_limit_reached: boolFromTinyint(row.rateLimitReached),
+    active_quota_lane: 'normal',
+    primary_used_percent: row.primaryUsedPercent,
+    primary_limit_seconds: row.primaryLimitSeconds,
+    primary_reset_after_seconds: row.primaryResetAfterSeconds,
+    primary_reset_at: row.primaryResetAt,
+    secondary_used_percent: row.secondaryUsedPercent,
+    secondary_limit_seconds: row.secondaryLimitSeconds,
+    secondary_reset_after_seconds: row.secondaryResetAfterSeconds,
+    secondary_reset_at: row.secondaryResetAt,
+    spark_limit_name: row.sparkLimitName,
+    spark_metered_feature: row.sparkMeteredFeature,
+    spark_rate_allowed: boolFromTinyint(row.sparkRateAllowed),
+    spark_rate_limit_reached: boolFromTinyint(row.sparkRateLimitReached),
+    spark_primary_used_percent: row.sparkPrimaryUsedPercent,
+    spark_secondary_used_percent: row.sparkSecondaryUsedPercent,
+    primary_window: primaryWindow,
+    secondary_window: secondaryWindow,
+    normal_window: {
+      primary_window: primaryWindow,
+      secondary_window: secondaryWindow,
+    },
+    spark_window: hasSpark
+      ? {
+          primary_window: sparkPrimaryWindow,
+          secondary_window: sparkSecondaryWindow,
+        }
+      : null,
+    fetched_at: row.fetchedAt,
+    next_eligible_at: row.nextEligibleAt,
+  };
+}
+
+export function buildChatGptHistorySeries(
+  points: ChatGptHistoryPoint[],
+  params: { lane?: 'normal' | 'spark' | 'both'; window?: 'primary' | 'secondary' | 'both' },
+): ChatGptHistorySeries[] {
+  const lane = params.lane ?? 'both';
+  const window = params.window ?? 'both';
+  const candidates: Array<{ key: string; label: string; lane: 'normal' | 'spark'; window: 'primary' | 'secondary'; field: keyof ChatGptHistoryPoint }> = [
+    { key: 'normal_primary', label: 'Normal 5-hour', lane: 'normal', window: 'primary', field: 'primary_used_percent' },
+    { key: 'normal_secondary', label: 'Normal weekly', lane: 'normal', window: 'secondary', field: 'secondary_used_percent' },
+    { key: 'spark_primary', label: 'Spark 5-hour', lane: 'spark', window: 'primary', field: 'spark_primary_used_percent' },
+    { key: 'spark_secondary', label: 'Spark weekly', lane: 'spark', window: 'secondary', field: 'spark_secondary_used_percent' },
+  ];
+
+  return candidates
+    .filter((candidate) => (lane === 'both' || lane === candidate.lane) && (window === 'both' || window === candidate.window))
+    .map((candidate) => ({
+      key: candidate.key,
+      label: candidate.label,
+      points: points
+        .map((point) => {
+          const value = point[candidate.field];
+          return typeof value === 'number' ? { ts: point.fetched_at, value } : null;
+        })
+        .filter((point): point is { ts: string; value: number } => point !== null),
+    }));
+}
+
 export class ChatGptUsageService {
   constructor(
     private readonly db: Database,
@@ -107,16 +248,16 @@ export class ChatGptUsageService {
     lane?: 'normal' | 'spark' | 'both';
     window?: 'primary' | 'secondary' | 'both';
   }): Promise<{
+    days: number;
+    since: string;
+    from: string;
+    until: string;
+    interval: string;
     bucket: string;
     lane: string;
     window: string;
-    points: Array<{
-      fetched_at: string;
-      primary_used_percent: number | null;
-      secondary_used_percent: number | null;
-      spark_primary_used_percent: number | null;
-      spark_secondary_used_percent: number | null;
-    }>;
+    points: ChatGptHistoryPoint[];
+    series: ChatGptHistorySeries[];
   }> {
     const days = Math.max(1, Math.min(365, params.days ?? 60));
     const fromIso = params.from ?? this.daysAgo(days);
@@ -138,17 +279,28 @@ export class ChatGptUsageService {
       )
       .orderBy(chatgptUsageSnapshots.fetchedAt);
 
+    const points = rows.map((r) => ({
+      fetched_at: r.fetchedAt,
+      primary_used_percent: r.primaryUsedPercent ?? null,
+      secondary_used_percent: r.secondaryUsedPercent ?? null,
+      spark_primary_used_percent: r.sparkPrimaryUsedPercent ?? null,
+      spark_secondary_used_percent: r.sparkSecondaryUsedPercent ?? null,
+    }));
+
     return {
+      days,
+      since: fromIso,
+      from: fromIso,
+      until: untilIso,
+      interval: params.interval ?? 'day',
       bucket: params.interval ?? 'day',
       lane: params.lane ?? 'both',
       window: params.window ?? 'both',
-      points: rows.map((r) => ({
-        fetched_at: r.fetchedAt,
-        primary_used_percent: r.primaryUsedPercent ?? null,
-        secondary_used_percent: r.secondaryUsedPercent ?? null,
-        spark_primary_used_percent: r.sparkPrimaryUsedPercent ?? null,
-        spark_secondary_used_percent: r.sparkSecondaryUsedPercent ?? null,
-      })),
+      points,
+      series: buildChatGptHistorySeries(points, {
+        lane: params.lane ?? 'both',
+        window: params.window ?? 'both',
+      }),
     };
   }
 
@@ -173,23 +325,6 @@ export class ChatGptUsageService {
   }
 
   private normalizeSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {
-    return {
-      id: row.id,
-      host_id: row.hostId,
-      status: row.status,
-      plan_type: row.planType,
-      primary_used_percent: row.primaryUsedPercent,
-      primary_limit_seconds: row.primaryLimitSeconds,
-      primary_reset_after_seconds: row.primaryResetAfterSeconds,
-      primary_reset_at: row.primaryResetAt,
-      secondary_used_percent: row.secondaryUsedPercent,
-      secondary_limit_seconds: row.secondaryLimitSeconds,
-      secondary_reset_after_seconds: row.secondaryResetAfterSeconds,
-      secondary_reset_at: row.secondaryResetAt,
-      spark_primary_used_percent: row.sparkPrimaryUsedPercent,
-      spark_secondary_used_percent: row.sparkSecondaryUsedPercent,
-      fetched_at: row.fetchedAt,
-      next_eligible_at: row.nextEligibleAt,
-    };
+    return normalizeChatGptUsageSnapshot(row);
   }
 }

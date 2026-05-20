@@ -30,7 +30,7 @@ import {
 } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
-import { ChatGptUsageService } from '../../services/chatgpt-usage.js';
+import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
@@ -563,29 +563,7 @@ async function readChatgptSnapshot(ctx: RouteContext): Promise<Record<string, un
     const svc = new ChatGptUsageService(ctx.db);
     const row = await svc.latest();
     if (!row) return null;
-    return {
-      status: row.status ?? null,
-      plan_type: row.planType ?? null,
-      primary_used_percent: row.primaryUsedPercent ?? null,
-      primary_limit_seconds: row.primaryLimitSeconds ?? null,
-      primary_reset_after_seconds: row.primaryResetAfterSeconds ?? null,
-      primary_reset_at: row.primaryResetAt ?? null,
-      secondary_used_percent: row.secondaryUsedPercent ?? null,
-      secondary_limit_seconds: row.secondaryLimitSeconds ?? null,
-      secondary_reset_after_seconds: row.secondaryResetAfterSeconds ?? null,
-      secondary_reset_at: row.secondaryResetAt ?? null,
-      spark_limit_name: row.sparkLimitName ?? null,
-      spark_metered_feature: row.sparkMeteredFeature ?? null,
-      spark_primary_used_percent: row.sparkPrimaryUsedPercent ?? null,
-      spark_primary_limit_seconds: row.sparkPrimaryLimitSeconds ?? null,
-      spark_primary_reset_after_seconds: row.sparkPrimaryResetAfterSeconds ?? null,
-      spark_primary_reset_at: row.sparkPrimaryResetAt ?? null,
-      spark_secondary_used_percent: row.sparkSecondaryUsedPercent ?? null,
-      spark_secondary_limit_seconds: row.sparkSecondaryLimitSeconds ?? null,
-      spark_secondary_reset_after_seconds: row.sparkSecondaryResetAfterSeconds ?? null,
-      spark_secondary_reset_at: row.sparkSecondaryResetAt ?? null,
-      fetched_at: row.fetchedAt ?? null,
-    };
+    return normalizeChatGptUsageSnapshot(row);
   } catch {
     return null;
   }

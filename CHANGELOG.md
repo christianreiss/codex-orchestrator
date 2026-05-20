@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- Admin dashboard: restored ChatGPT usage rendering by returning the nested quota-window and history-series shape expected by the Svelte dashboard while keeping the flat snapshot fields for compatibility.
 - BrowserOS MCP: added a per-host Host detail toggle that bakes `[mcp_servers.browseros]` with `http://127.0.0.1:9000/mcp` into Codex `config.toml` only for enabled hosts, surfaces a BrowserOS startup chip in `cdx`, and leaves the feature off fleet-wide by default.
 - Admin runner verification: wired Node `/admin/runner/run` and `/admin/runner/run-claude` to the real runner client and latest engine-scoped canonical auth payloads, replacing the temporary `runner_not_wired` 503 shown by the dashboard's **Verify Claude** button.
 - CoCo project feedback: accepted `issue` and `test` as first-class feedback types alongside `bug`, `feature`, and `note` across MCP, host project routes, admin project routes, docs, and the admin feedback UI.
