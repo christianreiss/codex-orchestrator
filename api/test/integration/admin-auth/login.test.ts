@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { buildAdminTestApp } from '../../helpers/build-admin-app.js';
 import { hash as argonHash } from '../../../src/security/password.js';
+import { sha256 } from '../../../src/security/hash.js';
 
 describe('POST /admin/auth/login', () => {
   it('rejects unknown usernames with 401', async () => {
@@ -124,6 +125,84 @@ describe('POST /admin/auth/login/method', () => {
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload) as { method: string };
     expect(body.method).toBe('password');
+    await app.close();
+  });
+});
+
+describe('POST /admin/auth/passkey/login/options', () => {
+  it('starts passkey login without a username when exactly one active user has a passkey', async () => {
+    const { app, store } = await buildAdminTestApp();
+    const now = new Date().toISOString();
+    store.users.push({
+      id: store.nextId++,
+      name: 'Owner',
+      username: 'owner',
+      email: 'owner@example.test',
+      passwordHash: 'h',
+      accessLevel: 'owner',
+      active: 1,
+      lastLoginAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const credentialId = 'USCDv4btSHSqCk6MySxr7g';
+    store.passkeys.push({
+      id: store.nextId++,
+      userId: 1,
+      credentialId,
+      credentialIdHash: sha256(Buffer.from(credentialId, 'base64url')),
+      publicKeyPem: 'cose:test',
+      coseAlg: -7,
+      signCount: 0,
+      name: 'Test passkey',
+      transports: 'internal',
+      aaguid: null,
+      createdAt: now,
+      lastUsedAt: null,
+    });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/passkey/login/options',
+      payload: {},
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload) as { challenge?: string; allowCredentials?: Array<{ id: string }> };
+    expect(body.challenge).toBeTruthy();
+    expect(body.allowCredentials?.[0]?.id).toBe(credentialId);
+    expect(store.challenges[0]?.userId).toBe(1);
+    await app.close();
+  });
+
+  it('keeps the username requirement when more than one active user exists', async () => {
+    const { app, store } = await buildAdminTestApp();
+    const now = new Date().toISOString();
+    for (const username of ['owner', 'second']) {
+      store.users.push({
+        id: store.nextId++,
+        name: username,
+        username,
+        email: `${username}@example.test`,
+        passwordHash: 'h',
+        accessLevel: 'owner',
+        active: 1,
+        lastLoginAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/passkey/login/options',
+      payload: {},
+    });
+
+    expect(r.statusCode).toBe(422);
+    const body = JSON.parse(r.payload) as { code?: string };
+    expect(body.code).toBe('validation_failed');
+    expect(store.challenges).toHaveLength(0);
     await app.close();
   });
 });

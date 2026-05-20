@@ -156,8 +156,8 @@ export async function registerAdminAuthRoutes(
   // POST /admin/auth/passkey/login/options
   // -----------------------------------------------------------------------
   app.post('/admin/auth/passkey/login/options', async (req: FastifyRequest) => {
-    const body = z.object({ username: z.string() }).parse((req.body ?? {}) as Record<string, unknown>);
-    const options = await passkeys.beginAuthentication(body.username, req);
+    const body = z.object({ username: z.string().optional() }).parse((req.body ?? {}) as Record<string, unknown>);
+    const options = await passkeys.beginAuthentication(body.username ?? '', req);
     return ok(options);
   });
 

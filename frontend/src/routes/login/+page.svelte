@@ -19,6 +19,7 @@
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let passkeySupported = $state(false);
+  let autoPasskeyActive = $state(false);
 
   type LoginMethodResponse = {
     method?: "password" | "passkey" | "none";
@@ -28,12 +29,21 @@
 
   onMount(() => {
     // If we're already authenticated, bounce.
+    let signedIn = false;
     const unsub = authStore.subscribe((s) => {
+      signedIn = s.authenticated && !s.loading;
       if (s.authenticated && !s.loading) {
         void goto(`${base}/dashboard`, { replaceState: true });
       }
     });
     passkeySupported = typeof PublicKeyCredential !== "undefined";
+    if (passkeySupported) {
+      window.setTimeout(() => {
+        if (!signedIn && phase === "username" && !username.trim()) {
+          void submitPasskey(true);
+        }
+      }, 0);
+    }
     return unsub;
   });
 
@@ -76,22 +86,36 @@
     }
   }
 
-  async function submitPasskey() {
+  async function submitPasskey(auto = false) {
     error = null;
+    if (auto) {
+      autoPasskeyActive = true;
+      phase = "passkey";
+    }
     submitting = true;
     try {
+      const trimmedUsername = username.trim();
       const options = await api.post<PublicKeyAuthenticationOptionsJSON>(
         "/admin/auth/passkey/login/options",
-        { username: username.trim() },
+        trimmedUsername ? { username: trimmedUsername } : {},
       );
       const response = await authenticatePasskey(options);
-      await api.post("/admin/auth/passkey/login", { response, username: username.trim() });
+      await api.post(
+        "/admin/auth/passkey/login",
+        trimmedUsername ? { response, username: trimmedUsername } : { response },
+      );
       await authActions.refresh();
       void goto(`${base}/dashboard`, { replaceState: true });
     } catch (err) {
-      error = err instanceof Error ? err.message : "Passkey sign-in failed.";
+      if (auto) {
+        phase = "username";
+        error = null;
+      } else {
+        error = err instanceof Error ? err.message : "Passkey sign-in failed.";
+      }
     } finally {
       submitting = false;
+      autoPasskeyActive = false;
     }
   }
 </script>
@@ -131,7 +155,8 @@
             else void submitPasskey();
           }}
         >
-          <div class="space-y-2">
+          {#if phase !== "passkey" || username.trim()}
+            <div class="space-y-2">
             <Label for="username">Username</Label>
             <Input
               id="username"
@@ -141,7 +166,8 @@
               bind:value={username}
               disabled={phase !== "username"}
             />
-          </div>
+            </div>
+          {/if}
 
           {#if phase === "password"}
             <div class="space-y-2">
@@ -158,19 +184,25 @@
 
           {#if phase === "passkey"}
             <p class="text-sm text-muted-foreground">
-              Use your registered passkey to sign in as <strong>{username}</strong>.
+              Use your registered passkey to sign in{username.trim() ? " as " : ""}{#if username.trim()}<strong>{username}</strong>{/if}.
             </p>
           {/if}
 
-          <Button type="submit" class="w-full" disabled={submitting || probing}>
-            {#if phase === "username"}
-              Continue
-            {:else if phase === "password"}
-              Sign in
-            {:else}
-              <Fingerprint class="h-4 w-4" /> Authenticate with passkey
-            {/if}
-          </Button>
+          {#if autoPasskeyActive}
+            <div class="flex w-full items-center justify-center gap-2 rounded-md border border-input bg-muted px-4 py-2 text-sm text-muted-foreground">
+              <Fingerprint class="h-4 w-4" /> Waiting for passkey…
+            </div>
+          {:else}
+            <Button type="submit" class="w-full" disabled={submitting || probing}>
+              {#if phase === "username"}
+                Continue
+              {:else if phase === "password"}
+                Sign in
+              {:else}
+                <Fingerprint class="h-4 w-4" /> Authenticate with passkey
+              {/if}
+            </Button>
+          {/if}
 
           {#if phase !== "username"}
             <button

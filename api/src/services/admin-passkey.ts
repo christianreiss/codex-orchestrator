@@ -269,17 +269,15 @@ export class AdminPasskeyService {
 
   // ---------- authentication ----------
 
-  async beginAuthentication(username: string, req?: WebAuthnRequestContext): Promise<unknown> {
+  async beginAuthentication(username = '', req?: WebAuthnRequestContext): Promise<unknown> {
     const normalized = username.trim().toLowerCase();
-    if (!normalized) throw new ValidationError('Username is required', { param: 'username' });
-
-    const rows = await this.db
-      .select()
-      .from(adminUsers)
-      .where(eq(adminUsers.username, normalized))
-      .limit(1);
-    const user = rows[0];
-    if (!user || user.active !== 1) throw new NotFoundError('Unknown or inactive user', 'user_not_found');
+    const user = normalized
+      ? await this.findActiveUserByUsername(normalized)
+      : await this.findOnlyActiveUser();
+    if (!user) {
+      if (!normalized) throw new ValidationError('Username is required', { param: 'username' });
+      throw new NotFoundError('Unknown or inactive user', 'user_not_found');
+    }
 
     const credentials = await this.db
       .select()
@@ -454,6 +452,25 @@ export class AdminPasskeyService {
       .where(eq(adminPasskeys.id, id))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  private async findActiveUserByUsername(username: string): Promise<AdminUser | null> {
+    const rows = await this.db
+      .select()
+      .from(adminUsers)
+      .where(and(eq(adminUsers.username, username), eq(adminUsers.active, 1)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  private async findOnlyActiveUser(): Promise<AdminUser | null> {
+    const rows = await this.db
+      .select()
+      .from(adminUsers)
+      .where(eq(adminUsers.active, 1))
+      .orderBy(asc(adminUsers.username))
+      .limit(2);
+    return rows.length === 1 ? (rows[0] ?? null) : null;
   }
 
   /**
