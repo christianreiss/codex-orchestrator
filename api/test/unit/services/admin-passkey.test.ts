@@ -3,7 +3,7 @@
  * surface (the WebAuthn-bound flows are exercised via the integration suite).
  */
 import { describe, it, expect } from 'vitest';
-import { AdminPasskeyService } from '../../../src/services/admin-passkey.js';
+import { AdminPasskeyService, credentialIdToBase64Url } from '../../../src/services/admin-passkey.js';
 import { AdminEventsService } from '../../../src/services/admin-events.js';
 import type { Database } from '../../../src/db/client.js';
 import type { Env } from '../../../src/env.js';
@@ -89,5 +89,16 @@ describe('AdminPasskeyService.rename validation', () => {
       ADMIN_WEBAUTHN_ORIGIN: 'https://example.test' as Env['ADMIN_WEBAUTHN_ORIGIN'],
     });
     await expect(svc.rename(1, 1, '   ')).rejects.toThrow(/Name is required/);
+  });
+});
+
+describe('credentialIdToBase64Url', () => {
+  it('returns stored base64url text from VARBINARY buffers as a string', () => {
+    const encoded = 'USCDv4btSHSqCk6MySxr7g';
+    expect(credentialIdToBase64Url(Buffer.from(encoded, 'utf8'))).toBe(encoded);
+  });
+
+  it('base64url-encodes raw credential bytes', () => {
+    expect(credentialIdToBase64Url(Buffer.from([0xff, 0x00, 0x7f]))).toBe('_wB_');
   });
 });

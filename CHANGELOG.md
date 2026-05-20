@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- Admin passkey login: fixed WebAuthn authentication options for VARBINARY-stored credential IDs so Drizzle Buffers are converted back to base64url strings before passing them to SimpleWebAuthn; passkey login no longer fails with `input.replace is not a function`.
 - Host config sync: restored Node-side per-host `config.toml` baking so `/config/retrieve` and `/sync/bootstrap` inject the managed `[mcp_servers.cdx]` HTTP MCP block, host Authorization header, host model overrides, and trusted project stanza instead of serving the raw stored template. MCP also advertises the documented `resource_*` tools, so clients that expose MCP as tools can call `resource_read` for `skill://{slug}` manifests.
 
 # 2026-05-19

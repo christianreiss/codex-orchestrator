@@ -462,11 +462,8 @@ export class AdminPasskeyService {
    * encounter raw bytes (e.g. from a manual import), Buffer.from copes either
    * way — base64url chars never produce non-printable bytes.
    */
-  private credentialIdToBase64Url(stored: string): string {
-    // Stored value already a base64url string; pass through if it parses
-    // cleanly. Otherwise re-encode raw bytes.
-    if (/^[A-Za-z0-9_-]+$/.test(stored)) return stored;
-    return Buffer.from(stored, 'binary').toString('base64url');
+  private credentialIdToBase64Url(stored: string | Buffer | Uint8Array): string {
+    return credentialIdToBase64Url(stored);
   }
 
   private parseTransports(value: string | null | undefined): AuthenticatorTransportFuture[] | undefined {
@@ -545,6 +542,20 @@ export class AdminPasskeyService {
       .delete(adminWebauthnChallenges)
       .where(sql`${adminWebauthnChallenges.expiresAt} <= ${now}`);
   }
+}
+
+export function credentialIdToBase64Url(stored: string | Buffer | Uint8Array): string {
+  // The column is VARBINARY, so Drizzle returns Buffer even for rows where we
+  // stored base64url text. Coerce first; returning the Buffer itself makes
+  // simplewebauthn call `.replace()` on a non-string while preparing options.
+  if (typeof stored === 'string') {
+    if (/^[A-Za-z0-9_-]+$/.test(stored)) return stored;
+    return Buffer.from(stored, 'binary').toString('base64url');
+  }
+  const bytes = Buffer.from(stored);
+  const asText = bytes.toString('utf8');
+  if (/^[A-Za-z0-9_-]+$/.test(asText)) return asText;
+  return bytes.toString('base64url');
 }
 
 export function createAdminPasskeyService(
