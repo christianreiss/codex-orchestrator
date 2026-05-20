@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- CoCo project feedback: accepted `issue` and `test` as first-class feedback types alongside `bug`, `feature`, and `note` across MCP, host project routes, admin project routes, docs, and the admin feedback UI.
 - Admin passkey login: when exactly one active admin user exists and that user has a passkey, `/admin/login` now starts the WebAuthn prompt directly and hides username/password plus the extra authenticate button; multi-user and password-only installs keep the existing username-first flow.
 - Admin passkey login: fixed WebAuthn authentication options for VARBINARY-stored credential IDs so Drizzle Buffers are converted back to base64url strings before passing them to SimpleWebAuthn; passkey login no longer fails with `input.replace is not a function`.
 - Host config sync: restored Node-side per-host `config.toml` baking so `/config/retrieve` and `/sync/bootstrap` inject the managed `[mcp_servers.cdx]` HTTP MCP block, host Authorization header, host model overrides, and trusted project stanza instead of serving the raw stored template. MCP also advertises the documented `resource_*` tools, so clients that expose MCP as tools can call `resource_read` for `skill://{slug}` manifests.

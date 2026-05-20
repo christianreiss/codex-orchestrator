@@ -40,12 +40,16 @@
     feature: "Feature",
     bug: "Bug",
     note: "Note",
+    issue: "Issue",
+    test: "Test",
   };
 
   const TYPE_BADGE: Record<ProjectFeedbackType, BadgeVariant> = {
     feature: "default",
     bug: "destructive",
     note: "secondary",
+    issue: "destructive",
+    test: "outline",
   };
 
   const createMut = createMutation({
@@ -99,7 +103,7 @@
   <Card.Root>
     <Card.Header>
       <Card.Title>New feedback</Card.Title>
-      <Card.Description>Track a feature request, bug, or note.</Card.Description>
+      <Card.Description>Track a feature request, issue, test report, or note.</Card.Description>
     </Card.Header>
     <Card.Content class="flex flex-col gap-3">
       <div class="grid gap-3 sm:grid-cols-[160px_1fr]">
@@ -112,6 +116,8 @@
           >
             <option value="feature">Feature</option>
             <option value="bug">Bug</option>
+            <option value="issue">Issue</option>
+            <option value="test">Test</option>
             <option value="note">Note</option>
           </select>
         </div>

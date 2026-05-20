@@ -123,7 +123,7 @@ export interface ProjectFile {
   updated_at?: string | null;
 }
 
-export type ProjectFeedbackType = "bug" | "feature" | "note";
+export type ProjectFeedbackType = "bug" | "feature" | "note" | "issue" | "test";
 
 export interface ProjectFeedback {
   id: number;

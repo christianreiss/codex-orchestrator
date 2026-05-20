@@ -19,6 +19,7 @@ import { NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { ProjectsService, formatFile, type ProjectFileView, type TodoView } from './projects.js';
+import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 
 function trimStr(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -79,8 +80,8 @@ function normalizeFile(payload: Record<string, unknown>): { storedName: string; 
 
 function normalizeFeedback(payload: Record<string, unknown>): { type: string; title: string; body: string } {
   const type = trimStr(payload.type).toLowerCase() || 'feature';
-  if (!['bug', 'feature', 'note'].includes(type)) {
-    throw new ValidationError('type must be bug, feature, or note', { param: 'type' });
+  if (!isProjectFeedbackType(type)) {
+    throw new ValidationError(`type must be one of: ${projectFeedbackTypeList()}`, { param: 'type' });
   }
   const title = trimStr(payload.title);
   const body = trimStr(payload.body);

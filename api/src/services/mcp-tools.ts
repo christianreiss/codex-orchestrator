@@ -14,6 +14,7 @@ import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
+import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -409,7 +410,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         type: 'object',
         properties: {
           slug: { type: 'string' },
-          type: { type: 'string' },
+          type: { type: 'string', enum: PROJECT_FEEDBACK_TYPES },
           title: { type: 'string' },
           body: { type: 'string' },
         },

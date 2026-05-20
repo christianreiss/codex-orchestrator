@@ -116,6 +116,15 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_file_delete');
   });
 
+  it('advertises all accepted project feedback types', () => {
+    const feedback = registry.list().find((t) => t.name === 'project_feedback_create');
+    expect(feedback?.inputSchema).toMatchObject({
+      properties: {
+        type: { enum: ['bug', 'feature', 'note', 'issue', 'test'] },
+      },
+    });
+  });
+
   it('registers resource_* tools when a resource service is wired', async () => {
     const reg = new McpToolsRegistry({
       memories: stubMemories,

@@ -23,10 +23,10 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Host } from '../db/schema.js';
 import { createHash } from 'node:crypto';
+import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
-const FEEDBACK_TYPES = new Set(['bug', 'feature', 'note']);
 
 export interface ProjectSummary {
   slug: string;
@@ -916,7 +916,7 @@ export class HostProjectsService {
     const title = String(payload['title'] ?? '').trim();
     const body = String(payload['body'] ?? '').trim();
     const errors: Record<string, string[]> = {};
-    if (!FEEDBACK_TYPES.has(type)) errors['type'] = ['type must be bug, feature, or note'];
+    if (!isProjectFeedbackType(type)) errors['type'] = [`type must be one of: ${projectFeedbackTypeList()}`];
     if (!title) errors['title'] = ['title is required'];
     if (!body) errors['body'] = ['body is required'];
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
