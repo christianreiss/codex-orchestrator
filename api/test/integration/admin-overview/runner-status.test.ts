@@ -43,7 +43,7 @@ describe('runner endpoints', () => {
     expect(body.runner.ready).toBe(false);
   });
 
-  it('POST /admin/runner/run returns 503 with runner_not_wired code', async () => {
+  it('POST /admin/runner/run reports unconfigured instead of the old not-wired stub', async () => {
     app = await buildApp({ ADMIN_WS_ENABLED: false } as Env);
     const res = await app.inject({
       method: 'POST',
@@ -51,9 +51,10 @@ describe('runner endpoints', () => {
       payload: { prompt: 'hi' },
       headers: { 'content-type': 'application/json' },
     });
-    expect(res.statusCode).toBe(503);
-    const body = res.json() as { status: string; message: string; code?: string };
-    expect(body.status).toBe('error');
-    expect(body.code ?? body.message).toContain('runner_not_wired');
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { status: string; detail?: string; reachable?: boolean };
+    expect(body.status).toBe('unconfigured');
+    expect(body.detail).toContain('AUTH_RUNNER_URL');
+    expect(body.reachable).toBe(false);
   });
 });

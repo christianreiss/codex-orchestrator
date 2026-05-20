@@ -115,7 +115,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - Version refresh: `POST /admin/versions/check` (`settings.manage`).
 - **Runner**:
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
-  - Manual run: `POST /admin/runner/run` (`settings.manage`).
+  - Manual Codex run: `POST /admin/runner/run` (`settings.manage`).
+  - Manual Claude run: `POST /admin/runner/run-claude` (`settings.manage`).
 - **Usage, ChatGPT, Logs**:
   - Usage rows: `GET /admin/usage` (`limit`, repository clamps to `1..500`).
   - Usage ingests: `GET /admin/usage/ingests` (`page`, `per_page<=200`, `host_id`, `q`, `sort`, `direction`).
@@ -145,7 +146,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.
 - **Create a shared project**: `POST /admin/projects` with `slug`, optional `about`, and optional `roster_markdown`.
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.
-- **Force runner validation now**: `POST /admin/runner/run`.
+- **Force runner validation now**: `POST /admin/runner/run` for Codex, `POST /admin/runner/run-claude` for Claude.
 - **Freeze/unfreeze fleet codex version**: `POST /admin/codex-version` with `selection` (`latest` or pinned semver).
 
 ## Notes & Gotchas

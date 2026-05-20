@@ -27,9 +27,8 @@ import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-qu
  * `api/src/services/runner-proxy.ts`.
  *
  * Optional legacy fields (`state`, `last_run`, `last_error`, `last_result`)
- * are not emitted by the current proxy stub but were present on the legacy
- * PHP `/admin/runner` payload — kept here so the UI can render them when
- * the backend backfills them.
+ * were present on the legacy PHP `/admin/runner` payload — kept here so the
+ * UI can render them when the backend backfills them.
  */
 export interface RunnerStatus {
   configured: boolean;

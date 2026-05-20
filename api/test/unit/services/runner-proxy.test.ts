@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { RunnerProxyService } from '../../../src/services/runner-proxy.js';
-import { ServiceUnavailableError } from '../../../src/http/errors.js';
 import type { Env } from '../../../src/env.js';
+import type { RunnerClient } from '../../../src/services/runner-client.js';
+import type { RunnerValidationService } from '../../../src/services/runner-validation.js';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -40,9 +41,60 @@ describe('RunnerProxyService', () => {
     expect(s.ready).toBe(true);
   });
 
-  it('throws ServiceUnavailableError on run()', async () => {
+  it('returns unconfigured on run() when AUTH_RUNNER_URL is missing', async () => {
     const svc = new RunnerProxyService(makeEnv());
-    await expect(svc.run({ prompt: 'hi' }, 'codex')).rejects.toBeInstanceOf(ServiceUnavailableError);
+    const res = await svc.run({ prompt: 'hi' }, 'codex');
+    expect(res.status).toBe('unconfigured');
+    expect(res.reachable).toBe(false);
+  });
+
+  it('verifies Claude with the latest canonical auth payload', async () => {
+    let seenAuth: Record<string, unknown> | null = null;
+    const runner = {
+      isConfigured: () => true,
+      verify: async () => {
+        throw new Error('unexpected codex verify');
+      },
+      verifyClaude: async (input) => {
+        seenAuth = input.authJson;
+        return { ok: true, status: 'ok', reachable: true, latency_ms: 12, claude_version: '1.2.3' };
+      },
+    } satisfies RunnerClient;
+    const runnerValidation = {
+      resolveCanonicalPayload: async () => ({
+        id: 42,
+        lastRefresh: '2026-05-20T10:00:00Z',
+        sha256: 'a'.repeat(64),
+        body: '{}',
+        engine: 'claude',
+        createdAt: '2026-05-20T10:00:00Z',
+      }),
+      validateCanonicalPayload: () => ({
+        auth: { auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } },
+        digest: 'a'.repeat(64),
+        last_refresh: '2026-05-20T10:00:00Z',
+      }),
+      canonicalAuthFromPayload: () => null,
+      ensureAuthsFallback: (payload) => payload,
+      normalizeAuthEntries: () => [],
+      canonicalizeAuthPayload: (payload) => payload,
+      calculateDigest: () => 'a'.repeat(64),
+    } satisfies RunnerValidationService;
+
+    const svc = new RunnerProxyService(
+      makeEnv({
+        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Partial<Env>),
+      undefined,
+      { runner, runnerValidation },
+    );
+
+    const res = await svc.run({}, 'claude');
+    expect(res.status).toBe('ok');
+    expect(res.canonical_digest).toBe('a'.repeat(64));
+    expect(res.payload_id).toBe(42);
+    expect(seenAuth).toEqual({ auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } });
   });
 
   it('returns queued=true from seedCommand stub', async () => {

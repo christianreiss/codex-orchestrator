@@ -21,6 +21,8 @@ import { ClaudeUsageService } from '../../../services/claude-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { RunnerProxyService } from '../../../services/runner-proxy.js';
+import { createRunnerClient } from '../../../services/runner-client.js';
+import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 
@@ -117,7 +119,10 @@ export async function registerAdminOverviewRoutes(
   const claude = new ClaudeUsageService(ctx.db);
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);
-  const runnerProxy = new RunnerProxyService(ctx.env, app.log);
+  const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
+    runner: createRunnerClient({ env: ctx.env }),
+    runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
+  });
 
   // ── /admin/overview ───────────────────────────────────────────────────────
   app.get('/admin/overview', { preHandler: app.requireAdmin }, async () => {
