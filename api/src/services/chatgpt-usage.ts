@@ -12,9 +12,16 @@
 
 import { and, desc, gte, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { chatgptUsageSnapshots } from '../db/schema.js';
+import { chatgptUsageSnapshots, dashboardGraphQuotaSnapshots } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { nowIso, parseIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
+import type { Env } from '../env.js';
+import type { Keyring } from '../security/keyring.js';
+import {
+  createRunnerValidationService,
+  type RunnerValidationService,
+} from './runner-validation.js';
+import { ENGINE_CODEX } from '../util/engine.js';
 
 type Logger = {
   info?: (...args: unknown[]) => void;
@@ -31,6 +38,11 @@ export interface FetchResult {
 }
 
 type ChatGptSnapshotRow = typeof chatgptUsageSnapshots.$inferSelect;
+type ChatGptSnapshotInsert = typeof chatgptUsageSnapshots.$inferInsert;
+
+const MIN_REFRESH_SECONDS = 300;
+const DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api';
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 interface ChatGptWindow {
   used_percent: number | null;
@@ -52,6 +64,13 @@ interface ChatGptHistorySeries {
   key: string;
   label: string;
   points: Array<{ ts: string; value: number }>;
+}
+
+interface ChatGptUsageDeps {
+  env?: Pick<Env, 'CHATGPT_BASE_URL' | 'CHATGPT_USAGE_TIMEOUT'>;
+  keyring?: Keyring;
+  runnerValidation?: RunnerValidationService;
+  fetchImpl?: typeof fetch;
 }
 
 function boolFromTinyint(value: number | null | undefined): boolean | null {
@@ -173,12 +192,63 @@ export function buildChatGptHistorySeries(
     }));
 }
 
+export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<ChatGptSnapshotInsert> {
+  const rate = isRecord(json['rate_limit']) ? json['rate_limit'] : {};
+  const primary = isRecord(rate['primary_window']) ? rate['primary_window'] : {};
+  const secondary = isRecord(rate['secondary_window']) ? rate['secondary_window'] : {};
+  const spark = extractSparkRateLimit(json['additional_rate_limits']);
+  const sparkRate = isRecord(spark['rate_limit']) ? spark['rate_limit'] : {};
+  const sparkPrimary = isRecord(sparkRate['primary_window']) ? sparkRate['primary_window'] : {};
+  const sparkSecondary = isRecord(sparkRate['secondary_window']) ? sparkRate['secondary_window'] : {};
+  const credits = isRecord(json['credits']) ? json['credits'] : {};
+
+  return {
+    planType: typeof json['plan_type'] === 'string' ? json['plan_type'] : null,
+    rateAllowed: boolToTinyint(rate['allowed']),
+    rateLimitReached: boolToTinyint(rate['limit_reached']),
+    primaryUsedPercent: normalizeInt(primary['used_percent']),
+    primaryLimitSeconds: normalizeInt(primary['limit_window_seconds']),
+    primaryResetAfterSeconds: normalizeInt(primary['reset_after_seconds']),
+    primaryResetAt: typeof primary['reset_at'] === 'string' ? primary['reset_at'] : null,
+    secondaryUsedPercent: normalizeInt(secondary['used_percent']),
+    secondaryLimitSeconds: normalizeInt(secondary['limit_window_seconds']),
+    secondaryResetAfterSeconds: normalizeInt(secondary['reset_after_seconds']),
+    secondaryResetAt: typeof secondary['reset_at'] === 'string' ? secondary['reset_at'] : null,
+    sparkLimitName: typeof spark['limit_name'] === 'string' ? spark['limit_name'].trim() : null,
+    sparkMeteredFeature: typeof spark['metered_feature'] === 'string' ? spark['metered_feature'].trim() : null,
+    sparkRateAllowed: boolToTinyint(sparkRate['allowed']),
+    sparkRateLimitReached: boolToTinyint(sparkRate['limit_reached']),
+    sparkPrimaryUsedPercent: normalizeInt(sparkPrimary['used_percent']),
+    sparkPrimaryLimitSeconds: normalizeInt(sparkPrimary['limit_window_seconds']),
+    sparkPrimaryResetAfterSeconds: normalizeInt(sparkPrimary['reset_after_seconds']),
+    sparkPrimaryResetAt: typeof sparkPrimary['reset_at'] === 'string' ? sparkPrimary['reset_at'] : null,
+    sparkSecondaryUsedPercent: normalizeInt(sparkSecondary['used_percent']),
+    sparkSecondaryLimitSeconds: normalizeInt(sparkSecondary['limit_window_seconds']),
+    sparkSecondaryResetAfterSeconds: normalizeInt(sparkSecondary['reset_after_seconds']),
+    sparkSecondaryResetAt: typeof sparkSecondary['reset_at'] === 'string' ? sparkSecondary['reset_at'] : null,
+    hasCredits: boolToTinyint(credits['has_credits']),
+    unlimited: boolToTinyint(credits['unlimited']),
+    creditBalance: credits['balance'] === undefined || credits['balance'] === null ? null : String(credits['balance']),
+    approxLocalMessages: encodeJsonField(credits['approx_local_messages']),
+    approxCloudMessages: encodeJsonField(credits['approx_cloud_messages']),
+  };
+}
+
 export class ChatGptUsageService {
+  private readonly validation: RunnerValidationService;
+  private readonly fetchImpl: typeof fetch;
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+
   constructor(
     private readonly db: Database,
     private readonly log?: Logger,
+    private readonly deps: ChatGptUsageDeps = {},
   ) {
-    void this.log; // reserved for upstream fetch logging when wired
+    this.validation = deps.runnerValidation ?? createRunnerValidationService({ db, keyring: deps.keyring });
+    this.fetchImpl = deps.fetchImpl ?? fetch;
+    this.baseUrl = deps.env?.CHATGPT_BASE_URL ?? DEFAULT_BASE_URL;
+    this.timeoutMs = Math.max(1000, Math.round((deps.env?.CHATGPT_USAGE_TIMEOUT ?? 10) * 1000)) || DEFAULT_TIMEOUT_MS;
   }
 
   async latest(): Promise<ChatGptSnapshotRow | null> {
@@ -204,39 +274,26 @@ export class ChatGptUsageService {
       };
     }
 
-    if (latest) {
+    const refreshed = await this.fetchAndStore();
+    if (refreshed.status === 'ok' || refreshed.snapshot) return refreshed;
+
+    if (latest && !force) {
       return {
         status: 'ok',
         snapshot: this.normalizeSnapshot(latest),
         cached: true,
-        next_eligible_at: nextEligibleAt,
+        next_eligible_at: latest.nextEligibleAt,
+        error: refreshed.error ?? null,
       };
     }
-    return {
-      status: 'unavailable',
-      snapshot: null,
-      cached: false,
-      next_eligible_at: null,
-      error: 'No ChatGPT usage snapshots recorded yet',
-    };
+    return refreshed;
   }
 
   async refresh(): Promise<FetchResult> {
-    const latest = await this.latest();
-    if (latest) {
-      const nextTs = parseIso(latest.nextEligibleAt)?.getTime() ?? 0;
-      if (nextTs > Date.now()) {
-        return {
-          status: 'rate_limited',
-          snapshot: this.normalizeSnapshot(latest),
-          cached: true,
-          next_eligible_at: latest.nextEligibleAt,
-          error: 'Refresh throttled (5-minute cooldown active)',
-        };
-      }
-    }
     const result = await this.fetchLatest(true);
-    wsPublisher.publish('chatgpt.usage.updated', { fetched_at: nowIso() });
+    wsPublisher.publish('chatgpt.usage.updated', {
+      fetched_at: (result.snapshot?.['fetched_at'] as string | undefined) ?? nowIso(),
+    });
     return result;
   }
 
@@ -327,4 +384,192 @@ export class ChatGptUsageService {
   private normalizeSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {
     return normalizeChatGptUsageSnapshot(row);
   }
+
+  private async fetchAndStore(): Promise<FetchResult> {
+    const now = nowIso();
+    const nextEligible = isoOffsetSeconds(MIN_REFRESH_SECONDS);
+    const canonical = await this.validation.resolveCanonicalPayload(ENGINE_CODEX);
+    const validated = this.validation.validateCanonicalPayload(canonical);
+    if (!validated) {
+      return this.storeError('missing_canonical_auth', 'Canonical Codex auth.json not available');
+    }
+
+    const tokens = isRecord(validated.auth['tokens']) ? validated.auth['tokens'] : null;
+    const accessToken = typeof tokens?.['access_token'] === 'string' ? tokens['access_token'].trim() : '';
+    if (!accessToken) {
+      return this.storeError('missing_token', 'access_token missing or empty in canonical auth.json');
+    }
+    const accountId = typeof tokens?.['account_id'] === 'string' && tokens['account_id'].trim()
+      ? tokens['account_id'].trim()
+      : null;
+
+    const response = await this.requestUsage(accessToken, accountId);
+    if (response.error) {
+      return this.storeError(response.error, response.error, response.body, response.status);
+    }
+
+    const parsed = parseChatGptUsageJson(response.json as Record<string, unknown>);
+    const row = await this.insertSnapshot({
+      ...parsed,
+      status: 'ok',
+      raw: response.body,
+      error: null,
+      fetchedAt: now,
+      nextEligibleAt: nextEligible,
+      createdAt: now,
+    });
+    await this.recordGraphSnapshot(row);
+    this.log?.info?.({ status: 'ok', fetched_at: row.fetchedAt }, 'chatgpt.usage refreshed');
+    return {
+      status: 'ok',
+      snapshot: this.normalizeSnapshot(row),
+      cached: false,
+      next_eligible_at: row.nextEligibleAt,
+    };
+  }
+
+  private async requestUsage(
+    accessToken: string,
+    accountId: string | null,
+  ): Promise<{ status: number; body: string; json: Record<string, unknown>; error: null } | { status: number; body: string; json: Record<string, unknown> | null; error: string }> {
+    const url = `${this.baseUrl.replace(/\/+$/, '')}/wham/usage`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+        'User-Agent': 'codex-auth',
+      };
+      if (accountId) headers['ChatGPT-Account-Id'] = accountId;
+      const res = await this.fetchImpl(url, { headers, signal: controller.signal });
+      const body = await res.text();
+      let json: unknown = null;
+      try {
+        json = body ? JSON.parse(body) : null;
+      } catch (err) {
+        return {
+          status: res.status,
+          body,
+          json: null,
+          error: err instanceof Error ? err.message : 'Invalid JSON payload',
+        };
+      }
+      if (!res.ok) {
+        return {
+          status: res.status,
+          body,
+          json: isRecord(json) ? json : null,
+          error: `HTTP ${res.status}`,
+        };
+      }
+      if (!isRecord(json)) {
+        return { status: res.status, body, json: null, error: 'Invalid JSON payload' };
+      }
+      return { status: res.status, body, json, error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'fetch failed';
+      return { status: 0, body: '', json: null, error: message };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async storeError(
+    reason: string,
+    message: string,
+    raw: string | null = null,
+    httpStatus: number | null = null,
+  ): Promise<FetchResult> {
+    const now = nowIso();
+    const row = await this.insertSnapshot({
+      status: 'error',
+      error: message,
+      raw,
+      fetchedAt: now,
+      nextEligibleAt: isoOffsetSeconds(MIN_REFRESH_SECONDS),
+      createdAt: now,
+    });
+    await this.recordGraphSnapshot(row);
+    this.log?.warn?.({ reason, http_status: httpStatus, fetched_at: row.fetchedAt }, 'chatgpt.usage refresh failed');
+    return {
+      status: 'error',
+      snapshot: this.normalizeSnapshot(row),
+      cached: false,
+      next_eligible_at: row.nextEligibleAt,
+      error: message,
+    };
+  }
+
+  private async insertSnapshot(values: ChatGptSnapshotInsert): Promise<ChatGptSnapshotRow> {
+    await this.db.insert(chatgptUsageSnapshots).values(values);
+    const row = await this.latest();
+    if (!row) throw new Error('Failed to persist ChatGPT usage snapshot');
+    return row;
+  }
+
+  private async recordGraphSnapshot(row: ChatGptSnapshotRow): Promise<void> {
+    try {
+      await this.db.insert(dashboardGraphQuotaSnapshots).values({
+        fetchedAt: row.fetchedAt,
+        primaryUsedPercent: row.primaryUsedPercent,
+        primaryLimitSeconds: row.primaryLimitSeconds,
+        secondaryUsedPercent: row.secondaryUsedPercent,
+        secondaryLimitSeconds: row.secondaryLimitSeconds,
+        sparkPrimaryUsedPercent: row.sparkPrimaryUsedPercent,
+        sparkPrimaryLimitSeconds: row.sparkPrimaryLimitSeconds,
+        sparkSecondaryUsedPercent: row.sparkSecondaryUsedPercent,
+        sparkSecondaryLimitSeconds: row.sparkSecondaryLimitSeconds,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      });
+    } catch {
+      // The snapshot itself is authoritative; graph persistence must not break refresh.
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boolToTinyint(value: unknown): number | null {
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return null;
+}
+
+function normalizeInt(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.trunc(n);
+}
+
+function encodeJsonField(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value) || isRecord(value)) return JSON.stringify(value);
+  return String(value);
+}
+
+function extractSparkRateLimit(limits: unknown): Record<string, unknown> {
+  if (!Array.isArray(limits)) return {};
+  let winner: Record<string, unknown> = {};
+  let winnerScore = 0;
+  for (const candidate of limits) {
+    if (!isRecord(candidate)) continue;
+    const rate = candidate['rate_limit'];
+    if (!isRecord(rate)) continue;
+    const limitName = typeof candidate['limit_name'] === 'string' ? candidate['limit_name'].toLowerCase().trim() : '';
+    const meteredFeature =
+      typeof candidate['metered_feature'] === 'string' ? candidate['metered_feature'].toLowerCase().trim() : '';
+    let score = 0;
+    if (limitName.includes('spark')) score = 3;
+    else if (meteredFeature.includes('spark')) score = 2;
+    else if (meteredFeature.includes('bengalfox')) score = 1;
+    if (score > winnerScore) {
+      winner = candidate;
+      winnerScore = score;
+    }
+  }
+  return winnerScore > 0 ? winner : {};
 }

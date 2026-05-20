@@ -115,7 +115,11 @@ export async function registerAdminOverviewRoutes(
 ): Promise<void> {
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
-  const chatgpt = new ChatGptUsageService(ctx.db, app.log);
+  const chatgpt = new ChatGptUsageService(ctx.db, app.log, {
+    env: ctx.env,
+    keyring: ctx.keyring,
+    runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
+  });
   const claude = new ClaudeUsageService(ctx.db);
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);

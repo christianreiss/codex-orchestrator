@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildChatGptHistorySeries,
   normalizeChatGptUsageSnapshot,
+  parseChatGptUsageJson,
 } from '../../../src/services/chatgpt-usage.js';
 
 describe('ChatGPT usage compatibility shape', () => {
@@ -82,5 +83,50 @@ describe('ChatGPT usage compatibility shape', () => {
     expect(series.find((item) => item.key === 'normal_secondary')?.points).toEqual([
       { ts: '2026-05-20T09:00:00Z', value: 3 },
     ]);
+  });
+
+  it('parses ChatGPT wham usage payloads including the Spark lane', () => {
+    const parsed = parseChatGptUsageJson({
+      plan_type: 'pro',
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: {
+          used_percent: 4,
+          limit_window_seconds: 18000,
+          reset_after_seconds: 900,
+          reset_at: '2026-05-20T12:00:00Z',
+        },
+        secondary_window: {
+          used_percent: 7,
+          limit_window_seconds: 604800,
+          reset_after_seconds: 86400,
+          reset_at: '2026-05-21T12:00:00Z',
+        },
+      },
+      additional_rate_limits: [
+        {
+          limit_name: 'Spark',
+          metered_feature: 'bengalfox',
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: { used_percent: 1, limit_window_seconds: 18000 },
+            secondary_window: { used_percent: 2, limit_window_seconds: 604800 },
+          },
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      planType: 'pro',
+      rateAllowed: 1,
+      rateLimitReached: 0,
+      primaryUsedPercent: 4,
+      secondaryUsedPercent: 7,
+      sparkLimitName: 'Spark',
+      sparkPrimaryUsedPercent: 1,
+      sparkSecondaryUsedPercent: 2,
+    });
   });
 });

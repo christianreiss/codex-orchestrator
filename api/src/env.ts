@@ -154,6 +154,14 @@ const schema = z
 
     // Quota cron
     CHATGPT_USAGE_CRON_INTERVAL: intish(3600),
+    CHATGPT_BASE_URL: z.string().default('https://chatgpt.com/backend-api'),
+    CHATGPT_USAGE_TIMEOUT: z
+      .union([z.string(), z.number(), z.undefined()])
+      .transform((v) => {
+        if (v === undefined || v === '') return 10;
+        const n = typeof v === 'number' ? v : Number(v);
+        return Number.isFinite(n) && n > 0 ? n : 10;
+      }),
 
     INSTALLATION_ID: z.string().optional(),
     DATA_ROOT: z.string().optional(),

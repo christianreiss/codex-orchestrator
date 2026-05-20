@@ -560,7 +560,7 @@ async function readQuotaLimitPercent(
 
 async function readChatgptSnapshot(ctx: RouteContext): Promise<Record<string, unknown> | null> {
   try {
-    const svc = new ChatGptUsageService(ctx.db);
+    const svc = new ChatGptUsageService(ctx.db, undefined, { env: ctx.env, keyring: ctx.keyring });
     const row = await svc.latest();
     if (!row) return null;
     return normalizeChatGptUsageSnapshot(row);
