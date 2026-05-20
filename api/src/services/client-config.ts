@@ -42,10 +42,17 @@ import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
+  FORCE_UPGRADE_REASONING_EFFORT,
   type NormalizedSettings,
+  normalizeReasoningEffort,
+  normalizeReasoningEffortForModel,
   normalizeSettings,
+  normalizeStoredModel,
+  isLegacyModelUpgrade,
   settingsHash,
 } from './config-normalizer.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import type { Host } from '../db/schema.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
   'model',
@@ -177,23 +184,213 @@ export function renderToml(normalized: NormalizedSettings): string {
     addKeyValue(lines, 'include_only', sep.include_only);
   }
 
-  for (const profile of normalized.profiles) {
+  for (const profile of sortEntriesByName(normalized.profiles)) {
+    const name = normalizeName(profile['name']);
+    if (!name) continue;
     if (lines.length > 0) lines.push('');
-    lines.push('[[profiles]]');
-    for (const [k, v] of Object.entries(profile)) {
-      addKeyValue(lines, k, v);
+    lines.push(`[profiles.${tomlBareKey(name)}]`);
+    for (const key of SCALAR_KEYS) {
+      if (key === 'profile' || key === 'local_provider') continue;
+      addKeyValue(lines, key, profile[key]);
+    }
+    if (isPresentRecord(asRecord(profile['features']))) {
+      lines.push('');
+      lines.push(`[profiles.${tomlBareKey(name)}.features]`);
+      for (const k of Object.keys(asRecord(profile['features'])).sort()) {
+        addKeyValue(lines, k, asRecord(profile['features'])[k]);
+      }
+    }
+    if (isPresentRecord(asRecord(profile['sandbox_workspace_write']))) {
+      lines.push('');
+      lines.push(`[profiles.${tomlBareKey(name)}.sandbox_workspace_write]`);
+      addKeyValue(lines, 'network_access', asRecord(profile['sandbox_workspace_write'])['network_access']);
     }
   }
 
-  for (const server of normalized.mcp_servers) {
+  for (const server of sortEntriesByName(normalized.mcp_servers)) {
+    const name = normalizeName(server['name']);
+    if (!name) continue;
     if (lines.length > 0) lines.push('');
-    lines.push('[[mcp_servers]]');
-    for (const [k, v] of Object.entries(server)) {
-      addKeyValue(lines, k, v);
-    }
+    lines.push(`[mcp_servers.${tomlBareKey(name)}]`);
+    addKeyValue(lines, 'command', server['command']);
+    addKeyValue(lines, 'args', server['args']);
+    addKeyValue(lines, 'url', server['url']);
+    addKeyValue(lines, 'bearer_token_env_var', server['bearer_token_env_var']);
+    addKeyValue(lines, 'http_headers', server['http_headers']);
+    addKeyValue(lines, 'env_http_headers', server['env_http_headers']);
+    addKeyValue(lines, 'enabled', server['enabled']);
+    addKeyValue(lines, 'startup_timeout_sec', server['startup_timeout_sec']);
+    addKeyValue(lines, 'tool_timeout_sec', server['tool_timeout_sec']);
   }
 
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function sortEntriesByName(entries: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return [...entries].sort((a, b) => {
+    const an = normalizeName(a['name']) ?? '';
+    const bn = normalizeName(b['name']) ?? '';
+    return an.localeCompare(bn);
+  });
+}
+
+export interface HostRenderOptions {
+  settings: unknown;
+  host: Host | null;
+  baseUrl: string | null | undefined;
+  apiKey: string | null | undefined;
+  engine?: Engine;
+  managedMcpToken?: string | null;
+  home?: string | null;
+  username?: string | null;
+}
+
+export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
+  const engine = opts.engine ?? ENGINE_CODEX;
+  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host);
+  const normalized = normalizeSettings(settingsWithOverrides);
+  const withManaged = injectManagedMcp(normalized, {
+    host: opts.host,
+    baseUrl: opts.baseUrl,
+    apiKey: opts.apiKey,
+    engine,
+    managedMcpToken: opts.managedMcpToken,
+  });
+  let content = engine === ENGINE_CLAUDE
+    ? renderClaudeSettings(withManaged)
+    : renderToml(withManaged);
+  if (engine !== ENGINE_CLAUDE) {
+    content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
+  }
+  return {
+    content,
+    sha256: createHash('sha256').update(content).digest('hex'),
+    size_bytes: Buffer.byteLength(content, 'utf8'),
+    settings: normalized,
+  };
+}
+
+function applyHostModelOverrides(settings: Record<string, unknown>, host: Host | null): Record<string, unknown> {
+  if (!host) return settings;
+  const out = { ...settings };
+  const rawModelOverride = host.modelOverride ?? null;
+  const modelOverride = normalizeStoredModel(rawModelOverride);
+  const forceUpgradedOverride = isLegacyModelUpgrade(rawModelOverride);
+  const effectiveModel = modelOverride ?? normalizeStoredModel(out['model']);
+  const effortOverrideRaw = normalizeReasoningEffort(host.reasoningEffortOverride ?? null);
+  const effortOverride = forceUpgradedOverride && modelOverride !== null
+    ? FORCE_UPGRADE_REASONING_EFFORT
+    : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
+
+  if (modelOverride !== null) out['model'] = modelOverride;
+  if (effortOverride !== null) out['model_reasoning_effort'] = effortOverride;
+
+  const activeProfile = normalizeName(out['profile']);
+  const profiles = Array.isArray(out['profiles']) ? out['profiles'] : null;
+  if (activeProfile && profiles) {
+    out['profiles'] = profiles.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const profile = { ...(entry as Record<string, unknown>) };
+      if (normalizeName(profile['name']) !== activeProfile) return profile;
+      const profileModel = modelOverride ?? normalizeStoredModel(profile['model']);
+      const profileEffort = forceUpgradedOverride && modelOverride !== null
+        ? FORCE_UPGRADE_REASONING_EFFORT
+        : normalizeReasoningEffortForModel(effortOverrideRaw, profileModel);
+      if (modelOverride !== null) profile['model'] = modelOverride;
+      if (profileEffort !== null) profile['model_reasoning_effort'] = profileEffort;
+      return profile;
+    });
+  }
+  return out;
+}
+
+function injectManagedMcp(
+  settings: NormalizedSettings,
+  opts: {
+    host: Host | null;
+    baseUrl: string | null | undefined;
+    apiKey: string | null | undefined;
+    engine: Engine;
+    managedMcpToken?: string | null;
+  },
+): NormalizedSettings {
+  if (settings.orchestrator_mcp_enabled === false) return settings;
+  const base = normalizeName(opts.baseUrl ?? null)?.replace(/\/+$/, '');
+  const key = normalizeName(opts.apiKey ?? null);
+  if (!base || !key) return settings;
+
+  const secure = opts.host ? Boolean(opts.host.secure) : true;
+  const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
+  if (!bearerToken) return settings;
+
+  const entry = {
+    name: opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx',
+    url: `${base}/mcp`,
+    http_headers: { Authorization: `Bearer ${bearerToken}` },
+    startup_timeout_sec: 30,
+  };
+  const managedNames = opts.engine === ENGINE_CLAUDE
+    ? new Set(['codex-memory', 'codex-orchestrator', 'cdx', 'clx'])
+    : new Set(['codex-memory', 'codex-orchestrator', 'cdx']);
+  const filtered = settings.mcp_servers.filter((server) => {
+    const name = normalizeName(server['name']);
+    return !name || !managedNames.has(name.toLowerCase());
+  });
+  return { ...settings, mcp_servers: [entry, ...filtered] };
+}
+
+function renderClaudeSettings(settings: NormalizedSettings): string {
+  const result: Record<string, unknown> = {};
+  if (settings.model) result['model'] = settings.model;
+  const servers: Record<string, unknown> = {};
+  for (const entry of settings.mcp_servers) {
+    const name = normalizeName(entry['name']);
+    if (!name || entry['enabled'] === false) continue;
+    const url = normalizeName(entry['url']);
+    if (url) {
+      const server: Record<string, unknown> = { type: 'http', url };
+      const headers = asRecord(entry['http_headers']);
+      if (Object.keys(headers).length > 0) server['headers'] = headers;
+      servers[name] = server;
+      continue;
+    }
+    const command = normalizeName(entry['command']);
+    if (!command) continue;
+    const server: Record<string, unknown> = { command };
+    if (Array.isArray(entry['args'])) server['args'] = entry['args'];
+    if (isPresentRecord(asRecord(entry['env']))) server['env'] = entry['env'];
+    servers[name] = server;
+  }
+  if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
+  return JSON.stringify(result, null, 2) + '\n';
+}
+
+export function normalizeHomePath(home: string | null | undefined, username: string | null | undefined): string | null {
+  const rawHome = normalizeName(home ?? null);
+  if (rawHome) return rawHome;
+  const user = normalizeName(username ?? null);
+  if (!user) return null;
+  const base = user.includes('\\') ? user.split('\\').pop() : user;
+  return base ? `/home/${base}` : null;
+}
+
+export function injectTrustedProjectToml(content: string, homePath: string | null): string {
+  if (!homePath) return content;
+  const header = `[projects.${tomlString(homePath)}]`;
+  if (content.includes(header)) return content;
+  const stanza = `${header}\ntrust_level = "trusted"\n`;
+  if (content.trim() === '') return stanza;
+  return content.replace(/\s*$/, '\n\n') + stanza;
 }
 
 export interface RenderResult {

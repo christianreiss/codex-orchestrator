@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderToml } from '../../../src/services/client-config.js';
+import { renderToml, renderTomlForHost } from '../../../src/services/client-config.js';
 import { normalizeSettings } from '../../../src/services/config-normalizer.js';
 
 describe('client-config: renderToml', () => {
@@ -45,7 +45,7 @@ describe('client-config: renderToml', () => {
     expect(none).not.toContain('[security]');
   });
 
-  it('emits [[profiles]] entries in declared order', () => {
+  it('emits named profile tables sorted by name', () => {
     const s = normalizeSettings({
       profiles: [
         { name: 'workhorse', model: 'gpt-5.4', model_reasoning_effort: 'high' },
@@ -53,11 +53,12 @@ describe('client-config: renderToml', () => {
       ],
     });
     const toml = renderToml(s);
-    expect(toml.match(/\[\[profiles\]\]/g)?.length).toBe(2);
-    const workhorseIdx = toml.indexOf('"workhorse"');
-    const fastIdx = toml.indexOf('"fast"');
+    expect(toml).toContain('[profiles.fast]');
+    expect(toml).toContain('[profiles.workhorse]');
+    const workhorseIdx = toml.indexOf('[profiles.workhorse]');
+    const fastIdx = toml.indexOf('[profiles.fast]');
     expect(workhorseIdx).toBeGreaterThan(-1);
-    expect(fastIdx).toBeGreaterThan(workhorseIdx);
+    expect(fastIdx).toBeLessThan(workhorseIdx);
   });
 
   it('renders notify lists when present', () => {
@@ -70,5 +71,45 @@ describe('client-config: renderToml', () => {
     const s = normalizeSettings({ model: 'has "quotes" and\nnewline' });
     const toml = renderToml(s);
     expect(toml).toContain('model = "has \\"quotes\\" and\\nnewline"');
+  });
+
+  it('renders MCP servers as named Codex tables', () => {
+    const s = normalizeSettings({
+      mcp_servers: [
+        {
+          name: 'orchestrator',
+          url: 'https://coord.example/mcp',
+          http_headers: { Authorization: 'Bearer abc123' },
+          startup_timeout_sec: 30,
+        },
+      ],
+    });
+    const toml = renderToml(s);
+    expect(toml).toContain('[mcp_servers.orchestrator]');
+    expect(toml).toContain('url = "https://coord.example/mcp"');
+    expect(toml).toContain('http_headers = { Authorization = "Bearer abc123" }');
+    expect(toml).toContain('startup_timeout_sec = 30');
+  });
+
+  it('bakes managed MCP and trusted project for a host', () => {
+    const rendered = renderTomlForHost({
+      settings: {
+        mcp_servers: [
+          { name: 'codex-memory', command: 'legacy-managed' },
+          { name: 'user-custom', command: '/bin/echo' },
+        ],
+      },
+      host: { id: 7, fqdn: 'host.example', secure: 1 } as never,
+      baseUrl: 'https://coord.example/',
+      apiKey: 'abc123',
+      home: '/home/chris',
+    });
+    expect(rendered.content).toContain('[mcp_servers.cdx]');
+    expect(rendered.content).toContain('url = "https://coord.example/mcp"');
+    expect(rendered.content).toContain('http_headers = { Authorization = "Bearer abc123" }');
+    expect(rendered.content).toContain('[mcp_servers.user-custom]');
+    expect(rendered.content).not.toContain('codex-memory');
+    expect(rendered.content).toContain('[projects."/home/chris"]');
+    expect(rendered.content).toContain('trust_level = "trusted"');
   });
 });

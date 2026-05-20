@@ -53,8 +53,8 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }
   }
 
-  const tools = new McpToolsRegistry({ memories, projects, skills, fs: fsTools });
   const resources = new McpResourcesService({ memories, projects, skills });
+  const tools = new McpToolsRegistry({ memories, projects, skills, resources, fs: fsTools });
   const server = new McpServer(tools, resources, accessLog);
 
   const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();

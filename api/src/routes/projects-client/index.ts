@@ -42,7 +42,10 @@ function requireHost(req: FastifyRequest) {
 export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const projects = new HostProjectsService(ctx.db);
   const skills = new HostSkillsService(ctx.db);
-  const agents = new HostAgentsService(ctx.db);
+  const agents = new HostAgentsService(ctx.db, {
+    publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
+    keyring: ctx.keyring,
+  });
   const memories = new McpMemoriesService(ctx.db);
   const auth = app.requireHost;
 
@@ -169,7 +172,10 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(payload);
-    const result = await agents.retrieveConfig(sha, requireHost(req), engine);
+    const result = await agents.retrieveConfig(sha, requireHost(req), engine, {
+      home: typeof payload['home'] === 'string' ? payload['home'] : null,
+      username: typeof payload['username'] === 'string' ? payload['username'] : null,
+    });
     return ok({ ...result, engine });
   });
 

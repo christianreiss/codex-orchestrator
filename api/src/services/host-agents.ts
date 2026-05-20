@@ -8,13 +8,28 @@ import { agentsDocuments, agentsDocumentState, clientConfigDocuments, logs } fro
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { decryptOrNull } from '../security/secret-box.js';
+import type { Keyring } from '../security/keyring.js';
+import { McpSessionService } from './mcp-session.js';
+import { renderTomlForHost } from './client-config.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
 const MODE_LOCKED = 'locked';
 
 export class HostAgentsService {
-  constructor(private readonly db: Database) {}
+  private readonly publicBaseUrl: string | null;
+  private readonly keyring: Keyring | null;
+  private readonly mcpSessions: McpSessionService;
+
+  constructor(
+    private readonly db: Database,
+    deps: { publicBaseUrl?: string | null; keyring?: Keyring | null } = {},
+  ) {
+    this.publicBaseUrl = deps.publicBaseUrl?.replace(/\/+$/, '') ?? null;
+    this.keyring = deps.keyring ?? null;
+    this.mcpSessions = new McpSessionService(db);
+  }
 
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
     const row = await this.resolveServedDocument(host, engine);
@@ -41,7 +56,12 @@ export class HostAgentsService {
     return out;
   }
 
-  async retrieveConfig(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
+  async retrieveConfig(
+    providedSha: string | null,
+    host: Host,
+    engine: Engine = ENGINE_CODEX,
+    opts: { home?: string | null; username?: string | null } = {},
+  ): Promise<Record<string, unknown>> {
     const rows = await this.db
       .select()
       .from(clientConfigDocuments)
@@ -63,18 +83,50 @@ export class HostAgentsService {
       return { status: 'missing' };
     }
     const body = row.body ?? '';
-    const sha = row.sha256 || createHash('sha256').update(body).digest('hex');
-    const status = providedSha && safeHashEquals(sha, providedSha) ? 'unchanged' : 'updated';
+    const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
+    let rendered = {
+      content: body,
+      sha256: baseSha,
+      size_bytes: Buffer.byteLength(body, 'utf8'),
+    };
+    const settings = row.settings && typeof row.settings === 'object' ? row.settings : null;
+    const apiKey = this.resolveApiKey(host);
+    const managedMcpToken = settings && this.publicBaseUrl && apiKey && !Boolean(host.secure)
+      ? (await this.mcpSessions.issue(host.id)).token
+      : null;
+    if (settings && this.publicBaseUrl && apiKey) {
+      rendered = renderTomlForHost({
+        settings,
+        host,
+        baseUrl: this.publicBaseUrl,
+        apiKey,
+        engine,
+        managedMcpToken,
+        home: opts.home ?? null,
+        username: opts.username ?? null,
+      });
+    }
+    const status = providedSha && safeHashEquals(rendered.sha256, providedSha) ? 'unchanged' : 'updated';
     const out: Record<string, unknown> = {
       status,
       version_id: Number(row.id),
-      sha256: sha,
+      sha256: rendered.sha256,
+      base_sha256: baseSha,
       updated_at: row.updatedAt,
-      size_bytes: Buffer.byteLength(body, 'utf8'),
+      size_bytes: rendered.size_bytes,
     };
-    if (status !== 'unchanged') out['content'] = body;
-    await this.recordLog(host.id, 'config.retrieve', { status });
+    if (status !== 'unchanged') out['content'] = rendered.content;
+    await this.recordLog(host.id, 'config.retrieve', { status, base_sha256: baseSha, baked_sha256: rendered.sha256 });
     return out;
+  }
+
+  private resolveApiKey(host: Host): string | null {
+    if (this.keyring) {
+      const decrypted = decryptOrNull(host.apiKeyEnc, this.keyring);
+      if (decrypted) return decrypted;
+    }
+    const legacy = host.apiKey ?? '';
+    return legacy.length === 64 && legacy === host.apiKeyHash ? null : legacy || null;
   }
 
   private async resolveServedDocument(host: Host, engine: Engine): Promise<typeof agentsDocuments.$inferSelect | null> {

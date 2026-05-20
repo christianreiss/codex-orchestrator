@@ -22,6 +22,9 @@ DELETE FROM versions
 The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
+# 2026-05-20
+- Host config sync: restored Node-side per-host `config.toml` baking so `/config/retrieve` and `/sync/bootstrap` inject the managed `[mcp_servers.cdx]` HTTP MCP block, host Authorization header, host model overrides, and trusted project stanza instead of serving the raw stored template. MCP also advertises the documented `resource_*` tools, so clients that expose MCP as tools can call `resource_read` for `skill://{slug}` manifests.
+
 # 2026-05-19
 - Removed the Joplin integration in full: deleted the API services (`joplin-client`, `joplin-config`, `joplin-cache`, `joplin-skills`), the `/admin/joplin/*` admin routes, the `joplinNotesCache` Drizzle table + `joplin_notes_cache` MySQL table, the `joplin.synced` WS event, the `JOPLIN_URL` / `JOPLIN_TOKEN` env entries, the frontend integrations page + types + nav entry, the PHP `AdminJoplinController` / `JoplinService` / `JoplinCacheService` / `JoplinSkillService` / `JoplinNoteRepository` / `JoplinMigration`, the `joplin_*` MCP tools and PHP wiring, the runner `/joplin/summarize` and `/joplin/query` endpoints, and the matching manual / docs sections. See the `Joplin removal — run on deploy` block at the top of this file for the SQL the operator must run after deploy.
 - Admin WebUI hosts: the "Installer minted" modal now auto-copies the freshly minted installer command to the clipboard, while keeping the manual Copy command fallback.

@@ -60,7 +60,10 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
   const tokenUsage = createTokenUsageService({ db: ctx.db });
   const syncService = createHostSyncService({ db: ctx.db, versions, tokenUsage });
-  const agentsService = new HostAgentsService(ctx.db);
+  const agentsService = new HostAgentsService(ctx.db, {
+    publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
+    keyring: ctx.keyring,
+  });
   const sessionsService = new HostSessionsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
@@ -160,7 +163,10 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const agentsDigest = typeof payload.agents === 'string' ? (payload.agents as string) : null;
     const configDigest = typeof payload.config === 'string' ? (payload.config as string) : null;
     out.agents = await agentsService.retrieve(agentsDigest, enforced, engine);
-    out.config = await agentsService.retrieveConfig(configDigest, enforced, engine);
+    out.config = await agentsService.retrieveConfig(configDigest, enforced, engine, {
+      home: typeof payload.home === 'string' ? payload.home : null,
+      username: typeof payload.username === 'string' ? payload.username : null,
+    });
 
     // Fleet-wide session counts for the cdx boot-screen "sessions" block.
     // Cheap indexed COUNT queries against the existing logs table; the

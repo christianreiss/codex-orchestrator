@@ -4,6 +4,7 @@ import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
 import type { McpFsTools } from '../../../src/services/mcp-fs.js';
+import type { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -84,6 +85,14 @@ const stubSkills = {
   retrieve: async (slug: string) => ({ slug, status: 'missing' }),
 } as unknown as HostSkillsService;
 
+const stubResources = {
+  list: async () => [{ uri: 'skill://agentic', name: 'agentic', mimeType: 'text/markdown' }],
+  read: async (uri: string) => ({ contents: [{ uri, mimeType: 'text/markdown', text: '# Skill' }] }),
+  create: async (uri: string) => ({ status: 'created', uri }),
+  update: async (uri: string) => ({ status: 'updated', uri }),
+  delete: async (uri: string) => ({ status: 'deleted', uri }),
+} as unknown as McpResourcesService;
+
 const host: Host = { id: 1, fqdn: 'example.com' } as unknown as Host;
 
 describe('McpToolsRegistry', () => {
@@ -105,6 +114,25 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_file_read');
     expect(list).toContain('project_file_upsert');
     expect(list).toContain('project_file_delete');
+  });
+
+  it('registers resource_* tools when a resource service is wired', async () => {
+    const reg = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: stubSkills,
+      resources: stubResources,
+    });
+    const list = reg.list().map((t) => t.name);
+    expect(list).toContain('resource_list');
+    expect(list).toContain('resource_read');
+    expect(list).toContain('resource_create');
+    expect(list).toContain('resource_update');
+    expect(list).toContain('resource_delete');
+
+    const read = await reg.dispatch('resource_read', { uri: 'skill://agentic' }, host);
+    expect(read).toMatchObject({ isError: false });
+    expect((read as { content: Array<{ text: string }> }).content[0]!.text).toContain('Skill');
   });
 
   it('dispatch project_file_read returns the file content', async () => {

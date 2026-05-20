@@ -12,6 +12,7 @@ import type { McpMemoriesService } from './mcp-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
+import type { McpResourcesService } from './mcp-resources.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -30,6 +31,7 @@ export interface ToolDeps {
   memories: McpMemoriesService;
   projects: HostProjectsService;
   skills: HostSkillsService;
+  resources?: McpResourcesService;
   /**
    * Optional filesystem tools. When omitted, fs_* tools are not registered
    * (neither listed nor callable). Activated by setting MCP_FS_ROOT.
@@ -527,6 +529,65 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       return deps.skills.retrieve(slug, sha, host);
     },
   });
+
+  if (deps.resources) {
+    inputs.push({
+      definition: {
+        name: 'resource_list',
+        description: 'List MCP resources available to this host',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      handler: async (_args, host) => ({ resources: await deps.resources!.list(host) }),
+    });
+    inputs.push({
+      definition: {
+        name: 'resource_read',
+        description: 'Read an MCP resource by URI, including skill://{slug} manifests',
+        inputSchema: {
+          type: 'object',
+          properties: { uri: { type: 'string' } },
+          required: ['uri'],
+        },
+      },
+      handler: async (args, host) => deps.resources!.read(String(args['uri'] ?? ''), host),
+    });
+    inputs.push({
+      definition: {
+        name: 'resource_create',
+        description: 'Create a writable MCP resource (memory:// only)',
+        inputSchema: {
+          type: 'object',
+          properties: { uri: { type: 'string' }, text: { type: 'string' } },
+          required: ['uri', 'text'],
+        },
+      },
+      handler: async (args, host) => deps.resources!.create(String(args['uri'] ?? ''), args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'resource_update',
+        description: 'Update a writable MCP resource (memory:// only)',
+        inputSchema: {
+          type: 'object',
+          properties: { uri: { type: 'string' }, text: { type: 'string' } },
+          required: ['uri', 'text'],
+        },
+      },
+      handler: async (args, host) => deps.resources!.update(String(args['uri'] ?? ''), args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'resource_delete',
+        description: 'Delete a writable MCP resource (memory:// only)',
+        inputSchema: {
+          type: 'object',
+          properties: { uri: { type: 'string' } },
+          required: ['uri'],
+        },
+      },
+      handler: async (args, host) => deps.resources!.delete(String(args['uri'] ?? ''), host),
+    });
+  }
 
   // Operator-capability tools — only registered when their dependency is
   // present. fs_* requires MCP_FS_ROOT to be set (caller wires in McpFsTools).
