@@ -11,7 +11,7 @@
 - Roles control which admin features each user can access.
 
 ## Bootstrap & Enforcement
-- Enforcement check is `AdminAuthService::isEnforced()` (`countAdmins(true) > 0`).
+- Enforcement check is the `isEnforced()` helper in `api/src/services/admin-auth.ts` (`countAdmins(true) > 0`).
 - When `admin_users` has no active admins: session/capability checks are bypassed for admin API routes, and dashboard routes do not require a session.
 - Creating the first active admin user enables login enforcement for `/admin/*` in addition to any mTLS checks.
 - Wiping all users via the Users panel (`WIPE` confirmation) deletes every admin user and returns the system to userless mode (login no longer enforced until a new admin is created).
@@ -49,9 +49,7 @@
   - `GET /admin/passkeys`
   - `POST /admin/passkeys/{id}/name`
   - `DELETE /admin/passkeys/{id}`
-- Recovery for lost passkeys is operator-driven in Docker deployments:
-  - `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`
-  - This deletes all stored passkeys for the named active admin user and logs `admin.passkey.recovery.delete`.
+- Recovery for lost passkeys has no equivalent CLI currently shipped; operators must delete rows from `admin_passkeys` for the locked-out user directly in the database.
 
 ## Sessions
 - Cookie name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
@@ -62,7 +60,7 @@
   - Maximum: 604800 seconds (7 days).
 - Sessions are stored in `admin_sessions` with `user_id`, `token_hash`, optional `ip`/`user_agent`, `created_at`, `last_seen_at`, and `expires_at`.
 - Session tokens are 64-hex random values; only `sha256(token)` is stored in `admin_sessions.token_hash`.
-- `resolveSession()` updates `last_seen_at` and deletes expired/invalid sessions.
+- Session resolution updates `last_seen_at` and deletes expired/invalid sessions.
 
 ## Roles & Capabilities
 - Role values:
@@ -76,7 +74,7 @@
   - `hosts.manage` — add/remove hosts and change host properties.
   - `hosts.activate` — open/close insecure host windows.
 - Enforcement:
-  - When `isEnforced()` is false (no active admins): capabilities are not enforced.
+  - When `isEnforced` is false (no active admins): capabilities are not enforced.
   - When enforced and no authenticated user: requests that require a capability fail with `401 Authentication required`.
   - When enforced and the user’s role lacks the capability: requests fail with `403 Forbidden`.
 - Some admin routes are session-only (no capability check), including many read endpoints and `POST /admin/toasts`.

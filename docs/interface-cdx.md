@@ -18,7 +18,7 @@
 
 ## Per-host config (typed, signed)
 
-The orchestrator's `WrapperConfigService` produces a JSON blob
+The orchestrator's `api/src/services/wrapper-config.ts` produces a JSON blob
 matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
 installer and the legacy transition shim write the result to
 `~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
@@ -114,7 +114,7 @@ at build time, then loads the config:
 
 1. Update `wrappers/schemas/host-config-v1.json` with the field.
 2. Add it to `wrappers/cdx/internal/config/config.go` (and its `validate()` checks).
-3. Have `App\Services\Wrapper\V2\ConfigBaker::bakeForHost` populate it.
+3. Have `api/src/services/wrapper-config.ts` populate it.
 4. Wire it through the binary wherever it changes behaviour.
 5. Bump `wrappers/<engine>/cmd/<engine>/main.go`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.

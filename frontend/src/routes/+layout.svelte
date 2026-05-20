@@ -13,6 +13,7 @@
   import { commandPalette } from "$lib/stores/command-palette";
   import { bindGlobalShortcuts } from "$lib/utils/shortcuts";
   import { authStore } from "$lib/stores/auth";
+  import { hydratePalette } from "$lib/stores/theme";
   import { createWsClient, type WsClientHandle } from "$lib/ws/client";
   import { wireWsToQueryClient } from "$lib/ws/events";
 
@@ -72,10 +73,18 @@
       }
     });
 
+    let paletteHydrated = false;
+    const unsubscribePalette = authStore.subscribe((state) => {
+      if (paletteHydrated || state.loading || !state.authenticated) return;
+      paletteHydrated = true;
+      void hydratePalette();
+    });
+
     return () => {
       window.removeEventListener("keydown", cmdK);
       unsubscribeAuth();
       unsubscribeWsAuth();
+      unsubscribePalette();
     };
   });
 

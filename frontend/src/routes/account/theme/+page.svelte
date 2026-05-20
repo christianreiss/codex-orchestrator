@@ -6,9 +6,9 @@
   import * as Card from "$lib/components/ui/card";
   import { Label } from "$lib/components/ui/label";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group";
-  import { api, ApiError } from "$lib/api/client";
-  import { accountKeys, getTheme, setTheme, type AccountTheme, type ThemeResponse } from "$lib/api/account";
-  import { setTheme as setLocalTheme, type ThemeChoice } from "$lib/stores/theme";
+  import { ApiError } from "$lib/api/client";
+  import { accountKeys, getTheme, setTheme, type AccountTheme } from "$lib/api/account";
+  import { setPalette, setTheme as setLocalTheme, type ThemeChoice } from "$lib/stores/theme";
   import { cn } from "$lib/utils/cn";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
@@ -25,28 +25,28 @@
   // Server-side accent presets layered on top of the base light/dark mode.
   // The base mode is derived from the preset name so mode-watcher follows.
   type Preset = "auto-pink" | "bright-pink" | "dark-pink";
+  type BaseTheme = "auto" | "light" | "dark";
   const PRESETS: ReadonlyArray<Preset> = ["auto-pink", "bright-pink", "dark-pink"];
   const isPreset = (v: string | undefined): v is Preset =>
     v === "auto-pink" || v === "bright-pink" || v === "dark-pink";
-  const isBase = (v: string | undefined): v is AccountTheme =>
+  const isBase = (v: string | undefined): v is BaseTheme =>
     v === "auto" || v === "light" || v === "dark";
 
-  function presetBase(p: Preset): AccountTheme {
+  function presetBase(p: Preset): BaseTheme {
     return p === "auto-pink" ? "auto" : p === "bright-pink" ? "light" : "dark";
   }
 
   function applyBodyTheme(value: string) {
-    if (typeof document === "undefined") return;
     if (isPreset(value)) {
-      document.body.setAttribute("data-theme", value);
+      setPalette(value);
     } else {
-      document.body.removeAttribute("data-theme");
+      setPalette(null);
     }
   }
 
   // Track the radio selection locally so the UI is responsive while a save
   // is in flight. Seeded from the server fetch once it arrives.
-  let selected = $state<AccountTheme>("auto");
+  let selected = $state<BaseTheme>("auto");
   let activePreset = $state<Preset | null>(null);
   let seeded = $state(false);
   $effect(() => {
@@ -65,12 +65,12 @@
   });
 
   // Map between server vocabulary ("auto") and mode-watcher ("system").
-  function toLocal(theme: AccountTheme): ThemeChoice {
+  function toLocal(theme: BaseTheme): ThemeChoice {
     return theme === "auto" ? "system" : theme;
   }
 
   const themeMutation = createMutation({
-    mutationFn: (value: AccountTheme) => setTheme(value),
+    mutationFn: (value: BaseTheme) => setTheme(value),
     onSuccess: (_data, value) => {
       void qc.invalidateQueries({ queryKey: accountKeys.theme });
       toast.success(
@@ -101,7 +101,7 @@
 
   function onChange(next: string) {
     if (next !== "auto" && next !== "light" && next !== "dark") return;
-    const value = next as AccountTheme;
+    const value = next as BaseTheme;
     if (value === selected && seeded && activePreset === null) return;
     selected = value;
     activePreset = null;
@@ -112,8 +112,7 @@
   }
 
   const presetMutation = createMutation({
-    mutationFn: (value: Preset) =>
-      api.post<ThemeResponse>("/admin/theme", { theme: value }),
+    mutationFn: (value: Preset) => setTheme(value),
     onSuccess: (_data, value) => {
       void qc.invalidateQueries({ queryKey: accountKeys.theme });
       toast.success(
@@ -155,7 +154,7 @@
   }
 
   const options: Array<{
-    value: AccountTheme;
+    value: BaseTheme;
     label: string;
     description: string;
     icon: typeof Sun;

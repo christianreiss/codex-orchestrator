@@ -191,22 +191,22 @@ describe('admin-content routes registration', () => {
     await app.close();
   });
 
-  it('returns 501 for /admin/skills/assist (runner unavailable)', async () => {
+  it('returns 503 for /admin/skills/assist (runner unavailable)', async () => {
     const app = await buildApp({}, { withAdmin: true });
     const r = await app.inject({
       method: 'POST',
       url: '/admin/skills/assist',
-      payload: { slug: 'foo' },
+      payload: { messages: [{ role: 'user', content: 'help' }], slug: 'foo' },
       headers: { 'content-type': 'application/json' },
     });
-    expect(r.statusCode).toBe(501);
+    expect(r.statusCode).toBe(503);
     const body = JSON.parse(r.payload);
     expect(body).toMatchObject({ status: 'error', code: 'runner_unavailable' });
     expect(body.next_step).toBeTruthy();
     await app.close();
   });
 
-  it('returns 501 for /admin/projects/:slug/assist (runner unavailable)', async () => {
+  it('returns 503 for /admin/projects/:slug/assist (runner unavailable)', async () => {
     const app = await buildApp({}, { withAdmin: true });
     const r = await app.inject({
       method: 'POST',
@@ -214,7 +214,7 @@ describe('admin-content routes registration', () => {
       payload: {},
       headers: { 'content-type': 'application/json' },
     });
-    expect(r.statusCode).toBe(501);
+    expect(r.statusCode).toBe(503);
     expect(JSON.parse(r.payload)).toMatchObject({ status: 'error', code: 'runner_unavailable' });
     await app.close();
   });

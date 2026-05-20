@@ -1,34 +1,34 @@
 ---
 title: Architecture at a glance
 section: Orientation
-verified: 2026-05-16
-sources: public/index.php, src/Http/Router.php, src/Http/Controllers/AdminPageController.php, src/Services/AuthService.php, runner/app.py, scripts/admin-ws.php, wrappers/cdx, wrappers/clx, src/Mcp/McpServer.php
+verified: 2026-05-20
+sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/runner-validation.ts, runner/app.py, wrappers/cdx, wrappers/clx, api/src/services/mcp-server.ts, api/src/db/schema.ts, api/src/ws/server.ts
 ---
 
-Orchestrator is a single-process PHP application with a small Python sidecar and a pair of shell wrappers that run on your hosts. There is no framework: `public/index.php` is the front controller, `src/Http/Router.php` is a regex dispatcher, and domain logic lives as plain PHP classes under `src/`.
+Orchestrator is a Node 22 + Fastify + TypeScript HTTP service backed by MariaDB through Drizzle ORM. The HTTP entry point is `api/src/server.ts`; routes live under `api/src/routes/<group>/*.ts` and are mounted by `api/src/routes/index.ts`. Domain logic lives in plain TypeScript services under `api/src/services/`. A Python FastAPI runner sidecar talks to OpenAI / Anthropic on the orchestrator's behalf, and two Go wrappers (`cdx`, `clx`) run on every host.
 
 ## Request lifecycle
 
-1. The reverse proxy (Caddy in the default compose stack) terminates TLS and, if `ADMIN_ACCESS_MODE` is `mtls`, forwards the client cert fingerprint.
-2. Every request lands in `public/index.php`. That file creates a `Router` (`src/Http/Router.php`), instantiates every repository / service / controller up top, then registers routes near the bottom. `$router->add(method, regex, callable)` and `$router->dispatch(method, path)` are the only two public methods.
-3. The router finds the first matching handler for the HTTP method and path, capturing regex groups as handler arguments. Error handling branches by URL prefix: `/anthropic/v1/` gets Anthropic-style error envelopes, `/v1/` gets OpenAI-style, everything else returns the `{ "status": "error", "message": … }` shape.
-4. Admin HTML pages (every `/admin/...` route in `AdminPageController`) share a single handler that simply `require`s `public/admin/index.php`. That bootstrap does the session check, injects `window.__adminBootstrap`, and returns the compiled SPA shell; the client-side router (see `public/admin/index.html`'s inline `parseAdminRoute`) then activates the correct panel.
+1. The reverse proxy (Caddy in the default compose stack) terminates TLS and, if `ADMIN_ACCESS_MODE=mtls`, forwards `X-MTLS-Fingerprint` (and friends).
+2. Every request enters Fastify in `api/src/server.ts`. The plugin order is fixed: cookies → CORS → request-id → client-ip → rate-limit → envelope → mTLS → host auth → admin auth. Plugins live in `api/src/http/plugins/`.
+3. `registerAllRoutes` in `api/src/routes/index.ts` wires the host-facing API, MCP, wrapper-v2, OpenAI- and Anthropic-compatible APIs, and the full admin surface. Each route group registers its handlers; admin routes attach `app.requireAdmin` as a preHandler.
+4. Admin HTML page navigations (`/admin/*` with `Accept: text/html`) are caught by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`, which returns the SvelteKit `index.html` shell. The SPA then hydrates by calling `GET /admin/auth/status`; there is no server-rendered session bootstrap.
 
 ## Layers
 
-- **Controllers** — `src/Http/Controllers/*Controller.php`. Thin dispatchers that parse input, call services or repositories, and emit JSON via `App\Http\Response::json()` or `AnthropicResponse` / `OpenAiResponse` for the API-compat routes.
-- **Services** — `src/Services/*Service.php`. Where business rules live: `AuthService` (auth distribution and host lifecycle), `AdminAuthService` (admin login, sessions, role matrix), `WrapperService` (a thin adapter over the v2 bakery, exposing the per-engine version manifest to other services), `AgentsService`, `SkillService`, `ProjectCoordinationService`, `StartupSyncService`, and the usage services behind the dashboard. The wrapper bakery itself lives in `src/Services/Wrapper/V2/` (`ConfigBaker`, `BakeCache`, `BinaryRegistry`, `BootstrapShimBuilder`, …).
-- **Repositories** — `src/Repositories/*Repository.php`. All SQL lives here. No ORM; these classes take a `PDO` and return arrays. Schema evolution is handled by `src/DatabaseMigrator.php` at boot.
-- **MCP** — `src/Mcp/`. `McpServer` implements the JSON-RPC dispatch and exposes the tools defined in `McpToolDefinitions`. The HTTP entry point is `/mcp` (handled by `McpRouteController`); auth uses either a per-host API key or an MCP session token from `McpSessionTokenRepository`.
-- **Security primitives** — `src/Security/`. `SecretBox` (libsodium authenticated encryption), `EncryptionKeyManager` (keyring rotation), and `RateLimiter`. Auth payloads are stored encrypted at rest using this primitive stack.
+- **Routes** — `api/src/routes/<group>/*.ts`. Thin Fastify handlers that parse input, call services, and reply. The envelope plugin shapes errors based on URL prefix (`/anthropic/v1/*` Anthropic-style, `/v1/*` OpenAI-style, everything else the canonical `{ "status": "error", "message": … }` shape).
+- **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-validation.ts` (Python runner probe), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` / `claude-usage.ts` (dashboard usage), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
+- **Database** — Drizzle queries against a single schema in `api/src/db/schema.ts`. Services receive a `Database` handle (`api/src/db/client.ts`) and write SQL through Drizzle's typed query builder. No repository layer; tables are queried where they're used.
+- **MCP** — `api/src/services/mcp-server.ts`, `mcp-tools.ts`, `mcp-resources.ts`, `mcp-fs.ts`. The HTTP entry point is `/mcp` (routes in `api/src/routes/mcp/index.ts`); auth uses either a per-host API key or an `MCP_OPERATOR_TOKEN` bearer (operator capability).
+- **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium authenticated encryption), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2 with legacy bcrypt/phpass verification + transparent rehash), `mtls.ts` (header parsing), and `hash.ts` (sha256 helpers).
 
 ## The runner sidecar
 
-The `runner/` directory contains a small FastAPI service (`runner/app.py`) that actually talks to OpenAI and Anthropic. The orchestrator itself never calls the API; it delegates to the runner over a shared-secret HTTP channel. `AUTH_RUNNER_URL` points at the runner, `AUTH_RUNNER_SHARED_SECRET` authenticates the calls, and `RunnerVerifier` / `RunnerValidationService` wrap the two main operations: validate (did this auth.json actually get us a valid completion?) and execute (run a Claude prompt or verify a Codex key on demand). Keeping this split lets you upgrade the runner's SDK versions without touching the PHP code.
+The `runner/` directory contains a small FastAPI service (`runner/app.py`) that actually talks to OpenAI and Anthropic. The orchestrator itself never calls those APIs; it delegates to the runner over a shared-secret HTTP channel. `AUTH_RUNNER_URL` points at the runner, `AUTH_RUNNER_SHARED_SECRET` authenticates the calls, and `runner-validation.ts` wraps the two operations: verify (did this auth.json actually get us a valid completion?) and execute (run a Claude prompt on demand). Keeping this split lets you upgrade the runner's SDK versions without touching the orchestrator.
 
 ## The wrappers
 
-`cdx` and `clx` are static Go binaries built from `wrappers/cdx/` and `wrappers/clx/`. When you onboard a host, the orchestrator emits a ~50-line POSIX `sh` bootstrap shim (`BootstrapShimBuilder::build`) and a typed signed JSON config (`ConfigBaker::bakeForHost`). The shim fetches the config + the right binary for the host's platform, verifies SHA256, and `exec`s the binary. The binary does three things on every run:
+`cdx` and `clx` are static Go binaries built from `wrappers/cdx/` and `wrappers/clx/` (one Go module per engine, a shared `wrappers/go.work`). When you onboard a host, the orchestrator emits a small POSIX `sh` bootstrap shim plus a typed signed JSON config produced by `wrapper-config.ts` (signed with Ed25519, key generated by `scripts/wrapper-v2-init-keys.sh` and persisted in the `wrapper_signing_keys` table). The shim fetches the config + the right binary for the host's platform, verifies SHA256, and `exec`s the binary. The binary does three things on every run:
 
 1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
 2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).
@@ -36,13 +36,13 @@ The `runner/` directory contains a small FastAPI service (`runner/app.py`) that 
 
 The binary self-updates if `wrapper.auto_update` is true in its config: when the server-side SHA256 differs from the local copy, the bootstrap shim downloads the new binary, verifies its hash, and atomically replaces it.
 
-## Admin websocket (admin-ws)
+## Admin websocket
 
-`scripts/admin-ws.php` is a long-running PHP process that the admin UI connects to (see `public/admin/assets/admin-ws.js`). It relays admin events (`AdminEventRepository`) and live state changes to the open dashboard sessions. The admin UI calls `GET /admin/ws/info` (`AdminOverviewController::wsInfo`) to discover its URL. Without admin-ws the UI still works; it just falls back to polling.
+Live admin events stream over `/admin/ws` using `@fastify/websocket` (see `api/src/ws/server.ts`). The websocket runs in-process — no separate daemon — and requires the same admin session cookie used elsewhere. Services publish events through the singleton `wsPublisher` in `api/src/ws/publisher.ts` (`wsPublisher.publish(type, payload)`); the WS handler fans them out to every connected client. The admin UI discovers the URL via `GET /admin/ws/info`. The websocket is opt-in via `ADMIN_WS_ENABLED`; without it the UI falls back to polling.
 
 ## Database
 
-Schema is MySQL / MariaDB. Migrations are embedded in `src/DatabaseMigrator.php` and run automatically at every boot. Tables you will care about most:
+Schema is MySQL / MariaDB, defined as Drizzle table builders in `api/src/db/schema.ts` — that file is the single source of truth. Migrations are applied with `drizzle-kit` from outside the running app (the boot path no longer touches DDL by default; opt in with `RUN_MIGRATIONS_ON_BOOT`). Tables you will care about most:
 
 - `hosts` — one row per registered host; state like `api_key_hash`, `ip_binding`, `secure`, `insecure_enabled_until`, version strings, and IP binding metadata.
 - `auth_entries` / `auth_payloads` — the encrypted canonical auth, versioned.
@@ -51,26 +51,26 @@ Schema is MySQL / MariaDB. Migrations are embedded in `src/DatabaseMigrator.php`
 - `projects`, `project_notes`, `project_todos`, `project_files`, `project_feedback`, `project_events` — the Projects module.
 - `token_usage`, `token_usage_ingests`, `chatgpt_usage`, `dashboard_graph_stats` — usage telemetry.
 - `mcp_session_tokens`, `mcp_access_log`, `memories` — MCP identity and memory store.
+- `wrapper_signing_keys` — Ed25519 signing keys used by `wrapper-signing-key.ts`.
 
 The MariaDB container lives next to the app in `docker-compose.yml`; backups are your responsibility.
 
 ## Engine support
 
-Everything that can vary by engine takes an `App\Support\Engine` constant — `Engine::CODEX` or `Engine::CLAUDE`. A single host can run either, both, or neither; the wrappers report their capabilities back on register. The dashboard, config builder, and the sync flow all branch on engine where needed. Use this rule of thumb: anywhere you see `$engine = Engine::DEFAULT`, the code is engine-aware and `CODEX` is being treated as the canonical default.
+Everything that can vary by engine takes an `Engine` value from `api/src/util/engine.ts` — `ENGINE_CODEX` or `ENGINE_CLAUDE`. A single host can run either, both, or neither; the wrappers report their capabilities back on register. The dashboard, config builder, and the sync flow all branch on engine where needed.
 
 ## Source references
 
-- public/index.php (router wiring, controller graph)
-- src/Http/Router.php (Router::add, Router::dispatch)
-- src/Http/Controllers/AdminPageController.php (SPA shell handlers)
-- src/Services/AuthService.php (auth distribution, host lifecycle)
-- src/Services/StartupSyncService.php (`/sync/status` collect)
-- src/Services/Wrapper/V2/ConfigBaker.php (signed per-host config bakery)
-- src/Services/Wrapper/V2/BootstrapShimBuilder.php (POSIX shim emission)
-- src/Services/Wrapper/V2/BinaryRegistry.php (per-platform binary inventory)
-- src/Services/RunnerVerifier.php, src/Services/RunnerValidationService.php
+- api/src/server.ts (Fastify boot, plugin order, lifecycle)
+- api/src/routes/index.ts (route mounting tree)
+- api/src/routes/admin/pages/static.ts (SPA shell + adminSpaHtmlPreHandler)
+- api/src/services/host-auth.ts (auth distribution, host lifecycle)
+- api/src/services/host-management.ts (registration, mutations)
+- api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts (signed per-host config + Ed25519 keys)
+- api/src/services/runner-validation.ts (runner probe)
+- api/src/services/mcp-server.ts (JSON-RPC dispatch)
+- api/src/ws/server.ts, api/src/ws/publisher.ts (admin WS + event bus)
+- api/src/db/schema.ts (Drizzle schema, single source of truth)
 - runner/app.py (FastAPI verify / exec endpoints)
 - wrappers/cdx, wrappers/clx (Go modules — host wrappers)
-- scripts/admin-ws.php (websocket relay)
-- src/Mcp/McpServer.php (JSON-RPC dispatch)
-- src/DatabaseMigrator.php (schema evolution)
+- scripts/wrapper-v2-init-keys.sh (Ed25519 keypair bootstrap)

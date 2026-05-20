@@ -2,57 +2,57 @@
  * API client for the admin online manual.
  *
  *   GET /admin/manual/manifest      → ManualManifest (raw JSON, no envelope)
- *   GET /admin/manual/search        → ManualSearchIndex (raw JSON, no envelope)
- *   GET /admin/manual/article/{slug} → raw markdown text
+ *   GET /admin/manual/article/{slug} → {slug, meta, body} (raw JSON, no envelope)
+ *
+ * The server also exposes `GET /admin/manual/search?q=…` for server-side
+ * full-text hits, but the article-list filter on the client only needs a
+ * substring match against manifest fields, so we synthesize the search
+ * index in-browser from the manifest instead of making a second request.
  */
 
 import { apiFetch } from "./client";
-import type { ManualManifest, ManualSearchIndex } from "./types";
+import type {
+  ManualArticleSummary,
+  ManualManifest,
+  ManualSearchIndex,
+} from "./types";
 
 export const manualEndpoints = {
   manifest: "/admin/manual/manifest",
-  search: "/admin/manual/search",
   article: (slug: string) => `/admin/manual/article/${encodeURIComponent(slug)}`,
 } as const;
+
+export interface ManualArticleResponse {
+  slug: string;
+  meta: Record<string, string>;
+  body: string;
+}
 
 /** Fetch the manifest (article list, titles, sections, tags). */
 export function fetchManifest(): Promise<ManualManifest> {
   return apiFetch<ManualManifest>(manualEndpoints.manifest, { raw: true });
 }
 
-/** Fetch the search index (per-article anchors, summaries, optional bodies). */
-export function fetchSearchIndex(): Promise<ManualSearchIndex> {
-  return apiFetch<ManualSearchIndex>(manualEndpoints.search, { raw: true });
-}
-
-/** Fetch the raw markdown body for an article slug. */
-export function fetchArticle(slug: string): Promise<string> {
-  return apiFetch<string>(manualEndpoints.article(slug), { raw: true });
-}
-
 /**
- * Strip front-matter and return {meta, body}. The manual articles include
- * a YAML-ish header delimited by `---`; we surface the body for rendering
- * and provide a lightweight meta map so callers can show "verified" dates.
+ * Build a client-side search index from the manifest. The shape matches
+ * ManualSearchIndex so `filterArticles` can consume it uniformly.
  */
-export function splitFrontMatter(raw: string): {
-  meta: Record<string, string>;
-  body: string;
-} {
-  if (!raw.startsWith("---")) {
-    return { meta: {}, body: raw };
-  }
-  const end = raw.indexOf("\n---", 3);
-  if (end < 0) return { meta: {}, body: raw };
-  const header = raw.slice(3, end).trim();
-  const body = raw.slice(end + 4).replace(/^\r?\n/, "");
-  const meta: Record<string, string> = {};
-  for (const line of header.split(/\r?\n/)) {
-    const colon = line.indexOf(":");
-    if (colon < 0) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-    if (key) meta[key] = value;
-  }
-  return { meta, body };
+export async function fetchSearchIndex(): Promise<ManualSearchIndex> {
+  const manifest = await fetchManifest();
+  return {
+    version: manifest.version,
+    docs: manifest.articles.map((article: ManualArticleSummary) => ({
+      slug: article.slug,
+      title: article.title,
+      section: article.section,
+      summary: article.summary,
+      anchors: [],
+      tokens: article.tags ?? [],
+    })),
+  };
+}
+
+/** Fetch the rendered article body and meta for a slug. */
+export function fetchArticle(slug: string): Promise<ManualArticleResponse> {
+  return apiFetch<ManualArticleResponse>(manualEndpoints.article(slug), { raw: true });
 }

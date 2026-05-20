@@ -6,22 +6,15 @@ import { getTestDb } from '../helpers/test-db.js';
 /**
  * Contract suite — walks every fixture under `test/contract/fixtures/`,
  * replays it against the Node server, and asserts the response shape matches
- * what the legacy PHP backend produced.
- *
- * Fixtures are produced by running `tests/contract/record.sh` against a
- * live legacy PHP-FPM instance and committed once before the legacy backend
- * is deleted. Until then this suite skips cleanly so CI stays green.
- *
- * Each fixture loads with no global app/db: it just asserts presence of the
- * file. The replay phase (which requires the full route tree) only runs once
- * the routes have been added by Phase 2 worktrees and a test DB is available.
+ * the expected envelope and key set. Fixtures are hand-authored and checked in
+ * as the contract evolves; there is no automated recorder.
  */
 
 const fixtures = discoverFixtures(FIXTURE_ROOT);
 
 describe('contract suite', () => {
   if (fixtures.length === 0) {
-    it.skip('no fixtures recorded yet — run tests/contract/record.sh against legacy PHP first', () => {
+    it.skip('no fixtures checked in yet', () => {
       /* intentionally empty */
     });
     return;

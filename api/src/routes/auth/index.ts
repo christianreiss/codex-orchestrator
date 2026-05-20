@@ -10,7 +10,7 @@ import {
   type Host,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
-import { ApiError, ServiceUnavailableError, UnauthorizedError, ValidationError } from '../../http/errors.js';
+import { ApiError, ServiceUnavailableError, ValidationError } from '../../http/errors.js';
 import { nowIso, isRfc3339 } from '../../util/timestamp.js';
 import { parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -52,8 +52,8 @@ const MAX_FUTURE_SKEW_MS = 300 * 1000;
  */
 export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const failures = createAuthFailureTracker(app);
-  const hostAuth = createHostAuthService({ db: ctx.db, failures });
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
+  const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
   const versions = createVersionSnapshotService({
     db: ctx.db,
     installationId: ctx.env.INSTALLATION_ID ?? null,
@@ -87,10 +87,6 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   app.delete('/auth', async (req) => {
     const host = await hostAuth.authenticate(req);
     const force = (req.query as { force?: string })?.force === '1';
-    const ip = req.clientIp;
-    if (!force && host.ip4 && ip && host.ip4 !== ip && host.ip6 !== ip) {
-      throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
-    }
     await ctx.db.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, host.id));
     await ctx.db.delete(hostsTable).where(eq(hostsTable.id, host.id));
     await ctx.db.insert(logsTable).values({

@@ -25,8 +25,8 @@ import { withLegacyShellWrapperTransition } from '../../services/wrapper-transit
  */
 export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const failures = createAuthFailureTracker(app);
-  const hostAuth = createHostAuthService({ db: ctx.db, failures });
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
+  const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
   const tokenUsage = createTokenUsageService({ db: ctx.db });
   const versions = createVersionSnapshotService({
     db: ctx.db,

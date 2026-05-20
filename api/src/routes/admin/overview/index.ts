@@ -23,6 +23,7 @@ import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { RunnerProxyService } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService, extractAuthPayload } from '../../../services/runner-validation.js';
+import { createAdminEventsService } from '../../../services/admin-events.js';
 import { encrypt } from '../../../security/secret-box.js';
 import { ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
@@ -132,6 +133,7 @@ export async function registerAdminOverviewRoutes(
     runner: createRunnerClient({ env: ctx.env }),
     runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
   });
+  const adminEventsService = createAdminEventsService(ctx.db);
 
   // ── /admin/overview ───────────────────────────────────────────────────────
   app.get('/admin/overview', { preHandler: app.requireAdmin }, async () => {
@@ -269,7 +271,13 @@ export async function registerAdminOverviewRoutes(
       ADMIN_WS_BACKLOG_LIMIT: ctx.env.ADMIN_WS_BACKLOG_LIMIT,
       PUBLIC_BASE_URL: ctx.env.PUBLIC_BASE_URL,
     });
-    return ok({ ...info, last_event_id: 0 });
+    let lastEventId: number | null = null;
+    try {
+      lastEventId = await adminEventsService.latestEventId();
+    } catch {
+      /* best-effort */
+    }
+    return ok({ ...info, last_event_id: lastEventId ?? 0 });
   });
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────

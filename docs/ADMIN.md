@@ -1,9 +1,9 @@
 # Admin Dashboard
 
-Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public/index.php`, `public/admin/*`, `src/Services/*`, `src/Repositories/*`).
+Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/src/server.ts`, `api/src/routes/admin/*`, `api/src/services/*`).
 
 ## Access & Auth
-- UI routes served by `public/admin/index.php`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`.
+- UI shell served by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`. Admin session state is hydrated client-side via `/admin/auth/status`.
 - `ADMIN_ACCESS_MODE` defaults to `mtls`. Any value except `none` is treated as `mtls`.
 - mTLS is considered present only when `X-MTLS-Fingerprint` (or `X-MTLS-Present`) contains at least 64 hex chars.
 - Admin login enforcement starts only after at least one active admin exists (`countAdmins(true) > 0`).
@@ -42,9 +42,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
   - `enabled` from `ADMIN_WS_ENABLED`.
   - `url` from `ADMIN_WS_PUBLIC_URL` or derived from base URL as `/admin/ws`.
   - `last_event_id`, `heartbeat_seconds` (`ADMIN_WS_PING_INTERVAL`, min `5`), `backlog_limit` (`ADMIN_WS_BACKLOG_LIMIT`, clamped `1..500`).
-- WebSocket server: `scripts/admin-ws.php` (also in compose service `admin-ws`).
-  - Bind: `ADMIN_WS_BIND` (default `0.0.0.0:8091`).
-  - Poll interval: `ADMIN_WS_POLL_INTERVAL` (min `0.2`).
+- WebSocket server: in-process Fastify plugin (`api/src/ws/server.ts`) registered at `/admin/ws`.
+  - Toggle: `ADMIN_WS_ENABLED`.
   - Enforces mTLS unless `ADMIN_ACCESS_MODE=none`.
   - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
 - Besides push events, the socket now supports targeted request/response hydration for slow host-detail metadata. Current request: `host-detail-support`, returning compact `runner` plus full AGENTS admin metadata for the active host page.
@@ -142,7 +141,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`public
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command. For disposable VMs, use `POST /admin/hosts/quick-register` or the WebUI `Quick VM` button.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` with `engine` (`codex` or `claude`) -> execute generated `curl | bash`.
-- **Recover a locked-out admin who lost all passkeys**: `docker compose exec api php /var/www/html/scripts/admin-passkeys.php delete-user --username <admin> [--force]`.
+- **Recover a locked-out admin who lost all passkeys**: no equivalent currently shipped — passkey rows must be removed manually from the `admin_passkeys` table.
 - **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.
 - **Create a shared project**: `POST /admin/projects` with `slug`, optional `about`, and optional `roster_markdown`.
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.

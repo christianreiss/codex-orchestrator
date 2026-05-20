@@ -1,3 +1,4 @@
+import { desc } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { adminEvents } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
@@ -39,6 +40,20 @@ export class AdminEventsService {
     }
 
     return { createdAt };
+  }
+
+  /**
+   * Return the id of the most recent admin_events row, or null when the table
+   * is empty. Used by `/admin/ws/info` so reconnecting clients can resume.
+   */
+  async latestEventId(): Promise<number | null> {
+    const rows = await this.db
+      .select({ id: adminEvents.id })
+      .from(adminEvents)
+      .orderBy(desc(adminEvents.id))
+      .limit(1);
+    const row = rows[0];
+    return row ? Number(row.id) : null;
   }
 }
 

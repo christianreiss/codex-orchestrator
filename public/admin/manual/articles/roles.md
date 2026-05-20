@@ -1,86 +1,51 @@
 ---
 title: Roles and capabilities
 section: Admin access and identity
-verified: 2026-04-19
-sources: src/Services/AdminAuthService.php, src/Http/AdminSessionHelper.php, src/Http/helpers.php, src/Http/Controllers/AdminUserController.php, src/Http/Controllers/AdminOverviewController.php, src/Http/Controllers/AdminSettingsController.php, src/Http/Controllers/AdminHostController.php, src/Http/Controllers/AdminConfigController.php, src/Http/Controllers/AdminProjectController.php, src/Http/Controllers/CliAuthController.php
+verified: 2026-05-20
+sources: api/src/services/admin-auth.ts, api/src/services/admin-users.ts, api/src/http/plugins/auth-admin.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/users/index.ts
 ---
 
-Four roles and four capabilities. The mapping is defined in `AdminAuthService::roleAllows()` and enforced at every controller method that needs it via `requireAdminCapability()`.
+The current admin gate is single-tier: every protected admin route attaches `app.requireAdmin` (from `api/src/http/plugins/auth-admin.ts`), which requires an active session backed by an `admin_users` row with `active = 1`. A role string is stored on each user (`admin_users.access_level`) and surfaced in *Settings → Users*; it is the hook for finer-grained gating but is not currently used to differentiate request authorization.
 
-## Roles
+## Role labels
 
-Constants declared on `AdminAuthService`:
+Constants declared in `api/src/services/admin-auth.ts`:
 
-- `ROLE_ADMIN = 'admin'` — full access. The role check short-circuits to true for every capability.
-- `ROLE_FLEET = 'fleet_operator'` — fleet-wide operator.
-- `ROLE_TRUSTED = 'trusted_user'` — can approve insecure activations but cannot rewrite config.
-- `ROLE_USER = 'user'` — no capabilities. They can sign in and read their own account page, but every admin endpoint behind a capability check returns `403 Forbidden`.
+- `ROLE_OWNER = 'owner'` — the canonical "full access" role; the first-ever user must be created with this or `ROLE_ADMIN`.
+- `ROLE_ADMIN = 'admin'` — administrator, treated identically to `owner` for the "is there still an admin alive?" guards.
+- `ROLE_VIEWER = 'viewer'` — read-leaning role surfaced in the UI; currently not enforced server-side.
+- Legacy values still accepted on existing rows: `ROLE_FLEET = 'fleet_operator'`, `ROLE_TRUSTED = 'trusted_user'`, `ROLE_USER = 'user'`.
 
-Display labels live in `AdminAuthService::ROLE_LABELS` (*Admin*, *Fleet Operator*, *Trusted User*, *User*) and are surfaced in *Settings → Users*.
+`VALID_ACCESS_LEVELS` is the full whitelist; updates that pass any other string fail validation.
 
-## Capabilities
+## What the gates check today
 
-Also constants on `AdminAuthService`:
+Every gated admin endpoint has `preHandler: app.requireAdmin`. That decorator:
 
-- `CAP_SETTINGS = 'settings.manage'` — change any global configuration (quota, auto-update, agents, skills, profiles, OpenAI/Claude state, API keys, runner trigger, auth upload).
-- `CAP_HOSTS_MANAGE = 'hosts.manage'` — register, mutate, delete hosts; change their per-host knobs.
-- `CAP_HOSTS_ACTIVATE = 'hosts.activate'` — approve/deny insecure auth requests, approve CLI device-code authentications.
-- `CAP_USERS_MANAGE = 'users.manage'` — create, edit, delete admin users and wipe all users.
+1. Reads the session cookie (`ADMIN_SESSION_COOKIE`).
+2. Looks up the row in `admin_sessions` by `sha256(token)` and joins to `admin_users`.
+3. Rejects with 401 (`admin_required`) when no row matches, with 403 (`admin_disabled`) when the user row is inactive.
+4. On success, attaches `req.admin = { user, session }` for the route handler.
 
-## The matrix
+There is no further capability matrix between "has session" and "doesn't"; an authenticated admin can call any admin route. The legacy four-tier matrix (`settings.manage` / `hosts.manage` / `hosts.activate` / `users.manage`) is not currently enforced.
 
-| Capability | admin | fleet_operator | trusted_user | user |
-|------------|:-:|:-:|:-:|:-:|
-| `users.manage` | ✓ | — | — | — |
-| `settings.manage` | ✓ | ✓ | — | — |
-| `hosts.manage` | ✓ | ✓ | — | — |
-| `hosts.activate` | ✓ | ✓ | ✓ | — |
+## First-run path
 
-`admin` is always allowed (the `if ($role === self::ROLE_ADMIN) return true;` early return in `roleAllows`). Every other row is the literal matrix in `src/Services/AdminAuthService.php:236–240`.
-
-`fleet_operator` deliberately has no `users.manage`; fleet operators can run the whole operational surface but cannot add, remove, or re-role other admins.
-
-## Where each capability gates
-
-Exhaustive grep over `src/Http/Controllers/*.php` for `requireAdminCapability`:
-
-- **settings.manage** — all of `AdminSettingsController` (general toggles, quota, logs retention, scaling, Claude settings, OpenAI/Claude state); all of `AdminConfigController` (agents, skills, memories, profile/config render, config store); `AdminOverviewController::authUpload`, `seedCommand`, `runnerRun`, `runnerRunClaude`.
-- **hosts.manage** — every mutating route in `AdminHostController` (delete, clear, roaming, secure, vip, scaling-exempt, auto-update, curl-insecure, reverse-dns, model, codex-version, agents-version, register).
-- **hosts.activate** — insecure approval routes (`AdminOverviewController::hostsInsecureExtend`, `hostsInsecureDisableAll`, and the `AdminHostController::insecureApproval*` endpoints), plus CLI device-code approval (`CliAuthController::approve`, `deny`).
-- **users.manage** — every route in `AdminUserController` (create, update, delete, wipe).
-
-Read-only endpoints (dashboard overview, logs, host listings) require only a valid session; they do not check a capability. This is why a `user` role can still sign in and see the dashboard but cannot do anything mutating.
-
-## How the check is implemented
-
-`requireAdminCapability(string $capability)` is a thin global wrapper (`src/Http/helpers.php:215`) over `AdminSessionHelper::requireAdminCapability`. That helper:
-
-1. Bails out silently if `AdminAuthService::isEnforced()` is false (first-run mode).
-2. Resolves the current session via `AdminSessionHelper::resolveAdminSession`.
-3. Calls `AdminAuthService::enforceCapability($user, $capability)`, which throws:
-   - `401 Authentication required` if `$user === null` under enforcement;
-   - `403 Forbidden` if `roleAllows($role, $capability)` returns false.
-
-Both exceptions are converted to JSON error envelopes by `Response::json`.
+`AdminAuthService.isEnforced()` returns false until at least one active `owner` or `admin` exists. While it's false the bootstrap path lets you create the initial admin without a session — the create-user route uses a `requireAdminOrBootstrap` preHandler that allows the call when there are zero admins yet. The first user must be created with `access_level` set to `owner` or `admin` (`api/src/services/admin-users.ts` enforces this).
 
 ## Changing a user's role
 
-- *Settings → Users* lists every admin. Inline edit updates `access_level`.
-- The server side is `POST /admin/users/{id}` (`AdminUserController::update`), which requires `users.manage`. You cannot demote the last admin: `AdminUserService` enforces a guard so the app never ends up with zero admin-role users.
+- *Settings → Users* lists every admin. Inline edit calls `POST /admin/users/{id}`.
+- The mutation is gated by `requireAdmin`. `AdminUserService.update` validates the new role against `VALID_ACCESS_LEVELS` and refuses changes that would leave zero active `owner`/`admin` rows (`countActiveAdminsExcluding`).
 
-## Roles and the first-run path
+## The wipe path
 
-While `isEnforced()` is false (zero admins), capability checks no-op. This is intentional — someone has to be able to click *Settings → Users → Create admin* on the first boot. The moment the first active admin row exists, enforcement flips on and the rules above apply.
+`POST /admin/users/wipe` deletes every other admin (or every admin including the caller, depending on payload), invalidates active sessions, and writes an `admin.user.wipe` event. After a full wipe, `isEnforced()` flips false again and the first-run bootstrap re-opens.
 
 ## Source references
 
-- src/Services/AdminAuthService.php (role constants, capability constants, roleAllows matrix)
-- src/Http/AdminSessionHelper.php (requireAdminCapability)
-- src/Http/helpers.php (global wrappers)
-- src/Http/Controllers/AdminUserController.php (users.manage gates)
-- src/Http/Controllers/AdminOverviewController.php (settings.manage + hosts.activate gates)
-- src/Http/Controllers/AdminSettingsController.php (settings.manage gates)
-- src/Http/Controllers/AdminHostController.php (hosts.manage + hosts.activate gates)
-- src/Http/Controllers/AdminConfigController.php (settings.manage gates)
-- src/Http/Controllers/AdminProjectController.php (settings.manage gates)
-- src/Http/Controllers/CliAuthController.php (hosts.activate gate)
+- api/src/services/admin-auth.ts (role constants, VALID_ACCESS_LEVELS, isEnforced)
+- api/src/services/admin-users.ts (create/update/delete/wipe + "first user must be admin" + "at least one active admin")
+- api/src/http/plugins/auth-admin.ts (requireAdmin decorator)
+- api/src/routes/admin/auth/index.ts (auth endpoints)
+- api/src/routes/admin/users/index.ts (user CRUD)

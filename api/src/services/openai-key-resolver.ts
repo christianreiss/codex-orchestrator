@@ -1,7 +1,6 @@
 import type { FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { ApiError } from '../http/errors.js';
 import type { RateLimiter } from '../http/plugins/rate-limit.js';
-import { extractApiKey } from '../util/api-key-helpers.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { OpenAiKeyService } from './openai-keys.js';
 import type { OpenaiApiKey } from '../db/schema.js';
@@ -9,7 +8,8 @@ import type { OpenaiApiKey } from '../db/schema.js';
 /**
  * preHandler that authenticates `/v1/*` routes against the
  * `openai_api_keys` table:
- *   1. Pull a bearer token from `Authorization` (or legacy `X-API-Key`).
+ *   1. Pull a bearer token from `Authorization: Bearer <key>` (Bearer-only,
+ *      matching OpenAI's public API).
  *   2. Hash it and look it up scoped to the configured engine.
  *   3. Enforce the per-key `rate_limit_rpm` via the shared rate limiter,
  *      keyed on the IP address so a misbehaving caller can't hide behind
@@ -19,6 +19,16 @@ import type { OpenaiApiKey } from '../db/schema.js';
  * Errors are thrown as OpenAI-shape `ApiError`s — the envelope plugin
  * renders them in the right shape because `/v1/*` is in scope.
  */
+
+const BEARER_RE = /^bearer\s+(\S.*)$/i;
+
+function extractBearer(headers: Record<string, string | string[] | undefined>): string | null {
+  const auth = headers['authorization'];
+  const value = Array.isArray(auth) ? auth[0] : auth;
+  if (typeof value !== 'string') return null;
+  const m = BEARER_RE.exec(value.trim());
+  return m && m[1] ? m[1].trim() : null;
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -39,7 +49,7 @@ export function makeOpenAiKeyResolver(
   return async function openaiKeyResolver(req: FastifyRequest): Promise<void> {
     if (req.method === 'OPTIONS') return; // CORS preflight bypasses auth
 
-    const token = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
+    const token = extractBearer(req.headers as Record<string, string | string[] | undefined>);
     if (!token) {
       throw new ApiError('Incorrect API key provided', {
         status: 401,

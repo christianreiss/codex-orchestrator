@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Skeleton } from "$lib/components/ui/skeleton";
-  import { fetchArticle, splitFrontMatter } from "$lib/api/manual";
+  import { fetchArticle } from "$lib/api/manual";
   import { renderMarkdown, type TocEntry } from "./markdown";
   import { copyCodeBlocks } from "./copyCodeBlocks";
   import type { ManualArticleSummary } from "$lib/api/types";
@@ -34,11 +34,10 @@
 
     void (async () => {
       try {
-        const raw = await fetchArticle(currentSlug);
+        const article = await fetchArticle(currentSlug);
         if (currentSlug !== slug) return; // stale
-        const split = splitFrontMatter(raw);
-        meta = split.meta;
-        const rendered = renderMarkdown(split.body);
+        meta = article.meta;
+        const rendered = renderMarkdown(article.body);
         html = rendered.html;
         toc = rendered.toc;
       } catch (err) {

@@ -18,10 +18,16 @@ import type {
 // ---- Theme ----
 
 /** Supported admin theme values mirror the server side ADMIN_THEMES list. */
-export type AccountTheme = "auto" | "light" | "dark";
+export type AccountTheme =
+  | "auto"
+  | "light"
+  | "dark"
+  | "auto-pink"
+  | "bright-pink"
+  | "dark-pink";
 
 export interface ThemeResponse {
-  theme: AccountTheme | string;
+  theme: AccountTheme;
 }
 
 /** GET /admin/theme — returns the currently persisted admin theme preference. */
@@ -42,8 +48,8 @@ export function changePassword(payload: PasswordChangeRequest) {
 }
 
 /** POST /admin/auth/password/request — sends a reset token by email. */
-export function requestPasswordReset() {
-  return api.post<unknown>("/admin/auth/password/request");
+export function requestPasswordReset(input: { username?: string; email?: string }) {
+  return api.post<unknown>("/admin/auth/password/request", input);
 }
 
 // ---- Passkeys ----

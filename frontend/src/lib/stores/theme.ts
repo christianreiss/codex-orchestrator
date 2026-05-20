@@ -6,10 +6,60 @@
 import { writable, type Readable } from "svelte/store";
 import { browser } from "$app/environment";
 import { setMode, mode } from "mode-watcher";
+import { getTheme } from "$lib/api/account";
 
 export type ThemeChoice = "light" | "dark" | "system";
+export type ThemePalette = "auto-pink" | "bright-pink" | "dark-pink";
 
 const STORAGE_KEY = "codex.theme";
+const PALETTE_STORAGE_KEY = "codex.theme.palette";
+
+function isPalette(v: string | null | undefined): v is ThemePalette {
+  return v === "auto-pink" || v === "bright-pink" || v === "dark-pink";
+}
+
+function applyPaletteAttr(value: ThemePalette | null): void {
+  if (typeof document === "undefined") return;
+  if (value) {
+    document.body.setAttribute("data-theme", value);
+  } else {
+    document.body.removeAttribute("data-theme");
+  }
+}
+
+/** Persist + apply the palette accent on top of the base light/dark mode. */
+export function setPalette(value: ThemePalette | null): void {
+  if (!browser) return;
+  try {
+    if (value) localStorage.setItem(PALETTE_STORAGE_KEY, value);
+    else localStorage.removeItem(PALETTE_STORAGE_KEY);
+  } catch {
+    /* ignore quota errors */
+  }
+  applyPaletteAttr(value);
+}
+
+/**
+ * Hydrate the palette accent from localStorage and reconcile against the
+ * server-persisted preference. Called from the root layout once auth is
+ * resolved so the colour applies from the first authenticated render.
+ */
+export async function hydratePalette(): Promise<void> {
+  if (!browser) return;
+  try {
+    const stored = localStorage.getItem(PALETTE_STORAGE_KEY);
+    if (isPalette(stored)) applyPaletteAttr(stored);
+  } catch {
+    /* ignore storage errors */
+  }
+  try {
+    const { theme } = await getTheme();
+    if (isPalette(theme)) setPalette(theme);
+    else setPalette(null);
+  } catch {
+    /* server fetch optional — keep whatever localStorage gave us */
+  }
+}
 
 function readStored(): ThemeChoice {
   if (!browser) return "system";

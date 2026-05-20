@@ -1,6 +1,6 @@
 # Security Policy
 
-This document reflects **current main** behavior in code (see `public/index.php`, `src/Services/AuthService.php`, `src/Security/*`).
+This document reflects **current main** behavior in code (see `api/src/server.ts`, `api/src/services/host-auth.ts`, `api/src/security/*`).
 
 ## Supported Versions
 
@@ -65,7 +65,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 ## Backup & Recovery
 
 - Back up the MySQL database **and** `.env` (contains `AUTH_ENCRYPTION_KEY` or `AUTH_ENCRYPTION_KEYS`). Without key material, encrypted auth payloads and API keys cannot be decrypted.
-- Wrapper signing key (`storage/wrapper/v2/keys/signing.ed25519`) must be included in your backup set. Losing it means every host has to be re-keyed (operator generates a new key with `scripts/wrapper-v2-init-keys.sh`, rebuilds the Go binaries with the new public key embedded, and the hosts self-update). Wrapper binaries under `storage/wrapper/v2/bin/` can be reproduced from a `wrappers/` checkout and CI tag.
+- Wrapper signing key (stored in the `wrapper_signing_keys` table and loaded by `api/src/services/wrapper-signing-key.ts`) must be included in your backup set. Losing it means every host has to be re-keyed (operator provisions a new key, rebuilds the Go binaries with the new public key embedded, and the hosts self-update). Wrapper binaries under `storage/wrapper/v2/bin/` can be reproduced from a `wrappers/` checkout and CI tag.
 
 ## Operational Notes
 

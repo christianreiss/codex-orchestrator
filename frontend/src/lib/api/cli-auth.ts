@@ -32,6 +32,6 @@ export function approveCliAuth(code: string): Promise<CliAuthApprove> {
   return api.post<CliAuthApprove>("/cli/auth/approve", { user_code: code });
 }
 
-export function denyCliAuth(code: string): Promise<void> {
-  return api.post<void>("/cli/auth/deny", { user_code: code });
+export function denyCliAuth(code: string): Promise<{ message: string; fqdn: string }> {
+  return api.post<{ message: string; fqdn: string }>("/cli/auth/deny", { user_code: code });
 }

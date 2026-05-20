@@ -8,8 +8,8 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { api, ApiError } from "$lib/api/client";
-  import { changePassword } from "$lib/api/account";
+  import { ApiError } from "$lib/api/client";
+  import { changePassword, requestPasswordReset } from "$lib/api/account";
   import { authStore } from "$lib/stores/auth";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
@@ -101,7 +101,7 @@
     }
     resetSubmitting = true;
     try {
-      await api.post("/admin/auth/password/request", { username });
+      await requestPasswordReset({ username });
       toast.success("Reset email sent if a recovery address is configured.");
       resetOpen = false;
     } catch (err) {

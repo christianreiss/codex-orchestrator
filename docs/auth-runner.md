@@ -69,11 +69,11 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 4. Parse the returned JSON strictly. Require `assistant_message`, `slug`, `display_name`, `description`, `tags`, `what`, `when`, and `steps`, then sanitize the individual fields.
 5. `status` is `ok` only when the command exits `0` and the structured assist payload parses cleanly; otherwise `status` is `fail` and `reason` includes parse error details plus trimmed stderr/stdout (up to 600 chars).
 
-## How the API uses it (AuthService + RunnerVerifier)
+## How the API uses it (`api/src/services/host-auth.ts` + `api/src/services/runner-client.ts`)
 
-- Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise `RunnerVerifier` is not created.
-- `RunnerVerifier` readiness probe uses `GET AUTH_RUNNER_URL` (same URL as POST target), retries once after 500ms, and treats transport failure as `reachable=false`. It then `POST`s to the same URL and retries once after 300ms when the first POST attempt is unreachable.
-- Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, `RunnerVerifier` also sends `X-Runner-Auth`.
+- Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise the runner client is not created.
+- The runner client's readiness probe uses `GET AUTH_RUNNER_URL` (same URL as POST target), retries once after 500ms, and treats transport failure as `reachable=false`. It then `POST`s to the same URL and retries once after 300ms when the first POST attempt is unreachable.
+- Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`.
 - OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, optional `images[]`, optional `model`, and `timeout_seconds`; when `model` is present the runner invokes `codex --model <id> exec ...`, and each image is materialized to a temp file then passed through as `codex --image <file>`.
 - Skill summary request payload includes `auth_json`, `slug`, `manifest`, and `timeout_seconds`. The API only asks for summaries when a skill is created or its manifest changes and no explicit description was supplied.
 - Memory summary request payload includes `auth_json`, `memory_key`, `content`, and `timeout_seconds`. The API asks for summaries after memory create/update writes and may backfill them on unchanged writes when an older row still lacks `summary`.
@@ -87,8 +87,8 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner returns `updated_auth`, it is applied only when `updated_auth.last_refresh >= upload.last_refresh`.
 - `POST /seed/auth/{token}` and `POST /admin/auth/upload` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
-- Scheduled preflight is triggered by `runDailyPreflight()` on each non-admin request except `/versions` and routes starting with `/mcp`.
-- Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are caught in `public/index.php` and do not block the request.
+- Scheduled preflight is triggered on each non-admin request except `/versions` and routes starting with `/mcp`.
+- Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are swallowed by the request pipeline and do not block the request.
 - Recovery behavior when `runner_state=fail`: retries are triggered on boot-id change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path). Recovery failures are logged and do not block serving auth.
 - Manual trigger `POST /admin/runner/run` forces one Codex runner pass (`trigger=manual`) and returns whether canonical digest changed (`applied`). `POST /admin/runner/run-claude` verifies the latest Claude canonical payload through `/verify-claude`.
 - Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable), Claude-suffixed equivalents, `runner_boot_id`, and `daily_preflight`.

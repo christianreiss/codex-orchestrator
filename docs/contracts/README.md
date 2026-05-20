@@ -7,11 +7,9 @@ Current schemas:
 - `auth-store.schema.json` - `POST /auth` store (`command=store`): `data.status` = `updated|unchanged|outdated`
 - `versions.schema.json` - `GET /versions`
 - `usage-ingest.schema.json` - `POST /usage`
-- `sync-status.schema.json` - `POST /sync/status` (`StartupSyncService::collect(..., includeContent=false)`)
-- `sync-bootstrap.schema.json` - `POST /sync/bootstrap` (`StartupSyncService::collect(..., includeContent=true)`)
+- `sync-status.schema.json` - `POST /sync/status` (`api/src/services/host-sync.ts` with `bootstrap=false`)
+- `sync-bootstrap.schema.json` - `POST /sync/bootstrap` (`api/src/services/host-sync.ts` with `bootstrap=true`)
 
 Contract guardrails:
-- `tests/ContractSchemasTest.php` (JSON validity + valid/invalid fixture validation for all six schemas)
-- `tests/AuthServiceContractResponsesTest.php` (live service response shape checks for `/auth` retrieve/store, `/versions`, `/usage`)
-- `tests/StartupSyncRoutesTest.php` (route + wrapper startup-sync wiring checks for `/sync/status` and `/sync/bootstrap`)
-- `scripts/verify-interface-contracts.php` (contract file readability + interface-doc drift checks in `docs/interface-api.md`, `docs/interface-cdx.md`, `docs/OVERVIEW.md`)
+- `api/test/contract/contract.test.ts` replays recorded fixtures through the running Node server and asserts the response shape stays consistent with the captured baseline.
+- `api/test/integration/host-api/*` exercises the live host-facing routes (`/auth`, `/usage`, `/sync/status`, `/sync/bootstrap`, `/versions`) against a real database.

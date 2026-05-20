@@ -6,49 +6,50 @@ pipeline with:
 1. **Two static Go binaries** (`cdx`, `clx`), one per engine, built per-arch by
    CI and served as static files from `storage/wrapper/v2/bin/`.
 2. **A typed, Ed25519-signed JSON config** issued per host by
-   `App\Services\Wrapper\V2\ConfigBaker`, pre-baked into
-   `storage/wrapper/v2/cache/` and re-baked on any host mutation.
-3. **A ~50-line POSIX `sh` bootstrap shim** (the only thing `/wrapper/v2/download`
-   returns) that fetches the config + binary, verifies SHA256, and execs the
-   binary with `--config`.
+   `api/src/services/wrapper-config.ts`, signed via
+   `api/src/services/wrapper-signing-key.ts` and re-baked on any host mutation.
+3. **A ~50-line POSIX `sh` bootstrap shim** built by
+   `api/src/services/wrapper-transition.ts` (the only thing
+   `/wrapper/v2/download` returns) that fetches the config + binary, verifies
+   SHA256, and execs the binary with `--config`.
 
 ## Request flow
 
 ```
 host             orchestrator                          storage
 ----             ------------                          -------
-sh shim ─GET /wrapper/v2/config──> WrapperV2Controller
-                                     └─ BakeCache::getCurrent
+sh shim ─GET /wrapper/v2/config──> /wrapper/v2 route handler
+                                     └─ wrapper-config service
                                           (re-bakes if absent)
                                      └─ returns config.json + ETag
                                                                      ┌─ config.json
                                                                      ├─ config.json.sig
                                                                      └─ meta.json
 sh shim ─GET /wrapper/v2/bin/...──> serves precomputed static binary
-binary  ─POST /auth, /usage, ...──> existing v1 API surface (untouched)
+binary  ─POST /auth, /usage, ...──> existing host API surface (untouched)
 ```
 
 ## Why typed JSON beats bash placeholders
 
 - Schema-validated on both server and binary side.
 - Detached Ed25519 signature; binary refuses tampered config.
-- Adding a new field doesn't require editing bash fragments, the bakery, and
-  five PHPUnit fixtures — just the struct, the schema, and the baker.
+- Adding a new field touches just the TypeScript baker, the JSON schema, and
+  the Go config struct.
 - The binary stays the same shape across hosts; only the config differs.
 
 ## Where the legacy bakery used to be
 
-| v1 piece                              | v2 replacement                              |
-|---------------------------------------|---------------------------------------------|
-| `bin/cdx` (351 KB monolith)           | `wrappers/cdx/cmd/cdx/main.go` + Go module  |
-| `bin/clx` (157 KB monolith)           | `wrappers/clx/cmd/clx/main.go` + Go module  |
-| `bin/cdx.d/`, `bin/clx.d/` fragments  | Go source split across `internal/...`       |
-| `WrapperService::bakedForHost`        | `ConfigBaker::bakeForHost` + `BakeCache`    |
-| `InstallerScriptBuilder` (597 lines)  | `InstallerScriptBuilderV2` (~70 lines)      |
-| `SeedAuthScriptBuilder` (166 lines)   | `SeedAuthScriptBuilderV2` (~30 lines)       |
-| `__CODEX_HOST_FQDN__` placeholders    | Typed `host.fqdn` field in the signed JSON  |
-| Regex-detected wrapper version       | `-ldflags -X main.Version=...` at build time |
-| SHA256 recomputed every download     | Precomputed in `BinaryRegistry` per file    |
+| v1 piece                              | v2 replacement                                    |
+|---------------------------------------|---------------------------------------------------|
+| `bin/cdx` monolith                    | `wrappers/cdx/cmd/cdx/main.go` + Go module        |
+| `bin/clx` monolith                    | `wrappers/clx/cmd/clx/main.go` + Go module        |
+| Per-engine bash fragment directories  | Go source split across `internal/...`             |
+| Bash-templated wrapper bakery         | `api/src/services/wrapper-config.ts`              |
+| Bash installer script builder         | `api/src/services/install-token.ts` (v2 emitter)  |
+| Bash seed-auth script builder         | seed token route (v2 emitter)                     |
+| `__CODEX_HOST_FQDN__` placeholders    | Typed `host.fqdn` field in the signed JSON        |
+| Regex-detected wrapper version        | `-ldflags -X main.Version=...` at build time      |
+| SHA256 recomputed every download      | Precomputed in `wrapper-bin-registry.ts` per file |
 
 ## File layout
 
@@ -60,20 +61,21 @@ wrappers/                     # Go workspace
 ├── testdata/                 # round-trip fixtures
 └── Makefile
 
-src/Services/Wrapper/V2/
-├── ConfigBaker.php           # composes + signs the per-host JSON
-├── ConfigSigner.php          # libsodium Ed25519 wrapper
-├── BakeCache.php             # FS cache <host_id>/<engine>/<config_version>/
-├── BinaryRegistry.php        # FS view of storage/wrapper/v2/bin/
-├── BootstrapShimBuilder.php  # ~50-line POSIX shim emitter
-├── InstallerScriptBuilderV2.php
-└── SeedAuthScriptBuilderV2.php
+api/src/services/
+├── wrapper-config.ts         # composes + signs the per-host JSON
+├── wrapper-signing-key.ts    # Ed25519 signing key loader (wrapper_signing_keys table)
+├── wrapper-bin-registry.ts   # FS view of storage/wrapper/v2/bin/
+├── wrapper-meta.ts           # /wrapper/v2/meta manifest
+├── wrapper-download.ts       # /wrapper/v2/download payload
+└── wrapper-transition.ts     # legacy POSIX transition shim
 
 storage/wrapper/v2/
-├── bin/<engine>/<os>-<arch>/v<version>/<engine>
-├── cache/<host_id>/<engine>/<config_version>/{config.json,config.json.sig,meta.json}
-└── keys/{signing.ed25519,signing.ed25519.pub}
+└── bin/<engine>/<os>-<arch>/{manifest.json, v<version>/<engine>}
 ```
+
+Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
+`config_version` advances; the active Ed25519 signing key lives in the
+`wrapper_signing_keys` table and is loaded by `wrapper-signing-key.ts`.
 
 ## Endpoints
 
@@ -89,19 +91,19 @@ storage/wrapper/v2/
 | POST   | `/seed/v2/auth/{token}`                           | accept seeded auth payload              |
 
 The legacy unversioned routes (`/wrapper`, `/wrapper/download`, `/install/{token}`,
-`/seed/auth/{token}`) continue to serve v1 output until the atomic-swap commit
-re-points them to v2 and deletes the v1 controllers in the same commit.
+`/seed/auth/{token}`) remain wired through `wrapper-transition.ts` so older
+hosts can still pull a transition shim that writes the v2 config and execs the
+new binary.
 
 ## Database additions
 
-`hosts.config_version` — bumped by `ConfigBaker::bakeForHost` so the binary
-sees a new version every time the input changes.
+`hosts.config_version` — bumped by `wrapper-config.ts` so the binary sees a new
+version every time the input changes.
 
 `hosts.config_baked_at` — timestamp of the last bake (informational; not used
 for cache invalidation).
 
-`hosts.wrapper_track` — `legacy|v2`. Default stays `'legacy'` until the
-cutover commit, which flips the default and backfills existing rows.
+`hosts.wrapper_track` — `legacy|v2`.
 
 `wrapper_signing_keys`, `wrapper_v2_binaries` — operator-facing inventory.
 
@@ -110,7 +112,6 @@ cutover commit, which flips the default and backfills existing rows.
 Once per environment:
 
 ```
-scripts/wrapper-v2-init-keys.sh    # generates the Ed25519 keypair
 (cd wrappers && make pubkey)       # copies pubkey into the Go embed slots
 (cd wrappers && make release)      # cross-compiles all platforms into storage/
 ```

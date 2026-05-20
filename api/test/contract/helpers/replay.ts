@@ -4,7 +4,7 @@ import { expect } from 'vitest';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 
 /**
- * Fixture format produced by `tests/contract/record.sh`:
+ * Fixture format (hand-authored, checked in):
  *
  *   {
  *     "name": "label-for-readability",
