@@ -41,6 +41,7 @@
     createAutoUpdateToggleMutation,
     createScalingExemptToggleMutation,
     createCurlInsecureToggleMutation,
+    createBrowserOsMcpToggleMutation,
     createModelOverrideMutation,
     createCodexVersionMutation,
     createClaudeVersionMutation,
@@ -68,6 +69,7 @@
   const autoUpdate = createAutoUpdateToggleMutation(qc);
   const scaling = createScalingExemptToggleMutation(qc);
   const curlInsecure = createCurlInsecureToggleMutation(qc);
+  const browserOsMcp = createBrowserOsMcpToggleMutation(qc);
   const modelOverride = createModelOverrideMutation(qc);
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
@@ -273,6 +275,9 @@
     {#if host.allow_roaming_ips}
       <StatusPill tone="info" label="Roaming" />
     {/if}
+    {#if host.browseros_mcp_enabled}
+      <StatusPill tone="info" label="BrowserOS" />
+    {/if}
     {#if host.effective_auto_update_enabled}
       <StatusPill tone="online" label="Auto-update" />
     {/if}
@@ -418,6 +423,9 @@
           )}
           {@render toggleRow("Curl insecure", host.curl_insecure, (v) =>
             run("Curl insecure updated", $curlInsecure.mutateAsync({ id, value: v })),
+          )}
+          {@render toggleRow("BrowserOS MCP", host.browseros_mcp_enabled, (v) =>
+            run(v ? "BrowserOS MCP on" : "BrowserOS MCP off", $browserOsMcp.mutateAsync({ id, value: v })),
           )}
         </div>
 

@@ -21,7 +21,9 @@ right binary for the host's platform, then `exec`s the binary.
   (Ed25519, key under `storage/wrapper/v2/keys/signing.ed25519`) and writes
   the result into `storage/wrapper/v2/cache/<host_id>/<engine>/<config_version>/`.
   Any host mutation that affects the bake bumps `hosts.config_version`, which
-  is the cache key.
+  is the cache key. Codex hosts can opt into BrowserOS MCP per host; enabled
+  hosts get a local `browseros` MCP entry in synced `config.toml` and a startup
+  chip in `cdx`.
 - **Binaries** — committed (or CI-uploaded) under
   `storage/wrapper/v2/bin/<engine>/<os>-<arch>/v<version>/<engine>` and served
   as static files (long-cached, ETag = SHA256). `BinaryRegistry` discovers them.

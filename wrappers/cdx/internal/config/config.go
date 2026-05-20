@@ -27,9 +27,10 @@ type Orchestrator struct {
 }
 
 type Host struct {
-	ID     int64  `json:"id"`
-	FQDN   string `json:"fqdn"`
-	Secure bool   `json:"secure"`
+	ID                  int64  `json:"id"`
+	FQDN                string `json:"fqdn"`
+	Secure              bool   `json:"secure"`
+	BrowserOSMCPEnabled bool   `json:"browseros_mcp_enabled,omitempty"`
 }
 
 type EngineOptions struct {

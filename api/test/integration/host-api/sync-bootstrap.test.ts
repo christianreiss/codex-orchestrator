@@ -44,6 +44,7 @@ function hostRow(apiKey: string): Record<string, unknown> {
     vip: 0,
     scalingExempt: 0,
     curlInsecure: 0,
+    browserosMcpEnabled: 0,
     configVersion: 0,
     wrapperTrack: 'v2',
     lastRefresh: null,

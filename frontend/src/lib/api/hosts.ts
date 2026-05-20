@@ -115,7 +115,8 @@ type BoolToggleField =
   | "roaming"
   | "auto_update"
   | "scaling_exempt"
-  | "curl_insecure";
+  | "curl_insecure"
+  | "browseros_mcp";
 
 type ToggleEndpointPath =
   | "secure"
@@ -123,7 +124,8 @@ type ToggleEndpointPath =
   | "roaming"
   | "auto-update"
   | "scaling-exempt"
-  | "curl-insecure";
+  | "curl-insecure"
+  | "browseros-mcp";
 
 interface ToggleConfig {
   endpoint: ToggleEndpointPath;
@@ -254,6 +256,14 @@ export function createCurlInsecureToggleMutation(qc: QueryClient) {
     endpoint: "curl-insecure",
     detailField: "curl_insecure",
     bodyKey: "curl_insecure",
+  });
+}
+
+export function createBrowserOsMcpToggleMutation(qc: QueryClient) {
+  return makeBoolToggle(qc, {
+    endpoint: "browseros-mcp",
+    detailField: "browseros_mcp_enabled",
+    bodyKey: "browseros_mcp",
   });
 }
 

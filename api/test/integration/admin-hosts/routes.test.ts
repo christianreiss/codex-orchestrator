@@ -34,6 +34,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     insecureGraceUntil: null,
     insecureWindowMinutes: null,
     curlInsecure: 0,
+    browserosMcpEnabled: 0,
     expiresAt: null,
     vip: 0,
     lanePreference: null,
@@ -136,6 +137,10 @@ function makeMocks() {
     setCurlInsecure: async (id: number, allow: boolean) => {
       calls.push({ method: 'setCurlInsecure', args: [id, allow] });
       return fakeHost({ id, curlInsecure: allow ? 1 : 0 });
+    },
+    setBrowserOsMcp: async (id: number, enabled: boolean) => {
+      calls.push({ method: 'setBrowserOsMcp', args: [id, enabled] });
+      return fakeHost({ id, browserosMcpEnabled: enabled ? 1 : 0 });
     },
     setReverseDnsMode: async (id: number, mode: string) => {
       calls.push({ method: 'setReverseDnsMode', args: [id, mode] });
@@ -518,6 +523,21 @@ describe('admin hosts routes', () => {
       const r = await app.inject({ method: 'POST', url: '/admin/hosts/42/insecure/disable' });
       expect(r.statusCode).toBe(200);
       expect(calls.find((c) => c.method === 'insecure.disable')).toBeTruthy();
+      await app.close();
+    });
+  });
+
+  describe('POST /admin/hosts/:id/browseros-mcp', () => {
+    it('toggles BrowserOS MCP for a host', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/browseros-mcp',
+        payload: { browseros_mcp: true },
+      });
+      expect(r.statusCode).toBe(200);
+      expect(JSON.parse(r.payload).host.browseros_mcp_enabled).toBe(true);
+      expect(calls.find((c) => c.method === 'setBrowserOsMcp')?.args).toEqual([42, true]);
       await app.close();
     });
   });

@@ -905,6 +905,7 @@ class AuthService
             'insecure_window_minutes' => isset($host['insecure_window_minutes']) && $host['insecure_window_minutes'] !== null
                 ? (int) $host['insecure_window_minutes']
                 : null,
+            'browseros_mcp_enabled' => isset($host['browseros_mcp_enabled']) ? (bool) (int) $host['browseros_mcp_enabled'] : false,
             'lane_preference' => self::normalizeQuotaLane($host['lane_preference'] ?? null),
             'model_override' => $host['model_override'] ?? null,
             'reasoning_effort_override' => $host['reasoning_effort_override'] ?? null,

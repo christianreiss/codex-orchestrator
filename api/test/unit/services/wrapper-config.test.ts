@@ -58,6 +58,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     insecureGraceUntil: null,
     insecureWindowMinutes: null,
     curlInsecure: 0,
+    browserosMcpEnabled: 0,
     expiresAt: null,
     vip: 0,
     lanePreference: null,

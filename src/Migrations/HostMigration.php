@@ -84,6 +84,7 @@ class HostMigration implements MigrationInterface
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'insecure_grace_until', 'DATETIME NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'insecure_window_minutes', 'INT NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'curl_insecure', 'TINYINT(1) NOT NULL DEFAULT 0');
+        $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'browseros_mcp_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
         $this->migrateHostIpColumns($pdo, $databaseName);
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'expires_at', 'VARCHAR(100) NULL');
         $this->ensureColumnExists($pdo, $databaseName, 'hosts', 'vip', 'TINYINT(1) NOT NULL DEFAULT 0');

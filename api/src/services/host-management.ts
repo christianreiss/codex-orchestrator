@@ -624,6 +624,23 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { curl_insecure: allow });
   }
 
+  async setBrowserOsMcp(id: number, enabled: boolean): Promise<Host> {
+    const host = await this.requireById(id);
+    await this.db
+      .update(hosts)
+      .set({
+        browserosMcpEnabled: enabled ? 1 : 0,
+        configVersion: Number(host.configVersion ?? 0) + 1,
+        updatedAt: nowIso(),
+      })
+      .where(eq(hosts.id, id));
+    await this.writeLog(id, 'admin.host.browseros_mcp', {
+      fqdn: host.fqdn,
+      browseros_mcp_enabled: enabled,
+    });
+    return await this.publishUpdate(id, host.fqdn, { browseros_mcp_enabled: enabled });
+  }
+
   async setReverseDnsMode(id: number, mode: ReverseDnsModeInput): Promise<Host> {
     const host = await this.requireById(id);
     const value = modeStringToTinyint(mode);

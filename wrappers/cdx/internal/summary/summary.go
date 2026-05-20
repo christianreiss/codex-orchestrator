@@ -65,8 +65,10 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	wrapperTarget := ""
 
 	insecure := false
+	browserOS := false
 	if cfg != nil {
 		insecure = !cfg.Host.Secure
+		browserOS = cfg.Host.BrowserOSMCPEnabled
 	}
 	fqdn := ""
 	if cfg != nil {
@@ -85,6 +87,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	if auth != nil {
 		if auth.Host != nil {
 			insecure = !auth.Host.Secure
+			browserOS = auth.Host.BrowserOSMCPEnabled
 			laneStr = auth.Host.LanePreference
 			apiCalls = auth.Host.APICalls
 		}
@@ -143,6 +146,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		CodexTarget:    codexTarget,
 		HostFQDN:       fqdn,
 		Insecure:       insecure,
+		BrowserOS:      browserOS,
 		Lane:           laneStr,
 		TokenSum:       tokenSum,
 		APICalls:       apiCalls,

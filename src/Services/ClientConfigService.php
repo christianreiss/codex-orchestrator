@@ -504,6 +504,13 @@ class ClientConfigService
         $managedNames = $engine === Engine::CLAUDE
             ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx']
             : ['codex-memory', 'codex-orchestrator', 'cdx'];
+        $browserOsEnabled = $engine === Engine::CODEX
+            && is_array($host)
+            && isset($host['browseros_mcp_enabled'])
+            && (bool) (int) $host['browseros_mcp_enabled'];
+        if ($browserOsEnabled) {
+            $managedNames[] = 'browseros';
+        }
 
         $existing = $settings['mcp_servers'] ?? [];
         $filtered = array_values(array_filter(
@@ -515,7 +522,15 @@ class ClientConfigService
             }
         ));
 
-        array_unshift($filtered, $entry);
+        $managedEntries = [$entry];
+        if ($browserOsEnabled) {
+            $managedEntries[] = [
+                'name' => 'browseros',
+                'url' => 'http://127.0.0.1:9000/mcp',
+                'startup_timeout_sec' => 30,
+            ];
+        }
+        $filtered = array_merge($managedEntries, $filtered);
         $settings['mcp_servers'] = $filtered;
 
         return $settings;

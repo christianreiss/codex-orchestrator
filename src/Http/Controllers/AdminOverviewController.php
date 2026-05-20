@@ -721,6 +721,7 @@ class AdminOverviewController
                     ? (int) $host['insecure_window_minutes']
                     : null,
                 'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
+                'browseros_mcp_enabled' => isset($host['browseros_mcp_enabled']) ? (bool) (int) $host['browseros_mcp_enabled'] : false,
                 'last_cron_check' => $normalizeTs($host['last_cron_check'] ?? null),
                 'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),
                 'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),
@@ -841,6 +842,7 @@ class AdminOverviewController
                         ? (int) $host['insecure_window_minutes']
                         : null,
                     'curl_insecure' => isset($host['curl_insecure']) ? (bool) (int) $host['curl_insecure'] : false,
+                    'browseros_mcp_enabled' => isset($host['browseros_mcp_enabled']) ? (bool) (int) $host['browseros_mcp_enabled'] : false,
                     'last_cron_check' => $this->normalizeIsoTimestamp($host['last_cron_check'] ?? null),
                     'reverse_dns_mode' => formatReverseDnsModeOutput($host['reverse_dns_mode'] ?? null),
                     'lane_preference' => AuthService::normalizeQuotaLane($host['lane_preference'] ?? null),

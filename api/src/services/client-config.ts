@@ -342,11 +342,21 @@ function injectManagedMcp(
   const managedNames = opts.engine === ENGINE_CLAUDE
     ? new Set(['codex-memory', 'codex-orchestrator', 'cdx', 'clx'])
     : new Set(['codex-memory', 'codex-orchestrator', 'cdx']);
+  const browserOsEnabled = opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1;
+  if (browserOsEnabled) managedNames.add('browseros');
   const filtered = settings.mcp_servers.filter((server) => {
     const name = normalizeName(server['name']);
     return !name || !managedNames.has(name.toLowerCase());
   });
-  return { ...settings, mcp_servers: [entry, ...filtered] };
+  const managedEntries: Array<Record<string, unknown>> = [entry];
+  if (browserOsEnabled) {
+    managedEntries.push({
+      name: 'browseros',
+      url: 'http://127.0.0.1:9000/mcp',
+      startup_timeout_sec: 30,
+    });
+  }
+  return { ...settings, mcp_servers: [...managedEntries, ...filtered] };
 }
 
 function renderClaudeSettings(settings: NormalizedSettings): string {

@@ -18,8 +18,9 @@ type ScreenInput struct {
 	CodexTone    Tone
 	CodexTarget  string
 
-	HostFQDN string
-	Insecure bool
+	HostFQDN  string
+	Insecure  bool
+	BrowserOS bool
 
 	Lane     string // "normal" | "spark" | ""
 	TokenSum int64  // current month total tokens — shown in compact format
@@ -76,6 +77,9 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 	}
 	if in.Concurrent {
 		ctxParts = append(ctxParts, caps.Palette.Yellow+"concurrent run"+caps.Palette.Reset)
+	}
+	if in.BrowserOS {
+		ctxParts = append(ctxParts, "BrowserOS")
 	}
 	if in.Lane != "" {
 		laneTxt := in.Lane

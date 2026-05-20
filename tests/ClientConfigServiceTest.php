@@ -663,6 +663,28 @@ final class ClientConfigServiceTest extends TestCase
         $this->assertStringNotContainsString('mcp_servers.codex-memory', $content);
     }
 
+    public function testRenderForHostInjectsBrowserOsMcpWhenEnabled(): void
+    {
+        $rendered = $this->service->renderForHost(
+            [
+                'mcp_servers' => [
+                    ['name' => 'browseros', 'url' => 'http://old.example/mcp'],
+                    ['name' => 'user-custom', 'command' => '/bin/echo'],
+                ],
+            ],
+            ['id' => 9, 'browseros_mcp_enabled' => 1],
+            'https://coord.example',
+            'abc123'
+        );
+
+        $content = $rendered['content'];
+        $this->assertStringContainsString('[mcp_servers.browseros]', $content);
+        $this->assertStringContainsString('url = "http://127.0.0.1:9000/mcp"', $content);
+        $this->assertStringContainsString('startup_timeout_sec = 30', $content);
+        $this->assertStringContainsString('[mcp_servers.user-custom]', $content);
+        $this->assertStringNotContainsString('http://old.example/mcp', $content);
+    }
+
     public function testRenderForClaudeHostUsesClaudeSettingsMcpShape(): void
     {
         $rendered = $this->service->renderForHost(

@@ -527,6 +527,7 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     insecure_enabled_until: host.insecureEnabledUntil ?? null,
     insecure_grace_until: host.insecureGraceUntil ?? null,
     insecure_window_minutes: host.insecureWindowMinutes ?? null,
+    browseros_mcp_enabled: host.browserosMcpEnabled === 1,
     lane_preference: host.lanePreference ?? null,
     model_override: host.modelOverride ?? null,
     reasoning_effort_override: host.reasoningEffortOverride ?? null,

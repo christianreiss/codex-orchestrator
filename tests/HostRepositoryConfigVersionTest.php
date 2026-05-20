@@ -31,6 +31,7 @@ final class HostRepositoryConfigVersionTest extends TestCase
             status TEXT NOT NULL DEFAULT 'active',
             secure INTEGER NOT NULL DEFAULT 1,
             curl_insecure INTEGER NOT NULL DEFAULT 0,
+            browseros_mcp_enabled INTEGER NOT NULL DEFAULT 0,
             model_override TEXT,
             reasoning_effort_override TEXT,
             claude_model_override TEXT,
@@ -90,6 +91,13 @@ final class HostRepositoryConfigVersionTest extends TestCase
     {
         $start = $this->repo->configVersion(1);
         $this->repo->updateCurlInsecure(1, true);
+        self::assertSame($start + 1, $this->repo->configVersion(1));
+    }
+
+    public function testUpdateBrowserOsMcpBumpsConfigVersion(): void
+    {
+        $start = $this->repo->configVersion(1);
+        $this->repo->updateBrowserOsMcp(1, true);
         self::assertSame($start + 1, $this->repo->configVersion(1));
     }
 

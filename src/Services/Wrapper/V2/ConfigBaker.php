@@ -67,6 +67,7 @@ final class ConfigBaker
                 'id'     => (int) $host['id'],
                 'fqdn'   => (string) $host['fqdn'],
                 'secure' => (bool) ($host['secure'] ?? true),
+                'browseros_mcp_enabled' => (bool) ($host['browseros_mcp_enabled'] ?? false),
             ],
             'engine_options' => $this->engineOptions($host, $engine),
             'wrapper'        => $this->wrapperBlock($engine, $publicBaseUrl),

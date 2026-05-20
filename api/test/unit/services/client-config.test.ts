@@ -112,4 +112,24 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('[projects."/home/chris"]');
     expect(rendered.content).toContain('trust_level = "trusted"');
   });
+
+  it('injects BrowserOS MCP only when the Codex host toggle is enabled', () => {
+    const rendered = renderTomlForHost({
+      settings: {
+        mcp_servers: [
+          { name: 'browseros', url: 'http://old.example/mcp' },
+          { name: 'user-custom', command: '/bin/echo' },
+        ],
+      },
+      host: { id: 7, fqdn: 'host.example', secure: 1, browserosMcpEnabled: 1 } as never,
+      baseUrl: 'https://coord.example/',
+      apiKey: 'abc123',
+      home: '/home/chris',
+    });
+    expect(rendered.content).toContain('[mcp_servers.browseros]');
+    expect(rendered.content).toContain('url = "http://127.0.0.1:9000/mcp"');
+    expect(rendered.content).toContain('startup_timeout_sec = 30');
+    expect(rendered.content).not.toContain('http://old.example/mcp');
+    expect(rendered.content).toContain('[mcp_servers.user-custom]');
+  });
 });

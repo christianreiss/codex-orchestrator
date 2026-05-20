@@ -862,6 +862,45 @@ class AdminHostController
         ]);
     }
 
+    public function browserOsMcp(string $hostId, array $payload): void
+    {
+        requireAdminAccess();
+        requireAdminCapability(AdminAuthService::CAP_HOSTS_MANAGE);
+        $hostId = (int) $hostId;
+        $host = $this->hostRepository->findById($hostId);
+        if (!$host) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'Host not found',
+            ], 404);
+        }
+
+        $enabledRaw = $payload['browseros_mcp'] ?? null;
+        $enabled = normalizeBoolean($enabledRaw);
+        if (!is_bool($enabled)) {
+            Response::json([
+                'status' => 'error',
+                'message' => 'browseros_mcp must be boolean',
+            ], 422);
+        }
+
+        $this->hostRepository->updateBrowserOsMcp($hostId, $enabled);
+        $this->logRepository->log($hostId, 'admin.host.browseros_mcp', [
+            'fqdn' => $host['fqdn'] ?? null,
+            'browseros_mcp_enabled' => $enabled,
+        ]);
+
+        Response::json([
+            'status' => 'ok',
+            'data' => [
+                'host' => [
+                    'id' => $hostId,
+                    'browseros_mcp_enabled' => $enabled,
+                ],
+            ],
+        ]);
+    }
+
     public function reverseDns(string $hostId, array $payload): void
     {
         requireAdminAccess();

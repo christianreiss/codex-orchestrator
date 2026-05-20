@@ -46,6 +46,20 @@ func TestPrintHealthRow(t *testing.T) {
 	}
 }
 
+func TestPrintBootScreenShowsBrowserOSContext(t *testing.T) {
+	var buf bytes.Buffer
+	PrintBootScreen(&buf, ScreenInput{
+		WrapperVersion: "4.5.6",
+		CodexVersion:   "1.2.3",
+		BrowserOS:      true,
+		ResultLabel:    "Ready.",
+	})
+	out := buf.String()
+	if !strings.Contains(out, "BrowserOS") {
+		t.Errorf("expected BrowserOS context; got:\n%s", out)
+	}
+}
+
 func TestPrintQuotaRow(t *testing.T) {
 	var buf bytes.Buffer
 	caps := DetectCaps("")

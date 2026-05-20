@@ -101,6 +101,7 @@ const secureSchema = z.object({
 });
 const vipSchema = z.object({ vip: booleanish });
 const scalingExemptSchema = z.object({ scaling_exempt: booleanish });
+const browserOsMcpSchema = z.object({ browseros_mcp: booleanish });
 const autoUpdateSchema = z.object({ override: optionalBooleanishOrNull.optional() });
 const insecureEnableSchema = z.object({ duration_minutes: durationMinutesSchema });
 const reverseDnsSchema = z.object({ mode: z.string() });
@@ -153,6 +154,7 @@ function hostToWire(h: Host): Record<string, unknown> {
     allow_roaming_ips: h.allowRoamingIps === 1,
     scaling_exempt: h.scalingExempt === 1,
     curl_insecure: h.curlInsecure === 1,
+    browseros_mcp_enabled: h.browserosMcpEnabled === 1,
     auto_update_override:
       h.autoUpdateOverride === null || h.autoUpdateOverride === undefined ? null : h.autoUpdateOverride === 1,
     reverse_dns_mode: tinyintToModeString(h.reverseDnsMode ?? null),
@@ -534,7 +536,20 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #20 POST /admin/hosts/:id/reverse-dns ───
+  // ─── #20 POST /admin/hosts/:id/browseros-mcp ───
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/:id/browseros-mcp',
+    preHandler: [app.requireAdmin],
+    handler: async (req) => {
+      const id = parseId((req.params as { id: string }).id);
+      const body = parseZod(browserOsMcpSchema, req.body);
+      const host = await hostService.setBrowserOsMcp(id, body.browseros_mcp);
+      return { host: hostToWire(host) };
+    },
+  });
+
+  // ─── #21 POST /admin/hosts/:id/reverse-dns ───
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/reverse-dns',

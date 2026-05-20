@@ -52,7 +52,7 @@ export interface WrapperConfigPayload {
     allow_insecure: boolean;
     installation_id: string;
   };
-  host: { id: number; fqdn: string; secure: boolean };
+  host: { id: number; fqdn: string; secure: boolean; browseros_mcp_enabled?: boolean };
   engine_options: Record<string, unknown>;
   wrapper: {
     version: string;
@@ -273,6 +273,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           id: host.id,
           fqdn: host.fqdn,
           secure: Boolean(host.secure),
+          browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
         },
         engine_options: engineOptions(host, engine, { silent, adminTheme }),
         wrapper,

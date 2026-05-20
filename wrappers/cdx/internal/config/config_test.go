@@ -54,13 +54,18 @@ func validCfg() *Config {
 
 func TestLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath, pub := writeSignedFixture(t, dir, validCfg())
+	fixture := validCfg()
+	fixture.Host.BrowserOSMCPEnabled = true
+	cfgPath, pub := writeSignedFixture(t, dir, fixture)
 	cfg, err := Load(cfgPath, pub, false)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	if cfg.Host.ID != 42 {
 		t.Fatalf("host id mismatch: %d", cfg.Host.ID)
+	}
+	if !cfg.Host.BrowserOSMCPEnabled {
+		t.Fatal("expected browseros_mcp_enabled to round-trip")
 	}
 }
 

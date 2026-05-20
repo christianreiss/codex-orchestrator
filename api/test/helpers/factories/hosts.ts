@@ -47,6 +47,7 @@ export async function makeHost(
     wrapperTrack: 'v2',
     vip: 0,
     curlInsecure: 0,
+    browserosMcpEnabled: 0,
     scalingExempt: 0,
     createdAt: now,
     updatedAt: now,

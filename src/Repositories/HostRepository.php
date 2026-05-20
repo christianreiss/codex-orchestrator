@@ -54,6 +54,9 @@ class HostRepository
         if (!array_key_exists('lane_preference', $host)) {
             $host['lane_preference'] = null;
         }
+        if (!array_key_exists('browseros_mcp_enabled', $host)) {
+            $host['browseros_mcp_enabled'] = 0;
+        }
         if (!array_key_exists('expires_at', $host)) {
             $host['expires_at'] = null;
         }
@@ -540,6 +543,12 @@ class HostRepository
     public function updateCurlInsecure(int $hostId, bool $curlInsecure): void
     {
         $this->updateHostFields($hostId, 'curl_insecure = :curl_insecure', ['curl_insecure' => $curlInsecure ? 1 : 0]);
+        $this->bumpConfigVersion($hostId);
+    }
+
+    public function updateBrowserOsMcp(int $hostId, bool $enabled): void
+    {
+        $this->updateHostFields($hostId, 'browseros_mcp_enabled = :browseros_mcp_enabled', ['browseros_mcp_enabled' => $enabled ? 1 : 0]);
         $this->bumpConfigVersion($hostId);
     }
 

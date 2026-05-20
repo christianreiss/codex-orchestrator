@@ -72,6 +72,7 @@ type HostInfo struct {
 	AllowRoamingIps       bool   `json:"allow_roaming_ips,omitempty"`
 	Secure                bool   `json:"secure"`
 	Vip                   bool   `json:"vip,omitempty"`
+	BrowserOSMCPEnabled  bool   `json:"browseros_mcp_enabled,omitempty"`
 	LanePreference        string `json:"lane_preference,omitempty"`
 	ModelOverride         string `json:"model_override,omitempty"`
 	ReasoningEffort       string `json:"reasoning_effort_override,omitempty"`

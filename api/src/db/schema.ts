@@ -58,6 +58,7 @@ export const hosts = mysqlTable(
     insecureGraceUntil: datetime('insecure_grace_until'),
     insecureWindowMinutes: int('insecure_window_minutes'),
     curlInsecure: tinyint('curl_insecure').notNull().default(0),
+    browserosMcpEnabled: tinyint('browseros_mcp_enabled').notNull().default(0),
     expiresAt: varchar('expires_at', { length: 100 }),
     vip: tinyint('vip').notNull().default(0),
     lanePreference: varchar('lane_preference', { length: 16 }),

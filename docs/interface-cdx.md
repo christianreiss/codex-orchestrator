@@ -37,7 +37,12 @@ at build time, then loads the config:
     "allow_insecure": false,
     "installation_id": "..."
   },
-  "host": { "id": 42, "fqdn": "host01.example.com", "secure": true },
+  "host": {
+    "id": 42,
+    "fqdn": "host01.example.com",
+    "secure": true,
+    "browseros_mcp_enabled": false
+  },
   "engine_options": {
     "silent": false,
     "model_override": "gpt-5.4",
@@ -77,7 +82,7 @@ at build time, then loads the config:
 ## Startup sequence
 
 1. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` to enforce single-instance per host. If held, the wrapper enters read-only mode and surfaces "Concurrent" on the boot screen with text picked from the auth-decision state.
-2. Load the signed config; refuse to proceed if the Ed25519 signature is invalid.
+2. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
 3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. Resource envelopes are unwrapped before local writes, so `~/.codex/AGENTS.md` and `~/.codex/config.toml` contain only the served `content` bodies. On 404/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`).
 4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Honours `versions.api_disabled` and `installation_id` mismatch as hard stops.
 5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response, lights the boot-screen "skills" dot on change. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`) are pruned so they don't shadow MCP.
@@ -94,8 +99,11 @@ at build time, then loads the config:
 - `engine != "codex"` → `engine "..." not supported by this binary`; exit 2.
 - Lock held by another PID with invalid local auth → "Active cdx run detected and local auth.json is invalid or absent."; exit 1.
 - `versions.api_disabled=true` → "Auth API disabled by administrator."; exit 1.
+- API kill-switch (`versions.api_disabled=true`) blocks startup before auth/config writes.
 - `installation_id` mismatch → "Installation ID mismatch; refusing to sync."; exit 1.
+- Reverse DNS mismatches are reported from `/auth` as a host/IP policy denial so operators can fix DNS instead of rotating credentials.
 - Auth status `invalid` → "Invalid API key; download a fresh wrapper or rotate the key."; exit 1.
+- Auth status `insecure` → approval pending; the wrapper keeps the in-place polling box open until approved or denied.
 - Auth status `insecure-denied` → "Insecure host approval denied; re-run or open the host window."; exit 1.
 - Auth status `offline` and cached auth older than 24 h (or 7 d on secure hosts) → "API offline and cached auth.json older than allowed window."; exit 1.
 - Hostname mismatch with baked FQDN and no override env → "hostname X does not match baked FQDN Y (set CODEX_ALLOW_FQDN_MISMATCH=1 to override)"; exit 1.
