@@ -8,8 +8,9 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { ApiError } from "$lib/api/client";
-  import { changePassword, requestPasswordReset } from "$lib/api/account";
+  import { api, ApiError } from "$lib/api/client";
+  import { changePassword } from "$lib/api/account";
+  import { authStore } from "$lib/stores/auth";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
   import Mail from "@lucide/svelte/icons/mail";
@@ -90,10 +91,17 @@
   let resetOpen = $state(false);
   let resetSubmitting = $state(false);
 
+  const currentUsername = $derived($authStore.user?.username ?? "");
+
   async function onConfirmReset() {
+    const username = currentUsername.trim();
+    if (!username) {
+      toast.error("No signed-in user.");
+      return;
+    }
     resetSubmitting = true;
     try {
-      await requestPasswordReset();
+      await api.post("/admin/auth/password/request", { username });
       toast.success("Reset email sent if a recovery address is configured.");
       resetOpen = false;
     } catch (err) {
@@ -234,7 +242,7 @@
       <Button variant="outline" onclick={() => (resetOpen = false)} disabled={resetSubmitting}>
         Cancel
       </Button>
-      <Button onclick={onConfirmReset} disabled={resetSubmitting}>
+      <Button onclick={onConfirmReset} disabled={resetSubmitting || !currentUsername}>
         {resetSubmitting ? "Sending…" : "Send reset email"}
       </Button>
     </Dialog.Footer>

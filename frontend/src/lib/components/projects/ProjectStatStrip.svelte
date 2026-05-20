@@ -1,13 +1,17 @@
 <script lang="ts">
   import type { ProjectCounts } from "$lib/api/types";
 
-  type Props = { counts: ProjectCounts | undefined | null };
-  let { counts }: Props = $props();
+  type Props = {
+    counts: ProjectCounts | undefined | null;
+    /** Bug count (subset of feedback). Caller derives it from the feedback list. */
+    bugCount?: number;
+  };
+  let { counts, bugCount = 0 }: Props = $props();
 
   const items = $derived([
     { label: "Notes", value: counts?.notes ?? 0 },
     { label: "Open todos", value: counts?.open_todos ?? 0 },
-    { label: "Bugs", value: 0, isBug: true },
+    { label: "Bugs", value: bugCount },
     { label: "Files", value: counts?.files ?? 0 },
   ]);
 </script>

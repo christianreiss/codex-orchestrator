@@ -20,6 +20,8 @@ import {
   UnsupportedModelError,
   buildModelList,
 } from '../../services/openai-models.js';
+import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { ENGINE_CODEX } from '../../util/engine.js';
 
 /**
  * Optional test seam — supplying any of these overrides skips the default
@@ -52,6 +54,14 @@ export async function registerOpenAiCompatRoutes(
   const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
 
   const runnerConfig = makeRunnerConfig(ctx.env);
+  if (runnerConfig) {
+    const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+    runnerConfig.authSnapshot = async () => {
+      const row = await runnerValidation.resolveCanonicalPayload(ENGINE_CODEX);
+      if (!row) return null;
+      return runnerValidation.canonicalAuthFromPayload(row);
+    };
+  }
   const adapter =
     overrides.adapter !== undefined
       ? overrides.adapter

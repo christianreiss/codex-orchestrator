@@ -4,10 +4,12 @@
   import Moon from "@lucide/svelte/icons/moon";
   import Monitor from "@lucide/svelte/icons/monitor";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
+  import { base } from "$app/paths";
   import { commandPalette } from "$lib/stores/command-palette";
+  import { hostsSummary } from "$lib/stores/hosts-summary";
   import { setTheme } from "$lib/stores/theme";
 
-  let { activeWindows = 0 }: { activeWindows?: number } = $props();
+  const activeWindows = $derived($hostsSummary.activeInsecureWindows);
 </script>
 
 <header
@@ -38,7 +40,7 @@
 
     {#if activeWindows > 0}
       <a
-        href="/admin/hosts?filter=insecure"
+        href={`${base}/hosts?insecure=1`}
         class="inline-flex h-9 items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 text-sm font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
         title="Insecure windows are open"
       >

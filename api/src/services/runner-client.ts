@@ -30,9 +30,35 @@ export interface RunnerVerifyResult {
   [key: string]: unknown;
 }
 
+export interface RunnerSkillGenerateInput {
+  prompt: string;
+  authJson: Record<string, unknown>;
+  slugHint?: string | null;
+  timeoutSeconds?: number;
+}
+
+export interface RunnerSkillAssistInput {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  skill: Record<string, unknown>;
+  authJson: Record<string, unknown>;
+  mode?: 'new' | 'edit';
+  slugLocked?: boolean;
+  timeoutSeconds?: number;
+}
+
+export interface RunnerProjectAssistInput {
+  slug: string;
+  project: Record<string, unknown>;
+  authJson: Record<string, unknown>;
+  timeoutSeconds?: number;
+}
+
 export interface RunnerClient {
   verify(input: RunnerVerifyInput): Promise<RunnerVerifyResult>;
   verifyClaude(input: RunnerVerifyInput): Promise<RunnerVerifyResult>;
+  generateSkillDraft?(input: RunnerSkillGenerateInput): Promise<RunnerVerifyResult>;
+  assistSkillDraft?(input: RunnerSkillAssistInput): Promise<RunnerVerifyResult>;
+  assistProjectDraft?(input: RunnerProjectAssistInput): Promise<RunnerVerifyResult>;
   isConfigured(): boolean;
 }
 
@@ -117,6 +143,24 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
     return base.replace(/\/verify$/, '/verify-claude');
   }
 
+  function deriveFeatureUrl(base: string, featurePath: string): string {
+    if (!base) return '';
+    try {
+      const u = new URL(base);
+      const path = u.pathname;
+      if (path === '' || path === '/') {
+        u.pathname = featurePath;
+      } else if (/\/verify\/?$/.test(path)) {
+        u.pathname = path.replace(/\/verify\/?$/, featurePath);
+      } else {
+        u.pathname = path.replace(/\/+$/, '') + featurePath;
+      }
+      return u.toString();
+    } catch {
+      return '';
+    }
+  }
+
   return {
     isConfigured: () => Boolean(url),
     async verify(input) {
@@ -128,6 +172,73 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
       return send(
         deriveClaudeUrl(url),
         { auth_json: input.authJson, timeout_seconds: timeout / 1000 },
+        timeout || defaultTimeout,
+      );
+    },
+    async generateSkillDraft(input) {
+      const target = deriveFeatureUrl(url, '/skills/generate');
+      if (!target) {
+        return {
+          ok: false,
+          status: 'fail',
+          reachable: false,
+          reason: 'skill generation endpoint is not configured',
+        };
+      }
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      const body: Record<string, unknown> = {
+        auth_json: input.authJson,
+        prompt: input.prompt,
+        timeout_seconds: timeout / 1000,
+      };
+      const hint = typeof input.slugHint === 'string' ? input.slugHint.trim() : '';
+      if (hint !== '') body.slug_hint = hint;
+      return send(target, body, timeout || defaultTimeout);
+    },
+    async assistSkillDraft(input) {
+      const target = deriveFeatureUrl(url, '/skills/assist');
+      if (!target) {
+        return {
+          ok: false,
+          status: 'fail',
+          reachable: false,
+          reason: 'skill assist endpoint is not configured',
+        };
+      }
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      const mode = input.mode === 'edit' ? 'edit' : 'new';
+      return send(
+        target,
+        {
+          auth_json: input.authJson,
+          messages: input.messages,
+          skill: input.skill,
+          mode,
+          slug_locked: Boolean(input.slugLocked),
+          timeout_seconds: timeout / 1000,
+        },
+        timeout || defaultTimeout,
+      );
+    },
+    async assistProjectDraft(input) {
+      const target = deriveFeatureUrl(url, '/projects/assist');
+      if (!target) {
+        return {
+          ok: false,
+          status: 'fail',
+          reachable: false,
+          reason: 'project assist endpoint is not configured',
+        };
+      }
+      const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
+      return send(
+        target,
+        {
+          auth_json: input.authJson,
+          slug: input.slug,
+          project: input.project,
+          timeout_seconds: timeout / 1000,
+        },
         timeout || defaultTimeout,
       );
     },

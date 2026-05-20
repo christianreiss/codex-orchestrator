@@ -275,7 +275,13 @@ async function build(options: BuildOptions): Promise<{ app: FastifyInstance; cal
     env: { DEFAULT_HOST_ENGINES: 'codex' } as never,
     keyring: {} as never,
   };
-  await registerAdminHostsRoutes(app, ctx, { hostService, insecure });
+  const authView = async () => ({
+    canonical_last_refresh: null,
+    canonical_digest: null,
+    recent_digests: [],
+    auth: null,
+  });
+  await registerAdminHostsRoutes(app, ctx, { hostService, insecure, authView });
   return { app, calls: mocks.calls };
 }
 

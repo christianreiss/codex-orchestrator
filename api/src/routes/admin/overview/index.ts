@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
+import { adminEvents, authEntries, authPayloads, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { ClientVersionsService } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
@@ -22,7 +22,9 @@ import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { RunnerProxyService } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
-import { createRunnerValidationService } from '../../../services/runner-validation.js';
+import { createRunnerValidationService, extractAuthPayload } from '../../../services/runner-validation.js';
+import { encrypt } from '../../../security/secret-box.js';
+import { ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -672,44 +674,97 @@ export async function registerAdminOverviewRoutes(
     return ok(result);
   });
 
-  // ── /admin/auth/upload (multipart) ────────────────────────────────────────
+  // ── /admin/auth/upload ────────────────────────────────────────────────────
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   app.post('/admin/auth/upload', { preHandler: app.requireAdmin }, async (req) => {
-    // @fastify/multipart adds `parts()` at runtime when registered by the
-    // foundation server. We read the first file part defensively; until the
-    // host-sync/runner-validation pipeline is wired we log a TODO and return
-    // queued=true.
-    let received = false;
-    let filename: string | null = null;
-    let size = 0;
-    try {
-      const r = req as unknown as {
-        parts?: () => AsyncIterable<{
-          type: 'file' | 'field';
-          filename?: string;
-          file?: AsyncIterable<Buffer>;
-        }>;
-      };
-      if (typeof r.parts === 'function') {
-        for await (const part of r.parts()) {
-          if (part.type === 'file' && part.file) {
-            received = true;
-            filename = part.filename ?? null;
-            for await (const chunk of part.file) {
-              size += (chunk as Buffer).byteLength;
-              if (size > 64 * 1024 * 1024) break; // 64 MB cap
-            }
-          }
-        }
-      }
-    } catch (err) {
-      app.log.warn({ err }, 'admin.auth.upload multipart parse failed');
+    const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown };
+    const engineRaw = typeof body.engine === 'string' ? body.engine.trim().toLowerCase() : '';
+    if (!isEngine(engineRaw)) {
+      throw new ValidationError('engine must be "codex" or "claude"', { param: 'engine' });
     }
-    await recordLog(ctx, 'admin.auth.upload', {
-      received,
-      filename,
-      size,
-      todo: 'host-sync runner-validation not yet wired (Phase 2.1)',
+    const engine: Engine = engineRaw;
+    if (typeof body.payload !== 'string' || body.payload.trim() === '') {
+      throw new ValidationError('payload is required', { param: 'payload' });
+    }
+    const payloadText = body.payload.trim();
+    if (payloadText.length > 256 * 1024) {
+      throw new ValidationError('payload exceeds 256KB', { param: 'payload' });
+    }
+
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(payloadText);
+    } catch {
+      parsed = null;
+    }
+
+    let incoming: Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      incoming = extractAuthPayload(parsed as Record<string, unknown>);
+    } else if (engine === ENGINE_CLAUDE) {
+      incoming = {
+        auths: { 'api.anthropic.com': { token: payloadText, token_type: 'bearer' } },
+      };
+    } else {
+      throw new ValidationError('payload must be valid JSON for codex auth', { param: 'payload' });
+    }
+
+    const lastRefresh = typeof incoming.last_refresh === 'string' && incoming.last_refresh.trim() !== ''
+      ? incoming.last_refresh.trim()
+      : nowIso();
+    const withFallback = runnerValidation.ensureAuthsFallback(incoming, engine);
+    const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
+    if (entries.length === 0) {
+      throw new ValidationError('payload contains no usable auth tokens', { param: 'payload' });
+    }
+    const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
+    const encoded = JSON.stringify(canonical);
+    const digest = runnerValidation.calculateDigest(encoded);
+    const now = nowIso();
+
+    const ins = await ctx.db.insert(authPayloads).values({
+      lastRefresh,
+      sha256: digest,
+      sourceHostId: null,
+      createdAt: now,
+      body: encrypt(encoded, ctx.keyring),
+      verificationState: 'verified',
+      verificationCheckedAt: now,
+      verificationReason: null,
+      engine,
     });
-    return ok({ status: 'ok', queued: true, received, filename, size });
+    const insertedRaw = (Array.isArray(ins) ? ins[0] : ins) as { insertId?: number | bigint } | undefined;
+    const payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
+
+    for (const e of entries) {
+      await ctx.db.insert(authEntries).values({
+        payloadId,
+        target: e.target,
+        token: encrypt(e.token, ctx.keyring),
+        tokenType: e.tokenType ?? undefined,
+        organization: e.organization ?? undefined,
+        project: e.project ?? undefined,
+        apiBase: e.apiBase ?? undefined,
+        meta: e.meta ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    await recordLog(ctx, 'admin.auth.upload', {
+      engine,
+      digest,
+      payload_id: payloadId,
+      entries: entries.length,
+    });
+
+    return ok({
+      status: 'updated',
+      engine,
+      canonical_digest: digest,
+      canonical_last_refresh: lastRefresh,
+      pending_payload_id: payloadId,
+      received: true,
+      size: encoded.length,
+    });
   });
 }

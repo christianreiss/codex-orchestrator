@@ -46,6 +46,8 @@ import {
   responseFromMessage,
 } from '../../services/anthropic-compat.js';
 import { messageStreamEvents, writeSseResponse } from '../../http/stream/anthropic-sse.js';
+import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { ENGINE_CLAUDE } from '../../util/engine.js';
 
 interface AnthropicRouteDeps {
   keyResolver: ClaudeKeyResolver;
@@ -75,12 +77,18 @@ export async function registerAnthropicCompatRoutes(
   const keyResolver = options.keyResolver ?? createClaudeKeyResolver(ctx.db);
   const killSwitch = options.killSwitch ?? createClaudeKillSwitch(ctx.db);
   const models = options.models ?? createClaudeModelsService(ctx.db);
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+  const defaultAuthSnapshot = async (): Promise<unknown | null> => {
+    const row = await runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE);
+    if (!row) return null;
+    return runnerValidation.canonicalAuthFromPayload(row);
+  };
   const adapter =
     options.adapter !== undefined
       ? options.adapter
       : createRunnerClaudeAdapter({
           env: ctx.env,
-          getAuthSnapshot: options.getAuthSnapshot ?? (async () => null),
+          getAuthSnapshot: options.getAuthSnapshot ?? defaultAuthSnapshot,
         });
 
   const deps: AnthropicRouteDeps = { keyResolver, killSwitch, models, adapter };

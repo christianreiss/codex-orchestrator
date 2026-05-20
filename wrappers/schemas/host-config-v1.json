@@ -41,7 +41,8 @@
         "model_override": { "type": ["string", "null"] },
         "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high"] },
         "admin_theme_hint": { "type": ["string", "null"], "enum": [null, "auto", "light", "dark"] },
-        "claude_model_override": { "type": ["string", "null"] }
+        "claude_model_override": { "type": ["string", "null"] },
+        "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false }
       }
     },
     "wrapper": {
@@ -56,6 +57,43 @@
         "binary_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
-    "config_version": { "type": "integer", "minimum": 0 }
+    "documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "sha256"],
+          "properties": {
+            "id": { "type": "integer", "minimum": 1 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "client_config": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["id", "sha256"],
+          "properties": {
+            "id": { "type": "integer", "minimum": 1 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "sha256"],
+        "properties": {
+          "slug": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "config_version": { "type": "integer", "minimum": 0 },
+    "etag": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }

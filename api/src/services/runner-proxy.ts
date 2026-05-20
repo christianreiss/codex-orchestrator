@@ -1,10 +1,13 @@
+import { randomBytes } from 'node:crypto';
+import { lt } from 'drizzle-orm';
 import { ServiceUnavailableError } from '../http/errors.js';
 import type { Env } from '../env.js';
 import { createRunnerClient, type RunnerClient, type RunnerVerifyResult } from './runner-client.js';
 import type { RunnerValidationService } from './runner-validation.js';
-import type { Engine } from '../util/engine.js';
+import { ENGINE_CODEX, parseEngine, type Engine } from '../util/engine.js';
 import type { Database } from '../db/client.js';
-import { versions } from '../db/schema.js';
+import { authSeedTokens, versions } from '../db/schema.js';
+import { nowIso } from '../util/timestamp.js';
 
 type Logger = {
   info?: (...args: unknown[]) => void;
@@ -136,10 +139,49 @@ export class RunnerProxyService {
     };
   }
 
-  async seedCommand(payload: Record<string, unknown>): Promise<{ status: string; queued: boolean }> {
-    void payload;
-    this.log?.info?.('runner-proxy.seedCommand called (stub)');
-    return { status: 'ok', queued: true };
+  async seedCommand(payload: Record<string, unknown>): Promise<{
+    status: string;
+    queued: boolean;
+    command?: string;
+    expires_at?: string;
+    engine?: Engine;
+  }> {
+    const db = this.deps.db;
+    if (!db) {
+      this.log?.info?.('runner-proxy.seedCommand called (stub)');
+      return { status: 'ok', queued: true };
+    }
+
+    const baseUrl = resolveSeedBaseUrl(this.env, payload);
+    if (!baseUrl) {
+      throw new ServiceUnavailableError(
+        'Unable to determine public base URL for seed command. Set PUBLIC_BASE_URL.',
+        'public_base_url_missing',
+      );
+    }
+
+    const ttlRaw = this.env.AUTH_SEED_TOKEN_TTL_SECONDS;
+    const ttlSeconds = typeof ttlRaw === 'number' && ttlRaw > 0 ? ttlRaw : 900;
+    const nowMs = Date.now();
+    const expiresAt = new Date(nowMs + ttlSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const createdAt = nowIso();
+    const engine: Engine = payload.engine !== undefined ? parseEngine(payload.engine) : ENGINE_CODEX;
+
+    await db.delete(authSeedTokens).where(lt(authSeedTokens.expiresAt, createdAt));
+
+    const token = randomBytes(32).toString('hex');
+    await db.insert(authSeedTokens).values({
+      token,
+      tokenEnc: null,
+      baseUrl,
+      engine,
+      expiresAt,
+      usedAt: null,
+      createdAt,
+    });
+
+    const command = `curl -fsSL "${baseUrl.replace(/\/+$/, '')}/seed/auth/${token}" | bash`;
+    return { status: 'ok', queued: true, command, expires_at: expiresAt, engine };
   }
 
   private async readPersistedStatus(): Promise<Partial<RunnerStatus>> {
@@ -163,6 +205,14 @@ export class RunnerProxyService {
       last_result: { codex, claude },
     };
   }
+}
+
+function resolveSeedBaseUrl(env: Env, payload: Record<string, unknown>): string {
+  const fromPayload = typeof payload.base_url === 'string' ? payload.base_url.trim() : '';
+  if (fromPayload !== '') return fromPayload.replace(/\/+$/, '');
+  const fromEnv = typeof env.PUBLIC_BASE_URL === 'string' ? env.PUBLIC_BASE_URL.trim() : '';
+  if (fromEnv !== '') return fromEnv.replace(/\/+$/, '');
+  return '';
 }
 
 function createVersionReader(db: Database): () => Promise<Map<string, string>> {

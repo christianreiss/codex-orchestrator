@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -326,6 +325,3 @@ func themeFromConfig(cfg *config.Config) string {
 	}
 	return *cfg.EngineOptions.AdminThemeHint
 }
-
-// Suppress unused-import warnings if a check is rewritten later.
-var _ = strconv.Atoi

@@ -10,6 +10,7 @@
  * and `insecure-window-admin`) owns the actual DB work.
  */
 import type { FastifyInstance } from 'fastify';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ValidationError } from '../../../http/errors.js';
@@ -21,9 +22,13 @@ import {
   MAX_INSECURE_WINDOW_MINUTES,
 } from '../../../services/host-management.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
+import {
+  createRunnerValidationService,
+  type RunnerValidationService,
+} from '../../../services/runner-validation.js';
 import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
-import type { Host } from '../../../db/schema.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../../../util/engine.js';
+import { hostAuthDigests, type Host } from '../../../db/schema.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -144,6 +149,12 @@ function parseId(raw: unknown, name = 'id'): number {
   return Number.parseInt(s, 10);
 }
 
+function parseIncludeBody(raw: unknown): boolean {
+  if (raw === undefined || raw === null) return false;
+  const s = String(raw).toLowerCase().trim();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
 function hostToWire(h: Host): Record<string, unknown> {
   return {
     id: h.id,
@@ -191,9 +202,17 @@ function parseZod<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> 
 // Registration
 // ────────────────────────────────────────────────────────────────────────────
 
+export interface AdminHostAuthView {
+  canonical_last_refresh: string | null;
+  canonical_digest: string | null;
+  recent_digests: string[];
+  auth: Record<string, unknown> | null;
+}
+
 export interface AdminHostRoutesOverrides {
   hostService?: HostManagementService;
   insecure?: InsecureWindowAdminService;
+  authView?: (host: Host, engine: Engine, includeBody: boolean) => Promise<AdminHostAuthView>;
 }
 
 export async function registerAdminHostsRoutes(
@@ -211,6 +230,32 @@ export async function registerAdminHostsRoutes(
       events,
     });
   const insecure = overrides.insecure ?? new InsecureWindowAdminService({ db: ctx.db, env: ctx.env, events });
+  const runnerValidation: RunnerValidationService = createRunnerValidationService({
+    db: ctx.db,
+    keyring: ctx.keyring,
+  });
+  const authView =
+    overrides.authView ??
+    (async (host: Host, engine: Engine, includeBody: boolean): Promise<AdminHostAuthView> => {
+      const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
+      const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
+      const digests = await ctx.db
+        .select({ digest: hostAuthDigests.digest })
+        .from(hostAuthDigests)
+        .where(and(eq(hostAuthDigests.hostId, host.id), eq(hostAuthDigests.engine, engine)))
+        .orderBy(desc(hostAuthDigests.lastSeen))
+        .limit(3);
+      const engineLastRefresh =
+        engine === ENGINE_CLAUDE ? host.claudeLastRefresh ?? null : host.lastRefresh ?? null;
+      const engineDigest =
+        engine === ENGINE_CLAUDE ? host.claudeAuthDigest ?? null : host.authDigest ?? null;
+      return {
+        canonical_last_refresh: validated?.last_refresh ?? engineLastRefresh,
+        canonical_digest: validated?.digest ?? engineDigest,
+        recent_digests: digests.map((d) => d.digest),
+        auth: includeBody ? validated?.auth ?? null : null,
+      };
+    });
 
   // ─── #1 POST /admin/hosts/register ───
   app.route({
@@ -284,14 +329,18 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
+      const query = (req.query ?? {}) as { engine?: string; include_body?: string };
+      const engine: Engine = isEngine(query.engine) ? query.engine : ENGINE_CODEX;
+      const includeBody = parseIncludeBody(query.include_body);
       const host = await hostService.requireById(id);
+      const view = await authView(host, engine, includeBody);
       return {
         host: hostToWire(host),
-        engine: ENGINE_CODEX,
-        canonical_last_refresh: host.lastRefresh,
-        canonical_digest: host.authDigest,
-        recent_digests: [],
-        auth: null,
+        engine,
+        canonical_last_refresh: view.canonical_last_refresh,
+        canonical_digest: view.canonical_digest,
+        recent_digests: view.recent_digests,
+        auth: view.auth,
         api_calls: host.apiCalls,
       };
     },

@@ -51,7 +51,6 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 			teardown = p.Stop
 		}
 	}
-	_ = cfg
 	return teardown, nil
 }
 

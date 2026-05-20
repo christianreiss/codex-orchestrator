@@ -2,26 +2,26 @@
 
 Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, and `docs/interface-clx.md`. Keep them in lock-step with code. This service keeps one canonical auth store per engine (Codex `auth.json` and Claude credentials) for the whole fleet, so every change needs a paper trail.
 
-## Backend stack (post BACKEND-redo)
+## Backend stack
 
-The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted at `api/`. The legacy PHP under `src/` and `public/index.php` is retained for one release as a reference; the next release deletes it.
+The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted at `api/`.
 
 - Entrypoint: `api/src/server.ts` (Fastify boot, plugin registration, `LISTEN_PORT`/`LISTEN_HOST`).
 - Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration).
-- Crypto: `api/src/security/secret-box.ts` reads/writes the legacy `sbox:v1[:kid=…]:<b64>` envelope via `libsodium-wrappers`. Password verifier (`api/src/security/password.ts`) accepts bcrypt + phpass + argon2id and transparently rehashes to argon2id on next login.
+- Crypto: `api/src/security/secret-box.ts` reads/writes the `sbox:v1[:kid=…]:<b64>` envelope via `libsodium-wrappers`. Password verifier (`api/src/security/password.ts`) accepts bcrypt + phpass + argon2id and transparently rehashes to argon2id on next login.
 - Response envelopes: three formatters (`standard` / `openai` / `anthropic`) wired by `api/src/http/envelope/select.ts`; one `onSend` hook reshapes any handler's return value into the right shape based on URL prefix.
 - Routes live under `api/src/routes/<group>/` and are mounted by `api/src/routes/index.ts`. Services live under `api/src/services/` — no god services.
 - WebSocket admin events are native (`/admin/ws` via `@fastify/websocket`). Services publish via `wsPublisher.publish(type, payload)`.
-- Tests: `vitest` with `light-my-request` for in-process integration. The contract suite under `api/test/contract/` replays recorded golden responses captured from the legacy PHP by `tests/contract/record.sh`.
+- Tests: `vitest` with `light-my-request` for in-process integration. Unit + integration suites live under `api/test/`.
 
 ## Multi-Engine Architecture
 
 The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
 - `cdx` wrapper manages Codex; `clx` wrapper manages Claude Code.
-- Skills, `AGENTS.md` / `CLAUDE.md`, and MCP are shared across both engines by default (per-engine filename via `Engine::agentsDocument`).
+- Skills, `AGENTS.md` / `CLAUDE.md`, and MCP are shared across both engines by default (per-engine filename via the engine constants).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.
-- `Engine::CODEX = 'codex'`, `Engine::CLAUDE = 'claude'` (see `src/Support/Engine.php`).
+- `ENGINE_CODEX = 'codex'`, `ENGINE_CLAUDE = 'claude'` (see `api/src/util/engine.ts`).
 - Runner state, canonical auth payloads, runner refresh triggers, admin API-disable toggles, key-service listings, and installer scripts are all engine-scoped. When adding a feature that touches any of those, branch per engine instead of silently defaulting to Codex.
 
 ## Dual-engine parity (kept current)
@@ -47,22 +47,22 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - For each task: code → test → `git commit` → push.
 - Do not push to `github` unless the user explicitly says so. Default remote for pushes is `origin`.
 - Update `CHANGELOG.md` (newest date first, grouped under `# YYYY-MM-DD` headers with items listed below each date) for any behavior visible to humans.
-- If a change requires Docker services or the baked `cdx`, rebuild + restart the stack.
+- If a change requires Docker services or the baked wrapper binaries, rebuild + restart the stack.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
 - Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
-- When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper fragments as needed.
+- When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper code as needed.
 - Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine usage breakdowns.
 
 ## Repo Snapshot
 
-- `public/index.php` is the entrypoint/router: boots env + migrations, runs one-time auth encryption backfills, wires services/repositories/rate limits, seeds wrapper metadata, and registers all HTTP routes.
-- `App\Services\AuthService` owns `/auth`, host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), digest caching, canonicalization (RFC3339 timestamps, sha256 digests, fallback from `tokens.access_token`/`OPENAI_API_KEY`), runner preflight/recovery, token usage logging, and pruning.
-- `RunnerVerifier` probes `AUTH_RUNNER_URL`, validates uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
-- `WrapperService` seeds/stores the baked `bin/cdx`, tracks wrapper version/sha, and renders host-baked wrapper content for `/wrapper` + `/wrapper/download`.
-- `SkillService`, `AgentsService`, `ClientConfigService`, and `MemoryService` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
-- `App\Security\RateLimiter` + `IpRateLimitRepository` enforce the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block).
-- MySQL schema is codified in `Database::migrate()`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
+- `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, rate limit, envelope), wires services, and mounts route groups under `api/src/routes/`.
+- `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
+- `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
+- The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-host JSON configs signed with Ed25519, and serve the Go `cdx`/`clx` binaries.
+- `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
+- `api/src/http/plugins/rate-limit.ts` enforces the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block) on the `ip_rate_limits` table.
+- MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
 
 ## Request Flow & Behavior Cheatsheet
 
@@ -89,7 +89,7 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
    - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
    - `/host/lane` gets/sets lane preference (`normal`, `spark`, `null`) with insecure-window enforcement.
-   - `/wrapper` returns host-baked wrapper metadata; `/wrapper/download` streams host-baked wrapper script with sha/etag headers.
+   - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition shim that writes config before exec.
    - `/mcp/memories/*` manages host-scoped memory records; `/mcp` serves JSON-RPC MCP tools/resources (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 
@@ -106,34 +106,33 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` entries or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
 - Insecure hosts auto-open on register for 30 minutes unless `duration_minutes` overrides it; stored sliding window is clamped 0–480 minutes (default 10). Insecure retrieve/MCP/lane calls extend the active window.
 - Pruning runs on register/auth flows and admin stale-host passes: removes expired hosts, inactive hosts (`inactivity_window_days`, default 30, max 60, 0 disables inactivity pruning), and never-provisioned hosts older than 30 minutes; logs `host.pruned`.
-- ChatGPT snapshots use `ChatGptUsageService` with 5-minute minimum refresh cadence; errors/success log under `chatgpt.usage`.
+- ChatGPT snapshots use the `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) with 5-minute minimum refresh cadence; errors/success log under `chatgpt.usage`.
 
-## cdx Wrapper & Scripts
+## Wrappers (cdx / clx)
 
-- Wrapper source is `bin/cdx` assembled from `bin/cdx.d/*.sh` via `scripts/build-cdx.sh`. Do not edit `bin/cdx` directly; edit fragments and rebuild.
-- `cdx` workflow:
-  - Acquires a run lock (unless `--allow-concurrent-sync`), pulls auth, prunes legacy prompt state, then syncs skills/AGENTS.md/config before launch.
-  - Treat `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
-  - Uses local-auth freshness windows of 24h (`MAX_LOCAL_AUTH_AGE_SECONDS`) and secure-host fallback up to 7 days (`MAX_LOCAL_AUTH_RECENT_SECONDS`) during API outages.
-  - Reports host users, handles lane preference sync via `/host/lane`, parses Codex token output, and POSTs `/usage`.
+- Source: `wrappers/cdx/` (Codex) and `wrappers/clx/` (Claude). Both are static Go binaries compiled per-platform; the `cdx`/`clx` CLI is dispatched from `cmd/<engine>/main.go`.
+- Boot flow:
+  - Acquires a run lock (unless `--allow-concurrent-sync`), reads and verifies its signed per-host JSON config (Ed25519 detached signature), syncs auth via `/auth`, prunes legacy prompt state, then syncs skills / `AGENTS.md` / config before launch.
+  - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
+  - Uses local-auth freshness windows of 24h and secure-host fallback up to 7 days during API outages.
+  - Reports host users, handles lane preference sync via `/host/lane` (Codex only), parses Codex/Claude token output, and POSTs `/usage`.
   - Honors `/auth` quota controls (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`) and displays ChatGPT usage windows + runner state.
-  - Purges `~/.codex/auth.json` after run when host is insecure and no concurrent-run guard blocks cleanup.
+  - Purges local auth after run when host is insecure and no concurrent-run guard blocks cleanup.
 - Wrapper CLI surface includes: `-4`, `--allow-concurrent-sync`, `lane`, `--wrapper-version|-W`, `status|--status`, `doctor|--doctor`, `--update|-U`, `--uninstall`, `--execute "<prompt>"`, `--debug|--verbose`, and `cdx <profile>` shorthand when profile exists in synced `config.toml`.
-- Legacy SQLite migration helper: Unknown / not found in code (`migrate-sqlite-to-mysql.php` is not present in this repository).
 
 ## Extension Playbook
 
-- Respect existing patterns; route registration lives in `public/index.php`, while business logic should stay in services/repositories.
-- Keep schema migrations + repositories aligned whenever adding columns/tables.
-- Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `tests/`.
-- For cdx changes, edit `bin/cdx.d/`, rebuild via `scripts/build-cdx.sh`, bump `WRAPPER_VERSION`, and rebuild Docker images so `storage/wrapper/cdx` seeds correctly.
+- Respect existing patterns; route registration lives in `api/src/routes/index.ts`, while business logic should stay in `api/src/services/`.
+- Keep `api/src/db/schema.ts` and Drizzle migrations aligned whenever adding columns/tables.
+- Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `api/test/` or `wrappers/<engine>/`.
+- For wrapper changes, edit `wrappers/<engine>/`, run `go build ./...` + `go vet ./...`, bump the wrapper version, and rebuild Docker images so the bakery seeds correctly.
 - Behavioral changes that affect hosts/operators require matching dashboard updates and a `CHANGELOG.md` entry.
 
 ## Admin WebUI
 
 - Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
-- Build output: `public/admin/` (committed). The PHP gateway `public/admin/index.php` enforces mTLS + session, injects `window.__adminBootstrap`, and serves the SPA's `index.html` for any admin route. `public/admin/manual/` ships article content consumed by the in-app help system.
+- Build output: `public/admin/` (committed). The API serves `index.html` for any unknown `/admin/*` route from `STATIC_ROOT` and injects `window.__adminBootstrap` based on the admin session. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
-- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `integrations`, `settings`, `account`, `manual`, `cli-auth/verify`, `login`).
+- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `cli-auth/verify`, `login`).
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
 - Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.

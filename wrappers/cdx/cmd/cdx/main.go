@@ -54,6 +54,8 @@ type flags struct {
 	versionFlag     bool
 	updateFlag      bool
 	uninstallFlag   bool
+	statusFlag      bool
+	doctorFlag      bool
 	cronArgs        []string
 	executePrompt   string
 	forceIPv4       bool
@@ -257,6 +259,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		sub = "update"
 	case f.uninstallFlag:
 		sub = "uninstall"
+	case f.statusFlag:
+		sub = "status"
+	case f.doctorFlag:
+		sub = "doctor"
 	case f.cronArgs != nil:
 		sub = "cron"
 		subArgs = f.cronArgs
@@ -356,7 +362,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
+		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
 }
@@ -391,6 +397,10 @@ func parseFlags(args []string) (flags, []string, []string) {
 			f.updateFlag = true
 		case a == "--uninstall":
 			f.uninstallFlag = true
+		case a == "--status":
+			f.statusFlag = true
+		case a == "--doctor":
+			f.doctorFlag = true
 		case a == "--silent":
 			f.silent = true
 		case a == "--debug" || a == "--verbose":
@@ -485,7 +495,7 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 	}
 
-	if clear && persist {
+	if clear {
 		if err := client.SetLane(ctx, "normal"); err != nil {
 			fmt.Fprintln(stderr, "lane clear:", err)
 			return 1

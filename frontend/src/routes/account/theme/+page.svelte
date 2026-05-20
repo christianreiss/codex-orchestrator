@@ -6,9 +6,10 @@
   import * as Card from "$lib/components/ui/card";
   import { Label } from "$lib/components/ui/label";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group";
-  import { ApiError } from "$lib/api/client";
-  import { accountKeys, getTheme, setTheme, type AccountTheme } from "$lib/api/account";
+  import { api, ApiError } from "$lib/api/client";
+  import { accountKeys, getTheme, setTheme, type AccountTheme, type ThemeResponse } from "$lib/api/account";
   import { setTheme as setLocalTheme, type ThemeChoice } from "$lib/stores/theme";
+  import { cn } from "$lib/utils/cn";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import Monitor from "@lucide/svelte/icons/monitor";
@@ -21,14 +22,44 @@
     queryFn: () => getTheme(),
   });
 
+  // Server-side accent presets layered on top of the base light/dark mode.
+  // The base mode is derived from the preset name so mode-watcher follows.
+  type Preset = "auto-pink" | "bright-pink" | "dark-pink";
+  const PRESETS: ReadonlyArray<Preset> = ["auto-pink", "bright-pink", "dark-pink"];
+  const isPreset = (v: string | undefined): v is Preset =>
+    v === "auto-pink" || v === "bright-pink" || v === "dark-pink";
+  const isBase = (v: string | undefined): v is AccountTheme =>
+    v === "auto" || v === "light" || v === "dark";
+
+  function presetBase(p: Preset): AccountTheme {
+    return p === "auto-pink" ? "auto" : p === "bright-pink" ? "light" : "dark";
+  }
+
+  function applyBodyTheme(value: string) {
+    if (typeof document === "undefined") return;
+    if (isPreset(value)) {
+      document.body.setAttribute("data-theme", value);
+    } else {
+      document.body.removeAttribute("data-theme");
+    }
+  }
+
   // Track the radio selection locally so the UI is responsive while a save
   // is in flight. Seeded from the server fetch once it arrives.
   let selected = $state<AccountTheme>("auto");
+  let activePreset = $state<Preset | null>(null);
   let seeded = $state(false);
   $effect(() => {
     const t = $themeQuery.data?.theme;
-    if (!seeded && (t === "auto" || t === "light" || t === "dark")) {
+    if (seeded || !t) return;
+    if (isBase(t)) {
       selected = t;
+      activePreset = null;
+      seeded = true;
+    } else if (isPreset(t)) {
+      activePreset = t;
+      selected = presetBase(t);
+      applyBodyTheme(t);
       seeded = true;
     }
   });
@@ -56,18 +87,71 @@
       );
       // Roll back to what the server last reported.
       const t = $themeQuery.data?.theme;
-      if (t === "auto" || t === "light" || t === "dark") selected = t;
+      if (isBase(t)) {
+        selected = t;
+        activePreset = null;
+        applyBodyTheme(t);
+      } else if (isPreset(t)) {
+        activePreset = t;
+        selected = presetBase(t);
+        applyBodyTheme(t);
+      }
     },
   });
 
   function onChange(next: string) {
     if (next !== "auto" && next !== "light" && next !== "dark") return;
     const value = next as AccountTheme;
-    if (value === selected && seeded) return;
+    if (value === selected && seeded && activePreset === null) return;
     selected = value;
+    activePreset = null;
+    applyBodyTheme(value);
     // Apply locally first so the UI updates instantly even if the request fails.
     setLocalTheme(toLocal(value));
     $themeMutation.mutate(value);
+  }
+
+  const presetMutation = createMutation({
+    mutationFn: (value: Preset) =>
+      api.post<ThemeResponse>("/admin/theme", { theme: value }),
+    onSuccess: (_data, value) => {
+      void qc.invalidateQueries({ queryKey: accountKeys.theme });
+      toast.success(
+        value === "auto-pink"
+          ? "Auto Pink applied"
+          : value === "bright-pink"
+            ? "Bright Pink applied"
+            : "Dark Pink applied",
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        err instanceof ApiError ? err.message : "Could not save theme preference.",
+      );
+      const t = $themeQuery.data?.theme;
+      if (isPreset(t)) {
+        activePreset = t;
+        selected = presetBase(t);
+        applyBodyTheme(t);
+      } else if (isBase(t)) {
+        activePreset = null;
+        selected = t;
+        applyBodyTheme(t);
+      }
+    },
+  });
+
+  function onChoosePreset(value: Preset) {
+    if (activePreset === value) return;
+    activePreset = value;
+    selected = presetBase(value);
+    applyBodyTheme(value);
+    setLocalTheme(toLocal(presetBase(value)));
+    $presetMutation.mutate(value);
+  }
+
+  function presetLabel(p: Preset): string {
+    return p === "auto-pink" ? "Auto Pink" : p === "bright-pink" ? "Bright Pink" : "Dark Pink";
   }
 
   const options: Array<{
@@ -149,24 +233,19 @@
       </Card.Description>
     </Card.Header>
     <Card.Content class="flex flex-wrap gap-2">
-      <button
-        type="button"
-        data-theme-option="auto-pink"
-        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
-        onclick={() => document.body.setAttribute('data-theme', 'auto-pink')}
-      >Auto Pink</button>
-      <button
-        type="button"
-        data-theme-option="bright-pink"
-        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
-        onclick={() => document.body.setAttribute('data-theme', 'bright-pink')}
-      >Bright Pink</button>
-      <button
-        type="button"
-        data-theme-option="dark-pink"
-        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
-        onclick={() => document.body.setAttribute('data-theme', 'dark-pink')}
-      >Dark Pink</button>
+      {#each PRESETS as preset (preset)}
+        <button
+          type="button"
+          data-theme-option={preset}
+          aria-pressed={activePreset === preset}
+          class={cn(
+            "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-accent/40",
+            activePreset === preset && "border-primary bg-accent/60 text-foreground",
+          )}
+          disabled={$themeQuery.isLoading || $presetMutation.isPending || $themeMutation.isPending}
+          onclick={() => onChoosePreset(preset)}
+        >{presetLabel(preset)}</button>
+      {/each}
     </Card.Content>
   </Card.Root>
 </div>

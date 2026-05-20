@@ -120,11 +120,14 @@ export async function registerWrapperV2Routes(
     const engine = engineFromQuery(req);
     const baseUrl = resolvePublicBaseUrl(req);
     const data = await meta.forEngine(engine, baseUrl);
+    const signer = await signing.active();
     reply.header('cache-control', 'no-store');
-    return data;
+    return { ...data, signing_kid: signer?.kid ?? null };
   }
 
   // GET /wrapper/v2/config — signed per-host config JSON.
+  // With `?sig=1` returns just the detached base64 signature value as
+  // text/plain (matches the legacy `config.json.sig` file shape).
   app.get('/wrapper/v2/config', { preHandler: [app.requireHost] }, async (req, reply) => {
     await unavailableGuard();
     const host = req.authHost;
@@ -132,6 +135,7 @@ export async function registerWrapperV2Routes(
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     const engine = engineFromQuery(req);
     const baseUrl = resolvePublicBaseUrl(req);
+    const sigOnly = isTruthyFlag((req.query as { sig?: string }).sig);
 
     let result;
     try {
@@ -151,7 +155,6 @@ export async function registerWrapperV2Routes(
     }
 
     reply.envelopeRaw = true;
-    reply.header('content-type', 'application/json');
     reply.header('cache-control', 'no-store');
     reply.header('etag', `"${result.payload.etag}"`);
     reply.header('x-sha256', result.payload.etag);
@@ -159,6 +162,14 @@ export async function registerWrapperV2Routes(
     reply.header('x-signature-algo', result.signature.algo);
     reply.header('x-signature-kid', result.signature.kid);
     reply.header('x-signature', result.signature.value);
+
+    if (sigOnly) {
+      reply.header('content-type', 'text/plain; charset=utf-8');
+      reply.header('content-length', Buffer.byteLength(result.signature.value));
+      return result.signature.value;
+    }
+
+    reply.header('content-type', 'application/json');
     const body = canonicalStringify({
       payload: result.payload,
       signature: result.signature,
@@ -316,6 +327,12 @@ export async function registerWrapperV2Routes(
 function headerString(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function isTruthyFlag(value: string | undefined): boolean {
+  if (typeof value !== 'string') return false;
+  const v = value.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 function resolveBinRoot(ctx: RouteContext): string {

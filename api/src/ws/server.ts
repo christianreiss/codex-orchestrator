@@ -12,10 +12,6 @@ interface Socket {
   on(event: string, cb: (...args: unknown[]) => void): void;
 }
 
-interface WsConnection {
-  socket: Socket;
-}
-
 export async function registerWsServer(app: FastifyInstance, env: Env): Promise<void> {
   if (!env.ADMIN_WS_ENABLED) return;
   await app.register(websocket, {
@@ -35,8 +31,7 @@ export async function registerWsServer(app: FastifyInstance, env: Env): Promise<
         if (!ctx) throw new UnauthorizedError('Admin session required', 'admin_required');
       },
     },
-    (connection: WsConnection) => {
-      const socket = connection.socket;
+    (socket: Socket) => {
       socket.send(JSON.stringify({ type: 'hello', ts: nowIso() }));
       const unsub = wsPublisher.subscribe((evt) => {
         if (socket.readyState !== 1) return;
