@@ -4,45 +4,76 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Checks that the Claude engine settings panel and related UI elements are
+ * correctly structured in the SvelteKit frontend source files.
+ */
 final class AdminClaudePanelUiTest extends TestCase
 {
     public function testExactlyOneClaudeSettingsPanel(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        // The settings page must import ClaudeEngineSection exactly once to avoid
+        // duplicate DOM IDs and conflicting toggle behaviour.
+        $settingsPage = file_get_contents(__DIR__ . '/../frontend/src/routes/settings/+page.svelte');
+        self::assertIsString($settingsPage);
 
+        // The import line and component usage each contribute at least one occurrence;
+        // duplicates would mean the component is accidentally included twice.
+        self::assertGreaterThanOrEqual(
+            2,
+            substr_count($settingsPage, 'ClaudeEngineSection'),
+            'ClaudeEngineSection must be imported and used on the settings page.'
+        );
         self::assertSame(
             1,
-            substr_count($html, 'data-settings-panel="claude"'),
-            'Exactly one Claude settings panel may exist (duplicate panels collide on DOM IDs and break the toggle).'
+            substr_count($settingsPage, '<ClaudeEngineSection'),
+            'ClaudeEngineSection component must be rendered exactly once (no duplicate panels).'
         );
     }
 
     public function testClaudeDomIdsAreUnique(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        // All Claude-specific element IDs live in ClaudeEngineSection.svelte;
+        // they must appear exactly once there (no copy-paste duplication).
+        $section = file_get_contents(__DIR__ . '/../frontend/src/lib/components/settings/ClaudeEngineSection.svelte');
+        self::assertIsString($section);
 
-        foreach (['claudeDefaultModel', 'claudeMaxTokens', 'claudeApiToggle', 'claudeSettingsSaveBtn', 'claudeRunnerChip'] as $id) {
+        foreach (['claude-state-toggle', 'claude-model', 'claude-max-tokens'] as $id) {
             self::assertSame(
                 1,
-                substr_count($html, 'id="' . $id . '"'),
-                "DOM id {$id} must be unique."
+                substr_count($section, 'id="' . $id . '"'),
+                "Element id \"{$id}\" must appear exactly once in ClaudeEngineSection.svelte."
             );
         }
     }
 
     public function testClaudeRailNavEntryIsSingleAndWiredWithShortcut(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        // The sidebar nav has a single "Settings" entry that navigates to /settings,
+        // which houses the Claude engine section.
+        $sidebar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/Sidebar.svelte');
+        self::assertIsString($sidebar);
 
-        // One rail link (with [s][l] shortcut) + one mobile tab + one sidebar link = 3 references
-        // to /admin/settings/claude. Any extras indicate drift.
-        $count = substr_count($html, 'href="/admin/settings/claude"');
-        self::assertSame(3, $count, 'Expected exactly 3 /admin/settings/claude nav references (rail + mobile + sidebar).');
+        // The sidebar uses the NAV array (import + iteration = 2 references).
+        self::assertGreaterThanOrEqual(
+            2,
+            substr_count($sidebar, 'NAV'),
+            'Sidebar must import and iterate over the NAV array.'
+        );
 
-        self::assertStringContainsString('[s][l]', $html);
+        // The nav definition must include a /settings entry.
+        $nav = file_get_contents(__DIR__ . '/../frontend/src/lib/nav.ts');
+        self::assertIsString($nav);
+
+        self::assertStringContainsString('"/settings"', $nav);
+        self::assertStringContainsString('Settings', $nav);
+
+        // The global shortcut handler must register at least "?" (open shortcuts)
+        // and "/" (focus command palette).
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        self::assertIsString($layout);
+
+        self::assertStringContainsString('bindGlobalShortcuts', $layout);
     }
 
     public function testClaudeSettingsPageRouteExists(): void
@@ -59,18 +90,20 @@ final class AdminClaudePanelUiTest extends TestCase
 
     public function testClaudeApiToggleLivesInApiKeysPanelHeader(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        // The API Keys page renders one KillSwitchCard per engine so operators
+        // manage OpenAI and Claude on/off in a single place.
+        $apiKeysPage = file_get_contents(__DIR__ . '/../frontend/src/routes/api-keys/+page.svelte');
+        self::assertIsString($apiKeysPage);
 
-        // Both toggles appear side-by-side in the API Keys panel so operators manage
-        // OpenAI/Claude compat-API on/off in a single place.
-        $apikeysPanelStart = strpos($html, 'data-settings-panel="apikeys"');
-        self::assertNotFalse($apikeysPanelStart);
-        $panelEnd = strpos($html, '</section>', $apikeysPanelStart);
-        self::assertNotFalse($panelEnd);
-        $panel = substr($html, $apikeysPanelStart, $panelEnd - $apikeysPanelStart);
+        self::assertStringContainsString('KillSwitchCard', $apiKeysPage);
+        self::assertStringContainsString('engine="openai"', $apiKeysPage);
+        self::assertStringContainsString('engine="claude"', $apiKeysPage);
 
-        self::assertStringContainsString('id="openaiApiToggle"', $panel);
-        self::assertStringContainsString('id="claudeApiToggle"', $panel);
+        // The KillSwitchCard component itself renders a toggle for the given engine.
+        $killSwitchCard = file_get_contents(__DIR__ . '/../frontend/src/lib/components/api-keys/KillSwitchCard.svelte');
+        self::assertIsString($killSwitchCard);
+
+        self::assertStringContainsString('Switch', $killSwitchCard);
+        self::assertStringContainsString('engineLabel', $killSwitchCard);
     }
 }

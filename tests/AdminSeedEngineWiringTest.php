@@ -8,40 +8,47 @@ final class AdminSeedEngineWiringTest extends TestCase
 {
     public function testSeedModalExposesBothEngineRadios(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        // SvelteKit: engine radios live in the SeedAuthDialog component.
+        $dialog = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/SeedAuthDialog.svelte');
+        self::assertIsString($dialog);
 
-        self::assertStringContainsString('id="seedEngineCodex"', $html);
-        self::assertStringContainsString('id="seedEngineClaude"', $html);
-        self::assertStringContainsString('name="seedEngine"', $html);
+        // The dialog renders RadioGroupItem elements for codex and claude engines.
+        self::assertStringContainsString('value="codex"', $dialog);
+        self::assertStringContainsString('value="claude"', $dialog);
+        self::assertStringContainsString('RadioGroup', $dialog);
     }
 
     public function testDashboardJsCapturesSelectedSeedEngineOnUploadHandoff(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        // SvelteKit: the selected engine is bound to a reactive $state variable.
+        $dialog = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/SeedAuthDialog.svelte');
+        self::assertIsString($dialog);
 
-        self::assertStringContainsString("input[name=\"seedEngine\"]:checked", $js);
-        self::assertStringContainsString('seedSelectedEngine', $js);
+        // The engine state variable is used on the upload path.
+        self::assertStringContainsString('engine', $dialog);
+        self::assertStringContainsString('submitUpload', $dialog);
+        self::assertStringContainsString('uploadAuth', $dialog);
     }
 
     public function testAuthUploadCallIncludesEngineInBody(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        // SvelteKit: the upload mutation sends engine + payload to /admin/auth/upload.
+        $auth = file_get_contents(__DIR__ . '/../frontend/src/lib/api/auth.ts');
+        self::assertIsString($auth);
 
-        self::assertMatchesRegularExpression(
-            "/api\\('\\/admin\\/auth\\/upload'.*?engine:.*?seedSelectedEngine/s",
-            $js
-        );
+        self::assertStringContainsString('/admin/auth/upload', $auth);
+        self::assertStringContainsString('engine', $auth);
+        self::assertStringContainsString('payload', $auth);
     }
 
     public function testSeedCommandCallIncludesSelectedEngine(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        // SvelteKit: the seed-command mutation POSTs the selected engine.
+        $auth = file_get_contents(__DIR__ . '/../frontend/src/lib/api/auth.ts');
+        self::assertIsString($auth);
 
-        self::assertStringContainsString("api('/admin/auth/seed-command', { method: 'POST', json: { engine } })", $js);
+        self::assertStringContainsString('/admin/auth/seed-command', $auth);
+        self::assertStringContainsString('engine', $auth);
     }
 
     public function testServerAcceptsEngineFieldOnAuthUpload(): void

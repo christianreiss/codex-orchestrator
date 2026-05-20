@@ -27,20 +27,27 @@ final class AdminSkillGenerationUiTest extends TestCase
 
     public function testSkillWorkspaceUsesConversationalAssistFlow(): void
     {
-        $html = @file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
-        self::assertStringContainsString('Talk with your skill', $html);
-        self::assertStringContainsString('id="skillAssistInput"', $html);
-        self::assertStringContainsString('id="skillAssistSend"', $html);
-        self::assertStringContainsString('Session only. The conversation is not stored;', $html);
+        // SvelteKit: the skill workspace uses an AI assist dialog in the detail page.
+        $page = @file_get_contents(
+            __DIR__ . '/../frontend/src/routes/authoring/skills/[slug]/+page.svelte'
+        );
+        self::assertIsString($page);
 
-        $js = @file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
-        self::assertStringContainsString('async function assistSkillDraft()', $js);
-        self::assertStringContainsString("api('/admin/skills/assist'", $js);
-        self::assertStringContainsString("skillConversationMessages = [...messages, {", $js);
-        self::assertStringContainsString("role: 'assistant',", $js);
-        self::assertStringContainsString("if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {", $js);
-        self::assertStringContainsString('renderSkillChangedFields();', $js);
+        // The assist feature is present as a mutation that calls skillsApi.assist
+        self::assertStringContainsString('skillsApi.assist', $page);
+        // Conversations are sent as a messages array with role/content entries
+        self::assertStringContainsString("role: \"user\"", $page);
+        self::assertStringContainsString('assistQuestion', $page);
+        self::assertStringContainsString('assistResult', $page);
+        // The dialog opens from an "Assist (AI)" button
+        self::assertStringContainsString('Assist (AI)', $page);
+
+        // The API module wires the POST /admin/skills/assist endpoint
+        $api = @file_get_contents(__DIR__ . '/../frontend/src/lib/api/skills.ts');
+        self::assertIsString($api);
+        self::assertStringContainsString('/admin/skills/assist', $api);
+        // Messages array carries role + content
+        self::assertStringContainsString('role', $api);
+        self::assertStringContainsString('content', $api);
     }
 }

@@ -8,52 +8,75 @@ final class AdminDashboardWebsocketWiringTest extends TestCase
 {
     public function testAdminIndexLoadsDashboardAndWsScriptsInOrder(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        // In the SvelteKit app, the root layout initialises the WS client and
+        // wires it to the query client.  The layout imports must appear in order:
+        // ws/client (createWsClient) and then ws/events (wireWsToQueryClient).
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        $this->assertIsString($layout);
 
-        $dashboardPos = strpos($html, '/admin/assets/dashboard.js');
-        $logsPos = strpos($html, '/admin/assets/logs.js');
-        $wsPos = strpos($html, '/admin/assets/admin-ws.js');
+        $createWsPos = strpos($layout, 'createWsClient');
+        $wireWsPos   = strpos($layout, 'wireWsToQueryClient');
 
-        $this->assertIsInt($dashboardPos);
-        $this->assertIsInt($logsPos);
-        $this->assertIsInt($wsPos);
-        $this->assertGreaterThan($dashboardPos, $logsPos);
-        $this->assertGreaterThan($logsPos, $wsPos);
+        $this->assertIsInt($createWsPos);
+        $this->assertIsInt($wireWsPos);
+        // wireWsToQueryClient is called after createWsClient produces the handle.
+        $this->assertGreaterThan($createWsPos, $wireWsPos);
     }
 
     public function testDashboardUnknownWsActionsStillRefreshOverviewAndHosts(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // The SvelteKit events map handles all known events; host + overview keys
+        // are always included so any host-related action triggers a refresh.
+        $events = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($events);
 
-        $this->assertStringContainsString('if (action) {', $js);
-        $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DOMAINS', $js);
-        $this->assertStringContainsString('WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS', $js);
-        $this->assertStringContainsString('scheduleLiveDataRefresh(WS_UNKNOWN_ACTION_FALLBACK_DOMAINS, WS_UNKNOWN_ACTION_FALLBACK_DELAY_MS);', $js);
+        // wireWsToQueryClient iterates every event and invalidates matching query keys.
+        $this->assertStringContainsString('function wireWsToQueryClient(', $events);
+        $this->assertStringContainsString('qc.invalidateQueries(', $events);
+        // Overview key is invalidated for host events.
+        $this->assertStringContainsString('"host.created"', $events);
+        $this->assertStringContainsString('"host.deleted"', $events);
+        $this->assertStringContainsString('["overview"]', $events);
     }
 
     public function testDashboardRingsBellForNewInsecureApprovalRequests(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // The SvelteKit insecure approvals feature: pending approvals are fetched
+        // via a reactive query that auto-refreshes and is driven by WS events.
+        $insecureApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/insecure.ts');
+        $this->assertIsString($insecureApi);
+        $this->assertStringContainsString('"/admin/insecure-approvals/pending"', $insecureApi);
+        $this->assertStringContainsString('refetchInterval', $insecureApi);
+        $this->assertStringContainsString('insecureApprovalsQuery', $insecureApi);
 
-        $this->assertStringContainsString('INSECURE_APPROVAL_BELL_COOLDOWN_MS = 5000', $js);
-        $this->assertStringContainsString('async function ringInsecureApprovalBell()', $js);
-        $this->assertStringContainsString('window.AudioContext || window.webkitAudioContext', $js);
-        $this->assertStringContainsString('const queued = enqueueInsecureApproval({', $js);
-        $this->assertStringContainsString('if (queued) {', $js);
-        $this->assertStringContainsString('ringInsecureApprovalBell();', $js);
+        // The WS event map notifies on insecure approval changes.
+        $events = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($events);
+        $this->assertStringContainsString('"insecure.requested"', $events);
+        $this->assertStringContainsString('"insecure.approved"', $events);
+        $this->assertStringContainsString('["insecure-approvals"]', $events);
     }
 
     public function testDashboardBootstrapsPendingInsecureApprovalsOnLoadAndWsReconnect(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // Pending approvals are bootstrapped via insecureApprovalsQuery on mount and
+        // kept live via WS invalidations.
+        $insecureApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/insecure.ts');
+        $this->assertIsString($insecureApi);
+        $this->assertStringContainsString('"/admin/insecure-approvals/pending"', $insecureApi);
 
-        $this->assertStringContainsString("api('/admin/insecure-approvals/pending')", $js);
-        $this->assertStringContainsString("window.addEventListener('admin-ws-status', (event) => {", $js);
-        $this->assertStringContainsString("if (status === 'open') {", $js);
-        $this->assertStringContainsString('loadPendingInsecureApprovals();', $js);
+        // WS reconnect is handled transparently by the auto-reconnecting client.
+        $wsClient = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/client.ts');
+        $this->assertIsString($wsClient);
+        $this->assertStringContainsString('status.set("open")', $wsClient);
+        $this->assertStringContainsString('scheduleReconnect', $wsClient);
+        $this->assertStringContainsString('function connect(', $wsClient);
+
+        // The layout starts the WS client once the user is authenticated.
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        $this->assertIsString($layout);
+        $this->assertStringContainsString('createWsClient', $layout);
+        $this->assertStringContainsString('wireWsToQueryClient', $layout);
+        $this->assertStringContainsString('state.authenticated', $layout);
     }
 }

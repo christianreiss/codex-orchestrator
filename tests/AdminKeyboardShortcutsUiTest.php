@@ -8,86 +8,123 @@ final class AdminKeyboardShortcutsUiTest extends TestCase
 {
     public function testAdminShellIncludesShortcutHelpTriggerAndModal(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
+        $shortcutsModal = file_get_contents(__DIR__ . '/../frontend/src/lib/components/shortcuts/ShortcutsModal.svelte');
+        self::assertIsString($shortcutsModal);
 
-        self::assertStringContainsString('id="navHelpTrigger"', $html);
-        self::assertStringContainsString('id="helpModal"', $html);
-        self::assertStringContainsString('id="hostSearchModal"', $html);
-        self::assertStringContainsString('id="hostSearchInput"', $html);
-        self::assertStringContainsString('Keyboard shortcuts', $html);
-        self::assertStringContainsString('Settings: projects', $html);
-        self::assertStringContainsString('Hosts: quick VM', $html);
-        self::assertStringContainsString('Focus the active search, or jump to a host from the dashboard', $html);
-        self::assertStringContainsString('Toggle the visible drawer/panel', $html);
-        self::assertStringNotContainsString('id="kbdShortcutsModal"', $html);
+        // Shortcuts modal dialog contains the help title
+        self::assertStringContainsString('Keyboard shortcuts', $shortcutsModal);
+        // Modal opens via window event
+        self::assertStringContainsString('codex:open-shortcuts', $shortcutsModal);
+        // Modal renders the shortcut entries
+        self::assertStringContainsString('{#each ENTRIES as entry', $shortcutsModal);
+        // Escape shortcut to close overlays is documented
+        self::assertStringContainsString('Esc', $shortcutsModal);
+
+        $commands = file_get_contents(__DIR__ . '/../frontend/src/lib/components/command-palette/commands.ts');
+        self::assertIsString($commands);
+        // Command palette has a command to open shortcuts
+        self::assertStringContainsString('action:open-shortcuts', $commands);
+        self::assertStringContainsString('codex:open-shortcuts', $commands);
+
+        $commandPalette = file_get_contents(__DIR__ . '/../frontend/src/lib/components/command-palette/CommandPalette.svelte');
+        self::assertIsString($commandPalette);
+        // ShortcutsModal is globally mounted inside CommandPalette
+        self::assertStringContainsString('ShortcutsModal', $commandPalette);
     }
 
     public function testAdminDashboardWiresRealKeyboardShortcuts(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        $shortcuts = file_get_contents(__DIR__ . '/../frontend/src/lib/utils/shortcuts.ts');
+        self::assertIsString($shortcuts);
 
-        self::assertStringContainsString("const navHelpTrigger = document.getElementById('navHelpTrigger');", $js);
-        self::assertStringContainsString("const helpModal = document.getElementById('helpModal');", $js);
-        self::assertStringContainsString("const hostSearchModal = document.getElementById('hostSearchModal');", $js);
-        self::assertStringContainsString("const hostSearchInput = document.getElementById('hostSearchInput');", $js);
-        self::assertStringContainsString('function handleGlobalShortcut(event)', $js);
-        self::assertStringContainsString("if (key === '?') {", $js);
-        self::assertStringContainsString("if (normalizedKey === 'n') {", $js);
-        self::assertStringContainsString("if (key === '/') {", $js);
-        self::assertStringContainsString('if (isDashboardView()) {', $js);
-        self::assertStringContainsString('showHostSearchModal(true);', $js);
-        self::assertStringContainsString('function renderHostSearchResults(query = hostSearchInput?.value || \'\') {', $js);
-        self::assertStringContainsString('function openSelectedHostSearchResult() {', $js);
-        self::assertStringContainsString("if (normalizedKey === 'r') {", $js);
-        self::assertStringContainsString("p: '/admin/settings/projects'", $js);
-        self::assertStringContainsString('function openNewHostModal({ closeMenus = false } = {})', $js);
-        self::assertStringContainsString('function openQuickVmModal({ closeMenus = false } = {})', $js);
-        self::assertStringContainsString('window.__railNav?.closeMenus?.();', $js);
-        self::assertStringContainsString("showNewHostModal(true, { reset: true, focusInput: true });", $js);
-        self::assertStringContainsString("q: '__quick_vm__'", $js);
-        self::assertStringContainsString("openQuickVmModal({ closeMenus: true });", $js);
-        self::assertStringContainsString("newHostName?.focus();", $js);
-        self::assertStringContainsString('function triggerNewShortcut()', $js);
-        self::assertStringContainsString("openNewHostModal({ closeMenus: true });", $js);
-        self::assertStringContainsString("if (pendingShortcutPrefix === normalizedKey) {", $js);
-        self::assertStringContainsString("window.__railNav?.toggleGroup?.(prefix === 'h' ? 'hosts' : prefix === 'l' ? 'logs' : prefix === 's' ? 'settings' : '');", $js);
-        self::assertStringContainsString("window.__railNav?.toggleGroup?.(normalizedKey === 'h' ? 'hosts' : normalizedKey === 'l' ? 'logs' : 'settings');", $js);
-        self::assertStringContainsString('[hostSearchModal,       () => showHostSearchModal(false)]', $js);
-        self::assertStringContainsString("document.addEventListener('keydown', handleGlobalShortcut);", $js);
-        self::assertStringNotContainsString("const kbdModal = document.getElementById('kbdShortcutsModal');", $js);
+        // '?' triggers the shortcuts modal
+        self::assertStringContainsString('event.key === "?"', $shortcuts);
+        // '/' opens the command palette
+        self::assertStringContainsString('event.key === "/"', $shortcuts);
+        // Escape closes overlays
+        self::assertStringContainsString('event.key === "Escape"', $shortcuts);
+        // Modifier keys suppress shortcuts (e.g. Cmd-K not captured here)
+        self::assertStringContainsString('event.metaKey || event.ctrlKey', $shortcuts);
+        // Global shortcut binding exported
+        self::assertStringContainsString('export function bindGlobalShortcuts', $shortcuts);
+        // Typing in form fields is ignored
+        self::assertStringContainsString('isTypingInField', $shortcuts);
+        // Handler is registered on window
+        self::assertStringContainsString('window.addEventListener("keydown", handler)', $shortcuts);
+
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        self::assertIsString($layout);
+        // Layout wires up shortcuts on mount
+        self::assertStringContainsString('bindGlobalShortcuts', $layout);
+        // '/' opens command palette
+        self::assertStringContainsString('"/": () => commandPalette.open()', $layout);
+        // '?' dispatches the shortcuts event
+        self::assertStringContainsString("codex:open-shortcuts", $layout);
+        // Cmd-K / Ctrl-K handled in layout
+        self::assertStringContainsString('metaKey || event.ctrlKey', $layout);
+        // Command palette toggle wired to Cmd-K
+        self::assertStringContainsString('commandPalette.toggle()', $layout);
+
+        $commands = file_get_contents(__DIR__ . '/../frontend/src/lib/components/command-palette/commands.ts');
+        self::assertIsString($commands);
+        // New-host action navigates to /hosts/new
+        self::assertStringContainsString('/hosts/new', $commands);
+        // Quick-VM action fires a window event
+        self::assertStringContainsString('codex:open-quick-vm', $commands);
+        // Settings deep-link is registered
+        self::assertStringContainsString('/settings', $commands);
+        // Sign-out action calls authActions.logout
+        self::assertStringContainsString('authActions.logout', $commands);
     }
 
     public function testHostsTableIncludesAutoUpdatesColumnAndIndicators(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        self::assertIsString($html);
-        self::assertStringContainsString('data-sort="auto_updates"', $html);
-        self::assertStringContainsString('Auto-updates', $html);
+        $hostsTable = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/HostsTable.svelte');
+        self::assertIsString($hostsTable);
 
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
-        self::assertStringContainsString('function hostAutoUpdateIndicator(host)', $js);
-        self::assertStringContainsString('host?.auto_update_label', $js);
-        self::assertStringContainsString('host?.auto_update_emoji', $js);
-        self::assertStringContainsString('host?.auto_update_rank', $js);
-        self::assertStringContainsString('host?.auto_update_state', $js);
-        self::assertStringContainsString('host?.auto_update_last_event_at', $js);
-        self::assertStringContainsString("case 'auto_updates':", $js);
-        self::assertStringContainsString('host-auto-updates-indicator', $js);
-        self::assertStringContainsString("label: 'Auto-updates'", $js);
+        // Auto-update column header is present
+        self::assertStringContainsString('Auto-upd.', $hostsTable);
+        // Auto-update sort field is wired
+        self::assertStringContainsString('effective_auto_update_enabled', $hostsTable);
+        // Toggle switch rendered for auto-update
+        self::assertStringContainsString('onToggleAutoUpdate', $hostsTable);
+        // Toggle auto-update aria-label references fqdn
+        self::assertStringContainsString('Toggle auto-update for', $hostsTable);
+
+        $hostsApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/hosts.ts');
+        self::assertIsString($hostsApi);
+        // Auto-update mutation factory exported
+        self::assertStringContainsString('createAutoUpdateToggleMutation', $hostsApi);
+        // Auto-update endpoint path
+        self::assertStringContainsString('/auto-update', $hostsApi);
+        // effective_auto_update_enabled applied in optimistic update
+        self::assertStringContainsString('effective_auto_update_enabled', $hostsApi);
     }
 
     public function testSecureHostsTabHidesInsecureWindowColumn(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        $hostsPage = file_get_contents(__DIR__ . '/../frontend/src/routes/hosts/+page.svelte');
+        self::assertIsString($hostsPage);
 
-        self::assertStringContainsString('const hostsInsecureHeader = document.querySelector(\'#hosts-table .insecure-col\');', $js);
-        self::assertStringContainsString("return hostStatusFilter !== 'secure';", $js);
-        self::assertStringContainsString('hostsInsecureHeader.hidden = !hostTableShowsInsecureColumn();', $js);
-        self::assertStringContainsString('${showInsecureColumn ? `<td class="actions-cell insecure-cell" data-label="Insecure Window">${insecureToggleCell}</td>` : \'\'}', $js);
-        self::assertStringContainsString('const cols = hostTableShowsInsecureColumn() ? 7 : 6;', $js);
+        // Secure filter chip exists
+        self::assertStringContainsString('"secure"', $hostsPage);
+        // Insecure filter chip exists
+        self::assertStringContainsString('"insecure"', $hostsPage);
+        // Filter is URL-synced
+        self::assertStringContainsString('searchParams.get', $hostsPage);
+
+        $hostsApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/hosts.ts');
+        self::assertIsString($hostsApi);
+        // hostMatchesFilter classifies secure hosts
+        self::assertStringContainsString('case "secure":', $hostsApi);
+        // isInsecureWindowActive helper drives insecure column visibility
+        self::assertStringContainsString('export function isInsecureWindowActive', $hostsApi);
+
+        $hostsTable = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/HostsTable.svelte');
+        self::assertIsString($hostsTable);
+        // Insecure countdown cell is rendered per row
+        self::assertStringContainsString('InsecureCountdown', $hostsTable);
+        // isInsecureWindowActive is imported and used to set row state
+        self::assertStringContainsString('isInsecureWindowActive', $hostsTable);
     }
 }

@@ -8,31 +8,37 @@ final class CdxWrapperUninstallTest extends TestCase
 {
     public function testUninstallIsDeferredUntilAfterConfigHelpersLoad(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // In the Go wrapper, uninstall is a proper subcommand (uninstall.Run)
+        // invoked only after config.Load() validates and loads the signed config.
+        // This replaces the bash "CODEX_DO_UNINSTALL" deferred-flag pattern.
+        $mainSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
+        self::assertIsString($mainSource, 'Expected to be able to read cmd/cdx/main.go');
 
-        $caseStart = strpos($wrapperSource, '# Early one-shot commands');
-        self::assertNotFalse($caseStart, 'Expected early one-shot commands block to exist');
+        // --uninstall flag is parsed.
+        self::assertStringContainsString('--uninstall', $mainSource);
+        self::assertStringContainsString('uninstallFlag', $mainSource);
 
-        $caseEnd = strpos($wrapperSource, 'esac', $caseStart);
-        self::assertNotFalse($caseEnd, 'Expected early one-shot commands block to end with esac');
+        // Config is loaded before the uninstall subcommand is dispatched.
+        $configLoadPos = strpos($mainSource, 'config.Load(');
+        self::assertNotFalse($configLoadPos, 'Expected config.Load call in main.go');
 
-        $caseBlock = substr($wrapperSource, $caseStart, $caseEnd - $caseStart);
-        self::assertIsString($caseBlock);
+        $uninstallCallPos = strpos($mainSource, 'uninstall.Run(');
+        self::assertNotFalse($uninstallCallPos, 'Expected uninstall.Run call in main.go');
+        self::assertGreaterThan($configLoadPos, $uninstallCallPos, 'Expected uninstall call to run after config is loaded');
 
-        self::assertStringContainsString('--uninstall)', $caseBlock);
-        self::assertStringContainsString('CODEX_DO_UNINSTALL=1', $caseBlock);
-        self::assertStringNotContainsString('cmd_uninstall', $caseBlock);
+        // The uninstall package contains the actual removal logic.
+        $uninstallSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/uninstall/uninstall.go');
+        self::assertIsString($uninstallSource, 'Expected to be able to read uninstall/uninstall.go');
 
-        $loadSyncPos = strpos($wrapperSource, "load_sync_config() {");
-        self::assertNotFalse($loadSyncPos, 'Expected load_sync_config() to be defined in wrapper');
+        // Uninstall removes the key local artefacts.
+        self::assertStringContainsString('auth.json', $uninstallSource);
+        self::assertStringContainsString('AGENTS.md', $uninstallSource);
+        self::assertStringContainsString('config.toml', $uninstallSource);
 
-        $guardPos = strpos($wrapperSource, 'if ((CODEX_DO_UNINSTALL)); then');
-        self::assertNotFalse($guardPos, 'Expected wrapper to gate uninstall behind CODEX_DO_UNINSTALL');
-        self::assertGreaterThan($loadSyncPos, $guardPos, 'Expected uninstall gate to run after load_sync_config() is defined');
+        // Multi-user safety check is preserved.
+        self::assertStringContainsString('uninstall refused: multi-user host', $uninstallSource);
 
-        $callPos = strpos($wrapperSource, 'cmd_uninstall', $guardPos);
-        self::assertNotFalse($callPos, 'Expected wrapper to call cmd_uninstall after uninstall gate');
+        // Cron entry is also removed during uninstall.
+        self::assertStringContainsString('cron.Remove()', $uninstallSource);
     }
 }

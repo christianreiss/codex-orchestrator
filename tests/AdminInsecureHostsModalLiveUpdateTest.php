@@ -8,25 +8,30 @@ final class AdminInsecureHostsModalLiveUpdateTest extends TestCase
 {
     public function testInsecureHostsModalTracksCountdownsAndWsRefresh(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $start = strpos($js, 'function openInsecureHostsModal(insecureHosts, insecureDomains)');
-        $this->assertNotFalse($start);
-        $end = strpos($js, 'async function loadAndOpenInsecureHostsModal()', $start);
-        $this->assertNotFalse($end);
-        $modalBlock = substr($js, $start, $end - $start);
+        // Dialog component – replaces the old openInsecureHostsModal() block
+        $dialog = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte');
+        $this->assertIsString($dialog);
 
-        $this->assertStringContainsString('shouldRefreshInsecureModalForAction', $js);
-        $this->assertStringContainsString('scheduleInsecureHostsModalRefresh', $js);
-        $this->assertStringContainsString('data-countdown="host"', $modalBlock);
-        $this->assertStringContainsString('data-countdown="domain"', $modalBlock);
-        $this->assertStringContainsString('Active Windows (${activeCount})', $js);
-        $this->assertStringContainsString('const activeHosts = items.filter((host) => hostHasActiveInsecureWindow(host));', $modalBlock);
-        $this->assertStringContainsString('data-action="disable"', $modalBlock);
-        $this->assertStringContainsString('No insecure hosts found.', $modalBlock);
-        $this->assertStringContainsString('No active allowed domains.', $modalBlock);
-        $this->assertStringNotContainsString('insecureHostsExtendAllBtn', $js);
-        $this->assertStringNotContainsString('Window closed', $modalBlock);
-        $this->assertStringNotContainsString('data-action="enable"', $modalBlock);
+        // Countdown is rendered via the dedicated InsecureCountdown component
+        $this->assertStringContainsString('InsecureCountdown', $dialog);
+        // Hosts section
+        $this->assertStringContainsString('Active windows', $dialog);
+        // No hosts empty state
+        $this->assertStringContainsString('No hosts currently in an insecure window.', $dialog);
+        // Domains empty state
+        $this->assertStringContainsString('No active domain allow-list entries.', $dialog);
+        // Disable action exists
+        $this->assertStringContainsString('createDisableInsecureMutation', $dialog);
+        // Enable/extend action exists
+        $this->assertStringContainsString('createEnableInsecureMutation', $dialog);
+
+        // WS invalidation wires insecure.requested / insecure.approved back to the
+        // query cache – this replaces the old shouldRefreshInsecureModalForAction /
+        // scheduleInsecureHostsModalRefresh pattern.
+        $events = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($events);
+        $this->assertStringContainsString('insecure.requested', $events);
+        $this->assertStringContainsString('insecure.approved', $events);
+        $this->assertStringContainsString('hosts', $events, 'WS events must invalidate hosts queries');
     }
 }

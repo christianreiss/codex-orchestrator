@@ -10,10 +10,10 @@ final class AdminUsersLastLoginRelativeTest extends TestCase
 {
     public function testLastLoginRelativeMarkupPresent(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/users.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/components/users/UsersTable.svelte');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('table-subtext', $js);
-        $this->assertStringContainsString('formatRelative', $js);
+        $this->assertStringContainsString('last_login_at', $src);
+        $this->assertStringContainsString('relativeTime', $src);
     }
 }

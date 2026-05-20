@@ -64,6 +64,7 @@ final class AuthServiceDualStackIpBindingTest extends TestCase
                 wrapper_version TEXT NULL,
                 api_calls INTEGER NOT NULL DEFAULT 0,
                 expires_at TEXT NULL,
+                engines TEXT NOT NULL DEFAULT "codex",
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'

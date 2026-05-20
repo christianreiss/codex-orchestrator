@@ -8,16 +8,30 @@ final class CdxWrapperLaneSparkAliasTest extends TestCase
 {
     public function testWrapperRewritesLsToSparkLaneBeforeLaneParsing(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // In Go (main.go), `cdx ls` is rewritten to `cdx lane spark` before
+        // the switch-case dispatch that handles the `lane` subcommand.
+        $mainGo = $this->readFile(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
 
-        $aliasPos = strpos($wrapperSource, 'if [[ "${1-}" == "ls" ]]; then');
-        $lanePos = strpos($wrapperSource, 'if [[ "${1-}" == "lane" ]]; then');
+        // The ls alias rewrite occurs before the switch (cmdLane call).
+        $aliasPos = strpos($mainGo, 'sub == "ls"');
+        $lanePos  = strpos($mainGo, 'case "lane":');
 
-        self::assertNotFalse($aliasPos, 'Expected ls alias rewrite in wrapper source');
-        self::assertNotFalse($lanePos, 'Expected lane parser in wrapper source');
-        self::assertStringContainsString('set -- lane spark "$@"', $wrapperSource);
-        self::assertLessThan($lanePos, $aliasPos, 'Expected ls alias rewrite to happen before lane parsing');
+        self::assertNotFalse($aliasPos, 'Expected ls alias rewrite in Go main.go');
+        self::assertNotFalse($lanePos, 'Expected lane case in Go main.go');
+
+        // The rewrite sets sub to "lane" and prepends "spark" to subArgs.
+        self::assertStringContainsString('sub = "lane"', $mainGo);
+        self::assertStringContainsString('subArgs = []string{"spark"}', $mainGo);
+
+        // The alias rewrite happens before the switch-case dispatch.
+        self::assertLessThan($lanePos, $aliasPos, 'Expected ls alias rewrite to happen before lane dispatch');
+    }
+
+    private function readFile(string $path): string
+    {
+        $source = @file_get_contents($path);
+        self::assertIsString($source, sprintf('Expected to be able to read %s', $path));
+
+        return $source;
     }
 }

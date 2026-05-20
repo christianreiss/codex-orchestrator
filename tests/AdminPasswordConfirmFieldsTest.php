@@ -10,13 +10,13 @@ final class AdminPasswordConfirmFieldsTest extends TestCase
 {
     public function testLoginAndUserPasswordFieldsExist(): void
     {
-        $dashboard = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($dashboard);
-        $this->assertStringContainsString('id="usersPasswordConfirm"', $dashboard);
+        $userForm = file_get_contents(__DIR__ . '/../frontend/src/lib/components/users/UserFormDialog.svelte');
+        $this->assertIsString($userForm);
+        $this->assertStringContainsString('id="user-password-confirm"', $userForm);
 
-        $login = file_get_contents(__DIR__ . '/../public/admin/login.html');
+        $login = file_get_contents(__DIR__ . '/../frontend/src/routes/login/+page.svelte');
         $this->assertIsString($login);
-        $this->assertStringContainsString('id="adminLoginPassword"', $login);
-        $this->assertStringContainsString('id="adminLoginPasswordField" hidden', $login);
+        $this->assertStringContainsString('id="password"', $login);
+        $this->assertStringContainsString('type="password"', $login);
     }
 }

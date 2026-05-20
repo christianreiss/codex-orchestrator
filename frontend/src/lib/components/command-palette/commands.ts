@@ -172,6 +172,12 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     keywords: ["passkeys", "webauthn", "account"],
   },
   {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    keywords: ["settings", "config", "configuration"],
+  },
+  {
     href: "/manual",
     label: "Manual",
     icon: HelpCircle,

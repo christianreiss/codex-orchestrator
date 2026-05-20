@@ -8,53 +8,57 @@ final class CdxWrapperInsecureApprovalBoxFormatTest extends TestCase
 {
     public function testWrapperBuildsPendingApprovalBoxWithBorderAwareWidthCalculation(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $sourcePath = __DIR__ . '/../wrappers/cdx/internal/ui/approval_box.go';
+        $source = @file_get_contents($sourcePath);
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/approval_box.go');
 
         self::assertStringContainsString(
-            'content_width=$min_content_width',
-            $wrapperSource,
-            'Pending approval box should start from a stable minimum width.'
+            'width < 50',
+            $source,
+            'Pending approval box should clamp to a stable minimum width.'
         );
         self::assertStringContainsString(
-            'printf \'%b%s%s%s%b\\n\' "${CYAN}${BOLD}" "$top_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$top_right" "$RESET"',
-            $wrapperSource,
-            'Top border width should account for the content width plus side padding.'
+            'strings.Repeat(g.BoxH, inner)',
+            $source,
+            'Top and bottom borders should repeat the horizontal glyph across the full content width.'
         );
         self::assertStringContainsString(
-            'printf \'%b%s%b %s%*s %b%s%b\\n\' "${CYAN}${BOLD}" "$vertical" "$RESET" "$st" "$pad" "" "${CYAN}${BOLD}" "$vertical" "$RESET"',
-            $wrapperSource,
-            'Content rows should use fixed-width padding so the right border stays aligned.'
+            'g.BoxTL',
+            $source,
+            'Top border should use the top-left corner glyph.'
         );
         self::assertStringContainsString(
-            'printf \'%b%s%s%s%b\' "${CYAN}${BOLD}" "$bottom_left" "$(repeat_box_char "$horizontal" $((content_width + 2)))" "$bottom_right" "$RESET"',
-            $wrapperSource,
-            'Bottom border width should match the top border.'
+            'g.BoxBR',
+            $source,
+            'Bottom border should use the bottom-right corner glyph.'
         );
     }
 
     public function testWrapperFallsBackToAsciiBordersForDumbTerminals(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $sourcePath = __DIR__ . '/../wrappers/cdx/internal/ui/ansi.go';
+        $source = @file_get_contents($sourcePath);
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/ansi.go');
 
         self::assertStringContainsString(
-            'if ((CODEX_TERM_IS_DUMB)); then',
-            $wrapperSource
+            'dumb',
+            $source,
+            'Should detect dumb terminals and fall back to ASCII box glyphs.'
         );
         self::assertStringContainsString(
-            'top_left="+"',
-            $wrapperSource
+            'BoxTL: "+"',
+            $source,
+            'ASCII fallback top-left corner should be "+".'
         );
         self::assertStringContainsString(
-            'horizontal="-"',
-            $wrapperSource
+            'BoxH: "-"',
+            $source,
+            'ASCII fallback horizontal glyph should be "-".'
         );
         self::assertStringContainsString(
-            'vertical="|"',
-            $wrapperSource
+            'BoxV: "|"',
+            $source,
+            'ASCII fallback vertical glyph should be "|".'
         );
     }
 }

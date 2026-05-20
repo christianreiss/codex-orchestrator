@@ -116,52 +116,108 @@ final class ProjectCoordinationWiringTest extends TestCase
 
     public function testAdminHtmlIncludesProjectsSettingsTabAndAsset(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        // SvelteKit: the projects tab is a dedicated route page, not a panel in
+        // a static HTML file. Verify the key source files exist and expose the
+        // required surface.
 
-        $this->assertStringContainsString('data-settings-tab="projects"', $html);
-        $this->assertStringContainsString('data-settings-panel="projects"', $html);
-        $this->assertStringContainsString('id="projectsEnabledToggle"', $html);
-        $this->assertStringContainsString('id="projectsTableBody"', $html);
-        $this->assertStringContainsString('id="projectsListEmptyState"', $html);
-        $this->assertStringContainsString('data-panel="project-detail"', $html);
-        $this->assertStringContainsString('id="projectDetailPanel"', $html);
-        $this->assertStringContainsString('id="projectDetailBack"', $html);
-        $this->assertStringContainsString('id="projectDeleteModal"', $html);
-        $this->assertStringContainsString('id="projectChangesList"', $html);
-        $this->assertStringContainsString('id="projectAboutAssist"', $html);
-        $this->assertStringContainsString('id="projectRosterAssist"', $html);
-        $this->assertStringContainsString('id="projectAboutChangedFields"', $html);
-        $this->assertStringContainsString('id="projectRosterChangedFields"', $html);
-        $this->assertStringNotContainsString('id="projectCreateBtn"', $html);
-        $this->assertStringContainsString('/admin/assets/projects.js?v=', $html);
+        // Projects list page
+        $listPage = file_get_contents(__DIR__ . '/../frontend/src/routes/projects/+page.svelte');
+        $this->assertIsString($listPage);
+        // Module-enabled toggle
+        $this->assertStringContainsString('projects-enabled', $listPage);
+        $this->assertStringContainsString('updateProjectsState', $listPage);
+        // Project cards
+        $this->assertStringContainsString('ProjectCard', $listPage);
+
+        // Project detail layout (replaces projectDetailPanel / projectDetailBack)
+        $detailLayout = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/projects/[slug]/+layout.svelte'
+        );
+        $this->assertIsString($detailLayout);
+        // Back button navigates to /projects
+        $this->assertStringContainsString('/projects', $detailLayout);
+        // Delete project is exposed
+        $this->assertStringContainsString('Delete project', $detailLayout);
+        $this->assertStringContainsString('deleteProject', $detailLayout);
+
+        // Project detail about / assist page
+        $detailPage = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/projects/[slug]/+page.svelte'
+        );
+        $this->assertIsString($detailPage);
+        $this->assertStringContainsString('assistProject', $detailPage);
+
+        // API module wires the state + detail + assist endpoints
+        $api = file_get_contents(__DIR__ . '/../frontend/src/lib/api/projects.ts');
+        $this->assertIsString($api);
+        $this->assertStringContainsString('/admin/projects', $api);
+        $this->assertStringContainsString('assist', $api);
+        $this->assertStringContainsString('deleteProject', $api);
+        $this->assertStringContainsString('encodeURIComponent', $api);
     }
 
     public function testDashboardJsInitializesProjectsSettingsTabAndDetailRoute(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // SvelteKit: project routing is file-based. Verify the projects route
+        // files and the WS invalidation map cover the same surface as the old
+        // dashboard.js routing initialisation.
 
-        $this->assertStringContainsString("if (settingsTab === 'projects' && window.__initProjects) window.__initProjects();", $js);
-        $this->assertStringContainsString("if (panel === 'project-detail' && window.__loadProjectDetailByRoute) {", $js);
-        $this->assertStringContainsString("document.body.dataset.projectSlug = decodeURIComponent(sub);", $js);
-        $this->assertStringContainsString("show: ['projectDetailPanel']", $js);
-        $this->assertStringContainsString("domains.add('projects');", $js);
+        // Projects list route exists
+        $this->assertFileExists(__DIR__ . '/../frontend/src/routes/projects/+page.svelte');
+        // Project detail route exists
+        $this->assertFileExists(__DIR__ . '/../frontend/src/routes/projects/[slug]/+page.svelte');
+
+        // WS events wire project.* events to the projects query cache
+        $events = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($events);
+        $this->assertStringContainsString('project.changed', $events);
+        $this->assertStringContainsString('project.updated', $events);
+        $this->assertStringContainsString('"projects"', $events);
+
+        // Projects API exposes state endpoint and per-project detail key
+        $api = file_get_contents(__DIR__ . '/../frontend/src/lib/api/projects.ts');
+        $this->assertIsString($api);
+        // State endpoint is composed from the BASE constant + '/state'
+        $this->assertStringContainsString('/admin/projects', $api);
+        $this->assertStringContainsString('/state', $api);
+        $this->assertStringContainsString('projectKeys', $api);
     }
 
     public function testProjectsJsUsesDedicatedProjectDetailRouteAndDeleteModal(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/projects.js');
-        $this->assertIsString($js);
+        // SvelteKit: the old projects.js surface is split across the projects
+        // route files and the API module.
 
-        $this->assertStringContainsString("history.pushState({}, '', '/admin/projects/' + encodeURIComponent(String(slug)));", $js);
-        $this->assertStringContainsString("if (typeof window.__applyRouting === 'function') window.__applyRouting();", $js);
-        $this->assertStringContainsString("projectDeleteModal?.classList.add('show');", $js);
-        $this->assertStringContainsString("history.pushState({}, '', '/admin/settings/projects');", $js);
-        $this->assertStringContainsString('await api(`/admin/projects/${encodeURIComponent(deletedSlug)}`, { method: \'DELETE\' });', $js);
-        $this->assertStringContainsString('async function assistProjectDraft(kind)', $js);
-        $this->assertStringContainsString('api(`/admin/projects/${encodeURIComponent(currentSlug)}/assist`, {', $js);
-        $this->assertStringContainsString('renderProjectChangedFields(projectAboutChangedFields, changedFields);', $js);
+        $detailLayout = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/projects/[slug]/+layout.svelte'
+        );
+        $this->assertIsString($detailLayout);
+
+        // Navigation uses SvelteKit goto (replaces history.pushState)
+        $this->assertStringContainsString('goto', $detailLayout);
+        $this->assertStringContainsString('/projects', $detailLayout);
+        // Delete uses a confirm dialog (replaces projectDeleteModal)
+        $this->assertStringContainsString('confirmOpen', $detailLayout);
+        $this->assertStringContainsString('ConfirmDialog', $detailLayout);
+        $this->assertStringContainsString('deleteProject', $detailLayout);
+
+        // API module: delete sends DELETE to /admin/projects/{slug}
+        $api = file_get_contents(__DIR__ . '/../frontend/src/lib/api/projects.ts');
+        $this->assertIsString($api);
+        $this->assertStringContainsString('api.delete', $api);
+        $this->assertStringContainsString('encodeURIComponent', $api);
+
+        // Assist endpoint wired
+        $this->assertStringContainsString('assistProject', $api);
+        $this->assertStringContainsString('/assist', $api);
+
+        // Project detail page has assist mutation
+        $detailPage = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/projects/[slug]/+page.svelte'
+        );
+        $this->assertIsString($detailPage);
+        $this->assertStringContainsString('assistMutation', $detailPage);
+        $this->assertStringContainsString('assistProject', $detailPage);
     }
 
     public function testManagedSkillMetadataIsServedThroughSkillService(): void

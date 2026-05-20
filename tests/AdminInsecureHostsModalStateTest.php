@@ -6,12 +6,17 @@ final class AdminInsecureHostsModalStateTest extends TestCase
 {
     public function testModalKeepsClosedHostsVisibleWithEnableAction(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($js);
+        // The SvelteKit dialog component replaces the old dashboard.js block.
+        $dialog = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte');
+        self::assertIsString($dialog);
 
-        self::assertStringContainsString("'<div class=\"quick-hosts-sub\">Window closed</div>'", $js);
-        self::assertStringContainsString("const action = active ? 'disable' : 'enable';", $js);
-        self::assertStringContainsString("const label = active ? 'Disable' : 'Enable';", $js);
-        self::assertStringContainsString("const btn = e.target?.closest?.('button[data-action]');", $js);
+        // "Window closed" is the toast message fired when disableHost.mutateAsync succeeds
+        self::assertStringContainsString('Window closed', $dialog);
+        // Both disable and enable mutations are wired
+        self::assertStringContainsString('createDisableInsecureMutation', $dialog);
+        self::assertStringContainsString('createEnableInsecureMutation', $dialog);
+        // The closest-button event delegation pattern is replaced by direct
+        // Svelte onclick handlers – verify the disable handler is present
+        self::assertStringContainsString('$disableHost.mutateAsync', $dialog);
     }
 }

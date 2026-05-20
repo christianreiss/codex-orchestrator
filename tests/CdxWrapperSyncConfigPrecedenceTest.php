@@ -8,27 +8,42 @@ final class CdxWrapperSyncConfigPrecedenceTest extends TestCase
 {
     public function testWrapperPrefersBakedSyncConfigOverCliLoginCredentials(): void
     {
-        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper bakes orchestrator credentials into the signed
+        // cdx.json config. There is no separate credentials.env fallback;
+        // the config loader validates that base_url and api_key are present
+        // and refuses to start if they are missing or too short.
+        $loadSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/config/load.go');
+        self::assertIsString($loadSource, 'Expected to be able to read config/load.go');
 
-        $start = strpos($wrapperSource, 'has_baked_sync_config() {');
-        self::assertNotFalse($start, 'Expected has_baked_sync_config helper in wrapper');
+        // Load validates the config before use; unsigned configs are refused.
+        self::assertStringContainsString('Load(', $loadSource);
+        self::assertStringContainsString('no signing public key available', $loadSource);
+        self::assertStringContainsString('config signature invalid', $loadSource);
 
-        $end = strpos($wrapperSource, 'detect_codex_asset_name()', $start);
-        self::assertNotFalse($end, 'Expected detect_codex_asset_name after sync-config helpers');
+        $configSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/config/config.go');
+        self::assertIsString($configSource, 'Expected to be able to read config/config.go');
 
-        $segment = substr($wrapperSource, $start, $end - $start);
-        self::assertStringContainsString('if has_baked_sync_config; then', $segment);
-        self::assertStringContainsString('elif [[ -f "$cred_file" ]]; then', $segment);
-        self::assertStringContainsString('config (baked)', $segment);
-        self::assertStringContainsString('config (credentials.env)', $segment);
-        self::assertStringContainsString('local base_placeholder="__CODEX_SYNC_BASE""_URL__"', $segment);
-        self::assertStringContainsString('local key_placeholder="__CODEX_SYNC_API""_KEY__"', $segment);
+        // Config struct has the orchestrator block with base_url and api_key.
+        self::assertStringContainsString('"base_url"', $configSource);
+        self::assertStringContainsString('"api_key"', $configSource);
+        self::assertStringContainsString('BaseURL', $configSource);
+        self::assertStringContainsString('APIKey', $configSource);
 
-        $bakedBranchPos = strpos($segment, 'if has_baked_sync_config; then');
-        $credentialsSourcePos = strpos($segment, 'source "$cred_file"');
-        self::assertNotFalse($bakedBranchPos);
-        self::assertNotFalse($credentialsSourcePos);
-        self::assertLessThan($credentialsSourcePos, $bakedBranchPos, 'Baked sync config must win over credentials.env');
+        $validateSource = $loadSource;
+        // Validate enforces base_url and api_key are present.
+        self::assertStringContainsString('orchestrator.base_url is required', $validateSource);
+        self::assertStringContainsString('orchestrator.api_key too short', $validateSource);
+
+        // The baked config path must appear before any fallback in the binary entry point.
+        $mainSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
+        self::assertIsString($mainSource, 'Expected to be able to read cmd/cdx/main.go');
+
+        $configLoadPos = strpos($mainSource, 'config.Load(');
+        self::assertNotFalse($configLoadPos, 'Expected config.Load call in main.go');
+
+        // Config is loaded before any lifecycle/sync call.
+        $lifecyclePos = strpos($mainSource, 'lifecycle.Run(');
+        self::assertNotFalse($lifecyclePos, 'Expected lifecycle.Run call in main.go');
+        self::assertLessThan($lifecyclePos, $configLoadPos, 'Baked config must be loaded before lifecycle runs');
     }
 }

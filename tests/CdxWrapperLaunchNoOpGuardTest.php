@@ -8,42 +8,79 @@ final class CdxWrapperLaunchNoOpGuardTest extends TestCase
 {
     public function testOtelConfigHelperReturnsSuccessWhenNothingIsExported(): void
     {
-        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // exportOTELFromConfig() in preexec.go returns nil (success) immediately
+        // when the config file cannot be read, so an empty or absent [otel] block
+        // never causes the wrapper to abort under error propagation.
+        $preexecGo = $this->readFile(__DIR__ . '/../wrappers/cdx/internal/codex/preexec.go');
 
         self::assertStringContainsString(
-            "done < <(otel_env_from_config_python 2>/dev/null || true)\n  return 0\n}",
-            $wrapperSource,
-            'OTel env helper should end with return 0 so an empty config does not abort cdx under set -e.'
+            'func exportOTELFromConfig() error',
+            $preexecGo,
+            'exportOTELFromConfig must be a named function so it can be called and its return value checked.'
+        );
+        // The function returns nil (success) when ReadFile fails — no config is not an error.
+        self::assertStringContainsString(
+            "return nil\n\t}",
+            $preexecGo,
+            'exportOTELFromConfig should return nil when config file is missing so an empty config does not abort cdx.'
         );
     }
 
     public function testCurrentProjectTrustHelperReturnsSuccessWhenNoPhysicalPathRewriteIsNeeded(): void
     {
-        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // EnsureProjectTrust() in preexec.go resolves symlinks via
+        // filepath.EvalSymlinks and falls back to the logical cwd when that
+        // fails. The function returns nil on success in all paths.
+        $preexecGo = $this->readFile(__DIR__ . '/../wrappers/cdx/internal/codex/preexec.go');
 
         self::assertStringContainsString(
-            "if [[ -n \"\$cwd_physical\" && \"\$cwd_physical\" != \"\$cwd_logical\" ]]; then\n    ensure_project_path_trusted_in_config \"\$cwd_physical\"\n  fi\n  return 0\n}",
-            $wrapperSource,
-            'Current-project trust helper should return success when pwd -P matches $PWD.'
+            'func EnsureProjectTrust() error',
+            $preexecGo,
+            'EnsureProjectTrust must be an exported function so callers can check its return value.'
+        );
+        self::assertStringContainsString(
+            'filepath.EvalSymlinks(cwd)',
+            $preexecGo,
+            'EnsureProjectTrust should resolve symlinks so the physical path is trusted in config.'
+        );
+        // When EvalSymlinks fails, resolved falls back to cwd — function succeeds.
+        self::assertStringContainsString(
+            'resolved = cwd',
+            $preexecGo,
+            'EnsureProjectTrust should fall back to cwd when EvalSymlinks fails rather than returning an error.'
         );
     }
 
     public function testRunLockOpenDoesNotSilenceWrapperStderrForTheRestOfTheRun(): void
     {
-        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // ipc/lock.go opens the lock file with os.OpenFile and uses syscall.Flock.
+        // No stderr redirect is involved — failures are surfaced as returned errors
+        // rather than silenced with 2>/dev/null permanently.
+        $lockGo = $this->readFile(__DIR__ . '/../wrappers/cdx/internal/ipc/lock.go');
 
         self::assertStringContainsString(
-            'if ! { exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH"; } 2>/dev/null; then',
-            $wrapperSource,
-            'Run-lock open should only suppress shell noise locally instead of permanently redirecting wrapper stderr.'
+            'os.OpenFile(path, os.O_CREATE|os.O_RDWR',
+            $lockGo,
+            'Lock open should use os.OpenFile so shell stderr is never redirected.'
         );
+        self::assertStringContainsString(
+            'syscall.Flock(',
+            $lockGo,
+            'Lock acquisition should use syscall.Flock so the lock operation is isolated from stderr.'
+        );
+        // There must be no /dev/null redirect at all in the lock implementation.
         self::assertStringNotContainsString(
-            'exec {CDX_RUN_LOCK_FD}>>"$CDX_RUN_LOCK_PATH" 2>/dev/null || {',
-            $wrapperSource,
-            'Run-lock open must not permanently redirect stderr to /dev/null.'
+            '/dev/null',
+            $lockGo,
+            'Run-lock open must not redirect stderr to /dev/null.'
         );
+    }
+
+    private function readFile(string $path): string
+    {
+        $source = @file_get_contents($path);
+        self::assertIsString($source, sprintf('Expected to be able to read %s', $path));
+
+        return $source;
     }
 }

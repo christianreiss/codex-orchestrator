@@ -76,6 +76,7 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 	defer teardown()
 
 	args = applyLaneAndProfile(cfg, args)
+	args = applyDangerousBypass(cfg, args)
 
 	stdoutIsTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	stdinIsTTY := term.IsTerminal(int(os.Stdin.Fd()))

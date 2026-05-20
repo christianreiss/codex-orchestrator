@@ -20,10 +20,24 @@ final class AuthRunnerProbeSandboxTest extends TestCase
 
     public function testWrapperSupportsDangerousBypassFlagFromConfig(): void
     {
-        $sh = file_get_contents(__DIR__ . '/../bin/cdx.d/05-main-50-run.sh');
-        $this->assertIsString($sh);
+        // The bash wrapper was replaced by a Go binary; verify the equivalent
+        // behaviour lives in the Go sources instead.
+        $execGo = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/exec.go');
+        $this->assertIsString($execGo);
 
-        $this->assertStringContainsString('--dangerously-bypass-approvals-and-sandbox', $sh);
-        $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox', $sh);
+        $laneGo = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/lane.go');
+        $this->assertIsString($laneGo);
+
+        $configGo = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/config/config.go');
+        $this->assertIsString($configGo);
+
+        // The CLI flag must appear in the Go source that builds the argument list.
+        $this->assertStringContainsString('--dangerously-bypass-approvals-and-sandbox', $laneGo);
+
+        // The config key must be present in the config struct (JSON tag).
+        $this->assertStringContainsString('dangerously_bypass_approvals_and_sandbox', $configGo);
+
+        // exec.go must call the bypass helper so the flag is actually applied.
+        $this->assertStringContainsString('applyDangerousBypass', $execGo);
     }
 }

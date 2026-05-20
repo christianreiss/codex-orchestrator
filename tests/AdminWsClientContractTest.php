@@ -8,32 +8,27 @@ final class AdminWsClientContractTest extends TestCase
 {
     public function testClientBootstrapsFromWsInfoAndTracksCursor(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/admin-ws.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/client.ts');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('/admin/ws/info', $js);
-        $this->assertStringContainsString("url.searchParams.set('since', state.lastEventId)", $js);
-        $this->assertStringContainsString('const lastEventId = Number(data.last_event_id || 0);', $js);
-        $this->assertStringContainsString('state.lastEventId = String(lastEventId);', $js);
+        $this->assertStringContainsString('/admin/ws/info', $src);
+        $this->assertStringContainsString('last_event_id', $src);
+        $this->assertStringContainsString('state.lastEventId', $src);
+        $this->assertStringContainsString('last_event_id=${encodeURIComponent(String(state.lastEventId))}', $src);
     }
 
     public function testClientEmitsStatusAndEventChannels(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/admin-ws.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/client.ts');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('isEventEnvelope', $js);
-        $this->assertStringContainsString('isResponseEnvelope', $js);
-        $this->assertStringContainsString('isErrorEnvelope', $js);
-        $this->assertStringContainsString('pendingRequests: new Map()', $js);
-        $this->assertStringContainsString("emit('admin-ws-status', { status: 'connecting' })", $js);
-        $this->assertStringContainsString("emit('admin-ws-status', { status: 'open' })", $js);
-        $this->assertStringContainsString("emit('admin-ws-status', { status: 'closed' })", $js);
-        $this->assertStringContainsString("emit('admin-ws-event', message.event)", $js);
-        $this->assertStringContainsString("emit('admin-ws-message', message)", $js);
-        $this->assertStringContainsString("window.__adminWsRequest = request", $js);
-        $this->assertStringContainsString("window.__adminWsCanRequest = canRequest", $js);
-        $this->assertStringContainsString("window.__adminWsIsEnabled = () => state.enabled", $js);
-        $this->assertStringContainsString('scheduleReconnect()', $js);
+        $this->assertStringContainsString('WsEvent', $src);
+        $this->assertStringContainsString('WsClientHandle', $src);
+        $this->assertStringContainsString('status.set("connecting")', $src);
+        $this->assertStringContainsString('status.set("open")', $src);
+        $this->assertStringContainsString('status.set("closed")', $src);
+        $this->assertStringContainsString('events.set(payload)', $src);
+        $this->assertStringContainsString('scheduleReconnect()', $src);
+        $this->assertStringContainsString('state.enabled', $src);
     }
 }

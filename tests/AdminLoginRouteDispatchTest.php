@@ -13,14 +13,21 @@ final class AdminLoginRouteDispatchTest extends TestCase
         $source = file_get_contents(__DIR__ . '/../public/admin/index.php');
         $this->assertIsString($source);
 
+        // Login-route detection and redirect logic.
         $this->assertStringContainsString("\$normalizedPath === '/admin/login'", $source);
         $this->assertStringContainsString("redirectTo('/admin/login')", $source);
         $this->assertStringContainsString("redirectTo('/admin/')", $source);
-        $this->assertStringContainsString("__DIR__ . '/login.html'", $source);
+
+        // The SvelteKit SPA uses a single index.html shell for all admin routes.
+        $this->assertStringContainsString("__DIR__ . '/index.html'", $source);
+
+        // Error page and mTLS gate remain in place.
         $this->assertStringContainsString("X-Admin-Page", $source);
         $this->assertStringContainsString('renderAdminErrorPage(', $source);
         $this->assertStringContainsString('Client certificate required', $source);
-        $this->assertStringContainsString('/admin/assets/theme.css?v=', $source);
+
+        // Bootstrap injection for the SvelteKit auth store.
+        $this->assertStringContainsString('window.__adminBootstrap =', $source);
     }
 
     public function testApiFrontControllerDispatchesAdminLoginAndAdminRoot(): void

@@ -8,33 +8,42 @@ final class CdxWrapperSkillFormatTest extends TestCase
 {
     public function testWrapperUsesMcpForSkillsInsteadOfLocalSync(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $skillsSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/skills.go');
+        self::assertIsString($skillsSource, 'Expected to be able to read wrappers/cdx/internal/lifecycle/skills.go');
 
         self::assertStringContainsString(
-            'skills via MCP',
-            $wrapperSource,
+            'via MCP',
+            $skillsSource,
             'Wrapper should report MCP-backed skill access.'
         );
         self::assertStringContainsString(
-            'cleanup_legacy_skill_state()',
-            $wrapperSource,
+            'pruneLegacySkillDirs',
+            $skillsSource,
             'Wrapper should clean up legacy local skill directories on upgrade.'
         );
         self::assertStringContainsString(
-            'remove_path "$path" "legacy local skills"',
-            $wrapperSource,
+            'pruned legacy skill cache',
+            $skillsSource,
             'Wrapper cleanup should prune stale local skill trees.'
         );
         self::assertStringContainsString(
-            'remove_path "$path" "legacy skill baseline"',
-            $wrapperSource,
+            'legacy skill dir prune failed',
+            $skillsSource,
             'Wrapper cleanup should prune stale skill baselines.'
         );
+
+        // The lifecycle run.go must call both syncSkills and pruneLegacySkillDirs.
+        $runSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($runSource, 'Expected to be able to read wrappers/cdx/internal/lifecycle/run.go');
+
         self::assertStringContainsString(
-            'sync_skills_pull || true',
-            $wrapperSource,
+            'syncSkills',
+            $runSource,
+            'Wrapper should still trigger the legacy cleanup hook during bootstrap.'
+        );
+        self::assertStringContainsString(
+            'pruneLegacySkillDirs',
+            $runSource,
             'Wrapper should still trigger the legacy cleanup hook during bootstrap.'
         );
     }

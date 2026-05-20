@@ -8,11 +8,25 @@ final class ClxWrapperRestartLoopGuardTest extends TestCase
 {
     public function testSelfUpdateCarriesRestartDepthEnvVar(): void
     {
-        $fragment = file_get_contents(__DIR__ . '/../bin/clx.d/04-update.sh');
-        self::assertIsString($fragment);
+        // update.go increments CLAUDE_WRAPPER_RESTART_DEPTH and re-execs via
+        // syscall.Exec so main.go can detect runaway restart loops.
+        $updateGo = file_get_contents(__DIR__ . '/../wrappers/clx/internal/update/update.go');
+        self::assertIsString($updateGo);
 
-        self::assertStringContainsString('CLAUDE_WRAPPER_RESTART_DEPTH', $fragment);
-        self::assertStringContainsString('if (( depth > 2 )); then', $fragment);
-        self::assertStringContainsString('exec env CLAUDE_WRAPPER_RESTART_DEPTH="$depth"', $fragment);
+        self::assertStringContainsString('CLAUDE_WRAPPER_RESTART_DEPTH', $updateGo);
+        self::assertStringContainsString('ReExecAfterUpdate', $updateGo);
+        self::assertStringContainsString('syscall.Exec', $updateGo);
+    }
+
+    public function testMainBailsOutAboveMaxDepth(): void
+    {
+        // main.go caps restarts at maxRestartDepth == 2 and exits when exceeded.
+        $mainGo = file_get_contents(__DIR__ . '/../wrappers/clx/cmd/clx/main.go');
+        self::assertIsString($mainGo);
+
+        self::assertStringContainsString('CLAUDE_WRAPPER_RESTART_DEPTH', $mainGo);
+        self::assertStringContainsString('maxRestartDepth = 2', $mainGo);
+        self::assertStringContainsString('depth > maxRestartDepth', $mainGo);
+        self::assertStringContainsString('refusing to continue', $mainGo);
     }
 }

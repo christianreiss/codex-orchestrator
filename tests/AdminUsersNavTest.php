@@ -10,30 +10,30 @@ final class AdminUsersNavTest extends TestCase
 {
     public function testUsersNavLinkExists(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/nav.ts');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('data-settings-tab="users"', $html);
-        $this->assertStringContainsString('href="/admin/settings/users"', $html);
-        $this->assertStringContainsString('>Users<', $html);
+        $this->assertStringContainsString('href: "/users"', $src);
+        $this->assertStringContainsString('label: "Users"', $src);
     }
 
     public function testUsersPanelExists(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        $this->assertFileExists(__DIR__ . '/../frontend/src/routes/users/+page.svelte');
 
-        $this->assertStringContainsString('data-settings-panel="users"', $html);
-        $this->assertStringContainsString('id="users-panel"', $html);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/routes/users/+page.svelte');
+        $this->assertIsString($src);
+        $this->assertStringContainsString('UsersTable', $src);
     }
 
     public function testUsersSettingsPanelIsNotTopLevelHidden(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/nav.ts');
+        $this->assertIsString($src);
 
-        $matched = preg_match('/const allIds = \[(?<ids>[^\]]+)\];/', $js, $matches);
-        $this->assertSame(1, $matched);
-        $this->assertStringNotContainsString("'users-panel'", $matches['ids']);
+        // In SvelteKit routing, all routes are first-class — no hidden panel IDs.
+        // Verify the users route is registered in the top-level nav array.
+        $this->assertStringContainsString('href: "/users"', $src);
+        $this->assertStringNotContainsString('hidden', $src);
     }
 }

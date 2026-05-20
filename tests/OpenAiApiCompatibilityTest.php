@@ -133,15 +133,15 @@ final class OpenAiApiCompatibilityTest extends TestCase
     public function testRouterAndDocsAdvertiseResponsesEndpoint(): void
     {
         $routerSource = file_get_contents(__DIR__ . '/../public/index.php');
-        $adminSource = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        // SvelteKit: the admin UI no longer embeds endpoint strings in a static
+        // HTML file; verify the route is wired in the router and documented in
+        // the API docs instead.
         $apiDoc = file_get_contents(__DIR__ . '/../docs/interface-api.md');
 
         $this->assertIsString($routerSource);
-        $this->assertIsString($adminSource);
         $this->assertIsString($apiDoc);
 
         $this->assertStringContainsString("#^/v1/responses$#", $routerSource);
-        $this->assertStringContainsString('/v1/responses', $adminSource);
         $this->assertStringContainsString('POST /v1/responses', $apiDoc);
     }
 }

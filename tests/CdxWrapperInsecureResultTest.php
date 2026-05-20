@@ -8,25 +8,41 @@ final class CdxWrapperInsecureResultTest extends TestCase
 {
     public function testWrapperUsesCompactInsecureResultLabel(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $sourcePath = __DIR__ . '/../wrappers/cdx/internal/summary/summary.go';
+        $source = @file_get_contents($sourcePath);
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/summary/summary.go');
 
         self::assertStringContainsString(
             'Synced on insecure host; auth refreshed.',
-            $wrapperSource,
-            'Expected compact insecure-host result label to be present'
+            $source,
+            'Expected compact insecure-host result label to be present when auth was synced'
         );
     }
 
     public function testWrapperHasConcurrentCompactSummaryPath(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $screenPath = __DIR__ . '/../wrappers/cdx/internal/ui/screen.go';
+        $screenSource = @file_get_contents($screenPath);
+        self::assertIsString($screenSource, 'Expected to be able to read wrappers/cdx/internal/ui/screen.go');
 
-        self::assertStringContainsString('concurrent_compact_summary=1', $wrapperSource);
-        self::assertStringContainsString('Using local auth.json.', $wrapperSource);
-        self::assertStringContainsString('ctx_parts+=("$(colorize "concurrent run" "yellow")")', $wrapperSource);
+        $healthPath = __DIR__ . '/../wrappers/cdx/internal/ui/health.go';
+        $healthSource = @file_get_contents($healthPath);
+        self::assertIsString($healthSource, 'Expected to be able to read wrappers/cdx/internal/ui/health.go');
+
+        self::assertStringContainsString(
+            'in.Concurrent',
+            $screenSource,
+            'Boot screen should branch on the concurrent flag.'
+        );
+        self::assertStringContainsString(
+            'Using local auth.json.',
+            $healthSource,
+            'Concurrent row default note should say "Using local auth.json."'
+        );
+        self::assertStringContainsString(
+            '"concurrent run"',
+            $screenSource,
+            'Context line should include a "concurrent run" label when running in concurrent mode.'
+        );
     }
 }

@@ -10,6 +10,9 @@ final class AdminAuthResetUiTest extends TestCase
 {
     public function testDashboardNoLongerContainsAuthOverlayOrResetModal(): void
     {
+        // The SvelteKit shell (public/admin/index.html) is a minimal HTML
+        // wrapper — auth overlays and reset modals live in Svelte components,
+        // not in the static shell, so none of the old IDs should appear there.
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
         $this->assertStringNotContainsString('id="adminAuthOverlay"', $html);
@@ -19,11 +22,13 @@ final class AdminAuthResetUiTest extends TestCase
 
     public function testDedicatedLoginPageContainsLoginForm(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/login.html');
-        $this->assertIsString($html);
-        $this->assertStringContainsString('id="adminLoginForm"', $html);
-        $this->assertStringContainsString('id="adminLoginUsername"', $html);
-        $this->assertStringContainsString('id="adminLoginPassword"', $html);
-        $this->assertStringContainsString('Enter your username to continue.', $html);
+        // The login UI is now a SvelteKit route. Verify the Svelte source
+        // contains a username input, a password input, and a submit form.
+        $svelte = file_get_contents(__DIR__ . '/../frontend/src/routes/login/+page.svelte');
+        $this->assertIsString($svelte);
+        $this->assertStringContainsString('id="username"', $svelte);
+        $this->assertStringContainsString('id="password"', $svelte);
+        $this->assertStringContainsString('type="password"', $svelte);
+        $this->assertStringContainsString('Enter your username.', $svelte);
     }
 }

@@ -8,59 +8,71 @@ final class AdminSkillRegistryEditUiTest extends TestCase
 {
     public function testSkillRegistryKeepsActionsVisibleAndNavigatesToDedicatedWorkspace(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
-        $this->assertStringContainsString('<th>Actions</th>', $html);
-        $this->assertStringContainsString('id="newSkillBtn"', $html);
+        // SvelteKit: the skills table lives at frontend/src/routes/authoring/+page.svelte
+        $page = file_get_contents(__DIR__ . '/../frontend/src/routes/authoring/+page.svelte');
+        $this->assertIsString($page);
 
-        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
-        $this->assertIsString($css);
-        $this->assertStringContainsString('#skills {', $css);
-        $this->assertStringContainsString('#skills td[data-label="Description"] {', $css);
-        $this->assertStringContainsString('#skills td[data-label="Actions"] {', $css);
-
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $this->assertStringContainsString('class="ghost tiny-btn skill-open"', $js);
-        $this->assertStringContainsString('openSkillDetail(slug);', $js);
-        $this->assertStringContainsString("navigateAdminShortcut(target);", $js);
-        $this->assertStringContainsString('Delete skill "${slug}"? Hosts remove it on next sync.', $js);
+        // Actions column header
+        $this->assertStringContainsString('Actions', $page);
+        // New-skill trigger
+        $this->assertStringContainsString('New skill', $page);
+        // "Open" button navigates to the dedicated skill detail workspace
+        $this->assertStringContainsString('Open', $page);
+        // Link to the dedicated /authoring/skills/:slug route
+        $this->assertStringContainsString('/authoring/skills/', $page);
+        // Delete skill flow is present
+        $this->assertStringContainsString('Delete skill', $page);
+        $this->assertStringContainsString('deleteSkill', $page);
     }
 
     public function testDedicatedSkillWorkspaceMarkupExists(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        // SvelteKit: the per-skill editor lives at
+        // frontend/src/routes/authoring/skills/[slug]/+page.svelte
+        $page = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/authoring/skills/[slug]/+page.svelte'
+        );
+        $this->assertIsString($page);
 
-        $this->assertStringContainsString('data-panel="skill-detail"', $html);
-        $this->assertStringContainsString('id="skillDetailPanel"', $html);
-        $this->assertStringContainsString('id="skillConversation"', $html);
-        $this->assertStringContainsString('id="skillAssistInput"', $html);
-        $this->assertStringContainsString('id="skillAssistSend"', $html);
-        $this->assertStringContainsString('id="skillChangedFields"', $html);
-        $this->assertStringContainsString('data-skill-unlock="display_name"', $html);
-        $this->assertStringContainsString('data-skill-unlock="steps"', $html);
-        $this->assertStringNotContainsString('id="skillModal"', $html);
-
-        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
-        $this->assertIsString($css);
-        $this->assertStringContainsString('.skill-detail-layout {', $css);
-        $this->assertStringContainsString('.skill-conversation {', $css);
-        $this->assertStringContainsString('.skill-managed-field.is-locked textarea,', $css);
-        $this->assertStringContainsString('.skill-field-edit[aria-pressed="true"] {', $css);
+        // The page exists and contains the skill editor (manifest textarea)
+        $this->assertStringContainsString('manifest', $page);
+        // AI-managed (managed) skill detection
+        $this->assertStringContainsString('isManaged', $page);
+        // Assist AI dialog is present
+        $this->assertStringContainsString('assistOpen', $page);
+        $this->assertStringContainsString('Skill assistant', $page);
+        // Changed fields tracked (applied manifest from assistant)
+        $this->assertStringContainsString('applyAssistManifest', $page);
+        // Delete confirm dialog
+        $this->assertStringContainsString('deleteOpen', $page);
     }
 
     public function testDashboardJsRoutesSkillPagesAndLocksAiManagedFields(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // SvelteKit: routing is file-based. Managed fields are locked in the
+        // [slug] page via the isManaged derived state.
+        $page = file_get_contents(
+            __DIR__ . '/../frontend/src/routes/authoring/skills/[slug]/+page.svelte'
+        );
+        $this->assertIsString($page);
 
-        $this->assertStringContainsString("return { panel: 'skill-detail', sub: seg2 };", $js);
-        $this->assertStringContainsString("window.__loadSkillDetailByRoute = loadSkillDetailByRoute;", $js);
-        $this->assertStringContainsString("setActiveLinks('.settings-tab', 'skills');", $js);
-        $this->assertStringContainsString('input.readOnly = !unlocked;', $js);
-        $this->assertStringContainsString("skillTagsInput.disabled = !tagsUnlocked;", $js);
-        $this->assertStringContainsString("btn.textContent = unlocked ? 'Editing' : 'Edit';", $js);
-        $this->assertStringContainsString('history.replaceState({}, \'\', skillDetailPath(slug));', $js);
+        // Managed flag disables editing
+        $this->assertStringContainsString('isManaged', $page);
+        $this->assertStringContainsString('disabled={isManaged}', $page);
+        $this->assertStringContainsString('readonly={isManaged}', $page);
+
+        // Navigation from detail back to list uses goto / SvelteKit's base path
+        $this->assertStringContainsString('goto', $page);
+        $this->assertStringContainsString('/authoring', $page);
+
+        // History (URL) reflects the current skill slug
+        $slug = file_get_contents(__DIR__ . '/../frontend/src/routes/authoring/+page.svelte');
+        $this->assertIsString($slug);
+        $this->assertStringContainsString("encodeURIComponent(row.slug)", $slug);
+
+        // API module wires the skills routes
+        $api = file_get_contents(__DIR__ . '/../frontend/src/lib/api/skills.ts');
+        $this->assertIsString($api);
+        $this->assertStringContainsString('/admin/skills', $api);
     }
 }

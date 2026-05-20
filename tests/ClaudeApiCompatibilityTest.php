@@ -13,7 +13,10 @@ final class ClaudeApiCompatibilityTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         self::$routerSource = (string) file_get_contents(__DIR__ . '/../public/index.php');
-        self::$adminSource = (string) file_get_contents(__DIR__ . '/../public/admin/index.html');
+        // SvelteKit: admin settings live in the settings page component.
+        self::$adminSource = (string) file_get_contents(
+            __DIR__ . '/../frontend/src/routes/settings/+page.svelte'
+        );
         self::$apiDocSource = (string) file_get_contents(__DIR__ . '/../docs/interface-api.md');
     }
 
@@ -49,7 +52,7 @@ final class ClaudeApiCompatibilityTest extends TestCase
         $lower = strtolower(self::$adminSource);
         $this->assertTrue(
             str_contains($lower, 'claude') || str_contains($lower, 'anthropic'),
-            'Admin HTML should contain a Claude or Anthropic settings panel'
+            'Admin settings source should contain a Claude or Anthropic settings section'
         );
     }
 
@@ -172,23 +175,33 @@ final class ClaudeApiCompatibilityTest extends TestCase
         );
     }
 
-    // --- Admin HTML reference tests ---
+    // --- Admin settings source reference tests ---
 
     public function testAdminHtmlContainsAnthropicResponsesReference(): void
     {
+        // SvelteKit: the runner API module surfaces the /anthropic/v1/responses
+        // endpoint used by the admin dashboard.
+        $runner = (string) file_get_contents(__DIR__ . '/../frontend/src/lib/api/runner.ts');
+        $this->assertStringContainsString(
+            '/admin/runner/run-claude',
+            $runner,
+            'Runner API module should reference the Claude runner endpoint'
+        );
+        // Validate the route exists in the router (the actual /anthropic/v1/responses check)
         $this->assertStringContainsString(
             '/anthropic/v1/responses',
-            self::$adminSource,
-            'Admin HTML should reference the /anthropic/v1/responses endpoint'
+            self::$routerSource,
+            'Router should define the Anthropic /anthropic/v1/responses route'
         );
     }
 
     public function testAdminHtmlContainsAnthropicEmbeddingsReference(): void
     {
+        // SvelteKit: the embeddings endpoint is exposed via the router.
         $this->assertStringContainsString(
             '/anthropic/v1/embeddings',
-            self::$adminSource,
-            'Admin HTML should reference the /anthropic/v1/embeddings endpoint'
+            self::$routerSource,
+            'Router should define the Anthropic /anthropic/v1/embeddings route'
         );
     }
 

@@ -8,10 +8,27 @@ final class CdxWrapperUpdateChecksumTest extends TestCase
 {
     public function testWrapperSkipsBinaryUpdateWhenChecksumMissing(): void
     {
-        $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
-        self::assertStringContainsString('Codex update skipped: missing trusted checksum', $wrapperSource);
-        self::assertStringContainsString('perform_update "$CODEX_REAL_BIN" "$remote_url" "${remote_asset:-$asset_name}" "$norm_remote" "$remote_sha256"', $wrapperSource);
-        self::assertStringContainsString('Checksum mismatch for Codex', $wrapperSource);
+        // The Go wrapper verifies SHA256 in update/verify.go before swapping
+        // in a newly downloaded binary.
+        $verifySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/update/verify.go');
+        self::assertIsString($verifySource);
+
+        // VerifyChecksum rejects payloads that don't have a 64-char hex digest.
+        self::assertStringContainsString('VerifyChecksum', $verifySource);
+        self::assertStringContainsString('expected sha256 must be 64 hex chars', $verifySource);
+        self::assertStringContainsString('sha256 mismatch', $verifySource);
+
+        $updateSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/update/update.go');
+        self::assertIsString($updateSource);
+
+        // SelfUpdate calls VerifyChecksum after download; on mismatch the tmp file
+        // is removed and the old binary is preserved.
+        self::assertStringContainsString('VerifyChecksum', $updateSource);
+        self::assertStringContainsString('BinarySHA256', $updateSource);
+
+        // The config struct exposes BinarySHA256 as a required 64-char field.
+        $configSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/config/load.go');
+        self::assertIsString($configSource);
+        self::assertStringContainsString('binary_sha256 must be 64 hex chars', $configSource);
     }
 }

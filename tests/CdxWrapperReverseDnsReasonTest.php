@@ -8,13 +8,12 @@ final class CdxWrapperReverseDnsReasonTest extends TestCase
 {
     public function testWrapperSurfacesReverseDnsMismatchReason(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $authDecideSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/orchestrator/auth_decide.go');
+        self::assertIsString($authDecideSource, 'Expected to be able to read wrappers/cdx/internal/orchestrator/auth_decide.go');
 
         self::assertStringContainsString(
             'reverse DNS mismatch',
-            $wrapperSource,
+            $authDecideSource,
             'Expected wrapper to surface reverse DNS mismatch reason for denied auth syncs.'
         );
     }

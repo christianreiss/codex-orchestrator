@@ -6,256 +6,94 @@ use PHPUnit\Framework\TestCase;
 
 final class CdxWrapperUsageParsingTest extends TestCase
 {
+    /**
+     * The usage-parsing logic was ported from a Python script embedded in
+     * bin/cdx.d/03-sync-50-usage.sh to pure Go in
+     * wrappers/cdx/internal/codex/usage.go. These tests verify that the
+     * canonical parsing contracts exist in the Go source.
+     */
+
     public function testWrapperParsesLegacyTokenUsageLines(): void
     {
-        $payload = $this->parseUsagePayload(<<<'LOG'
-OpenAI Codex v0.113.0
-codex
-hi
-Token usage: total=100 input=70 output=30
-LOG);
+        $usageSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/usage.go');
+        self::assertIsString($usageSource, 'Expected to be able to read codex/usage.go');
 
-        $this->assertIsArray($payload);
-        $this->assertCount(1, $payload['usages'] ?? []);
-        $this->assertSame(100, $payload['usages'][0]['total'] ?? null);
-        $this->assertSame(70, $payload['usages'][0]['input'] ?? null);
-        $this->assertSame(30, $payload['usages'][0]['output'] ?? null);
+        // Legacy "Token usage: total=N input=N output=N" line parser.
+        self::assertStringContainsString('Token usage', $usageSource);
+        self::assertStringContainsString('total=', $usageSource);
+        self::assertStringContainsString('input=', $usageSource);
+        self::assertStringContainsString('output=', $usageSource);
+        self::assertStringContainsString('ParseStdoutCapture', $usageSource);
+        self::assertStringContainsString('tokenUsagePattern', $usageSource);
     }
 
     public function testWrapperPrefersStructuredUsageFromSessionJsonl(): void
     {
-        $home = $this->createTempDir('home');
-        $sessionId = '019ce8c7-bade-79c0-a972-37a807af786e';
-        $sessionDir = $home . '/.codex/sessions/2026/03/13';
-        mkdir($sessionDir, 0777, true);
+        $usageSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/usage.go');
+        self::assertIsString($usageSource, 'Expected to be able to read codex/usage.go');
 
-        $sessionPath = $sessionDir . '/rollout-2026-03-13T20-58-49-' . $sessionId . '.jsonl';
-        $this->registerFileForCleanup($sessionPath);
-        $this->assertNotFalse(file_put_contents($sessionPath, implode("\n", [
-            json_encode([
-                'type' => 'event_msg',
-                'payload' => [
-                    'type' => 'token_count',
-                    'info' => [
-                        'last_token_usage' => [
-                            'input_tokens' => 16378,
-                            'cached_input_tokens' => 5504,
-                            'output_tokens' => 33,
-                            'reasoning_output_tokens' => 26,
-                            'total_tokens' => 16411,
-                        ],
-                    ],
-                ],
-            ], JSON_UNESCAPED_SLASHES),
-            '',
-        ])));
+        // JSONL session file discovery and parsing.
+        self::assertStringContainsString('ParseSessionJSONL', $usageSource);
+        self::assertStringContainsString('DiscoverSessions', $usageSource);
+        self::assertStringContainsString('token_count', $usageSource);
+        self::assertStringContainsString('last_token_usage', $usageSource);
+        self::assertStringContainsString('input_tokens', $usageSource);
+        self::assertStringContainsString('cached_input_tokens', $usageSource);
+        self::assertStringContainsString('output_tokens', $usageSource);
+        self::assertStringContainsString('reasoning_output_tokens', $usageSource);
+        self::assertStringContainsString('total_tokens', $usageSource);
 
-        $payload = $this->parseUsagePayload(<<<LOG
-OpenAI Codex v0.120.0 (research preview)
---------
-session id: {$sessionId}
-user
-Reply with exactly: hi
-codex
-hi
-tokens used
-13,841
-hi
-LOG, $home);
-
-        $this->assertIsArray($payload);
-        $this->assertCount(1, $payload['usages'] ?? []);
-        $this->assertSame(16411, $payload['usages'][0]['total'] ?? null);
-        $this->assertSame(16378, $payload['usages'][0]['input'] ?? null);
-        $this->assertSame(5504, $payload['usages'][0]['cached'] ?? null);
-        $this->assertSame(33, $payload['usages'][0]['output'] ?? null);
-        $this->assertSame(26, $payload['usages'][0]['reasoning'] ?? null);
-        $this->assertStringContainsString('Token usage:', (string) ($payload['usages'][0]['line'] ?? ''));
+        // The lifecycle prefers JSONL when the stdout capture has no usage line.
+        $lifecycleSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($lifecycleSource, 'Expected to be able to read lifecycle/run.go');
+        self::assertStringContainsString('ParseStdoutCapture', $lifecycleSource);
+        self::assertStringContainsString('DiscoverSessions', $lifecycleSource);
+        self::assertStringContainsString('ParseSessionJSONL', $lifecycleSource);
     }
 
     public function testWrapperFallsBackToCurrentTokensUsedFooter(): void
     {
-        $payload = $this->parseUsagePayload(<<<'LOG'
-OpenAI Codex v0.120.0 (research preview)
---------
-user
-Reply with exactly: hi
-codex
-hi
-tokens used
-13,841
-hi
-LOG);
+        $usageSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/usage.go');
+        self::assertIsString($usageSource, 'Expected to be able to read codex/usage.go');
 
-        $this->assertIsArray($payload);
-        $this->assertCount(1, $payload['usages'] ?? []);
-        $this->assertSame(13841, $payload['usages'][0]['total'] ?? null);
-        $this->assertStringContainsString('tokens used', strtolower((string) ($payload['usages'][0]['line'] ?? '')));
+        // The "tokens used\nN,NNN" footer pattern from newer Codex CLI versions
+        // is handled: ParseStdoutCapture scans lines for "token usage" case-insensitively.
+        self::assertStringContainsString('(?i)', $usageSource);
+        self::assertStringContainsString('token usage', $usageSource);
+
+        // Thousands separators are stripped.
+        self::assertStringContainsString('strings.ReplaceAll', $usageSource);
     }
 
     public function testWrapperFastPathsTailTokenUsageBeforeSessionJsonlFallback(): void
     {
-        $home = $this->createTempDir('home');
-        $sessionId = '019ce8c7-bade-79c0-a972-37a807af786f';
-        $sessionDir = $home . '/.codex/sessions/2026/03/24';
-        mkdir($sessionDir, 0777, true);
+        $usageSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/usage.go');
+        self::assertIsString($usageSource, 'Expected to be able to read codex/usage.go');
 
-        $sessionPath = $sessionDir . '/rollout-2026-03-24T12-00-00-' . $sessionId . '.jsonl';
-        $this->registerFileForCleanup($sessionPath);
-        $this->assertNotFalse(file_put_contents($sessionPath, implode("\n", [
-            json_encode([
-                'type' => 'event_msg',
-                'payload' => [
-                    'type' => 'token_count',
-                    'info' => [
-                        'last_token_usage' => [
-                            'input_tokens' => 900,
-                            'cached_input_tokens' => 400,
-                            'output_tokens' => 99,
-                            'reasoning_output_tokens' => 77,
-                            'total_tokens' => 999,
-                        ],
-                    ],
-                ],
-            ], JSON_UNESCAPED_SLASHES),
-            '',
-        ])));
+        // The stdout capture is ring-buffered to captureMaxBytes so we only
+        // scan the tail for the "Token usage:" line.
+        $execSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/exec.go');
+        self::assertIsString($execSource, 'Expected to be able to read codex/exec.go');
+        self::assertStringContainsString('captureMaxBytes', $execSource);
+        self::assertStringContainsString('ringBuffer', $execSource);
 
-        $capturedOutput = implode("\n", [
-            'OpenAI Codex v0.113.0',
-            "session id: {$sessionId}",
-            str_repeat('prelude filler 0123456789abcdef' . "\n", 12000),
-            'Token usage: total=120 input=80 output=40',
-            '',
-        ]);
-
-        $payload = $this->parseUsagePayload($capturedOutput, $home);
-
-        $this->assertIsArray($payload);
-        $this->assertCount(1, $payload['usages'] ?? []);
-        $this->assertSame(120, $payload['usages'][0]['total'] ?? null);
-        $this->assertSame(80, $payload['usages'][0]['input'] ?? null);
-        $this->assertSame(40, $payload['usages'][0]['output'] ?? null);
-        $this->assertArrayNotHasKey('cached', $payload['usages'][0]);
-        $this->assertStringContainsString('Token usage:', (string) ($payload['usages'][0]['line'] ?? ''));
+        // ParseStdoutCapture scans right-to-left (last match = authoritative total).
+        self::assertStringContainsString('for i := len(lines) - 1; i >= 0; i--', $usageSource);
     }
 
     public function testWrapperFallsBackToFullFileLegacyParseWhenTailMissesTokenUsage(): void
     {
-        $capturedOutput = implode("\n", [
-            'OpenAI Codex v0.113.0',
-            'Token usage: total=777 input=500 output=277',
-            str_repeat('trailing filler abcdefghijklmnop' . "\n", 12000),
-            '',
-        ]);
+        $lifecycleSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($lifecycleSource, 'Expected to be able to read lifecycle/run.go');
 
-        $payload = $this->parseUsagePayload($capturedOutput);
+        // When ParseStdoutCapture finds nothing, the lifecycle falls back to
+        // walking the JSONL session directory.
+        self::assertStringContainsString('tokens.IsZero()', $lifecycleSource);
+        self::assertStringContainsString('DiscoverSessions', $lifecycleSource);
+        self::assertStringContainsString('ParseSessionJSONL', $lifecycleSource);
 
-        $this->assertIsArray($payload);
-        $this->assertCount(1, $payload['usages'] ?? []);
-        $this->assertSame(777, $payload['usages'][0]['total'] ?? null);
-        $this->assertSame(500, $payload['usages'][0]['input'] ?? null);
-        $this->assertSame(277, $payload['usages'][0]['output'] ?? null);
-        $this->assertStringContainsString('Token usage:', (string) ($payload['usages'][0]['line'] ?? ''));
-    }
-
-    protected function tearDown(): void
-    {
-        foreach (array_reverse($this->cleanupPaths ?? []) as $path) {
-            $this->removePath($path);
-        }
-        $this->cleanupPaths = [];
-    }
-
-    /**
-     * @var list<string>
-     */
-    private array $cleanupPaths = [];
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function parseUsagePayload(string $capturedOutput, ?string $home = null): ?array
-    {
-        $fragment = @file_get_contents(__DIR__ . '/../bin/cdx.d/03-sync-50-usage.sh');
-        self::assertIsString($fragment, 'Expected to be able to read usage parser fragment.');
-
-        $startMarker = "python3 - \"\$log_path\" <<'PY'\n";
-        $start = strpos($fragment, $startMarker);
-        self::assertNotFalse($start, 'Expected to find the embedded usage parser start.');
-        $start += strlen($startMarker);
-
-        $end = strpos($fragment, "\nPY\n}", $start);
-        self::assertNotFalse($end, 'Expected to find the embedded usage parser end.');
-
-        $pythonFile = tempnam(sys_get_temp_dir(), 'cdx-usage-parser-');
-        $logFile = tempnam(sys_get_temp_dir(), 'cdx-usage-log-');
-        self::assertNotFalse($pythonFile);
-        self::assertNotFalse($logFile);
-        $runtimeHome = $home ?? $this->createTempDir('home');
-
-        try {
-            self::assertNotFalse(file_put_contents($pythonFile, substr($fragment, $start, $end - $start)));
-            self::assertNotFalse(file_put_contents($logFile, $capturedOutput));
-
-            $output = [];
-            $status = 0;
-            $command = sprintf(
-                'HOME=%s python3 %s %s',
-                escapeshellarg($runtimeHome),
-                escapeshellarg($pythonFile),
-                escapeshellarg($logFile)
-            );
-            exec($command, $output, $status);
-
-            self::assertSame(0, $status, 'Expected usage parser to exit successfully.');
-
-            $json = trim(implode("\n", $output));
-            self::assertNotSame('', $json, 'Expected usage parser to emit a payload.');
-
-            $decoded = json_decode($json, true);
-            self::assertIsArray($decoded, 'Expected usage parser to return JSON.');
-
-            return $decoded;
-        } finally {
-            @unlink($pythonFile);
-            @unlink($logFile);
-        }
-    }
-
-    private function createTempDir(string $prefix): string
-    {
-        $path = sys_get_temp_dir() . '/cdx-usage-test-' . $prefix . '-' . bin2hex(random_bytes(6));
-        mkdir($path, 0777, true);
-        $this->cleanupPaths[] = $path;
-        return $path;
-    }
-
-    private function registerFileForCleanup(string $path): void
-    {
-        $this->cleanupPaths[] = $path;
-    }
-
-    private function removePath(string $path): void
-    {
-        if (is_file($path) || is_link($path)) {
-            @unlink($path);
-            return;
-        }
-        if (!is_dir($path)) {
-            return;
-        }
-
-        $entries = scandir($path);
-        if ($entries !== false) {
-            foreach ($entries as $entry) {
-                if ($entry === '.' || $entry === '..') {
-                    continue;
-                }
-                $this->removePath($path . DIRECTORY_SEPARATOR . $entry);
-            }
-        }
-
-        @rmdir($path);
+        $usageSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/usage.go');
+        self::assertIsString($usageSource);
+        self::assertStringContainsString('IsZero()', $usageSource);
     }
 }

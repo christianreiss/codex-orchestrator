@@ -10,39 +10,37 @@ final class CdxWrapperSshKeyboardFilterTest extends TestCase
 {
     public function testWrapperUsesDirectTtyForInteractiveSsh(): void
     {
-        $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
+        // The bash wrapper's Python PTY bridge was removed. The Go wrapper sets
+        // PROMPT_TOOLKIT_NO_CPR=1 when not running in a TTY so the upstream
+        // codex CLI (prompt_toolkit) does not probe cursor position over a pipe.
+        $execSource = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/exec.go');
+        self::assertIsString($execSource);
 
-        self::assertStringContainsString('is_ssh_session()', $wrapperSource);
-        self::assertStringContainsString('CODEX_SSH_INTERACTIVE=1', $wrapperSource);
-        self::assertStringContainsString('ssh_should_force_no_alt_screen()', $wrapperSource);
-        self::assertStringContainsString("if [[ -t 0 && -t 1 ]]; then\n    \"\${exec_cmd[@]}\"\n    status=$?", $wrapperSource);
-        self::assertStringContainsString('if ssh_should_force_no_alt_screen && ! codex_args_include_exact_flag "--no-alt-screen" "$@"; then', $wrapperSource);
-        self::assertStringContainsString('cmd_line+=("--no-alt-screen")', $wrapperSource);
-        self::assertStringNotContainsString('CODEX_SSH_PTY_BRIDGE_ACTIVE', $wrapperSource);
-        self::assertStringNotContainsString('run_codex_command_via_python_pty_bridge', $wrapperSource);
-        self::assertStringNotContainsString('output_filter_re = re.compile', $wrapperSource);
-        self::assertStringNotContainsString("cpr_re = re.compile(br'\\x1b\\[6n')", $wrapperSource);
-        self::assertStringNotContainsString('normalize_plain_input_byte', $wrapperSource);
+        self::assertStringContainsString('PROMPT_TOOLKIT_NO_CPR=1', $execSource);
+        self::assertStringContainsString('stdinIsTTY', $execSource);
+        self::assertStringContainsString('stdoutIsTTY', $execSource);
+
+        // The old Python PTY bridge artefacts must not exist anywhere in Go source.
+        self::assertStringNotContainsString('output_filter_re = re.compile', $execSource);
+        self::assertStringNotContainsString('normalize_plain_input_byte', $execSource);
     }
 
     public function testDoctorReportsInteractiveSshDirectMode(): void
     {
-        $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
+        $doctorSource = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/doctor.go');
+        self::assertIsString($doctorSource);
 
-        self::assertStringContainsString('"SSH env"', $wrapperSource);
-        self::assertStringContainsString('"CLI"', $wrapperSource);
-        self::assertStringContainsString('session=${ssh_session_label}', $wrapperSource);
-        self::assertStringContainsString('TERM=${TERM:-unknown}', $wrapperSource);
-        self::assertStringContainsString('version=${LOCAL_VERSION:-unknown}', $wrapperSource);
-        self::assertStringContainsString('ssh_should_force_no_alt_screen', $wrapperSource);
-        self::assertStringContainsString('ssh-launch=direct-tty', $wrapperSource);
-        self::assertStringContainsString('ssh-launch=direct-tty-inline', $wrapperSource);
-        self::assertStringContainsString('alt-screen=enabled', $wrapperSource);
-        self::assertStringContainsString('alt-screen=disabled', $wrapperSource);
-        self::assertStringNotContainsString('pty-bridge', $wrapperSource);
-        self::assertStringNotContainsString('cpr=synthetic', $wrapperSource);
-        self::assertStringNotContainsString('ssh-launch=pty-forced', $wrapperSource);
+        // The doctor table has "SSH env" and "CLI" rows — stable contract.
+        self::assertStringContainsString('"SSH env"', $doctorSource);
+        self::assertStringContainsString('"CLI"', $doctorSource);
+
+        // SSH detection reads the canonical env vars.
+        self::assertStringContainsString('SSH_TTY', $doctorSource);
+        self::assertStringContainsString('SSH_CONNECTION', $doctorSource);
+        self::assertStringContainsString('TERM', $doctorSource);
+
+        // No legacy PTY-bridge artefacts in the doctor.
+        self::assertStringNotContainsString('pty-bridge', $doctorSource);
+        self::assertStringNotContainsString('cpr=synthetic', $doctorSource);
     }
 }

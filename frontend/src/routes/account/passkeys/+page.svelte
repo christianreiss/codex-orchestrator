@@ -198,6 +198,7 @@
     <Card.Description>
       Passkeys let you sign in without a password, using a hardware authenticator or
       platform biometrics. Each device is shown below — click the pencil to rename.
+      Note: users with a registered passkey must sign in with that passkey.
     </Card.Description>
   </Card.Header>
   <Card.Content class="p-0">

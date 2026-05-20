@@ -6,58 +6,81 @@ use PHPUnit\Framework\TestCase;
 
 final class CdxWrapperRunFooterTest extends TestCase
 {
+    private static function readGoFile(string $relPath): string
+    {
+        $path = __DIR__ . '/../' . $relPath;
+        $source = @file_get_contents($path);
+        self::assertIsString($source, "Expected to be able to read {$relPath}");
+        return $source;
+    }
+
     public function testWrapperUsesCompactRunFooterSections(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper uses PrintExitFooter() in ui/footer.go which renders
+        // a "Run usage" row and a "Sync" row — the direct equivalents of the
+        // bash wrapper's usage_label / sync_label variables.
+        $footerSource = self::readGoFile('wrappers/cdx/internal/ui/footer.go');
+        self::assertStringContainsString('PrintExitFooter', $footerSource);
+        self::assertStringContainsString('Run usage', $footerSource);
+        self::assertStringContainsString('Sync', $footerSource);
 
-        self::assertStringContainsString('print_run_exit_footer() {', $wrapperSource);
-        self::assertStringContainsString('usage_label="Run usage"', $wrapperSource);
-        self::assertStringContainsString('sync_label="Sync"', $wrapperSource);
-        self::assertStringContainsString('summary_row "$usage_label" "$usage_text"', $wrapperSource);
-        self::assertStringContainsString('summary_row "$sync_label" "$sync_text"', $wrapperSource);
-        self::assertStringContainsString('print_run_exit_footer || true', $wrapperSource);
+        // lifecycle/run.go calls PrintExitFooter and passes both UsageStatus and
+        // AuthStatus — the Go equivalents of summary_row "$usage_label" and
+        // summary_row "$sync_label".
+        $lifecycleSource = self::readGoFile('wrappers/cdx/internal/lifecycle/run.go');
+        self::assertStringContainsString('PrintExitFooter', $lifecycleSource);
+        self::assertStringContainsString('UsageStatus', $lifecycleSource);
+        self::assertStringContainsString('AuthStatus', $lifecycleSource);
     }
 
     public function testWrapperSuppressesFooterForEmptyRunsWithoutUsagePayload(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper skips the per-token detail when no tokens were captured
+        // and reports "uploaded (no tokens detected)" instead of a full usage line,
+        // matching the bash wrapper's should_suppress_empty_run_footer logic.
+        $lifecycleSource = self::readGoFile('wrappers/cdx/internal/lifecycle/run.go');
+        self::assertStringContainsString('tokens.IsZero()', $lifecycleSource);
+        self::assertStringContainsString('uploaded (no tokens detected)', $lifecycleSource);
 
-        self::assertStringContainsString('should_suppress_empty_run_footer() {', $wrapperSource);
-        self::assertStringContainsString('[[ -z "${USAGE_PUSH_SUMMARY:-}" ]] || return 1', $wrapperSource);
-        self::assertStringContainsString('[[ -z "${last_usage_payload:-}" ]] || return 1', $wrapperSource);
-        self::assertStringContainsString('[[ "${USAGE_PUSH_RESULT:-}" == "skipped" ]] || return 1', $wrapperSource);
-        self::assertStringContainsString('[[ "${USAGE_PUSH_REASON:-}" == "no token usage captured" ]]', $wrapperSource);
-        self::assertStringContainsString('if should_suppress_empty_run_footer; then', $wrapperSource);
+        // The footer struct's Tokens field is nil when no usage was captured,
+        // and PrintExitFooter skips the Run-usage row in that case.
+        $footerSource = self::readGoFile('wrappers/cdx/internal/ui/footer.go');
+        self::assertStringContainsString('f.Tokens != nil', $footerSource);
     }
 
     public function testWrapperRemovesLegacyPushFooterLines(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper has no inline push-result footer strings; push outcomes
+        // are encoded in the UsageStatus / AuthStatus fields passed to
+        // PrintExitFooter, not printed as raw literal lines.
+        $footerSource = self::readGoFile('wrappers/cdx/internal/ui/footer.go');
+        self::assertStringNotContainsString('Usage push | ok |', $footerSource);
+        self::assertStringNotContainsString('Usage push | ok (fallback) |', $footerSource);
+        self::assertStringNotContainsString('Usage push | failed |', $footerSource);
+        self::assertStringNotContainsString('Auth push | ${AUTH_PUSH_RESULT}', $footerSource);
 
-        self::assertStringNotContainsString('Usage push | ok |', $wrapperSource);
-        self::assertStringNotContainsString('Usage push | ok (fallback) |', $wrapperSource);
-        self::assertStringNotContainsString('Usage push | failed |', $wrapperSource);
-        self::assertStringNotContainsString('Auth push | ${AUTH_PUSH_RESULT} | ${AUTH_PUSH_REASON:-n/a}', $wrapperSource);
+        $lifecycleSource = self::readGoFile('wrappers/cdx/internal/lifecycle/run.go');
+        self::assertStringNotContainsString('Usage push | ok |', $lifecycleSource);
+        self::assertStringNotContainsString('Auth push | ${AUTH_PUSH_RESULT}', $lifecycleSource);
     }
 
     public function testWrapperDoesNotRenderBillingFooter(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper has no cost/billing footer.  These strings must not
+        // appear anywhere in the footer or lifecycle source.
+        $footerSource = self::readGoFile('wrappers/cdx/internal/ui/footer.go');
+        $lifecycleSource = self::readGoFile('wrappers/cdx/internal/lifecycle/run.go');
 
-        $legacyFormatter = 'format_run_' . 'co' . 'st_value() {';
-        $legacyLabel = 'co' . 'st_label="Run ' . 'co' . 'st"';
-        $legacyEnv = 'USAGE_PUSH_' . 'CO' . 'ST';
+        $legacyFormatter = 'format_run_' . 'co' . 'st_value';
+        $legacyLabel     = 'co' . 'st_label';
+        $legacyEnv       = 'USAGE_PUSH_' . 'CO' . 'ST';
 
-        self::assertStringNotContainsString($legacyFormatter, $wrapperSource);
-        self::assertStringNotContainsString($legacyLabel, $wrapperSource);
-        self::assertStringNotContainsString($legacyEnv, $wrapperSource);
+        self::assertStringNotContainsString($legacyFormatter, $footerSource);
+        self::assertStringNotContainsString($legacyLabel,     $footerSource);
+        self::assertStringNotContainsString($legacyEnv,       $footerSource);
+
+        self::assertStringNotContainsString($legacyFormatter, $lifecycleSource);
+        self::assertStringNotContainsString($legacyLabel,     $lifecycleSource);
+        self::assertStringNotContainsString($legacyEnv,       $lifecycleSource);
     }
 }

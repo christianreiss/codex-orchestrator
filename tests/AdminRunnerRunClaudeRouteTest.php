@@ -45,9 +45,10 @@ final class AdminRunnerRunClaudeRouteTest extends TestCase
 
     public function testControllerDashboardJsInvokesRoute(): void
     {
-        $dashboard = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($dashboard);
+        // SvelteKit: the route is called via the runner API module.
+        $runner = file_get_contents(__DIR__ . '/../frontend/src/lib/api/runner.ts');
+        self::assertIsString($runner);
 
-        self::assertStringContainsString("'/admin/runner/run-claude'", $dashboard);
+        self::assertStringContainsString('/admin/runner/run-claude', $runner);
     }
 }

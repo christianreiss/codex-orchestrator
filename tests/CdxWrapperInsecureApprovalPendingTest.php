@@ -8,41 +8,48 @@ final class CdxWrapperInsecureApprovalPendingTest extends TestCase
 {
     public function testWrapperRendersSinglePendingApprovalBoxWhilePolling(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $sourcePath = __DIR__ . '/../wrappers/cdx/internal/ui/approval_box.go';
+        $source = @file_get_contents($sourcePath);
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/approval_box.go');
 
         self::assertStringContainsString(
-            'build_insecure_approval_pending_box() {',
-            $wrapperSource
+            'func PollApproval(',
+            $source,
+            'Should export a PollApproval function that drives the polling loop.'
         );
         self::assertStringContainsString(
-            'render_insecure_approval_pending_box() {',
-            $wrapperSource
+            'func drawApprovalBox(',
+            $source,
+            'Should have an internal drawApprovalBox function that renders the framed box.'
         );
         self::assertStringContainsString(
-            'Pending; open Admin, click Enable window',
-            $wrapperSource
+            'Awaiting insecure-host approval',
+            $source,
+            'Pending approval box should display an "awaiting" title.'
         );
         self::assertStringContainsString(
-            '_approval_field_row "last check:" "$last_check" "${DIM}"',
-            $wrapperSource
+            'last check',
+            $source,
+            'Pending approval box should show a "last check" timestamp field.'
         );
         self::assertStringContainsString(
-            '_approval_field_row "checks:" "$spinner  $checks" "${GREEN}${BOLD}"',
-            $wrapperSource
+            'checks',
+            $source,
+            'Pending approval box should show a poll-counter field.'
         );
         self::assertStringContainsString(
-            "printf '\\033[%sA' \"\$INSECURE_APPROVAL_BOX_LINES\"",
-            $wrapperSource
+            '\033[1A\033[2K',
+            $source,
+            'Subsequent repaints should walk the cursor up and erase lines to redraw in place.'
         );
         self::assertStringContainsString(
-            'INSECURE_APPROVAL_CHECK_COUNT=$((INSECURE_APPROVAL_CHECK_COUNT + 1))',
-            $wrapperSource
+            'checks++',
+            $source,
+            'Poll counter should increment on each tick.'
         );
         self::assertStringNotContainsString(
-            'wait_logged=1',
-            $wrapperSource,
+            'wait_logged',
+            $source,
             'Pending approval should redraw the same box instead of logging a one-time wait flag.'
         );
     }

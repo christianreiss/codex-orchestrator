@@ -68,3 +68,32 @@
     height: 100%;
   }
 }
+
+/* Pink theme presets */
+body[data-theme="auto-pink"] {
+  --accent: #ec4899;
+  --accent-foreground: #fff;
+  --primary: #ec4899;
+  --primary-foreground: #fff;
+  --sidebar-active: 330 81% 60%;
+}
+
+body[data-theme="bright-pink"] {
+  --accent: #f472b6;
+  --accent-foreground: #fff;
+  --primary: #f472b6;
+  --primary-foreground: #fff;
+  --sidebar-active: 330 81% 68%;
+}
+
+body[data-theme="dark-pink"] {
+  --background: 330 25% 8%;
+  --foreground: 330 10% 95%;
+  --card: 330 20% 10%;
+  --card-foreground: 330 10% 95%;
+  --accent: #ec4899;
+  --accent-foreground: #fff;
+  --primary: #ec4899;
+  --primary-foreground: #fff;
+  --sidebar-active: 330 81% 60%;
+}

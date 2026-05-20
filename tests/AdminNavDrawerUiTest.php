@@ -10,80 +10,95 @@ final class AdminNavDrawerUiTest extends TestCase
 {
     public function testAdminMarkupIncludesDrawerNavigationShell(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        $sidebar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/Sidebar.svelte');
+        $this->assertIsString($sidebar);
 
-        $this->assertStringContainsString('data-nav-version="2026"', $html);
-        $this->assertStringContainsString('class="editorial-rail"', $html);
-        $this->assertStringContainsString('id="navMenuToggle"', $html);
-        $this->assertStringContainsString('id="navDrawer"', $html);
-        $this->assertStringContainsString('id="navDrawerBackdrop"', $html);
-        $this->assertStringContainsString('class="rail-frame"', $html);
-        $this->assertStringContainsString('id="navAccountTrigger"', $html);
-        $this->assertStringContainsString('id="navThemeMenuTrigger"', $html);
-        $this->assertStringContainsString('data-theme-option="auto-pink"', $html);
-        $this->assertStringContainsString('data-theme-option="bright-pink"', $html);
-        $this->assertStringContainsString('data-theme-option="dark-pink"', $html);
-        $this->assertStringContainsString('href="/admin/account/password"', $html);
-        $this->assertStringContainsString('href="/admin/account/passkeys"', $html);
-        $this->assertStringNotContainsString('id="themeToggle"', $html);
-        $this->assertStringNotContainsString('id="navUser"', $html);
-        $this->assertStringNotContainsString('id="wsStatus"', $html);
-        $this->assertStringNotContainsString('id="mtlsStatus"', $html);
-        $this->assertStringContainsString('data-rail-trigger', $html);
-        $this->assertStringContainsString('href="/admin/dashboard" data-nav="dashboard">Overview</a>', $html);
-        $this->assertStringContainsString('id="navInsecureHosts" style="display:none;">Active Windows</button>', $html);
+        // Sidebar renders a nav with a list of nav items from NAV config
+        $this->assertStringContainsString('aria-label="Primary"', $sidebar);
+        $this->assertStringContainsString('{#each NAV as item', $sidebar);
+        // Account links are present in the user dropdown
+        $this->assertStringContainsString('/account/password', $sidebar);
+        $this->assertStringContainsString('/account/passkeys', $sidebar);
+        // Sign-out is wired
+        $this->assertStringContainsString('signOut', $sidebar);
+        // User display name shown
+        $this->assertStringContainsString('auth.user.name', $sidebar);
+
+        $topBar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/TopBar.svelte');
+        $this->assertIsString($topBar);
+        // Theme picker exists in TopBar
+        $this->assertStringContainsString('setTheme', $topBar);
+        // Insecure-windows indicator is rendered when activeWindows > 0
+        $this->assertStringContainsString('{#if activeWindows > 0}', $topBar);
+
+        $themeStore = file_get_contents(__DIR__ . '/../frontend/src/lib/stores/theme.ts');
+        $this->assertIsString($themeStore);
+        // Three theme modes are supported
+        $this->assertStringContainsString('"light"', $themeStore);
+        $this->assertStringContainsString('"dark"', $themeStore);
+        $this->assertStringContainsString('"system"', $themeStore);
     }
 
     public function testNavControllerWiresDrawerAndActiveSyncBehavior(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/nav.js');
-        $this->assertIsString($js);
+        $nav = file_get_contents(__DIR__ . '/../frontend/src/lib/nav.ts');
+        $this->assertIsString($nav);
 
-        $this->assertStringContainsString('editorial-rail-open', $js);
-        $this->assertStringContainsString('navMenuToggle', $js);
-        $this->assertStringContainsString('navDrawerBackdrop', $js);
-        $this->assertStringContainsString("const groups = Array.from(rail.querySelectorAll('.rail-group'));", $js);
-        $this->assertStringContainsString("const shouldOpenForFocus = (group, target) => {", $js);
-        $this->assertStringContainsString("return trigger.matches(':focus-visible');", $js);
-        $this->assertStringContainsString("if (/\\/admin\\/account/.test(pathname)) return 'account';", $js);
-        $this->assertStringContainsString("accountTab: String(document.body?.dataset?.accountTab || ''),", $js);
-        $this->assertStringContainsString("body.style.setProperty('--nav-height'", $js);
-        $this->assertStringContainsString('new ResizeObserver(() => {', $js);
-        $this->assertStringContainsString('function groupByNav(navKey) {', $js);
-        $this->assertStringContainsString('function openGroupByNav(navKey) {', $js);
-        $this->assertStringContainsString('function toggleGroupByNav(navKey) {', $js);
-        $this->assertStringContainsString("window.__railNav = {", $js);
-        $this->assertStringContainsString('openGroup: openGroupByNav,', $js);
-        $this->assertStringContainsString('toggleGroup: toggleGroupByNav,', $js);
-        $this->assertStringNotContainsString("window.addEventListener('admin-ws-status', (event) => {", $js);
-        $this->assertStringNotContainsString('Live: connected', $js);
-        $this->assertStringContainsString("window.addEventListener('popstate', syncActiveLinks);", $js);
-        $this->assertStringContainsString("attributeFilter: ['data-view-mode']", $js);
+        // NAV array is exported and used as single source of truth
+        $this->assertStringContainsString('export const NAV', $nav);
+        // Dashboard and key sections are registered
+        $this->assertStringContainsString('href: "/dashboard"', $nav);
+        $this->assertStringContainsString('href: "/hosts"', $nav);
+        $this->assertStringContainsString('href: "/settings"', $nav);
+        // isActive helper exported for active link sync
+        $this->assertStringContainsString('export function isActive', $nav);
 
-        $dashboardJs = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($dashboardJs);
-        $this->assertStringContainsString("'auto-pink'", $dashboardJs);
-        $this->assertStringContainsString("'bright-pink'", $dashboardJs);
-        $this->assertStringContainsString("'dark-pink'", $dashboardJs);
-        $this->assertStringContainsString("'Auto Pink'", $dashboardJs);
-        $this->assertStringContainsString("'Bright Pink'", $dashboardJs);
-        $this->assertStringContainsString("'Dark Pink'", $dashboardJs);
+        $sidebar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/Sidebar.svelte');
+        $this->assertIsString($sidebar);
+        // Sidebar uses isActive to sync active links
+        $this->assertStringContainsString('isActive', $sidebar);
+        $this->assertStringContainsString("aria-current={active ? \"page\" : undefined}", $sidebar);
+
+        $themeStore = file_get_contents(__DIR__ . '/../frontend/src/lib/stores/theme.ts');
+        $this->assertIsString($themeStore);
+        // Theme stored and applied on init
+        $this->assertStringContainsString('localStorage', $themeStore);
+        $this->assertStringContainsString('export function setTheme', $themeStore);
+
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        $this->assertIsString($layout);
+        // Layout binds global keyboard shortcuts
+        $this->assertStringContainsString('bindGlobalShortcuts', $layout);
+        // WebSocket client is wired up in layout
+        $this->assertStringContainsString('createWsClient', $layout);
+        // Auth store drives redirect logic
+        $this->assertStringContainsString('authStore', $layout);
     }
 
     public function test2026NavStylesAreScopedAndResponsive(): void
     {
-        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
+        $css = file_get_contents(__DIR__ . '/../frontend/src/app.css');
         $this->assertIsString($css);
 
-        $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-frame', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-panel', $css);
-        $this->assertStringNotContainsString('body[data-nav-version="2026"] .rail-status-cluster', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-tools', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-brand-copy', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .rail-brand-tagline', $css);
-        $this->assertStringContainsString('body[data-nav-version="2026"] .editorial-rail-backdrop', $css);
-        $this->assertStringContainsString('@media (max-width: 940px)', $css);
+        // CSS custom properties for sidebar theming
+        $this->assertStringContainsString('--sidebar-bg', $css);
+        $this->assertStringContainsString('--sidebar-fg', $css);
+        $this->assertStringContainsString('--sidebar-active', $css);
+        // Dark-mode overrides
+        $this->assertStringContainsString('.dark {', $css);
+        $this->assertStringContainsString('--background', $css);
+        $this->assertStringContainsString('--foreground', $css);
+
+        $mobileNav = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/MobileNav.svelte');
+        $this->assertIsString($mobileNav);
+        // Mobile nav is hidden on larger screens (responsive)
+        $this->assertStringContainsString('md:hidden', $mobileNav);
+        // Fixed bottom bar for mobile
+        $this->assertStringContainsString('fixed bottom-0', $mobileNav);
+
+        $sidebar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/Sidebar.svelte');
+        $this->assertIsString($sidebar);
+        // Sidebar is hidden on mobile, shown on md+
+        $this->assertStringContainsString('md:flex', $sidebar);
     }
 }

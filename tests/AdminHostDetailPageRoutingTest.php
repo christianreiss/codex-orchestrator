@@ -21,45 +21,54 @@ final class AdminHostDetailPageRoutingTest extends TestCase
 
     public function testAdminDashboardUsesDedicatedHostDetailPanelWithoutModal(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
+        // The SvelteKit host detail page is a dedicated route, not a modal.
+        $hostDetailPage = file_get_contents(__DIR__ . '/../frontend/src/routes/hosts/[id]/+page.svelte');
+        $this->assertIsString($hostDetailPage);
 
-        $this->assertStringContainsString('data-panel="host-detail"', $html);
-        $this->assertStringContainsString('id="hostDetailPanel"', $html);
-        $this->assertStringContainsString('id="hostDetailLayout"', $html);
-        $this->assertStringContainsString('id="hostDetailActions"', $html);
-        $this->assertStringContainsString('id="hostDetailSummary"', $html);
-        $this->assertStringContainsString('id="hostDetailGrid"', $html);
-        $this->assertStringContainsString('id="hostDetailProblems"', $html);
-        $this->assertStringNotContainsString('id="hostDetailModal"', $html);
+        // The page must show host stats, action items, technical context, and controls.
+        $this->assertStringContainsString('Stats', $hostDetailPage);
+        $this->assertStringContainsString('Action items', $hostDetailPage);
+        $this->assertStringContainsString('Technical context', $hostDetailPage);
+        $this->assertStringContainsString('Controls', $hostDetailPage);
+
+        // No old-style detail modal — host detail lives on its own route.
+        $this->assertStringNotContainsString('id="hostDetailModal"', $hostDetailPage);
     }
 
     public function testDashboardJsRoutesHostRowsToDedicatedPath(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // SvelteKit uses file-based routing and the goto() API for navigation.
+        $hostsTable = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/HostsTable.svelte');
+        $this->assertIsString($hostsTable);
 
-        $this->assertStringContainsString('parseHostIdFromPath', $js);
-        $this->assertStringContainsString('window.location.assign(`/admin/hosts/${Math.trunc(numericId)}`);', $js);
-        $this->assertStringContainsString("return { panel: 'host-detail', sub: seg2 };", $js);
-        $this->assertStringContainsString('renderActiveHostDetail()', $js);
-        $this->assertStringContainsString('ensureHostDetailLoaded()', $js);
-        $this->assertStringContainsString('ensureHostDetailSupportLoaded()', $js);
-        $this->assertStringContainsString('api(`/admin/hosts/${requestHostId}/detail`)', $js);
-        $this->assertStringContainsString('api(`/admin/hosts/${activeHostId}/detail`)', $js);
-        $this->assertStringContainsString("window.__adminWsRequest('host-detail-support'", $js);
-        $this->assertStringContainsString('waitForAdminWsReady()', $js);
-        $this->assertStringContainsString('btn.onclick = async (ev) => {', $js);
-        $this->assertStringContainsString("await showConfirmModal('Clear auth'", $js);
+        // Clicking a row navigates to the dedicated host detail route.
+        $this->assertStringContainsString('openHost', $hostsTable);
+        $this->assertStringContainsString('goto', $hostsTable);
+        $this->assertStringContainsString('/hosts/${h.id}', $hostsTable);
+
+        // The host detail page fetches host data from the /detail API endpoint.
+        $hostsApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/hosts.ts');
+        $this->assertIsString($hostsApi);
+
+        $this->assertStringContainsString('hostDetailQuery', $hostsApi);
+        $this->assertStringContainsString('/admin/hosts/${id}/detail', $hostsApi);
+
+        // The host detail page handles the "Clear auth" action.
+        $hostDetailPage = file_get_contents(__DIR__ . '/../frontend/src/routes/hosts/[id]/+page.svelte');
+        $this->assertIsString($hostDetailPage);
+
+        $this->assertStringContainsString('clearAuth', $hostDetailPage);
+        $this->assertStringContainsString('Clear auth', $hostDetailPage);
     }
 
     public function testDashboardJsIgnoresInlineControlsWhenOpeningHostDetail(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
+        // SvelteKit hosts table uses event.stopPropagation() on inline controls so
+        // clicking a toggle / switch does not navigate to the host detail page.
+        $hostsTable = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/HostsTable.svelte');
+        $this->assertIsString($hostsTable);
 
-        $this->assertStringContainsString('function shouldIgnoreHostRowNavigation(target) {', $js);
-        $this->assertStringContainsString("return !!target.closest('a, button, input, label, select, textarea, summary, [role=\"button\"], [role=\"link\"], [contenteditable=\"true\"], .insecure-inline-toggle');", $js);
-        $this->assertStringContainsString("if (shouldIgnoreHostRowNavigation(ev.target)) return;", $js);
+        $this->assertStringContainsString('stopPropagation', $hostsTable);
+        $this->assertStringContainsString('onToggleAutoUpdate', $hostsTable);
     }
 }

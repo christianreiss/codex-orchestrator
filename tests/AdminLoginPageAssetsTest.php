@@ -10,38 +10,60 @@ final class AdminLoginPageAssetsTest extends TestCase
 {
     public function testLoginPageLoadsDedicatedAssets(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/login.html');
-        $this->assertIsString($html);
-        $this->assertStringContainsString('rel="prefetch" href="/admin/index.html" as="document" data-admin-prefetch', $html);
-        $this->assertMatchesRegularExpression('#/admin/assets/dashboard\.css\?v=\d{4}-\d{2}-\d{2}-\d{2}#', $html);
-        $this->assertMatchesRegularExpression('#/admin/assets/dashboard-mobile\.css\?v=\d{4}-\d{2}-\d{2}-\d{2}#', $html);
-        $this->assertStringContainsString('/admin/assets/dashboard.js?v=2026-04-03-05', $html);
-        $this->assertStringContainsString('/admin/assets/theme.css?v=', $html);
-        $this->assertStringContainsString('/admin/assets/login.css?v=', $html);
-        $this->assertStringContainsString('/admin/assets/login.js?v=', $html);
-        $this->assertStringContainsString('src="/admin/assets/openai-logo.svg" alt="OpenAI"', $html);
-        $this->assertStringContainsString('src="/admin/assets/claude-logo.svg" alt="Claude"', $html);
-        $this->assertStringNotContainsString('src="/admin/assets/codex-logo.svg" alt="Codex"', $html);
-        $this->assertStringNotContainsString('/admin/assets/passkey-login.js?v=', $html);
-        $this->assertStringContainsString('id="adminLoginError"', $html);
+        // The login UI is now a SvelteKit route. Verify key login-form
+        // elements and auth integration are present in the Svelte source.
+        $svelte = file_get_contents(__DIR__ . '/../frontend/src/routes/login/+page.svelte');
+        $this->assertIsString($svelte);
+
+        // Username and password fields exist.
+        $this->assertStringContainsString('id="username"', $svelte);
+        $this->assertStringContainsString('id="password"', $svelte);
+
+        // The login page uses the auth store and navigates to the dashboard on success.
+        $this->assertStringContainsString('authActions', $svelte);
+        $this->assertStringContainsString('authStore', $svelte);
+        $this->assertStringContainsString('/dashboard', $svelte);
+
+        // No legacy asset references (old login.html era).
+        $this->assertStringNotContainsString('login.js', $svelte);
+        $this->assertStringNotContainsString('dashboard.js', $svelte);
+        $this->assertStringNotContainsString('codex-logo.svg', $svelte);
     }
 
     public function testLoginScriptWarmsAdminShellInBackground(): void
     {
-        $script = file_get_contents(__DIR__ . '/../public/admin/assets/login.js');
-        $this->assertIsString($script);
-        $this->assertStringContainsString('function warmAdminShell()', $script);
-        $this->assertStringContainsString("document.querySelectorAll('link[data-admin-prefetch][href]')", $script);
-        $this->assertStringContainsString("cache: 'force-cache'", $script);
-        $this->assertStringContainsString('scheduleAdminShellWarmup();', $script);
+        // The SvelteKit shell preloads modules via rel="modulepreload" links
+        // inserted by the build tooling. Verify the built shell uses this
+        // mechanism rather than the legacy fetch-based warmAdminShell approach.
+        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
+        $this->assertIsString($html);
+
+        $this->assertStringContainsString('rel="modulepreload"', $html);
+        $this->assertStringContainsString('_app/immutable/entry/', $html);
+
+        // The SvelteKit app template uses data-sveltekit-preload-data instead
+        // of manual fetch prefetching.
+        $appHtml = file_get_contents(__DIR__ . '/../frontend/src/app.html');
+        $this->assertIsString($appHtml);
+        $this->assertStringContainsString('data-sveltekit-preload-data', $appHtml);
     }
 
     public function testDashboardLoadsSharedThemeAssetWithoutRemoteFonts(): void
     {
+        // The SvelteKit shell must not pull in remote font providers.
         $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
         $this->assertIsString($html);
-        $this->assertStringContainsString('/admin/assets/theme.css?v=', $html);
         $this->assertStringNotContainsString('fonts.googleapis.com', $html);
         $this->assertStringNotContainsString('fonts.gstatic.com', $html);
+
+        // The app.html template (source of truth for the shell) must not
+        // reference remote fonts either.
+        $appHtml = file_get_contents(__DIR__ . '/../frontend/src/app.html');
+        $this->assertIsString($appHtml);
+        $this->assertStringNotContainsString('fonts.googleapis.com', $appHtml);
+        $this->assertStringNotContainsString('fonts.gstatic.com', $appHtml);
+
+        // The SvelteKit CSS bundle is inlined via the build output.
+        $this->assertStringContainsString('rel="stylesheet"', $html);
     }
 }

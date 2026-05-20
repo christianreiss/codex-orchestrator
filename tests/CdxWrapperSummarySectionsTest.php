@@ -8,92 +8,120 @@ final class CdxWrapperSummarySectionsTest extends TestCase
 {
     public function testWrapperRendersSectionedSummaryRows(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $screenSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/screen.go');
+        self::assertIsString($screenSource, 'Expected to be able to read ui/screen.go');
 
-        self::assertStringContainsString('print_boot_screen() {', $wrapperSource);
-        self::assertStringContainsString('print_boot_banner "${info[@]}"', $wrapperSource);
-        self::assertStringContainsString('Codex to Brrr!', $wrapperSource);
-        self::assertStringContainsString('CODEX_ADMIN_THEME_DEFAULT="__CODEX_ADMIN_THEME__"', $wrapperSource);
-        self::assertStringContainsString('banner_color_sequence()', $wrapperSource);
-        self::assertStringContainsString('theme_is_pink()', $wrapperSource);
-        self::assertStringContainsString('auto-pink', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "api"', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "auth"', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "skills"', $wrapperSource);
+        $bannerSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/banner.go');
+        self::assertIsString($bannerSource, 'Expected to be able to read ui/banner.go');
+
+        // Boot screen renders the "Codex to Brrr!" tagline.
+        self::assertStringContainsString('Codex to Brrr!', $screenSource);
+
+        // PrintBootScreen and PrintBoot are the canonical entry points.
+        self::assertStringContainsString('PrintBootScreen', $screenSource);
+        self::assertStringContainsString('PrintBoot', $bannerSource);
+
+        // Health dots: api, auth, skills, mcp are always emitted.
+        $healthSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/health.go');
+        self::assertIsString($healthSource, 'Expected to be able to read ui/health.go');
+        self::assertStringContainsString('"api"', $healthSource);
+        self::assertStringContainsString('"auth"', $healthSource);
+        self::assertStringContainsString('"skills"', $healthSource);
+
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read summary/summary.go');
+        self::assertStringContainsString('{Name: "api"', $summarySource);
+        self::assertStringContainsString('{Name: "auth"', $summarySource);
+        self::assertStringContainsString('{Name: "skills"', $summarySource);
+        self::assertStringContainsString('{Name: "mcp"', $summarySource);
     }
 
     public function testWrapperSupportsUpdatedHealthMarkers(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read summary/summary.go');
 
-        self::assertStringContainsString('local name="$1" tone="$2" updated="${3:-0}"', $wrapperSource);
-        self::assertStringContainsString('if [[ "$updated" == "1" ]]; then', $wrapperSource);
-        self::assertStringContainsString('output_supports_unicode || marker="^"', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "auth" "${auth_tone:-yellow}" "${auth_updated_marker}"', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "skills" "${skill_tone:-green}" "${skills_updated_marker}"', $wrapperSource);
-        self::assertStringContainsString('build_health_dot "mcp" "$mcp_tone" "${mcp_updated_marker}"', $wrapperSource);
-        self::assertStringContainsString('if [[ "${AUTH_ACTION:-}" == "store" || "${AUTH_STATUS:-}" == "outdated" ]]; then', $wrapperSource);
-        self::assertStringContainsString('if [[ "${CONFIG_SYNC_STATUS:-}" == "ok" && ( "${CONFIG_STATE:-}" == "updated" || "${CONFIG_STATE:-}" == "missing" ) ]]; then', $wrapperSource);
-        self::assertStringContainsString('if [[ "${RUNNER_ENABLED:-0}" == "1" && -n "${RUNNER_LAST_CHECK:-}" ]]; then', $wrapperSource);
-        self::assertStringNotContainsString('if [[ "${SKILL_SYNC_STATUS:-}" == "mcp" ]]; then', $wrapperSource);
+        // HealthDot.Updated flag drives the "updated this run" marker (⬆ vs ●).
+        $healthSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/health.go');
+        self::assertIsString($healthSource, 'Expected to be able to read ui/health.go');
+        self::assertStringContainsString('Updated', $healthSource);
+        self::assertStringContainsString('DotUp', $healthSource);
+
+        // The wrapper tracks per-resource update flags.
+        self::assertStringContainsString('AuthSynced', $summarySource);
+        self::assertStringContainsString('SkillsUpdated', $summarySource);
+        self::assertStringContainsString('ConfigUpdated', $summarySource);
+        self::assertStringContainsString('AgentsUpdated', $summarySource);
+
+        // Dots for auth, skills, mcp carry the Updated field.
+        self::assertStringContainsString('Updated: in.AuthSynced', $summarySource);
+        self::assertStringContainsString('Updated: in.SkillsUpdated', $summarySource);
+        self::assertStringContainsString('Updated: in.ConfigUpdated', $summarySource);
     }
 
     public function testWrapperSuppressesBootScreenAfterSelfUpdateRestart(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $updateSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/update/update.go');
+        self::assertIsString($updateSource, 'Expected to be able to read update/update.go');
 
-        self::assertStringContainsString(
-            '[[ "${CODEX_WRAPPER_RESTARTED:-0}" == "1" ]] && return 0',
-            $wrapperSource,
-            'Wrapper self-update re-execs should not print the boot screen a second time.'
-        );
-        self::assertStringContainsString('printf -v tagline "%bCodex to Brrr!%b"', $wrapperSource);
-        self::assertStringContainsString('title="$(colorize "codex orchestrator" "$(banner_color_tone)")"', $wrapperSource);
+        // The self-update path sets CODEX_WRAPPER_RESTARTED=1 before re-exec.
+        self::assertStringContainsString('CODEX_WRAPPER_RESTARTED', $updateSource);
+        self::assertStringContainsString('ReExecAfterUpdate', $updateSource);
+
+        $mainSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
+        self::assertIsString($mainSource, 'Expected to be able to read cmd/cdx/main.go');
+
+        // The wrapper reads CODEX_WRAPPER_RESTART_DEPTH to guard against loops.
+        self::assertStringContainsString('CODEX_WRAPPER_RESTART_DEPTH', $mainSource);
+        self::assertStringContainsString('maxRestartDepth', $mainSource);
     }
 
     public function testWrapperUsesReadableUsageLabels(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read summary/summary.go');
 
-        self::assertStringContainsString('API calls (host total)', $wrapperSource);
-        self::assertStringContainsString('Tokens this month', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("5h")', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("weekly")', $wrapperSource);
+        // Quota rows use human-readable labels: "5h" and "weekly".
+        self::assertStringContainsString('"5h', $summarySource);
+        self::assertStringContainsString('"weekly', $summarySource);
+
+        // API calls and tokens this month are rendered on the boot screen.
+        $screenSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/screen.go');
+        self::assertIsString($screenSource, 'Expected to be able to read ui/screen.go');
+        self::assertStringContainsString('APICalls', $screenSource);
+        self::assertStringContainsString('TokenSum', $screenSource);
+        self::assertStringContainsString('tokens', $screenSource);
+        self::assertStringContainsString('calls', $screenSource);
     }
 
     public function testWrapperKeepsQuotaWarnCopyCompact(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read summary/summary.go');
 
-        self::assertStringContainsString('reason="daily budget hit (${daily_allowance_used_pct}%"', $wrapperSource);
-        self::assertStringContainsString('note_parts+=("${daily_used}% of week today")', $wrapperSource);
-        self::assertStringContainsString('note_parts+=("${allowance_per_day}%/day budget")', $wrapperSource);
-        self::assertStringContainsString('log_warn "Quota warn mode; continuing."', $wrapperSource);
-        self::assertStringNotContainsString('reason="daily allowance reached (${daily_allowance_used_pct}% of allowance"', $wrapperSource);
-        self::assertStringNotContainsString('log_warn "ChatGPT quota reached: ${QUOTA_BLOCK_REASON:-see details above}. Continuing (warn mode)."', $wrapperSource);
+        // Quota warn/block messages use compact copy.
+        self::assertStringContainsString('quota reached', $summarySource);
+        self::assertStringContainsString('quota high', $summarySource);
+        self::assertStringContainsString('warnText', $summarySource);
+        self::assertStringContainsString('blockText', $summarySource);
+        self::assertStringContainsString('QuotaWarn', $summarySource);
+        self::assertStringContainsString('QuotaBlock', $summarySource);
+
+        // Legacy verbose phrases removed.
+        self::assertStringNotContainsString('daily allowance reached', $summarySource);
+        self::assertStringNotContainsString('ChatGPT quota reached', $summarySource);
     }
 
     public function testWrapperMeasuresBannerWidthInsteadOfUsingFixedFloatingOffset(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $bannerSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/banner.go');
+        self::assertIsString($bannerSource, 'Expected to be able to read ui/banner.go');
 
-        self::assertStringContainsString('local art_pad=0', $wrapperSource);
-        self::assertStringContainsString('local gap="  "', $wrapperSource);
-        self::assertStringContainsString('art_width="$(visible_text_width "$art_line")"', $wrapperSource);
-        self::assertStringContainsString('art_len="$(visible_text_width "$art_line")"', $wrapperSource);
-        self::assertStringNotContainsString('local art_pad=36', $wrapperSource);
-        self::assertStringNotContainsString('local gap="   "', $wrapperSource);
+        // Banner layout uses VisibleWidth() to measure art, not a fixed pad.
+        self::assertStringContainsString('VisibleWidth', $bannerSource);
+        self::assertStringContainsString('artWidth', $bannerSource);
+
+        // No hard-coded 36-col pad.
+        self::assertStringNotContainsString('art_pad=36', $bannerSource);
     }
 }

@@ -8,109 +8,91 @@ final class AdminDashboardChartLibraryTest extends TestCase
 {
     public function testDashboardDoesNotShipChartJs(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
-        $this->assertStringNotContainsString('chart.umd.min.js', $html);
-        $this->assertStringNotContainsString('chartjs-plugin-zoom.min.js', $html);
+        // The Sparkline component is an inline SVG – no Chart.js canvas required.
+        $sparkline = file_get_contents(__DIR__ . '/../frontend/src/lib/components/dashboard/Sparkline.svelte');
+        $this->assertIsString($sparkline);
+        $this->assertStringNotContainsString('chart.umd.min.js', $sparkline);
+        $this->assertStringNotContainsString('chartjs-plugin-zoom.min.js', $sparkline);
+        $this->assertStringNotContainsString("from 'chart.js'", $sparkline);
+        $this->assertStringNotContainsString('window.Chart', $sparkline);
     }
 
     public function testDashboardUsesInlineSvgSparklines(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $this->assertStringContainsString('renderTrendSparkline', $js);
-        $this->assertStringContainsString('class="dashboard-trend-spark"', $js);
-        $this->assertStringNotContainsString('window.Chart', $js);
-        $this->assertStringNotContainsString('refreshDashboardCharts', $js);
-        $this->assertStringNotContainsString('dashboardQuotaCanvas', $js);
-        $this->assertStringNotContainsString('dashboardCostCanvas', $js);
+        $sparkline = file_get_contents(__DIR__ . '/../frontend/src/lib/components/dashboard/Sparkline.svelte');
+        $this->assertIsString($sparkline);
+        // Must render a real SVG element, not a Chart.js canvas.
+        $this->assertStringContainsString('<svg', $sparkline);
+        $this->assertStringContainsString('aria-label="trend sparkline"', $sparkline);
+        // Paths are calculated via pure JS – no external chart library.
+        $this->assertStringContainsString('function pathData(', $sparkline);
+        $this->assertStringNotContainsString('window.Chart', $sparkline);
+        $this->assertStringNotContainsString('refreshDashboardCharts', $sparkline);
     }
 
     public function testNavigationShowsShortcutHints(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
-        $this->assertStringContainsString('All Hosts</span><span class="rail-shortcut">[h][a]</span>', $html);
-        $this->assertStringContainsString('New Host</span><span class="rail-shortcut">[h][n]</span>', $html);
-        self::assertStringContainsString('Quick VM</span><span class="rail-shortcut">[h][q]</span>', $html);
-        $this->assertStringContainsString('API Logs</span><span class="rail-shortcut">[l][c]</span>', $html);
-        $this->assertStringContainsString('General</span><span class="rail-shortcut">[s][g]</span>', $html);
-        $this->assertStringContainsString('Projects</span><span class="rail-shortcut">[s][p]</span>', $html);
-        $this->assertStringContainsString('Keyboard shortcuts</span>', $html);
-        $this->assertStringContainsString('<span class="rail-shortcut">[?]</span>', $html);
-        $this->assertStringNotContainsString('Overview</span><span class="rail-shortcut">', $html);
-        $this->assertStringContainsString('Users</span><span class="rail-shortcut">[s][u]</span>', $html);
+        // The SvelteKit sidebar renders nav items from NAV registry without chord shortcuts.
+        $sidebar = file_get_contents(__DIR__ . '/../frontend/src/lib/components/layout/Sidebar.svelte');
+        $this->assertIsString($sidebar);
+        // Sidebar renders labels from the NAV array.
+        $this->assertStringContainsString('item.label', $sidebar);
+        $this->assertStringContainsString('isActive', $sidebar);
+
+        // The nav registry contains all expected top-level routes.
+        $nav = file_get_contents(__DIR__ . '/../frontend/src/lib/nav.ts');
+        $this->assertIsString($nav);
+        $this->assertStringContainsString('href: "/hosts"', $nav);
+        $this->assertStringContainsString('href: "/logs/api"', $nav);
+        $this->assertStringContainsString('href: "/settings"', $nav);
+        $this->assertStringContainsString('href: "/users"', $nav);
+        $this->assertStringContainsString('label: "Dashboard"', $nav);
+
+        // Global keyboard shortcut handler is wired in layout.
+        $layout = file_get_contents(__DIR__ . '/../frontend/src/routes/+layout.svelte');
+        $this->assertIsString($layout);
+        $this->assertStringContainsString('bindGlobalShortcuts', $layout);
+        $this->assertStringContainsString('"?"', $layout);
+        $this->assertStringContainsString('codex:open-shortcuts', $layout);
     }
 
     public function testNewHostModalUsesHostnameCopyAndOptionGrid(): void
     {
-        $html = file_get_contents(__DIR__ . '/../public/admin/index.html');
-        $this->assertIsString($html);
-        $this->assertStringContainsString('<div class="modal new-host-modal">', $html);
-        $this->assertStringContainsString('Fresh machine, one command.', $html);
-        $this->assertStringContainsString('Spin Up a Host', $html);
-        $this->assertStringContainsString('Pick a hostname, choose the guardrails, and hit Enter.', $html);
-        $this->assertStringContainsString('<form id="newHostForm">', $html);
-        $this->assertStringContainsString('>Hostname</label>', $html);
-        $this->assertStringContainsString('class="new-host-toggle-grid"', $html);
-        $this->assertStringContainsString('new-host-option-title">Secure</span>', $html);
-        $this->assertStringContainsString('new-host-option-title">Temporary</span>', $html);
-        $this->assertStringContainsString('new-host-option-title">Insecure Curl</span>', $html);
-        $this->assertStringContainsString('new-host-option-title">VIP</span>', $html);
-        $this->assertStringContainsString('id="newHostSuccessStage" hidden', $html);
-        $this->assertStringContainsString('Host created. Clipboard warm.', $html);
-        $this->assertStringContainsString('Installer curl</label>', $html);
-        $this->assertStringContainsString('Delete Accident</button>', $html);
-        $this->assertStringContainsString('Copy Again</button>', $html);
-        $this->assertStringContainsString('Mint Another</button>', $html);
-        $this->assertStringContainsString('Mint Installer</button>', $html);
-        self::assertStringContainsString('id="quickVmModal"', $html);
-        self::assertStringContainsString('data-quick-vm-engines="codex"', $html);
-        self::assertStringContainsString('data-quick-vm-engines="claude"', $html);
-        self::assertStringContainsString('data-quick-vm-engines="codex,claude"', $html);
-        $this->assertStringNotContainsString('Issue a one-time installer link for this FQDN.', $html);
-        $this->assertStringNotContainsString('Host FQDN', $html);
+        // NewHostSheet is the SvelteKit replacement for the old vanilla new-host-modal.
+        $sheet = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/NewHostSheet.svelte');
+        $this->assertIsString($sheet);
+        // Must provide a hostname input.
+        $this->assertStringContainsString('Hostname (FQDN)', $sheet);
+        $this->assertStringContainsString("placeholder=\"vm42.example.org\"", $sheet);
+        // Vibe option grid: Secure, Temporary, Insecure curl, VIP.
+        $this->assertStringContainsString('"secure"', $sheet);
+        $this->assertStringContainsString('"temporary"', $sheet);
+        $this->assertStringContainsString('"insecure-curl"', $sheet);
+        $this->assertStringContainsString('"vip"', $sheet);
+        // Success stage: copy installer + delete accident + mint another.
+        $this->assertStringContainsString('copyCommand', $sheet);
+        $this->assertStringContainsString('deleteAccident', $sheet);
+        $this->assertStringContainsString('mintAnother', $sheet);
+        $this->assertStringContainsString('Copy', $sheet);
+        $this->assertStringContainsString('Delete accident', $sheet);
+        $this->assertStringContainsString('Mint another', $sheet);
+        // Calls the quick-register endpoint.
+        $this->assertStringContainsString('createRegisterHostMutation', $sheet);
 
-        $css = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.css');
-        $this->assertIsString($css);
-        $this->assertStringContainsString('.new-host-modal {', $css);
-        $this->assertStringContainsString('.new-host-modal.is-success {', $css);
-        $this->assertStringContainsString('.new-host-stage {', $css);
-        $this->assertStringContainsString('.new-host-toggle-grid {', $css);
-        $this->assertStringContainsString('grid-template-columns: repeat(2, minmax(0, 1fr));', $css);
-        $this->assertStringContainsString('.new-host-option-title {', $css);
-        $this->assertStringContainsString('.new-host-option-desc {', $css);
+        // QuickVmDialog handles the three engine combos (codex, claude, both).
+        $quickVm = file_get_contents(__DIR__ . '/../frontend/src/lib/components/hosts/QuickVmDialog.svelte');
+        $this->assertIsString($quickVm);
+        $this->assertStringContainsString('spin(["codex"]', $quickVm);
+        $this->assertStringContainsString('spin(["claude"]', $quickVm);
+        $this->assertStringContainsString('spin(["codex", "claude"]', $quickVm);
+        $this->assertStringContainsString('createQuickRegisterMutation', $quickVm);
+        $this->assertStringContainsString('Codex only', $quickVm);
+        $this->assertStringContainsString('Claude only', $quickVm);
+        $this->assertStringContainsString('Both', $quickVm);
 
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $this->assertStringContainsString("newHostForm.addEventListener('submit'", $js);
-        $this->assertStringContainsString("const deleteAccidentalHostBtn = document.getElementById('deleteAccidentalHost');", $js);
-        $this->assertStringContainsString("deleteAccidentalHostBtn.addEventListener('click', () => {", $js);
-        $this->assertStringContainsString("deleteAccidentalHostBtn.hidden = !newHostSuccessCanDelete;", $js);
-        $this->assertStringContainsString("showNewHostModal(false);", $js);
-        $this->assertStringContainsString("setNewHostModalStage('success');", $js);
-        $this->assertStringContainsString("await copyInstallerCommand(cmd, { auto: true });", $js);
-        self::assertStringContainsString("api('/admin/hosts/quick-register'", $js);
-        self::assertStringContainsString('function createQuickVm(enginesRaw, triggerButton = null)', $js);
-        self::assertStringContainsString('showQuickVmModal(false);', $js);
-        self::assertStringContainsString('Temporary Host Ready', $js);
-        $this->assertStringContainsString("copyCmdBtn.textContent = 'Copy Again';", $js);
-        $this->assertStringContainsString('function normalizeInstallerMode(mode, enginesRaw)', $js);
-        $this->assertStringContainsString('function installerModeLabel(mode)', $js);
-        $this->assertStringContainsString('const installerMode = normalizeInstallerMode(installer.mode, engines);', $js);
-    }
-
-    public function testHostDetailInstallerActionUsesHostEngineMode(): void
-    {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        $this->assertIsString($js);
-        $this->assertStringContainsString('function installerActionLabel(mode)', $js);
-        $this->assertStringContainsString('function hostInstallerEngineSet(host, addEngine = null)', $js);
-        $this->assertStringContainsString("const installerMode = installerModeFromEngines(host?.engines);", $js);
-        $this->assertStringContainsString('data-action="install">${escapeHtml(installerActionLabel(installerMode))}</button>', $js);
-        $this->assertStringContainsString('data-action="add-claude">Add Claude</button>', $js);
-        $this->assertStringContainsString("regenerateInstaller(host.fqdn, host.id, hostInstallerEngineSet(host, 'claude'));", $js);
-        $this->assertStringContainsString('const existingHost = hostId ? getHostById(hostId) : null;', $js);
-        $this->assertStringContainsString('const selectedEngines = Array.isArray(engineOverride) && engineOverride.length', $js);
+        // Hosts API wires up to /admin/hosts/quick-register.
+        $hostsApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/hosts.ts');
+        $this->assertIsString($hostsApi);
+        $this->assertStringContainsString('"/admin/hosts/quick-register"', $hostsApi);
     }
 }

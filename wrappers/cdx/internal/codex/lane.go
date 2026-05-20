@@ -40,6 +40,20 @@ func applyLaneAndProfile(cfg *config.Config, args []string) []string {
 	return append(out, args...)
 }
 
+// applyDangerousBypass prepends --dangerously-bypass-approvals-and-sandbox when
+// the config's dangerously_bypass_approvals_and_sandbox key is set to true.
+// The flag is only added when not already present in args.
+func applyDangerousBypass(cfg *config.Config, args []string) []string {
+	if cfg == nil || !cfg.EngineOptions.DangerouslyBypassApprovalsAndSandbox {
+		return args
+	}
+	const flag = "--dangerously-bypass-approvals-and-sandbox"
+	if hasFlag(args, flag) {
+		return args
+	}
+	return append([]string{flag}, args...)
+}
+
 func hasFlag(args []string, flag string) bool {
 	for _, a := range args {
 		if a == flag {

@@ -34,11 +34,12 @@ type Host struct {
 }
 
 type EngineOptions struct {
-	Silent                  bool    `json:"silent"`
-	ModelOverride           *string `json:"model_override,omitempty"`
-	ReasoningEffortOverride *string `json:"reasoning_effort_override,omitempty"`
-	AdminThemeHint          *string `json:"admin_theme_hint,omitempty"`
-	ClaudeModelOverride     *string `json:"claude_model_override,omitempty"`
+	Silent                              bool    `json:"silent"`
+	ModelOverride                       *string `json:"model_override,omitempty"`
+	ReasoningEffortOverride             *string `json:"reasoning_effort_override,omitempty"`
+	AdminThemeHint                      *string `json:"admin_theme_hint,omitempty"`
+	ClaudeModelOverride                 *string `json:"claude_model_override,omitempty"`
+	DangerouslyBypassApprovalsAndSandbox bool   `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
 }
 
 type Wrapper struct {

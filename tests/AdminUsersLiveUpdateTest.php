@@ -10,11 +10,12 @@ final class AdminUsersLiveUpdateTest extends TestCase
 {
     public function testUsersPanelListensForPushRefreshEvents(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/users.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('admin-data-dirty', $js);
-        $this->assertStringContainsString("domains.includes('users')", $js);
-        $this->assertStringContainsString('scheduleLiveUsersRefresh', $js);
+        $this->assertStringContainsString('"user.updated"', $src);
+        $this->assertStringContainsString('"user.created"', $src);
+        $this->assertStringContainsString('"user.deleted"', $src);
+        $this->assertStringContainsString('["users"]', $src);
     }
 }

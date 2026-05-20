@@ -140,4 +140,33 @@
       {/if}
     </Card.Content>
   </Card.Root>
+
+  <Card.Root>
+    <Card.Header>
+      <Card.Title>Colour presets</Card.Title>
+      <Card.Description>
+        Apply a colour accent on top of your light/dark preference.
+      </Card.Description>
+    </Card.Header>
+    <Card.Content class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        data-theme-option="auto-pink"
+        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
+        onclick={() => document.body.setAttribute('data-theme', 'auto-pink')}
+      >Auto Pink</button>
+      <button
+        type="button"
+        data-theme-option="bright-pink"
+        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
+        onclick={() => document.body.setAttribute('data-theme', 'bright-pink')}
+      >Bright Pink</button>
+      <button
+        type="button"
+        data-theme-option="dark-pink"
+        class="rounded-md border px-3 py-1.5 text-sm hover:bg-accent/40"
+        onclick={() => document.body.setAttribute('data-theme', 'dark-pink')}
+      >Dark Pink</button>
+    </Card.Content>
+  </Card.Root>
 </div>

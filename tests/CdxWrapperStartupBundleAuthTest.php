@@ -8,32 +8,39 @@ final class CdxWrapperStartupBundleAuthTest extends TestCase
 {
     public function testWrapperUsesStartupBundleForAuthWhenLocalAuthIsAlreadyValid(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper uses /sync/bootstrap (SyncBootstrap) as the fast path
+        // that returns auth + agents + config in a single round-trip.
+        $bundleSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/orchestrator/bundle.go');
+        self::assertIsString($bundleSource, 'Expected to be able to read bundle.go');
 
-        self::assertStringContainsString('startup_bundle_can_include_auth() {', $wrapperSource);
-        self::assertStringContainsString('if startup_bundle_can_include_auth "$HOME/.codex/auth.json"; then', $wrapperSource);
-        self::assertStringContainsString('CODEX_SYNC_INCLUDE_AUTH="$include_auth"', $wrapperSource);
-        self::assertStringContainsString('"include_auth": include_auth', $wrapperSource);
-        self::assertStringContainsString('auth_store_needed = (', $wrapperSource);
-        self::assertStringContainsString('auth_status in ("missing", "upload_required")', $wrapperSource);
-        self::assertStringContainsString('if phase == "update" or auth_store_needed:', $wrapperSource);
-        self::assertStringContainsString('bootstrap_payload["auth_candidate"] = current_auth', $wrapperSource);
-        self::assertStringContainsString('auth_result = normalize_auth_summary(', $wrapperSource);
-        self::assertStringContainsString('auth = parsed.get("auth")', $wrapperSource);
-        self::assertStringContainsString('auth_lines="$(emit_auth_sync_lines_from_json "$auth_summary" || true)"', $wrapperSource);
-        self::assertStringContainsString('apply_auth_sync_lines "$auth_lines"', $wrapperSource);
+        // BundleRequest carries IncludeAuth — mirrors legacy CODEX_SYNC_INCLUDE_AUTH.
+        self::assertStringContainsString('IncludeAuth', $bundleSource);
+        self::assertStringContainsString('"include_auth"', $bundleSource);
+        self::assertStringContainsString('AuthCandidate', $bundleSource);
+        self::assertStringContainsString('"auth_candidate,omitempty"', $bundleSource);
+        self::assertStringContainsString('SyncBootstrap', $bundleSource);
+        self::assertStringContainsString('/sync/bootstrap', $bundleSource);
+
+        $lifecycleSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($lifecycleSource, 'Expected to be able to read lifecycle/run.go');
+
+        // bootstrap() sends auth digest + candidate up-front (mirrors legacy bundle auth logic).
+        self::assertStringContainsString('IncludeAuth:   true', $lifecycleSource);
+        self::assertStringContainsString('AuthDigest:', $lifecycleSource);
+        self::assertStringContainsString('AuthCandidate:', $lifecycleSource);
+        self::assertStringContainsString('authSynced', $lifecycleSource);
     }
 
     public function testWrapperKeepsLegacyAuthPullAsFallbackWhenBundleAuthCannotBeUsed(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $lifecycleSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/run.go');
+        self::assertIsString($lifecycleSource, 'Expected to be able to read lifecycle/run.go');
 
-        self::assertStringContainsString('sync_auth_with_api "pull" || true', $wrapperSource);
-        self::assertStringContainsString('if [[ "$STARTUP_BUNDLE_SYNC_STATUS" == "endpoint-missing" ]]; then', $wrapperSource);
-        self::assertStringContainsString('elif [[ "$STARTUP_BUNDLE_SYNC_STATUS" != "offline" ]]; then', $wrapperSource);
+        // When the bundle endpoint returns 404/501 the wrapper falls back to
+        // per-resource sync (legacySyncPath / syncAuthLegacy).
+        self::assertStringContainsString('isBundleUnsupported', $lifecycleSource);
+        self::assertStringContainsString('legacySyncPath', $lifecycleSource);
+        self::assertStringContainsString('syncAuthLegacy', $lifecycleSource);
+        self::assertStringContainsString('-> 404', $lifecycleSource);
     }
 }

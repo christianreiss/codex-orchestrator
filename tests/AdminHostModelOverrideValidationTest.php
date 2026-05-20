@@ -36,13 +36,29 @@ final class AdminHostModelOverrideValidationTest extends TestCase
 
     public function testEndpointValidatesClaudeModelOverride(): void
     {
-        $routerSource = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php')
-            . file_get_contents(__DIR__ . '/../public/admin/assets/dashboard.js');
-        self::assertIsString($routerSource);
+        // Backend: AdminHostController must validate claude_model_override against
+        // ClaudeModelService::SUPPORTED_MODELS.
+        $controllerSource = file_get_contents(__DIR__ . '/../src/Http/Controllers/AdminHostController.php');
+        self::assertIsString($controllerSource);
 
-        self::assertStringContainsString('ClaudeModelService::SUPPORTED_MODELS', $routerSource);
-        self::assertStringContainsString("array_key_exists('claude_model_override', \$payload)", $routerSource);
-        self::assertStringContainsString('claude_model_override', $routerSource);
-        self::assertStringContainsString('hostClaudeModelOverrideSelect', $routerSource);
+        self::assertStringContainsString('ClaudeModelService::SUPPORTED_MODELS', $controllerSource);
+        self::assertStringContainsString("array_key_exists('claude_model_override', \$payload)", $controllerSource);
+        self::assertStringContainsString('claude_model_override', $controllerSource);
+
+        // Frontend: the SvelteKit host detail page must expose a dialog for overriding
+        // the Claude model and wire it to the model-override mutation with engine="claude".
+        $hostDetailPage = file_get_contents(__DIR__ . '/../frontend/src/routes/hosts/[id]/+page.svelte');
+        self::assertIsString($hostDetailPage);
+
+        self::assertStringContainsString('claudeModelDialogOpen', $hostDetailPage);
+        self::assertStringContainsString('Claude model override', $hostDetailPage);
+        self::assertStringContainsString('claude_model_override', $hostDetailPage);
+
+        // The mutation must pass engine: "claude" so the backend routes it correctly.
+        $hostsApi = file_get_contents(__DIR__ . '/../frontend/src/lib/api/hosts.ts');
+        self::assertIsString($hostsApi);
+
+        self::assertStringContainsString('createModelOverrideMutation', $hostsApi);
+        self::assertStringContainsString('engine', $hostsApi);
     }
 }

@@ -19,17 +19,33 @@ final class AuthReasonContractsTest extends TestCase
 
     public function testWrapperMapsStableAuthDenyReasonCodes(): void
     {
-        $wrapperSource = @file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
+        // The bash wrapper's Python auth-sync script mapped server-side deny
+        // codes to stable exit codes and human messages. In the Go wrapper this
+        // logic lives in orchestrator/auth_decide.go (Decide) and is consumed by
+        // lifecycle/run.go which refuses launch with a typed AuthDecision.
+        $decideSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/orchestrator/auth_decide.go');
+        self::assertIsString($decideSource);
 
-        self::assertStringContainsString('print("denied:reverse_dns_mismatch")', $wrapperSource);
-        self::assertStringContainsString('sys.exit(24)', $wrapperSource);
-        self::assertStringContainsString('sys.exit(27)', $wrapperSource);
-        self::assertStringContainsString('sys.exit(40)', $wrapperSource);
+        // "disabled" → API kill-switch maps to a stable denial message.
+        self::assertStringContainsString('Auth API disabled by administrator', $decideSource);
 
-        self::assertStringContainsString('Auth sync blocked: API disabled by administrator', $wrapperSource);
-        self::assertStringContainsString('Auth sync blocked: insecure host window is closed', $wrapperSource);
-        self::assertStringContainsString('Auth sync denied: ${reason_label}; PTR must resolve to host FQDN.', $wrapperSource);
-        self::assertStringContainsString('Auth sync blocked: insecure host approval denied.', $wrapperSource);
+        // "insecure" → approval-pending poll (mirrors legacy insecure window check).
+        self::assertStringContainsString('Insecure host approval pending', $decideSource);
+
+        // "insecure-denied" → approval denied message.
+        self::assertStringContainsString('Insecure host approval denied', $decideSource);
+
+        // "invalid" → bad API key refusal.
+        self::assertStringContainsString('Invalid API key', $decideSource);
+
+        // "reverse_dns_mismatch" is a server-side code; the decision engine
+        // treats any unrecognised status as a stable refusal rather than silently
+        // allowing through.
+        self::assertStringContainsString('Unknown auth status', $decideSource);
+        self::assertStringContainsString('refusing to start Codex', $decideSource);
+
+        // The installation_id mismatch check is preserved.
+        self::assertStringContainsString('installation_id', $decideSource);
+        self::assertStringContainsString('Installation ID mismatch', $decideSource);
     }
 }

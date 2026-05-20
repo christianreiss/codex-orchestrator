@@ -39,6 +39,8 @@ final class HostRepositoryModelOverridesTest extends TestCase
                 model_override TEXT NULL,
                 reasoning_effort_override TEXT NULL,
                 expires_at TEXT NULL,
+                engines TEXT NOT NULL DEFAULT "codex",
+                config_version INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'

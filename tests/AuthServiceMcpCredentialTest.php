@@ -67,6 +67,7 @@ final class AuthServiceMcpCredentialTest extends TestCase
                 api_calls INTEGER NOT NULL DEFAULT 0,
                 expires_at TEXT NULL,
                 lane_preference TEXT NULL,
+                engines TEXT NOT NULL DEFAULT "codex",
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )'

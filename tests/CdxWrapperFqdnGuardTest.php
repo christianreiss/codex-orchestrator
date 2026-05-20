@@ -8,29 +8,32 @@ final class CdxWrapperFqdnGuardTest extends TestCase
 {
     public function testWrapperContainsFqdnGuardAndOverride(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper implements the FQDN guard in codex/preexec.go via the
+        // guardFQDN() function, which refuses to proceed when the runtime hostname
+        // does not match the FQDN baked into the signed config.
+
+        $preexecSource = file_get_contents(__DIR__ . '/../wrappers/cdx/internal/codex/preexec.go');
+        self::assertIsString($preexecSource, 'Expected to be able to read codex/preexec.go');
 
         self::assertStringContainsString(
-            'enforce_baked_fqdn_guard()',
-            $wrapperSource,
-            'Wrapper should define an FQDN guard.'
+            'func guardFQDN(',
+            $preexecSource,
+            'Wrapper should define a guardFQDN function.'
         );
         self::assertStringContainsString(
-            'enforce_baked_fqdn_guard',
-            $wrapperSource,
+            'guardFQDN',
+            $preexecSource,
             'Wrapper should invoke the FQDN guard.'
         );
         self::assertStringContainsString(
             'CODEX_ALLOW_FQDN_MISMATCH',
-            $wrapperSource,
+            $preexecSource,
             'Wrapper should expose CODEX_ALLOW_FQDN_MISMATCH override.'
         );
         self::assertStringContainsString(
-            'Host mismatch: baked for',
-            $wrapperSource,
-            'Wrapper should emit a clear mismatch error.'
+            'does not match baked FQDN',
+            $preexecSource,
+            'Wrapper should emit a clear mismatch error referencing the baked FQDN.'
         );
     }
 }

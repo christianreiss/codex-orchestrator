@@ -124,7 +124,11 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		result = fmt.Sprintf("Sync failed: %s.", in.AuthErr.Error())
 		resultTone = ui.ToneFail
 	} else if insecure {
-		result = "Ready on insecure host."
+		if in.AuthSynced {
+			result = "Synced on insecure host; auth refreshed."
+		} else {
+			result = "Ready on insecure host."
+		}
 		resultTone = ui.ToneWarn
 	}
 	if blockText != "" {

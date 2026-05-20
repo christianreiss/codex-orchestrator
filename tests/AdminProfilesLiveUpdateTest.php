@@ -10,12 +10,13 @@ final class AdminProfilesLiveUpdateTest extends TestCase
 {
     public function testProfilesPanelListensForPushRefreshEvents(): void
     {
-        $js = file_get_contents(__DIR__ . '/../public/admin/assets/profiles.js');
-        $this->assertIsString($js);
+        $src = file_get_contents(__DIR__ . '/../frontend/src/lib/ws/events.ts');
+        $this->assertIsString($src);
 
-        $this->assertStringContainsString('admin-data-dirty', $js);
-        $this->assertStringContainsString("domains.includes('profiles')", $js);
-        $this->assertStringContainsString('scheduleProfilesReload', $js);
-        $this->assertStringContainsString('Remote update available (unsaved edits)', $js);
+        // Authoring (skills/agents/memories) live updates are driven by WS event invalidations.
+        $this->assertStringContainsString('"skill.updated"', $src);
+        $this->assertStringContainsString('"skill.stored"', $src);
+        $this->assertStringContainsString('"agents.stored"', $src);
+        $this->assertStringContainsString('["authoring"', $src);
     }
 }

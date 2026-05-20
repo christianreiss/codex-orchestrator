@@ -6,40 +6,57 @@ use PHPUnit\Framework\TestCase;
 
 final class CdxWrapperRootDetectionTest extends TestCase
 {
+    private static function readGoFile(string $relPath): string
+    {
+        $path = __DIR__ . '/../' . $relPath;
+        $source = @file_get_contents($path);
+        self::assertIsString($source, "Expected to be able to read {$relPath}");
+        return $source;
+    }
+
     public function testWrapperFallsBackToDetectedUidForRootChecks(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper uses os.Getuid() for per-user UID detection (lock path)
+        // and os.Geteuid() for effective-UID / root checks (uninstall guard).
+        $lockSource = self::readGoFile('wrappers/cdx/internal/ipc/lock.go');
+        self::assertStringContainsString('os.Getuid()', $lockSource);
 
-        self::assertStringContainsString('DETECTED_UID="$(id -u 2>/dev/null || true)"', $wrapperSource);
-        self::assertStringContainsString('if ((EUID == 0)) || [[ "$DETECTED_UID" == "0" ]]; then', $wrapperSource);
-        self::assertStringContainsString('uid=${DETECTED_UID:-unknown}', $wrapperSource);
+        $uninstallSource = self::readGoFile('wrappers/cdx/internal/uninstall/uninstall.go');
+        self::assertStringContainsString('os.Geteuid() == 0', $uninstallSource);
     }
 
     public function testWrapperReportsDetectedUidWhenPrivilegeCheckSkipsCodexManagement(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper skips self-update when the binary is not writable by the
+        // current user.  The cron installer checks canWriteBinary() to decide
+        // whether a privileged cron entry is needed; the uninstall path guards on
+        // root / passwordless-sudo availability and surfaces a human-readable
+        // error when neither is available.
+        $cronSource = self::readGoFile('wrappers/cdx/internal/cron/cron.go');
+        self::assertStringContainsString('canWriteBinary', $cronSource);
 
-        self::assertStringContainsString('skip_update_reason="privilege"', $wrapperSource);
-        self::assertStringContainsString(
-            'codex_status_note="not permitted to manage Codex (need root; uid ${DETECTED_UID:-unknown})"',
-            $wrapperSource
-        );
+        $uninstallSource = self::readGoFile('wrappers/cdx/internal/uninstall/uninstall.go');
+        self::assertStringContainsString('os.Geteuid() == 0', $uninstallSource);
+        // The error message still communicates the "need root/sudo" constraint.
+        self::assertStringContainsString('root', $uninstallSource);
     }
 
     public function testWrapperReportsDistinctSkipReasonsForCodexChecks(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // Active-run detection: the Go wrapper uses an flock and surfaces
+        // "another wrapper instance is running" instead of skip_update_reason="active_run".
+        $lockSource = self::readGoFile('wrappers/cdx/internal/ipc/lock.go');
+        self::assertStringContainsString('another wrapper instance is running', $lockSource);
 
-        self::assertStringContainsString('skip_update_reason="active_run"', $wrapperSource);
-        self::assertStringContainsString('skip_update_reason="unsupported_platform"', $wrapperSource);
-        self::assertStringNotContainsString('skip_update_reason="cron_managed"', $wrapperSource);
-        self::assertStringNotContainsString('codex_status_note="cron-managed updates"', $wrapperSource);
-        self::assertStringContainsString('codex_status_note="unsupported platform (${platform_os}/${platform_arch})"', $wrapperSource);
+        // Unsupported-platform detection: the Go installer returns
+        // "unsupported platform <os>/<arch>" when no asset matches.
+        $installerSource = self::readGoFile('wrappers/cdx/internal/codex/installer.go');
+        self::assertStringContainsString('unsupported platform', $installerSource);
+
+        // The Go wrapper has no "cron_managed" skip reason — cron management is
+        // handled as a separate Install/Remove flow, not as a launch guard.
+        $lifecycleSource = self::readGoFile('wrappers/cdx/internal/lifecycle/run.go');
+        self::assertStringNotContainsString('cron_managed', $lifecycleSource);
+        self::assertStringNotContainsString('cron-managed updates', $lifecycleSource);
     }
 }

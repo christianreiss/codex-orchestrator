@@ -8,24 +8,50 @@ final class CdxWrapperProfileCommandReservationTest extends TestCase
 {
     public function testWrapperReservesKnownCodexSubcommandsFromProfileShorthand(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper uses a reservedCodexSubcommands map in main.go instead
+        // of the bash is_reserved_codex_command() function.
+        $mainSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
+        self::assertIsString($mainSource, 'Expected to be able to read wrappers/cdx/cmd/cdx/main.go');
 
-        self::assertStringContainsString('is_reserved_codex_command()', $wrapperSource);
         self::assertStringContainsString(
-            'exec | review | login | logout | mcp | mcp-server | app-server | completion | sandbox | debug | apply | resume | fork | cloud | features | help',
-            $wrapperSource
+            'reservedCodexSubcommands',
+            $mainSource,
+            'Go wrapper must declare a reservedCodexSubcommands map.'
         );
+        // All reserved subcommand names from the original bash wrapper must
+        // be present in the Go map.
+        foreach (['exec', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'app-server', 'completion', 'sandbox', 'debug', 'apply', 'resume', 'fork', 'cloud', 'features', 'help'] as $cmd) {
+            self::assertStringContainsString(
+                '"' . $cmd . '"',
+                $mainSource,
+                sprintf('Reserved Codex subcommand "%s" must appear in the Go wrapper.', $cmd)
+            );
+        }
     }
 
     public function testWrapperOnlyUsesProfileShorthandForNonReservedFirstArgs(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        // The Go wrapper uses isProfileShorthand() which checks both
+        // wrapperOwnedSubcommands and reservedCodexSubcommands before allowing
+        // the legacy `cdx <profile-name>` shorthand dispatch.
+        $mainSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/cmd/cdx/main.go');
+        self::assertIsString($mainSource, 'Expected to be able to read wrappers/cdx/cmd/cdx/main.go');
 
-        self::assertStringContainsString('if ! is_reserved_codex_command "${1-}"; then', $wrapperSource);
-        self::assertStringContainsString('CODEX_PROFILE_CANDIDATE="$1"', $wrapperSource);
+        self::assertStringContainsString(
+            'isProfileShorthand',
+            $mainSource,
+            'Go wrapper must implement isProfileShorthand() to gate profile shorthand dispatch.'
+        );
+        self::assertStringContainsString(
+            'reservedCodexSubcommands[sub]',
+            $mainSource,
+            'isProfileShorthand must reject reserved Codex subcommand tokens.'
+        );
+        // HasProfile is the Go equivalent of the bash profile-candidate lookup.
+        self::assertStringContainsString(
+            'codex.HasProfile',
+            $mainSource,
+            'Profile shorthand must confirm the profile exists via codex.HasProfile before dispatching.'
+        );
     }
 }

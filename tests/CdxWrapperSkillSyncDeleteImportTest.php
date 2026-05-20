@@ -8,11 +8,15 @@ final class CdxWrapperSkillSyncDeleteImportTest extends TestCase
 {
     public function testSkillCleanupRemovesLegacyDirectoriesAndBaselines(): void
     {
-        $wrapperSource = file_get_contents(__DIR__ . '/../bin/cdx');
-        self::assertIsString($wrapperSource);
-        self::assertStringContainsString('cleanup_legacy_skill_state()', $wrapperSource);
-        self::assertStringContainsString('"$HOME/.agents/skills"', $wrapperSource);
-        self::assertStringContainsString('"$HOME/.codex/skills"', $wrapperSource);
-        self::assertStringContainsString('"$HOME/.agents/.skill-baseline.json"', $wrapperSource);
+        $skillsSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/lifecycle/skills.go');
+        self::assertIsString($skillsSource, 'Expected to be able to read wrappers/cdx/internal/lifecycle/skills.go');
+
+        self::assertStringContainsString('pruneLegacySkillDirs', $skillsSource);
+        // Legacy ~/.agents/skills directory is targeted for removal.
+        self::assertStringContainsString('".agents", "skills"', $skillsSource);
+        // Legacy ~/.codex/skills directory is targeted for removal.
+        self::assertStringContainsString('".codex", "skills"', $skillsSource);
+        // Legacy ~/.codex/prompts directory is also pruned.
+        self::assertStringContainsString('".codex", "prompts"', $skillsSource);
     }
 }

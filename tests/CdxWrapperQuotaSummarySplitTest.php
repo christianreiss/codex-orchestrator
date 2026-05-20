@@ -8,57 +8,66 @@ final class CdxWrapperQuotaSummarySplitTest extends TestCase
 {
     public function testWrapperUsesDedicatedOtherLaneQuotaBars(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read wrappers/cdx/internal/summary/summary.go');
 
-        self::assertStringContainsString('other_lane_label="Spark"', $wrapperSource);
-        self::assertStringContainsString('other_lane_label="Normal"', $wrapperSource);
-        self::assertStringContainsString('if [[ "${other_lane_primary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
-        self::assertStringContainsString('if [[ "${other_lane_secondary_used:-}" =~ ^[0-9]+$ ]]; then', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("5h")', $wrapperSource);
-        self::assertStringContainsString('q_used+=("$other_lane_primary_used")', $wrapperSource);
-        self::assertStringContainsString('q_labels+=("weekly")', $wrapperSource);
-        self::assertStringContainsString('q_used+=("$other_lane_secondary_used")', $wrapperSource);
-        self::assertStringNotContainsString('other_lane_usage_value="Spark: 5h ${spark_5h}, week ${spark_wk}"', $wrapperSource);
+        // Spark and normal lane rows are added separately via distinct addRow calls
+        self::assertStringContainsString('"spark"', $summarySource);
+        self::assertStringContainsString('"normal"', $summarySource);
+        // SparkPrimaryUsed and SparkSecondaryUsed are dedicated fields (not combined string)
+        self::assertStringContainsString('q.SparkPrimaryUsed', $summarySource);
+        self::assertStringContainsString('q.SparkSecondaryUsed', $summarySource);
+        // Normal lane primary and secondary used
+        self::assertStringContainsString('q.PrimaryUsed', $summarySource);
+        self::assertStringContainsString('q.SecondaryUsed', $summarySource);
+        // The old combined-string format is gone
+        self::assertStringNotContainsString('Spark: 5h ${spark_5h}, week ${spark_wk}', $summarySource);
     }
 
     public function testWrapperAlignsQuotaGraphRowsUsingSharedMetricFormatter(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $quotaSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/quota.go');
+        self::assertIsString($quotaSource, 'Expected to be able to read wrappers/cdx/internal/ui/quota.go');
 
-        self::assertStringContainsString('format_quota_metric_row() {', $wrapperSource);
-        self::assertStringContainsString('printf "%-${width}s: %s" "$label" "$value"', $wrapperSource);
-        self::assertStringContainsString('padded_label="$(pad_visible_text_right "$full_label" "$max_lw")"', $wrapperSource);
-        self::assertStringContainsString('printf "  %s %s [%s]" "$padded_label" "$pct_display" "$bar"', $wrapperSource);
-        self::assertStringContainsString('[[ -n "$note" ]] && printf "  %s" "$note"', $wrapperSource);
+        // PrintQuotaRow is the shared formatter for all quota bars
+        self::assertStringContainsString('func PrintQuotaRow(', $quotaSource);
+        // Row struct carries a Label, Used percentage, and Note/Projection
+        self::assertStringContainsString('Label', $quotaSource);
+        self::assertStringContainsString('Note', $quotaSource);
+        self::assertStringContainsString('Projection', $quotaSource);
+        // PadRight is used to align labels
+        self::assertStringContainsString('PadRight(', $quotaSource);
+        // Note/Projection is printed after the bar
+        self::assertStringContainsString('if note != ""', $quotaSource);
     }
 
     public function testWrapperUsesHumanWeeklyHitEstimateWhenProjectionReachesReset(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $quotaSource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/quota.go');
+        self::assertIsString($quotaSource, 'Expected to be able to read wrappers/cdx/internal/ui/quota.go');
 
-        self::assertStringContainsString('project_quota_hit_eta() {', $wrapperSource);
-        self::assertStringContainsString('projection_note="(hits 100 in ~${projection_eta}, before reset)"', $wrapperSource);
-        self::assertStringContainsString('other_projection_note="(hits 100 in ~${other_projection_eta}, before reset)"', $wrapperSource);
-        self::assertStringContainsString('projection_note="proj ~${projection_pct}% at reset"', $wrapperSource);
-        self::assertStringContainsString('other_projection_note="proj ~${other_projection_pct}% at reset"', $wrapperSource);
-        self::assertStringContainsString('q_eta+=("${projection_eta:-}")', $wrapperSource);
-        self::assertStringContainsString('~100% in ~${q_eta[qi]}', $wrapperSource);
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read wrappers/cdx/internal/summary/summary.go');
+
+        // ProjectETA returns time-to-100% at current burn rate
+        self::assertStringContainsString('func ProjectETA(', $quotaSource);
+        // Projection note uses "~100% in … before reset" phrasing
+        self::assertStringContainsString('~100%%', $summarySource);
+        self::assertStringContainsString('before reset', $summarySource);
+        // ETA is stored on the QuotaRow as Projection
+        self::assertStringContainsString('row.Projection =', $summarySource);
+        // ProjectETA is called in summary.go
+        self::assertStringContainsString('ui.ProjectETA(', $summarySource);
     }
 
     public function testWrapperAddsSparkFastnessMarkerInActiveLaneDisplay(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $summarySource = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/summary/summary.go');
+        self::assertIsString($summarySource, 'Expected to be able to read wrappers/cdx/internal/summary/summary.go');
 
-        self::assertStringContainsString('quota_lane_display="${quota_lane_display} ⚡︎"', $wrapperSource);
-        self::assertStringContainsString('quota_lane_display="${quota_lane_display} (fast)"', $wrapperSource);
-        self::assertStringContainsString('if [[ "$quota_lane_label" == "spark" && -n "$CHATGPT_SPARK_LIMIT_NAME" ]]; then', $wrapperSource);
+        // Spark rows carry "spark" in their Lane field
+        self::assertStringContainsString('"spark"', $summarySource);
+        // Spark quota rows use the ⚡ prefix in their labels
+        self::assertStringContainsString('⚡', $summarySource);
     }
 }

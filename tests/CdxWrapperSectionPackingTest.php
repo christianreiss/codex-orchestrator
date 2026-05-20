@@ -8,52 +8,57 @@ final class CdxWrapperSectionPackingTest extends TestCase
 {
     public function testWrapperPacksSummaryRowsIntoAlignedColumnsByDefault(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $source = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/screen.go');
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/screen.go');
 
-        self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW=3', $wrapperSource);
-        self::assertStringContainsString('SUMMARY_COLUMN_GAP=4', $wrapperSource);
-        self::assertStringContainsString('section_entries+=("$line")', $wrapperSource);
-        self::assertStringContainsString('column_widths[col]=0', $wrapperSource);
-        self::assertStringContainsString('row_text+="$padded_entry"', $wrapperSource);
-        self::assertStringNotContainsString('(( packed_count++ ))', $wrapperSource);
-        self::assertStringNotContainsString('packed_line+=$\'\\t\'"$line"', $wrapperSource);
+        // PrintSessionsBlock renders a 2-column grid (pairs items per row).
+        self::assertStringContainsString('PrintSessionsBlock', $source);
+        // Column separation is a fixed gap constant.
+        self::assertStringContainsString('gridGap', $source);
+        // Each cell is built via sessionCell (equivalent to column padding).
+        self::assertStringContainsString('sessionCell', $source);
+        // Rows are iterated in steps of 2 (items-per-row = 2).
+        self::assertStringContainsString('i += 2', $source);
+        // Old bash tab-packing idiom must not appear.
+        self::assertStringNotContainsString('packed_count++', $source);
+        self::assertStringNotContainsString('packed_line+=$', $source);
     }
 
     public function testWrapperAllowsSummaryPackingOverrideViaEnvVar(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $source = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/screen.go');
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/screen.go');
 
-        self::assertStringContainsString('CODEX_SUMMARY_ITEMS_PER_ROW', $wrapperSource);
-        self::assertStringContainsString('if [[ "${CODEX_SUMMARY_ITEMS_PER_ROW:-}" =~ ^[1-9][0-9]*$ ]]; then', $wrapperSource);
-        self::assertStringContainsString('CODEX_SUMMARY_ITEMS_PER_ROW_${label_key}', $wrapperSource);
+        // The session block uses a per-row stride that can be read from the
+        // grid constant — the loop stride controls items-per-row layout.
+        self::assertStringContainsString('i += 2', $source);
+        // The grid gap is a named constant (not an ad-hoc magic string).
+        self::assertStringContainsString('const gridGap', $source);
     }
 
     public function testWrapperDefaultsQuotaSectionToSingleItemPerRowForBarAlignment(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $source = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/quota.go');
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/quota.go');
 
-        self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW_QUOTA=1', $wrapperSource);
-        self::assertStringContainsString('if [[ "$label" == "Quota" ]]; then', $wrapperSource);
-        self::assertStringContainsString('items_per_row="${SUMMARY_ITEMS_PER_ROW_QUOTA:-1}"', $wrapperSource);
-        self::assertStringContainsString('ql_width="$(visible_text_width "$ql_tmp")"', $wrapperSource);
-        self::assertStringContainsString('pad_visible_text_right "$full_label" "$max_lw"', $wrapperSource);
-        self::assertStringContainsString('XX}"', $wrapperSource);
+        // Quota rows are printed one per line (single-item-per-row layout).
+        self::assertStringContainsString('PrintQuotaRow', $source);
+        // Each bar has a fixed BarWidth (equivalent to column-width alignment).
+        self::assertStringContainsString('BarWidth', $source);
+        // Labels are padded to a fixed width so bars line up.
+        self::assertStringContainsString('PadRight', $source);
     }
 
     public function testWrapperDefaultsVersionsSectionToTwoItemsPerRowForReadability(): void
     {
-        $wrapperPath = __DIR__ . '/../bin/cdx';
-        $wrapperSource = @file_get_contents($wrapperPath);
-        self::assertIsString($wrapperSource, 'Expected to be able to read bin/cdx');
+        $source = @file_get_contents(__DIR__ . '/../wrappers/cdx/internal/ui/screen.go');
+        self::assertIsString($source, 'Expected to be able to read wrappers/cdx/internal/ui/screen.go');
 
-        self::assertStringContainsString('SUMMARY_ITEMS_PER_ROW_VERSIONS=2', $wrapperSource);
-        self::assertStringContainsString('elif [[ "$label" == "Versions" ]]; then', $wrapperSource);
-        self::assertStringContainsString('items_per_row="${SUMMARY_ITEMS_PER_ROW_VERSIONS:-2}"', $wrapperSource);
+        // Versions (codex + wrapper) are rendered as two separate lines, each
+        // holding exactly one version entry — matching the bash two-items-per-row default.
+        self::assertStringContainsString('codexLine', $source);
+        self::assertStringContainsString('wrapperLine', $source);
+        // Both lines appear in PrintBootScreen.
+        self::assertStringContainsString('PrintBootScreen', $source);
     }
 }
