@@ -78,18 +78,44 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   ],
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
   "claude.usage.updated": [["usage", "claude"]],
-  "insecure.approval.changed": [["overview"], ["insecure-approvals"]],
+  "insecure.approval.changed": [
+    ["overview"],
+    ["overview", "insecure-approvals"],
+    ["insecure-approvals"],
+    ["hosts", "insecure"],
+  ],
 
   // Account
   "passkey.registered": [["passkeys"]],
   "passkey.deleted": [["passkeys"]],
 
   // Hosts: insecure window state
-  "insecure.requested": [["insecure-approvals"], ["hosts", "insecure"]],
-  "insecure.approved": [["insecure-approvals"], ["hosts"], ["hosts", "insecure"]],
-  "insecure.denied": [["insecure-approvals"]],
-  "insecure.domain.allowed": [["hosts", "insecure"]],
-  "insecure.domain.revoked": [["hosts", "insecure"]],
+  "insecure.requested": [
+    ["overview"],
+    ["overview", "insecure-approvals"],
+    ["insecure-approvals"],
+    ["hosts", "insecure"],
+  ],
+  "insecure.approved": [
+    ["overview"],
+    ["overview", "insecure-approvals"],
+    ["insecure-approvals"],
+    ["hosts"],
+    ["hosts", "insecure"],
+  ],
+  "insecure.denied": [
+    ["overview"],
+    ["overview", "insecure-approvals"],
+    ["insecure-approvals"],
+  ],
+  "insecure.domain.allowed": [
+    ["overview"],
+    ["overview", "insecure-approvals"],
+    ["insecure-approvals"],
+    ["hosts"],
+    ["hosts", "insecure"],
+  ],
+  "insecure.domain.revoked": [["hosts"], ["hosts", "insecure"]],
 };
 
 /** WS event types whose payload contains a `slug` we use to scope invalidation. */
