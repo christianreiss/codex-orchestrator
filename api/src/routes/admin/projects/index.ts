@@ -34,6 +34,7 @@ import type { RouteContext } from '../../index.js';
 import { ProjectContentService } from '../../../services/project-content.js';
 import { ProjectDraftsService } from '../../../services/project-drafts.js';
 import { ProjectsService } from '../../../services/projects.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 function parseInteger(value: unknown): number | null {
   if (typeof value === 'number' && Number.isInteger(value)) return value;
@@ -46,6 +47,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
   const projects = new ProjectsService(ctx.db);
   const content = new ProjectContentService(ctx.db, projects);
   const drafts = new ProjectDraftsService();
@@ -81,7 +83,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   // ── projects index / create ──────────────────────────────────────────────
 
-  app.get('/admin/projects', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/projects', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     return await projects.list();
   });
 
@@ -97,7 +99,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   app.get<{ Params: { slug: string } }>(
     '/admin/projects/:slug',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => {
       return await projects.detail(decodeURIComponent(req.params.slug));
     },

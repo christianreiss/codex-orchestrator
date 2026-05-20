@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- Admin WebUI routing: browser navigations to colliding SPA/API URLs such as `/admin/hosts`, `/admin/projects`, project detail slugs, and `/admin/users` now receive the Svelte shell when they ask for HTML, while API clients still receive JSON with `Accept: application/json`.
 - Admin API Keys: OpenAI key list and create responses now return the snake_case key fields expected by the Svelte admin page, fixing the endless loading/crash on `/admin/api-keys`.
 - Admin command palette: `/` search results now visibly highlight the active row when moving selection with Arrow Down / Arrow Up.
 - Admin runner status: `/admin/runner` now reads persisted runner telemetry from the `versions` table, so the dashboard shows `ok` and the latest check time instead of `idle` / `never` when boot health checks have already verified the runner.

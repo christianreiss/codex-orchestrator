@@ -25,6 +25,7 @@ import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 function intQuery(value: unknown, fallback: number): number {
   const n = Number(value);
@@ -113,6 +114,7 @@ export async function registerAdminOverviewRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
 ): Promise<void> {
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
   const chatgpt = new ChatGptUsageService(ctx.db, app.log, {
@@ -269,7 +271,7 @@ export async function registerAdminOverviewRoutes(
   });
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
-  app.get('/admin/hosts', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     const rows = await ctx.db.select().from(hosts).orderBy(hosts.fqdn);
     return ok({
       hosts: rows.map((h) => ({

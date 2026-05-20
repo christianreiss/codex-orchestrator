@@ -6,6 +6,7 @@ import { NotFoundError, UnauthorizedError, ValidationError } from '../../../http
 import { createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminUsersService } from '../../../services/admin-users.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 /**
  * `/admin/users/*`. Every route is admin-authenticated; the index endpoint
@@ -16,6 +17,7 @@ export async function registerAdminUsersRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
 ): Promise<void> {
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
   const events = createAdminEventsService(ctx.db);
   const auth = createAdminAuthService(ctx.db, ctx.env);
   const users = createAdminUsersService(ctx.db, auth, events);
@@ -41,7 +43,7 @@ export async function registerAdminUsersRoutes(
   // -----------------------------------------------------------------------
   // GET /admin/users
   // -----------------------------------------------------------------------
-  app.get('/admin/users', { preHandler: [app.requireAdmin] }, async () => {
+  app.get('/admin/users', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     return ok({ users: await users.list() });
   });
 
