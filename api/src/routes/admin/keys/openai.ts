@@ -5,6 +5,7 @@ import { ApiError } from '../../../http/errors.js';
 import { OpenAiKeyService } from '../../../services/openai-keys.js';
 import { ENGINE_CODEX } from '../../../util/engine.js';
 import { wsPublisher } from '../../../ws/publisher.js';
+import type { OpenaiApiKey } from '../../../db/schema.js';
 
 /**
  * Admin CRUD for the codex-scoped OpenAI bearer keys. The list endpoint is
@@ -40,7 +41,7 @@ export async function registerAdminOpenAiKeyRoutes(
     preHandler: [app.requireAdmin],
     handler: async () => {
       const rows = await keys.listByEngine(ENGINE_CODEX);
-      return rows;
+      return rows.map(toAdminApiKey);
     },
   });
 
@@ -71,7 +72,7 @@ export async function registerAdminOpenAiKeyRoutes(
       });
       // Return the same shape the legacy PHP API used so the admin UI doesn't
       // need adjustment: { key, record }. The standard envelope wraps it.
-      return { key: issued.key, record: issued.record };
+      return { key: issued.key, record: toAdminApiKey(issued.record) };
     },
   });
 
@@ -96,6 +97,39 @@ export async function registerAdminOpenAiKeyRoutes(
       return { id, message: 'Key deleted' };
     },
   });
+}
+
+export function toAdminApiKey(
+  row: Pick<
+    OpenaiApiKey,
+    | 'id'
+    | 'name'
+    | 'keyPrefix'
+    | 'adminUserId'
+    | 'rateLimitRpm'
+    | 'isActive'
+    | 'useCount'
+    | 'lastUsedAt'
+    | 'expiresAt'
+    | 'engine'
+    | 'createdAt'
+    | 'updatedAt'
+  >,
+) {
+  return {
+    id: row.id,
+    name: row.name,
+    key_prefix: row.keyPrefix,
+    admin_user_id: row.adminUserId ?? null,
+    rate_limit_rpm: row.rateLimitRpm,
+    is_active: row.isActive,
+    use_count: row.useCount,
+    last_used_at: row.lastUsedAt ?? null,
+    expires_at: row.expiresAt ?? null,
+    engine: row.engine,
+    created_at: row.createdAt ?? null,
+    updated_at: row.updatedAt ?? null,
+  };
 }
 
 function parseId(params: unknown): number {
