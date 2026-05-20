@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- Admin dashboard: fixed the insecure-host **Review** button to route through the `/admin` SPA base and open the insecure approvals dialog instead of hitting the backend-only `/hosts` path and showing `not_found`.
 - ChatGPT usage refresh: restored the Node backend's real `/wham/usage` fetch path so dashboard loads and the Refresh button can persist current quota snapshots instead of only replaying stale cached rows.
 - Admin dashboard: restored ChatGPT usage rendering by returning the nested quota-window and history-series shape expected by the Svelte dashboard while keeping the flat snapshot fields for compatibility.
 - BrowserOS MCP: added a per-host Host detail toggle that bakes `[mcp_servers.browseros]` with `http://127.0.0.1:9000/mcp` into Codex `config.toml` only for enabled hosts, surfaces a BrowserOS startup chip in `cdx`, and leaves the feature off fleet-wide by default.

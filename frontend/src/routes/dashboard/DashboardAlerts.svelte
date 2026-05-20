@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { base } from "$app/paths";
   import { Button } from "$lib/components/ui/button";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import Rocket from "@lucide/svelte/icons/rocket";
@@ -79,7 +80,7 @@
           <ShieldAlert class="h-4 w-4" />
         {/snippet}
         {#snippet actions()}
-          <Button href="/hosts" size="sm" variant="outline">Review</Button>
+          <Button href={`${base}/hosts?insecure=1`} size="sm" variant="outline">Review</Button>
         {/snippet}
       </AlertBanner>
     {/if}

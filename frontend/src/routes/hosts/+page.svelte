@@ -130,6 +130,12 @@
     }
   });
 
+  $effect(() => {
+    if (page.url.searchParams.get("insecure") === "1") {
+      insecureOpen = true;
+    }
+  });
+
   async function handleAutoUpdate(h: HostListItem, value: boolean): Promise<void> {
     try {
       await $autoUpdate.mutateAsync({ id: h.id, value });
