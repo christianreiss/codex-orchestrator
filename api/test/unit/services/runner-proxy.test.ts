@@ -13,32 +13,62 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
 }
 
 describe('RunnerProxyService', () => {
-  it('reports unconfigured when AUTH_RUNNER_URL is missing', () => {
+  it('reports unconfigured when AUTH_RUNNER_URL is missing', async () => {
     const svc = new RunnerProxyService(makeEnv());
-    const s = svc.status();
+    const s = await svc.status();
     expect(s.configured).toBe(false);
     expect(s.ready).toBe(false);
   });
 
-  it('reports not-ready when secret is missing', () => {
+  it('reports not-ready when secret is missing', async () => {
     const svc = new RunnerProxyService(
       makeEnv({ AUTH_RUNNER_URL: 'https://runner.example.com' } as Partial<Env>),
     );
-    const s = svc.status();
+    const s = await svc.status();
     expect(s.configured).toBe(true);
     expect(s.ready).toBe(false);
   });
 
-  it('reports ready when both env vars are set', () => {
+  it('reports ready when both env vars are set', async () => {
     const svc = new RunnerProxyService(
       makeEnv({
         AUTH_RUNNER_URL: 'https://runner.example.com',
         AUTH_RUNNER_SHARED_SECRET: 'secret',
       } as Partial<Env>),
     );
-    const s = svc.status();
+    const s = await svc.status();
     expect(s.configured).toBe(true);
     expect(s.ready).toBe(true);
+  });
+
+  it('hydrates status from persisted runner telemetry', async () => {
+    const svc = new RunnerProxyService(
+      makeEnv({
+        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Partial<Env>),
+      undefined,
+      {
+        versionReader: async () =>
+          new Map([
+            ['runner_state', 'ok'],
+            ['runner_last_check', '2026-05-20T10:09:50Z'],
+            ['runner_last_ok', '2026-05-20T10:09:50Z'],
+            ['runner_state_claude', 'ok'],
+            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
+            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
+          ]),
+      },
+    );
+
+    const s = await svc.status();
+    expect(s.ready).toBe(true);
+    expect(s.state).toBe('ok');
+    expect(s.last_run).toBe('2026-05-20T10:09:50Z');
+    expect(s.last_result).toMatchObject({
+      codex: { state: 'ok', last_check: '2026-05-20T10:09:50Z' },
+      claude: { state: 'ok', last_check: '2026-05-20T10:09:49Z' },
+    });
   });
 
   it('returns unconfigured on run() when AUTH_RUNNER_URL is missing', async () => {

@@ -124,6 +124,7 @@ export async function registerAdminOverviewRoutes(
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);
   const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
+    db: ctx.db,
     runner: createRunnerClient({ env: ctx.env }),
     runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
   });
@@ -652,7 +653,7 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/runner/* ───────────────────────────────────────────────────────
   app.get('/admin/runner', { preHandler: app.requireAdmin }, async () => {
-    return ok({ runner: runnerProxy.status() });
+    return ok({ runner: await runnerProxy.status() });
   });
   app.post('/admin/runner/run', { preHandler: app.requireAdmin }, async (req) => {
     const result = await runnerProxy.run((req.body ?? {}) as Record<string, unknown>, 'codex');

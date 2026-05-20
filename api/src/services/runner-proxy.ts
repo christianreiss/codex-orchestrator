@@ -3,6 +3,8 @@ import type { Env } from '../env.js';
 import { createRunnerClient, type RunnerClient, type RunnerVerifyResult } from './runner-client.js';
 import type { RunnerValidationService } from './runner-validation.js';
 import type { Engine } from '../util/engine.js';
+import type { Database } from '../db/client.js';
+import { versions } from '../db/schema.js';
 
 type Logger = {
   info?: (...args: unknown[]) => void;
@@ -15,6 +17,10 @@ export interface RunnerStatus {
   url: string | null;
   ready: boolean;
   detail: string;
+  state?: 'idle' | 'ok' | 'fail';
+  last_run?: string | null;
+  last_error?: string | null;
+  last_result?: Record<string, unknown> | null;
 }
 
 export interface RunnerRunRequest {
@@ -42,6 +48,8 @@ export interface RunnerRunResult {
 export interface RunnerProxyDeps {
   runner?: RunnerClient;
   runnerValidation?: RunnerValidationService;
+  db?: Database;
+  versionReader?: () => Promise<Map<string, string>>;
 }
 
 export class RunnerProxyService {
@@ -55,7 +63,7 @@ export class RunnerProxyService {
     this.runner = deps.runner ?? createRunnerClient({ env });
   }
 
-  status(): RunnerStatus {
+  async status(): Promise<RunnerStatus> {
     const url = this.env.AUTH_RUNNER_URL ?? null;
     const secret = this.env.AUTH_RUNNER_SHARED_SECRET ?? '';
     if (!url) {
@@ -64,11 +72,17 @@ export class RunnerProxyService {
     if (!secret) {
       return { configured: true, url, ready: false, detail: 'AUTH_RUNNER_SHARED_SECRET missing' };
     }
-    return { configured: true, url, ready: true, detail: 'configured' };
+    return {
+      configured: true,
+      url,
+      ready: true,
+      detail: 'configured',
+      ...(await this.readPersistedStatus()),
+    };
   }
 
   async run(payload: RunnerRunRequest, engine: Engine): Promise<RunnerRunResult> {
-    const status = this.status();
+    const status = await this.status();
     if (!status.ready) {
       return {
         status: status.configured ? 'fail' : 'unconfigured',
@@ -127,4 +141,64 @@ export class RunnerProxyService {
     this.log?.info?.('runner-proxy.seedCommand called (stub)');
     return { status: 'ok', queued: true };
   }
+
+  private async readPersistedStatus(): Promise<Partial<RunnerStatus>> {
+    const read = this.deps.versionReader ?? (this.deps.db ? createVersionReader(this.deps.db) : null);
+    if (!read) return {};
+
+    const map = await read();
+    const codex = runnerEngineStatus(map, '');
+    const claude = runnerEngineStatus(map, '_claude');
+    const state = codex.state === 'fail' || claude.state === 'fail'
+      ? 'fail'
+      : codex.state === 'ok' || claude.state === 'ok'
+        ? 'ok'
+        : 'idle';
+    const lastRun = latestIso(codex.last_check, claude.last_check, codex.last_ok, claude.last_ok, codex.last_fail, claude.last_fail);
+
+    return {
+      state,
+      last_run: lastRun,
+      last_error: state === 'fail' ? latestFailureLabel(codex, claude) : null,
+      last_result: { codex, claude },
+    };
+  }
+}
+
+function createVersionReader(db: Database): () => Promise<Map<string, string>> {
+  return async () => {
+    const rows = await db.select().from(versions);
+    return new Map(rows.map((row) => [row.name, row.version]));
+  };
+}
+
+function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude') {
+  return {
+    state: map.get(`runner_state${suffix}`) ?? null,
+    last_check: map.get(`runner_last_check${suffix}`) ?? null,
+    last_ok: map.get(`runner_last_ok${suffix}`) ?? null,
+    last_fail: map.get(`runner_last_fail${suffix}`) ?? null,
+  };
+}
+
+function latestIso(...values: Array<string | null | undefined>): string | null {
+  let latest: { value: string; time: number } | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) continue;
+    if (!latest || time > latest.time) latest = { value, time };
+  }
+  return latest?.value ?? null;
+}
+
+function latestFailureLabel(
+  codex: ReturnType<typeof runnerEngineStatus>,
+  claude: ReturnType<typeof runnerEngineStatus>,
+): string | null {
+  const failures = [
+    codex.state === 'fail' && codex.last_fail ? `Codex runner failed at ${codex.last_fail}` : null,
+    claude.state === 'fail' && claude.last_fail ? `Claude runner failed at ${claude.last_fail}` : null,
+  ].filter((v): v is string => Boolean(v));
+  return failures.length > 0 ? failures.join('; ') : null;
 }

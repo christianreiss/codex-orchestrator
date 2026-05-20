@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-20
+- Admin runner status: `/admin/runner` now reads persisted runner telemetry from the `versions` table, so the dashboard shows `ok` and the latest check time instead of `idle` / `never` when boot health checks have already verified the runner.
 - Admin WebSocket updates: new insecure-host approval requests now invalidate the dashboard pending-approvals query as well as the Hosts insecure dialog, so connected browsers update immediately on `insecure.requested` / approve / deny events instead of waiting for polling or reload.
 - Admin dashboard: fixed the insecure-host **Review** button to route through the `/admin` SPA base and open the insecure approvals dialog instead of hitting the backend-only `/hosts` path and showing `not_found`.
 - ChatGPT usage refresh: restored the Node backend's real `/wham/usage` fetch path so dashboard loads and the Refresh button can persist current quota snapshots instead of only replaying stale cached rows.
