@@ -42,7 +42,10 @@ var (
 	userLookup  = user.Lookup
 )
 
-const marker = "# cdx-managed-cron"
+const (
+	marker      = "# cdx-managed-cron"
+	cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
 
 // WrapperVersion is the running wrapper's semantic version, set from main.go
 // via ldflags. The cron Tick path sends it in CronCheck/CronReport so the
@@ -186,7 +189,7 @@ func installUserContext() (name, home string) {
 // buildCronLine assembles the crontab entry with shell-escaped paths and
 // `%` escaped to `\%` (cron treats `%` as a newline-into-stdin separator).
 func buildCronLine(min, hr int, bin, logFile string) string {
-	cronCommand := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
+	cronCommand := fmt.Sprintf("%s %s --cron run >> %s 2>&1", cronPATHEnv, shellEscape(bin), shellEscape(logFile))
 	cronCommand = strings.ReplaceAll(cronCommand, "%", `\%`)
 	return fmt.Sprintf("%d %d * * * %s %s", min, hr, cronCommand, marker)
 }
@@ -272,6 +275,7 @@ type Result struct {
 // failure; persistent failure returns an error so callers can exit non-zero.
 func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	logger := slog.Default()
+	ensureCronPath()
 	res := Result{
 		WrapperVersion: WrapperVersion,
 		WrapperAction:  "no_update",
@@ -382,6 +386,29 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 		}
 	}
 	return res, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
+}
+
+func ensureCronPath() {
+	current := os.Getenv("PATH")
+	if current == "" {
+		_ = os.Setenv("PATH", strings.TrimPrefix(cronPATHEnv, "PATH="))
+		return
+	}
+	parts := strings.Split(current, ":")
+	have := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		have[p] = struct{}{}
+	}
+	add := make([]string, 0, 2)
+	for _, p := range []string{"/usr/local/sbin", "/usr/local/bin"} {
+		if _, ok := have[p]; !ok {
+			add = append(add, p)
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	_ = os.Setenv("PATH", strings.Join(append(add, current), ":"))
 }
 
 // pingCronCheck runs a single /cron/check from the Install path so the

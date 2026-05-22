@@ -29,7 +29,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `--resume <session>` | Passed straight through to the upstream `claude` binary |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot |
-| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry |
+| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove credentials + local state + cron entry; refuses on multi-user hosts without sudo |

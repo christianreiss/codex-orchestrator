@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -32,8 +33,21 @@ func TestBuildCronLineEscapesPercent(t *testing.T) {
 	if !strings.Contains(line, "# clx-managed-cron") {
 		t.Errorf("missing marker: %q", line)
 	}
+	if !strings.Contains(line, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") {
+		t.Errorf("missing cron PATH bootstrap: %q", line)
+	}
 	if !strings.Contains(line, `\%`) {
 		t.Errorf("expected escaped percent: %q", line)
+	}
+}
+
+func TestEnsureCronPathPrependsLocalBin(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+	ensureCronPath()
+	got := strings.Split(os.Getenv("PATH"), ":")
+	want := []string{"/usr/local/sbin", "/usr/local/bin", "/usr/bin", "/bin"}
+	if strings.Join(got, ":") != strings.Join(want, ":") {
+		t.Fatalf("PATH = %q, want %q", strings.Join(got, ":"), strings.Join(want, ":"))
 	}
 }
 

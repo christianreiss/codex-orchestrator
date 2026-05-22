@@ -28,7 +28,10 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/update"
 )
 
-const marker = "# clx-managed-cron"
+const (
+	marker      = "# clx-managed-cron"
+	cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
 
 // systemCronPath is the /etc/cron.d/ slot we own when the wrapper binary lives
 // outside the invoking user's writable scope. Filename must contain no dots.
@@ -148,7 +151,7 @@ func installUserContext() (string, string) {
 // buildCronLine assembles the crontab entry with shell-escaped paths and
 // `%` escaped to `\%`.
 func buildCronLine(min, hr int, bin, logFile string) string {
-	cronCommand := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
+	cronCommand := fmt.Sprintf("%s %s --cron run >> %s 2>&1", cronPATHEnv, shellEscape(bin), shellEscape(logFile))
 	cronCommand = strings.ReplaceAll(cronCommand, "%", `\%`)
 	return fmt.Sprintf("%d %d * * * %s %s", min, hr, cronCommand, marker)
 }
@@ -222,6 +225,7 @@ type Result struct {
 // Tick is the action taken by `clx --cron run`.
 func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	logger := slog.Default()
+	ensureCronPath()
 	res := Result{
 		WrapperVersion: WrapperVersion,
 		WrapperAction:  "no_update",
@@ -321,6 +325,29 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 		}
 	}
 	return res, fmt.Errorf("cron: /cron/report failed after retry: %w", reportErr)
+}
+
+func ensureCronPath() {
+	current := os.Getenv("PATH")
+	if current == "" {
+		_ = os.Setenv("PATH", strings.TrimPrefix(cronPATHEnv, "PATH="))
+		return
+	}
+	parts := strings.Split(current, ":")
+	have := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		have[p] = struct{}{}
+	}
+	add := make([]string, 0, 2)
+	for _, p := range []string{"/usr/local/sbin", "/usr/local/bin"} {
+		if _, ok := have[p]; !ok {
+			add = append(add, p)
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	_ = os.Setenv("PATH", strings.Join(append(add, current), ":"))
 }
 
 func pingCronCheck(ctx context.Context, cfg *config.Config) error {
