@@ -22,6 +22,9 @@ DELETE FROM versions
 The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
+# 2026-05-22
+- cdx wrapper: ChatGPT quota rows now show the burn-rate estimate for the percent expected at reset, restoring the old renewal-time projection while keeping the 100% ETA warning when the current rate would cross the limit before reset.
+
 # 2026-05-20
 - Admin WebUI routing: browser navigations to colliding SPA/API URLs such as `/admin/hosts`, `/admin/projects`, project detail slugs, and `/admin/users` now receive the Svelte shell when they ask for HTML, while API clients still receive JSON with `Accept: application/json`.
 - Admin API Keys: OpenAI key list and create responses now return the snake_case key fields expected by the Svelte admin page, fixing the endless loading/crash on `/admin/api-keys`.

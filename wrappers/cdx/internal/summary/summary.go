@@ -265,10 +265,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		if lim != nil {
 			limSec = *lim
 		}
-		eta := ui.ProjectETA(*used, limSec, resetSec)
-		if eta > 0 {
-			row.Projection = fmt.Sprintf("~100%% in %s, before reset", ui.DurationShort(eta))
-		}
+		row.Projection = quotaProjectionNote(*used, limSec, resetSec)
 		rows = append(rows, row)
 
 		if *used >= limitPct && blockText == "" {
@@ -287,4 +284,19 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		blockText = "ChatGPT status limit_reached"
 	}
 	return rows, warnText, blockText
+}
+
+func quotaProjectionNote(used int, limSec, resetSec int64) string {
+	if used <= 0 || limSec <= 0 || resetSec <= 0 || limSec <= resetSec {
+		return ""
+	}
+	projected := ui.ProjectUsage(used, limSec, resetSec)
+	if projected <= used {
+		return ""
+	}
+	eta := ui.ProjectETA(used, limSec, resetSec)
+	if eta > 0 {
+		return fmt.Sprintf("~%d%% at reset; 100%% in %s", projected, ui.DurationShort(eta))
+	}
+	return fmt.Sprintf("~%d%% at reset", projected)
 }
