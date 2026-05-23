@@ -24,15 +24,17 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/update"
 )
 
 type Options struct {
-	Config       *config.Config
-	ExtraArgs    []string
-	SkipAuthSync bool
-	SkipBoot     bool
-	Minimal      bool
-	Logger       *slog.Logger
+	Config         *config.Config
+	ExtraArgs      []string
+	SkipAuthSync   bool
+	SkipBoot       bool
+	Minimal        bool
+	Logger         *slog.Logger
+	WrapperVersion string
 }
 
 // localProbe is the cached LocalAuthProbe binding to the codex package
@@ -122,6 +124,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// PR-2: keep the local Codex CLI within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
+			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
 			codexUpdated = maybeEnsureCodex(ctx, authResp, concurrent, logger)
 		}
 
@@ -140,6 +143,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
 		Config:         cfg,
+		WrapperVersion: currentWrapperVersion(opts, cfg),
 		Auth:           authResp,
 		AuthErr:        authErr,
 		Concurrent:     concurrent,
@@ -627,6 +631,13 @@ func wrapperVersion(cfg *config.Config) string {
 	return "dev"
 }
 
+func currentWrapperVersion(opts Options, cfg *config.Config) string {
+	if opts.WrapperVersion != "" {
+		return opts.WrapperVersion
+	}
+	return wrapperVersion(cfg)
+}
+
 func themeFromConfig(cfg *config.Config) string {
 	if cfg == nil || cfg.EngineOptions.AdminThemeHint == nil {
 		return ""
@@ -666,15 +677,16 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	if current == target {
 		return ""
 	}
-	// `target == "latest"` is a moving alias; the wrapper can't tell whether
-	// the locally-installed version matches without a GitHub round-trip,
-	// which EnsureCodex does unconditionally. Doing that on every
-	// interactive `cdx run` is wasteful (5–10 s reinstall every launch).
-	// Defer "latest" upgrades to the cron tick, where the cost is amortised
-	// once per day. Interactive runs only auto-update when the target is a
-	// specific version the wrapper can string-match.
-	if target == "" || target == "latest" {
+	if target == "" {
 		return ""
+	}
+	if target == "latest" {
+		latest, err := codex.LatestVersion(ctx)
+		if err != nil {
+			logger.Warn("codex latest-version probe failed", "err", err, "current", current)
+		} else if current == latest {
+			return ""
+		}
 	}
 	// EnsureCodex is a 5-10s blocking operation when an install actually
 	// downloads from GitHub. Surface a single human-readable progress line
@@ -695,6 +707,44 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	}
 	fmt.Fprintf(os.Stderr, "cdx: codex CLI updated to %s\n", post)
 	return post
+}
+
+func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent bool, logger *slog.Logger) {
+	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
+		return
+	}
+	v := auth.Versions
+	if !v.AutoUpdateEnabled || v.WrapperVersion == nil || *v.WrapperVersion == "" {
+		return
+	}
+	target := *v.WrapperVersion
+	if current == target {
+		return
+	}
+	if os.Getenv("CODEX_WRAPPER_RESTARTED") == "1" {
+		logger.Warn("wrapper auto-update skipped after restart", "current", current, "target", target)
+		return
+	}
+	if v.WrapperURL == nil || *v.WrapperURL == "" || v.WrapperSHA256 == nil || *v.WrapperSHA256 == "" {
+		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
+		return
+	}
+	if current == "" || current == "unknown" {
+		fmt.Fprintf(os.Stderr, "cdx: installing wrapper %s...\n", target)
+	} else {
+		fmt.Fprintf(os.Stderr, "cdx: installing wrapper %s -> %s...\n", current, target)
+	}
+	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
+	if err != nil {
+		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
+		fmt.Fprintf(os.Stderr, "cdx: wrapper auto-update skipped: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "cdx: wrapper updated to %s; restarting...\n", target)
+	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
+		logger.Warn("wrapper restart after update failed", "err", err)
+		fmt.Fprintf(os.Stderr, "cdx: wrapper restart after update failed: %v\n", err)
+	}
 }
 
 // buildSessionCounts merges the wrapper-side local count (this host's

@@ -317,6 +317,38 @@ func TestEnsureCodexGitHubAbortsOnMissingDigest(t *testing.T) {
 	}
 }
 
+func TestEnsureCodexLatestSkipsWhenCurrentMatchesResolvedRelease(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/openai/codex/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		rel := Release{Name: "0.50.0", TagName: "rust-v0.50.0"}
+		_ = json.NewEncoder(w).Encode(rel)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	t.Setenv("PATH", bin)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureCodex(context.Background(), "latest", false, logger); err != nil {
+		t.Fatalf("EnsureCodex: %v", err)
+	}
+}
+
 func TestReleaseTagCandidates(t *testing.T) {
 	tests := []struct {
 		target string

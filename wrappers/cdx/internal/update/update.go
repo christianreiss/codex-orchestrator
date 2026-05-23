@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -64,59 +65,114 @@ func setEnvKV(env []string, key, val string) []string {
 // callers use ReExecAfterUpdate with a sanitized argv when they need a second
 // pass on the freshly installed binary.
 func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	_, err := SelfUpdateFrom(ctx, cfg, cfg.Wrapper.BinaryURL, cfg.Wrapper.BinarySHA256, cfg.Wrapper.Version, logger)
+	return err
+}
+
+// SelfUpdateFrom is the same installer as SelfUpdate, but takes the target
+// artifact directly. Normal cdx startup uses this with the server-reported
+// wrapper URL/SHA from the auth response, because the baked local config can
+// be older than the running binary.
+func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySHA256, targetVersion string, logger *slog.Logger) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve self path: %w", err)
+		return "", fmt.Errorf("resolve self path: %w", err)
 	}
 	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
-		return fmt.Errorf("eval self path: %w", err)
+		return "", fmt.Errorf("eval self path: %w", err)
 	}
 
-	logger.Info("self-update starting", "from_version", cfg.Wrapper.Version, "url", cfg.Wrapper.BinaryURL, "platform", runtime.GOOS+"/"+runtime.GOARCH)
+	logger.Info("self-update starting", "target_version", targetVersion, "url", binaryURL, "platform", runtime.GOOS+"/"+runtime.GOARCH)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Wrapper.BinaryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, binaryURL, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if cfg.Orchestrator.APIKey != "" {
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("download binary: %w", err)
+		return "", fmt.Errorf("download binary: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("download binary: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("download binary: HTTP %d", resp.StatusCode)
 	}
 
-	tmp := exe + ".new"
+	tmp, err := os.CreateTemp("", "cdx-wrapper-*.new")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+
+	if err := VerifyChecksum(tmpPath, binarySHA256); err != nil {
+		return "", err
+	}
+
+	if err := installVerifiedBinary(tmpPath, exe); err != nil {
+		return "", err
+	}
+	logger.Info("self-update complete", "version", targetVersion, "path", exe)
+	return exe, nil
+}
+
+func installVerifiedBinary(src, dest string) error {
+	tmp := dest + ".new"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
+		return sudoInstall(src, dest, err)
+	}
+	srcFile, err := os.Open(src)
+	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	defer srcFile.Close()
+	if _, err := io.Copy(f, srcFile); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return err
 	}
 	if err := f.Close(); err != nil {
-		return err
-	}
-
-	if err := VerifyChecksum(tmp, cfg.Wrapper.BinarySHA256); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
-
-	// Atomic-ish: on Linux, rename across the same filesystem is atomic.
-	if err := os.Rename(tmp, exe); err != nil {
+	if err := os.Chmod(tmp, 0o755); err != nil {
 		_ = os.Remove(tmp)
-		return errors.New("atomic swap failed: " + err.Error())
+		return err
 	}
-	logger.Info("self-update complete", "version", cfg.Wrapper.Version, "path", exe)
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return sudoInstall(src, dest, err)
+	}
 	return nil
+}
+
+func sudoInstall(src, dest string, cause error) error {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return errors.New("atomic swap failed: " + cause.Error())
+	}
+	cmd := exec.Command("sudo", "-n", "install", "-m", "0755", src, dest)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("atomic swap failed: %v; sudo install failed: %w: %s", cause, err, string(out))
 }
 
 // SnapshottedArgv holds the argv as captured at process start (excluding the

@@ -49,7 +49,7 @@ func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *
 	if isManagedByNpm(ctx) {
 		return ensureCodexNpm(ctx, target, enforceExact, logger)
 	}
-	return ensureCodexGitHub(ctx, target, enforceExact, logger)
+	return ensureCodexGitHub(ctx, target, enforceExact, current, logger)
 }
 
 // isManagedByNpm returns true when an upstream `codex` binary is on PATH AND
@@ -248,10 +248,16 @@ func releaseTagCandidates(target string) []string {
 	return out
 }
 
-func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, current string, logger *slog.Logger) error {
 	rel, err := fetchRelease(ctx, target)
 	if err != nil {
 		return err
+	}
+	if !enforceExact {
+		if relVersion := releaseVersion(rel); relVersion != "" && current == relVersion {
+			logger.Debug("EnsureCodex: already at resolved target", "version", current, "target", target)
+			return nil
+		}
 	}
 	asset, err := pickAsset(rel, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -291,6 +297,29 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, lo
 		return err
 	}
 	return installBinary(dlPath, dest)
+}
+
+func releaseVersion(rel Release) string {
+	for _, s := range []string{rel.Name, rel.TagName} {
+		if v := versionTokenRE.FindString(s); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// LatestVersion resolves GitHub's current Codex release to a comparable
+// semantic version string without downloading the release asset.
+func LatestVersion(ctx context.Context) (string, error) {
+	rel, err := fetchRelease(ctx, "latest")
+	if err != nil {
+		return "", err
+	}
+	v := releaseVersion(rel)
+	if v == "" {
+		return "", fmt.Errorf("codex latest release has no semantic version")
+	}
+	return v, nil
 }
 
 // resolveCodexDest picks /usr/local/bin/codex when writable (or via sudo),

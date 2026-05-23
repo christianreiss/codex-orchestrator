@@ -289,11 +289,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:    cfg,
-			ExtraArgs: append(subArgs, passthrough...),
-			SkipBoot:  f.skipBoot,
-			Minimal:   f.minimal,
-			Logger:    logger,
+			Config:         cfg,
+			ExtraArgs:      append(subArgs, passthrough...),
+			SkipBoot:       f.skipBoot,
+			Minimal:        f.minimal,
+			Logger:         logger,
+			WrapperVersion: Version,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx run:", err)
@@ -310,17 +311,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		argv := []string{"--sandbox", "read-only", "-a", "untrusted", "exec", "--skip-git-repo-check", f.executePrompt}
 		argv = append(argv, append(subArgs, passthrough...)...)
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:    cfg,
-			ExtraArgs: argv,
-			SkipBoot:  true,
-			Logger:    logger,
+			Config:         cfg,
+			ExtraArgs:      argv,
+			SkipBoot:       true,
+			Logger:         logger,
+			WrapperVersion: Version,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx execute:", err)
 		}
 		return exit
 	case "status":
-		return cmdStatus(ctx, cfg, stderr, f.minimal)
+		return cmdStatus(ctx, cfg, Version, stderr, f.minimal)
 	case "doctor":
 		if err := codex.Doctor(ctx, cfg, stderr); err != nil {
 			return 1
@@ -442,7 +444,7 @@ func parseFlags(args []string) (flags, []string, []string) {
 }
 
 // cmdStatus runs auth-retrieve + renders the boot screen.
-func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal bool) int {
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, w io.Writer, minimal bool) int {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -455,9 +457,10 @@ func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal boo
 	digest, _ := codex.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
 	state := summary.Build(ctx, summary.Inputs{
-		Config:  cfg,
-		Auth:    resp,
-		AuthErr: authErr,
+		Config:         cfg,
+		WrapperVersion: wrapperVersion,
+		Auth:           resp,
+		AuthErr:        authErr,
 	})
 	if minimal {
 		ui.PrintMinimalScreen(w, state)

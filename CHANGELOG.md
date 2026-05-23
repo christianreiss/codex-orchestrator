@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-22
+- cdx wrapper: normal startup now applies managed wrapper self-updates without requiring a cron entry, using passwordless `sudo -n install` when the wrapper lives under root-owned `/usr/local/bin`, then re-execs the original command before checking the Codex CLI. The Codex `latest` target is resolved before download so already-current hosts do not reinstall on every launch.
 - Wrapper v2 cron auto-update: `cdx` and `clx` cron ticks now bootstrap `/usr/local/bin` into `PATH` at runtime and in newly installed crontab entries, so sparse cron environments can still find `codex` / `claude` and apply upstream CLI updates instead of reporting `unknown`.
 - cdx wrapper: ChatGPT quota rows now show the burn-rate estimate for the percent expected at reset, restoring the old renewal-time projection while keeping the 100% ETA warning when the current rate would cross the limit before reset.
 

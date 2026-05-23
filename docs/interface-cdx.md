@@ -74,7 +74,7 @@ at build time, then loads the config:
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
 | `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
-| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex |
+| `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
@@ -87,7 +87,7 @@ at build time, then loads the config:
 4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. When ChatGPT quota metadata is available, the boot screen shows current percent, reset time, and a burn-rate projection for the percent expected at reset.
 5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response, lights the boot-screen "skills" dot on change. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`) are pruned so they don't shadow MCP.
 6. Runtime FQDN guard: compares `os.Hostname` against the baked FQDN; refuses unless `CODEX_ALLOW_FQDN_MISMATCH=1`.
-7. Codex CLI version reconciliation (`maybeEnsureCodex`) — keeps the local CLI on the server's declared target when `versions.auto_update_enabled` is true. Never blocks launch.
+7. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Never blocks launch.
 8. Snapshot `auth.json` sha256 + `last_refresh`; `exec` the upstream `codex` CLI; forward stdio + signals.
 9. Post-exit auth re-upload: if either the sha or `last_refresh` changed during the run (token rotation, `codex login`), POST the new payload to `/auth` store.
 10. Token usage extraction (pipe-mode tee first, `~/.codex/sessions/**/*.jsonl` discovery as fallback) → POST `/usage` as `{engine, fqdn, usages: [...]}`. Best-effort, 5 s budget.

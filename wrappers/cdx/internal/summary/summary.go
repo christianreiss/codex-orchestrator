@@ -17,6 +17,7 @@ import (
 // Inputs is what callers pass when building a screen state.
 type Inputs struct {
 	Config         *config.Config
+	WrapperVersion string
 	Auth           *orchestrator.AuthRetrieveResponse
 	AuthErr        error
 	Concurrent     bool
@@ -58,7 +59,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	codexTarget := ""
 
 	wrapperVer := ""
-	if cfg != nil {
+	if in.WrapperVersion != "" {
+		wrapperVer = in.WrapperVersion
+	} else if cfg != nil {
 		wrapperVer = cfg.Wrapper.Version
 	}
 	wrapperTone := ui.ToneOK
