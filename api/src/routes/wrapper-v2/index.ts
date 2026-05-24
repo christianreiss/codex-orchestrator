@@ -136,10 +136,11 @@ export async function registerWrapperV2Routes(
     const engine = engineFromQuery(req);
     const baseUrl = resolvePublicBaseUrl(req);
     const sigOnly = isTruthyFlag((req.query as { sig?: string }).sig);
+    const platform = platformFromHeaders(req);
 
     let result;
     try {
-      result = await configService.bakeForHost(host, engine, baseUrl);
+      result = await configService.bakeForHost(host, engine, baseUrl, platform);
     } catch (err) {
       if (err instanceof WrapperSigningUnavailableError) {
         throw new ServiceUnavailableError(
@@ -209,10 +210,11 @@ export async function registerWrapperV2Routes(
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     const engine = engineFromQuery(req);
     const baseUrl = resolvePublicBaseUrl(req);
+    const platform = platformFromHeaders(req);
 
     let result;
     try {
-      result = await configService.bakeForHost(host, engine, baseUrl);
+      result = await configService.bakeForHost(host, engine, baseUrl, platform);
     } catch (err) {
       if (err instanceof WrapperSigningUnavailableError) {
         throw new ServiceUnavailableError(

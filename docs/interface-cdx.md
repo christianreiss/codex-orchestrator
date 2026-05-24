@@ -16,6 +16,10 @@
 | GET | `/wrapper/download` | legacy shell-transition shim that writes v2 config, installs the binary, then execs it |
 | GET | `/wrapper/v2/bin/cdx/<os>-<arch>/v<ver>/cdx` | the binary itself; ETag = SHA256 |
 
+Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
+(`linux-amd64`, `linux-arm64`, `darwin-arm64`, or `darwin-amd64`) so the
+orchestrator can bake the matching `binary_url` / SHA256 for this host.
+
 ## Per-host config (typed, signed)
 
 The orchestrator's `api/src/services/wrapper-config.ts` produces a JSON blob

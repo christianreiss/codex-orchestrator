@@ -81,9 +81,19 @@ export interface BakeResult {
   canonicalJson: string;
 }
 
+export interface BakePlatform {
+  os: string;
+  arch: string;
+}
+
 export interface WrapperConfigService {
   /** Bake config for a host. Bumps `config_version` and stamps `config_baked_at`. */
-  bakeForHost(host: Host, engine: Engine, publicBaseUrl: string): Promise<BakeResult>;
+  bakeForHost(
+    host: Host,
+    engine: Engine,
+    publicBaseUrl: string,
+    platform?: BakePlatform,
+  ): Promise<BakeResult>;
 }
 
 export interface WrapperConfigDeps {
@@ -204,15 +214,31 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     };
   }
 
-  async function wrapperBlock(engine: Engine, publicBaseUrl: string) {
+  async function wrapperBlock(
+    engine: Engine,
+    publicBaseUrl: string,
+    requested?: BakePlatform,
+  ) {
     const autoUpdate = await settings.autoUpdateDefault();
     const track = await settings.wrapperTrack();
-    const platformsToTry: Array<[string, string]> = [
+    const preferred: Array<[string, string]> = [];
+    if (requested?.os && requested?.arch) {
+      preferred.push([requested.os, requested.arch]);
+    }
+    const fallbacks: Array<[string, string]> = [
       ['linux', 'amd64'],
       ['linux', 'arm64'],
       ['darwin', 'arm64'],
       ['darwin', 'amd64'],
     ];
+    const seen = new Set<string>();
+    const platformsToTry: Array<[string, string]> = [];
+    for (const pair of [...preferred, ...fallbacks]) {
+      const key = `${pair[0]}-${pair[1]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      platformsToTry.push(pair);
+    }
     let version = '0.0.0';
     let sha = '0'.repeat(64);
     let chosenOs = 'linux';
@@ -234,7 +260,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   return {
-    async bakeForHost(host, engine, publicBaseUrl) {
+    async bakeForHost(host, engine, publicBaseUrl, platform) {
       const signer = await deps.signing.active();
       if (!signer) {
         throw new WrapperSigningUnavailableError();
@@ -249,7 +275,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         activeSkills(engine),
         settings.silentFlag(),
         settings.adminThemeHint(),
-        wrapperBlock(engine, publicBaseUrl),
+        wrapperBlock(engine, publicBaseUrl, platform),
       ]);
 
       // Bump config_version atomically; the new value becomes part of the

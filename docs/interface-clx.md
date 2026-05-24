@@ -63,6 +63,10 @@ Identical to cdx with engine swapped:
 | GET | `/wrapper/v2/bin/clx/<os>-<arch>/v<ver>/clx` |
 | GET | `/wrapper/v2/manifest/claude` |
 
+Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
+(`linux-amd64`, `linux-arm64`, `darwin-arm64`, or `darwin-amd64`) so the
+orchestrator can bake the matching `binary_url` / SHA256 for this host.
+
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — single-instance

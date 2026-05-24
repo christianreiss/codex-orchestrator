@@ -76,6 +76,48 @@ describe('POST /cron/check', () => {
     await app.close();
   });
 
+  it('returns a platform-specific wrapper URL based on X-Wrapper-Platform', async () => {
+    const db = createDbShim();
+    const apiKey = 'sk-codex-cron-test';
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.130.0' },
+      { name: 'wrapper_version_codex', version: '0.6.13' },
+      { name: 'wrapper_sha256_codex', version: 'a'.repeat(64) },
+      {
+        name: 'wrapper_url_codex',
+        version: 'https://orchestrator.example/wrapper/v2/bin/codex/linux-amd64/v0.6.13/cdx',
+      },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        'x-wrapper-platform': 'darwin-arm64',
+      },
+      payload: JSON.stringify({
+        engine: 'codex',
+        client_version: '0.130.0',
+        wrapper_version: '0.6.12',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.wrapper.action).toBe('update');
+    expect(body.wrapper.target_version).toBe('0.6.13');
+    expect(body.wrapper.url).toBe(
+      'https://orchestrator.example/wrapper/v2/bin/codex/darwin-arm64/v0.6.13/cdx',
+    );
+    // SHA must match the darwin-arm64 manifest, not the linux-amd64 one.
+    expect(body.wrapper.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(body.wrapper.sha256).not.toBe('a'.repeat(64));
+    await app.close();
+  });
+
   it('returns the legacy transition shim URL for date-style shell wrappers', async () => {
     const db = createDbShim();
     const apiKey = 'sk-codex-cron-test';

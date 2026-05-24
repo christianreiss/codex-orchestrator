@@ -1,5 +1,6 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
+import { join, resolve } from 'node:path';
 import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
@@ -14,6 +15,7 @@ import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
+import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 
 /**
  * Registers /host/users, /host/lane (GET+POST), /usage, /versions, /cron/check,
@@ -33,6 +35,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     installationId: ctx.env.INSTALLATION_ID ?? null,
   });
   const sync = createHostSyncService({ db: ctx.db, versions, tokenUsage });
+
+  const binRoot = ctx.env.DATA_ROOT
+    ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
+    : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
+  const binaries = createWrapperBinRegistry({ binRoot });
 
   app.get('/versions', async () => {
     if (await versions.flag('api_disabled', false)) {
@@ -122,11 +129,27 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = parseEngine(body.engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
-    const summary = withLegacyShellWrapperTransition(
-      await versions.summary(engine),
-      submittedWrapper,
-      engine,
-    );
+    const rawSummary = await versions.summary(engine);
+    const summary = withLegacyShellWrapperTransition(rawSummary, submittedWrapper, engine);
+    const usingLegacyShim = summary.wrapper_url !== rawSummary.wrapper_url;
+    const requestedPlatform = platformFromRequest(req);
+    const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
+    const binaryName = engine === 'claude' ? 'clx' : 'cdx';
+    const targetWrapper = summary.wrapper_version;
+    let platformSha: string | null = summary.wrapper_sha256;
+    let platformUrl: string | null = summary.wrapper_url;
+    if (!usingLegacyShim && targetWrapper) {
+      const desc = await binaries.binaryDescriptor(
+        engine,
+        requestedPlatform.os,
+        requestedPlatform.arch,
+        targetWrapper,
+      );
+      if (desc?.sha256) {
+        platformSha = desc.sha256;
+        platformUrl = `${baseUrl}/wrapper/v2/bin/${engine}/${requestedPlatform.os}-${requestedPlatform.arch}/v${targetWrapper}/${binaryName}`;
+      }
+    }
 
     await ctx.db
       .update(hostsTable)
@@ -141,12 +164,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     }
 
     const targetClient = summary.client_version_override ?? summary.client_version;
-    const targetWrapper = summary.wrapper_version;
     const wrapperUpdate = {
       action: 'no_update' as 'no_update' | 'update',
       target_version: targetWrapper,
-      sha256: summary.wrapper_sha256,
-      url: summary.wrapper_url,
+      sha256: platformSha,
+      url: platformUrl,
     };
 
     let needClient = false;
@@ -213,6 +235,34 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // /agents/retrieve and /config/retrieve are owned by the projects-client
   // worktree (Phase 2.6) via its host-agents service. Registration moved
   // there to avoid Fastify duplicate-route errors at boot.
+}
+
+function platformFromRequest(req: FastifyRequest): { os: string; arch: string } {
+  const ua = headerString(req.headers['user-agent']) ?? '';
+  const xPlat = headerString(req.headers['x-wrapper-platform']) ?? '';
+  const fromHeader = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(xPlat);
+  if (fromHeader && fromHeader[1] && fromHeader[2]) {
+    return { os: fromHeader[1], arch: fromHeader[2] };
+  }
+  let os = 'linux';
+  let arch = 'amd64';
+  if (/darwin|mac/i.test(ua)) os = 'darwin';
+  if (/arm64|aarch64/i.test(ua)) arch = 'arm64';
+  return { os, arch };
+}
+
+function headerString(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value.length > 0) return value[0];
+  return undefined;
+}
+
+function resolvePublicBaseUrl(req: FastifyRequest, envBase: string | undefined): string {
+  if (envBase) return envBase.replace(/\/+$/, '');
+  const proto = headerString(req.headers['x-forwarded-proto']) ?? req.protocol ?? 'http';
+  const host =
+    headerString(req.headers['x-forwarded-host']) ?? headerString(req.headers.host) ?? 'localhost';
+  return `${proto}://${host}`;
 }
 
 function normalizeLane(value: unknown): 'normal' | 'spark' | null {

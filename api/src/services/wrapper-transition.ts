@@ -157,8 +157,23 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+PLATFORM_OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+case "$PLATFORM_OS" in
+  darwin) PLATFORM_OS=darwin ;;
+  linux) PLATFORM_OS=linux ;;
+  *) PLATFORM_OS=linux ;;
+esac
+PLATFORM_ARCH=$(uname -m 2>/dev/null)
+case "$PLATFORM_ARCH" in
+  x86_64|amd64) PLATFORM_ARCH=amd64 ;;
+  arm64|aarch64) PLATFORM_ARCH=arm64 ;;
+  *) PLATFORM_ARCH=amd64 ;;
+esac
+WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
+
 curl -fsSL \\
   -H "X-API-Key: $HOST_API_KEY" \\
+  -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
   "$BASE_URL/wrapper/v2/config?engine=$ENGINE" \\
   -o "$BUNDLE_FILE"
 
@@ -299,6 +314,7 @@ fi
 
 curl -fsSL \\
   -H "X-API-Key: $HOST_API_KEY" \\
+  -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
   "$BINARY_URL" \\
   -o "$BIN_TMP"
 

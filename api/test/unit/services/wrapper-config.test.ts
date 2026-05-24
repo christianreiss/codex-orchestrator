@@ -326,6 +326,40 @@ describe('wrapper-config', () => {
     expect(result.payload.etag).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('honors the requested platform when baking the wrapper block', async () => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = {
+      kid: '1',
+      publicKey: 'pk',
+      sign(payload) {
+        const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
+        const { sign } = require('node:crypto') as typeof import('node:crypto');
+        return sign(null, buf, privateKey);
+      },
+    };
+    const svc = createWrapperConfigService({
+      db: makeFakeDb({
+        hosts: [fakeHost()],
+        agents: [],
+        agentsState: [],
+        clientConfigs: [],
+        skills: [],
+        updates: [],
+      }),
+      keyring: makeKeyring(),
+      binaries: fakeBinaries(),
+      signing: makeSigningService(signer),
+      installationId: 'inst-mac',
+    });
+    const result = await svc.bakeForHost(
+      fakeHost(),
+      'codex',
+      'https://api.example.com',
+      { os: 'darwin', arch: 'arm64' },
+    );
+    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/codex/darwin-arm64/v1.0.1/cdx');
+  });
+
   it('selects claude-shaped engine_options when engine=claude', async () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = {

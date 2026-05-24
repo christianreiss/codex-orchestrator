@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -96,6 +97,9 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 	}
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", c.UserAgent)
+	}
+	if req.Header.Get("X-Wrapper-Platform") == "" {
+		req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
 	}
 
 	var lastErr error
