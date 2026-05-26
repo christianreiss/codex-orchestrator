@@ -22,6 +22,9 @@ DELETE FROM versions
 The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
+# 2026-05-26
+- Docker compose: pinned the internal `codex_auth` bridge to `172.30.250.0/24` (configurable via `CODEX_AUTH_SUBNET` / `CODEX_AUTH_GATEWAY`) so Docker cannot auto-select a subnet that overlaps private backup or monitoring routes on production hosts.
+
 # 2026-05-24
 - Wrapper v2 platform selection: `cdx` and `clx` now send `X-Wrapper-Platform` on orchestrator calls, and `/cron/check` plus signed config baking return the platform-specific wrapper binary URL and SHA256 instead of falling back to the default Linux amd64 artifact.
 

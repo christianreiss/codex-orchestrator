@@ -124,3 +124,7 @@ services:
 networks:
   codex_auth:
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${CODEX_AUTH_SUBNET:-172.30.250.0/24}
+          gateway: ${CODEX_AUTH_GATEWAY:-172.30.250.1}
