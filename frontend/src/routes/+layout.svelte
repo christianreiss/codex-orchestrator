@@ -16,6 +16,7 @@
   import { hydratePalette } from "$lib/stores/theme";
   import { createWsClient, type WsClientHandle } from "$lib/ws/client";
   import { wireWsToQueryClient } from "$lib/ws/events";
+  import InsecureApprovalsAutoPopup from "$lib/components/hosts/InsecureApprovalsAutoPopup.svelte";
 
   let { children } = $props();
 
@@ -32,7 +33,7 @@
     },
   });
 
-  let wsHandle: WsClientHandle | null = null;
+  let wsHandle: WsClientHandle | null = $state(null);
   let unsubscribeShortcuts: (() => void) | null = null;
   let unsubscribeWs: (() => void) | null = null;
 
@@ -112,6 +113,9 @@
     <AppShell>
       {@render children?.()}
     </AppShell>
+    {#if auth.authenticated && wsHandle}
+      <InsecureApprovalsAutoPopup events={wsHandle.events} />
+    {/if}
   {/if}
   <CommandPalette />
   <Toaster />

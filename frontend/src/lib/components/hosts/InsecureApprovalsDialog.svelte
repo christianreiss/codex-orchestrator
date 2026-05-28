@@ -3,6 +3,7 @@
   import { Button } from "$lib/components/ui/button";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
+  import { browser } from "$app/environment";
   import {
     insecureSummaryQuery,
     insecureApprovalsQuery,
@@ -21,6 +22,7 @@
   import Globe from "@lucide/svelte/icons/globe";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
+  import Bell from "@lucide/svelte/icons/bell";
 
   type Props = {
     open: boolean;
@@ -55,6 +57,23 @@
       toast.error(msg);
     }
   }
+
+  // Browser-notification permission state. Reactive so the inline banner
+  // disappears as soon as the user grants/denies.
+  let notifPermission = $state<NotificationPermission | "unsupported">(
+    browser && typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+  );
+
+  async function enableNotifications(): Promise<void> {
+    if (!browser || typeof Notification === "undefined") return;
+    try {
+      const result = await Notification.requestPermission();
+      notifPermission = result;
+      if (result === "granted") toast.success("Browser notifications enabled");
+    } catch {
+      /* ignore */
+    }
+  }
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
@@ -68,6 +87,18 @@
     </Dialog.Header>
 
     <div class="max-h-[70vh] space-y-6 overflow-y-auto py-2">
+      {#if notifPermission === "default"}
+        <div
+          class="flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+        >
+          <div class="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+            <Bell class="h-3.5 w-3.5" />
+            <span>Enable browser notifications to hear requests when this tab is in the background.</span>
+          </div>
+          <Button size="sm" variant="outline" onclick={enableNotifications}>Enable</Button>
+        </div>
+      {/if}
+
       <!-- Pending approvals -->
       {#if $approvals.data?.requests && $approvals.data.requests.length > 0}
         <section class="space-y-2">

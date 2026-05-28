@@ -22,7 +22,6 @@
   import FilterChips from "$lib/components/hosts/FilterChips.svelte";
   import NewHostSheet from "$lib/components/hosts/NewHostSheet.svelte";
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
-  import InsecureApprovalsDialog from "$lib/components/hosts/InsecureApprovalsDialog.svelte";
   import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import { hostsSummary } from "$lib/stores/hosts-summary";
@@ -120,8 +119,11 @@
   // --- sheets / dialogs ---------------------------------------------------
   let newOpen = $state(false);
   let quickOpen = $state(false);
-  let insecureOpen = $state(false);
   let seedOpen = $state(false);
+
+  function openInsecureApprovals(): void {
+    window.dispatchEvent(new CustomEvent("codex:open-insecure-approvals"));
+  }
 
   // /hosts/new path opens the sheet on landing
   $effect(() => {
@@ -132,7 +134,7 @@
 
   $effect(() => {
     if (page.url.searchParams.get("insecure") === "1") {
-      insecureOpen = true;
+      openInsecureApprovals();
     }
   });
 
@@ -149,7 +151,7 @@
 
 <PageHeader title="Hosts" subtitle="All connected machines and their installer state.">
   {#snippet actions()}
-    <Button variant="outline" onclick={() => (insecureOpen = true)}>
+    <Button variant="outline" onclick={openInsecureApprovals}>
       <ShieldAlert class="h-4 w-4" /> Insecure
       {#if ($hostsSummary.activeInsecureWindows ?? 0) > 0}
         <span class="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
@@ -206,5 +208,4 @@
   }}
 />
 <QuickVmDialog bind:open={quickOpen} />
-<InsecureApprovalsDialog bind:open={insecureOpen} />
 <SeedAuthDialog bind:open={seedOpen} />
