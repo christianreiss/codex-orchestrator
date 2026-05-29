@@ -60,6 +60,59 @@ func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 	}
 }
 
+func TestSyncBootstrap_DecodesClaudeArtifactsAndSendsDigests(t *testing.T) {
+	var got BundleRequest
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"claude_artifacts":{
+				"subagent":[{"slug":"reviewer","sha256":"abc","status":"updated","content":"---\nname: reviewer\n---\n\nhi\n"}],
+				"command":[{"slug":"deploy","sha256":"def","status":"unchanged"}],
+				"output-style":[]
+			}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{
+		Engine:    "claude",
+		Artifacts: map[string]map[string]string{"subagent": {"reviewer": "old"}},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if resp.ClaudeArtifacts == nil {
+		t.Fatal("claude_artifacts not decoded")
+	}
+	if len(resp.ClaudeArtifacts.Subagents) != 1 || resp.ClaudeArtifacts.Subagents[0].Slug != "reviewer" {
+		t.Errorf("subagents: %+v", resp.ClaudeArtifacts.Subagents)
+	}
+	if !strings.Contains(resp.ClaudeArtifacts.Subagents[0].Content, "name: reviewer") {
+		t.Errorf("content missing: %q", resp.ClaudeArtifacts.Subagents[0].Content)
+	}
+	if resp.ClaudeArtifacts.Commands[0].Status != "unchanged" || resp.ClaudeArtifacts.Commands[0].Content != "" {
+		t.Errorf("unchanged command should carry no content: %+v", resp.ClaudeArtifacts.Commands[0])
+	}
+	if got.Artifacts["subagent"]["reviewer"] != "old" {
+		t.Errorf("request digests not sent: %+v", got.Artifacts)
+	}
+}
+
+func TestSyncBootstrap_LegacyResponseHasNilArtifacts(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","agents":{"status":"updated","content":"# CLAUDE.md\n"}}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "claude"})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if resp.ClaudeArtifacts != nil {
+		t.Error("legacy server omits claude_artifacts; field must stay nil")
+	}
+	if string(resp.Agents) != "# CLAUDE.md\n" {
+		t.Errorf("legacy agents still decodes: %q", string(resp.Agents))
+	}
+}
+
 func TestSyncBootstrap_404(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)

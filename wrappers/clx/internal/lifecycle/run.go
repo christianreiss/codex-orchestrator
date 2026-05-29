@@ -222,6 +222,7 @@ func bootstrap(
 		Config:        configDigest,
 		Home:          home,
 		Username:      username,
+		Artifacts:     artifactDigestsForRequest(),
 	})
 
 	if berr != nil && isBundleUnsupported(berr) {
@@ -266,6 +267,12 @@ func bootstrap(
 			} else {
 				configUpdated = true
 			}
+		}
+		// Claude-native collections (subagents / commands / output-styles).
+		// Folded into configUpdated for the boot-screen "config" dot; writes are
+		// manifest-tracked and never touch user-authored files in those dirs.
+		if applyClaudeArtifacts(resp.ClaudeArtifacts, logger) {
+			configUpdated = true
 		}
 	}
 	return authResp, nil, authSynced, agentsUpdated, configUpdated
