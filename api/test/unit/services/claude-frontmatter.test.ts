@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
+import yaml from 'js-yaml';
 import {
   serializeFrontmatter,
   parseFrontmatter,
@@ -8,6 +9,13 @@ import {
   normalizeSlug,
   KIND_DIRS,
 } from '../../../src/services/claude-frontmatter.js';
+
+/** Extract the YAML frontmatter block (between the --- fences) from a .md body. */
+function frontmatterBlock(md: string): string {
+  const m = /^---\n([\s\S]*?)\n---/.exec(md);
+  if (!m || m[1] === undefined) throw new Error('no frontmatter block');
+  return m[1];
+}
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -59,6 +67,36 @@ describe('claude-frontmatter serialize/parse', () => {
     const { frontmatter, content } = parseFrontmatter('just a body\n');
     expect(frontmatter).toEqual({});
     expect(content).toBe('just a body\n');
+  });
+
+  // The serializer is hand-rolled YAML-lite; these tests are otherwise
+  // self-referential (our parser reads our serializer). This cross-checks the
+  // output against a REAL YAML parser (js-yaml) — what Claude Code uses — so a
+  // serializer bug that produces something only we accept is caught. Wrong
+  // frontmatter makes Claude Code silently ignore the file.
+  it('produces frontmatter a real YAML parser reads identically (subagent)', () => {
+    const md = serializeFrontmatter(
+      { name: 'reviewer', description: 'Reviews code: be strict, flag bugs', tools: ['Read', 'Grep', 'Bash'], model: 'claude-sonnet-4-6', color: 'blue' },
+      'You are a reviewer.',
+    );
+    const parsed = yaml.load(frontmatterBlock(md)) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      name: 'reviewer',
+      description: 'Reviews code: be strict, flag bugs', // colon survived quoting
+      tools: ['Read', 'Grep', 'Bash'], // block list -> array
+      model: 'claude-sonnet-4-6',
+      color: 'blue',
+    });
+  });
+
+  it('produces frontmatter a real YAML parser reads identically (command)', () => {
+    const md = serializeFrontmatter(
+      { description: 'Deploy the app', 'argument-hint': '<env>', 'allowed-tools': ['Bash', 'Read'] },
+      'Deploy to $1.',
+    );
+    const parsed = yaml.load(frontmatterBlock(md)) as Record<string, unknown>;
+    expect(parsed['argument-hint']).toBe('<env>'); // angle brackets survived quoting
+    expect(parsed['allowed-tools']).toEqual(['Bash', 'Read']);
   });
 });
 
