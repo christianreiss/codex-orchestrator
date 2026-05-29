@@ -300,6 +300,39 @@ export const skills = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// claude_artifacts — Claude-Code-native fleet collections (subagents,
+// slash-commands, output-styles). One table discriminated by `kind`; shares the
+// skills lifecycle (slug+sha256 dedup, soft-delete, If-None-Match retrieve).
+// `body` is the canonical hashed content (full markdown incl. YAML frontmatter).
+// ────────────────────────────────────────────────────────────────────────────
+
+export const claudeArtifacts = mysqlTable(
+  'claude_artifacts',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    kind: varchar('kind', { length: 32 }).notNull(), // 'subagent' | 'command' | 'output-style'
+    slug: varchar('slug', { length: 255 }).notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    displayName: varchar('display_name', { length: 255 }),
+    description: text('description'),
+    model: varchar('model', { length: 128 }), // per-artifact model, baked into body frontmatter at store time
+    frontmatter: json('frontmatter'), // parsed frontmatter so the admin UI renders structured editors
+    body: longtext('body').notNull(),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+    deletedAt: varchar('deleted_at', { length: 100 }),
+    engine: varchar('engine', { length: 16 }), // nullable; null == all engines (matches skills)
+  },
+  (t) => ({
+    kindSlugUnique: uniqueIndex('uq_claude_artifacts_kind_slug').on(t.kind, t.slug),
+    kindIdx: index('idx_claude_artifacts_kind').on(t.kind),
+    updatedAtIdx: index('idx_claude_artifacts_updated_at').on(t.updatedAt),
+    engineIdx: index('idx_claude_artifacts_engine').on(t.engine),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // agents_documents / agents_document_state
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1010,6 +1043,7 @@ export type AuthPayload = typeof authPayloads.$inferSelect;
 export type AuthEntry = typeof authEntries.$inferSelect;
 export type HostAuthState = typeof hostAuthStates.$inferSelect;
 export type Skill = typeof skills.$inferSelect;
+export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;
 export type CoordProject = typeof coordProjects.$inferSelect;
