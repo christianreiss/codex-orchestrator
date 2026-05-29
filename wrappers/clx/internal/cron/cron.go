@@ -383,7 +383,6 @@ func downloadAndSwap(ctx context.Context, cfg *config.Config, url, expectedSHA, 
 	if len(expectedSHA) != 64 {
 		return fmt.Errorf("invalid expected sha256 (len=%d)", len(expectedSHA))
 	}
-	tmp := dest + ".cron-new"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -402,31 +401,59 @@ func downloadAndSwap(ctx context.Context, cfg *config.Config, url, expectedSHA, 
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("download %s -> %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	tmp, f, err := createWrapperTemp(dest)
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmp)
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
 		return err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	got, err := sha256File(tmp)
 	if err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	if !strings.EqualFold(got, expectedSHA) {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("sha256 mismatch (got %s, want %s)", got, expectedSHA)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		_ = os.Remove(tmp)
+	if err := installWrapperTemp(tmp, dest); err != nil {
+		return err
+	}
+	return nil
+}
+
+func createWrapperTemp(dest string) (string, *os.File, error) {
+	tmp := dest + ".cron-new"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err == nil {
+		return tmp, f, nil
+	}
+	f, err = os.CreateTemp("", filepath.Base(dest)+"-cron-*.new")
+	if err != nil {
+		return "", nil, err
+	}
+	if chmodErr := f.Chmod(0o755); chmodErr != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", nil, chmodErr
+	}
+	return f.Name(), f, nil
+}
+
+func installWrapperTemp(tmp, dest string) error {
+	if err := os.Rename(tmp, dest); err == nil {
+		return nil
+	} else if _, sudoErr := exec.LookPath("sudo"); sudoErr != nil {
 		return fmt.Errorf("atomic swap: %w", err)
+	}
+	cmd := exec.Command("sudo", "-n", "install", "-m", "0755", tmp, dest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("atomic swap: sudo install failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

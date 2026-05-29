@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -48,6 +49,34 @@ func TestEnsureCronPathPrependsLocalBin(t *testing.T) {
 	want := []string{"/usr/local/sbin", "/usr/local/bin", "/usr/bin", "/bin"}
 	if strings.Join(got, ":") != strings.Join(want, ":") {
 		t.Fatalf("PATH = %q, want %q", strings.Join(got, ":"), strings.Join(want, ":"))
+	}
+}
+
+func TestInstallWrapperTempReplacesDestination(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "clx")
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmp, f, err := createWrapperTemp(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := installWrapperTemp(tmp, dest); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("dest = %q, want new", got)
 	}
 }
 

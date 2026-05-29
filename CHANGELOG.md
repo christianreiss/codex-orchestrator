@@ -24,6 +24,7 @@ tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-29
 - Wrapper doctor: `cdx doctor` and `clx doctor` now report the running wrapper build version instead of the stale baked config version, so a self-updated `/usr/local/bin/cdx` no longer appears stuck on an older wrapper in diagnostics.
+- Wrapper cron update: `cdx --cron run` and `clx --cron run` now fall back to passwordless `sudo -n install` when replacing a root-owned wrapper binary, matching the normal startup self-update path.
 
 # 2026-05-26
 - Config sync: updated Codex reasoning-effort normalization to the current `minimal|low|medium|high` set and maps legacy `xhigh` profile/host values to `high`, so synced `config.toml` files no longer make Codex reject `[profiles.*].model_reasoning_effort`.
