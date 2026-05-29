@@ -23,6 +23,8 @@ import { createVersionSnapshotService } from '../../services/version-snapshot.js
 import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { HostAgentsService } from '../../services/host-agents.js';
+import { HostClaudeArtifactsService, type ArtifactDigestMap } from '../../services/host-claude-artifacts.js';
+import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { HostSessionsService } from '../../services/host-sessions.js';
 import {
   createRunnerValidationService,
@@ -65,6 +67,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     keyring: ctx.keyring,
   });
   const sessionsService = new HostSessionsService(ctx.db);
+  const claudeArtifactsService = new HostClaudeArtifactsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
 
@@ -164,6 +167,15 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       username: typeof payload.username === 'string' ? payload.username : null,
     });
 
+    // Claude-native collections (subagents / commands / output-styles). Only
+    // ever bundled for Claude hosts; the wrapper sends per-item digests under
+    // `artifacts` so unchanged items come back without content. Returns the
+    // COMPLETE live set so the wrapper can reconcile deletions against its
+    // on-disk manifest. Older/codex hosts simply never see this block.
+    if (engine === ENGINE_CLAUDE) {
+      out.claude_artifacts = await claudeArtifactsService.bundle(enforced, engine, readArtifactDigests(payload));
+    }
+
     // Fleet-wide session counts for the cdx boot-screen "sessions" block.
     // Cheap indexed COUNT queries against the existing logs table; the
     // wrapper renders them next to the quota bars (or skips gracefully on
@@ -174,6 +186,32 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     out.status = out.reasons.length === 0 ? 'ok' : 'update';
     return out;
   });
+}
+
+/**
+ * Reads the wrapper's on-disk artifact digest map from a bootstrap payload.
+ * Tolerant of kind-key spelling (`agents`/`subagent`/…) via normalizeKind; any
+ * unrecognized key is skipped. Shape: `{ <kind>: { <slug>: <sha256> } }`.
+ */
+function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMap {
+  const raw = payload['artifacts'];
+  const out: ArtifactDigestMap = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [rawKind, value] of Object.entries(raw as Record<string, unknown>)) {
+    let kind;
+    try {
+      kind = normalizeKind(rawKind);
+    } catch {
+      continue;
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const map: Record<string, string> = {};
+    for (const [slug, sha] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof sha === 'string') map[slug] = sha;
+    }
+    out[kind] = map;
+  }
+  return out;
 }
 
 // ───────────────────────────────────────────────────────────────────────────

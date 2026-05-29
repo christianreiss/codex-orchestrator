@@ -21,6 +21,10 @@
  *   POST   /admin/skills/assist
  *   POST   /admin/skills/store
  *   DELETE /admin/skills/:slug
+ *   GET    /admin/claude/:kind            (subagent|command|output-style)
+ *   GET    /admin/claude/:kind/:slug
+ *   POST   /admin/claude/:kind/store
+ *   DELETE /admin/claude/:kind/:slug
  *
  * Every route is gated by `app.requireAdmin` from the auth-admin plugin.
  */
@@ -35,6 +39,8 @@ import { ClientConfigService } from '../../../services/client-config.js';
 import { MemoriesService } from '../../../services/memories.js';
 import { SkillDraftsService } from '../../../services/skill-drafts.js';
 import { SkillsService } from '../../../services/skills.js';
+import { ClaudeArtifactsService } from '../../../services/claude-artifacts.js';
+import { normalizeKind } from '../../../services/claude-frontmatter.js';
 import { nowIso } from '../../../util/timestamp.js';
 
 const AGENTS_BACKUP_LIMIT_KEY = 'agents_backup_limit';
@@ -56,6 +62,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   const db = ctx.db;
   const clientConfig = new ClientConfigService(db);
   const skills = new SkillsService(db);
+  const claudeArtifacts = new ClaudeArtifactsService(db);
   const skillDrafts = new SkillDraftsService();
   const memories = new MemoriesService(db);
   const agents = new AgentsService(db, async () => {
@@ -270,6 +277,51 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         throw new NotFoundError('Skill not found', 'skill_not_found');
       }
       return { deleted: slug };
+    },
+  );
+
+  // ── /admin/claude/:kind (subagents | commands | output-styles) ────────────
+
+  app.get<{ Params: { kind: string } }>(
+    '/admin/claude/:kind',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const kind = normalizeKind(req.params.kind);
+      const list = await claudeArtifacts.list(kind, { includeDeleted: true });
+      return { kind, artifacts: list };
+    },
+  );
+
+  app.get<{ Params: { kind: string; slug: string } }>(
+    '/admin/claude/:kind/:slug',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const kind = normalizeKind(req.params.kind);
+      const found = await claudeArtifacts.find(kind, decodeURIComponent(req.params.slug));
+      if (!found) throw new NotFoundError('artifact not found', 'artifact_not_found');
+      return found;
+    },
+  );
+
+  app.post<{ Params: { kind: string }; Body: Record<string, unknown> }>(
+    '/admin/claude/:kind/store',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const kind = normalizeKind(req.params.kind);
+      const payload = req.body && typeof req.body === 'object' ? req.body : {};
+      return await claudeArtifacts.store(kind, payload, null);
+    },
+  );
+
+  app.delete<{ Params: { kind: string; slug: string } }>(
+    '/admin/claude/:kind/:slug',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const kind = normalizeKind(req.params.kind);
+      const slug = decodeURIComponent(req.params.slug);
+      const deleted = await claudeArtifacts.softDelete(kind, slug);
+      if (!deleted) throw new NotFoundError('artifact not found', 'artifact_not_found');
+      return { deleted: slug, kind };
     },
   );
 

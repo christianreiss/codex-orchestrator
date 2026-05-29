@@ -14,6 +14,8 @@ import { ok } from '../../http/reply.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
 import { HostAgentsService } from '../../services/host-agents.js';
+import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts.js';
+import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { ENGINE_CODEX, isEngine, type Engine } from '../../util/engine.js';
 import { UnauthorizedError } from '../../http/errors.js';
@@ -47,6 +49,7 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     keyring: ctx.keyring,
   });
   const memories = new McpMemoriesService(ctx.db);
+  const claudeArtifacts = new HostClaudeArtifactsService(ctx.db);
   const auth = app.requireHost;
 
   // ─── Projects ─────────────────────────────────────────────────────────
@@ -177,6 +180,24 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
       username: typeof payload['username'] === 'string' ? payload['username'] : null,
     });
     return ok({ ...result, engine });
+  });
+
+  // ─── Claude artifacts (subagents / commands / output-styles) ──────────
+  app.get('/claude/:kind', { preHandler: auth }, async (req) => {
+    const kind = normalizeKind((req.params as { kind: string }).kind);
+    const engine = extractEngine(req.query);
+    return ok(await claudeArtifacts.list(kind, requireHost(req), engine));
+  });
+  app.post('/claude/:kind/retrieve', { preHandler: auth }, async (req) => {
+    const kind = normalizeKind((req.params as { kind: string }).kind);
+    const payload = (req.body as Record<string, unknown>) ?? {};
+    const slug = String(payload['slug'] ?? payload['filename'] ?? '');
+    const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
+    return ok(await claudeArtifacts.retrieve(kind, slug, sha, requireHost(req)));
+  });
+  app.post('/claude/:kind/store', { preHandler: auth }, async (req) => {
+    const kind = normalizeKind((req.params as { kind: string }).kind);
+    return ok(await claudeArtifacts.store((req.body as Record<string, unknown>) ?? {}, kind, requireHost(req)));
   });
 
   // ─── MCP memories (host-key) ──────────────────────────────────────────
