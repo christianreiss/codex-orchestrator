@@ -20,7 +20,7 @@ import (
 )
 
 // Doctor runs the 14-row diagnostic for clx. Returns nil on no failures.
-func Doctor(ctx context.Context, cfg *config.Config, w io.Writer) error {
+func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string) error {
 	caps := ui.DetectCaps(themeFromConfig(cfg))
 	report := ui.DoctorReport{
 		WhenLine: fmt.Sprintf("clx %s  ·  Doctor report", time.Now().Format("2006-01-02 15:04")),
@@ -69,7 +69,7 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer) error {
 	report.Rows = append(report.Rows, checkDisk())
 	report.Rows = append(report.Rows, checkCron())
 	report.Rows = append(report.Rows, checkSSHEnv())
-	report.Rows = append(report.Rows, checkCLI(cfg))
+	report.Rows = append(report.Rows, checkCLI(cfg, wrapperVersion))
 
 	switch {
 	case failures > 0:
@@ -276,11 +276,11 @@ func checkSSHEnv() ui.DoctorRow {
 	return ui.DoctorRow{Label: "SSH env", Tone: ui.ToneOK, Value: strings.Join(parts, "; ")}
 }
 
-func checkCLI(cfg *config.Config) ui.DoctorRow {
+func checkCLI(cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {
 	cliVer := Version(context.Background())
-	wrapperVer := ""
+	wrapperVer := strings.TrimSpace(runningWrapperVersion)
 	if cfg != nil {
-		wrapperVer = cfg.Wrapper.Version
+		wrapperVer = strDef(wrapperVer, cfg.Wrapper.Version)
 	}
 	return ui.DoctorRow{
 		Label: "CLI",

@@ -240,7 +240,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return cmdStatus(ctx, cfg, stderr, f.minimal)
 	case "doctor":
-		if err := claude.Doctor(ctx, cfg, stderr); err != nil {
+		if err := claude.Doctor(ctx, cfg, stderr, Version); err != nil {
 			return 1
 		}
 		return 0

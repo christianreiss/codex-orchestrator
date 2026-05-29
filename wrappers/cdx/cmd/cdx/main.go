@@ -324,7 +324,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return cmdStatus(ctx, cfg, Version, stderr, f.minimal)
 	case "doctor":
-		if err := codex.Doctor(ctx, cfg, stderr); err != nil {
+		if err := codex.Doctor(ctx, cfg, stderr, Version); err != nil {
 			return 1
 		}
 		return 0
