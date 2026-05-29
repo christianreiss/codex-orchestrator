@@ -23,6 +23,7 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-26
+- Config sync: updated Codex reasoning-effort normalization to the current `minimal|low|medium|high` set and maps legacy `xhigh` profile/host values to `high`, so synced `config.toml` files no longer make Codex reject `[profiles.*].model_reasoning_effort`.
 - Docker compose: pinned the internal `codex_auth` bridge to `172.30.250.0/24` (configurable via `CODEX_AUTH_SUBNET` / `CODEX_AUTH_GATEWAY`) so Docker cannot auto-select a subnet that overlaps private backup or monitoring routes on production hosts.
 
 # 2026-05-24

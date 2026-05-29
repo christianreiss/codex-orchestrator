@@ -53,14 +53,14 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
 };
 
-export const REASONING_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh'];
+export const REASONING_EFFORTS: readonly string[] = ['minimal', 'low', 'medium', 'high'];
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.3-codex': ['low', 'medium', 'high', 'xhigh'],
-  'gpt-5.2': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.5': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.4': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.4-mini': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.3-codex': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.2': ['minimal', 'low', 'medium', 'high'],
 };
 
 export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];
@@ -175,6 +175,7 @@ export function normalizeReasoningEffort(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
   const lower = s.toLowerCase();
+  if (lower === 'xhigh') return 'high';
   return REASONING_EFFORTS.includes(lower) ? lower : null;
 }
 
@@ -232,7 +233,18 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const entry of value) {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      out.push({ ...(entry as Record<string, unknown>) });
+      const profile = { ...(entry as Record<string, unknown>) };
+      const rawModel = profile.model;
+      const model = normalizeStoredModel(rawModel);
+      const forceUpgraded = isLegacyModelUpgrade(rawModel);
+      const reasoning = forceUpgraded && model !== null
+        ? FORCE_UPGRADE_REASONING_EFFORT
+        : normalizeReasoningEffortForModel(profile.model_reasoning_effort, model);
+      if (model !== null) profile.model = model;
+      else delete profile.model;
+      if (reasoning !== null) profile.model_reasoning_effort = reasoning;
+      else delete profile.model_reasoning_effort;
+      out.push(profile);
     }
   }
   return out;

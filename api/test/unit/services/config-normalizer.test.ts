@@ -26,7 +26,7 @@ describe('config-normalizer constants', () => {
   });
 
   it('lists every reasoning effort tier', () => {
-    expect(REASONING_EFFORTS).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(REASONING_EFFORTS).toEqual(['minimal', 'low', 'medium', 'high']);
   });
 
   it('lists personalities', () => {
@@ -81,9 +81,12 @@ describe('normalizeClaudeModel', () => {
 
 describe('normalizeReasoningEffort', () => {
   it('accepts valid values', () => {
+    expect(normalizeReasoningEffort('minimal')).toBe('minimal');
     expect(normalizeReasoningEffort('LOW')).toBe('low');
     expect(normalizeReasoningEffort('high')).toBe('high');
-    expect(normalizeReasoningEffort('xhigh')).toBe('xhigh');
+  });
+  it('maps legacy xhigh to high', () => {
+    expect(normalizeReasoningEffort('xhigh')).toBe('high');
   });
   it('rejects unknown values', () => {
     expect(normalizeReasoningEffort('extreme')).toBeNull();
@@ -150,6 +153,19 @@ describe('normalizeSettings()', () => {
   it('strips invalid notify entries', () => {
     const s = normalizeSettings({ notify: ['mailto:a@b', 42, null, '  ', 'webhook'] });
     expect(s.notify).toEqual(['mailto:a@b', 'webhook']);
+  });
+
+  it('normalizes profile reasoning efforts', () => {
+    const s = normalizeSettings({
+      profiles: [
+        { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'xhigh' },
+        { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
+      ],
+    });
+    expect(s.profiles).toEqual([
+      { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'high' },
+      { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
+    ]);
   });
 });
 

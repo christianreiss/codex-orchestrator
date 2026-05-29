@@ -61,6 +61,17 @@ describe('client-config: renderToml', () => {
     expect(fastIdx).toBeLessThan(workhorseIdx);
   });
 
+  it('renders legacy xhigh profile effort as high', () => {
+    const toml = renderToml(normalizeSettings({
+      profiles: [
+        { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'xhigh' },
+      ],
+    }));
+    expect(toml).toContain('[profiles.max]');
+    expect(toml).toContain('model_reasoning_effort = "high"');
+    expect(toml).not.toContain('xhigh');
+  });
+
   it('renders notify lists when present', () => {
     const s = normalizeSettings({ notify: ['mailto:a@b', 'webhook'] });
     const toml = renderToml(s);
