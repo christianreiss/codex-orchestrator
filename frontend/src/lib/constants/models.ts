@@ -8,12 +8,18 @@ export interface ModelOption {
   value: string;
 }
 
-/** Sentinel value representing "inherit from the caller" (no explicit model). */
-export const INHERIT_MODEL = "";
+/**
+ * Sentinel value representing "inherit from the caller" (no explicit model).
+ * Non-empty so the Select component reliably registers selecting it; mapped to
+ * `undefined`/omitted when serializing for the API.
+ */
+export const INHERIT_MODEL = "inherit";
 
+// Keep in lock-step with CLAUDE_SUPPORTED_MODELS in
+// api/src/services/config-normalizer.ts.
 export const CLAUDE_MODELS: ModelOption[] = [
   { label: "Inherit", value: INHERIT_MODEL },
-  { label: "Opus 4.8", value: "claude-opus-4-8" },
+  { label: "Opus 4.6", value: "claude-opus-4-6" },
   { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
   { label: "Haiku 4.5", value: "claude-haiku-4-5" },
 ];

@@ -52,7 +52,7 @@
       body = data.body ?? "";
       description = data.description ?? "";
       argumentHint = asString(data.frontmatter?.argument_hint);
-      model = data.model ?? INHERIT_MODEL;
+      model = data.model || INHERIT_MODEL;
       allowedTools = asStringArray(data.frontmatter?.allowed_tools);
       serverSha = data.sha256 ?? null;
       hydrated = true;
@@ -68,7 +68,7 @@
         slug,
         description,
         argument_hint: argumentHint || undefined,
-        model: model || undefined,
+        model: model === INHERIT_MODEL ? undefined : model,
         allowed_tools: allowedTools,
         body,
       }),
@@ -100,7 +100,7 @@
   const previewFrontmatter = $derived({
     description,
     "argument-hint": argumentHint || undefined,
-    model: model || undefined,
+    model: model === INHERIT_MODEL ? undefined : model,
     "allowed-tools": allowedTools,
   });
 </script>

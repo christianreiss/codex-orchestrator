@@ -52,7 +52,7 @@
     if (data && !hydrated) {
       body = data.body ?? "";
       description = data.description ?? "";
-      model = data.model ?? INHERIT_MODEL;
+      model = data.model || INHERIT_MODEL;
       color = asString(data.frontmatter?.color);
       tools = asStringArray(data.frontmatter?.tools);
       serverSha = data.sha256 ?? null;
@@ -69,7 +69,7 @@
       subagentsApi.store({
         slug,
         description,
-        model: model || undefined,
+        model: model === INHERIT_MODEL ? undefined : model,
         color: color || undefined,
         tools,
         body,
@@ -102,7 +102,7 @@
   const previewFrontmatter = $derived({
     name: slug,
     description,
-    model: model || undefined,
+    model: model === INHERIT_MODEL ? undefined : model,
     color: color || undefined,
     tools,
   });

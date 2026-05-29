@@ -58,7 +58,7 @@
     const data = $query.data;
     if (data && !hydrated) {
       const s = data.settings ?? {};
-      model = s.model ?? INHERIT_MODEL;
+      model = s.model || INHERIT_MODEL;
       env = envFromRecord(s.env);
       allow = [...(s.permissions?.allow ?? [])];
       ask = [...(s.permissions?.ask ?? [])];
@@ -75,7 +75,7 @@
   // Build the canonical settings object from local state (omit empty blocks).
   const builtSettings = $derived.by<ClaudeConfigSettings>(() => {
     const out: ClaudeConfigSettings = {};
-    if (model) out.model = model;
+    if (model && model !== INHERIT_MODEL) out.model = model;
 
     const envObj: Record<string, string> = {};
     for (const row of env) {
