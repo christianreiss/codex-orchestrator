@@ -117,6 +117,41 @@ func TestMergeIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMergeRefusesToClobberUnparseableUserSettings(t *testing.T) {
+	// JSONC / trailing comma: Claude Code reads it, Go's json rejects it.
+	for _, bad := range []string{
+		"{\n  \"model\": \"x\", // a comment\n}",
+		`{"a":1,}`,
+		"\xef\xbb\xbf{\"a\":1}", // BOM
+		"not json at all",
+	} {
+		_, _, err := MergeSettings([]byte(bad), map[string]any{"model": "sonnet"}, []string{"model"}, emptyState())
+		if err == nil {
+			t.Fatalf("expected refusal for unparseable user settings %q", bad)
+		}
+	}
+}
+
+func TestApplyManagedSettingsLeavesUnparseableFileUntouched(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("{\n  \"theme\": \"dark\", // user's JSONC\n}\n")
+	if err := os.WriteFile(settingsFile, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cs := &orchestrator.ClaudeSettings{Partial: json.RawMessage(`{"model":"sonnet"}`), OwnedPaths: []string{"model"}}
+	if applyManagedSettings(cs, slog.Default()) {
+		t.Fatal("must report no change when refusing to merge")
+	}
+	if !bytesEqual(readFile(t, settingsFile), original) {
+		t.Fatal("unparseable user settings.json MUST be left byte-identical")
+	}
+}
+
 func TestDeleteAtPathPrunesEmptyParents(t *testing.T) {
 	root := map[string]any{"env": map[string]any{"ONLY": "v"}}
 	deleteAtPath(root, "env.ONLY")

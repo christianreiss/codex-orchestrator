@@ -18,6 +18,7 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -73,6 +74,10 @@ func saveManagedState(st managedState) error {
 
 // --- dot-path helpers over map[string]any -----------------------------------
 
+// splitPath splits a dot-path. NOTE: keys containing a literal '.' (an env var
+// or MCP server name with a dot) would split wrong — acceptable because managed
+// owned_paths only ever use UPPER_SNAKE env vars, the `clx` server name, and
+// fixed hook-event names, none of which contain dots.
 func splitPath(p string) []string { return strings.Split(p, ".") }
 
 func getAtPath(root map[string]any, path string) (any, bool) {
@@ -174,12 +179,19 @@ func dedupKeepOrder(in []string) []string {
 // MergeSettings is the pure merge: it never touches disk or the network. Given
 // the user's current settings bytes, the fleet partial, the owned paths, and the
 // previous managed state, it returns the merged settings bytes and the new state.
+// ErrUserSettingsUnparseable signals that a NON-EMPTY user settings.json could
+// not be parsed. Callers MUST NOT write in this case — overwriting a file the
+// user owns (Go's json is stricter than Claude Code's reader: JSONC, trailing
+// commas, BOM) is exactly the clobber the merge exists to prevent. Fail safe:
+// skip the merge for this run; a missed fleet update is recoverable, lost user
+// settings are not.
+var ErrUserSettingsUnparseable = errors.New("user settings.json is not valid JSON; refusing to overwrite")
+
 func MergeSettings(userRaw []byte, partial map[string]any, ownedPaths []string, prev managedState) ([]byte, managedState, error) {
 	merged := map[string]any{}
-	if len(userRaw) > 0 {
+	if strings.TrimSpace(string(userRaw)) != "" {
 		if err := json.Unmarshal(userRaw, &merged); err != nil {
-			// Corrupt/non-object user settings: start clean rather than fail launch.
-			merged = map[string]any{}
+			return nil, prev, ErrUserSettingsUnparseable
 		}
 	}
 
@@ -263,7 +275,8 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 	userRaw, _ := os.ReadFile(path)
 	merged, newState, err := MergeSettings(userRaw, partial, cs.OwnedPaths, loadManagedState())
 	if err != nil {
-		logger.Debug("settings merge failed", "err", err)
+		// Fail safe: leave the user's settings.json untouched this run.
+		logger.Warn("skipping settings merge to avoid clobbering unparseable user settings.json", "path", path, "err", err)
 		return false
 	}
 	changed := !bytesEqual(userRaw, merged)
@@ -294,7 +307,7 @@ func stripManagedSettings(logger *slog.Logger) {
 	userRaw, _ := os.ReadFile(path)
 	merged, _, err := MergeSettings(userRaw, map[string]any{}, []string{}, prev)
 	if err != nil {
-		logger.Debug("settings strip failed", "err", err)
+		logger.Warn("skipping settings strip; user settings.json unparseable", "err", err)
 		return
 	}
 	if !bytesEqual(userRaw, merged) {

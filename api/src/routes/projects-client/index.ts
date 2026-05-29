@@ -195,10 +195,8 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     return ok(await claudeArtifacts.retrieve(kind, slug, sha, requireHost(req)));
   });
-  app.post('/claude/:kind/store', { preHandler: auth }, async (req) => {
-    const kind = normalizeKind((req.params as { kind: string }).kind);
-    return ok(await claudeArtifacts.store((req.body as Record<string, unknown>) ?? {}, kind, requireHost(req)));
-  });
+  // No host-originated store: Claude artifacts are admin-authored fleet-wide.
+  // The host surface is read-only (list / retrieve / bundle).
 
   // ─── MCP memories (host-key) ──────────────────────────────────────────
   app.post('/mcp/memories/store', { preHandler: auth }, async (req) =>

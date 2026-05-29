@@ -114,9 +114,10 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
   touched** (the deliberate opposite of the legacy whole-dir skill purge).
   `sanitizeSlug` blocks path-traversal slugs.
 - Admin: `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
-  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Host:
-  `GET /claude/:kind`, `POST /claude/:kind/{retrieve,store}`. `:kind` accepts
-  singular or plural spellings.
+  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Host
+  surface is read-only: `GET /claude/:kind`, `POST /claude/:kind/retrieve`
+  (these artifacts are admin-authored fleet-wide). `:kind` accepts singular or
+  plural spellings.
 
 ## Settings.json sub-blocks (deep-merge, non-clobbering)
 

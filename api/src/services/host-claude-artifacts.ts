@@ -8,7 +8,6 @@
  * supplied digest (If-None-Match), so an unchanged fleet is one cheap round-trip.
  */
 import { and, asc, eq, isNull } from 'drizzle-orm';
-import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import { claudeArtifacts, logs } from '../db/schema.js';
 import type { ClaudeArtifact, Host } from '../db/schema.js';
@@ -133,23 +132,6 @@ export class HostClaudeArtifactsService {
       });
     }
     return out;
-  }
-
-  async store(payload: Record<string, unknown>, kind: ArtifactKind, host: Host): Promise<Record<string, unknown>> {
-    // Host-originated upsert reuses the admin service contract via a thin shim;
-    // kept here so the host route does not depend on the admin service module.
-    const slug = normalizeSlug(String(payload['slug'] ?? payload['filename'] ?? ''));
-    await this.recordLog(host.id, 'claude_artifact.store', { kind, slug, status: 'received' });
-    // Delegate-free path: persist directly with the same dedup contract.
-    const body = typeof payload['body'] === 'string' ? payload['body'] : typeof payload['content'] === 'string' ? (payload['content'] as string) : '';
-    if (body.trim() === '') throw new ValidationError('body is required', { param: 'body' });
-    const sha = createHash('sha256').update(body).digest('hex');
-    const now = nowIso();
-    await this.db
-      .insert(claudeArtifacts)
-      .values({ kind, slug, sha256: sha, body, sourceHostId: host.id, createdAt: now, updatedAt: now, engine: null })
-      .onDuplicateKeyUpdate({ set: { sha256: sha, body, sourceHostId: host.id, updatedAt: now, deletedAt: null } });
-    return { status: 'ok', kind, slug, sha256: sha, updated_at: now };
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
