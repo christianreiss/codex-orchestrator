@@ -23,6 +23,11 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-29
+- Platinum Claude Code support: the orchestrator now manages Claude Code's native, on-disk artifact surface across the fleet — features Codex has no analogue for.
+  - New fleet collections — **subagents** (`~/.claude/agents/*.md`), **slash-commands** (`~/.claude/commands/*.md`), and **output-styles** (`~/.claude/output-styles/*.md`) — authored in the admin UI and synced to every Claude host. Stored in the new `claude_artifacts` table; bundled to Claude hosts via `/sync/bootstrap` as the complete live set (If-None-Match per item). The `clx` wrapper writes `<slug>.md` files and prunes only the files it wrote, never user-authored files in those directories.
+  - `~/.claude/settings.json` is now **deep-merged** instead of overwritten: the server ships only the fleet-managed keys (`model`, `mcpServers`, `hooks`, `statusLine`, `permissions`, `env`) plus an `owned_paths` list, and the wrapper merges them while preserving every user-owned key. Retired fleet keys are removed cleanly; on an explicit trust refusal the wrapper strips fleet keys + collection files (never on a transient outage). This fixes a latent bug where syncing fleet config would erase a user's own `settings.json` entries.
+  - Per-host Claude model override (`claude_model_override`) now actually reaches the rendered settings (previously dead on the render path); admins can persist Claude-engine settings via `/admin/claude/config`.
+  - New admin endpoints `/admin/claude/:kind[/:slug]` and `/admin/claude/config[/render|/store]`; new host endpoints `/claude/:kind[/retrieve|/store]`.
 - Wrapper doctor: `cdx doctor` and `clx doctor` now report the running wrapper build version instead of the stale baked config version, so a self-updated `/usr/local/bin/cdx` no longer appears stuck on an older wrapper in diagnostics.
 - Wrapper cron update: `cdx --cron run` and `clx --cron run` now fall back to passwordless `sudo -n install` when replacing a root-owned wrapper binary, matching the normal startup self-update path.
 

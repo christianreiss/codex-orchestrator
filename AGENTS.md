@@ -34,6 +34,10 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 - SSH alt-screen suppression — Claude CLI handles its own terminal state.
 - OpenAI auth is `Bearer`-only (matches OpenAI's public API); the Anthropic-compatible API accepts Bearer / `x-api-key` / raw token (matches Anthropic's public API).
 
+Conversely, some features are **Claude-only** (`clx`) because Codex has no on-disk analogue — do not force a cdx path for these:
+- Claude-native collections — subagents (`~/.claude/agents/*.md`), slash-commands (`~/.claude/commands/*.md`), output-styles (`~/.claude/output-styles/*.md`). Stored in the `claude_artifacts` table (one row per item, discriminated by `kind`), bundled to claude hosts only via `/sync/bootstrap`, written + manifest-pruned by the wrapper. See `docs/interface-clx.md`.
+- `settings.json` sub-blocks (hooks / statusLine / permissions / env) baked into the rendered Claude settings **partial** and **deep-merged** into the user's `~/.claude/settings.json` (never wholesale-overwritten). The fleet owns only `owned_paths`; user-authored keys are preserved. Codex `config.toml` keeps its wholesale write.
+
 ## Voice & Contact Rules
 
 - First contact: be friendly and land a dry joke if it fits. No slapstick, no memes.
