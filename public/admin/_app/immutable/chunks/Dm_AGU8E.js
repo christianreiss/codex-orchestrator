@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./e6bpnVr6.js";import"./8KedMl2G.js";import{t as n}from"./C_uiirVv.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`m21 21-4.34-4.34`}],[`circle`,{cx:`11`,cy:`11`,r:`8`}]];n(r,t({name:`search`},()=>a,{get iconNode(){return o}}))}export{r as t};

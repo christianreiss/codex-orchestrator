@@ -1,0 +1,1 @@
+import{o as e,s as t}from"./Bny3TPnM.js";import"./DYR6MKK2.js";import{t as n}from"./BgB3Zgab.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M21 12a9 9 0 1 1-6.219-8.56`}]];n(r,t({name:`loader-circle`},()=>a,{get iconNode(){return o}}))}export{r as t};

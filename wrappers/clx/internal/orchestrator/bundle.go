@@ -43,6 +43,16 @@ type ClaudeArtifacts struct {
 	OutputStyles []CollectionItem `json:"output-style"`
 }
 
+// ClaudeSettings is the deep-merge partial for ~/.claude/settings.json: only the
+// fleet-managed keys, plus OwnedPaths (leaf dot-paths the fleet owns) so the
+// wrapper can add/update/remove exactly those without clobbering user keys.
+type ClaudeSettings struct {
+	Status     string          `json:"status"`
+	SHA256     string          `json:"sha256,omitempty"`
+	Partial    json.RawMessage `json:"partial,omitempty"`
+	OwnedPaths []string        `json:"owned_paths,omitempty"`
+}
+
 // BundleResponse matches the envelope returned by /sync/bootstrap. Auth block,
 // when present, is the same shape as a standalone /auth retrieve.
 type BundleResponse struct {
@@ -53,6 +63,7 @@ type BundleResponse struct {
 	Config          json.RawMessage       `json:"config,omitempty"`
 	Host            *HostInfo             `json:"host,omitempty"`
 	ClaudeArtifacts *ClaudeArtifacts      `json:"claude_artifacts,omitempty"`
+	ClaudeSettings  *ClaudeSettings       `json:"claude_settings,omitempty"`
 }
 
 // SyncBootstrap calls POST /sync/bootstrap. On 404/501 the caller is expected

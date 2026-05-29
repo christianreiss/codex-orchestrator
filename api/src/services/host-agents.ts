@@ -11,7 +11,7 @@ import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
-import { renderTomlForHost } from './client-config.js';
+import { renderTomlForHost, renderClaudeSettingsPartialForHost } from './client-config.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -91,7 +91,7 @@ export class HostAgentsService {
     };
     const settings = row.settings && typeof row.settings === 'object' ? row.settings : null;
     const apiKey = this.resolveApiKey(host);
-    const managedMcpToken = settings && this.publicBaseUrl && apiKey && !Boolean(host.secure)
+    const managedMcpToken = settings && this.publicBaseUrl && apiKey && !host.secure
       ? (await this.mcpSessions.issue(host.id)).token
       : null;
     if (settings && this.publicBaseUrl && apiKey) {
@@ -118,6 +118,57 @@ export class HostAgentsService {
     if (status !== 'unchanged') out['content'] = rendered.content;
     await this.recordLog(host.id, 'config.retrieve', { status, base_sha256: baseSha, baked_sha256: rendered.sha256 });
     return out;
+  }
+
+  /**
+   * Claude settings as a deep-merge PARTIAL: only fleet-managed keys plus the
+   * `owned_paths` list the wrapper uses to add/update/remove them without
+   * clobbering user-owned keys. The partial is always included (it is small);
+   * the wrapper dedups by comparing its merged result to the on-disk file.
+   */
+  async retrieveClaudeSettings(
+    host: Host,
+    opts: { home?: string | null; username?: string | null } = {},
+  ): Promise<Record<string, unknown>> {
+    const rows = await this.db
+      .select()
+      .from(clientConfigDocuments)
+      .where(eq(clientConfigDocuments.engine, ENGINE_CLAUDE))
+      .orderBy(desc(clientConfigDocuments.id))
+      .limit(1);
+    let row = rows.find((r) => r.engine === ENGINE_CLAUDE) ?? rows[0];
+    if (!row) {
+      const fallback = await this.db
+        .select()
+        .from(clientConfigDocuments)
+        .where(eq(clientConfigDocuments.engine, ENGINE_CODEX))
+        .orderBy(desc(clientConfigDocuments.id))
+        .limit(1);
+      row = fallback.find((r) => r.engine === ENGINE_CODEX) ?? fallback[0];
+    }
+    const settings = row && row.settings && typeof row.settings === 'object' ? row.settings : null;
+    const apiKey = this.resolveApiKey(host);
+    if (!settings || !this.publicBaseUrl || !apiKey) {
+      return { status: 'missing', owned_paths: [], partial: {} };
+    }
+    const managedMcpToken = !host.secure ? (await this.mcpSessions.issue(host.id)).token : null;
+    const rendered = renderClaudeSettingsPartialForHost({
+      settings,
+      host,
+      baseUrl: this.publicBaseUrl,
+      apiKey,
+      engine: ENGINE_CLAUDE,
+      managedMcpToken,
+      home: opts.home ?? null,
+      username: opts.username ?? null,
+    });
+    await this.recordLog(host.id, 'claude_settings.retrieve', { sha256: rendered.sha256 });
+    return {
+      status: 'updated',
+      sha256: rendered.sha256,
+      partial: rendered.partial,
+      owned_paths: rendered.owned_paths,
+    };
   }
 
   private resolveApiKey(host: Host): string | null {

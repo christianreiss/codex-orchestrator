@@ -32,7 +32,7 @@ import type { FastifyInstance } from 'fastify';
 import { desc, sql } from 'drizzle-orm';
 import { mcpAccessLogs, versions } from '../../../db/schema.js';
 import { NotFoundError, ValidationError } from '../../../http/errors.js';
-import { ENGINE_CODEX } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
 import { AgentsService } from '../../../services/agents.js';
 import { ClientConfigService } from '../../../services/client-config.js';
@@ -277,6 +277,30 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         throw new NotFoundError('Skill not found', 'skill_not_found');
       }
       return { deleted: slug };
+    },
+  );
+
+  // ── /admin/claude/config (engine=claude settings.json sub-blocks) ─────────
+
+  app.get('/admin/claude/config', { preHandler: app.requireAdmin }, async () => {
+    return await clientConfig.adminFetch(ENGINE_CLAUDE);
+  });
+
+  app.post<{ Body: { settings?: unknown } }>(
+    '/admin/claude/config/render',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const settings = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>).settings : null;
+      return clientConfig.render(settings, ENGINE_CLAUDE);
+    },
+  );
+
+  app.post<{ Body: { settings?: unknown; sha256?: unknown } }>(
+    '/admin/claude/config/store',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const body = req.body && typeof req.body === 'object' ? (req.body as { settings?: unknown; sha256?: unknown }) : {};
+      return await clientConfig.store(body, null, ENGINE_CLAUDE);
     },
   );
 

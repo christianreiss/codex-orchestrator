@@ -157,6 +157,17 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// there is therefore no headless QuotaWarn emission to make here.
 
 	if !opts.SkipAuthSync && !dec.Allowed {
+		// On an explicit server refusal (not a transient outage), surgically
+		// remove fleet-managed settings keys + collection files so a host that
+		// lost trust no longer carries fleet hooks/permissions/subagents. We
+		// never strip on "offline" — that would wipe a fleet during an outage.
+		if !concurrent {
+			switch dec.Status {
+			case "disabled", "invalid", "insecure-denied":
+				stripManagedSettings(logger)
+				stripClaudeCollections(logger)
+			}
+		}
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
 	}
 
@@ -261,7 +272,14 @@ func bootstrap(
 				agentsUpdated = true
 			}
 		}
-		if len(resp.Config) > 0 {
+		// Settings: prefer the deep-merge partial (preserves user-owned keys);
+		// fall back to the legacy wholesale write only for old servers that
+		// don't return claude_settings.
+		if resp.ClaudeSettings != nil && len(resp.ClaudeSettings.Partial) > 0 {
+			if applyManagedSettings(resp.ClaudeSettings, logger) {
+				configUpdated = true
+			}
+		} else if len(resp.Config) > 0 {
 			if err := atomicWrite(settingsPath(), resp.Config, 0o644); err != nil {
 				logger.Debug("bundle settings write failed", "err", err)
 			} else {

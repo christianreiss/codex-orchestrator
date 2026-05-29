@@ -109,6 +109,12 @@ export interface NormalizedSettings {
   shell_environment_policy: Record<string, unknown>;
   profiles: Array<Record<string, unknown>>;
   mcp_servers: Array<Record<string, unknown>>;
+  // Claude-only settings.json sub-blocks. Optional: absent on codex configs so
+  // the codex TOML render (fixed allowlist) and its settings hash are unaffected.
+  hooks?: Record<string, unknown>;
+  statusLine?: Record<string, unknown>;
+  permissions?: { allow: string[]; ask: string[]; deny: string[] };
+  env?: Record<string, string>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -278,7 +284,7 @@ export function normalizeSettings(raw: unknown): NormalizedSettings {
   const security = asRecord(settings.security);
   const securityBypass = normalizeBool(security.dangerously_bypass_approvals_and_sandbox);
 
-  return {
+  const out: NormalizedSettings = {
     model,
     model_provider: normalizeString(settings.model_provider),
     local_provider: normalizeString(settings.local_provider),
@@ -303,6 +309,54 @@ export function normalizeSettings(raw: unknown): NormalizedSettings {
     profiles: normalizeProfiles(settings.profiles),
     mcp_servers: normalizeMcpServers(settings.mcp_servers),
   };
+
+  // Claude-only sub-blocks: attach only when present so codex configs keep
+  // their exact normalized shape (and settings hash).
+  const hooks = normalizeClaudeHooks(settings.hooks);
+  if (hooks) out.hooks = hooks;
+  const statusLine = normalizeClaudeStatusLine(settings.statusLine ?? settings.status_line);
+  if (statusLine) out.statusLine = statusLine;
+  const permissions = normalizeClaudePermissions(settings.permissions);
+  if (permissions) out.permissions = permissions;
+  const env = normalizeClaudeEnv(settings.env);
+  if (env) out.env = env;
+
+  return out;
+}
+
+/** Claude settings.json `env` block: a flat string map. Coerces scalars. */
+export function normalizeClaudeEnv(value: unknown): Record<string, string> | null {
+  const rec = asRecord(value);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    if (typeof k !== 'string' || k.trim() === '') continue;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** Claude settings.json `permissions` block: allow/ask/deny string arrays. */
+export function normalizeClaudePermissions(
+  value: unknown,
+): { allow: string[]; ask: string[]; deny: string[] } | null {
+  const rec = asRecord(value);
+  const allow = normalizeStringList(rec.allow);
+  const ask = normalizeStringList(rec.ask);
+  const deny = normalizeStringList(rec.deny);
+  if (allow.length === 0 && ask.length === 0 && deny.length === 0) return null;
+  return { allow, ask, deny };
+}
+
+/** Claude settings.json `statusLine` block: passed through verbatim. */
+export function normalizeClaudeStatusLine(value: unknown): Record<string, unknown> | null {
+  const rec = asRecord(value);
+  return Object.keys(rec).length > 0 ? rec : null;
+}
+
+/** Claude settings.json `hooks` block (event -> matcher[]): passed through verbatim. */
+export function normalizeClaudeHooks(value: unknown): Record<string, unknown> | null {
+  const rec = asRecord(value);
+  return Object.keys(rec).length > 0 ? rec : null;
 }
 
 /**

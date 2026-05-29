@@ -124,6 +124,54 @@ describe('POST /sync/bootstrap claude_artifacts bundle', () => {
     await app.close();
   });
 
+  it('bundles a claude_settings partial with leaf-granular owned_paths', async () => {
+    const apiKey = 'sk-claude-settings';
+    const db = baseTables(apiKey, 'claude');
+    const settings = { model: 'claude-sonnet-4-6', env: { FOO: 'bar' }, permissions: { deny: ['Bash(rm -rf *)'] } };
+    db.tables.set(clientConfigDocuments, [
+      { id: 5, engine: 'claude', slug: 'main', body: '{}', sha256: 'x', settings, createdAt: 't', updatedAt: 't' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'claude', include_auth: false }),
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.claude_settings).toBeDefined();
+    expect(body.claude_settings.partial.model).toBe('claude-sonnet-4-6');
+    expect(body.claude_settings.partial.env.FOO).toBe('bar');
+    expect(body.claude_settings.owned_paths).toContain('model');
+    expect(body.claude_settings.owned_paths).toContain('mcpServers.clx'); // managed MCP injected + owned
+    expect(body.claude_settings.owned_paths).toContain('env.FOO');
+    expect(body.claude_settings.owned_paths).toContain('permissions.deny');
+    await app.close();
+  });
+
+  it('reflects per-host claudeModelOverride in the settings partial (bug guard)', async () => {
+    const apiKey = 'sk-claude-host-model';
+    const db = baseTables(apiKey, 'claude');
+    const host = hostRow(apiKey, 'claude');
+    host.claudeModelOverride = 'claude-opus-4-6';
+    db.tables.set(hostsTable, [host]);
+    db.tables.set(clientConfigDocuments, [
+      { id: 6, engine: 'claude', slug: 'main', body: '{}', sha256: 'x', settings: { model: 'claude-sonnet-4-6' }, createdAt: 't', updatedAt: 't' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'claude', include_auth: false }),
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.claude_settings.partial.model).toBe('claude-opus-4-6');
+    await app.close();
+  });
+
   it('does NOT include claude_artifacts for codex hosts', async () => {
     const apiKey = 'sk-codex-noartifacts';
     const db = baseTables(apiKey, 'codex');

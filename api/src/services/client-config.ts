@@ -35,7 +35,7 @@
  *   …
  */
 import { createHash } from 'node:crypto';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { clientConfigDocuments } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
@@ -48,6 +48,7 @@ import {
   normalizeReasoningEffortForModel,
   normalizeSettings,
   normalizeStoredModel,
+  normalizeClaudeModel,
   isLegacyModelUpgrade,
   settingsHash,
 } from './config-normalizer.js';
@@ -257,7 +258,7 @@ export interface HostRenderOptions {
 
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const engine = opts.engine ?? ENGINE_CODEX;
-  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host);
+  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, engine);
   const normalized = normalizeSettings(settingsWithOverrides);
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
@@ -280,8 +281,20 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   };
 }
 
-function applyHostModelOverrides(settings: Record<string, unknown>, host: Host | null): Record<string, unknown> {
+function applyHostModelOverrides(
+  settings: Record<string, unknown>,
+  host: Host | null,
+  engine: Engine = ENGINE_CODEX,
+): Record<string, unknown> {
   if (!host) return settings;
+  // Claude reads per-host overrides from the claude_* columns and has no
+  // reasoning-effort / profiles concept in this orchestrator (see AGENTS.md
+  // intentional deltas), so only the model flows through.
+  if (engine === ENGINE_CLAUDE) {
+    const claudeModel = normalizeClaudeModel(host.claudeModelOverride ?? null);
+    if (claudeModel === null) return settings;
+    return { ...settings, model: claudeModel };
+  }
   const out = { ...settings };
   const rawModelOverride = host.modelOverride ?? null;
   const modelOverride = normalizeStoredModel(rawModelOverride);
@@ -359,9 +372,7 @@ function injectManagedMcp(
   return { ...settings, mcp_servers: [...managedEntries, ...filtered] };
 }
 
-function renderClaudeSettings(settings: NormalizedSettings): string {
-  const result: Record<string, unknown> = {};
-  if (settings.model) result['model'] = settings.model;
+function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unknown> {
   const servers: Record<string, unknown> = {};
   for (const entry of settings.mcp_servers) {
     const name = normalizeName(entry['name']);
@@ -381,8 +392,92 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
     if (isPresentRecord(asRecord(entry['env']))) server['env'] = entry['env'];
     servers[name] = server;
   }
+  return servers;
+}
+
+// Legacy full-file render (wholesale overwrite path for old clx wrappers).
+function renderClaudeSettings(settings: NormalizedSettings): string {
+  const result: Record<string, unknown> = {};
+  if (settings.model) result['model'] = settings.model;
+  const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
+  if (settings.env) result['env'] = settings.env;
+  if (settings.statusLine) result['statusLine'] = settings.statusLine;
+  if (settings.hooks) result['hooks'] = settings.hooks;
+  if (settings.permissions) {
+    const perms: Record<string, unknown> = {};
+    for (const bucket of ['allow', 'ask', 'deny'] as const) {
+      const arr = settings.permissions[bucket];
+      if (arr && arr.length > 0) perms[bucket] = arr;
+    }
+    if (Object.keys(perms).length > 0) result['permissions'] = perms;
+  }
   return JSON.stringify(result, null, 2) + '\n';
+}
+
+/**
+ * Partial Claude settings.json for the deep-merge wrapper path: emits ONLY the
+ * fleet-managed keys plus the leaf-granular `owned_paths` list the wrapper uses
+ * to add/update/remove exactly those keys without clobbering user-owned keys.
+ * `owned_paths` deliberately includes the legacy `model` + each managed
+ * `mcpServers.<name>` so the first merge reconciles (not duplicates) them.
+ */
+export function renderClaudeSettingsPartial(
+  settings: NormalizedSettings,
+): { partial: Record<string, unknown>; owned_paths: string[] } {
+  const partial: Record<string, unknown> = {};
+  const owned: string[] = [];
+  if (settings.model) {
+    partial['model'] = settings.model;
+    owned.push('model');
+  }
+  const servers = buildClaudeMcpServers(settings);
+  if (Object.keys(servers).length > 0) {
+    partial['mcpServers'] = servers;
+    for (const name of Object.keys(servers)) owned.push(`mcpServers.${name}`);
+  }
+  if (settings.env) {
+    partial['env'] = settings.env;
+    for (const k of Object.keys(settings.env)) owned.push(`env.${k}`);
+  }
+  if (settings.statusLine) {
+    partial['statusLine'] = settings.statusLine;
+    owned.push('statusLine');
+  }
+  if (settings.hooks) {
+    partial['hooks'] = settings.hooks;
+    for (const event of Object.keys(settings.hooks)) owned.push(`hooks.${event}`);
+  }
+  if (settings.permissions) {
+    const perms: Record<string, unknown> = {};
+    for (const bucket of ['allow', 'ask', 'deny'] as const) {
+      const arr = settings.permissions[bucket];
+      if (arr && arr.length > 0) {
+        perms[bucket] = arr;
+        owned.push(`permissions.${bucket}`);
+      }
+    }
+    if (Object.keys(perms).length > 0) partial['permissions'] = perms;
+  }
+  return { partial, owned_paths: owned };
+}
+
+/** Host-aware partial render (applies per-host claude model + managed clx MCP). */
+export function renderClaudeSettingsPartialForHost(
+  opts: HostRenderOptions,
+): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string } {
+  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE);
+  const normalized = normalizeSettings(settingsWithOverrides);
+  const withManaged = injectManagedMcp(normalized, {
+    host: opts.host,
+    baseUrl: opts.baseUrl,
+    apiKey: opts.apiKey,
+    engine: ENGINE_CLAUDE,
+    managedMcpToken: opts.managedMcpToken,
+  });
+  const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged);
+  const json = JSON.stringify(partial, null, 2) + '\n';
+  return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex') };
 }
 
 export function normalizeHomePath(home: string | null | undefined, username: string | null | undefined): string | null {
@@ -432,13 +527,14 @@ export interface StoreResult extends AdminFetchResult {
 export class ClientConfigService {
   constructor(private readonly db: Database) {}
 
-  async adminFetch(): Promise<AdminFetchResult> {
+  async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AdminFetchResult> {
     const rows = await this.db
       .select()
       .from(clientConfigDocuments)
+      .where(eq(clientConfigDocuments.engine, engine))
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
-    const row = rows[0];
+    const row = rows.find((r) => r.engine === engine) ?? rows[0];
     if (!row) return { status: 'missing' };
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
@@ -455,9 +551,9 @@ export class ClientConfigService {
     };
   }
 
-  render(settingsInput: unknown): RenderResult {
+  render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
     const normalized = normalizeSettings(settingsInput);
-    const content = renderToml(normalized);
+    const content = engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
     return {
       content,
       sha256: createHash('sha256').update(content).digest('hex'),
@@ -466,15 +562,20 @@ export class ClientConfigService {
     };
   }
 
-  async store(payload: { settings?: unknown; sha256?: unknown }, sourceHostId: number | null = null): Promise<StoreResult> {
-    const rendered = this.render(payload.settings);
+  async store(
+    payload: { settings?: unknown; sha256?: unknown },
+    sourceHostId: number | null = null,
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<StoreResult> {
+    const rendered = this.render(payload.settings, engine);
 
     const existingRows = await this.db
       .select()
       .from(clientConfigDocuments)
+      .where(eq(clientConfigDocuments.engine, engine))
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
-    const existing = existingRows[0];
+    const existing = existingRows.find((r) => r.engine === engine) ?? existingRows[0];
 
     if (payload.sha256 !== undefined && payload.sha256 !== null && payload.sha256 !== '') {
       if (typeof payload.sha256 !== 'string') {
@@ -518,13 +619,14 @@ export class ClientConfigService {
         body: rendered.content,
         settings: rendered.settings as unknown as Record<string, unknown>,
         sourceHostId,
+        engine,
         createdAt: nowTs,
         updatedAt: nowTs,
       });
       savedSha = rendered.sha256;
       savedBody = rendered.content;
       savedUpdatedAt = nowTs;
-      wsPublisher.publish('settings.changed', { kind: 'client_config', change });
+      wsPublisher.publish('settings.changed', { kind: 'client_config', change, engine });
     }
 
     return {

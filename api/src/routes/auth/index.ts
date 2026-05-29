@@ -174,6 +174,10 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     // on-disk manifest. Older/codex hosts simply never see this block.
     if (engine === ENGINE_CLAUDE) {
       out.claude_artifacts = await claudeArtifactsService.bundle(enforced, engine, readArtifactDigests(payload));
+      out.claude_settings = await agentsService.retrieveClaudeSettings(enforced, {
+        home: typeof payload.home === 'string' ? payload.home : null,
+        username: typeof payload.username === 'string' ? payload.username : null,
+      });
     }
 
     // Fleet-wide session counts for the cdx boot-screen "sessions" block.

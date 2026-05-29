@@ -1,0 +1,1 @@
+import{n as e,t}from"./BgDWUIAF.js";var n=e(`commands`),r=t(`commands`);export{r as n,n as t};

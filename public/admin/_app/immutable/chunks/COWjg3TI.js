@@ -1,1 +1,0 @@
-import{n as e}from"./C_MpHahE.js";var t={list(){return e.get(`/admin/skills`)},get(t){return e.get(`/admin/skills/${encodeURIComponent(t)}`)},store(t){return e.post(`/admin/skills/store`,t)},generate(t){return e.post(`/admin/skills/generate`,t)},assist(t){return e.post(`/admin/skills/assist`,t)},delete(t){return e.delete(`/admin/skills/${encodeURIComponent(t)}`)}};export{t};

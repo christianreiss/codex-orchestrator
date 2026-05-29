@@ -1,0 +1,1 @@
+import{et as e,yt as t}from"./Bny3TPnM.js";import"./DX7sa3Ba.js";function n(n){let r=t(n());return e(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};
