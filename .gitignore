@@ -5,6 +5,8 @@
 /storage/backups/
 __pycache__/
 *.pyc
+/.phpunit.cache/
+/vendor/
 /.home/
 /.docker-config/
 /.ssh/
