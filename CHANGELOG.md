@@ -1,3 +1,31 @@
+## Insecure-host approval UX: instant popup + no more false "API offline"
+
+Two fixes to the insecure-host approval flow, so starting `cdx`/`clx` on an
+insecure host surfaces an allow/deny box in the admin dashboard immediately and
+the wrapper waits for the decision instead of bailing out.
+
+- **Wrappers (`cdx`/`clx`): stop reporting a live API as offline while waiting
+  on approval.** The orchestrator answers an insecure host with `423
+  insecure_pending` (awaiting approval) or `403 insecure_denied` (rejected). The
+  Go client collapsed every `>= 400` into a generic error, which the launch gate
+  then synthesised into `status: "offline"` → "API offline" — even though the
+  API was up and an operator was in the browser. `client.JSON` now returns a
+  typed `HTTPError` carrying the parsed `code`, and `AuthRetrieve` /
+  `SyncBootstrap` map `insecure_pending` → `insecure` and `insecure_denied` →
+  `insecure-denied`, so the wrapper enters the approval poll loop (the
+  previously-dead `case "insecure"` branch in `Decide`). No deploy step.
+
+- **Admin dashboard: the approval popup no longer needs an F5.** The
+  auto-popup now opens whenever the pending-approval count rises, not only on a
+  live WS event. The `insecure.requested` push still pops the box instantly
+  (it nudges the query refetch), but if the admin WebSocket is disabled or down
+  the 30 s polling refetch now opens the box on its own. Previously the WS event
+  was the *only* trigger after first load, so a missed push left the operator
+  reloading the page. For instant (vs. ≤30 s) popups, the admin WebSocket must
+  be enabled — `docker-compose.yml` sets `ADMIN_WS_ENABLED=1` by default; the
+  committed env default remains `false` for non-compose deploys, so set it
+  explicitly there if you run the API directly.
+
 ## claude_artifacts table — run on deploy
 
 The Platinum Claude Code work adds one new table. Apply it before serving

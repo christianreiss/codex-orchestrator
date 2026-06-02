@@ -23,10 +23,16 @@
 
   let open = $state(false);
   let openedByPush = $state(false);
-  let initialAutoOpened = false;
+  // Last *settled* pending count we acted on. `null` until the first
+  // non-loading fetch so we can distinguish "pending already existed on load"
+  // from "a new request just arrived".
+  let lastSettledCount: number | null = null;
 
   const approvals = insecureApprovalsQuery();
   const pendingCount = $derived($approvals.data?.requests?.length ?? 0);
+  const newestFqdn = $derived(
+    $approvals.data?.requests?.[$approvals.data.requests.length - 1]?.fqdn,
+  );
 
   // Short cooldown so a backlog replay or burst of requests doesn't spam audio.
   let lastSoundAt = 0;
@@ -90,12 +96,30 @@
     }
   }
 
-  // Auto-open once per session if pending exist when we land in the app.
+  // Auto-open whenever the pending count rises — covers both the live
+  // `insecure.requested` WS push (which invalidates this query, so the refetch
+  // bumps the count almost instantly) and the polling refetch fallback used
+  // when the WS transport is disabled or down. Driving off the count instead of
+  // only the WS event means a fresh request pops the box without an F5, even if
+  // the push never arrived.
   $effect(() => {
-    if (initialAutoOpened) return;
     if ($approvals.isLoading) return;
-    initialAutoOpened = true;
-    if (pendingCount > 0) {
+    const count = pendingCount;
+    const prev = lastSettledCount;
+    lastSettledCount = count;
+    // First settled fetch: open if something is already pending, but don't beep
+    // for a backlog the operator hasn't seen as "new".
+    if (prev === null) {
+      if (count > 0) {
+        open = true;
+        openedByPush = true;
+      }
+      return;
+    }
+    // A genuinely new request appeared since we last looked.
+    if (count > prev) {
+      playBeep();
+      maybeNotify(newestFqdn);
       open = true;
       openedByPush = true;
     }
@@ -125,13 +149,14 @@
   onMount(() => {
     if (!browser) return;
 
+    // The live `insecure.requested` push only needs to *wake the query*: the
+    // global WS→query wiring already invalidates ["insecure-approvals"], but we
+    // also nudge an explicit refetch so the count-transition effect fires with
+    // the smallest possible latency. The actual open/beep/notify is owned by
+    // that effect, so the WS-on and WS-off paths behave identically.
     unsubEvents = events.subscribe((evt) => {
       if (!evt || evt.type !== "insecure.requested") return;
-      const payload = (evt as { payload?: { fqdn?: string } }).payload ?? {};
-      playBeep();
-      maybeNotify(payload.fqdn);
-      open = true;
-      openedByPush = true;
+      void $approvals.refetch?.();
     });
 
     manualOpenListener = () => {
