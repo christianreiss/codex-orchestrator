@@ -30,7 +30,10 @@ function makeKeyring(): Keyring {
 const futureExpiry = new Date(Date.now() + 600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const pastExpiry = '2020-01-01T00:00:00Z';
 const installToken = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const seedToken = '11111111-2222-3333-4444-555555555555';
+// Seed tokens are minted as randomBytes(32).toString('hex') → 64 hex chars.
+// (A UUID here would pass the install-token regex and mask the seed-token
+// matcher, which is exactly how the 64-hex-rejection bug slipped through.)
+const seedToken = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
 
 describe('GET /install/:token', () => {
   it('emits a text/x-shellscript installer for a valid token', async () => {

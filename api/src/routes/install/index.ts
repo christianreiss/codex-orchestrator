@@ -23,6 +23,11 @@ import {
 import { createRunnerValidationService, extractAuthPayload } from '../../services/runner-validation.js';
 
 const INSTALL_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9-]{36})$/;
+// Seed-auth tokens are minted as randomBytes(32).toString('hex') → 64 hex chars
+// (see runner-proxy.seedCommand). The install-token shapes (32-hex / 36-char
+// UUID) don't cover that, so seed routes need their own matcher; without the
+// 64-hex alternative every freshly-minted seed token 404s before lookup.
+const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
 
 /**
  * Install / seed-auth flow.
@@ -94,7 +99,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
   );
 
   const seedScriptHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!INSTALL_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 404);
+    if (!SEED_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 404);
     const row = await installSvc.findSeed(token);
     if (!row) return shellishSeedError(reply, 'Seed token not found', 404);
     if (row.usedAt) return shellishSeedError(reply, 'Seed token already used', 410, row.expiresAt);
@@ -125,7 +130,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
   );
 
   const seedStoreHandler = async (token: string, body: unknown): Promise<Record<string, unknown>> => {
-    if (!INSTALL_TOKEN_RE.test(token)) throw new NotFoundError('Seed token not found');
+    if (!SEED_TOKEN_RE.test(token)) throw new NotFoundError('Seed token not found');
     const row = await installSvc.findSeed(token);
     if (!row) throw new NotFoundError('Seed token not found');
     if (row.usedAt) throw new ApiError('Seed token already used', { status: 410, code: 'seed_used' });
@@ -149,6 +154,13 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     const lastRefresh = typeof incoming.last_refresh === 'string' ? incoming.last_refresh.trim() : nowIso();
     const withFallback = runnerValidation.ensureAuthsFallback(incoming, engine);
     const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
+    if (entries.length === 0) {
+      // Fail loud rather than persist an empty auths{} the wrapper can't use.
+      // Mirrors /admin/auth/upload; reached e.g. when an unrecognised auth
+      // shape normalises to nothing.
+      await installSvc.markSeedUsed(row.id);
+      throw new ValidationError('payload contains no usable auth tokens', { param: 'auth' });
+    }
     const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
     const encoded = JSON.stringify(canonical);
     const digest = sha256(encoded);

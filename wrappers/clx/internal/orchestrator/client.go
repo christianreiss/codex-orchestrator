@@ -151,7 +151,13 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("%s %s -> %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return &HTTPError{
+			StatusCode: resp.StatusCode,
+			Code:       parseErrorCode(raw),
+			Method:     method,
+			Path:       path,
+			Body:       strings.TrimSpace(string(raw)),
+		}
 	}
 	if out == nil {
 		return nil
@@ -161,4 +167,57 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 
 func (c *Client) Get(ctx context.Context, path string, out any, retries int) error {
 	return c.JSON(ctx, http.MethodGet, path, nil, out, retries)
+}
+
+// HTTPError is returned by JSON-based calls when the server responds with a
+// status >= 400. It carries the parsed error `code` so callers can branch on
+// the stable machine-readable signal (e.g. insecure_pending) instead of
+// string-matching the human message. Error() preserves the legacy
+// "METHOD PATH -> STATUS: body" format other call sites already match on.
+type HTTPError struct {
+	StatusCode int
+	Code       string
+	Method     string
+	Path       string
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%s %s -> %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
+}
+
+// parseErrorCode pulls the top-level `code` field out of a standard error
+// envelope ({"status":"error","message":...,"code":...}); returns "" if the
+// body is not JSON or carries no code.
+func parseErrorCode(raw []byte) string {
+	var env struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(raw, &env) != nil {
+		return ""
+	}
+	return env.Code
+}
+
+// InsecureStatusFromError maps the orchestrator's insecure-approval HTTP
+// responses to the auth status the launch-gate decision engine expects:
+//
+//	423 insecure_pending  -> "insecure"        (enter the approval poll)
+//	403 insecure_denied   -> "insecure-denied" (operator rejected)
+//
+// Returns "" for any other error, so callers fall through to their normal
+// offline/error handling. This is what keeps an insecure host from being
+// reported as "API offline" while it actually waits on operator approval.
+func InsecureStatusFromError(err error) string {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return ""
+	}
+	switch {
+	case he.StatusCode == http.StatusLocked && he.Code == "insecure_pending":
+		return "insecure"
+	case he.StatusCode == http.StatusForbidden && he.Code == "insecure_denied":
+		return "insecure-denied"
+	}
+	return ""
 }

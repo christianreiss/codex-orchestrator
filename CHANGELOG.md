@@ -1,3 +1,64 @@
+## Insecure-host approval UX: instant popup + no more false "API offline"
+
+Two fixes to the insecure-host approval flow, so starting `cdx`/`clx` on an
+insecure host surfaces an allow/deny box in the admin dashboard immediately and
+the wrapper waits for the decision instead of bailing out.
+
+- **Wrappers (`cdx`/`clx`): stop reporting a live API as offline while waiting
+  on approval.** The orchestrator answers an insecure host with `423
+  insecure_pending` (awaiting approval) or `403 insecure_denied` (rejected). The
+  Go client collapsed every `>= 400` into a generic error, which the launch gate
+  then synthesised into `status: "offline"` → "API offline" — even though the
+  API was up and an operator was in the browser. `client.JSON` now returns a
+  typed `HTTPError` carrying the parsed `code`, and `AuthRetrieve` /
+  `SyncBootstrap` map `insecure_pending` → `insecure` and `insecure_denied` →
+  `insecure-denied`, so the wrapper enters the approval poll loop (the
+  previously-dead `case "insecure"` branch in `Decide`). No deploy step.
+
+- **Admin dashboard: the approval popup no longer needs an F5.** The
+  auto-popup now opens whenever the pending-approval count rises, not only on a
+  live WS event. The `insecure.requested` push still pops the box instantly
+  (it nudges the query refetch), but if the admin WebSocket is disabled or down
+  the 30 s polling refetch now opens the box on its own. Previously the WS event
+  was the *only* trigger after first load, so a missed push left the operator
+  reloading the page. For instant (vs. ≤30 s) popups, the admin WebSocket must
+  be enabled — `docker-compose.yml` sets `ADMIN_WS_ENABLED=1` by default; the
+  committed env default remains `false` for non-compose deploys, so set it
+  explicitly there if you run the API directly.
+
+## claude_artifacts table — run on deploy
+
+The Platinum Claude Code work adds one new table. Apply it before serving
+traffic. Prefer running this exact DDL directly (it only ever creates the new
+table); if you use `pnpm --filter api drizzle:push`, inspect the proposed
+statements first and abort if it wants to ALTER/DROP any existing table —
+`push` reconciles the whole schema against the hand-maintained mirror, not just
+the diff.
+
+```sql
+CREATE TABLE IF NOT EXISTS claude_artifacts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  kind VARCHAR(32) NOT NULL,
+  slug VARCHAR(255) NOT NULL,
+  sha256 CHAR(64) NOT NULL,
+  display_name VARCHAR(255) NULL,
+  description TEXT NULL,
+  model VARCHAR(128) NULL,
+  frontmatter JSON NULL,
+  body LONGTEXT NOT NULL,
+  source_host_id BIGINT UNSIGNED NULL,
+  created_at VARCHAR(100) NOT NULL,
+  updated_at VARCHAR(100) NOT NULL,
+  deleted_at VARCHAR(100) NULL,
+  engine VARCHAR(16) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_claude_artifacts_kind_slug (kind, slug),
+  KEY idx_claude_artifacts_kind (kind),
+  KEY idx_claude_artifacts_updated_at (updated_at),
+  KEY idx_claude_artifacts_engine (engine)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
 ## Joplin removal — run on deploy
 
 The Joplin integration has been removed in full. Once the new code is deployed,
@@ -23,6 +84,11 @@ The `LIKE` clause is a belt-and-braces cleanup for any straggler keys (clipper
 tokens, sync cursors, etc.) the legacy code may have written into `versions`.
 
 # 2026-05-29
+- Platinum Claude Code support: the orchestrator now manages Claude Code's native, on-disk artifact surface across the fleet — features Codex has no analogue for.
+  - New fleet collections — **subagents** (`~/.claude/agents/*.md`), **slash-commands** (`~/.claude/commands/*.md`), and **output-styles** (`~/.claude/output-styles/*.md`) — authored in the admin UI and synced to every Claude host. Stored in the new `claude_artifacts` table; bundled to Claude hosts via `/sync/bootstrap` as the complete live set (If-None-Match per item). The `clx` wrapper writes `<slug>.md` files and prunes only the files it wrote, never user-authored files in those directories.
+  - `~/.claude/settings.json` is now **deep-merged** instead of overwritten: the server ships only the fleet-managed keys (`model`, `mcpServers`, `hooks`, `statusLine`, `permissions`, `env`) plus an `owned_paths` list, and the wrapper merges them while preserving every user-owned key. Retired fleet keys are removed cleanly; on an explicit trust refusal the wrapper strips fleet keys + collection files (never on a transient outage). This fixes a latent bug where syncing fleet config would erase a user's own `settings.json` entries.
+  - Per-host Claude model override (`claude_model_override`) now actually reaches the rendered settings (previously dead on the render path); admins can persist Claude-engine settings via `/admin/claude/config`.
+  - New admin endpoints `/admin/claude/:kind[/:slug]` and `/admin/claude/config[/render|/store]`; new host endpoints `/claude/:kind[/retrieve|/store]`.
 - Wrapper doctor: `cdx doctor` and `clx doctor` now report the running wrapper build version instead of the stale baked config version, so a self-updated `/usr/local/bin/cdx` no longer appears stuck on an older wrapper in diagnostics.
 - Wrapper cron update: `cdx --cron run` and `clx --cron run` now fall back to passwordless `sudo -n install` when replacing a root-owned wrapper binary, matching the normal startup self-update path.
 

@@ -90,6 +90,61 @@ details:
 - No quota bars — Claude has no orchestrator-side quota concept; the
   ChatGPT-style headless QuotaWarn emission is therefore a no-op on clx.
 
+## Claude-native collections (subagents / commands / output-styles)
+
+Claude Code reads several artifact *collections* off disk that Codex has no
+analogue for. The orchestrator manages them as first-class fleet artifacts
+(table `claude_artifacts`, one row per item, discriminated by `kind`):
+
+| Kind | On-disk target | Frontmatter (required) |
+|---|---|---|
+| `subagent` | `~/.claude/agents/<slug>.md` | `name`, `description` |
+| `command` | `~/.claude/commands/<slug>.md` | `description` |
+| `output-style` | `~/.claude/output-styles/<slug>.md` | — |
+
+- The bundle (`/sync/bootstrap`, `engine=claude` only) returns
+  `claude_artifacts: { subagent:[…], command:[…], "output-style":[…] }`. Each
+  list is the **complete live set**; an item carries `content` only when its
+  sha differs from the digest the wrapper advertised under the request's
+  `artifacts` map (If-None-Match). Per-artifact `model` is baked into the file's
+  frontmatter once at store time so the sha is identical fleet-wide.
+- The wrapper writes `<slug>.md` and tracks exactly the files it wrote in
+  `~/.clx/state/collections/<dir>.json`. Pruning removes only manifest-recorded
+  files absent from the live set — **user-authored files in those dirs are never
+  touched** (the deliberate opposite of the legacy whole-dir skill purge).
+  `sanitizeSlug` blocks path-traversal slugs.
+- Admin: `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
+  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Host
+  surface is read-only: `GET /claude/:kind`, `POST /claude/:kind/retrieve`
+  (these artifacts are admin-authored fleet-wide). `:kind` accepts singular or
+  plural spellings.
+
+## Settings.json sub-blocks (deep-merge, non-clobbering)
+
+`~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
+`claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
+the fleet-managed keys (`model`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
+`hooks.<Event>`, `permissions.{allow,ask,deny}`) and `owned_paths` are the
+leaf-granular dot-paths the fleet owns this run.
+
+- The wrapper merges `partial` over the user's file, preserving every key the
+  fleet does not own. It persists `owned_paths` to `~/.clx/state/managed-keys.json`;
+  paths in the sidecar but no longer owned are removed next run (that is how a
+  retired hook / env var / the managed `clx` MCP block gets cleaned up). The
+  server stays stateless.
+- `permissions.{allow,ask,deny}` arrays union the user's rules with the fleet's
+  (previously-injected fleet rules are stripped first, then re-added — no
+  duplicates). All other owned paths are leaf set/delete so user siblings survive.
+- Legacy clx wrappers (no `claude_settings` support) still receive the wholesale
+  `config` body and overwrite as before; new wrappers prefer the merge.
+- On an explicit server refusal (`disabled` / `invalid` / `insecure-denied`) the
+  wrapper surgically strips fleet-owned settings keys and collection files so a
+  host that lost trust no longer carries fleet hooks/permissions/subagents. It
+  never strips on a transient `offline` status.
+- Per-host model: `host.claude_model_override` flows into the rendered partial's
+  `model` key. `ANTHROPIC_MODEL` (env) still wins at runtime, so the env export
+  remains authoritative; subagent-level model lives in each file's frontmatter.
+
 ## Adding fields
 
 Follow the same pattern as cdx but edit `wrappers/clx/...`. The schema and

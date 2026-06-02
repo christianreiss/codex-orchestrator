@@ -7,7 +7,7 @@ import type { Keyring } from '../security/keyring.js';
 import { ValidationError } from '../http/errors.js';
 import { isRfc3339 } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CODEX } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
 
 /**
  * Lightweight port of RunnerValidationService. The full PHP service handles
@@ -125,6 +125,20 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
     ensureAuthsFallback(payload, engine) {
       const out = { ...payload };
       if (out.auths && typeof out.auths === 'object') return out;
+      if (engine === ENGINE_CLAUDE) {
+        // The Claude.ai OAuth credentials.json (`{claudeAiOauth:{accessToken,…}}`)
+        // is what `claude` writes locally and what the seed script / `clx
+        // auth-upload` send verbatim. Map the OAuth access token onto the
+        // canonical bearer entry so seeding real Claude creds doesn't normalize
+        // to an empty auths{} (which then silently stores a useless payload).
+        const oauth = (out.claudeAiOauth ?? null) as Record<string, unknown> | null;
+        const access =
+          oauth && typeof oauth.accessToken === 'string' ? oauth.accessToken.trim() : '';
+        if (access) {
+          out.auths = { 'api.anthropic.com': { token: access, token_type: 'bearer' } };
+        }
+        return out;
+      }
       if (engine !== ENGINE_CODEX) return out;
       const tokens = (out.tokens ?? {}) as Record<string, unknown>;
       const access = typeof tokens.access_token === 'string' ? tokens.access_token : null;

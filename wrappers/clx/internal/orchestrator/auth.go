@@ -80,6 +80,13 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 	}
 	out := &AuthRetrieveResponse{}
 	if err := c.JSON(ctx, http.MethodPost, "/auth", body, out, 1); err != nil {
+		// An insecure host awaiting (or refused) operator approval answers with
+		// 423/403, not a transport failure. Surface it as the corresponding auth
+		// status so the launch gate enters the approval poll instead of treating
+		// a live API as "offline".
+		if st := InsecureStatusFromError(err); st != "" {
+			return &AuthRetrieveResponse{Status: st}, nil
+		}
 		return nil, err
 	}
 	if out.Status == "error" {

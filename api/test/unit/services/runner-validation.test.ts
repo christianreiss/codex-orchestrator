@@ -28,9 +28,32 @@ describe('runner-validation: ensureAuthsFallback', () => {
     expect((r.auths as Record<string, unknown>)['api.openai.com']).toMatchObject({ token: 'sk-abc' });
   });
 
-  it('does not synthesise for claude engine', () => {
+  it('does not synthesise for claude engine from codex-style tokens', () => {
     const r = svc.ensureAuthsFallback({ tokens: { access_token: 'foo' } }, 'claude');
     expect(r.auths).toBeUndefined();
+  });
+
+  it('maps a Claude.ai OAuth credentials.json onto the anthropic bearer entry', () => {
+    const r = svc.ensureAuthsFallback(
+      { claudeAiOauth: { accessToken: 'sk-ant-oat-xyz', refreshToken: 'r', expiresAt: 1 } },
+      'claude',
+    );
+    expect(r.auths).toEqual({
+      'api.anthropic.com': { token: 'sk-ant-oat-xyz', token_type: 'bearer' },
+    });
+    // And those normalise into a usable entry (the seed/upload path requires ≥1).
+    const entries = svc.normalizeAuthEntries(r, 'claude');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.target).toBe('api.anthropic.com');
+    expect(entries[0]!.token).toBe('sk-ant-oat-xyz');
+  });
+
+  it('leaves claude auths{} untouched when already present', () => {
+    const r = svc.ensureAuthsFallback(
+      { auths: { 'api.anthropic.com': { token: 't', token_type: 'bearer' } } },
+      'claude',
+    );
+    expect(r.auths).toEqual({ 'api.anthropic.com': { token: 't', token_type: 'bearer' } });
   });
 });
 

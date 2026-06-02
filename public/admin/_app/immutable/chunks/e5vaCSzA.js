@@ -1,1 +1,0 @@
-function e(e){return`subscribe`in e&&typeof e.subscribe==`function`}export{e as t};

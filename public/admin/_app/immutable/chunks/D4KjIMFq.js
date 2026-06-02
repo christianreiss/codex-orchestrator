@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./e6bpnVr6.js";import"./8KedMl2G.js";import{t as n}from"./C_uiirVv.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M12 3v12`}],[`path`,{d:`m17 8-5-5-5 5`}],[`path`,{d:`M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4`}]];n(r,t({name:`upload`},()=>a,{get iconNode(){return o}}))}export{r as t};

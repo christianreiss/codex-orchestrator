@@ -266,6 +266,12 @@ func bootstrap(
 		return a, e, s, ag, co, nil
 	}
 	if berr != nil {
+		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
+		// map it to the auth status so the launch gate polls for approval
+		// instead of falling through to the offline branch.
+		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
+			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, false, false, nil
+		}
 		// Treat network/server failure as "offline" for Decide().
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
 		return offline, berr, false, false, false, nil

@@ -157,6 +157,17 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// there is therefore no headless QuotaWarn emission to make here.
 
 	if !opts.SkipAuthSync && !dec.Allowed {
+		// On an explicit server refusal (not a transient outage), surgically
+		// remove fleet-managed settings keys + collection files so a host that
+		// lost trust no longer carries fleet hooks/permissions/subagents. We
+		// never strip on "offline" — that would wipe a fleet during an outage.
+		if !concurrent {
+			switch dec.Status {
+			case "disabled", "invalid", "insecure-denied":
+				stripManagedSettings(logger)
+				stripClaudeCollections(logger)
+			}
+		}
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
 	}
 
@@ -222,6 +233,7 @@ func bootstrap(
 		Config:        configDigest,
 		Home:          home,
 		Username:      username,
+		Artifacts:     artifactDigestsForRequest(),
 	})
 
 	if berr != nil && isBundleUnsupported(berr) {
@@ -229,6 +241,12 @@ func bootstrap(
 		return legacySyncPath(ctx, client, logger, concurrent, authPath)
 	}
 	if berr != nil {
+		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
+		// map it to the auth status so the launch gate polls for approval
+		// instead of falling through to the offline branch.
+		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
+			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, false, false
+		}
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
 		return offline, berr, false, false, false
 	}
@@ -260,12 +278,25 @@ func bootstrap(
 				agentsUpdated = true
 			}
 		}
-		if len(resp.Config) > 0 {
+		// Settings: prefer the deep-merge partial (preserves user-owned keys);
+		// fall back to the legacy wholesale write only for old servers that
+		// don't return claude_settings.
+		if resp.ClaudeSettings != nil && len(resp.ClaudeSettings.Partial) > 0 {
+			if applyManagedSettings(resp.ClaudeSettings, logger) {
+				configUpdated = true
+			}
+		} else if len(resp.Config) > 0 {
 			if err := atomicWrite(settingsPath(), resp.Config, 0o644); err != nil {
 				logger.Debug("bundle settings write failed", "err", err)
 			} else {
 				configUpdated = true
 			}
+		}
+		// Claude-native collections (subagents / commands / output-styles).
+		// Folded into configUpdated for the boot-screen "config" dot; writes are
+		// manifest-tracked and never touch user-authored files in those dirs.
+		if applyClaudeArtifacts(resp.ClaudeArtifacts, logger) {
+			configUpdated = true
 		}
 	}
 	return authResp, nil, authSynced, agentsUpdated, configUpdated

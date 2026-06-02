@@ -19,6 +19,7 @@ package uninstall
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +33,37 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
 )
+
+// collectionDirs maps the on-disk manifest name to the ~/.claude subdir holding
+// fleet-written collection files (kept in lock-step with lifecycle/collections.go).
+var collectionDirs = map[string]string{"agents": "agents", "commands": "commands", "output-styles": "output-styles"}
+
+// removeFleetCollections deletes only the collection files the fleet wrote, per
+// the manifests under ~/.clx/state/collections/. Must run BEFORE ~/.clx is
+// removed (that drops the manifests). User-authored files are never touched.
+func removeFleetCollections(home string, stdout, stderr io.Writer) {
+	for manName, sub := range collectionDirs {
+		manPath := filepath.Join(home, ".clx", "state", "collections", manName+".json")
+		raw, err := os.ReadFile(manPath)
+		if err != nil {
+			continue
+		}
+		var man struct {
+			Items map[string]struct {
+				Filename string `json:"filename"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(raw, &man); err != nil {
+			continue
+		}
+		for _, rec := range man.Items {
+			if rec.Filename == "" {
+				continue
+			}
+			removeReport(stdout, stderr, filepath.Join(home, ".claude", sub, rec.Filename))
+		}
+	}
+}
 
 type hostUsersResponse struct {
 	Users []hostUser `json:"users"`
@@ -92,6 +124,10 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	for _, p := range targets {
 		removeReport(stdout, stderr, p)
 	}
+
+	// Remove fleet-written collection files (subagents/commands/output-styles)
+	// before dropping ~/.clx, which holds the manifests that locate them.
+	removeFleetCollections(home, stdout, stderr)
 
 	// Drop the entire clx-native tree (auth/, config/, cache).
 	clxDir := filepath.Join(home, ".clx")

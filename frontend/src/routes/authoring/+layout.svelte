@@ -14,6 +14,10 @@
     { href: "/authoring", label: "Skills", match: (p: string) => p === "/authoring" || p.startsWith("/authoring/skills") },
     { href: "/authoring/agents", label: "Agents", match: (p: string) => p.startsWith("/authoring/agents") },
     { href: "/authoring/memories", label: "Memories", match: (p: string) => p.startsWith("/authoring/memories") },
+    { href: "/authoring/subagents", label: "Subagents", match: (p: string) => p.startsWith("/authoring/subagents") },
+    { href: "/authoring/commands", label: "Commands", match: (p: string) => p.startsWith("/authoring/commands") },
+    { href: "/authoring/output-styles", label: "Output styles", match: (p: string) => p.startsWith("/authoring/output-styles") },
+    { href: "/authoring/settings", label: "Settings", match: (p: string) => p.startsWith("/authoring/settings") },
   ] as const;
 
   const activeHref = $derived(TABS.find((t) => t.match(path))?.href ?? "/authoring");
@@ -22,7 +26,7 @@
 <PageHeader title="Authoring" subtitle="Skills, agents, memories" />
 
 <nav class="mb-6" aria-label="Authoring sections">
-  <div class="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
+  <div class="inline-flex min-h-10 flex-wrap items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
     {#each TABS as tab (tab.href)}
       {@const active = tab.match(path)}
       <button

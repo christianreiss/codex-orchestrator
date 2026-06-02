@@ -451,6 +451,101 @@ export interface AgentsStoreResult {
   pruned_count?: number;
 }
 
+// Claude collection artifacts (subagents / commands / output-styles)
+
+export type ClaudeArtifactKind = "subagents" | "commands" | "output-styles";
+
+export interface ArtifactView {
+  id: number | string;
+  kind: string;
+  slug: string;
+  sha256: string;
+  display_name: string;
+  description: string | null;
+  model: string | null;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  source_host_id?: number | string | null;
+  engine?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  deleted_at?: string | null;
+}
+
+export interface ArtifactListResponse {
+  kind: string;
+  artifacts: ArtifactView[];
+}
+
+export interface ArtifactStorePayload {
+  slug: string;
+  description?: string | null;
+  model?: string | null;
+  color?: string | null;
+  argument_hint?: string | null;
+  tools?: string[];
+  allowed_tools?: string[];
+  body?: string | null;
+}
+
+export interface ArtifactStoreResult {
+  status: string;
+  kind: string;
+  slug: string;
+  sha256: string;
+  updated_at?: string | null;
+}
+
+export interface ArtifactDeleteResult {
+  deleted: string;
+  kind: string;
+}
+
+// Claude fleet settings (settings.json sub-blocks)
+
+export interface ClaudePermissions {
+  allow?: string[];
+  ask?: string[];
+  deny?: string[];
+}
+
+export interface ClaudeStatusLine {
+  type?: string;
+  command?: string;
+  [key: string]: unknown;
+}
+
+export interface ClaudeHookEntry {
+  matcher?: string;
+  commands?: string[];
+  [key: string]: unknown;
+}
+
+export type ClaudeHooks = Record<string, ClaudeHookEntry[]>;
+
+export interface ClaudeConfigSettings {
+  model?: string;
+  env?: Record<string, string>;
+  permissions?: ClaudePermissions;
+  statusLine?: ClaudeStatusLine;
+  hooks?: ClaudeHooks;
+  [key: string]: unknown;
+}
+
+export interface ClaudeConfigResponse {
+  status: string;
+  sha256?: string;
+  updated_at?: string | null;
+  settings?: ClaudeConfigSettings;
+}
+
+export interface ClaudeConfigStoreResult {
+  status: string;
+  sha256: string;
+  updated_at?: string | null;
+  change?: unknown;
+}
+
 // Memories
 
 export interface MemoryEntry {

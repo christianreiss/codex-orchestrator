@@ -132,3 +132,74 @@ func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
 		t.Fatalf("request still used digest: %s", requestBody)
 	}
 }
+
+// insecureWriteErr writes a standard error envelope with the given HTTP status
+// and machine code, matching the orchestrator's insecure-approval responses.
+func insecureWriteErr(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "error",
+		"message": message,
+		"code":    code,
+	})
+}
+
+func TestAuthRetrievePendingMapsToInsecure(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		insecureWriteErr(w, http.StatusLocked, "insecure_pending", "Insecure host approval pending")
+	})
+	resp, err := c.AuthRetrieve(context.Background(), "")
+	if err != nil {
+		t.Fatalf("expected no error for insecure_pending, got %v", err)
+	}
+	if resp.Status != "insecure" {
+		t.Fatalf("status = %q, want insecure", resp.Status)
+	}
+}
+
+func TestAuthRetrieveDeniedMapsToInsecureDenied(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		insecureWriteErr(w, http.StatusForbidden, "insecure_denied", "Insecure host approval denied")
+	})
+	resp, err := c.AuthRetrieve(context.Background(), "")
+	if err != nil {
+		t.Fatalf("expected no error for insecure_denied, got %v", err)
+	}
+	if resp.Status != "insecure-denied" {
+		t.Fatalf("status = %q, want insecure-denied", resp.Status)
+	}
+}
+
+func TestAuthRetrieveOtherErrorsStillError(t *testing.T) {
+	// A genuine forbidden (kill switch etc.) without the insecure code must NOT
+	// be swallowed into an insecure status — the caller still treats it as an error.
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		insecureWriteErr(w, http.StatusForbidden, "api_disabled", "API disabled")
+	})
+	if _, err := c.AuthRetrieve(context.Background(), ""); err == nil {
+		t.Fatal("expected error for non-insecure 403, got nil")
+	}
+}
+
+func TestInsecureStatusFromError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"pending", &HTTPError{StatusCode: http.StatusLocked, Code: "insecure_pending"}, "insecure"},
+		{"denied", &HTTPError{StatusCode: http.StatusForbidden, Code: "insecure_denied"}, "insecure-denied"},
+		{"locked-other-code", &HTTPError{StatusCode: http.StatusLocked, Code: "other"}, ""},
+		{"forbidden-other-code", &HTTPError{StatusCode: http.StatusForbidden, Code: "forbidden"}, ""},
+		{"not-http-error", io.EOF, ""},
+		{"nil", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := InsecureStatusFromError(tc.err); got != tc.want {
+				t.Fatalf("InsecureStatusFromError = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
