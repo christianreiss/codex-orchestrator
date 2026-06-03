@@ -183,6 +183,101 @@ func artifactDigestsForRequest() map[string]map[string]string {
 	return out
 }
 
+// applyClaudeSkills writes the fleet's shared skills as native Claude Code skill
+// files at ~/.claude/skills/<slug>/SKILL.md. Unlike the flat collections above,
+// each skill is its own DIRECTORY (Claude Code's native skill layout), so prune
+// uses RemoveAll on the skill dir — only manifest-recorded ones; user-authored
+// skill dirs and the skills/ root are never touched. (Claude Code can't read
+// skills over MCP, so on-disk is the only way; codex stays MCP-only.)
+func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) bool {
+	skillsRoot := claudeSubdir("skills")
+	manPath := collectionManifestPath("skills")
+	man := loadManifest(manPath)
+	newItems := map[string]manifestEntry{}
+	updated := false
+
+	for _, it := range items {
+		name := sanitizeSlug(it.Slug)
+		if name == "" {
+			logger.Warn("skipping skill with unsafe slug", "slug", it.Slug)
+			continue
+		}
+		path := filepath.Join(skillsRoot, name, "SKILL.md") // atomicWrite MkdirAll's <slug>/
+		prev, known := man.Items[it.Slug]
+		if known && prev.SHA256 == it.SHA256 && fileExists(path) {
+			// If-None-Match: unchanged and present — leave it.
+		} else if it.Content != "" {
+			if err := atomicWrite(path, []byte(it.Content), 0o644); err != nil {
+				logger.Debug("skill write failed", "slug", it.Slug, "err", err)
+				continue
+			}
+			updated = true
+		} else if !fileExists(path) {
+			continue
+		}
+		newItems[it.Slug] = manifestEntry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256}
+	}
+
+	for slug, rec := range man.Items {
+		if _, stillPresent := newItems[slug]; stillPresent {
+			continue
+		}
+		if d := skillDirFromManifest(skillsRoot, rec.Filename); d != "" {
+			if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
+				logger.Debug("skill prune failed", "slug", slug, "err", err)
+			}
+			updated = true
+		}
+	}
+
+	man.Items = newItems
+	if err := saveManifest(manPath, man); err != nil {
+		logger.Debug("skill manifest write failed", "err", err)
+	}
+	return updated
+}
+
+// skillDirFromManifest resolves the absolute skill directory for a manifest
+// Filename ("<slug>/SKILL.md"). Returns "" (and the caller skips) unless the
+// path is exactly one sanitized slug deep — guarding against ever RemoveAll-ing
+// the whole ~/.claude/skills tree or escaping it.
+func skillDirFromManifest(skillsRoot, filename string) string {
+	sub := filepath.Dir(filename)
+	if sub == "." || sub == "" || sub == string(filepath.Separator) {
+		return ""
+	}
+	if name := sanitizeSlug(sub); name == "" || name != sub {
+		return ""
+	}
+	return filepath.Join(skillsRoot, sub)
+}
+
+// skillDigestsForRequest advertises the on-disk skill shas for If-None-Match.
+func skillDigestsForRequest() map[string]string {
+	man := loadManifest(collectionManifestPath("skills"))
+	out := map[string]string{}
+	for slug, rec := range man.Items {
+		out[slug] = rec.SHA256
+	}
+	return out
+}
+
+// stripClaudeSkills removes every fleet-written skill dir (trust-loss). Surgical:
+// only manifest-recorded skill dirs, never the skills/ root or user dirs.
+func stripClaudeSkills(logger *slog.Logger) {
+	skillsRoot := claudeSubdir("skills")
+	manPath := collectionManifestPath("skills")
+	man := loadManifest(manPath)
+	for slug, rec := range man.Items {
+		if d := skillDirFromManifest(skillsRoot, rec.Filename); d != "" {
+			if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
+				logger.Debug("skill strip failed", "slug", slug, "err", err)
+			}
+		}
+	}
+	_ = saveManifest(manPath, collectionManifest{Version: 1, Items: map[string]manifestEntry{}})
+}
+
 // stripClaudeCollections removes every fleet-written collection file (used when
 // a host loses trust). Surgical: only manifest-recorded files, never the dir.
 func stripClaudeCollections(logger *slog.Logger) {

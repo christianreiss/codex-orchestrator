@@ -141,3 +141,120 @@ func TestStripClaudeCollectionsRemovesFleetFilesOnly(t *testing.T) {
 		t.Fatal("manifest should be cleared after strip")
 	}
 }
+
+func skillItem(slug, sha, content string) orchestrator.CollectionItem {
+	return orchestrator.CollectionItem{Slug: slug, SHA256: sha, Status: "updated", Content: content}
+}
+
+func TestApplyClaudeSkillsWritesDirAndManifest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	updated := applyClaudeSkills([]orchestrator.CollectionItem{
+		skillItem("git-commit", "sha-g", "---\nname: git-commit\ndescription: x\n---\n\nbody\n"),
+	}, logger)
+	if !updated {
+		t.Fatal("expected updated=true")
+	}
+	path := filepath.Join(home, ".claude", "skills", "git-commit", "SKILL.md")
+	if !fileExists(path) {
+		t.Fatalf("expected %s written", path)
+	}
+	man := loadManifest(collectionManifestPath("skills"))
+	if man.Items["git-commit"].Filename != filepath.Join("git-commit", "SKILL.md") {
+		t.Fatalf("manifest filename wrong: %+v", man.Items)
+	}
+}
+
+func TestApplyClaudeSkillsIfNoneMatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "sha-a", "v1")}, logger)
+	updated := applyClaudeSkills([]orchestrator.CollectionItem{
+		{Slug: "a", SHA256: "sha-a", Status: "unchanged"},
+	}, logger)
+	if updated {
+		t.Fatal("unchanged skill must not report an update")
+	}
+	got, _ := os.ReadFile(filepath.Join(home, ".claude", "skills", "a", "SKILL.md"))
+	if string(got) != "v1" {
+		t.Fatalf("file should be untouched, got %q", got)
+	}
+}
+
+func TestApplyClaudeSkillsPrunesOnlyFleetDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	root := filepath.Join(home, ".claude", "skills")
+	// User-authored skill dir — must survive sync + prune.
+	userDir := filepath.Join(root, "mine")
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDir, "SKILL.md"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "1", "A"), skillItem("b", "1", "B")}, logger)
+	// Re-apply without "b" → b/ pruned, a/ + mine/ survive.
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "1", "A")}, logger)
+	if fileExists(filepath.Join(root, "b", "SKILL.md")) {
+		t.Fatal("dropped skill dir b/ must be pruned")
+	}
+	if !fileExists(filepath.Join(root, "a", "SKILL.md")) {
+		t.Fatal("kept skill a/ must survive")
+	}
+	if !fileExists(filepath.Join(userDir, "SKILL.md")) {
+		t.Fatal("user-authored skill dir must never be pruned")
+	}
+}
+
+func TestApplyClaudeSkillsRejectsUnsafeSlug(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("../escape", "1", "pwn")}, logger)
+	if fileExists(filepath.Join(home, ".claude", "escape", "SKILL.md")) {
+		t.Fatal("traversal slug must not write outside skills/")
+	}
+	if len(skillDigestsForRequest()) != 0 {
+		t.Fatal("unsafe slug must not be recorded")
+	}
+}
+
+func TestSkillDigestsForRequestRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "sha-a", "A")}, logger)
+	d := skillDigestsForRequest()
+	if d["a"] != "sha-a" {
+		t.Fatalf("digest round-trip failed: %+v", d)
+	}
+}
+
+func TestStripClaudeSkillsRemovesFleetDirsOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	root := filepath.Join(home, ".claude", "skills")
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "1", "A")}, logger)
+	userDir := filepath.Join(root, "mine")
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDir, "SKILL.md"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stripClaudeSkills(logger)
+	if fileExists(filepath.Join(root, "a", "SKILL.md")) {
+		t.Fatal("fleet skill dir should be stripped")
+	}
+	if !fileExists(filepath.Join(userDir, "SKILL.md")) {
+		t.Fatal("user skill dir must survive strip")
+	}
+	if len(skillDigestsForRequest()) != 0 {
+		t.Fatal("manifest should be cleared after strip")
+	}
+}

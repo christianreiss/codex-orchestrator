@@ -7,9 +7,11 @@
 //     (slug, sha256, version) fingerprint of the list, and compare against
 //     the cached digest under ~/.cache/codex-orchestrator/clx-skills-digest.
 //     Any change marks the boot screen's "skills" dot as updated.
-//  2. One-shot purge of legacy on-disk skill caches (`~/.agents/skills`,
-//     `~/.clx/skills`, `~/.claude/skills`) the first time we boot at this
-//     wrapper version — they would otherwise shadow the MCP-served copies.
+//  2. One-shot purge of legacy bash-era on-disk skill caches (`~/.agents/skills`,
+//     `~/.clx/skills`) the first time we boot at this wrapper version.
+//     `~/.claude/skills` is NOT purged — it is the fleet-managed native skill
+//     store written by applyClaudeSkills (Claude Code reads skills on-disk, not
+//     over MCP, unlike codex).
 //
 // Both operations are best-effort: any failure is logged at debug and the
 // caller never refuses to launch over it.
@@ -116,10 +118,15 @@ func pruneLegacySkillDirs(version string, logger *slog.Logger) {
 	if err != nil {
 		return
 	}
+	// NOTE: ~/.claude/skills is deliberately NOT pruned anymore — it is now the
+	// fleet-managed on-disk skill store (applyClaudeSkills writes <slug>/SKILL.md
+	// there; Claude Code can't read skills over MCP). Only the truly bash-era
+	// caches below are purged. A host already pruned at an older version self-heals:
+	// the wrapper advertises no skill digest → the server returns content → the
+	// skills are rewritten on the next run.
 	targets := []string{
 		filepath.Join(home, ".agents", "skills"),
 		filepath.Join(home, ".clx", "skills"),
-		filepath.Join(home, ".claude", "skills"),
 	}
 	for _, t := range targets {
 		if _, err := os.Stat(t); err != nil {

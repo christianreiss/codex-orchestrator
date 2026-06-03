@@ -34,15 +34,23 @@ func TestFingerprintSkillsChangesWhenShaChanges(t *testing.T) {
 func TestPruneLegacySkillDirsOneShot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Legacy bash-era caches that MUST be pruned.
 	dirs := []string{
 		filepath.Join(home, ".agents", "skills"),
 		filepath.Join(home, ".clx", "skills"),
-		filepath.Join(home, ".claude", "skills"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", d, err)
 		}
+	}
+	// ~/.claude/skills is now the fleet-managed on-disk skill store and MUST survive.
+	keep := filepath.Join(home, ".claude", "skills", "git-commit", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(keep), 0o755); err != nil {
+		t.Fatalf("mkdir claude skills: %v", err)
+	}
+	if err := os.WriteFile(keep, []byte("---\nname: git-commit\n---\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
 	}
 	logger := slog.Default()
 	pruneLegacySkillDirs("1.2.3", logger)
@@ -50,6 +58,9 @@ func TestPruneLegacySkillDirsOneShot(t *testing.T) {
 		if _, err := os.Stat(d); !os.IsNotExist(err) {
 			t.Fatalf("expected %s pruned, stat err=%v", d, err)
 		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("~/.claude/skills must NOT be pruned (fleet-managed): %v", err)
 	}
 	// Second call is a no-op while sentinel exists.
 	if err := os.MkdirAll(dirs[0], 0o755); err != nil {

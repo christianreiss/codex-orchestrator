@@ -166,6 +166,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			case "disabled", "invalid", "insecure-denied":
 				stripManagedSettings(logger)
 				stripClaudeCollections(logger)
+				stripClaudeSkills(logger)
 			}
 		}
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
@@ -224,6 +225,17 @@ func bootstrap(
 	bctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	// Advertise on-disk digests for the flat collections AND the skills (skills
+	// ride the same `artifacts` map under the "skill" key) so the server can omit
+	// unchanged content.
+	reqArtifacts := artifactDigestsForRequest()
+	if skillDigests := skillDigestsForRequest(); len(skillDigests) > 0 {
+		if reqArtifacts == nil {
+			reqArtifacts = map[string]map[string]string{}
+		}
+		reqArtifacts["skill"] = skillDigests
+	}
+
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
 		Engine:        "claude",
 		IncludeAuth:   true,
@@ -233,7 +245,7 @@ func bootstrap(
 		Config:        configDigest,
 		Home:          home,
 		Username:      username,
-		Artifacts:     artifactDigestsForRequest(),
+		Artifacts:     reqArtifacts,
 	})
 
 	if berr != nil && isBundleUnsupported(berr) {
@@ -296,6 +308,11 @@ func bootstrap(
 		// Folded into configUpdated for the boot-screen "config" dot; writes are
 		// manifest-tracked and never touch user-authored files in those dirs.
 		if applyClaudeArtifacts(resp.ClaudeArtifacts, logger) {
+			configUpdated = true
+		}
+		// On-disk skills → ~/.claude/skills/<slug>/SKILL.md (Claude Code's native
+		// skill layout; it can't read skills over MCP like codex does).
+		if applyClaudeSkills(resp.ClaudeSkills, logger) {
 			configUpdated = true
 		}
 	}

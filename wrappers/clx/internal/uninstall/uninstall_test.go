@@ -7,10 +7,40 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
 )
+
+func TestRemoveFleetSkillsRemovesManifestDirsOnly(t *testing.T) {
+	home := t.TempDir()
+	manPath := filepath.Join(home, ".clx", "state", "collections", "skills.json")
+	if err := os.MkdirAll(filepath.Dir(manPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	man := `{"version":1,"items":{"a":{"filename":"a/SKILL.md","sha256":"1"}}}`
+	if err := os.WriteFile(manPath, []byte(man), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skills := filepath.Join(home, ".claude", "skills")
+	for _, s := range []string{"a", "keep"} {
+		if err := os.MkdirAll(filepath.Join(skills, s), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skills, s, "SKILL.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out, errb bytes.Buffer
+	removeFleetSkills(home, &out, &errb)
+	if _, err := os.Stat(filepath.Join(skills, "a")); !os.IsNotExist(err) {
+		t.Fatalf("fleet skill dir a/ must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(skills, "keep", "SKILL.md")); err != nil {
+		t.Fatalf("user skill dir keep/ must survive: %v", err)
+	}
+}
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) (*orchestrator.Client, *httptest.Server) {
 	t.Helper()

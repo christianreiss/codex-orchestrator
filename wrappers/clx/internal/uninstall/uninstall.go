@@ -65,6 +65,38 @@ func removeFleetCollections(home string, stdout, stderr io.Writer) {
 	}
 }
 
+// removeFleetSkills deletes the fleet-written skill directories per the
+// ~/.clx/state/collections/skills.json manifest. Each skill is a directory
+// (skills/<slug>/SKILL.md), so we RemoveAll the slug dir. User-authored skill
+// dirs (never in our manifest) are untouched. Must run BEFORE ~/.clx is removed.
+func removeFleetSkills(home string, stdout, stderr io.Writer) {
+	manPath := filepath.Join(home, ".clx", "state", "collections", "skills.json")
+	raw, err := os.ReadFile(manPath)
+	if err != nil {
+		return
+	}
+	var man struct {
+		Items map[string]struct {
+			Filename string `json:"filename"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &man); err != nil {
+		return
+	}
+	for _, rec := range man.Items {
+		sub := filepath.Dir(rec.Filename)
+		if sub == "." || sub == "" || sub == ".." || sub != filepath.Base(sub) {
+			continue
+		}
+		d := filepath.Join(home, ".claude", "skills", sub)
+		if err := os.RemoveAll(d); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(stderr, "uninstall: remove", d, ":", err)
+			continue
+		}
+		fmt.Fprintln(stdout, "uninstall: removed", d)
+	}
+}
+
 type hostUsersResponse struct {
 	Users []hostUser `json:"users"`
 	Data  struct {
@@ -128,6 +160,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	// Remove fleet-written collection files (subagents/commands/output-styles)
 	// before dropping ~/.clx, which holds the manifests that locate them.
 	removeFleetCollections(home, stdout, stderr)
+	removeFleetSkills(home, stdout, stderr)
 
 	// Drop the entire clx-native tree (auth/, config/, cache).
 	clxDir := filepath.Join(home, ".clx")

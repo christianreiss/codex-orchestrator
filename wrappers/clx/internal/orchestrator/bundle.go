@@ -64,6 +64,10 @@ type BundleResponse struct {
 	Host            *HostInfo             `json:"host,omitempty"`
 	ClaudeArtifacts *ClaudeArtifacts      `json:"claude_artifacts,omitempty"`
 	ClaudeSettings  *ClaudeSettings       `json:"claude_settings,omitempty"`
+	// ClaudeSkills is the COMPLETE live set of fleet skills rendered as Claude
+	// Code SKILL.md files for on-disk install at ~/.claude/skills/<slug>/SKILL.md
+	// (Claude Code can't read skills over MCP). Content omitted on sha match.
+	ClaudeSkills []CollectionItem `json:"claude_skills,omitempty"`
 }
 
 // SyncBootstrap calls POST /sync/bootstrap. On 404/501 the caller is expected
