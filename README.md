@@ -6,6 +6,8 @@ Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex an
 
 A host can run Codex, Claude, or both. The orchestrator manages both engines from a single admin dashboard.
 
+> **Claude Code support is in beta.** Codex (`cdx`) is the mature, battle-tested path. Claude Code (`clx`) — native account-login auth, on-disk skill sync, and the `/anthropic/v1/` proxy — is newer and still stabilizing. Expect the occasional rough edge and fleet binary bump; please report anything that breaks.
+
 ![Host-specific installer baking and sync flow](docs/img/cdx.png)
 
 ## What does it actually do?
@@ -43,6 +45,29 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 **Collaborate across agents**
 - The optional Projects module gives your agents shared notes, todos, files, and feedback with append-only change history.
 - A native MCP server provides host-scoped memory tools plus shared project resources — accessible from both Codex and Claude.
+
+## Codex vs Claude: feature matrix
+
+Legend: ✅ supported · 🅱️ beta · — not supported
+
+| Capability | Codex (`cdx`) | Claude (`clx`) |
+|---|---|---|
+| Daily-driver wrapper | ✅ | 🅱️ |
+| Auth sync (account-login) | ✅ `auth.json` | 🅱️ native `claudeAiOauth` |
+| Config sync | ✅ `config.toml` | 🅱️ `settings.json` (deep-merge, keeps your keys) |
+| Per-host API key + IP binding | ✅ | ✅ |
+| Wrapper self-update & version pinning | ✅ | ✅ |
+| Shared skills | ✅ via MCP `skill://` | 🅱️ on-disk `~/.claude/skills/` |
+| Agent doc sync | ✅ `AGENTS.md` | ✅ `CLAUDE.md` (shared pipeline) |
+| MCP memory & project tools | ✅ | ✅ |
+| Usage / token tracking | ✅ | ✅ |
+| Insecure-host purge & kill switch | ✅ | ✅ |
+| Compatible passthrough API | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) |
+| ChatGPT quota snapshots & warnings | ✅ | — (native API limits only) |
+| Lanes & profiles (`lane`, `profile`) | ✅ | — |
+| Native collections (subagents / commands / output-styles) | — | 🅱️ |
+
+The core fleet machinery — auth, config, per-host keys, skills, MCP memory, usage, and the safety controls — is at parity across both engines. The 🅱️ rows are the newer Claude paths that are still stabilizing. Quota snapshots and lanes/profiles are Codex-only; Claude's native on-disk collections (subagents, commands, output-styles) have no Codex analogue.
 
 ## Is this for me?
 
