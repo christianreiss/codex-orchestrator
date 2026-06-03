@@ -88,4 +88,23 @@ describe('HostSkillsService managed CoCo skill', () => {
       service.store({ slug: MANAGED_COCO_SKILL_SLUG, manifest: 'replacement' }, host),
     ).rejects.toMatchObject({ code: 'managed_skill' });
   });
+
+  it('emits managed coco as an on-disk SKILL.md in the claude bundle (name = slug)', async () => {
+    const service = makeService(true, [skillRow({ id: 1, slug: 'agentic' })]);
+    const out = await service.bundle(host, 'claude', {});
+    const coco = out.find((s) => s.slug === MANAGED_COCO_SKILL_SLUG);
+    expect(coco).toBeDefined();
+    expect(coco?.status).toBe('updated');
+    expect(coco?.content).toContain('name: coco');
+    expect(coco?.content).toContain('CoCo Project Coordination');
+    // If-None-Match: re-bundling with the rendered sha omits content.
+    const again = await service.bundle(host, 'claude', { [MANAGED_COCO_SKILL_SLUG]: coco!.sha256 });
+    expect(again.find((s) => s.slug === MANAGED_COCO_SKILL_SLUG)?.status).toBe('unchanged');
+  });
+
+  it('omits managed coco from the bundle when Projects is disabled', async () => {
+    const service = makeService(false, [skillRow({ id: 1, slug: 'agentic' })]);
+    const out = await service.bundle(host, 'claude', {});
+    expect(out.find((s) => s.slug === MANAGED_COCO_SKILL_SLUG)).toBeUndefined();
+  });
 });
