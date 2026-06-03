@@ -24,6 +24,27 @@ export const CLAUDE_MODELS: ModelOption[] = [
   { label: "Haiku 4.5", value: "claude-haiku-4-5" },
 ];
 
+/**
+ * Sentinel value representing "advisor off" (omit `advisorModel` on save).
+ * Non-empty for the same reason as INHERIT_MODEL: the Select component does not
+ * reliably register selecting an empty-string item.
+ */
+export const ADVISOR_OFF = "off";
+
+/**
+ * Choices for the experimental Claude `advisorModel` settings.json key. The
+ * ADVISOR_OFF sentinel means "off" (omit the field on save). The other values
+ * are the short tier aliases Claude Code resolves to the current model version;
+ * keep in lock-step with ADVISOR_MODEL_ALIASES in
+ * api/src/services/config-normalizer.ts.
+ */
+export const ADVISOR_MODELS: ModelOption[] = [
+  { label: "Off", value: ADVISOR_OFF },
+  { label: "Opus", value: "opus" },
+  { label: "Sonnet", value: "sonnet" },
+  { label: "Haiku", value: "haiku" },
+];
+
 /** Color choices for subagents. */
 export const SUBAGENT_COLORS: string[] = [
   "red",

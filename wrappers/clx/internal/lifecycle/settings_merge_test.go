@@ -202,6 +202,36 @@ func TestApplyAndStripManagedSettings(t *testing.T) {
 	}
 }
 
+func TestMergeAdvisorModelSetAndStaleRemoval(t *testing.T) {
+	// (a) A new top-level scalar advisorModel is written without dropping user keys.
+	user := []byte(`{"theme":"dark","advisorModel":"opus","extra":1}`)
+	partial := map[string]any{"advisorModel": "opus"}
+	out, st, err := MergeSettings(user, partial, []string{"advisorModel"}, emptyState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := parseObj(t, out)
+	if m["advisorModel"] != "opus" {
+		t.Errorf("fleet advisorModel must be set, got %v", m["advisorModel"])
+	}
+	if m["theme"] != "dark" || m["extra"] != float64(1) {
+		t.Errorf("user keys must survive: %v", m)
+	}
+
+	// (b) When the fleet stops owning advisorModel (off), it is removed.
+	out2, _, err := MergeSettings(out, map[string]any{}, []string{}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2 := parseObj(t, out2)
+	if _, ok := m2["advisorModel"]; ok {
+		t.Error("stale fleet advisorModel must be removed when no longer owned")
+	}
+	if m2["theme"] != "dark" {
+		t.Error("user key must survive stale advisorModel removal")
+	}
+}
+
 func readFile(t *testing.T, p string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(p)

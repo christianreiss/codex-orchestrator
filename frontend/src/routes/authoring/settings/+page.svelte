@@ -4,7 +4,7 @@
   import { claudeSettingsApi, claudeSettingsKeys } from "$lib/api/claudeSettings";
   import type { ClaudeConfigResponse, ClaudeConfigSettings } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
-  import { CLAUDE_MODELS, INHERIT_MODEL } from "$lib/constants/models";
+  import { ADVISOR_MODELS, ADVISOR_OFF, CLAUDE_MODELS, INHERIT_MODEL } from "$lib/constants/models";
   import { modelLabel } from "$lib/utils/artifact";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -33,6 +33,7 @@
   let ask = $state<string[]>([]);
   let deny = $state<string[]>([]);
   let statusLineCommand = $state("");
+  let advisorModel = $state(ADVISOR_OFF);
   let hooks = $state<HooksMap>({});
   let serverSha = $state<string | null>(null);
   let hydrated = $state(false);
@@ -64,6 +65,7 @@
       ask = [...(s.permissions?.ask ?? [])];
       deny = [...(s.permissions?.deny ?? [])];
       statusLineCommand = typeof s.statusLine?.command === "string" ? s.statusLine.command : "";
+      advisorModel = s.advisorModel || ADVISOR_OFF;
       hooks = hooksFromConfig(s.hooks);
       serverSha = data.sha256 ?? null;
       hydrated = true;
@@ -110,8 +112,14 @@
     }
     if (Object.keys(hooksObj).length) out.hooks = hooksObj;
 
+    if (advisorModel && advisorModel !== ADVISOR_OFF) out.advisorModel = advisorModel;
+
     return out;
   });
+
+  const advisorModelDisplay = $derived(
+    ADVISOR_MODELS.find((m) => m.value === advisorModel)?.label ?? "Off",
+  );
 
   // ---- Save ----
   const saveMutation = createMutation({
@@ -173,6 +181,32 @@
           </Select.Trigger>
           <Select.Content>
             {#each CLAUDE_MODELS as m (m.value)}
+              <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
+            {/each}
+          </Select.Content>
+        </Select.Root>
+      </div>
+
+      <!-- Advisor model (experimental) -->
+      <div class="rounded-lg border bg-card p-4">
+        <h3 class="mb-1 text-sm font-semibold">
+          Advisor model
+          <Badge variant="secondary" class="ml-1 align-middle">experimental</Badge>
+        </h3>
+        <p class="mb-3 text-xs text-muted-foreground">
+          Sets <span class="font-mono">advisorModel</span> in settings.json. When set, the advisor tool
+          routes the full transcript to a stronger reviewer model. Off omits the key.
+        </p>
+        <Select.Root
+          type="single"
+          value={advisorModel}
+          onValueChange={(v) => (advisorModel = v ?? ADVISOR_OFF)}
+        >
+          <Select.Trigger class="w-full max-w-xs" aria-label="Advisor model">
+            <Select.Value placeholder="Off">{advisorModelDisplay}</Select.Value>
+          </Select.Trigger>
+          <Select.Content>
+            {#each ADVISOR_MODELS as m (m.value)}
               <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
             {/each}
           </Select.Content>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { renderToml, renderTomlForHost } from '../../../src/services/client-config.js';
+import {
+  renderClaudeSettingsPartial,
+  renderToml,
+  renderTomlForHost,
+} from '../../../src/services/client-config.js';
 import { normalizeSettings } from '../../../src/services/config-normalizer.js';
 
 describe('client-config: renderToml', () => {
@@ -142,5 +146,23 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('startup_timeout_sec = 30');
     expect(rendered.content).not.toContain('http://old.example/mcp');
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
+  });
+});
+
+describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
+  it('renders advisorModel into the partial and owned_paths when set', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(
+      normalizeSettings({ advisorModel: 'opus' }),
+    );
+    expect(partial.advisorModel).toBe('opus');
+    expect(owned_paths).toContain('advisorModel');
+  });
+
+  it('omits advisorModel from partial and owned_paths when off/invalid', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(
+      normalizeSettings({ advisorModel: 'gpt-5' }),
+    );
+    expect(partial).not.toHaveProperty('advisorModel');
+    expect(owned_paths).not.toContain('advisorModel');
   });
 });

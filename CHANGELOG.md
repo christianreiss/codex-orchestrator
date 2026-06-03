@@ -1,3 +1,19 @@
+## clx: Claude advisor model as a fleet-managed `settings.json` key
+
+- **Feature:** the experimental Claude Code advisor tool (routes the full
+  conversation transcript to a stronger reviewer model) is now fleet-managed via
+  a new top-level `advisorModel` key in `~/.claude/settings.json`.
+- **Server:** `advisorModel` is normalized (`normalizeClaudeAdvisorModel`,
+  allowlist `opus` / `sonnet` / `haiku` — any other value, including empty, is
+  treated as off) and rendered into the Claude settings partial + `owned_paths`.
+  It is **not** routed through `normalizeClaudeModel` (a pass-through), so only
+  the tier aliases are accepted.
+- **Wrapper:** no code change — the deep-merge is generic over `owned_paths`, so
+  the top-level scalar is set when on and removed via stale-path cleanup when
+  switched off. Added a merge test covering both.
+- **UI:** Authoring → Claude settings gains an "Advisor model (experimental)"
+  selector (Off / Opus / Sonnet / Haiku); Off omits the key.
+
 ## CoCo MCP managed skill is restored
 
 - **Server:** host-facing skill sync and MCP resource reads now derive the managed

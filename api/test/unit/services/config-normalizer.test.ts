@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ADVISOR_MODEL_ALIASES,
   CLAUDE_LEGACY_MODEL_UPGRADES,
   CLAUDE_SUPPORTED_MODELS,
   FORCE_UPGRADE_MODEL,
@@ -10,6 +11,7 @@ import {
   SUPPORTED_MODELS,
   isLegacyModelUpgrade,
   normalizeApprovalPolicy,
+  normalizeClaudeAdvisorModel,
   normalizeClaudeModel,
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
@@ -76,6 +78,23 @@ describe('normalizeClaudeModel', () => {
   });
   it('passes through current claude models', () => {
     expect(normalizeClaudeModel('claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
+  });
+});
+
+describe('normalizeClaudeAdvisorModel', () => {
+  it('exposes the tier alias allowlist', () => {
+    expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'haiku']);
+  });
+  it('accepts the tier aliases case-insensitively and trims', () => {
+    expect(normalizeClaudeAdvisorModel('opus')).toBe('opus');
+    expect(normalizeClaudeAdvisorModel('  Sonnet ')).toBe('sonnet');
+    expect(normalizeClaudeAdvisorModel('HAIKU')).toBe('haiku');
+  });
+  it('rejects non-alias values and empty/off (-> null)', () => {
+    expect(normalizeClaudeAdvisorModel('claude-opus-4-8')).toBeNull();
+    expect(normalizeClaudeAdvisorModel('gpt-5')).toBeNull();
+    expect(normalizeClaudeAdvisorModel('')).toBeNull();
+    expect(normalizeClaudeAdvisorModel(undefined)).toBeNull();
   });
 });
 
@@ -153,6 +172,13 @@ describe('normalizeSettings()', () => {
   it('strips invalid notify entries', () => {
     const s = normalizeSettings({ notify: ['mailto:a@b', 42, null, '  ', 'webhook'] });
     expect(s.notify).toEqual(['mailto:a@b', 'webhook']);
+  });
+
+  it('attaches a valid advisorModel and omits it when off/invalid', () => {
+    expect(normalizeSettings({ advisorModel: 'opus' }).advisorModel).toBe('opus');
+    expect(normalizeSettings({ advisorModel: 'OPUS' }).advisorModel).toBe('opus');
+    expect(normalizeSettings({}).advisorModel).toBeUndefined();
+    expect(normalizeSettings({ advisorModel: 'gpt-5' }).advisorModel).toBeUndefined();
   });
 
   it('normalizes profile reasoning efforts', () => {

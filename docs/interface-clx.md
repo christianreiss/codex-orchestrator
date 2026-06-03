@@ -142,8 +142,13 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
 `~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
 `claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
 the fleet-managed keys (`model`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
-`hooks.<Event>`, `permissions.{allow,ask,deny}`) and `owned_paths` are the
-leaf-granular dot-paths the fleet owns this run.
+`hooks.<Event>`, `permissions.{allow,ask,deny}`, `advisorModel`) and `owned_paths`
+are the leaf-granular dot-paths the fleet owns this run.
+
+- `advisorModel` enables Claude Code's experimental advisor tool (routes the full
+  transcript to a stronger reviewer model). Restricted to the tier aliases
+  `opus` / `sonnet` / `haiku`; any other value is treated as off and the key is
+  omitted (and removed on the host via the stale-path cleanup).
 
 - The server renders the partial **only** from the Claude-engine `client_config`
   (or per-host `claude_model_override`) — it never falls back to the Codex config.

@@ -529,6 +529,7 @@ export interface ClaudeConfigSettings {
   permissions?: ClaudePermissions;
   statusLine?: ClaudeStatusLine;
   hooks?: ClaudeHooks;
+  advisorModel?: string;
   [key: string]: unknown;
 }
 

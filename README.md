@@ -66,6 +66,7 @@ Legend: ✅ supported · 🅱️ beta · — not supported
 | ChatGPT quota snapshots & warnings | ✅ | — (native API limits only) |
 | Lanes & profiles (`lane`, `profile`) | ✅ | — |
 | Native collections (subagents / commands / output-styles) | — | 🅱️ |
+| Advisor model (experimental reviewer) | — | 🅱️ `advisorModel` (opus/sonnet/haiku) |
 
 The core fleet machinery — auth, config, per-host keys, skills, MCP memory, usage, and the safety controls — is at parity across both engines. The 🅱️ rows are the newer Claude paths that are still stabilizing. Quota snapshots and lanes/profiles are Codex-only; Claude's native on-disk collections (subagents, commands, output-styles) have no Codex analogue.
 

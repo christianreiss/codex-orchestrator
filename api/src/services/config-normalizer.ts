@@ -115,6 +115,7 @@ export interface NormalizedSettings {
   statusLine?: Record<string, unknown>;
   permissions?: { allow: string[]; ask: string[]; deny: string[] };
   env?: Record<string, string>;
+  advisorModel?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -320,8 +321,32 @@ export function normalizeSettings(raw: unknown): NormalizedSettings {
   if (permissions) out.permissions = permissions;
   const env = normalizeClaudeEnv(settings.env);
   if (env) out.env = env;
+  const advisorModel = normalizeClaudeAdvisorModel(settings.advisorModel);
+  if (advisorModel) out.advisorModel = advisorModel;
 
   return out;
+}
+
+/**
+ * Allowed values for the Claude `advisorModel` settings.json key. These are
+ * the short tier aliases Claude Code resolves itself to the current model
+ * version (e.g. `opus` -> claude-opus-4-8); we deliberately store the alias,
+ * not a pinned full id, so the experimental advisor tracks the latest model.
+ */
+export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'haiku'] as const;
+
+/**
+ * Claude settings.json `advisorModel` key (experimental advisor tool). Restricts
+ * to the tier alias set; anything else (including empty / off) -> null so the
+ * key is omitted and the wrapper removes it on the host. Intentionally NOT
+ * routed through normalizeClaudeModel, which is a pass-through and would not
+ * enforce the alias allowlist.
+ */
+export function normalizeClaudeAdvisorModel(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  const lower = s.toLowerCase();
+  return (ADVISOR_MODEL_ALIASES as readonly string[]).includes(lower) ? lower : null;
 }
 
 /** Claude settings.json `env` block: a flat string map. Coerces scalars. */

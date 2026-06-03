@@ -459,6 +459,10 @@ export function renderClaudeSettingsPartial(
     }
     if (Object.keys(perms).length > 0) partial['permissions'] = perms;
   }
+  if (settings.advisorModel) {
+    partial['advisorModel'] = settings.advisorModel;
+    owned.push('advisorModel');
+  }
   return { partial, owned_paths: owned };
 }
 
