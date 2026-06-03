@@ -1,3 +1,29 @@
+## clx Platinum follow-ups: no codex model leak into Claude settings + installable second engine
+
+Two defects surfaced by the first real end-to-end `clx` install on a host that
+already ran `cdx`. Both are API-only fixes — **no wrapper rebuild**, only an API
+redeploy.
+
+- **Claude settings no longer inherit the Codex model.** `retrieveClaudeSettings`
+  fell back to the Codex `client_config` row when no Claude-engine config existed
+  (the common greenfield state), so the Codex `model` (e.g. `gpt-5.5`) was baked
+  into every Claude host's `~/.claude/settings.json` `model` key via the managed
+  deep-merge. The fallback is removed: with no Claude config we now render from an
+  **empty base** so the managed `mcpServers.clx` block is still delivered, but no
+  `model` (or any other key) is borrowed from Codex. Per-host `claude_model_override`
+  and an explicit Claude `client_config` still flow through unchanged. After the
+  redeploy, the next `clx run` strips the orphaned `model` key (it is in the
+  wrapper's `owned_paths` sidecar) while leaving user keys intact.
+
+- **You can now install Claude on a host that already runs Codex.** The installer
+  token always picked `primaryEngine = codex` when Codex was present, so the
+  host-detail "Claude" button (which sends `engines: ["claude"]`) emitted a `cdx`
+  installer — there was no supported way to install `clx` on a dual-engine host.
+  `issueInstallerToken` now targets the engine the operator explicitly requested
+  when they ask for a single one; the displayed `mode`/label still reflects the
+  host's full engine set. Default (no explicit request) behaviour is unchanged
+  (codex-when-present).
+
 ## Insecure-host approval UX: instant popup + no more false "API offline"
 
 Two fixes to the insecure-host approval flow, so starting `cdx`/`clx` on an

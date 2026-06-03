@@ -127,6 +127,11 @@ the fleet-managed keys (`model`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`) and `owned_paths` are the
 leaf-granular dot-paths the fleet owns this run.
 
+- The server renders the partial **only** from the Claude-engine `client_config`
+  (or per-host `claude_model_override`) — it never falls back to the Codex config.
+  A greenfield Claude host with no authored Claude settings therefore receives an
+  empty partial **plus** the managed `mcpServers.clx` block, and no `model` key:
+  the Codex `model` (e.g. `gpt-5.5`) must never leak into `settings.json`.
 - The wrapper merges `partial` over the user's file, preserving every key the
   fleet does not own. It persists `owned_paths` to `~/.clx/state/managed-keys.json`;
   paths in the sidecar but no longer owned are removed next run (that is how a

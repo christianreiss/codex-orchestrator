@@ -136,19 +136,16 @@ export class HostAgentsService {
       .where(eq(clientConfigDocuments.engine, ENGINE_CLAUDE))
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
-    let row = rows.find((r) => r.engine === ENGINE_CLAUDE) ?? rows[0];
-    if (!row) {
-      const fallback = await this.db
-        .select()
-        .from(clientConfigDocuments)
-        .where(eq(clientConfigDocuments.engine, ENGINE_CODEX))
-        .orderBy(desc(clientConfigDocuments.id))
-        .limit(1);
-      row = fallback.find((r) => r.engine === ENGINE_CODEX) ?? fallback[0];
-    }
-    const settings = row && row.settings && typeof row.settings === 'object' ? row.settings : null;
+    // Claude-only lookup. There is deliberately NO codex fallback here: a codex
+    // client_config carries a codex `model` (e.g. gpt-5.5) that would otherwise
+    // leak into Claude's settings.json. When no claude config exists we still
+    // render from an EMPTY base so the managed clx MCP block is injected, but no
+    // model (or any other key) is borrowed from codex. (The db-shim test harness
+    // ignores WHERE, so filter the engine in JS too — `rows[0]` could be codex.)
+    const row = rows.find((r) => r.engine === ENGINE_CLAUDE);
+    const settings = row && row.settings && typeof row.settings === 'object' ? row.settings : {};
     const apiKey = this.resolveApiKey(host);
-    if (!settings || !this.publicBaseUrl || !apiKey) {
+    if (!this.publicBaseUrl || !apiKey) {
       return { status: 'missing', owned_paths: [], partial: {} };
     }
     const managedMcpToken = !host.secure ? (await this.mcpSessions.issue(host.id)).token : null;

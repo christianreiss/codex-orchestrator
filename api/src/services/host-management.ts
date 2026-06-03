@@ -398,7 +398,7 @@ export class HostManagementService {
       });
     }
 
-    const installer = await this.issueInstallerToken(host, apiKeyPlain, engines);
+    const installer = await this.issueInstallerToken(host, apiKeyPlain, engines, additionalEngines);
 
     await this.events.appendAndPublish(
       'host.installer.minted',
@@ -437,6 +437,7 @@ export class HostManagementService {
     host: Host,
     apiKeyPlain: string,
     engines: Engine[],
+    requestedEngines?: Engine[],
   ): Promise<InstallerInfo> {
     const baseUrl = this.resolveInstallerBaseUrl();
     const ttl = INSTALL_TOKEN_TTL_SECONDS_DEFAULT;
@@ -453,7 +454,19 @@ export class HostManagementService {
     const apiKeyHash = sha256(apiKeyPlain);
     const apiKeyEnc = sboxEncrypt(apiKeyPlain, this.keyring);
     const mode = installerModeForEngines(engines);
-    const primaryEngine: Engine = engines.includes(ENGINE_CODEX) ? ENGINE_CODEX : ENGINE_CLAUDE;
+    // The installer SCRIPT targets a single engine. When the operator explicitly
+    // asks to install ONE engine (the host-detail "Codex"/"Claude" buttons send
+    // [codex] / [claude]), honour that choice; otherwise default to codex-when-
+    // present. Without this, adding Claude to an existing codex host always
+    // emitted a codex installer — there was no supported way to install the
+    // second engine on a dual-engine host. `mode` still reflects the host's full
+    // engine set (the union), so the displayed label is unchanged.
+    const installerEngine: Engine =
+      requestedEngines && requestedEngines.length === 1
+        ? requestedEngines[0]!
+        : engines.includes(ENGINE_CODEX)
+          ? ENGINE_CODEX
+          : ENGINE_CLAUDE;
 
     await this.db.insert(installTokens).values({
       token: tokenHash,
@@ -463,7 +476,7 @@ export class HostManagementService {
       apiKeyEnc,
       fqdn: host.fqdn,
       baseUrl,
-      engine: primaryEngine,
+      engine: installerEngine,
       expiresAt,
       createdAt: nowIso(),
     });

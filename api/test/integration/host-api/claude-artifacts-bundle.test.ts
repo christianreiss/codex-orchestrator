@@ -150,6 +150,35 @@ describe('POST /sync/bootstrap claude_artifacts bundle', () => {
     await app.close();
   });
 
+  it('does NOT borrow the codex model when no claude client_config exists (model-leak guard)', async () => {
+    const apiKey = 'sk-claude-nocfg';
+    const db = baseTables(apiKey, 'claude');
+    // Only a CODEX config row exists (it carries a codex model). Before the fix
+    // retrieveClaudeSettings fell back to this row and leaked `gpt-5.5` into
+    // Claude's settings.json. Now there is no fallback: render from an empty
+    // base so no codex key is borrowed, but still inject the managed clx MCP.
+    db.tables.set(clientConfigDocuments, [
+      { id: 7, engine: 'codex', slug: 'main', body: '', sha256: 'x', settings: { model: 'gpt-5.5' }, createdAt: 't', updatedAt: 't' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'claude', include_auth: false }),
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.claude_settings).toBeDefined();
+    // No model borrowed from codex.
+    expect(body.claude_settings.partial.model).toBeUndefined();
+    expect(body.claude_settings.owned_paths).not.toContain('model');
+    // Managed clx MCP block is still delivered even with no claude config.
+    expect(body.claude_settings.owned_paths).toContain('mcpServers.clx');
+    expect(body.claude_settings.partial.mcpServers?.clx).toBeDefined();
+    await app.close();
+  });
+
   it('reflects per-host claudeModelOverride in the settings partial (bug guard)', async () => {
     const apiKey = 'sk-claude-host-model';
     const db = baseTables(apiKey, 'claude');

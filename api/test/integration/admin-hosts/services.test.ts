@@ -181,6 +181,31 @@ describe('HostManagementService.register', () => {
     expect(logKinds).not.toContain('admin.host.engines_added');
   });
 
+  it('targets the explicitly-requested engine for the installer script (dual-engine install fix)', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    // Existing codex host. The host-detail "Claude" button sends [claude].
+    const first = await svc.register({ fqdn: 'dual.example.com', secure: true, engines: [ENGINE_CODEX] });
+
+    // Pre-fix the token engine was forced to codex (codex-wins) even when the
+    // operator asked for claude — so the script installed cdx and there was no
+    // supported way to install clx on a codex host.
+    await svc.mintInstaller(first.host.id, [ENGINE_CLAUDE]);
+    expect(mock.rows('install_tokens').at(-1)!.engine).toBe('claude');
+
+    // Requesting codex on the now-dual host yields a codex installer.
+    await svc.mintInstaller(first.host.id, [ENGINE_CODEX]);
+    expect(mock.rows('install_tokens').at(-1)!.engine).toBe('codex');
+
+    // No explicit request → codex-when-present default (unchanged behaviour).
+    await svc.mintInstaller(first.host.id);
+    expect(mock.rows('install_tokens').at(-1)!.engine).toBe('codex');
+  });
+
   it('opens a provisioning window when secure=false', async () => {
     const mock = createMockDb();
     const env = buildEnv();
