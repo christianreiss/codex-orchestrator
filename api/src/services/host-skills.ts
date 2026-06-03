@@ -48,8 +48,93 @@ function assertSha256(value: unknown, allowNull: boolean, errors: Record<string,
   }
 }
 
+/** One skill as delivered in the claude on-disk bundle (content omitted on sha match). */
+export interface SkillEnvelope {
+  slug: string;
+  sha256: string;
+  status: 'unchanged' | 'updated';
+  content?: string;
+}
+
+const FRONTMATTER_RE = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*\n?/;
+
+function quoteYaml(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Render a skill row as a Claude Code `SKILL.md`. CRITICAL: Claude Code's native
+ * skill loader keys off the frontmatter `name:` matching the on-disk slug, so we
+ * coerce `name` to the slug (the stored manifest's `name` is the human display
+ * name from buildSkillManifest — using it verbatim makes the skill silently
+ * invisible). A `description` is ensured (required by Claude Code). The rest of
+ * the manifest body is preserved verbatim.
+ */
+export function renderSkillFile(row: typeof skills.$inferSelect): string {
+  const slug = row.slug;
+  const description = String(row.description ?? row.displayName ?? slug);
+  const manifest = String(row.manifest ?? '');
+  const m = FRONTMATTER_RE.exec(manifest);
+  if (m && typeof m[1] === 'string') {
+    const body = manifest.slice(m[0].length);
+    const out: string[] = [];
+    let sawName = false;
+    let sawDescription = false;
+    for (const line of m[1].split('\n')) {
+      if (/^name[ \t]*:/.test(line)) {
+        out.push(`name: ${slug}`);
+        sawName = true;
+      } else {
+        if (/^description[ \t]*:/.test(line)) sawDescription = true;
+        out.push(line);
+      }
+    }
+    if (!sawName) out.unshift(`name: ${slug}`);
+    if (!sawDescription) out.push(`description: ${quoteYaml(description)}`);
+    return `---\n${out.join('\n')}\n---\n\n${body.replace(/^\n+/, '')}`.replace(/\n*$/, '\n');
+  }
+  return `---\nname: ${slug}\ndescription: ${quoteYaml(description)}\n---\n\n${manifest.replace(/^\n+/, '')}`.replace(
+    /\n*$/,
+    '\n',
+  );
+}
+
 export class HostSkillsService {
   constructor(private readonly db: Database) {}
+
+  /**
+   * Complete live set of skills visible to `engine`, rendered as Claude Code
+   * SKILL.md files, for on-disk distribution (claude only — codex reads skills
+   * via MCP). `content` is omitted when the wrapper's supplied digest matches the
+   * RENDERED file sha. Mirrors HostClaudeArtifactsService.bundle. Note: the sha is
+   * computed over the rendered SKILL.md, NOT row.sha256 (which is the raw-manifest
+   * sha the MCP/retrieve path depends on).
+   */
+  async bundle(host: Host, engine: Engine, digests: Record<string, string> = {}): Promise<SkillEnvelope[]> {
+    const rows = await this.db
+      .select()
+      .from(skills)
+      .where(sql`${skills.deletedAt} IS NULL`)
+      .orderBy(asc(skills.slug));
+    const out: SkillEnvelope[] = [];
+    for (const row of rows) {
+      if (row.deletedAt) continue; // db-shim ignores WHERE — filter in JS too
+      const e = row.engine;
+      const visible = e === null || e === undefined || e === '' || e === engine;
+      if (!visible) continue;
+      const content = renderSkillFile(row);
+      const sha = createHash('sha256').update(content).digest('hex');
+      const have = digests[row.slug];
+      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have);
+      out.push(
+        unchanged
+          ? { slug: row.slug, sha256: sha, status: 'unchanged' }
+          : { slug: row.slug, sha256: sha, status: 'updated', content },
+      );
+    }
+    await this.recordLog(host.id, 'skill.bundle', { count: out.length, engine });
+    return out;
+  }
 
   async listSkills(host: Host, engine: Engine | null): Promise<{ engine: Engine | null; skills: Record<string, unknown>[] }> {
     const rows = await this.db

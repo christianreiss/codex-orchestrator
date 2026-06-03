@@ -24,6 +24,7 @@ import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { HostAgentsService } from '../../services/host-agents.js';
 import { HostClaudeArtifactsService, type ArtifactDigestMap } from '../../services/host-claude-artifacts.js';
+import { HostSkillsService } from '../../services/host-skills.js';
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { HostSessionsService } from '../../services/host-sessions.js';
 import {
@@ -68,6 +69,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
   const sessionsService = new HostSessionsService(ctx.db);
   const claudeArtifactsService = new HostClaudeArtifactsService(ctx.db);
+  const skillsService = new HostSkillsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
 
@@ -178,6 +180,10 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         home: typeof payload.home === 'string' ? payload.home : null,
         username: typeof payload.username === 'string' ? payload.username : null,
       });
+      // On-disk skills: Claude Code can't read skills over MCP (unlike codex), so
+      // the fleet's shared skills are delivered as native ~/.claude/skills/<slug>/
+      // SKILL.md files. Complete live set; content omitted on rendered-sha match.
+      out.claude_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
 
     // Fleet-wide session counts for the cdx boot-screen "sessions" block.
@@ -197,6 +203,28 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
  * Tolerant of kind-key spelling (`agents`/`subagent`/…) via normalizeKind; any
  * unrecognized key is skipped. Shape: `{ <kind>: { <slug>: <sha256> } }`.
  */
+/**
+ * Per-slug skill digests the wrapper sends so the server can omit `content` for
+ * unchanged skills. Deliberately separate from readArtifactDigests: skills are
+ * NOT an artifact kind (normalizeKind('skill') throws), so routing them through
+ * that path would silently drop them and break If-None-Match. Accepts either a
+ * top-level `skills` map or `artifacts.skill`.
+ */
+function readSkillDigests(payload: Record<string, unknown>): Record<string, string> {
+  const artifacts = payload['artifacts'];
+  const fromArtifacts =
+    artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)
+      ? (artifacts as Record<string, unknown>)['skill']
+      : undefined;
+  const raw = payload['skills'] ?? fromArtifacts;
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [slug, sha] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof sha === 'string') out[slug] = sha;
+  }
+  return out;
+}
+
 function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMap {
   const raw = payload['artifacts'];
   const out: ArtifactDigestMap = {};
