@@ -94,9 +94,17 @@ details:
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI
   picks up the orchestrator-managed `CLAUDE.md`.
-- Skills probe uses `GET /skills?engine=claude` so the response excludes
-  Codex-only skills. Legacy on-disk caches purged: `~/.agents/skills`,
-  `~/.clx/skills`, `~/.claude/skills` (one-shot per wrapper version).
+- **Skills are synced ON-DISK** as native `~/.claude/skills/<slug>/SKILL.md`
+  (one directory per skill). Unlike Codex — which reads skills live over MCP
+  (`resource_read skill://<slug>`) — Claude Code cannot consume skills over MCP,
+  so the bundle returns `claude_skills` (complete live set of `engine`
+  null/`claude` skills; `content` omitted on rendered-sha match) and the wrapper
+  writes them with a dedicated `~/.clx/state/collections/skills.json` manifest.
+  The server **coerces the SKILL.md `name:` to the slug** (Claude Code's native
+  loader requires it). Prune/strip/uninstall remove only manifest-recorded skill
+  dirs — user-authored skill dirs are never touched. Legacy bash-era caches still
+  purged one-shot: `~/.agents/skills`, `~/.clx/skills`. **`~/.claude/skills` is no
+  longer purged** — it is the fleet-managed store.
 - No quota bars — Claude has no orchestrator-side quota concept; the
   ChatGPT-style headless QuotaWarn emission is therefore a no-op on clx.
 

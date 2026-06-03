@@ -11,7 +11,6 @@ import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
-import { ENGINE_CODEX } from '../util/engine.js';
 
 export interface ResourceDeps {
   memories: McpMemoriesService;
@@ -117,7 +116,10 @@ export class McpResourcesService {
   async list(host: Host): Promise<ResourceDescriptor[]> {
     const [projects, skills] = await Promise.all([
       this.deps.projects.listProjects(host),
-      this.deps.skills.listSkills(host, ENGINE_CODEX),
+      // List ALL skills as resources (engine=null ⇒ no engine filter). Previously
+      // hardcoded to codex, which hid any claude-specific skill from the resource
+      // catalogue; the resource list is engine-agnostic and read is by slug.
+      this.deps.skills.listSkills(host, null),
     ]);
     const resources: ResourceDescriptor[] = [];
     for (const p of projects.projects) {

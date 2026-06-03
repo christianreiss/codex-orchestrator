@@ -1,3 +1,31 @@
+## clx: fleet skills now sync on-disk to Claude Code (`~/.claude/skills/<slug>/SKILL.md`)
+
+Claude Code **cannot consume skills over MCP** (skills are strictly on-disk; MCP
+only yields tools/prompts/resources) — so the fleet's shared skills reached codex
+(which reads `skill://<slug>` over MCP) but never appeared as skills in Claude
+Code. Now the orchestrator distributes them to Claude hosts on-disk, 1:1 with how
+codex gets them. Authored once in the existing single skills editor; no new UI.
+Requires an API deploy + a clx fleet binary bump.
+
+- **Server:** `/sync/bootstrap` (engine=claude) gains `claude_skills` — the
+  complete live set of claude-visible skills (`engine` null/`claude`), each
+  rendered as a Claude Code `SKILL.md`. The renderer **coerces frontmatter
+  `name:` to the slug** (Claude Code's loader keys off it; the stored manifest's
+  `name` is the human display name, which would make the skill silently
+  invisible). Content omitted on rendered-sha match. The rendered sha is
+  bundle-only — `skills.sha256` (the raw-manifest sha the MCP path uses) is
+  untouched.
+- **Wrapper (clx ≥ 0.6.20):** writes `~/.claude/skills/<slug>/SKILL.md` (one dir
+  per skill) with a dedicated `skills.json` manifest; prunes only fleet-written
+  skill dirs (user-authored skill dirs and the `skills/` root are never touched);
+  removed on uninstall and on trust loss. **`pruneLegacySkillDirs` no longer
+  deletes `~/.claude/skills`** (it is now the fleet-managed store) — only the
+  bash-era `~/.agents/skills` and `~/.clx/skills` caches. A host pruned at an
+  older version self-heals (missing files are re-sent next run).
+- **Codex unchanged** — still MCP-only. Also fixed an unrelated engine bias: the
+  MCP resource list (`mcp-resources.ts`) hardcoded codex when listing skills,
+  hiding any claude-specific skill from the catalogue; it now lists all.
+
 ## clx Claude auth is now native account-login (1:1 with codex auth.json)
 
 The orchestrator's core job for codex is keeping `~/.codex/auth.json` current and
