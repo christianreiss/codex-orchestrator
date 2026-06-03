@@ -14,9 +14,15 @@ func BuildEnv(cfg *config.Config) []string {
 	env := os.Environ()
 	put := func(k, v string) { env = append(env, fmt.Sprintf("%s=%s", k, v)) }
 
-	// The orchestrator exposes an Anthropic-compatible endpoint under /anthropic/v1.
-	put("ANTHROPIC_BASE_URL", cfg.Orchestrator.BaseURL+"/anthropic")
-	put("ANTHROPIC_API_KEY", cfg.Orchestrator.APIKey)
+	// NOTE: We deliberately do NOT inject ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL.
+	// clx's job mirrors cdx 1:1 — keep the account-login file current and let the
+	// upstream CLI use it natively. Claude Code reads ~/.claude/.credentials.json
+	// (the `claudeAiOauth` account login the fleet distributes) on its own. Unlike
+	// codex (which ignores OPENAI_API_KEY in account mode), Claude Code *consumes*
+	// ANTHROPIC_API_KEY — injecting it pops the "detected custom API key" prompt
+	// and overrides the OAuth login with a key that doesn't authenticate. The
+	// orchestrator's /anthropic proxy is a separate gateway for issued
+	// `sk-claude-*` keys; host orchestrator keys are not valid there.
 
 	if cfg.EngineOptions.ClaudeModelOverride != nil && *cfg.EngineOptions.ClaudeModelOverride != "" {
 		put("CLX_MODEL", *cfg.EngineOptions.ClaudeModelOverride)

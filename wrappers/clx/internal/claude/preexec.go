@@ -72,8 +72,12 @@ func guardFQDN(cfg *config.Config) error {
 	return fmt.Errorf("clx: hostname %q does not match baked FQDN %q (set CLAUDE_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
 }
 
-// exportAnthropicAPIKey reads ~/.claude/.credentials.json and pulls the first
-// usable API key into ANTHROPIC_API_KEY (matching the legacy wrapper).
+// exportAnthropicAPIKey exports ANTHROPIC_API_KEY only for a GENUINE Anthropic
+// API key. It deliberately does NOT bridge a Claude.ai OAuth token: Claude Code
+// reads the `claudeAiOauth` account login from ~/.claude/.credentials.json
+// natively (1:1 with how cdx lets codex read ~/.codex/auth.json). Forcing an
+// OAuth access token (sk-ant-oat…) as an x-api-key pops the "detected custom API
+// key" prompt and does not authenticate.
 func exportAnthropicAPIKey() error {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return nil
@@ -82,9 +86,11 @@ func exportAnthropicAPIKey() error {
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
-	if key := extractAnthropicKey(raw); key != "" {
-		_ = os.Setenv("ANTHROPIC_API_KEY", key)
+	key := extractAnthropicKey(raw)
+	if key == "" || strings.HasPrefix(key, "sk-ant-oat") {
+		return nil
 	}
+	_ = os.Setenv("ANTHROPIC_API_KEY", key)
 	return nil
 }
 

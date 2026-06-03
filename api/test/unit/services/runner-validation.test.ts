@@ -101,6 +101,32 @@ describe('runner-validation: canonicalize + digest', () => {
     expect(svc.calculateDigest(ea)).toBe(svc.calculateDigest(eb));
     expect(svc.calculateDigest(ea)).toBe(sha256(ea));
   });
+
+  it('preserves the native claudeAiOauth account-login object (1:1 with codex tokens)', () => {
+    const oauth = { accessToken: 'sk-ant-oat01-abc', refreshToken: 'r', expiresAt: 123, scopes: ['user:inference'] };
+    const withFallback = svc.ensureAuthsFallback({ claudeAiOauth: oauth }, 'claude');
+    const canonical = svc.canonicalizeAuthPayload(
+      withFallback,
+      svc.normalizeAuthEntries(withFallback, 'claude'),
+      '2026-01-01T00:00:00Z',
+    );
+    // The native object survives canonicalization with refreshToken/expiresAt/scopes
+    // intact — so the host receives a real .credentials.json, not just a bearer.
+    expect(canonical.claudeAiOauth).toEqual(oauth);
+    // The derived auths bearer is still present for server-side/proxy use.
+    const bearer = (canonical.auths as Record<string, { token: string }>)['api.anthropic.com'];
+    expect(bearer?.token).toBe('sk-ant-oat01-abc');
+  });
+
+  it('does not invent a claudeAiOauth key for codex payloads', () => {
+    const canonical = svc.canonicalizeAuthPayload(
+      { auths: { 'api.openai.com': { token: 't' } }, tokens: { access_token: 'x' } },
+      svc.normalizeAuthEntries({ auths: { 'api.openai.com': { token: 't' } } }, 'codex'),
+      '2026-01-01T00:00:00Z',
+    );
+    expect(canonical.claudeAiOauth).toBeUndefined();
+    expect(canonical.tokens).toEqual({ access_token: 'x' });
+  });
 });
 
 describe('runner-validation: extractAuthPayload', () => {

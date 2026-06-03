@@ -1,3 +1,35 @@
+## clx Claude auth is now native account-login (1:1 with codex auth.json)
+
+The orchestrator's core job for codex is keeping `~/.codex/auth.json` current and
+distributing it so codex uses it as an **account login**. clx now does the exact
+same for Claude — and stops doing two things that broke it. Requires an API
+deploy **and** a clx fleet binary push (+ a one-time re-seed; see below).
+
+- **Server: preserve Claude's native `claudeAiOauth` account-login object.**
+  `canonicalizeAuthPayload` preserved codex's `tokens`/`OPENAI_API_KEY` but had no
+  symmetric branch for Claude, so an uploaded `.credentials.json`
+  (`{claudeAiOauth:{accessToken,refreshToken,expiresAt,scopes}}`) was reduced to a
+  derived `{auths:{api.anthropic.com:{token}}}` bearer — losing the refresh token
+  and the native shape. Claude Code can't account-login from a bare bearer. Now
+  the native `claudeAiOauth` is preserved (alongside the derived `auths`, which the
+  `/anthropic` proxy still uses), so hosts receive a real `.credentials.json`.
+  **One-time re-seed required:** existing canonical Claude payloads already lost
+  `claudeAiOauth`; re-upload a fresh `.credentials.json` so the stored payload
+  carries it.
+
+- **Wrapper (`clx`): stop hijacking Claude's auth via env.** `env.go` injected
+  `ANTHROPIC_API_KEY = <host orchestrator key>` + `ANTHROPIC_BASE_URL = …/anthropic`,
+  and `preexec` bridged the credential token into `ANTHROPIC_API_KEY`. Codex tolerates
+  the symmetric `OPENAI_*` (it ignores them in account mode), but Claude Code
+  *consumes* `ANTHROPIC_API_KEY` — popping the "detected custom API key" prompt and
+  overriding the OAuth login with a key the `/anthropic` proxy rejects (host keys
+  aren't valid there; that proxy is for issued `sk-claude-*` keys). clx no longer
+  sets `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`, and `preexec` only exports a
+  *genuine* API key (`sk-ant-api…`), never an OAuth token (`sk-ant-oat…`). Claude
+  Code then reads `~/.claude/.credentials.json` natively — exactly like codex reads
+  `auth.json`. (Verified: native `claudeAiOauth` authenticates a real `claude -p`
+  call; the codex `OPENAI_*` injection is left untouched.)
+
 ## clx Platinum follow-ups: no codex model leak into Claude settings + installable second engine
 
 Two defects surfaced by the first real end-to-end `clx` install on a host that

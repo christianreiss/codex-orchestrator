@@ -80,6 +80,16 @@ details:
 - Credentials read precedence: `~/.clx/auth/credentials.json` first, then
   `~/.claude/.credentials.json`; writes go to both so the upstream CLI sees
   them whichever path it consults.
+- **Auth model is native account-login, 1:1 with cdx/`auth.json`.** The fleet
+  keeps the host's `.credentials.json` current and Claude Code reads its
+  `claudeAiOauth` account login from it directly. clx deliberately does **not**
+  set `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`, and `preexec` only exports a
+  genuine API key (`sk-ant-api…`), never an OAuth token (`sk-ant-oat…`) — an
+  injected key pops Claude Code's "detected custom API key" prompt and overrides
+  the OAuth login. The orchestrator stores+serves the native `claudeAiOauth`
+  object (not just a derived `auths` bearer), so the refresh token/expiry survive
+  the round-trip. The `/anthropic/v1` proxy is a separate gateway for issued
+  `sk-claude-*` keys and is not part of the host launch path.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI

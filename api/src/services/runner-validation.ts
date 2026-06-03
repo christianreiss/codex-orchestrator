@@ -194,6 +194,18 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       };
       if (payload.tokens && typeof payload.tokens === 'object') canonical.tokens = payload.tokens;
       if (typeof payload.OPENAI_API_KEY === 'string') canonical.OPENAI_API_KEY = payload.OPENAI_API_KEY;
+      // Symmetric to codex's `tokens`: preserve Claude's native account-login
+      // object so the canonical payload served to hosts is the real
+      // `.credentials.json` shape (accessToken + refreshToken + expiresAt +
+      // scopes), not just the derived `auths` bearer. Without this the host
+      // could never refresh and Claude Code can't do native account login.
+      if (
+        payload.claudeAiOauth &&
+        typeof payload.claudeAiOauth === 'object' &&
+        !Array.isArray(payload.claudeAiOauth)
+      ) {
+        canonical.claudeAiOauth = payload.claudeAiOauth;
+      }
       return canonical;
     },
 
