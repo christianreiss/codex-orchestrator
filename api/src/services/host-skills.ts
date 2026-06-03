@@ -7,11 +7,16 @@ import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import { skills, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
-import { ValidationError } from '../http/errors.js';
+import { ConflictError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Engine } from '../util/engine.js';
 import { isEngine } from '../util/engine.js';
+import {
+  getManagedCocoSkillIfEnabled,
+  isManagedCocoSlug,
+  type ManagedCocoSkill,
+} from './managed-coco-skill.js';
 
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 const SHA_RE = /^[a-f0-9]{64}$/i;
@@ -102,6 +107,10 @@ export function renderSkillFile(row: typeof skills.$inferSelect): string {
 export class HostSkillsService {
   constructor(private readonly db: Database) {}
 
+  private async managedCocoSkill(): Promise<ManagedCocoSkill | null> {
+    return getManagedCocoSkillIfEnabled(this.db);
+  }
+
   /**
    * Complete live set of skills visible to `engine`, rendered as Claude Code
    * SKILL.md files, for on-disk distribution (claude only — codex reads skills
@@ -111,14 +120,18 @@ export class HostSkillsService {
    * sha the MCP/retrieve path depends on).
    */
   async bundle(host: Host, engine: Engine, digests: Record<string, string> = {}): Promise<SkillEnvelope[]> {
-    const rows = await this.db
+    const [rows, managedCoco] = await Promise.all([
+      this.db
       .select()
       .from(skills)
       .where(sql`${skills.deletedAt} IS NULL`)
-      .orderBy(asc(skills.slug));
+        .orderBy(asc(skills.slug)),
+      this.managedCocoSkill(),
+    ]);
     const out: SkillEnvelope[] = [];
     for (const row of rows) {
       if (row.deletedAt) continue; // db-shim ignores WHERE — filter in JS too
+      if (managedCoco && isManagedCocoSlug(row.slug)) continue;
       const e = row.engine;
       const visible = e === null || e === undefined || e === '' || e === engine;
       if (!visible) continue;
@@ -132,23 +145,40 @@ export class HostSkillsService {
           : { slug: row.slug, sha256: sha, status: 'updated', content },
       );
     }
+    if (managedCoco) {
+      const content = managedCoco.manifest;
+      const sha = createHash('sha256').update(content).digest('hex');
+      const have = digests[managedCoco.slug];
+      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have);
+      out.push(
+        unchanged
+          ? { slug: managedCoco.slug, sha256: sha, status: 'unchanged' }
+          : { slug: managedCoco.slug, sha256: sha, status: 'updated', content },
+      );
+    }
     await this.recordLog(host.id, 'skill.bundle', { count: out.length, engine });
     return out;
   }
 
   async listSkills(host: Host, engine: Engine | null): Promise<{ engine: Engine | null; skills: Record<string, unknown>[] }> {
-    const rows = await this.db
+    const [rows, managedCoco] = await Promise.all([
+      this.db
       .select()
       .from(skills)
       .where(sql`${skills.deletedAt} IS NULL`)
-      .orderBy(asc(skills.slug));
+        .orderBy(asc(skills.slug)),
+      this.managedCocoSkill(),
+    ]);
     const filtered = engine && isEngine(engine)
       ? rows.filter((r) => {
           const e = r.engine;
           return e === null || e === undefined || e === '' || e === engine;
         })
       : rows;
-    const decorated = filtered.map((r) => this.decorate(r));
+    const decorated = filtered
+      .filter((r) => !(managedCoco && isManagedCocoSlug(r.slug)))
+      .map((r) => this.decorate(r));
+    if (managedCoco) decorated.push(this.decorateManaged(managedCoco));
     await this.recordLog(host.id, 'skill.list', { count: decorated.length, engine });
     return { engine, skills: decorated };
   }
@@ -158,6 +188,24 @@ export class HostSkillsService {
     const errors: Record<string, string[]> = {};
     assertSha256(providedSha, true, errors);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
+
+    const managedCoco = isManagedCocoSlug(normalized) ? await this.managedCocoSkill() : null;
+    if (managedCoco) {
+      const status = providedSha && safeHashEquals(managedCoco.sha256, providedSha) ? 'unchanged' : 'updated';
+      await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status, managed: true });
+      return {
+        status,
+        slug: managedCoco.slug,
+        uri: managedCoco.uri,
+        canonical_uri: managedCoco.canonical_uri,
+        sha256: managedCoco.sha256,
+        display_name: managedCoco.display_name,
+        description: managedCoco.description,
+        updated_at: managedCoco.updated_at,
+        managed: true,
+        ...(status === 'unchanged' ? {} : { manifest: managedCoco.manifest }),
+      };
+    }
 
     const found = await this.db.select().from(skills).where(eq(skills.slug, normalized)).limit(1);
     const row = found[0];
@@ -209,6 +257,9 @@ export class HostSkillsService {
     const providedSha = payload['sha256'];
 
     const slug = normalizeSlug(String(slugRaw));
+    if (isManagedCocoSlug(slug) && await this.managedCocoSkill()) {
+      throw new ConflictError('managed skill cannot be overwritten directly', 'managed_skill');
+    }
     const manifest = String(manifestRaw ?? '').trim() === '' ? '' : String(manifestRaw);
     const errors: Record<string, string[]> = {};
     if (manifest === '') errors['manifest'] = ['manifest is required'];
@@ -296,6 +347,21 @@ export class HostSkillsService {
       uri: skillUri(row.slug),
       canonical_uri: skillUri(row.slug),
       managed: false,
+    };
+  }
+
+  private decorateManaged(skill: ManagedCocoSkill): Record<string, unknown> {
+    return {
+      slug: skill.slug,
+      sha256: skill.sha256,
+      display_name: skill.display_name,
+      description: skill.description,
+      updated_at: skill.updated_at,
+      deleted_at: null,
+      engine: null,
+      uri: skill.uri,
+      canonical_uri: skill.canonical_uri,
+      managed: true,
     };
   }
 

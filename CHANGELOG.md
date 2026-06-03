@@ -1,3 +1,14 @@
+## CoCo MCP managed skill is restored
+
+- **Server:** host-facing skill sync and MCP resource reads now derive the managed
+  `coco` skill from the Projects module flag again. When Projects is enabled,
+  `skill_list`, `skill_retrieve`, `resource_list`, `resource_read skill://coco`,
+  and Claude skill bundles expose a read-only managed CoCo skill instead of
+  depending on a stored `skills.slug = "coco"` row.
+- **Projects bootstrap:** `project_bootstrap` now returns the managed
+  `skill://coco` metadata plus native CoCo instructions/quickstart instead of
+  `null` placeholders.
+
 ## clx: fleet skills now sync on-disk to Claude Code (`~/.claude/skills/<slug>/SKILL.md`)
 
 Claude Code **cannot consume skills over MCP** (skills are strictly on-disk; MCP

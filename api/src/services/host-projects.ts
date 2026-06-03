@@ -24,6 +24,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { Host } from '../db/schema.js';
 import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
+import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
@@ -163,6 +164,7 @@ export class HostProjectsService {
     const detail = await this.buildDetail(project, host, false);
     const encoded = encodeURIComponent(project.slug);
     const detailRoute = `/projects/${encoded}`;
+    const guidance = managedCocoBootstrapGuidance();
     return {
       project: project.slug,
       about: detail.project.about,
@@ -173,9 +175,9 @@ export class HostProjectsService {
       recent_todos: detail.todos.slice(0, 6),
       recent_files: detail.files.slice(0, 5),
       recent_changes: detail.recent_changes.slice(-10),
-      skill: null,
-      instructions: null,
-      quickstart: null,
+      skill: guidance.skill,
+      instructions: guidance.instructions,
+      quickstart: guidance.quickstart,
       routes: {
         detail: detailRoute,
         bootstrap: `${detailRoute}/bootstrap`,
