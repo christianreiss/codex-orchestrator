@@ -7,7 +7,14 @@
   import InsecureCountdown from "./InsecureCountdown.svelte";
   import { Switch } from "$lib/components/ui/switch";
   import { relativeTime } from "$lib/utils/format";
-  import { hostEngines, isInsecureWindowActive } from "$lib/api/hosts";
+  import {
+    hostEngines,
+    hostLatestRefresh,
+    hostLatestRefreshMs,
+    hostStatusKind,
+    hostStatusLabel,
+    isInsecureWindowActive,
+  } from "$lib/api/hosts";
   import type { HostListItem } from "$lib/api/types";
   import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
@@ -49,6 +56,12 @@
     copy.sort((a, b) => {
       const av = (a as unknown as Record<string, unknown>)[sortField];
       const bv = (b as unknown as Record<string, unknown>)[sortField];
+      if (sortField === "status") {
+        return hostStatusLabel(a).localeCompare(hostStatusLabel(b)) * dir;
+      }
+      if (sortField === "last_refresh") {
+        return ((hostLatestRefreshMs(a) ?? 0) - (hostLatestRefreshMs(b) ?? 0)) * dir;
+      }
       if (av === bv) return 0;
       if (av === null || av === undefined) return 1;
       if (bv === null || bv === undefined) return -1;
@@ -145,10 +158,10 @@
                 {/if}
               </div>
               <div>
-                {@render statusCell(row.status, insecureActive)}
+                {@render statusCell(row, insecureActive)}
               </div>
               <div class="truncate text-xs text-muted-foreground">
-                {relativeTime(row.last_refresh) || "—"}
+                {relativeTime(hostLatestRefresh(row)) || "—"}
               </div>
               <div class="truncate font-mono text-[11px] text-muted-foreground">
                 {row.client_version_override ?? row.client_version ?? "—"}
@@ -195,14 +208,18 @@
   </button>
 {/snippet}
 
-{#snippet statusCell(status: string, insecureActive: boolean)}
+{#snippet statusCell(host: HostListItem, insecureActive: boolean)}
   {#if insecureActive}
     <StatusPill tone="warning" label="Insecure" />
-  {:else if (status ?? "").toLowerCase() === "active"}
+  {:else if hostStatusKind(host) === "online"}
     <StatusPill tone="online" label="Online" />
-  {:else if (status ?? "").toLowerCase() === "stale"}
+  {:else if hostStatusKind(host) === "auth-missing"}
+    <StatusPill tone="warning" label="Auth missing" />
+  {:else if hostStatusKind(host) === "auth-outdated"}
+    <StatusPill tone="warning" label="Outdated auth" />
+  {:else if hostStatusKind(host) === "offline"}
     <StatusPill tone="offline" label="Offline" />
   {:else}
-    <StatusPill tone="muted" label={status || "—"} />
+    <StatusPill tone="muted" label={hostStatusLabel(host)} />
   {/if}
 {/snippet}

@@ -1,3 +1,12 @@
+## Admin hosts status uses recent contact, not lifecycle state
+
+- **UI/API:** Hosts → Status no longer treats `status = active` as “Online”.
+  The list/detail payload now includes real `authed` / `auth_outdated` booleans,
+  and the host table shows `Online` only when the host has required engine auth
+  and a Codex or Claude refresh within the last 24 hours. Missing/stale auth is
+  surfaced as a warning, and the Online/Offline/Unprovisioned filters use the
+  same classification.
+
 ## Dashboard runner state is engine-scoped
 
 - **UI:** Dashboard → Runner state now shows separate Codex and Claude rows with

@@ -386,6 +386,66 @@ export function hostEngines(
   return [];
 }
 
+export const HOST_ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type HostStatusKind = "online" | "offline" | "auth-missing" | "auth-outdated";
+
+function parseHostTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ts = Date.parse(value);
+  return Number.isNaN(ts) ? null : ts;
+}
+
+export function hostLatestRefreshMs(
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh">,
+): number | null {
+  const times = [parseHostTime(host.last_refresh), parseHostTime(host.claude_last_refresh)].filter(
+    (t): t is number => typeof t === "number",
+  );
+  return times.length ? Math.max(...times) : null;
+}
+
+export function hostLatestRefresh(
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh">,
+): string | null {
+  const codexTs = parseHostTime(host.last_refresh);
+  const claudeTs = parseHostTime(host.claude_last_refresh);
+  if (codexTs !== null && (claudeTs === null || codexTs >= claudeTs)) return host.last_refresh;
+  if (claudeTs !== null) return host.claude_last_refresh;
+  return null;
+}
+
+export function hostHasRequiredAuth(
+  host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "authed">,
+): boolean {
+  if (host.authed === false) return false;
+  const engines = hostEngines(host);
+  const required = engines.length ? engines : ["codex"];
+  return required.every((engine) => {
+    if (engine === "claude") return Boolean(host.claude_canonical_digest);
+    if (engine === "codex") return Boolean(host.canonical_digest);
+    return true;
+  });
+}
+
+export function hostStatusKind(host: HostListItem, nowMs = Date.now()): HostStatusKind {
+  const raw = (host.status ?? "").toLowerCase();
+  if (raw === "offline" || raw === "stale" || raw === "disabled") return "offline";
+  if (!hostHasRequiredAuth(host)) return "auth-missing";
+  if (host.auth_outdated === true) return "auth-outdated";
+  const latest = hostLatestRefreshMs(host);
+  if (latest !== null && nowMs - latest <= HOST_ONLINE_WINDOW_MS) return "online";
+  return "offline";
+}
+
+export function hostStatusLabel(host: HostListItem): string {
+  const kind = hostStatusKind(host);
+  if (kind === "online") return "Online";
+  if (kind === "auth-missing") return "Auth missing";
+  if (kind === "auth-outdated") return "Outdated auth";
+  return "Offline";
+}
+
 /** Classify a host into one of the filter-chip buckets. */
 export type HostFilterId =
   | "all"
@@ -405,21 +465,15 @@ export function hostMatchesFilter(
     case "all":
       return true;
     case "online":
-      return (
-        (host.status ?? "").toLowerCase() === "active" ||
-        (host.status ?? "").toLowerCase() === "online"
-      );
+      return hostStatusKind(host) === "online";
     case "offline":
-      return (
-        (host.status ?? "").toLowerCase() === "stale" ||
-        (host.status ?? "").toLowerCase() === "offline"
-      );
+      return hostStatusKind(host) === "offline";
     case "secure":
       return host.secure === true;
     case "insecure":
       return host.secure === false || isInsecureWindowActive(host);
     case "unprovisioned":
-      return host.authed === false;
+      return !hostHasRequiredAuth(host);
     case "vip":
       return host.vip === true;
     case "roaming":

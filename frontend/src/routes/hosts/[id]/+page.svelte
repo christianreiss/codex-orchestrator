@@ -31,6 +31,8 @@
     hostDetailQuery,
     hostsKeys,
     hostEngines,
+    hostLatestRefresh,
+    hostStatusKind,
     isInsecureWindowActive,
     createDeleteHostMutation,
     createClearHostAuthMutation,
@@ -264,10 +266,14 @@
     {:else}
       <StatusPill tone="muted" label="Insecure (closed)" />
     {/if}
-    {#if (host.status ?? "").toLowerCase() === "active"}
+    {#if hostStatusKind(host) === "online"}
       <StatusPill tone="online" label="Online" />
+    {:else if hostStatusKind(host) === "auth-missing"}
+      <StatusPill tone="warning" label="Auth missing" />
+    {:else if hostStatusKind(host) === "auth-outdated"}
+      <StatusPill tone="warning" label="Outdated auth" />
     {:else}
-      <StatusPill tone="offline" label={host.status || "Unknown"} />
+      <StatusPill tone="offline" label="Offline" />
     {/if}
     {#if host.vip}
       <StatusPill tone="info" label="VIP" />
@@ -295,7 +301,7 @@
       <Card.Content class="space-y-2 text-sm">
         <div class="flex justify-between">
           <span class="text-muted-foreground">Last contact</span>
-          <span>{relativeTime(host.last_refresh) || "—"}</span>
+          <span>{relativeTime(hostLatestRefresh(host)) || "—"}</span>
         </div>
         <div class="flex justify-between">
           <span class="text-muted-foreground">Last cron check</span>

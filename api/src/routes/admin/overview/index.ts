@@ -25,7 +25,7 @@ import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService, extractAuthPayload } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { encrypt } from '../../../security/secret-box.js';
-import { ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -84,6 +84,42 @@ interface WsInfoEnv {
   PUBLIC_BASE_URL?: string;
 }
 
+function hostEngines(raw: string | null | undefined): Engine[] {
+  const engines = String(raw ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(isEngine);
+  return engines.length ? engines : [ENGINE_CODEX];
+}
+
+function hostDigestForEngine(
+  h: typeof hosts.$inferSelect,
+  engine: Engine,
+): string | null {
+  return engine === ENGINE_CLAUDE ? h.claudeAuthDigest ?? null : h.authDigest ?? null;
+}
+
+function hostAuthSummary(
+  h: typeof hosts.$inferSelect,
+  canonicalDigests: Record<Engine, string | null>,
+): { authed: boolean; auth_outdated: boolean } {
+  const engines = hostEngines(h.engines);
+  let authed = true;
+  let outdated = false;
+  for (const engine of engines) {
+    const digest = hostDigestForEngine(h, engine);
+    if (!digest) {
+      authed = false;
+      continue;
+    }
+    const canonical = canonicalDigests[engine];
+    if (canonical && digest !== canonical) {
+      outdated = true;
+    }
+  }
+  return { authed, auth_outdated: authed && outdated };
+}
+
 export function buildWsInfo(env: WsInfoEnv): {
   enabled: boolean;
   url: string | null;
@@ -120,10 +156,11 @@ export async function registerAdminOverviewRoutes(
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
+  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const chatgpt = new ChatGptUsageService(ctx.db, app.log, {
     env: ctx.env,
     keyring: ctx.keyring,
-    runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
+    runnerValidation,
   });
   const claude = new ClaudeUsageService(ctx.db);
   const dashboard = new DashboardStatsService(ctx.db);
@@ -131,7 +168,7 @@ export async function registerAdminOverviewRoutes(
   const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
     db: ctx.db,
     runner: createRunnerClient({ env: ctx.env }),
-    runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
+    runnerValidation,
   });
   const adminEventsService = createAdminEventsService(ctx.db);
 
@@ -282,48 +319,63 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/hosts (JSON listing) ───────────────────────────────────────────
   app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
-    const rows = await ctx.db.select().from(hosts).orderBy(hosts.fqdn);
+    const [rows, codexCanonical, claudeCanonical] = await Promise.all([
+      ctx.db.select().from(hosts).orderBy(hosts.fqdn),
+      runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
+      runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
+    ]);
+    const canonicalDigests = {
+      [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
+      [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
+    };
     return ok({
-      hosts: rows.map((h) => ({
-        id: Number(h.id),
-        fqdn: h.fqdn,
-        status: h.status,
-        last_refresh: h.lastRefresh,
-        claude_last_refresh: h.claudeLastRefresh,
-        updated_at: h.updatedAt,
-        created_at: h.createdAt,
-        client_version: h.clientVersion,
-        claude_client_version: h.claudeClientVersion,
-        client_version_override: h.clientVersionOverride,
-        claude_client_version_override: h.claudeClientVersionOverride,
-        wrapper_version: h.wrapperVersion,
-        claude_wrapper_version: h.claudeWrapperVersion,
-        api_calls: Number(h.apiCalls ?? 0),
-        ip4: h.ip4,
-        ip6: h.ip6,
-        secure: h.secure === 1,
-        vip: h.vip === 1,
-        allow_roaming_ips: h.allowRoamingIps === 1,
-        scaling_exempt: h.scalingExempt === 1,
-        curl_insecure: h.curlInsecure === 1,
-        browseros_mcp_enabled: h.browserosMcpEnabled === 1,
-        insecure_enabled_until: h.insecureEnabledUntil,
-        insecure_grace_until: h.insecureGraceUntil,
-        insecure_window_minutes: h.insecureWindowMinutes,
-        last_cron_check: h.lastCronCheck,
-        reverse_dns_mode: h.reverseDnsMode,
-        lane_preference: h.lanePreference,
-        model_override: h.modelOverride,
-        reasoning_effort_override: h.reasoningEffortOverride,
-        claude_model_override: h.claudeModelOverride,
-        claude_reasoning_effort_override: h.claudeReasoningEffortOverride,
-        engines: h.engines,
-        auto_update_override: h.autoUpdateOverride === null ? null : h.autoUpdateOverride === 1,
-        canonical_digest: h.authDigest,
-        claude_canonical_digest: h.claudeAuthDigest,
-        config_version: Number(h.configVersion ?? 0),
-        wrapper_track: h.wrapperTrack,
-      })),
+      hosts: rows.map((h) => {
+        const auth = hostAuthSummary(h, canonicalDigests);
+        return {
+          id: Number(h.id),
+          fqdn: h.fqdn,
+          status: h.status,
+          last_refresh: h.lastRefresh,
+          claude_last_refresh: h.claudeLastRefresh,
+          updated_at: h.updatedAt,
+          created_at: h.createdAt,
+          client_version: h.clientVersion,
+          claude_client_version: h.claudeClientVersion,
+          client_version_override: h.clientVersionOverride,
+          claude_client_version_override: h.claudeClientVersionOverride,
+          wrapper_version: h.wrapperVersion,
+          claude_wrapper_version: h.claudeWrapperVersion,
+          api_calls: Number(h.apiCalls ?? 0),
+          ip4: h.ip4,
+          ip6: h.ip6,
+          secure: h.secure === 1,
+          vip: h.vip === 1,
+          allow_roaming_ips: h.allowRoamingIps === 1,
+          scaling_exempt: h.scalingExempt === 1,
+          curl_insecure: h.curlInsecure === 1,
+          browseros_mcp_enabled: h.browserosMcpEnabled === 1,
+          insecure_enabled_until: h.insecureEnabledUntil,
+          insecure_grace_until: h.insecureGraceUntil,
+          insecure_window_minutes: h.insecureWindowMinutes,
+          last_cron_check: h.lastCronCheck,
+          reverse_dns_mode: h.reverseDnsMode,
+          lane_preference: h.lanePreference,
+          model_override: h.modelOverride,
+          reasoning_effort_override: h.reasoningEffortOverride,
+          claude_model_override: h.claudeModelOverride,
+          claude_reasoning_effort_override: h.claudeReasoningEffortOverride,
+          engines: h.engines,
+          auto_update_override: h.autoUpdateOverride === null ? null : h.autoUpdateOverride === 1,
+          canonical_digest: h.authDigest,
+          claude_canonical_digest: h.claudeAuthDigest,
+          recent_digests: [],
+          claude_recent_digests: [],
+          authed: auth.authed,
+          auth_outdated: auth.auth_outdated,
+          config_version: Number(h.configVersion ?? 0),
+          wrapper_track: h.wrapperTrack,
+        };
+      }),
     });
   });
 
@@ -337,14 +389,28 @@ export async function registerAdminOverviewRoutes(
     const rows = await ctx.db.select().from(hosts).where(eq(hosts.id, id)).limit(1);
     const h = rows[0];
     if (!h) throw new NotFoundError('Host not found', 'host_not_found');
-    const [codexVersions, claudeVersions, autoUpdateEnabled, reverseDnsEnabled, inactivityWindowDays] =
+    const [
+      codexVersions,
+      claudeVersions,
+      autoUpdateEnabled,
+      reverseDnsEnabled,
+      inactivityWindowDays,
+      codexCanonical,
+      claudeCanonical,
+    ] =
       await Promise.all([
         clientVersions.versionSummary('codex'),
         clientVersions.versionSummary('claude'),
         settings.getFlag('auto_update_enabled', false),
         settings.getFlag('reverse_dns_enabled', false),
         settings.getInt('inactivity_window_days', 7),
+        runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
+        runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
       ]);
+    const auth = hostAuthSummary(h, {
+      [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
+      [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
+    });
     return ok({
       host: {
         id: Number(h.id),
@@ -366,6 +432,10 @@ export async function registerAdminOverviewRoutes(
         engines: h.engines,
         canonical_digest: h.authDigest,
         claude_canonical_digest: h.claudeAuthDigest,
+        recent_digests: [],
+        claude_recent_digests: [],
+        authed: auth.authed,
+        auth_outdated: auth.auth_outdated,
         lane_preference: h.lanePreference,
         browseros_mcp_enabled: h.browserosMcpEnabled === 1,
         model_override: h.modelOverride,
@@ -683,7 +753,6 @@ export async function registerAdminOverviewRoutes(
   });
 
   // ── /admin/auth/upload ────────────────────────────────────────────────────
-  const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   app.post('/admin/auth/upload', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown };
     const engineRaw = typeof body.engine === 'string' ? body.engine.trim().toLowerCase() : '';

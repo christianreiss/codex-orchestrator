@@ -15,6 +15,7 @@
   import {
     hostsListQuery,
     hostMatchesFilter,
+    hostStatusLabel,
     createAutoUpdateToggleMutation,
     type HostFilterId,
   } from "$lib/api/hosts";
@@ -98,8 +99,13 @@
         const ver = (h.client_version ?? "").toLowerCase();
         const claudeVer = (h.claude_client_version ?? "").toLowerCase();
         const status = (h.status ?? "").toLowerCase();
+        const displayStatus = hostStatusLabel(h).toLowerCase();
         return (
-          fqdn.includes(q) || ver.includes(q) || claudeVer.includes(q) || status.includes(q)
+          fqdn.includes(q) ||
+          ver.includes(q) ||
+          claudeVer.includes(q) ||
+          status.includes(q) ||
+          displayStatus.includes(q)
         );
       });
     }
