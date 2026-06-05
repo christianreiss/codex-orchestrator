@@ -62,7 +62,7 @@ describe('version-snapshot', () => {
   it('resolves latest codex alias from cached release metadata', async () => {
     const db = makeDb([
       { name: 'client_version_codex', version: 'latest' },
-      { name: 'github_release_codex-cli', version: '{"tag_name":"v0.137.0"}' },
+      { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.137.0"}' },
       { name: 'client_available', version: '0.130.0' },
     ]);
     const svc = createVersionSnapshotService({ db, installationId: null });

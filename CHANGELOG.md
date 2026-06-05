@@ -1,3 +1,9 @@
+## Codex latest no longer downgrades
+
+- **API:** Codex auto-update now checks the live `openai/codex` release feed
+  and normalizes `rust-v*` release tags, so `latest` resolves to the current
+  Codex CLI release instead of the stale `0.130.0` fallback.
+
 ## Runner boxes use matching visuals
 
 - **UI:** Dashboard runner state now renders Codex and Claude engine boxes with

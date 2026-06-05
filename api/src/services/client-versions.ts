@@ -94,7 +94,7 @@ export class ClientVersionsService {
   }
 
   private async fetchUpstream(name: string): Promise<AvailableRelease | null> {
-    const repo = name === 'claude-cli' ? 'anthropics/claude-cli' : 'openai/codex-cli';
+    const repo = name === 'claude-cli' ? 'anthropics/claude-cli' : 'openai/codex';
     const url = `https://api.github.com/repos/${repo}/releases/latest`;
     try {
       const ac = new AbortController();
@@ -118,8 +118,8 @@ export class ClientVersionsService {
         html_url?: string;
         published_at?: string;
       };
-      const version = (json.tag_name ?? json.name ?? '').replace(/^v/, '').trim();
-      if (!version) return null;
+      const version = normalizeVersion(json.name) ?? normalizeVersion(json.tag_name);
+      if (!version || !isSemanticVersion(version)) return null;
       return {
         name,
         version,
@@ -154,6 +154,7 @@ export function isSemanticVersion(s: string): boolean {
 
 export function normalizeVersion(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
-  const trimmed = String(s).trim().replace(/^v/i, '');
-  return trimmed === '' ? null : trimmed;
+  const trimmed = String(s).trim();
+  if (trimmed === '') return null;
+  return trimmed.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/)?.[0] ?? trimmed.replace(/^v/i, '');
 }

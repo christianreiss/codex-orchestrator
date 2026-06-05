@@ -3,6 +3,7 @@ import { versions as versionsTable } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../util/engine.js';
+import { isSemanticVersion, normalizeVersion } from './client-versions.js';
 
 /**
  * Port of AuthService::versionSummary + availableClientVersion. The PHP
@@ -51,9 +52,8 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
   }
 
   function semanticOrNull(v: string | undefined | null): string | null {
-    if (!v) return null;
-    const normalized = v.trim().replace(/^v/i, '');
-    return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(normalized) ? normalized : null;
+    const normalized = normalizeVersion(v);
+    return normalized && isSemanticVersion(normalized) ? normalized : null;
   }
 
   function isLatestAlias(v: string | undefined | null): boolean {
@@ -66,8 +66,12 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw) as { version?: unknown; tag_name?: unknown; name?: unknown };
-      const candidate = parsed.version ?? parsed.tag_name ?? parsed.name;
-      return typeof candidate === 'string' ? semanticOrNull(candidate) : null;
+      for (const candidate of [parsed.version, parsed.tag_name, parsed.name]) {
+        if (typeof candidate !== 'string') continue;
+        const version = semanticOrNull(candidate);
+        if (version) return version;
+      }
+      return null;
     } catch {
       return semanticOrNull(raw);
     }

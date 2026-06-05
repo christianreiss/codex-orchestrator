@@ -85,7 +85,7 @@ describe('POST /cron/check', () => {
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: 'latest' },
-      { name: 'github_release_codex-cli', version: '{"tag_name":"v0.137.0"}' },
+      { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.137.0"}' },
       { name: 'wrapper_version_codex', version: '0.6.2' },
       { name: 'auto_update_enabled', version: '1' },
     ]);
