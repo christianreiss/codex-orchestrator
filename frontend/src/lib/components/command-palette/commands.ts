@@ -2,7 +2,7 @@
  * Cmd-K command registry.
  *
  * The palette renders commands organised into the following groups, in
- * order: Navigation, Actions, Hosts, Projects, Skills, Users, Theme & session.
+ * order: Hosts, Navigation, Actions, Projects, Skills, Users, Theme & session.
  *
  * Static commands (navigation, deep links, actions, theme, sign out) are
  * declared inline below. Dynamic command sources (host/project/skill/user
@@ -58,9 +58,9 @@ import {
 } from "$lib/api/quicksearch";
 
 export const COMMAND_GROUPS = [
+  "Hosts",
   "Navigation",
   "Actions",
-  "Hosts",
   "Projects",
   "Skills",
   "Users",

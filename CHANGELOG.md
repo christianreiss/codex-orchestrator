@@ -1,3 +1,9 @@
+## Command palette starts with hosts
+
+- **UI:** The `/` command palette now ranks host results before navigation,
+  actions, projects, skills, users, and theme entries so fleet lookups surface
+  first while typing.
+
 ## Wrapper transition names are literal
 
 - **API/Docs:** Removed the ambiguous legacy handoff wording across cdx/clx
