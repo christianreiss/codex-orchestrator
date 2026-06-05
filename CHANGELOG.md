@@ -1,3 +1,8 @@
+## Logs tabs render rows again
+
+- **UI:** Logs → API, MCP, and Events now render their fetched rows without the
+  shared virtualized table path that could leave all three tab bodies blank.
+
 ## Project cards can delete directly
 
 - **UI:** Projects overview cards now include a quick delete action with the

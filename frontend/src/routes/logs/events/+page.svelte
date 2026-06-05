@@ -315,7 +315,8 @@
     rowHeight={44}
     {rowKey}
     loading={result.isPending}
-    emptyMessage="No audit events match." />
+    emptyMessage="No audit events match."
+    virtualize={false} />
 
   <p class="text-xs text-muted-foreground">
     Showing

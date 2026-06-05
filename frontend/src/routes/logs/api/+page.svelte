@@ -229,7 +229,8 @@
     onSort={toggleSort}
     {rowKey}
     loading={result.isPending}
-    emptyMessage="No API traffic yet." />
+    emptyMessage="No API traffic yet."
+    virtualize={false} />
 
   <div class="flex flex-col items-center justify-between gap-3 text-xs text-muted-foreground sm:flex-row">
     <div>

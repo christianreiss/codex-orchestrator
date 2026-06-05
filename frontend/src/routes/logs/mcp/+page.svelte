@@ -172,7 +172,8 @@
     expandable
     expandContent={expanded}
     loading={result.isPending}
-    emptyMessage="No MCP invocations recorded." />
+    emptyMessage="No MCP invocations recorded."
+    virtualize={false} />
 
   <p class="text-xs text-muted-foreground">
     Showing
