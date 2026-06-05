@@ -415,6 +415,23 @@ export function hostLatestRefresh(
   return null;
 }
 
+/**
+ * Liveness timestamp: when the host last talked to the orchestrator.
+ * `updated_at` is bumped on every auth sync and cron check-in — unlike
+ * `last_refresh`, which carries the canonical payload's mint time and can be
+ * days old even on a perfectly healthy host.
+ */
+export function hostLastSeenMs(
+  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh">,
+): number | null {
+  const times = [
+    parseHostTime(host.updated_at),
+    parseHostTime(host.last_refresh),
+    parseHostTime(host.claude_last_refresh),
+  ].filter((t): t is number => typeof t === "number");
+  return times.length ? Math.max(...times) : null;
+}
+
 export function hostHasRequiredAuth(
   host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "authed">,
 ): boolean {
@@ -433,8 +450,8 @@ export function hostStatusKind(host: HostListItem, nowMs = Date.now()): HostStat
   if (raw === "offline" || raw === "stale" || raw === "disabled") return "offline";
   if (!hostHasRequiredAuth(host)) return "auth-missing";
   if (host.auth_outdated === true) return "auth-outdated";
-  const latest = hostLatestRefreshMs(host);
-  if (latest !== null && nowMs - latest <= HOST_ONLINE_WINDOW_MS) return "online";
+  const lastSeen = hostLastSeenMs(host);
+  if (lastSeen !== null && nowMs - lastSeen <= HOST_ONLINE_WINDOW_MS) return "online";
   return "offline";
 }
 

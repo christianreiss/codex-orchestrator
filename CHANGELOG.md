@@ -1,3 +1,12 @@
+## Host online pill uses real last contact
+
+- **UI:** Hosts → Status pill no longer keys the 24-hour online window off
+  `last_refresh` — that column carries the canonical auth payload's mint time
+  (identical across the fleet, often days old), so every host rendered as
+  Offline. Liveness now uses the freshest of `updated_at` (bumped on every
+  auth sync and cron check-in) and the engine refresh timestamps. The
+  Online/Offline filter chips inherit the fix.
+
 ## Command palette starts with hosts
 
 - **UI:** The `/` command palette now ranks host results before navigation,
