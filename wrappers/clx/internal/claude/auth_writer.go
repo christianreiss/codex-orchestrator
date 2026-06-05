@@ -63,8 +63,12 @@ func WriteAuth(payload json.RawMessage) error {
 	if len(payload) == 0 {
 		return errors.New("empty auth payload")
 	}
-	var probe any
-	if err := json.Unmarshal(payload, &probe); err != nil {
+	// Claude Code reads ~/.claude/.credentials.json and expects ONLY the
+	// claudeAiOauth block. The orchestrator payload may also carry legacy
+	// `last_refresh` / `auths` fields. Strip them so Claude does not fall
+	// back to the legacy auth flow or show the login wizard.
+	toWrite, err := extractClaudeFormat(payload)
+	if err != nil {
 		return fmt.Errorf("auth payload not valid JSON: %w", err)
 	}
 	p, err := AuthPath()
@@ -75,8 +79,28 @@ func WriteAuth(payload json.RawMessage) error {
 		return err
 	}
 	tmp := p + ".new"
-	if err := os.WriteFile(tmp, payload, 0o600); err != nil {
+	if err := os.WriteFile(tmp, toWrite, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+// extractClaudeFormat returns a credentials JSON that Claude Code accepts.
+// When the payload contains a claudeAiOauth block it returns just that block;
+// otherwise it returns the original payload unchanged (API-key-only setups).
+func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
+	var raw struct {
+		ClaudeAIOauth json.RawMessage `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw.ClaudeAIOauth) == 0 {
+		return payload, nil
+	}
+	out, err := json.Marshal(map[string]json.RawMessage{"claudeAiOauth": raw.ClaudeAIOauth})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
