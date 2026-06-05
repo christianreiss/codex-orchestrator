@@ -52,6 +52,7 @@
       "/": () => commandPalette.open(),
       Escape: () => commandPalette.close(),
       "?": () => window.dispatchEvent(new CustomEvent("codex:open-shortcuts")),
+      n: () => void goto(`${base}/hosts/new`),
     });
 
     const cmdK = (event: KeyboardEvent) => {

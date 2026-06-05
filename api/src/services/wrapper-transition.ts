@@ -38,7 +38,17 @@ export function buildWrapperV2InstallerScript(opts: {
   const cliName = opts.engine === ENGINE_CLAUDE ? 'claude' : 'codex';
   const cliHint =
     opts.engine === ENGINE_CLAUDE
-      ? `command -v ${cliName} >/dev/null 2>&1 || echo ">> Install Claude CLI manually (e.g. npm install -g @anthropic-ai/claude-code) and re-run."`
+      ? `if ! command -v ${cliName} >/dev/null 2>&1; then
+  if command -v npm >/dev/null 2>&1; then
+    echo ">> claude not found — installing @anthropic-ai/claude-code via npm…"
+    npm install -g @anthropic-ai/claude-code 2>/dev/null || \\
+      sudo -n npm install -g @anthropic-ai/claude-code 2>/dev/null || \\
+      { echo ">> npm install failed. Install manually: npm install -g @anthropic-ai/claude-code" >&2; exit 1; }
+  else
+    echo ">> claude not found and npm not available. Install Node.js + npm, then: npm install -g @anthropic-ai/claude-code" >&2
+    exit 1
+  fi
+fi`
       : `command -v ${cliName} >/dev/null 2>&1 || echo ">> Install Codex CLI manually (e.g. via the upstream installer) and re-run."`;
 
   return `#!/bin/sh

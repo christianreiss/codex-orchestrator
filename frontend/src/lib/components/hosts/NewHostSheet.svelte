@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from "$app/paths";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -85,6 +86,10 @@
       result = data;
       void qc.invalidateQueries({ queryKey: ["hosts"] });
       toast.success(`Registered ${data.host.fqdn ?? parsed.data.fqdn}`);
+      if (data.host.id) {
+        const hostUrl = `${window.location.origin}${base}/hosts/${data.host.id}`;
+        navigator.clipboard.writeText(hostUrl).catch(() => void 0);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       toast.error(msg);

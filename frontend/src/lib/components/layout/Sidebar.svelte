@@ -11,6 +11,11 @@
   import LogOut from "@lucide/svelte/icons/log-out";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
+
+  function openShortcuts(): void {
+    window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
+  }
 
   const auth = $derived($authStore);
   const path = $derived(page.url.pathname.replace(base, "") || "/");
@@ -59,6 +64,15 @@
   </nav>
 
   <div class="border-t border-gray-800 p-3">
+    <button
+      type="button"
+      onclick={openShortcuts}
+      class="mb-1 flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+    >
+      <Keyboard class="h-4 w-4" />
+      <span>Keyboard shortcuts</span>
+      <kbd class="ml-auto inline-flex items-center rounded border border-gray-700 bg-gray-900 px-1 py-0.5 text-[10px] font-mono text-gray-500">?</kbd>
+    </button>
     <a
       href={`${base}/manual`}
       class="mb-2 flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"

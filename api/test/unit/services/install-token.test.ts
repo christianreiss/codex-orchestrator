@@ -50,7 +50,7 @@ describe('install-token: shell builders', () => {
       baseUrl: 'https://o.example/',
       engine: 'claude',
     });
-    expect(out).toContain('Claude CLI manually');
+    expect(out).toContain('claude not found');
     expect(out).toContain('@anthropic-ai/claude-code');
     expect(out).toContain('CONFIG_FILE=\'clx.json\'');
     expect(out).toContain('ENGINE=\'claude\'');

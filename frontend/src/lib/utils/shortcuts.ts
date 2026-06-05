@@ -11,6 +11,7 @@ export type ShortcutHandler = (event: KeyboardEvent) => void;
 export interface ShortcutMap {
   "?"?: ShortcutHandler;
   "/"?: ShortcutHandler;
+  n?: ShortcutHandler;
   Escape?: ShortcutHandler;
 }
 
@@ -40,6 +41,11 @@ export function bindGlobalShortcuts(map: ShortcutMap): () => void {
     if (event.key === "/" && map["/"]) {
       event.preventDefault();
       map["/"](event);
+      return;
+    }
+    if (event.key.toLowerCase() === "n" && map.n) {
+      event.preventDefault();
+      map.n(event);
       return;
     }
   };
