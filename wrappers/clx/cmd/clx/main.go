@@ -379,6 +379,19 @@ func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal boo
 	}
 	digest, _ := claude.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
+
+	// Seed credentials on a fresh install: if the server returns auth and the
+	// local status is outdated/missing/updated, write it now so the first
+	// `clx run` doesn't hit Claude's interactive login screen.
+	if resp != nil && len(resp.Auth) > 0 {
+		switch strings.ToLower(strings.TrimSpace(resp.Status)) {
+		case "outdated", "updated", "missing":
+			if err := claude.WriteAuth(resp.Auth); err == nil {
+				digest, _ = claude.LocalDigest()
+			}
+		}
+	}
+
 	state := summary.Build(ctx, summary.Inputs{Config: cfg, Auth: resp, AuthErr: authErr})
 	if minimal {
 		ui.PrintMinimalScreen(w, state)
