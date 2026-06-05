@@ -9,17 +9,22 @@
   import * as Alert from "$lib/components/ui/alert";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import ProjectCard from "$lib/components/projects/ProjectCard.svelte";
+  import ConfirmDialog from "$lib/components/projects/ConfirmDialog.svelte";
   import NewProjectDialog from "$lib/components/projects/NewProjectDialog.svelte";
   import { ApiError } from "$lib/api/client";
   import {
+    deleteProject,
     fetchProjects,
     fetchProjectsState,
     projectKeys,
     updateProjectsState,
   } from "$lib/api/projects";
+  import type { ProjectSummary } from "$lib/api/types";
 
   const qc = useQueryClient();
   let dialogOpen = $state(false);
+  let confirmOpen = $state(false);
+  let projectToDelete = $state<ProjectSummary | null>(null);
 
   const stateQuery = createQuery({
     queryKey: projectKeys.state,
@@ -56,8 +61,23 @@
     },
   });
 
+  const deleteMutation = createMutation({
+    mutationFn: (project: ProjectSummary) => deleteProject(project.slug),
+    onSuccess: (_data, project) => {
+      toast.success(`Deleted project ${project.slug}`);
+      confirmOpen = false;
+      projectToDelete = null;
+      void qc.invalidateQueries({ queryKey: projectKeys.list });
+      void qc.removeQueries({ queryKey: projectKeys.detail(project.slug) });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete project");
+    },
+  });
+
   const enabled = $derived(($stateQuery.data?.enabled ?? false) === true);
   const projects = $derived($listQuery.data?.projects ?? []);
+  const deleteTitle = $derived(projectToDelete?.title || projectToDelete?.slug || "this project");
 </script>
 
 <PageHeader title="Projects" subtitle="Coordination workspaces">
@@ -122,9 +142,30 @@
     class:opacity-60={!enabled}
   >
     {#each projects as project (project.slug)}
-      <ProjectCard {project} />
+      <ProjectCard
+        {project}
+        onDelete={(target) => {
+          projectToDelete = target;
+          confirmOpen = true;
+        }}
+      />
     {/each}
   </div>
 {/if}
 
 <NewProjectDialog bind:open={dialogOpen} />
+
+<ConfirmDialog
+  bind:open={confirmOpen}
+  title="Delete project?"
+  description={`This permanently removes ${deleteTitle} and all of its notes, todos, files, and feedback.`}
+  confirmLabel="Delete project"
+  destructive
+  busy={$deleteMutation.isPending}
+  onClose={() => {
+    if (!$deleteMutation.isPending && !confirmOpen) projectToDelete = null;
+  }}
+  onConfirm={() => {
+    if (projectToDelete) $deleteMutation.mutate(projectToDelete);
+  }}
+/>

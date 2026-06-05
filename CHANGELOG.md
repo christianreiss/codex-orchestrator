@@ -1,3 +1,8 @@
+## Project cards can delete directly
+
+- **UI:** Projects overview cards now include a quick delete action with the
+  same destructive confirmation modal used by project detail pages.
+
 ## Codex auto-update cron resolves Settings targets
 
 - **API:** Codex auto-update cron now resolves the Settings value `latest` to the
