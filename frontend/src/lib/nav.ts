@@ -10,7 +10,6 @@ import {
   KeyRound,
   BookOpen,
   ScrollText,
-  Users,
   Settings,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
@@ -30,8 +29,7 @@ export const NAV: NavItem[] = [
   { href: "/api-keys", label: "API Keys", icon: KeyRound },
   { href: "/authoring", label: "Authoring", icon: BookOpen },
   { href: "/logs/api", label: "Logs", icon: ScrollText, match: /^\/logs(\/|$)/ },
-  { href: "/users", label: "Users", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings", label: "Settings", icon: Settings, match: /^\/settings(\/|$)/ },
 ];
 
 /** Items shown in the mobile bottom tab bar (the rest go in overflow). */

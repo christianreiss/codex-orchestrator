@@ -1,3 +1,9 @@
+## Users moved under Settings
+
+- **UI:** Users is no longer a top-level sidebar item. The admin user management
+  screen now lives at Settings -> Users (`/admin/settings/users`), while old
+  `/admin/users` links redirect to the new location.
+
 ## clx auth upload accepts native Claude OAuth again
 
 - **Runner/API:** Claude `clx auth-upload` and seed uploads now validate

@@ -178,6 +178,12 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     keywords: ["settings", "config", "configuration"],
   },
   {
+    href: "/settings/users",
+    label: "Settings / Users",
+    icon: Users,
+    keywords: ["users", "accounts", "roles", "settings"],
+  },
+  {
     href: "/manual",
     label: "Manual",
     icon: HelpCircle,
@@ -409,7 +415,7 @@ function userCommand(u: QuickUser): PaletteCommand {
     icon: UserCircle,
     keywords: ["user", u.username.toLowerCase(), (u.name ?? "").toLowerCase(), (u.email ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/users?user=${encodeURIComponent(String(u.id))}`);
+      void goto(`${base}/settings/users?user=${encodeURIComponent(String(u.id))}`);
       commandPalette.close();
     },
   };
