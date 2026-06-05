@@ -1,11 +1,13 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-05-20
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts
+verified: 2026-06-05
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, clx/userconfig_merge.go, clx/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
+
+This article covers two distinct topics: the **server-side MCP endpoint** (what JSON-RPC methods exist, how auth works, what tools are available) and the **client-side MCP server configuration** (how user-defined and managed MCP servers are stored, synced to Claude CLI, and cleaned up).
 
 ## Endpoint
 
@@ -95,6 +97,77 @@ There is no per-host MCP kill-switch. The switches that exist:
 - Disable Projects → `project_*` and `project://` disappear.
 - Unset `MCP_FS_ROOT` → `fs_*` tools are no longer registered.
 
+---
+
+## MCP server configuration
+
+This section covers how MCP servers (third-party or custom) are defined for fleet hosts and synced to the Claude CLI on each machine.
+
+### Storage format
+
+MCP servers are stored as `[[mcp_servers]]` TOML array entries in the **global** client config document (`client_config_documents` table, managed by `ClientConfigService`). Config is global — there is no per-project MCP server scope.
+
+Each entry supports the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Server identifier. Reserved names (`clx`, `cdx`, `codex-memory`, `codex-orchestrator`, `browseros`) are filtered out to avoid collisions with managed entries. |
+| `command` | string | Executable to launch (stdio transport). |
+| `args` | array | Arguments to pass to `command`. |
+| `url` | string | HTTP/SSE endpoint URL (HTTP transport). Use instead of `command`. |
+| `bearer_token_env_var` | string | Name of an env var whose value is used as the `Authorization: Bearer` token. |
+| `http_headers` | object | Static headers to send with every HTTP request. |
+| `env_http_headers` | object | Headers whose values are read from env vars at render time. |
+| `enabled` | bool | Defaults `true`. Set `false` to exclude the server from rendered config without deleting it. |
+| `startup_timeout_sec` | int | Seconds to wait for the server process to become ready. |
+| `tool_timeout_sec` | int | Per-tool-call timeout in seconds. |
+
+Edit these entries at **Admin → Config** (`/admin/config`). There is no dedicated MCP server editor in the authoring/settings UI (`/authoring/settings`); `mcp_servers` is absent from both the `ClaudeConfigSettings` TypeScript interface and that Svelte form. The per-host detail page exposes only a single **BrowserOS MCP** toggle (`browseros_mcp_enabled`), not a server list.
+
+### Managed server injection
+
+At config-render time (`client-config.ts` `withManagedMcpServer`) the orchestrator automatically prepends one or two fleet-managed entries before the user-defined list:
+
+**Orchestrator entry (`clx` / `cdx`)**
+
+An entry named `clx` (for Claude hosts) or `cdx` (for Codex hosts) is injected pointing to `<baseUrl>/mcp` with `Authorization: Bearer <token>`. The token is:
+
+- The host API key, for hosts with a secure (HTTPS/trusted) base URL.
+- A per-host `managedMcpToken` (from the `mcp_session_tokens` table), for insecure hosts where the API key must not travel in plaintext.
+
+Injection is skipped entirely when:
+- `orchestrator_mcp_enabled` is `false` on the host record, or
+- `baseUrl` or `apiKey` are not available for that host.
+
+`orchestrator_mcp_enabled` defaults to `true` and is not surfaced in the authoring UI.
+
+**BrowserOS entry**
+
+When a Codex host has `browserosMcpEnabled=1`, a second entry named `browseros` pointing to `http://127.0.0.1:9000/mcp` is also injected. This corresponds to the **BrowserOS MCP** toggle on the host detail page.
+
+### How servers reach the Claude CLI
+
+The `clx` wrapper syncs MCP server config on every run via a two-step process (`userconfig_merge.go`, `settings_merge.go`):
+
+1. The wrapper fetches the config bundle from the orchestrator, which returns `{partial, owned_paths}` produced by `renderClaudeSettingsPartialForHost`.
+2. The wrapper calls `splitMcpOwned` to partition `owned_paths`. Paths beginning with `mcpServers.` are routed to `applyUserMcpServers`, which writes entries into **`~/.claude.json`**. All other paths go through the standard `~/.claude/settings.json` merge.
+
+This split is necessary because Claude Code reads user-scope MCP servers exclusively from the top-level `mcpServers` key of `~/.claude.json`. It does **not** read user-scope MCP servers from `~/.claude/settings.json`.
+
+URL-based TOML entries are converted to `{type: "http", url, headers}` in the Claude JSON format. Command-based entries become `{command, args, env}`. Entries with `enabled: false` are excluded from the rendered output.
+
+Older `clx` versions (before 0.6.21) used a full-file overwrite of `settings.json` instead of the partial/deep-merge path.
+
+### Sidecar tracking file
+
+`~/.clx/state/managed-mcp.json` records which server names are fleet-owned (`managedMcpState{version, names}`). On each sync the wrapper compares current managed names against the sidecar. Servers that have been renamed or removed in the fleet config are deleted from `~/.claude.json` on the next run. This prevents stale entries from accumulating.
+
+The `~/.claude.json` merge is atomic and preserves the original file mode. If the file exists but cannot be parsed, the merge is skipped for that run (fail-safe) — the file is never overwritten in an unparseable state.
+
+### Trust loss and uninstall
+
+When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or the host is reconfigured without MCP), `stripUserMcpServers` re-runs the merge with an empty server map and the sidecar name list. All fleet-managed entries are removed from `~/.claude.json`. User-authored servers with names not in the sidecar survive untouched. The sidecar is then cleared.
+
 ## Source references
 
 - api/src/services/mcp-server.ts (JSON-RPC dispatch, capability constants)
@@ -106,3 +179,6 @@ There is no per-host MCP kill-switch. The switches that exist:
 - api/src/services/skill-manifest.ts (skill:// resources)
 - api/src/services/mcp-access-log.ts (mcp_access_logs writes)
 - api/src/routes/mcp/index.ts (GET/POST /mcp transport)
+- api/src/services/client-config.ts (withManagedMcpServer, buildClaudeMcpServers, renderClaudeSettingsPartial)
+- clx/userconfig_merge.go (splitMcpOwned, applyUserMcpServers, MergeUserMcpServers, stripUserMcpServers)
+- clx/settings_merge.go (settings.json merge path)

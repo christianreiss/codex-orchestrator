@@ -1,78 +1,114 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-05-20
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/db/schema.ts
+verified: 2026-06-05
+sources: api/src/routes/admin/projects/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/db/schema.ts
 ---
 
-Projects is an optional workspace module that gives your agents a shared surface: an *about* blurb, a *roster* markdown document, notes, todos, files, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
+Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
 
 ## Turning it on
 
-The module toggle lives at *Settings → Projects*. The backing endpoints:
+The module toggle is embedded in the header area of the `/projects` list page — it is not under a separate Settings section. The backing endpoints:
 
 - `GET /admin/projects/state` — returns `{ enabled: bool, … }`.
 - `POST /admin/projects/state` — flip the flag.
 
-When disabled, the `project_*` MCP tools are not registered (see `mcp-tools.ts`) and the rail section is hidden. When enabled, host API keys can call the host-facing project routes and the MCP tools appear in their capability.
+When disabled, a warning alert renders on the list page, the `project_*` MCP tools are not registered (see `mcp-tools.ts`), and the rail section is hidden. When enabled, host API keys can call the host-facing project routes and the MCP tools appear in their capability.
 
 ## Creating and listing projects
 
-Admin surface in `api/src/routes/admin/projects/index.ts` (all gated by `app.requireAdmin`):
+Admin surface in `api/src/routes/admin/projects/index.ts` (all gated by `requireAdmin`):
 
 - `GET /admin/projects` — list all projects.
-- `POST /admin/projects` — create one. Body: `{ slug, about?, roster_markdown?, agents_markdown? }`. `slug` must be a URL-safe short identifier.
-- `DELETE /admin/projects/{slug}` — delete and cascade.
-- `GET /admin/projects/{slug}` — full state including notes, todos, files, feedback, change history.
+- `POST /admin/projects` — create one. Body: `{ slug, about?, roster_markdown? }`. `agents_markdown` is accepted as a legacy alias for `roster_markdown`; both map to the same field. `slug` must be a URL-safe short identifier.
+- `DELETE /admin/projects/{slug}` — hard delete with cascade.
+- `GET /admin/projects/{slug}` — full state including notes, todos, files, feedback counts, and feedback list.
 
-Host-facing surface in `api/src/routes/projects-client/index.ts` (authenticated by per-host API key):
+The list page renders projects as cards in a responsive grid. The "New project" button (disabled when the module is off) opens a `NewProjectDialog`. Each card has a delete action that requires confirmation.
+
+The `coord_projects` table also has an `archived_at` column, which supports soft-archive semantics at the schema level, but this is not currently surfaced in the UI or admin API.
+
+Host-facing surface (authenticated by per-host API key):
 
 - `GET /projects`, `POST /projects`, `GET /projects/{slug}`, `GET /projects/{slug}/bootstrap` — the bootstrap endpoint is the compact context payload agents read to orient themselves.
 
+## Project detail layout
+
+The `/projects/[slug]` page fetches full project detail. The page header shows the project `title` (from `about.title`) with the slug as a subtitle when it differs. Below the header, a 4-stat bar shows:
+
+- **Notes** — total note count
+- **Open todos** — count of incomplete todos
+- **Bugs** — count of feedback items with `type = bug` specifically
+- **Files** — total file count
+
+A tab nav (`ProjectTabsNav`) routes to sub-pages: About, Notes, Todos, Files, Feedback, Activity. Header actions include a Back button and a Delete project button (destructive, with a confirm dialog).
+
+## About and roster
+
+The About tab shows two cards:
+
+- **About** — three separate text inputs: *Title*, *Name*, and *Description*. These map to the `title`, `name`, and `description` sub-fields of the `about_json` JSON column. The `about_json` column always stores an object with these three canonical keys; the UI exposes them individually.
+- **Roster** — a monospace textarea for the roster markdown document.
+
+Each card has Save, Reset, and AI-Assist ("Sparkles") buttons. Unsaved changes are shown with a warning badge.
+
+Endpoints:
+
+- `POST /admin/projects/{slug}/about` — replaces the about value. The service accepts either a bare object (used directly as the stored value) or a wrapper `{ about: <object> }` form; both are equivalent.
+- `POST /admin/projects/{slug}/roster` — replaces the roster markdown. Accepts either `{ roster_markdown }` or `{ markdown }` as aliases; both work.
+
+These endpoints are only confirmed on the admin surface. The host-facing `/projects/{slug}/...` surface should be verified separately before relying on it for agent self-updates.
+
+## The assist button
+
+The AI-Assist ("Sparkles") button on the About and Roster cards calls `POST /admin/projects/{slug}/assist`, which calls `ProjectDraftsService.assist` (`api/src/services/project-drafts.ts`). That service hands the project state to the runner (`POST /projects/assist` on `runner/app.py`) and returns a suggested update that pre-fills both forms. The admin must still save manually. The endpoint refuses with a structured error when the runner integration is not configured (`AUTH_RUNNER_URL` + `AUTH_RUNNER_SHARED_SECRET`).
+
 ## Notes
 
-Header + body, versioned by `updated_at`. Endpoints under both surfaces:
+Header + body, versioned by `updated_at`. Admin endpoints:
 
-- `GET /admin/projects/{slug}/notes` / `GET /projects/{slug}/notes`
-- `POST /admin/projects/{slug}/notes` / `POST /projects/{slug}/notes`
-- `POST /admin/projects/{slug}/notes/{id}` / `POST /projects/{slug}/notes/{id}`
-- `DELETE /admin/projects/{slug}/notes/{id}` / `DELETE /projects/{slug}/notes/{id}`
+- `GET /admin/projects/{slug}/notes`
+- `POST /admin/projects/{slug}/notes`
+- `POST /admin/projects/{slug}/notes/{id}` — inline edit
+- `DELETE /admin/projects/{slug}/notes/{id}`
+
+The Notes tab shows a create form (Header and Body, both required). Existing notes are listed with inline edit (pencil icon) and delete. Updates are applied optimistically.
 
 ## Todos
 
-Title + detail + done state; endpoints mirror notes, plus explicit `done/undone` helpers so MCP tool calls can toggle cheaply:
+Title + detail + done state. The Todos tab shows a create form (Title required, Detail optional). The list is split into "Open" and "Done" sections; the Done section is collapsible. A checkbox toggles done/undone state. Inline edit and delete are available per item.
 
-- `POST /admin/projects/{slug}/todos/{id}/done` / `POST /projects/{slug}/todos/{id}/done`
-- `POST /admin/projects/{slug}/todos/{id}/undone` / `POST /projects/{slug}/todos/{id}/undone`
+Explicit done/undone helpers so MCP tool calls can toggle cheaply:
+
+- `POST /admin/projects/{slug}/todos/{id}/done`
+- `POST /admin/projects/{slug}/todos/{id}/undone`
 
 ## Files
 
-Small blob artifacts with a `stored_name`, `description`, `mime_type`, and `content`. `project_files` stores them in the database (no disk). Upsert-style: `POST /admin/projects/{slug}/files` overwrites an existing `stored_name` or creates a new one.
+Small blob artifacts stored entirely in the database (`coord_project_files` table — no disk). Each file record stores: `stored_name` (unique per project), `description`, `mime_type`, `content` (longtext), `content_sha256` (SHA-256 hash of the content, computed at upsert), and `size_bytes` (computed at upsert).
+
+Upsert-style: `POST /admin/projects/{slug}/files` overwrites an existing `stored_name` or creates a new one.
+
+The Files tab shows an upsert form with fields: Stored name, MIME type, Description, and Content. Existing files are shown in a table with columns: Name, MIME, Description, Size (formatted bytes), Updated, and Actions (Load into form / Delete).
 
 ## Feedback
 
-A low-friction queue where agents can drop user complaints or flagged issues:
+A low-friction queue where agents can drop observations or flagged issues. Valid `type` values are: `bug`, `feature`, `note`, `issue`, `test`.
 
 - `GET /admin/projects/{slug}/feedback` — per-project feedback.
 - `POST /admin/projects/{slug}/feedback` — create. Body: `{ type, title, body }`.
 - `GET /admin/projects/feedback` — fleet-wide aggregate for triage.
 
-## Change history
+The Feedback tab shows a create form with a Type selector (Feature / Bug / Issue / Test / Note), Title, and Body. The feedback list is read-only in the UI (no edit or delete). Items are sorted newest-first. The `coord_project_feedback` table also has a `status` column (default `'open'`).
 
-Every mutation above appends to `project_events`. `GET /admin/projects/{slug}/changes` — and `GET /projects/{slug}/changes` — return a paginated list since a sequence number. The admin UI uses this to show the *Recent activity* panel on the project detail page; agents can use it to figure out what happened since they last checked in.
+## Activity
 
-## The assist button
+Every mutation above appends to `coord_project_events`. `GET /admin/projects/{slug}/changes` returns a paginated event log (querystring: `since` sequence number).
 
-*Project → Assist* calls `POST /admin/projects/{slug}/assist`, which calls `ProjectDraftsService.assist` (`api/src/services/project-drafts.ts`). That service hands the project state to the runner (`POST /projects/assist` on `runner/app.py`) and returns a suggested update. The admin reviews it before saving. The endpoint refuses with a structured error when the runner integration isn't configured (`AUTH_RUNNER_URL` + `AUTH_RUNNER_SHARED_SECRET`).
+The Activity tab shows the 10 most recent events sorted by sequence descending. Each event renders as an expandable card showing: a seq badge, an `event_type.action` label, a relative timestamp, and a collapsible JSON payload panel.
 
-## About and roster
-
-Two structured editable fields:
-
-- `POST /admin/projects/{slug}/about` — replaces the about payload (JSON object).
-- `POST /admin/projects/{slug}/roster` — replaces the roster markdown body.
-
-Both are also exposed under `/projects/{slug}/...` on the host-facing surface so agents can self-update with the right capability.
+`coord_project_events` columns: `seq`, `event_type`, `action`, `entity_type`, `entity_id`, `payload_json`, `source_host_id`.
 
 ## The `coco` skill
 
@@ -98,4 +134,4 @@ The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 - api/src/services/project-content.ts (notes/todos/files/feedback)
 - api/src/services/host-projects.ts (MCP-facing access for hosts)
 - api/src/services/mcp-tools.ts (project_* tool definitions)
-- api/src/db/schema.ts (projects, project_notes, project_todos, project_files, project_feedback, project_events)
+- api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_todos, coord_project_files, coord_project_feedback, coord_project_events)

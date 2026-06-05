@@ -1,8 +1,8 @@
 ---
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
-verified: 2026-05-20
-sources: api/src/routes/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts
+verified: 2026-06-05
+sources: api/src/routes/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -47,6 +47,48 @@ Shortcuts are handled by the admin SPA. Modifier combinations (Ctrl/Alt/Cmd) are
 | `s r` | Settings — profiles |
 
 Pressing the prefix key a second time in a row (e.g. `h h`) toggles the matching rail group open/closed instead of navigating.
+
+## API Keys
+
+### Overview
+
+API keys grant programmatic access to the OpenAI-compatible and Anthropic-compatible proxy endpoints. Both key types are stored in the single `openai_api_keys` database table; the `engine` column (`codex` for OpenAI-compat, `claude` for Anthropic-compat) distinguishes them. The admin list endpoints filter by engine: `GET /admin/openai/keys` returns only `engine=codex` rows; `GET /admin/claude/keys` returns only `engine=claude` rows.
+
+Key prefixes differ by engine:
+
+| Engine | Prefix | Endpoints |
+|--------|--------|-----------|
+| OpenAI-compat (Codex) | `sk-cdx-` | `/v1/*` |
+| Anthropic-compat (Claude) | `sk-ant-` | `/anthropic/v1/*` |
+
+> **Critical:** The plaintext key is returned **once only**, in the `{ key, record }` response body at creation time. It is never retrievable again. If you lose it, revoke the key and issue a new one.
+
+### /api-keys admin page
+
+Navigate to **API Keys** in the admin sidebar (keyboard shortcut `s i`). The page header reads "API Keys" with subtitle "Issue and revoke programmatic access" and a **New key** button in the top-right corner.
+
+The page is divided into two tabs: **OpenAI** and **Claude**. The active tab determines which engine the **New key** button targets.
+
+Each tab contains:
+
+**Kill-switch card**
+
+Shows whether the engine is currently enabled or disabled. A toggle switch labeled "Enabled" controls the state. When disabled, the card turns amber, displays a ShieldAlert icon, and shows the message "All requests using {engine} keys will be rejected." This calls `GET/POST /admin/openai/state` or `GET/POST /admin/claude/state` respectively. Disabling an engine rejects all incoming requests authenticated with keys of that engine, regardless of individual key active status.
+
+**Keys table**
+
+Lists all keys for the engine with columns: Name, Key prefix (first 16 chars followed by `...`), Rate limit (e.g. "60/min"), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
+
+### Creating a key
+
+Click **New key** (or use `s i` then **New key**). The dialog form has:
+
+- **Engine** — select "OpenAI (Codex)" or "Claude (Anthropic)"
+- **Name** — required text field
+- **Rate limit** — requests per minute, default 60
+- **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
+
+On success the dialog switches to a reveal screen showing the full plaintext key with a copy button and the warning: "We don't store the plaintext key. If you lose it, you'll need to issue a new one." Close the dialog after copying — the key cannot be retrieved again.
 
 ## Admin HTTP routes
 
@@ -138,6 +180,8 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
 
+`GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
+
 ### Admin overview / dashboard
 
 | Method | Route | Source |
@@ -186,12 +230,16 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 
 | Method | Route | Source |
 |--------|-------|--------|
-| GET/POST | `/admin/openai/keys` | api/src/routes/admin/keys/openai.ts |
+| GET | `/admin/openai/keys` | api/src/routes/admin/keys/openai.ts |
+| POST | `/admin/openai/keys` | api/src/routes/admin/keys/openai.ts |
 | POST | `/admin/openai/keys/:id/toggle` | api/src/routes/admin/keys/openai.ts |
 | DELETE | `/admin/openai/keys/:id` | api/src/routes/admin/keys/openai.ts |
-| GET/POST | `/admin/claude/keys` | api/src/routes/admin/keys/claude.ts |
+| GET | `/admin/claude/keys` | api/src/routes/admin/keys/claude.ts |
+| POST | `/admin/claude/keys` | api/src/routes/admin/keys/claude.ts |
 | POST | `/admin/claude/keys/:id/toggle` | api/src/routes/admin/keys/claude.ts |
 | DELETE | `/admin/claude/keys/:id` | api/src/routes/admin/keys/claude.ts |
+
+`POST /admin/openai/keys` and `POST /admin/claude/keys` accept `{ name, rate_limit_rpm?, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
 
 ### Admin projects
 
@@ -247,7 +295,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 
 ### OpenAI- and Anthropic-compatible APIs
 
-Under `/v1/*` — `api/src/routes/openai-compat/` — and `/anthropic/v1/*` — `api/src/routes/anthropic-compat/`. Each supports `chat/completions`, `responses`, `completions`, `embeddings`, `models`, plus CORS `OPTIONS`. Authentication is by `sk-coco-…` API key; requests proxy through the shared runner with quota accounting.
+Under `/v1/*` — `api/src/routes/openai-compat/` — and `/anthropic/v1/*` — `api/src/routes/anthropic-compat/`. Each supports `chat/completions`, `responses`, `completions`, `embeddings`, `models`, plus CORS `OPTIONS`. Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface and `sk-ant-…` keys for the Anthropic-compat surface. Requests proxy through the shared runner with quota accounting.
 
 ## Source references
 
@@ -257,3 +305,6 @@ Under `/v1/*` — `api/src/routes/openai-compat/` — and `/anthropic/v1/*` — 
 - api/src/routes/wrapper-v2/index.ts, install/index.ts (wrapper + install endpoints)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
 - api/src/ws/server.ts (admin websocket)
+- api/src/services/openai-keys.ts, api/src/services/claude-keys.ts (key prefixes and auth)
+- api/src/db/schema.ts (openai_api_keys table schema)
+- frontend/src/routes/api-keys/+page.svelte (API Keys admin page)

@@ -1,22 +1,31 @@
 ---
 title: Passkeys and passwords
 section: Admin access and identity
-verified: 2026-05-20
+verified: 2026-06-05
 sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts
 ---
 
-Passkeys (WebAuthn) are the preferred way to sign in. Password auth exists but is second-class: there is no self-service reset by default, passwords enforce a minimum length, and any user with a registered passkey is locked out of password login.
+Passkeys (WebAuthn) are the preferred way to sign in. Password auth exists but is second-class: there is no self-service reset by default, passwords enforce minimum requirements, and any user with a registered passkey is locked out of password login.
 
-## The account page
+## The account section
 
-Signed-in admins manage their credentials at `/admin/account` (password tab) and `/admin/account/passkeys`. Both are served by the SvelteKit SPA; the back end is the `/admin/auth/*` and `/admin/passkeys/*` routes registered in `api/src/routes/admin/auth/index.ts`.
+Signed-in admins manage their credentials under `/account/*`. A side-navigation bar (AccountSideNav) links to three pages:
+
+- `/account/password` — change password and request a password reset email
+- `/account/passkeys` — register and manage WebAuthn credentials
+- `/account/theme` — appearance settings
+
+Both credential pages are served by the SvelteKit SPA; the back end is the `/admin/auth/*` and `/admin/passkeys/*` routes registered in `api/src/routes/admin/auth/index.ts`.
 
 ## Registering a passkey
 
-1. The page calls `POST /admin/auth/passkey/register/options`.
+1. The `/account/passkeys` page calls `POST /admin/auth/passkey/register/options`.
 2. The server delegates to `AdminPasskeyService.beginRegistration` (`api/src/services/admin-passkey.ts`), which stores a challenge in `admin_webauthn_challenges` and returns `PublicKeyCredentialCreationOptions`.
 3. The browser runs the WebAuthn ceremony and POSTs the attestation to `POST /admin/auth/passkey/register`.
 4. `AdminPasskeyService.completeRegistration` verifies the attestation, stores the credential in `admin_passkeys`, and returns the new row.
+5. The browser immediately prompts the user to name the new passkey via a PasskeyNameDialog; if the dialog is cancelled the passkey persists unnamed.
+
+If WebAuthn is not supported by the browser, the page shows a warning alert and the "Register passkey" button is unavailable.
 
 The relying-party metadata comes from `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, and `ADMIN_WEBAUTHN_RP_NAME` (env-validated in `api/src/env.ts` — `RP_ID` set without `ORIGIN` fails fast). If you are seeing "invalid origin" errors, set these explicitly.
 
@@ -27,30 +36,52 @@ The relying-party metadata comes from `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_OR
 3. Browser produces an assertion; client POSTs it to `POST /admin/auth/passkey/login`.
 4. `completeAuthentication` verifies the assertion (signature, challenge, counter), then delegates to `AdminAuthService.createSession` which sets the session cookie.
 
-If the user has *any* registered passkey, password login is refused with HTTP 403 (`passkey_required`). If they have none, password login is allowed — but the account page shows a large "Add a passkey" nudge.
+If the user has *any* registered passkey, password login is refused with HTTP 403 (`passkey_required`). If they have none, password login is allowed.
 
 ## Managing passkeys
 
-Three endpoints are wired into the account UI:
+The `/account/passkeys` page renders a "Registered credentials" card with a table showing four columns: **Name**, **Created**, **Last used**, and **Actions**. Created and Last used display relative time with an absolute timestamp tooltip.
 
-- `GET /admin/passkeys` — list the current user's credentials. Each entry carries `id`, friendly name, created-at, last-used-at, AAGUID, and the transports reported at registration.
-- `POST /admin/passkeys/{id}/name` — rename a passkey.
+- The Name cell has an inline edit control: clicking the pencil icon opens an inline input with save and cancel buttons.
+- The Actions column has a delete (trash) icon button that opens a confirmation dialog before calling `DELETE /admin/passkeys/{id}`.
+
+When no passkeys are registered, an empty-state card with a Fingerprint icon and a **Register your first passkey** button is shown in place of the table.
+
+Three endpoints are wired into this UI:
+
+- `GET /admin/passkeys` — list the current user's credentials (id, name, created-at, last-used-at).
+- `POST /admin/passkeys/{id}/name` — rename a passkey; body: `{ name }`.
 - `DELETE /admin/passkeys/{id}` — delete a passkey.
 
-All three require an active session and use the session user implicitly; you cannot touch another admin's passkeys through these endpoints.
+All three require an active session and operate on the session user implicitly; you cannot touch another admin's passkeys through these endpoints.
 
 ## Passwords
 
-The minimum length is `PASSWORD_MIN_LENGTH = 12` (constant in `api/src/services/admin-auth.ts`). Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
+Password requirements (enforced both client-side via zod and by the backend):
 
-Change the current user's password:
+- At least 12 characters (`PASSWORD_MIN_LENGTH = 12`)
+- Contains at least one digit
+- Contains at least one symbol (non-alphanumeric character)
 
-- `POST /admin/auth/password/change` with `{ current_password, new_password }`. Validation failures throw 422 with a structured error the SPA surfaces as form errors.
+The `/account/password` page displays a live rule checklist that updates as the user types. Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
 
-Password reset (request + confirm):
+### Changing your password
 
-- `POST /admin/auth/password/request` creates a reset token only when SMTP is configured (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, etc.) and the user is not passkey-only.
-- `POST /admin/auth/password/reset` consumes a reset token. Tokens live in `admin_password_resets`.
+The **Change password** card at `/account/password` has a form with three fields:
+
+- Current password
+- New password
+- Confirm new password
+
+Submit calls `POST /admin/auth/password/change` with body `{ current_password, new_password, confirm_password }`. Validation failures return HTTP 422 with a structured error that the SPA surfaces as inline form errors.
+
+### Resetting a password by email
+
+The **Reset by email** card has a **Send reset email** button. Clicking it opens a confirmation dialog; on confirm the page calls `POST /admin/auth/password/request` using the current signed-in username automatically — no email input is shown. The endpoint accepts either `{ username }` or `{ email }` as identifier (one must be present).
+
+The reset flow requires SMTP to be configured (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, etc.).
+
+`POST /admin/auth/password/reset` consumes the reset token. Tokens live in `admin_password_resets`.
 
 If the reset flow is disabled, the recovery path is: another admin opens *Settings → Users*, sets a temporary password, the target admin logs in with it, and then changes it immediately.
 

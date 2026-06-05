@@ -1,11 +1,32 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-05-20
-sources: README.md, docker-compose.yml, api/src/server.ts, api/src/db/schema.ts, api/src/routes/install/index.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, scripts/wrapper-v2-init-keys.sh
+verified: 2026-06-05
+sources: README.md, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/install/index.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, scripts/wrapper-v2-init-keys.sh
 ---
 
-Orchestrator ships as a Docker Compose stack: the Node API, MariaDB, the auth runner, Caddy as the TLS/reverse proxy, and optionally the in-process websocket. `bin/setup.sh` walks you through first-time configuration and brings up the stack.
+Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/setup.sh` walks you through first-time configuration and brings up the stack.
+
+## Stack overview
+
+Four services are defined in `docker-compose.yml`:
+
+| Service | Image | Notes |
+|---|---|---|
+| `api` | Node/Fastify | Listens on `127.0.0.1:8488` (host) → `8080` (container). Runs read-only with all capabilities dropped. |
+| `mysql` | `mysql:8.4` | **MySQL 8.4**, not MariaDB. Data stored under `<DATA_ROOT>/mysql_data`. |
+| `auth-runner` | Python sidecar | Receives `RUNNER_SHARED_SECRET` (separate from the API-side `AUTH_RUNNER_SHARED_SECRET`). |
+| `caddy` | Caddy | **Profile-gated** (`profiles: ["caddy"]`). Not started by default. |
+
+`DATA_ROOT` defaults to `/var/docker_data/codex-auth.example.com`. Change it in `.env` before first boot. The internal Docker network `codex_auth` uses subnet `172.30.250.0/24` by default; override with `CODEX_AUTH_SUBNET` and `CODEX_AUTH_GATEWAY`.
+
+### Starting Caddy
+
+Because Caddy is behind the `caddy` profile, it does **not** start with a plain `docker compose up -d`. To include it:
+
+```bash
+docker compose --profile caddy up -d
+```
 
 ## First boot
 
@@ -16,31 +37,103 @@ Orchestrator ships as a Docker Compose stack: the Node API, MariaDB, the auth ru
 
 ## Environment variables the app reads
 
-These are the variables consumed by `api/src/env.ts` that control first boot:
+These are the variables consumed by `api/src/env.ts`. The file is parsed with Zod; process environment always wins over any `.env` file.
+
+### Hard requirements (fail-fast)
+
+- **Either `ENCRYPTION_ACTIVE_KEY` or `AUTH_ENCRYPTION_KEY` must be set.** Both accept 32 raw bytes, base64-encoded. The app refuses to start if neither is present. Back these up carefully — losing them destroys all encrypted auth payloads.
+- `AUTH_RUNNER_SHARED_SECRET` is required when `AUTH_RUNNER_URL` is set.
+- `ADMIN_WEBAUTHN_ORIGIN` is required when `ADMIN_WEBAUTHN_RP_ID` is set.
+
+### Core
 
 - `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
+- `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Fails startup if `PUBLIC_BASE_URL` is missing.
 - `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default 720 (12 h), clamped to 5 min – 7 days.
-- `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata. When `RP_ID` is set, `ORIGIN` is required.
-- `ADMIN_WS_ENABLED`, `ADMIN_WS_PUBLIC_URL`, `ADMIN_WS_HEARTBEAT_SECONDS`, `ADMIN_WS_BACKLOG_LIMIT` — websocket feature flag and tuning.
-- `AUTH_RUNNER_URL`, `AUTH_RUNNER_SHARED_SECRET` — how the API reaches the Python runner. The secret is required when the URL is set.
-- `ENCRYPTION_ACTIVE_KEY`, `ENCRYPTION_KEYS`, `ENCRYPTION_ACTIVE_KID` (legacy `AUTH_ENCRYPTION_*` accepted) — key material used by `api/src/security/keyring.ts`. Back these up carefully; losing them destroys the encrypted auth payloads.
+- `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
+- `ADMIN_WS_ENABLED` — defaults to `false` in env.ts, but **the compose file sets it to `1` (enabled) by default** when using the compose stack. Also: `ADMIN_WS_PUBLIC_URL`, `ADMIN_WS_HEARTBEAT_SECONDS`, `ADMIN_WS_BACKLOG_LIMIT`.
+- `INSTALLATION_ID` — optional installation identifier.
+
+### Auth runner
+
+- `AUTH_RUNNER_URL`, `AUTH_RUNNER_SHARED_SECRET` — how the API reaches the Python runner. **Note:** the compose file passes `RUNNER_SHARED_SECRET` to the `auth-runner` container; `AUTH_RUNNER_SHARED_SECRET` is what the API reads. These are separate variables for different services.
+- `AUTH_RUNNER_CODEX_BASE_URL` — Codex auth base URL for the runner.
+- `AUTH_RUNNER_IP_BYPASS` — bool, default `false`. Bypass runner IP checks.
+- `AUTH_RUNNER_BYPASS_SUBNETS` — subnets exempt from runner IP checks (used when `AUTH_RUNNER_IP_BYPASS` is true).
+- `AUTH_RUNNER_PREFLIGHT_SECONDS` — default `28800`. Runner preflight window.
+
+### Encryption / keyring
+
+- `ENCRYPTION_ACTIVE_KEY`, `ENCRYPTION_KEYS`, `ENCRYPTION_ACTIVE_KID` — key material for `api/src/security/keyring.ts`. Legacy `AUTH_ENCRYPTION_*` variants are accepted.
+- `AUTH_SEED_TOKEN_TTL_SECONDS` — default `900`. TTL for single-use seed tokens.
+
+### Database
+
+- `DB_CHARSET` — default `utf8mb4`.
+- `DB_POOL_SIZE` — default `10`.
+
+### Proxy / host validation
+
+- `TRUST_X_FORWARDED` — trust the `X-Forwarded-*` headers from upstream proxies.
+- `TRUSTED_PROXY_CIDRS` — CIDRs of trusted proxies.
+- `STRICT_HOST_VALIDATION` — bool, default `true`.
+- `MCP_ALLOW_REQUEST_HOST_ORIGIN` — bool, default `false`.
+- `INSECURE_GRACE_MINUTES` — default `60`. Grace window for insecure hosts.
+
+### Storage / sync
+
 - `DATA_ROOT` — overrides the default storage layout. Wrapper binaries live under `<DATA_ROOT>/wrapper/v2/bin/...` (or `storage/wrapper/v2/bin/...` relative to the repo root when unset).
+- `CODEX_SYNC_BASE_URL` — override sync base URL.
+
+### Boot behaviour
+
+- `RUN_MIGRATIONS_ON_BOOT` — apply Drizzle migrations on startup.
+- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Run data backfills on startup.
+
+### MCP
+
 - `MCP_OPERATOR_TOKEN`, `MCP_FS_ROOT`, `MCP_FS_MAX_*` — MCP operator bearer + filesystem tool root (see [mcp](/admin/manual/mcp)).
-- `DEFAULT_HOST_ENGINES` — `codex`, `claude`, or `codex,claude`; default when registering.
+
+### Mailer
+
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_SECURE` — optional mailer; password reset flows are inert without these.
 
-Check the `.env.example` in the repo for the full, current list.
+### Misc
+
+- `DEFAULT_HOST_ENGINES` — `codex`, `claude`, or `codex,claude`; default when registering.
+
+### Pricing
+
+- `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K` (and other `GPT51_*` variants)
+- `CHATGPT_PLUS_PLAN_COST`, `CHATGPT_PRO_PLAN_COST`
+- `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`
+- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K`
+- `ANTHROPIC_API_KEY` — used for Claude usage tracking.
+- `PRICING_URL`, `PRICING_CURRENCY`
+
+Check `.env.example` in the repo for the full, current list.
+
+## Caddy configuration
+
+Caddy is configured via `caddy/Caddyfile`. The domain is set with `$CADDY_DOMAIN`. TLS is imported from a fragment file selected by `$CADDY_TLS_FRAGMENT`:
+
+- `tls-acme.caddy` — Let's Encrypt ACME
+- `tls-custom.caddy` — custom certificate files (paths configured via `$CADDY_TLS_DIR`)
+
+**mTLS is enforced at the Caddy layer**, not by the Node API alone. For `/admin*` paths, Caddy requires a valid client certificate before forwarding the request. Requests without a client cert receive a `403` response from Caddy directly. On successful cert verification, Caddy injects `X-MTLS-Present`, `X-MTLS-Fingerprint`, `X-MTLS-Subject`, and `X-MTLS-Issuer` headers upstream. The admin WebSocket at `/admin/ws` is behind the same mTLS gate. All other paths are plain reverse-proxied to the API.
+
+Client certificates and CA material are configured via `$CADDY_MTLS_DIR`.
 
 ## Seeding the canonical auth
 
 Hosts cannot fetch auth until the orchestrator has its own copy. Two paths:
 
-- **Admin UI upload.** Sign in as the first admin, use *Admin → Upload auth*. The route is `POST /admin/auth/upload` (in `api/src/routes/admin/overview/index.ts`). This is the normal path once you are running.
-- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The admin runs the printed `curl | bash` snippet on the machine that currently holds the canonical `~/.codex/auth.json`. The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs.
+- **Admin UI upload.** Sign in as the first admin, use *Admin → Upload auth*. The route is `POST /admin/auth/upload`. This is the normal path once you are running.
+- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The admin runs the printed `curl | bash` snippet on the machine that currently holds the canonical `~/.codex/auth.json`. The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).
 
-The GET twin at `/seed/auth/{token}` returns an executable shell script that reads your local `auth.json` and POSTs it back. Tokens consume on success.
+The GET twin at `/seed/auth/{token}` returns an executable shell script that reads your local `auth.json` and POSTs it back.
 
 ## Registering a host
 
@@ -67,7 +160,7 @@ Canonical wrapper sources are the Go modules under `wrappers/cdx/` and `wrappers
 
 There is no built-in backup job. Back up:
 
-1. The MariaDB volume (`docker-compose.yml` names the data volume for you).
+1. The MySQL volume (`docker-compose.yml` names the data volume for you).
 2. The encryption keyring referenced by `Keyring` (the values in `ENCRYPTION_KEYS` / `AUTH_ENCRYPTION_KEYS`).
 3. The wrapper signing key — held in the `wrapper_signing_keys` table. Rotating it requires every host to self-update; losing it requires re-issuing the key and re-deploying binaries.
 
@@ -77,6 +170,8 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 
 - README.md (quick start)
 - docker-compose.yml (stack definition)
+- caddy/Caddyfile (TLS and mTLS proxy config)
+- api/src/env.ts (all env var definitions and validation)
 - api/src/server.ts (Fastify boot)
 - api/src/db/schema.ts (Drizzle schema — single source of truth)
 - api/src/routes/install/index.ts (install / seed endpoints)
