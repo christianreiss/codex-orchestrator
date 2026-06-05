@@ -159,7 +159,7 @@ export class ClaudeArtifactsService {
 
   // Note: kind/deletedAt are filtered both in SQL (real DB) and in JS. The JS
   // pass is a no-op against MySQL (already filtered) but keeps the in-memory
-  // test shim — whose `.where()` is a no-op — correct.
+  // test fake — whose `.where()` is a no-op — correct.
   private async rowsForKind(kind: ArtifactKind, includeDeleted: boolean): Promise<ClaudeArtifact[]> {
     const rows = await this.db
       .select()

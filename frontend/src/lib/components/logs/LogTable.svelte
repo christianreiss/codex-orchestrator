@@ -16,7 +16,7 @@
     maxHeight?: string;
     /** Empty-state copy. */
     emptyMessage?: string;
-    /** Show shimmering skeletons while loading. */
+    /** Show skeleton-loading skeletons while loading. */
     loading?: boolean;
     skeletonRows?: number;
     /** When true, renders each row as a button-style click target that expands. */

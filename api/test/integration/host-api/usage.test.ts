@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import {
   hosts as hostsTable,
   versions as versionsTable,
@@ -23,7 +23,7 @@ const env = {
 const apiKey = 'sk-codex-usage-test';
 const now = '2026-05-17T00:00:00Z';
 
-function setupHost(db: ReturnType<typeof createDbShim>): void {
+function setupHost(db: ReturnType<typeof createDbFake>): void {
   db.tables.set(hostsTable, [
     {
       id: 7,
@@ -86,7 +86,7 @@ function makeKeyring(): Keyring {
 
 describe('POST /usage', () => {
   it('records a single-entry usage with line + total', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -101,14 +101,14 @@ describe('POST /usage', () => {
     expect(body.recorded).toBe(1);
     expect(body.total).toBe(1000);
     expect(body.host_id).toBe(7);
-    // Verify rows inserted via the shim
+    // Verify rows inserted via the db fake.
     expect(db.tables.get(tokenUsageIngests)!.length).toBe(1);
     expect(db.tables.get(tokenUsages)!.length).toBe(1);
     await app.close();
   });
 
   it('returns 200 with recorded:false on validation failure (contract)', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -126,7 +126,7 @@ describe('POST /usage', () => {
   });
 
   it('records a multi-entry usages array', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({

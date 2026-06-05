@@ -18,7 +18,7 @@ Orchestrator ships as a Docker Compose stack: the Node API, MariaDB, the auth ru
 
 These are the variables consumed by `api/src/env.ts` that control first boot:
 
-- `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap shim.
+- `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
 - `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default 720 (12 h), clamped to 5 min – 7 days.
@@ -44,18 +44,18 @@ The GET twin at `/seed/auth/{token}` returns an executable shell script that rea
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host installation script — a compact script that writes the bootstrap shim under `~/.local/bin/cdx` (or `clx`). The admin sees a `curl … | bash` command under *Hosts → New Host*.
+`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host installation script — a compact script that writes the bootstrap transition launcher under `~/.local/bin/cdx` (or `clx`). The admin sees a `curl … | bash` command under *Hosts → New Host*.
 
 What the installer actually does on the target machine:
 
-1. Writes the bootstrap shim to `~/.local/bin/{cdx|clx}`.
+1. Writes the bootstrap transition launcher to `~/.local/bin/{cdx|clx}`.
 2. Hints at installing the upstream engine CLI (`codex` / `claude`) if absent.
-3. Runs the shim once, which fetches the signed config + platform-specific binary.
-4. Subsequent `cdx run` invocations exec the binary directly; the shim only re-fetches if the config SHA changes.
+3. Runs the transition launcher once, which fetches the signed config + platform-specific binary.
+4. Subsequent `cdx run` invocations exec the binary directly; the transition launcher only re-fetches if the config SHA changes.
 
 ## Wrapper distribution
 
-Canonical wrapper sources are the Go modules under `wrappers/cdx/` and `wrappers/clx/`. CI cross-compiles per platform and writes results to `<DATA_ROOT>/wrapper/v2/bin/<engine>/<os>-<arch>/`, with a `manifest.json` per platform listing builds and their SHA256s; `wrapper-bin-registry.ts` discovers them. `GET /wrapper` (aliased to `/wrapper/v2/meta`) returns the per-platform manifest; `GET /wrapper/download` returns the bootstrap shim for the calling host. Hosts use these endpoints to self-update between runs.
+Canonical wrapper sources are the Go modules under `wrappers/cdx/` and `wrappers/clx/`. CI cross-compiles per platform and writes results to `<DATA_ROOT>/wrapper/v2/bin/<engine>/<os>-<arch>/`, with a `manifest.json` per platform listing builds and their SHA256s; `wrapper-bin-registry.ts` discovers them. `GET /wrapper` (aliased to `/wrapper/v2/meta`) returns the per-platform manifest; `GET /wrapper/download` returns the bootstrap transition launcher for the calling host. Hosts use these endpoints to self-update between runs.
 
 ## Post-install smoke test
 

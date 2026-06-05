@@ -52,7 +52,7 @@ ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 CONFIG_FILE=${shellQuote(`${name}.json`)}
 CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
-INSTALL_MODE=installer
+INSTALL_CONTEXT=installer
 
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 echo ">> Installing the ${name} wrapper into $BIN_DIR"
@@ -68,7 +68,7 @@ echo "Done. Try: ${name} run    (or ${name} doctor for a self-check)."
 `;
 }
 
-export function buildLegacyWrapperShimScript(opts: {
+export function buildLegacyWrapperTransitionScript(opts: {
   fqdn: string;
   apiKey: string;
   baseUrl: string;
@@ -76,7 +76,7 @@ export function buildLegacyWrapperShimScript(opts: {
 }): string {
   const name = binaryName(opts.engine);
   return `#!/bin/sh
-# Codex Orchestrator legacy transition shim for ${name}.
+# Codex Orchestrator legacy transition launcher for ${name}.
 # Generated for host ${commentValue(opts.fqdn)}.
 set -eu
 
@@ -86,7 +86,7 @@ ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 CONFIG_FILE=${shellQuote(`${name}.json`)}
 CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
-INSTALL_MODE=shim
+INSTALL_CONTEXT=transition
 
 ${bootstrapBody()}
 `;
@@ -107,7 +107,7 @@ esac
 
 INSTALL_WITH_SUDO=0
 ensure_bin_root() {
-  if [ "$INSTALL_MODE" = "shim" ]; then
+  if [ "$INSTALL_CONTEXT" = "transition" ]; then
     mkdir -p "$BIN_ROOT"
     return 0
   fi
@@ -142,7 +142,7 @@ install_bin() {
   fi
 }
 
-if [ "$INSTALL_MODE" = "shim" ]; then
+if [ "$INSTALL_CONTEXT" = "transition" ]; then
   BIN_ROOT="$DATA_HOME/codex-orchestrator/bin"
 else
   BIN_ROOT="$BIN_DIR"
@@ -177,7 +177,7 @@ curl -fsSL \\
   "$BASE_URL/wrapper/v2/config?engine=$ENGINE" \\
   -o "$BUNDLE_FILE"
 
-PY_OUT=$(python3 - "$BUNDLE_FILE" "$CONFIG_PATH" "$BIN_ROOT" "$NAME" "$INSTALL_MODE" <<'PY'
+PY_OUT=$(python3 - "$BUNDLE_FILE" "$CONFIG_PATH" "$BIN_ROOT" "$NAME" "$INSTALL_CONTEXT" <<'PY'
 import json
 import os
 import shlex
@@ -224,7 +224,7 @@ os.replace(tmp_sig, config_path + ".sig")
 os.chmod(config_path, 0o600)
 os.chmod(config_path + ".sig", 0o600)
 
-target = os.path.join(bin_root, f"{name}-{version}") if mode == "shim" else os.path.join(bin_root, name)
+target = os.path.join(bin_root, f"{name}-{version}") if mode == "transition" else os.path.join(bin_root, name)
 print(f"WRAPPER_VERSION={shlex.quote(version)}")
 print(f"BINARY_URL={shlex.quote(binary_url)}")
 print(f"BINARY_SHA256={shlex.quote(binary_sha256)}")
@@ -289,7 +289,7 @@ remove_relic() {
 }
 
 cleanup_known_relics() {
-  if [ "$INSTALL_MODE" != "installer" ]; then
+  if [ "$INSTALL_CONTEXT" != "installer" ]; then
     return 0
   fi
   if [ "$BIN_ROOT" != "/usr/local/bin" ]; then
@@ -303,7 +303,7 @@ cleanup_known_relics() {
 if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
   EXISTING_SHA=$(sha256_file "$TARGET_BIN" || true)
   if [ "$EXISTING_SHA" = "$BINARY_SHA256" ]; then
-    if [ "$INSTALL_MODE" = "shim" ]; then
+    if [ "$INSTALL_CONTEXT" = "transition" ]; then
       exec "$TARGET_BIN" "$@"
     fi
     cleanup_known_relics
@@ -331,7 +331,7 @@ install_bin "$BIN_TMP" "$TARGET_BIN"
 rm -f "$BIN_TMP"
 cleanup_known_relics
 
-if [ "$INSTALL_MODE" = "shim" ]; then
+if [ "$INSTALL_CONTEXT" = "transition" ]; then
   exec "$TARGET_BIN" "$@"
 fi
 

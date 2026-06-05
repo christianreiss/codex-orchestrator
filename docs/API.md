@@ -19,7 +19,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 
 ### OpenAI-compatible API
 - `POST /v1/chat/completions` — OpenAI-compatible chat completion route. Requires `Authorization: Bearer <openai-api-key-record>` and `messages[]`. `messages[].content` may be a plain string or an OpenAI-style content-part array with text parts plus `image_url` / `input_image` parts. Non-streaming returns a `chat.completion` object; streaming emits `chat.completion.chunk` SSE frames with `choices[].delta.content` plus a final `[DONE]`, which is what the official OpenAI SDKs expect. `model` must be one of the supported Codex model ids returned by `/v1/models`; when omitted, the API uses the saved main config model and falls back to `versions.cdx_model`.
-- `POST /v1/responses` — minimal non-streaming Responses API shim. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, reuses the backend chat flow, and returns a `response` object with assistant text under `output[0].content[0].text`. Text parts plus `image_url` / `input_image` parts are supported, including `data:` URLs. `stream:true` is currently rejected with `400 unsupported_stream`. `model` follows the same validation and default-resolution rules as chat completions.
+- `POST /v1/responses` — minimal non-streaming Responses API compatibility adapter. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, reuses the backend chat flow, and returns a `response` object with assistant text under `output[0].content[0].text`. Text parts plus `image_url` / `input_image` parts are supported, including `data:` URLs. `stream:true` is currently rejected with `400 unsupported_stream`. `model` follows the same validation and default-resolution rules as chat completions.
 - `POST /v1/completions` — legacy text completion route. Accepts `prompt`, optional `model`, and optional `stream`. `model` follows the same validation and default-resolution rules as chat completions.
 - `GET /v1/models` — list the supported Codex model ids from the shared config/model allowlist.
 - `POST /v1/embeddings` — currently returns `501 not_implemented` for the bundled backend.
@@ -115,7 +115,7 @@ Legacy text completion endpoint.
 
 #### `POST /anthropic/v1/responses`
 
-Responses API shim (non-streaming only).
+Responses API compatibility adapter (non-streaming only).
 
 **Request body:**
 

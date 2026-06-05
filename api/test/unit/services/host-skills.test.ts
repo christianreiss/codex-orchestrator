@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { skills as skillsTable, versions as versionsTable } from '../../../src/db/schema.js';
 import { HostSkillsService } from '../../../src/services/host-skills.js';
 import { MANAGED_COCO_SKILL_SLUG, PROJECTS_ENABLED_FLAG } from '../../../src/services/managed-coco-skill.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const host: Host = { id: 1, fqdn: 'host.example' } as unknown as Host;
@@ -27,7 +27,7 @@ function skillRow(overrides: Record<string, unknown>): Record<string, unknown> {
 }
 
 function makeService(projectsEnabled: boolean, rows: Record<string, unknown>[] = []): HostSkillsService {
-  const db = createDbShim();
+  const db = createDbFake();
   db.tables.set(versionsTable, projectsEnabled
     ? [{ name: PROJECTS_ENABLED_FLAG, version: '1', updatedAt: '2026-06-03T08:00:00Z' }]
     : [{ name: PROJECTS_ENABLED_FLAG, version: '0', updatedAt: '2026-06-03T08:00:00Z' }]);

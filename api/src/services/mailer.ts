@@ -7,7 +7,7 @@ interface LogLike {
 
 /**
  * Thin wrapper around nodemailer. Configured from SMTP_* env vars; if
- * SMTP_HOST is unset the mailer becomes a structured-log shim that prints the
+ * SMTP_HOST is unset the mailer becomes a structured-log adapter that prints the
  * message subject + recipients to the request logger but never connects to a
  * real server (handy for dev + tests). Production overrides this by setting
  * SMTP_HOST/PORT/etc.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { claudeArtifacts } from '../../../src/db/schema.js';
 import { ClaudeArtifactsService } from '../../../src/services/claude-artifacts.js';
 import { HostClaudeArtifactsService } from '../../../src/services/host-claude-artifacts.js';
@@ -11,7 +11,7 @@ const host = { id: 1 } as unknown as Host;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function freshDb() {
-  const db = createDbShim();
+  const db = createDbFake();
   db.tables.set(claudeArtifacts, []);
   return db;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import {
   hosts as hostsTable,
   installTokens,
@@ -37,7 +37,7 @@ const seedToken = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
 
 describe('GET /install/:token', () => {
   it('emits a text/x-shellscript installer for a valid token', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(hostsTable, [
       {
         id: 9,
@@ -116,7 +116,7 @@ describe('GET /install/:token', () => {
   });
 
   it('resolves hashed installer tokens and decrypts the embedded api key', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const keyring = makeKeyring();
     const token = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
     const apiKey = 'sk-install-encrypted';
@@ -193,7 +193,7 @@ describe('GET /install/:token', () => {
   });
 
   it('returns shell error 404 for unknown token', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(installTokens, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -207,7 +207,7 @@ describe('GET /install/:token', () => {
   });
 
   it('returns shell error 410 for expired token', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(hostsTable, [
       {
         id: 9,
@@ -255,7 +255,7 @@ describe('GET /install/:token', () => {
 
 describe('POST /seed/auth/:token', () => {
   it('persists a canonical auth payload and marks the seed token used', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(authSeedTokens, [
       {
         id: 5,
@@ -293,7 +293,7 @@ describe('POST /seed/auth/:token', () => {
   });
 
   it('rejects a non-object body', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(authSeedTokens, [
       {
         id: 5,

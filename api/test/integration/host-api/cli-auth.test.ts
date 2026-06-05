@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { cliAuthRequests, hosts as hostsTable, adminEvents, logs as logsTable } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 
@@ -21,7 +21,7 @@ function makeKeyring(): Keyring {
 
 describe('POST /cli/auth/start', () => {
   it('issues a request_id + user_code and inserts a pending row', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(cliAuthRequests, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -42,7 +42,7 @@ describe('POST /cli/auth/start', () => {
   });
 
   it('rejects empty fqdn', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(cliAuthRequests, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -58,7 +58,7 @@ describe('POST /cli/auth/start', () => {
 
 describe('POST /cli/auth/poll/:id', () => {
   it('returns 404 for unknown id', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(cliAuthRequests, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const id = 'a'.repeat(64);
@@ -68,7 +68,7 @@ describe('POST /cli/auth/poll/:id', () => {
   });
 
   it('returns pending for a freshly inserted row', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const id = 'b'.repeat(64);
     const futureExp = new Date(Date.now() + 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     db.tables.set(cliAuthRequests, [
@@ -104,7 +104,7 @@ describe('POST /cli/auth/poll/:id', () => {
 
 describe('POST /cli/auth/approve', () => {
   it('requires an admin session', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(cliAuthRequests, []);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -118,7 +118,7 @@ describe('POST /cli/auth/approve', () => {
   });
 
   it('approves a pending request when admin session is present', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const futureExp = new Date(Date.now() + 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     db.tables.set(cliAuthRequests, [
       {

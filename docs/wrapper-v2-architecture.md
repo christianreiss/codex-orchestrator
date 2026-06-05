@@ -8,7 +8,7 @@ pipeline with:
 2. **A typed, Ed25519-signed JSON config** issued per host by
    `api/src/services/wrapper-config.ts`, signed via
    `api/src/services/wrapper-signing-key.ts` and re-baked on any host mutation.
-3. **A ~50-line POSIX `sh` bootstrap shim** built by
+3. **A ~50-line POSIX `sh` bootstrap transition launcher** built by
    `api/src/services/wrapper-transition.ts` (the only thing
    `/wrapper/v2/download` returns) that fetches the config + binary, verifies
    SHA256, and execs the binary with `--config`.
@@ -18,14 +18,14 @@ pipeline with:
 ```
 host             orchestrator                          storage
 ----             ------------                          -------
-sh shim ─GET /wrapper/v2/config──> /wrapper/v2 route handler
+POSIX transition launcher ─GET /wrapper/v2/config──> /wrapper/v2 route handler
                                      └─ wrapper-config service
                                           (re-bakes if absent)
                                      └─ returns config.json + ETag
                                                                      ┌─ config.json
                                                                      ├─ config.json.sig
                                                                      └─ meta.json
-sh shim ─GET /wrapper/v2/bin/...──> serves precomputed static binary
+POSIX transition launcher ─GET /wrapper/v2/bin/...──> serves precomputed static binary
 binary  ─POST /auth, /usage, ...──> existing host API surface (untouched)
 ```
 
@@ -67,7 +67,7 @@ api/src/services/
 ├── wrapper-bin-registry.ts   # FS view of storage/wrapper/v2/bin/
 ├── wrapper-meta.ts           # /wrapper/v2/meta manifest
 ├── wrapper-download.ts       # /wrapper/v2/download payload
-└── wrapper-transition.ts     # legacy POSIX transition shim
+└── wrapper-transition.ts     # legacy POSIX transition launcher
 
 storage/wrapper/v2/
 └── bin/<engine>/<os>-<arch>/{manifest.json, v<version>/<engine>}
@@ -83,7 +83,7 @@ Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
 |--------|---------------------------------------------------|-----------------------------------------|
 | GET    | `/wrapper/v2/meta`                                | manifest + signing fingerprint          |
 | GET    | `/wrapper/v2/config[?sig=1]`                      | signed per-host config or signature     |
-| GET    | `/wrapper/v2/download`                            | bootstrap shim for this host            |
+| GET    | `/wrapper/v2/download`                            | bootstrap transition launcher for this host            |
 | GET    | `/wrapper/v2/manifest/{engine}`                   | per-platform inventory                  |
 | GET    | `/wrapper/v2/bin/{engine}/{os}-{arch}/v{ver}/{e}` | static binary (`ETag=sha256`)          |
 | GET    | `/install/v2/{token}`                             | v2 installer script                     |
@@ -92,7 +92,7 @@ Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
 
 The legacy unversioned routes (`/wrapper`, `/wrapper/download`, `/install/{token}`,
 `/seed/auth/{token}`) remain wired through `wrapper-transition.ts` so older
-hosts can still pull a transition shim that writes the v2 config and execs the
+hosts can still pull a transition launcher that writes the v2 config and execs the
 new binary.
 
 ## Database additions

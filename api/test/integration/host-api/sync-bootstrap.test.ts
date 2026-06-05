@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
 import {
   hosts as hostsTable,
@@ -82,7 +82,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
     const configSha = createHash('sha256').update(configBody).digest('hex');
 
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: '0.130.0' },
@@ -139,7 +139,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
     const configSha = createHash('sha256').update(configBody).digest('hex');
 
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, []);
     db.tables.set(agentsDocuments, [
@@ -190,7 +190,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
 
   it('includes a sessions block with now/today/month numeric counts', async () => {
     const apiKey = 'sk-bootstrap-sessions';
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, []);
     db.tables.set(agentsDocuments, []);

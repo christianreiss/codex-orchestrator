@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { hosts as hostsTable, versions as versionsTable } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
@@ -19,7 +19,7 @@ const env = {
 
 describe('GET /versions', () => {
   it('returns the version snapshot when api_disabled is off', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: '0.42.0' },
       { name: 'wrapper_version_codex', version: '1.0.0' },
@@ -39,7 +39,7 @@ describe('GET /versions', () => {
   });
 
   it('returns 503 when api_disabled is on', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(versionsTable, [{ name: 'api_disabled', version: '1' }]);
     const keyring = makeKeyring();
     const app = await buildHostApiTestApp({ db: db as any, env, keyring });
@@ -52,7 +52,7 @@ describe('GET /versions', () => {
 
 describe('POST /cron/check', () => {
   it('normalizes labeled codex-cli versions before deciding client updates', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
@@ -80,7 +80,7 @@ describe('POST /cron/check', () => {
   });
 
   it('resolves latest codex target before comparing client versions', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
@@ -112,7 +112,7 @@ describe('POST /cron/check', () => {
   });
 
   it('uses the settings codex lock as an exact cron target', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
@@ -167,7 +167,7 @@ describe('POST /cron/check', () => {
         ],
       }),
     );
-    const db = createDbShim();
+    const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
@@ -217,8 +217,8 @@ describe('POST /cron/check', () => {
     }
   });
 
-  it('returns the legacy transition shim URL for date-style shell wrappers', async () => {
-    const db = createDbShim();
+  it('returns the legacy transition launcher URL for date-style shell wrappers', async () => {
+    const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [

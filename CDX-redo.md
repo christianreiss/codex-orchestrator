@@ -19,7 +19,7 @@ Outcome: a typed, testable, statically-compiled Go binary per engine (`cdx`, `cl
 | Wrapper language | **Go 1.23+** (toolchain `1.23.x` pinned in `go.mod`) | User pick. Single static binary, cross-compile matrix, fast cold start, structured config, real testing framework. |
 | Topology | **Two fully separate binaries** (`cdx`, `clx`) | User pick. Each lives in its own Go module under `wrappers/cdx/` and `wrappers/clx/`. Engine-specific code paths stay engine-specific. Cross-binary code sharing is *not* a project goal — modest copy-paste is acceptable in exchange for zero coupling. |
 | Distribution | Per-arch prebuilt binaries served by the orchestrator | Built in CI (GitHub Actions matrix), checked into `storage/wrapper/v2/bin/<engine>/<os>-<arch>/v<version>/<binary>` (or pulled from GitHub Releases if size is an issue — see "Binary hosting" below). |
-| Bootstrap shim | **POSIX `sh`** (~50 lines) | Downloaded by `curl … \| sh`. Tiny — only fetches config + binary then `exec`s. Verifies binary signature (Ed25519) before executing. |
+| Bootstrap transition launcher | **POSIX `sh`** (~50 lines) | Downloaded by `curl … \| sh`. Tiny — only fetches config + binary then `exec`s. Verifies binary signature (Ed25519) before executing. |
 | Per-host config | **Signed JSON** (`config.json` + `config.json.sig`) | Replaces bash placeholders. Typed, validatable, future-extensible. Ed25519 signature using a server-held key, verified by binary on startup. |
 | Bakery cache | **`storage/wrapper/v2/cache/<host_id>/<config_version>/`** (filesystem) | Pre-baked at config change, served as static files. Cache key derives from `(host_id, config_version, binary_version)`. Old entries pruned on a schedule. |
 | Bakery invalidation | **Event-driven** | Bumping a host's config row bumps `config_version`. Any change to `hosts.{api_key,fqdn,secure,model_override,reasoning_effort_override,curl_insecure,claude_model_override,…}` or to a global setting that affects baked output bumps `config_version` for the affected hosts (or all hosts for global). A single `AdminEventRepository` hook triggers re-bake. |
@@ -104,8 +104,8 @@ src/Services/Wrapper/V2/                        # NEW: PHP-side bakery v2
 ├── ConfigSigner.php                            # Ed25519 signs the rendered JSON
 ├── BakeCache.php                               # Reads/writes cache entries under storage/wrapper/v2/cache/
 ├── BinaryRegistry.php                          # Discovers available binaries under storage/wrapper/v2/bin/
-├── BootstrapShimBuilder.php                    # Renders the ~50-line POSIX sh shim
-├── InstallerScriptBuilderV2.php                # New installer that runs the bootstrap shim
+├── BootstrapLauncherBuilder.php                # Renders the ~50-line POSIX POSIX transition launcher
+├── InstallerScriptBuilderV2.php                # New installer that runs the bootstrap transition launcher
 └── SeedAuthScriptBuilderV2.php                 # New seed-auth script (much smaller than the old one)
 
 src/Http/Controllers/WrapperV2Controller.php    # NEW: GET /wrapper/v2[/meta|/config|/download|/bin]
@@ -173,7 +173,7 @@ And these route entries in `public/index.php` (lines 613–619) get re-pointed t
 
 ```
 GET  /wrapper              → WrapperV2Controller::meta
-GET  /wrapper/download     → WrapperV2Controller::download   (now serves the shim, not the full script)
+GET  /wrapper/download     → WrapperV2Controller::download   (now serves the transition launcher, not the full script)
 GET  /install/{token}      → InstallV2Controller::install
 GET  /seed/auth/{token}    → InstallV2Controller::seedAuthScript
 POST /seed/auth/{token}    → InstallV2Controller::seedAuthStore
@@ -298,13 +298,13 @@ Same except `lane`/`profile` are absent (Claude has no quota lane and no profile
 - If absent: call `ConfigBaker::bakeForHost()` synchronously.
 - If config_version is stale (host updated mid-request): re-bake.
 
-### `BootstrapShimBuilder::build(int $hostId, string $engine, string $token): string`
+### `BootstrapLauncherBuilder::build(int $hostId, string $engine, string $token): string`
 
 Generates a tiny POSIX sh script:
 
 ```sh
 #!/bin/sh
-# wrapper-v2 bootstrap shim for cdx
+# wrapper-v2 bootstrap transition launcher for cdx
 set -eu
 CONFIG_URL='https://orch.example.com/wrapper/v2/config?engine=codex'
 BINARY_URL='https://orch.example.com/wrapper/v2/bin/cdx/<os>-<arch>/v<version>/cdx'
@@ -336,15 +336,15 @@ fi
 exec "$BIN_DIR/cdx" --config "$CDX_HOME/cdx.json" "$@"
 ```
 
-A single tool (`jq`) is the only non-coreutil dependency. The shim falls back to `python3 -c 'import json,sys; print(json.load(sys.stdin)["wrapper"]["binary_sha256"])'` if jq is missing — a tiny inline helper, no installer step required.
+A single tool (`jq`) is the only non-coreutil dependency. The transition launcher falls back to `python3 -c 'import json,sys; print(json.load(sys.stdin)["wrapper"]["binary_sha256"])'` if jq is missing — a tiny inline helper, no installer step required.
 
 ### `InstallerScriptBuilderV2`
 
 The `/install/{token}` endpoint now emits:
 1. A handful of env vars (BASE_URL, API_KEY, FQDN).
-2. The bootstrap shim above, but written to `$HOME/.local/bin/cdx-shim` (a small file).
+2. The bootstrap transition launcher above, but written to `$HOME/.local/bin/cdx-transition` (a small file).
 3. An optional one-time install of `codex` CLI (still needed — the wrapper invokes it). This part is mostly preserved from `InstallerScriptBuilder::install_codex_cli()` — call into a refactored `CodexCliInstaller.php` helper.
-4. A first run of the shim to download config + binary.
+4. A first run of the transition launcher to download config + binary.
 5. Hint output explaining `cdx --version`, `cdx doctor`, next steps.
 
 Total installer size: ~150 lines (down from 597).
@@ -361,7 +361,7 @@ Same flow, smaller: just upload an existing `auth.json` to the server via `POST 
 |---|---|---|---|
 | GET | `/wrapper/v2/meta` | host API key | Return current binary version + sha256 + signing key fingerprint + supported platforms |
 | GET | `/wrapper/v2/config` | host API key | Return per-host config JSON (signed). Adds `?sig=1` query for signature file. |
-| GET | `/wrapper/v2/download` | host API key | Return bootstrap shim for this host (the same script the installer emits, minus the CLI install step). |
+| GET | `/wrapper/v2/download` | host API key | Return bootstrap transition launcher for this host (the same script the installer emits, minus the CLI install step). |
 | GET | `/wrapper/v2/bin/{engine}/{platform}/v{version}/{binary}` | host API key | Serve static binary from `storage/wrapper/v2/bin/`. Cache-friendly (long TTL, ETag = sha256). |
 | GET | `/wrapper/v2/manifest/{engine}` | host API key | Return per-platform `manifest.json` (sha256 + signature for each platform binary). |
 | GET | `/install/v2/{token}` | none (token) | Emit installer script (consumes one-time token). |
@@ -384,7 +384,7 @@ Migration `<timestamp>_wrapper_v2.php`:
 - new table: wrapper_v2_binaries (id, engine, os, arch, version, sha256, size_bytes, signature, published_at, uploaded_by)
 ```
 
-`hosts.wrapper_track` lets you opt a single host to v2 for canary testing without flipping the global switch. Once flipped to `v2`, that host's `/wrapper/download` response returns the v2 shim. Default stays `legacy` until the atomic-swap commit, which then changes the default to `v2` and triggers a one-time backfill (`UPDATE hosts SET wrapper_track='v2'`).
+`hosts.wrapper_track` lets you opt a single host to v2 for canary testing without flipping the global switch. Once flipped to `v2`, that host's `/wrapper/download` response returns the v2 transition launcher. Default stays `legacy` until the atomic-swap commit, which then changes the default to `v2` and triggers a one-time backfill (`UPDATE hosts SET wrapper_track='v2'`).
 
 ---
 
@@ -404,7 +404,7 @@ Branch: `cdx-redo/foundation`
 
 1. Initialize the `wrappers/` Go workspace (`go.work`, two empty modules `wrappers/cdx`, `wrappers/clx`, shared `Makefile`).
 2. Lay down the JSON schema (`wrappers/schemas/host-config-v1.json`) and a Go struct that matches.
-3. Scaffold `src/Services/Wrapper/V2/` with empty class skeletons (`ConfigBaker`, `ConfigSigner`, `BakeCache`, `BinaryRegistry`, `BootstrapShimBuilder`, `InstallerScriptBuilderV2`, `SeedAuthScriptBuilderV2`).
+3. Scaffold `src/Services/Wrapper/V2/` with empty class skeletons (`ConfigBaker`, `ConfigSigner`, `BakeCache`, `BinaryRegistry`, `BootstrapLauncherBuilder`, `InstallerScriptBuilderV2`, `SeedAuthScriptBuilderV2`).
 4. Write the database migration adding `hosts.config_version`, `hosts.wrapper_track`, `wrapper_signing_keys`, `wrapper_v2_binaries`. Default `wrapper_track='legacy'` so nothing changes for live hosts.
 5. Register v2 routes in `public/index.php` **alongside** the existing v1 routes (do not remove v1).
 6. Add a `WrapperV2Controller` that responds to `/wrapper/v2/meta` with a stub.
@@ -430,7 +430,7 @@ Each branches from post-Phase-1 main. Files are partitioned so conflicts are lim
 | 8 | `cdx-redo/binary-clx-update` | clx self-update. |
 | 9 | `cdx-redo/server-bakery` | `src/Services/Wrapper/V2/` — `ConfigBaker`, `ConfigSigner`, `BakeCache`. PHPUnit tests using fixtures from `wrappers/testdata/`. Hooks into `AdminEventRepository` so any host mutation bumps `config_version`. |
 | 10 | `cdx-redo/server-endpoints` | `WrapperV2Controller`, `InstallV2Controller`, route wiring, ETag/Cache-Control headers, response shape tests. |
-| 11 | `cdx-redo/server-installer` | `BootstrapShimBuilder`, `InstallerScriptBuilderV2`, `SeedAuthScriptBuilderV2`. Snapshot tests against canonical fixtures. |
+| 11 | `cdx-redo/server-installer` | `BootstrapLauncherBuilder`, `InstallerScriptBuilderV2`, `SeedAuthScriptBuilderV2`. Snapshot tests against canonical fixtures. |
 | 12 | `cdx-redo/ci-release` | GitHub Actions: build matrix for `{linux,darwin}-{amd64,arm64}` (+ optional `linux-musl-amd64`), sign each artifact, upload to a release. Add a local `make release` target that does the same locally for self-hosted builds. |
 | 13 | `cdx-redo/canary` | Add an admin UI control (in the new WebUI under Settings → "Wrapper rollout") that flips `hosts.wrapper_track` per host. Smoke-test a real host pointed at `wrapper_track='v2'`. (Depends on the WebUI rewrite being in flight — Phase 2 can stub it as an API-only endpoint if the UI isn't merged yet.) |
 | 14 | `cdx-redo/docs` | Rewrite `docs/interface-cdx.md`, `docs/interface-clx.md`, add `docs/wrapper-v2-architecture.md`. Update `DESIGN.md` § "Wrapper bakery" verbatim. |
@@ -479,11 +479,11 @@ What today's bakery does that the rewrite **stops doing**:
 | Shell-escaping via custom `escapeBashDoubleQuoted` | `json_encode` (PHP) and `encoding/json` (Go) handle escaping for us |
 | 597-line installer script builder | ~150-line `InstallerScriptBuilderV2` |
 | 166-line seed-auth script builder | ~50-line `SeedAuthScriptBuilderV2` |
-| Eight wrapper-touching PHPUnit tests, all integration | Direct unit tests on `ConfigBaker`, `ConfigSigner`, `BakeCache`, `BootstrapShimBuilder`, `InstallerScriptBuilderV2`, plus round-trip Go tests on every binary internal package |
+| Eight wrapper-touching PHPUnit tests, all integration | Direct unit tests on `ConfigBaker`, `ConfigSigner`, `BakeCache`, `BootstrapLauncherBuilder`, `InstallerScriptBuilderV2`, plus round-trip Go tests on every binary internal package |
 | No round-trip verification | `wrappers/testdata/` golden files + `php artisan wrapper:bake-test --host=42` CLI command that re-bakes + diffs |
 | Wrapper-seed-fallback rate-limit warning (300 s log throttle) | Hard failure: if the seed copy can't be written, the orchestrator fails the request with a 500 + sentry-able event |
 | Wrapper SHA256 recomputed on every download | SHA256 stored in cache `meta.json`; served as `ETag` and `X-SHA256` headers without recomputation |
-| Inline Python shim in seed-auth script | `jq` or POSIX-sh `case` parsing in the shim; no Python dependency on the host |
+| Inline Python helper in seed-auth script | `jq` or POSIX-sh `case` parsing in the transition launcher; no Python dependency on the host |
 | Host-side `cdx` colour theme sequences embedded in 200+ lines of bash | `slog` JSON output by default; pretty output via stderr ANSI when `--silent=false` and terminal is a TTY |
 
 ---

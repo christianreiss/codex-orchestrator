@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createVersionSnapshotService } from '../../../src/services/version-snapshot.js';
 
 /**
- * Tests use a tiny in-memory db shim that mimics enough of Drizzle's select()
+ * Tests use a tiny in-memory db fake that mimics enough of Drizzle's select()
  * to satisfy version-snapshot. The service only ever does plain reads on the
  * `versions` table, so a fixed array of rows is enough.
  */

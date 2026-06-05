@@ -147,7 +147,7 @@ Missing decisions:
 | **Reserved-command list for profile shorthand** (`exec`, `review`, `login`, `logout`, `mcp`, ..., `help`) | Yes | `cmdProfile` just shoves args through; `cdx exec` is its own subcommand but `cdx login` / `cdx mcp` would currently be misinterpreted as profile names by **any** logic that emulates legacy `cdx <profile>` shorthand. v2 does not even *implement* the `cdx <name>` profile shorthand — only the explicit `cdx profile <name>` form. | **P1**. Operators with muscle memory will see different behaviour. |
 | **`cdx ls` shorthand for `cdx lane spark`** | Yes | Not implemented | **P2**. |
 | **`cdx lane` clear: prints + exits when no args** | Yes | `cmdLane` does print effective lane, but `clear` requires `--persist` (legacy allowed `clear` alone for read-back of "follow inherited"). | **P2**. |
-| **`--execute` runs through the full lifecycle (auth/sync/update gates) before launching** | Yes | v2 sets `SkipBoot: true` and **skips auth+resource sync entirely** — `--execute` is a thin shim onto `codex exec` only. `wrappers/cdx/cmd/cdx/main.go:131-144` | **P0**. Headless callers now skip the auth refresh. |
+| **`--execute` runs through the full lifecycle (auth/sync/update gates) before launching** | Yes | v2 sets `SkipBoot: true` and **skips auth+resource sync entirely** — `--execute` is a thin adapter onto `codex exec` only. `wrappers/cdx/cmd/cdx/main.go:131-144` | **P0**. Headless callers now skip the auth refresh. |
 
 ### B5. Usage reporting (P0)
 

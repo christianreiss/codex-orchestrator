@@ -25,7 +25,7 @@ Default notice mappings:
 
 ## Managed MCP entry
 
-- Native HTTP MCP transport; no node shim.
+- Native HTTP MCP transport; no node bridge.
 - Controlled by `orchestrator_mcp_enabled` in the builder (enabled by default).
 - For each host, the server injects a managed entry ahead of any user-configured MCP servers and filters out reserved orchestrator aliases (`codex-memory`, `codex-orchestrator`, `cdx`, `codex-coordinator`) from the UI-configurable list.
 - Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.

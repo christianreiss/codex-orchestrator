@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
 import {
   hosts as hostsTable,
@@ -80,7 +80,7 @@ const bodyDeploy = '---\ndescription: Deploys\n---\n\nDeploy it.\n';
 const shaReviewer = createHash('sha256').update(bodyReviewer).digest('hex');
 const shaDeploy = createHash('sha256').update(bodyDeploy).digest('hex');
 
-function seedArtifacts(db: ReturnType<typeof createDbShim>) {
+function seedArtifacts(db: ReturnType<typeof createDbFake>) {
   db.tables.set(claudeArtifacts, [
     { id: 1, kind: 'subagent', slug: 'reviewer', sha256: shaReviewer, body: bodyReviewer, displayName: 'reviewer', description: 'Reviews code', model: null, frontmatter: {}, engine: null, sourceHostId: null, createdAt: 't', updatedAt: 't', deletedAt: null },
     { id: 2, kind: 'subagent', slug: 'old', sha256: createHash('sha256').update('x').digest('hex'), body: 'x', displayName: null, description: null, model: null, frontmatter: {}, engine: null, sourceHostId: null, createdAt: 't', updatedAt: 't', deletedAt: 't-deleted' },
@@ -89,7 +89,7 @@ function seedArtifacts(db: ReturnType<typeof createDbShim>) {
 }
 
 function baseTables(apiKey: string, engines: string) {
-  const db = createDbShim();
+  const db = createDbFake();
   db.tables.set(hostsTable, [hostRow(apiKey, engines)]);
   db.tables.set(versionsTable, []);
   db.tables.set(agentsDocuments, []);

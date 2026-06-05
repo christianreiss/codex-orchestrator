@@ -44,7 +44,7 @@ export class HostClaudeArtifactsService {
   }
 
   // kind/deletedAt filtered in SQL (real DB) and again in JS so the in-memory
-  // test shim (whose `.where()` is a no-op) stays correct.
+  // test fake (whose `.where()` is a no-op) stays correct.
   private async liveRows(kind: ArtifactKind): Promise<ClaudeArtifact[]> {
     const rows = await this.db
       .select()

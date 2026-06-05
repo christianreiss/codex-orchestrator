@@ -8,14 +8,14 @@ import {
   coordProjectTodos,
 } from '../../../src/db/schema.js';
 import { HostProjectsService } from '../../../src/services/host-projects.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const host: Host = { id: 1, fqdn: 'host.example' } as unknown as Host;
 
 describe('HostProjectsService bootstrap', () => {
   it('includes managed CoCo skill metadata and native guidance', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     db.tables.set(coordProjects, [{
       id: 1,
       slug: 'demo',

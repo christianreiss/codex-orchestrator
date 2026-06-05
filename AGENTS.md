@@ -93,7 +93,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
    - `/host/lane` gets/sets lane preference (`normal`, `spark`, `null`) with insecure-window enforcement.
-   - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition shim that writes config before exec.
+   - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition launcher that writes config before exec.
    - `/mcp/memories/*` manages host-scoped memory records; `/mcp` serves JSON-RPC MCP tools/resources (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 

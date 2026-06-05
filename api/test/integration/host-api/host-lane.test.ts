@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { hosts as hostsTable, versions as versionsTable, hostUsers, tokenUsages } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
@@ -17,7 +17,7 @@ const env = {
 const apiKey = 'sk-codex-deadbeef-cafe';
 const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-function setupHost(db: ReturnType<typeof createDbShim>): void {
+function setupHost(db: ReturnType<typeof createDbFake>): void {
   db.tables.set(hostsTable, [
     {
       id: 1,
@@ -79,7 +79,7 @@ function makeKeyring(): Keyring {
 
 describe('GET /host/lane', () => {
   it('returns lane_preference + effective_lane', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -100,7 +100,7 @@ describe('GET /host/lane', () => {
   });
 
   it('returns 401 without API key', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({ method: 'GET', url: '/host/lane' });
@@ -111,7 +111,7 @@ describe('GET /host/lane', () => {
 
 describe('POST /host/lane', () => {
   it('updates lane_preference and returns effective_lane', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -128,7 +128,7 @@ describe('POST /host/lane', () => {
   });
 
   it('rejects an unknown lane string', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({
@@ -142,7 +142,7 @@ describe('POST /host/lane', () => {
   });
 
   it('clears the lane preference when given null', async () => {
-    const db = createDbShim();
+    const db = createDbFake();
     setupHost(db);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const r = await app.inject({

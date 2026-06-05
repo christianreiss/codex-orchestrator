@@ -12,7 +12,7 @@ import type { Host, AdminUser, AdminSession } from '../../src/db/schema.js';
 
 /**
  * A minimal app suitable for testing host-api routes without a live MySQL.
- * Pass a `db` shim that returns the rows you want; pass `keyring` for crypto;
+ * Pass a `db` fake that returns the rows you want; pass `keyring` for crypto;
  * the rate limiter is a no-op (always allowed) unless you override it.
  */
 export interface HostApiTestAppOptions {
@@ -40,13 +40,13 @@ export async function buildHostApiTestApp(opts: HostApiTestAppOptions): Promise<
   };
   app.decorate('rateLimiter', limiter);
 
-  // clientIp shim (foundation plugin requires onRequest hooks we skip here).
+  // clientIp test adapter (foundation plugin requires onRequest hooks we skip here).
   app.decorateRequest('clientIp', '');
   app.addHook('onRequest', async (req) => {
     req.clientIp = (req.headers['x-test-ip'] as string) || '127.0.0.1';
   });
 
-  // Cheap auth-host/auth-admin shims that just call into the db so the route
+  // Cheap auth-host/auth-admin test adapters that just call into the db so the route
   // modules can re-resolve when they need to. Most route handlers in host-api
   // own their own resolution, so these are mostly placeholders.
   app.decorate('resolveHostFromKey', async (req: FastifyRequest): Promise<Host | null> => {

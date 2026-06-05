@@ -33,7 +33,7 @@ in a standalone follow-up PR.
   fingerprint lookup short-circuits the verify loop.
 - **Config `expires_at` enforcement.** Schema permits it, `ConfigBaker` writes
   `null`. Wire it: have the baker set a 30-day TTL and have the binary refuse
-  configs past `expires_at`. Triggers a re-fetch via the bootstrap shim.
+  configs past `expires_at`. Triggers a re-fetch via the bootstrap transition launcher.
 
 ## Polish
 

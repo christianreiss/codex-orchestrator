@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
-import { createDbShim } from '../../helpers/db-shim.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
 import {
   hosts as hostsTable,
@@ -55,7 +55,7 @@ function skillRow(over: Record<string, unknown>): Record<string, unknown> {
 }
 
 function baseTables(apiKey: string, engines: string) {
-  const db = createDbShim();
+  const db = createDbFake();
   db.tables.set(hostsTable, [hostRow(apiKey, engines)]);
   db.tables.set(versionsTable, []);
   db.tables.set(agentsDocuments, []);
@@ -64,7 +64,7 @@ function baseTables(apiKey: string, engines: string) {
   return db;
 }
 
-async function bootstrap(db: ReturnType<typeof createDbShim>, apiKey: string, engine: string, payload: Record<string, unknown> = {}) {
+async function bootstrap(db: ReturnType<typeof createDbFake>, apiKey: string, engine: string, payload: Record<string, unknown> = {}) {
   const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
   const r = await app.inject({
     method: 'POST',

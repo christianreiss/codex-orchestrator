@@ -140,7 +140,7 @@ export class HostAgentsService {
     // client_config carries a codex `model` (e.g. gpt-5.5) that would otherwise
     // leak into Claude's settings.json. When no claude config exists we still
     // render from an EMPTY base so the managed clx MCP block is injected, but no
-    // model (or any other key) is borrowed from codex. (The db-shim test harness
+    // model (or any other key) is borrowed from codex. (The db-fake test harness
     // ignores WHERE, so filter the engine in JS too — `rows[0]` could be codex.)
     const row = rows.find((r) => r.engine === ENGINE_CLAUDE);
     const settings = row && row.settings && typeof row.settings === 'object' ? row.settings : {};

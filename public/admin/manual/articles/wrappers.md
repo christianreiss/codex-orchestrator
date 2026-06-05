@@ -8,7 +8,7 @@ sources: wrappers/cdx, wrappers/clx, api/src/services/wrapper-config.ts, api/src
 `cdx` wraps the Codex CLI; `clx` wraps the Claude Code CLI. Each wrapper is a
 **static Go binary** built from `wrappers/cdx/` and `wrappers/clx/` (one Go
 module per engine, joined by `wrappers/go.work`). At install time the
-orchestrator emits a small POSIX `sh` bootstrap shim that fetches a signed
+orchestrator emits a small POSIX `sh` bootstrap transition launcher that fetches a signed
 per-host JSON config and the right binary for the host's platform, then
 `exec`s the binary.
 
@@ -28,7 +28,7 @@ per-host JSON config and the right binary for the host's platform, then
   `storage/wrapper/v2/bin/...` relative to the repo when `DATA_ROOT` is unset).
   `wrapper-bin-registry.ts` discovers them via `manifest.json` files or a
   directory scan; SHA256 + size are recorded per build.
-- **Bootstrap shim** — emitted by `wrapper-download.ts`. The shim is the only
+- **Bootstrap transition launcher** — emitted by `wrapper-download.ts`. The transition launcher is the only
   piece of shell; it does config fetch + sha-check + binary download + exec.
 
 ## Public endpoints
@@ -41,7 +41,7 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 - `GET /wrapper/v2/config[?sig=1]` — returns the signed per-host config JSON
   (or its detached signature file when `?sig=1`).
 - `GET /wrapper/v2/download` (alias `GET /wrapper/download`) — returns the
-  bootstrap shim for the calling host.
+  bootstrap transition launcher for the calling host.
 - `GET /wrapper/v2/manifest/:engine` — full per-platform manifest for an engine.
 - `GET /wrapper/v2/bin/{engine}/{os}-{arch}/v{version}/{binary}` — serves the
   static binary. The response is cacheable (ETag = SHA256).
@@ -81,6 +81,6 @@ Subcommands available to the user: `run` (default), `status`, `doctor`,
 - api/src/services/wrapper-config.ts (signed per-host config bakery)
 - api/src/services/wrapper-signing-key.ts (Ed25519 key from wrapper_signing_keys)
 - api/src/services/wrapper-bin-registry.ts (binary inventory, SHA256)
-- api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts (manifest + shim)
+- api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts (manifest + transition launcher)
 - api/src/routes/wrapper-v2/index.ts (HTTP surface)
 - api/src/routes/install/index.ts (installer + seed-auth tokens)

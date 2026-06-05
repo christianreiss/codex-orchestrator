@@ -131,14 +131,14 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
     const rawSummary = await versions.summary(engine);
     const summary = withLegacyShellWrapperTransition(rawSummary, submittedWrapper, engine);
-    const usingLegacyShim = summary.wrapper_url !== rawSummary.wrapper_url;
+    const usingLegacyTransition = summary.wrapper_url !== rawSummary.wrapper_url;
     const requestedPlatform = platformFromRequest(req);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     const binaryName = engine === 'claude' ? 'clx' : 'cdx';
     const targetWrapper = summary.wrapper_version;
     let platformSha: string | null = summary.wrapper_sha256;
     let platformUrl: string | null = summary.wrapper_url;
-    if (!usingLegacyShim && targetWrapper) {
+    if (!usingLegacyTransition && targetWrapper) {
       const desc = await binaries.binaryDescriptor(
         engine,
         requestedPlatform.os,

@@ -130,7 +130,7 @@ export class HostSkillsService {
     ]);
     const out: SkillEnvelope[] = [];
     for (const row of rows) {
-      if (row.deletedAt) continue; // db-shim ignores WHERE — filter in JS too
+      if (row.deletedAt) continue; // db-fake ignores WHERE — filter in JS too
       if (managedCoco && isManagedCocoSlug(row.slug)) continue;
       const e = row.engine;
       const visible = e === null || e === undefined || e === '' || e === engine;
