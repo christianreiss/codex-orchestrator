@@ -3,7 +3,6 @@
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
-  import { useQueryClient } from "@tanstack/svelte-query";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -16,7 +15,6 @@
     hostsListQuery,
     hostMatchesFilter,
     hostStatusLabel,
-    createAutoUpdateToggleMutation,
     type HostFilterId,
   } from "$lib/api/hosts";
   import HostsTable from "$lib/components/hosts/HostsTable.svelte";
@@ -27,12 +25,9 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { isInsecureWindowActive } from "$lib/api/hosts";
-  import { toast } from "svelte-sonner";
   import type { HostListItem } from "$lib/api/types";
 
-  const qc = useQueryClient();
   const hosts = hostsListQuery();
-  const autoUpdate = createAutoUpdateToggleMutation(qc);
 
   // --- URL-synced filter --------------------------------------------------
   const VALID: HostFilterId[] = [
@@ -144,15 +139,6 @@
     }
   });
 
-  async function handleAutoUpdate(h: HostListItem, value: boolean): Promise<void> {
-    try {
-      await $autoUpdate.mutateAsync({ id: h.id, value });
-      toast.success(`Auto-update ${value ? "enabled" : "disabled"} for ${h.fqdn}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      toast.error(msg);
-    }
-  }
 </script>
 
 <PageHeader title="Hosts" subtitle="All connected machines and their installer state.">
@@ -201,7 +187,7 @@
     Failed to load hosts: {$hosts.error?.message ?? "unknown error"}
   </div>
 {:else}
-  <HostsTable rows={filtered} loading={$hosts.isFetching} onToggleAutoUpdate={handleAutoUpdate} />
+  <HostsTable rows={filtered} loading={$hosts.isFetching} />
 {/if}
 
 <NewHostSheet

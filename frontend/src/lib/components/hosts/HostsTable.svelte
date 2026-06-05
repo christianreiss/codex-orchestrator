@@ -5,7 +5,6 @@
   import StatusPill from "./StatusPill.svelte";
   import EngineBadge from "./EngineBadge.svelte";
   import InsecureCountdown from "./InsecureCountdown.svelte";
-  import { Switch } from "$lib/components/ui/switch";
   import { relativeTime } from "$lib/utils/format";
   import {
     hostEngines,
@@ -26,16 +25,14 @@
     | "status"
     | "last_refresh"
     | "client_version"
-    | "effective_auto_update_enabled"
     | "insecure_enabled_until";
   type SortDir = "asc" | "desc";
 
   type Props = {
     rows: HostListItem[];
     loading?: boolean;
-    onToggleAutoUpdate?: (h: HostListItem, value: boolean) => void;
   };
-  let { rows, loading = false, onToggleAutoUpdate }: Props = $props();
+  let { rows, loading = false }: Props = $props();
 
   // --- sorting ------------------------------------------------------------
   let sortField = $state<SortField>("fqdn");
@@ -96,14 +93,13 @@
 
 <div class="rounded-lg border bg-card text-card-foreground">
   <div
-    class="grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px_120px] items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-medium text-muted-foreground"
+    class="grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px] items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-medium text-muted-foreground"
   >
     {@render headerCell("Host", "fqdn")}
     <div>Engines</div>
     {@render headerCell("Status", "status")}
     {@render headerCell("Last seen", "last_refresh")}
     {@render headerCell("Codex ver.", "client_version")}
-    {@render headerCell("Auto-upd.", "effective_auto_update_enabled")}
     {@render headerCell("Insecure", "insecure_enabled_until")}
   </div>
 
@@ -128,7 +124,7 @@
             <button
               type="button"
               class={cn(
-                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px_120px] items-center gap-3 border-b px-4 text-left text-sm transition-colors hover:bg-accent/40 focus:bg-accent/60 focus:outline-none",
+                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px] items-center gap-3 border-b px-4 text-left text-sm transition-colors hover:bg-accent/40 focus:bg-accent/60 focus:outline-none",
               )}
               style="transform: translateY({virtual.start}px); height: {rowHeight}px;"
               onclick={() => openHost(row)}
@@ -165,17 +161,6 @@
               </div>
               <div class="truncate font-mono text-[11px] text-muted-foreground">
                 {row.client_version_override ?? row.client_version ?? "—"}
-              </div>
-              <div
-                role="presentation"
-                onclick={(e) => e.stopPropagation()}
-                onkeydown={(e) => e.stopPropagation()}
-              >
-                <Switch
-                  checked={row.effective_auto_update_enabled}
-                  onCheckedChange={(v) => onToggleAutoUpdate?.(row, Boolean(v))}
-                  aria-label="Toggle auto-update for {row.fqdn}"
-                />
               </div>
               <div>
                 <InsecureCountdown until={row.insecure_enabled_until} />

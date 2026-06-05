@@ -1,3 +1,9 @@
+## Hosts table is slimmer
+
+- **UI:** Hosts → Auto-update was removed from the fleet table. Auto-update
+  state and the toggle stay on the host detail page, where changing it has more
+  context and less chance of accidental fleet-table clicks.
+
 ## Admin hosts status uses recent contact, not lifecycle state
 
 - **UI/API:** Hosts → Status no longer treats `status = active` as “Online”.
