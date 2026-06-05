@@ -1,3 +1,9 @@
+## Runner boxes use matching visuals
+
+- **UI:** Dashboard runner state now renders Codex and Claude engine boxes with
+  the same action label, icon, and button style. Only the engine name and live
+  state differ.
+
 ## Users moved under Settings
 
 - **UI:** Users is no longer a top-level sidebar item. The admin user management

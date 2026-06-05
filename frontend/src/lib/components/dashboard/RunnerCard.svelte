@@ -24,7 +24,6 @@
   import Loader2 from "@lucide/svelte/icons/loader-2";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import PlayCircle from "@lucide/svelte/icons/play-circle";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import {
     createRunnerStateQuery,
     createRunCodexRunnerMutation,
@@ -70,19 +69,19 @@
   const sharedLabel = $derived(sharedToken === "unconfigured" ? "not configured" : sharedToken);
 
   const engineRows = $derived.by<EngineRow[]>(() => [
-    buildEngineRow("codex", "Codex", "Run Codex runner"),
-    buildEngineRow("claude", "Claude", "Verify Claude"),
+    buildEngineRow("codex", "Codex"),
+    buildEngineRow("claude", "Claude"),
   ]);
 
   const anyEngineRunning = $derived(engineRows.some((row) => row.token === "running"));
 
-  function buildEngineRow(engine: EngineKey, label: string, actionLabel: string): EngineRow {
+  function buildEngineRow(engine: EngineKey, label: string): EngineRow {
     const status = engineStatus(engine);
     const token = engineToken(status);
     return {
       engine,
       label,
-      actionLabel,
+      actionLabel: "Run verification",
       status,
       token,
       variant: badgeVariant(token),
@@ -269,16 +268,15 @@
             <Button
               class="mt-3 w-full justify-center"
               size="sm"
-              variant={row.engine === "codex" ? "default" : "outline"}
+              variant="outline"
               onclick={actionFor(row.engine)}
               disabled={actionDisabled(row)}
+              aria-label={`Run ${row.label} runner verification`}
             >
               {#if pending(row.engine)}
                 <Loader2 class="h-4 w-4 animate-spin" />
-              {:else if row.engine === "codex"}
-                <PlayCircle class="h-4 w-4" />
               {:else}
-                <ShieldCheck class="h-4 w-4" />
+                <PlayCircle class="h-4 w-4" />
               {/if}
               <span>{row.actionLabel}</span>
             </Button>
