@@ -431,6 +431,11 @@ export function renderClaudeSettingsPartial(
     partial['model'] = settings.model;
     owned.push('model');
   }
+  // NOTE: Claude Code does NOT read mcpServers from settings.json — the wrapper
+  // (clx >= 0.6.21) splits the mcpServers.* owned paths out of this partial and
+  // merges them into the top level of ~/.claude.json, where user-scope MCP
+  // servers actually live. They stay in the partial so the transport contract
+  // is unchanged for older wrappers.
   const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) {
     partial['mcpServers'] = servers;

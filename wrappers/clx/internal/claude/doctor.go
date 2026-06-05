@@ -159,17 +159,20 @@ func checkConfig() ui.DoctorRow {
 }
 
 func checkMCP(hints *[]string) ui.DoctorRow {
+	// Claude Code reads user-scope MCP servers from the TOP LEVEL of
+	// ~/.claude.json — NOT from ~/.claude/settings.json. The wrapper syncs the
+	// managed clx server there on every run (lifecycle/userconfig_merge.go).
 	home, _ := os.UserHomeDir()
-	p := filepath.Join(home, ".claude", "settings.json")
+	p := filepath.Join(home, ".claude.json")
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: "settings.json absent"}
+		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: ".claude.json absent"}
 	}
 	s := string(raw)
 	if strings.Contains(s, "\"mcpServers\"") && (strings.Contains(s, "\"clx\"") || strings.Contains(s, "\"codex-orchestrator\"")) {
 		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneOK, Value: "configured"}
 	}
-	*hints = append(*hints, "Add the clx MCP block to ~/.claude/settings.json (server-synced).")
+	*hints = append(*hints, "Run clx once online to sync the clx MCP server into ~/.claude.json.")
 	return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: "no mcpServers.clx block"}
 }
 

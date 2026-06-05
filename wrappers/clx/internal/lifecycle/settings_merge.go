@@ -8,10 +8,15 @@
 //     "permissions.deny").
 //   - We persist owned_paths + the fleet permission rules to a sidecar
 //     (~/.clx/state/managed-keys.json). Next run, paths in the sidecar but no
-//     longer owned are deleted — that is how a removed hook / env var / the clx
-//     MCP block gets cleaned up. The server stays stateless.
-//   - Object blocks (env.*, hooks.*, mcpServers.*, statusLine) merge by leaf
-//     path so user-authored siblings survive. The permissions.{allow,ask,deny}
+//     longer owned are deleted — that is how a removed hook / env var gets
+//     cleaned up. The server stays stateless.
+//   - `mcpServers.<name>` owned paths are NOT settings.json keys: Claude Code
+//     reads user-scope MCP servers from ~/.claude.json. They are split out
+//     before the merge and applied there (userconfig_merge.go); since they
+//     leave the owned set, the stale-path pass removes the inert block older
+//     wrappers wrote into settings.json.
+//   - Object blocks (env.*, hooks.*, statusLine) merge by leaf path so
+//     user-authored siblings survive. The permissions.{allow,ask,deny}
 //     arrays are union(user-minus-prev-fleet, current-fleet) — user rules kept,
 //     our previously-injected rules refreshed, no duplicates.
 package lifecycle
@@ -262,6 +267,10 @@ func MergeSettings(userRaw []byte, partial map[string]any, ownedPaths []string, 
 // applyManagedSettings merges the bundle's claude_settings partial into
 // ~/.claude/settings.json (and mirrors to ~/.clx/config/settings.json), persists
 // the new managed-keys sidecar, and returns whether the on-disk file changed.
+// The `mcpServers.<name>` owned paths are split out first and routed into
+// ~/.claude.json (see userconfig_merge.go) — Claude Code only reads user-scope
+// MCP servers from there; dropping them from the owned set lets the merge below
+// self-clean the inert block older wrapper versions left in settings.json.
 func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) bool {
 	if cs == nil || len(cs.Partial) == 0 {
 		return false
@@ -271,19 +280,21 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 		logger.Debug("claude_settings partial decode failed", "err", err)
 		return false
 	}
+	mcpServers, ownedPaths := splitMcpOwned(partial, cs.OwnedPaths)
+	mcpChanged := applyUserMcpServers(mcpServers, logger)
 	path := settingsPath()
 	userRaw, _ := os.ReadFile(path)
-	merged, newState, err := MergeSettings(userRaw, partial, cs.OwnedPaths, loadManagedState())
+	merged, newState, err := MergeSettings(userRaw, partial, ownedPaths, loadManagedState())
 	if err != nil {
 		// Fail safe: leave the user's settings.json untouched this run.
 		logger.Warn("skipping settings merge to avoid clobbering unparseable user settings.json", "path", path, "err", err)
-		return false
+		return mcpChanged
 	}
 	changed := !bytesEqual(userRaw, merged)
 	if changed {
 		if err := atomicWrite(path, merged, 0o644); err != nil {
 			logger.Debug("merged settings write failed", "err", err)
-			return false
+			return mcpChanged
 		}
 		if home, herr := os.UserHomeDir(); herr == nil {
 			_ = atomicWrite(filepath.Join(home, ".clx", "config", "settings.json"), merged, 0o644)
@@ -292,13 +303,14 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 	if serr := saveManagedState(newState); serr != nil {
 		logger.Debug("managed-keys state write failed", "err", serr)
 	}
-	return changed
+	return changed || mcpChanged
 }
 
 // stripManagedSettings removes every fleet-owned key from ~/.claude/settings.json
-// (used when a host loses trust). Reuses the merge with an empty partial so user
-// keys survive; clears the sidecar.
+// plus the fleet MCP servers from ~/.claude.json (used when a host loses trust).
+// Reuses the merge with an empty partial so user keys survive; clears the sidecars.
 func stripManagedSettings(logger *slog.Logger) {
+	stripUserMcpServers(logger)
 	prev := loadManagedState()
 	if len(prev.KeyPaths) == 0 {
 		return

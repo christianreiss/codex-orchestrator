@@ -1,3 +1,18 @@
+## clx MCP servers land where Claude actually reads them
+
+- **clx (0.6.21):** The managed `mcpServers.clx` block was being merged into
+  `~/.claude/settings.json`, which Claude Code ignores for MCP — user-scope MCP
+  servers live at the top level of `~/.claude.json`. The wrapper now splits the
+  `mcpServers.*` owned paths out of the settings partial and deep-merges them
+  into `~/.claude.json` (managed names tracked in
+  `~/.clx/state/managed-mcp.json`; user-authored servers and oauth/project
+  state survive; unparseable files are never overwritten). The inert block
+  older wrappers wrote into `settings.json` is self-cleaned via the existing
+  stale-path pass, and the trust-loss strip removes the managed server from
+  `~/.claude.json` too. `clx doctor` now checks `~/.claude.json` for the MCP
+  block. This fixes Claude Code sessions seeing no `memory_*`/`project_*`
+  tools while the same endpoint worked for Codex.
+
 ## Host online pill uses real last contact
 
 - **UI:** Hosts → Status pill no longer keys the 24-hour online window off

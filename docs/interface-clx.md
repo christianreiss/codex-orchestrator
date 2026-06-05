@@ -155,11 +155,19 @@ are the leaf-granular dot-paths the fleet owns this run.
   A greenfield Claude host with no authored Claude settings therefore receives an
   empty partial **plus** the managed `mcpServers.clx` block, and no `model` key:
   the Codex `model` (e.g. `gpt-5.5`) must never leak into `settings.json`.
+- **`mcpServers.<name>` is the one exception to the settings.json destination:**
+  Claude Code reads user-scope MCP servers from the **top level of
+  `~/.claude.json`**, not from `settings.json`. The wrapper splits the
+  `mcpServers.*` owned paths out of the partial and merges them into
+  `~/.claude.json` (managed names tracked in `~/.clx/state/managed-mcp.json`;
+  user-authored servers and all other `.claude.json` keys survive; an
+  unparseable file is never overwritten). Because the split removes
+  `mcpServers.*` from the settings.json owned set, the stale-path cleanup
+  removes the inert block older wrapper versions wrote there.
 - The wrapper merges `partial` over the user's file, preserving every key the
   fleet does not own. It persists `owned_paths` to `~/.clx/state/managed-keys.json`;
   paths in the sidecar but no longer owned are removed next run (that is how a
-  retired hook / env var / the managed `clx` MCP block gets cleaned up). The
-  server stays stateless.
+  retired hook / env var gets cleaned up). The server stays stateless.
 - `permissions.{allow,ask,deny}` arrays union the user's rules with the fleet's
   (previously-injected fleet rules are stripped first, then re-added — no
   duplicates). All other owned paths are leaf set/delete so user siblings survive.
