@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { createVersionSnapshotService } from '../../../src/services/version-snapshot.js';
 
@@ -6,35 +7,16 @@ import { createVersionSnapshotService } from '../../../src/services/version-snap
  * to satisfy version-snapshot. The service only ever does plain reads on the
  * `versions` table, so a fixed array of rows is enough.
  */
-function makeDbShim(rows: Array<{ name: string; version: string }>) {
-  return {
-    select: () => ({
-      from: (_t: unknown) => ({
-        where: (_w: unknown) => ({
-          limit: (_n: number) => Promise.resolve(rows.filter((r) => r.name === (_w as { name?: string })?.name)),
-        }),
-        // Plain select with no .where used by readMap()
-        then: (resolve: (rows: Array<{ name: string; version: string }>) => void) => resolve(rows),
-      }),
-    }),
-  };
-}
-
-// The select chain accepts a `where(eq(...))` form for flag/setting; we
-// emulate that via a smarter shim.
 function makeDb(rows: Array<{ name: string; version: string }>) {
   return {
     select: () => ({
       from: (_t: unknown) => {
         const builder = {
-          where: (_w: unknown) => ({
+          where: (w: ReturnType<typeof eq>) => ({
             limit: (_n: number) => {
-              // The where() argument is opaque; in tests we ignore filter
-              // and return the full row that matches `_w`. Instead just
-              // return all rows — the service code uses `rows[0]?.version`
-              // so when callers want a specific key they should make a shim
-              // per-test.
-              return Promise.resolve(rows.slice(0, 1));
+              const sql = w as unknown as { queryChunks?: Array<{ value?: unknown[] }> };
+              const value = sql.queryChunks?.find((chunk) => Array.isArray(chunk.value))?.value?.[0];
+              return Promise.resolve(rows.filter((row) => row.name === value).slice(0, _n));
             },
           }),
           then(resolve: (rows: Array<{ name: string; version: string }>) => void) {
@@ -76,7 +58,38 @@ describe('version-snapshot', () => {
     expect(s.wrapper_version).toBe('0.5.0');
     expect(s.engine).toBe('claude');
   });
-});
 
-// Silence unused-import warning
-void makeDbShim;
+  it('resolves latest codex alias from cached release metadata', async () => {
+    const db = makeDb([
+      { name: 'client_version_codex', version: 'latest' },
+      { name: 'github_release_codex-cli', version: '{"tag_name":"v0.137.0"}' },
+      { name: 'client_available', version: '0.130.0' },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    const s = await svc.summary('codex');
+    expect(s.client_version).toBe('0.137.0');
+  });
+
+  it('falls back to cached available version for latest codex alias', async () => {
+    const db = makeDb([
+      { name: 'client_version_codex', version: 'latest' },
+      { name: 'client_available', version: '0.130.0' },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    const s = await svc.summary('codex');
+    expect(s.client_version).toBe('0.130.0');
+  });
+
+  it('uses the settings codex lock as an exact cron override', async () => {
+    const db = makeDb([
+      { name: 'client_version_codex', version: 'latest' },
+      { name: 'client_available', version: '0.130.0' },
+      { name: 'client_version_lock', version: '0.125.0' },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    const s = await svc.summary('codex');
+    expect(s.client_version).toBe('0.130.0');
+    expect(s.client_version_override).toBe('0.125.0');
+    expect(s.client_version_enforce_exact).toBe(true);
+  });
+});

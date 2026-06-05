@@ -1,3 +1,9 @@
+## Codex auto-update cron resolves Settings targets
+
+- **API:** Codex auto-update cron now resolves the Settings value `latest` to the
+  cached available/release version before comparing host versions, and honors
+  the Codex exact version lock written by Settings as the cron target.
+
 ## Hosts table is slimmer
 
 - **UI:** Hosts → Auto-update was removed from the fleet table. Auto-update

@@ -50,6 +50,49 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
     return out;
   }
 
+  function semanticOrNull(v: string | undefined | null): string | null {
+    if (!v) return null;
+    const normalized = v.trim().replace(/^v/i, '');
+    return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(normalized) ? normalized : null;
+  }
+
+  function isLatestAlias(v: string | undefined | null): boolean {
+    if (!v) return false;
+    const normalized = v.trim().toLowerCase();
+    return normalized === 'latest' || normalized === 'auto';
+  }
+
+  function releaseVersion(raw: string | undefined): string | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { version?: unknown; tag_name?: unknown; name?: unknown };
+      const candidate = parsed.version ?? parsed.tag_name ?? parsed.name;
+      return typeof candidate === 'string' ? semanticOrNull(candidate) : null;
+    } catch {
+      return semanticOrNull(raw);
+    }
+  }
+
+  function latestClientVersion(map: Map<string, string>, engine: Engine): string | null {
+    if (engine === ENGINE_CLAUDE) {
+      return (
+        releaseVersion(map.get('github_release_claude-cli')) ??
+        semanticOrNull(map.get('client_available_claude')) ??
+        semanticOrNull(map.get('claude_fleet_version'))
+      );
+    }
+    return (
+      releaseVersion(map.get('github_release_codex-cli')) ??
+      semanticOrNull(map.get('client_available_codex')) ??
+      semanticOrNull(map.get('client_available'))
+    );
+  }
+
+  function resolveClientVersion(raw: string | null, map: Map<string, string>, engine: Engine): string | null {
+    if (isLatestAlias(raw)) return latestClientVersion(map, engine);
+    return semanticOrNull(raw) ?? raw;
+  }
+
   function flagValue(v: string | undefined, def: boolean): boolean {
     if (v === undefined) return def;
     const s = v.toLowerCase().trim();
@@ -61,10 +104,15 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       const map = await readMap();
       const suffix = engine === ENGINE_CLAUDE ? '_claude' : '_codex';
       const get = (k: string) => map.get(k);
+      const rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+      const codexExactLock = engine === ENGINE_CODEX ? semanticOrNull(get('client_version_lock')) : null;
+      const explicitOverride = semanticOrNull(get(`client_version_override${suffix}`));
+      const clientOverride = codexExactLock ?? explicitOverride;
       return {
-        client_version: get(`client_version${suffix}`) ?? get('client_version') ?? null,
-        client_version_override: get(`client_version_override${suffix}`) ?? null,
-        client_version_enforce_exact: flagValue(get(`client_version_enforce_exact${suffix}`), false),
+        client_version: resolveClientVersion(rawClient, map, engine),
+        client_version_override: clientOverride,
+        client_version_enforce_exact:
+          codexExactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),
         wrapper_version: get(`wrapper_version${suffix}`) ?? get('wrapper_version') ?? null,
         wrapper_sha256: get(`wrapper_sha256${suffix}`) ?? get('wrapper_sha256') ?? null,
         wrapper_url: get(`wrapper_url${suffix}`) ?? get('wrapper_url') ?? null,
