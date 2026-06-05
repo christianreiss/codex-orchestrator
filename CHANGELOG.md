@@ -1,3 +1,10 @@
+## clx auth upload accepts native Claude OAuth again
+
+- **Runner/API:** Claude `clx auth-upload` and seed uploads now validate
+  `claudeAiOauth` / `sk-ant-oat...` credentials through a native Claude CLI probe
+  instead of sending the OAuth access token to Anthropic's public messages API as
+  a bearer key, which returned 401 and gated canonical auth storage.
+
 ## Logs tabs render rows again
 
 - **UI:** Logs → API, MCP, and Events now render their fetched rows without the

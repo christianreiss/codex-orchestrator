@@ -7,7 +7,10 @@ Both engines are supported end-to-end:
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
 - Skill/memory/project endpoints accept an `engine: "codex" | "claude"` field in the request body (defaults to `codex` for back-compat).
-- A dedicated `POST /verify-claude` endpoint validates Anthropic credentials against `api.anthropic.com/v1/messages` (lightweight ping, no CLI involved).
+- A dedicated `POST /verify-claude` endpoint validates Anthropic API keys against
+  `api.anthropic.com/v1/messages`, and validates Claude Code OAuth credentials
+  through the native Claude CLI so account-login tokens are not treated as public
+  API keys.
 
 ## Build
 
@@ -129,7 +132,11 @@ Behavior details:
 
 ### `POST /verify-claude`
 
-Lightweight Anthropic credential probe. Does NOT run the Claude CLI — it makes a small `POST /v1/messages` call to Anthropic directly, which is faster and avoids needing a real API quota slot on the CLI container. API-key credentials use `x-api-key`; Claude Code OAuth tokens (`sk-ant-oat...`) use `Authorization: Bearer`.
+Claude credential probe. API-key credentials use a small `POST /v1/messages`
+call to Anthropic directly. Claude Code OAuth credentials (`claudeAiOauth` /
+`sk-ant-oat...`) are validated by writing the native
+`~/.claude/.credentials.json` shape into a temporary HOME and running a lightweight
+Claude CLI print probe, because those tokens are not public Anthropic API keys.
 
 Request body:
 
@@ -179,10 +186,17 @@ Response (failure):
 ```
 
 Behavior details:
-- POSTs to `${ANTHROPIC_API_BASE}/v1/messages` (default `https://api.anthropic.com/v1/messages`) with `model: "claude-sonnet-4-20250514"`, `max_tokens: 16`, and a one-line "Reply Banana" probe prompt.
-- `status` is `ok` only when the API returns HTTP 200 and the response text contains `banana` (case-insensitive).
-- `claude_version` comes from `/usr/local/bin/claude --version`, or `"unavailable"` when the CLI is not installed.
-- No temp `$HOME` is created; the probe only touches the HTTP client. Tokens never reach disk.
+- API-key payloads POST to `${ANTHROPIC_API_BASE}/v1/messages` (default
+  `https://api.anthropic.com/v1/messages`) with `model:
+  "claude-sonnet-4-20250514"`, `max_tokens: 16`, and a one-line "Reply Banana"
+  probe prompt.
+- Claude Code OAuth payloads create a temp `$HOME` under `RUNNER_HOME_PARENT`,
+  write `~/.claude/.credentials.json`, clear `ANTHROPIC_API_KEY`, and run
+  `/usr/local/bin/claude --print "Reply Banana if this works."`.
+- `status` is `ok` only when the API/CLI response contains `banana`
+  (case-insensitive).
+- `claude_version` comes from `/usr/local/bin/claude --version`, or
+  `"unavailable"` when the CLI is not installed.
 
 ### Engine routing on skill / memory / project endpoints
 
@@ -199,7 +213,10 @@ The POST endpoints that generate or summarize content accept an optional `engine
 
 When `engine: "claude"`, the runner:
 1. Extracts the Anthropic token via `auths["api.anthropic.com"].token` → top-level API-key aliases → `tokens.anthropic_api_key` → `claudeAiOauth.accessToken` fallback.
-2. Creates a temp `$HOME` under `RUNNER_HOME_PARENT`, exports `ANTHROPIC_API_KEY=<token>`, and writes the auth JSON to `~/.claude/auth.json`.
+2. Creates a temp `$HOME` under `RUNNER_HOME_PARENT`, writes the auth JSON to
+   `~/.claude/.credentials.json`, and exports `ANTHROPIC_API_KEY=<token>` only
+   for genuine API-key credentials. Native Claude Code OAuth credentials run
+   without `ANTHROPIC_API_KEY`.
 3. Runs `/usr/local/bin/claude --print --no-input [--model MODEL] [--max-tokens N] [--system-prompt SYS] PROMPT`.
 4. Emits `claude_version` in the response instead of `codex_version`.
 

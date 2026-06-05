@@ -90,7 +90,12 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - Scheduled preflight is triggered on each non-admin request except `/versions` and routes starting with `/mcp`.
 - Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are swallowed by the request pipeline and do not block the request.
 - Recovery behavior when `runner_state=fail`: retries are triggered on boot-id change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path). Recovery failures are logged and do not block serving auth.
-- Manual trigger `POST /admin/runner/run` forces one Codex runner pass (`trigger=manual`) and returns whether canonical digest changed (`applied`). `POST /admin/runner/run-claude` verifies the latest Claude canonical payload through `/verify-claude`.
+- Manual trigger `POST /admin/runner/run` forces one Codex runner pass
+  (`trigger=manual`) and returns whether canonical digest changed (`applied`).
+  `POST /admin/runner/run-claude` verifies the latest Claude canonical payload
+  through `/verify-claude`; Claude Code OAuth/account-login payloads are checked
+  with a native Claude CLI probe instead of treating the OAuth access token as a
+  public Anthropic API key.
 - Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable), Claude-suffixed equivalents, `runner_boot_id`, and `daily_preflight`.
 
 ## Network and IP notes

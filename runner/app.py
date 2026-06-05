@@ -236,6 +236,14 @@ def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
     return None
 
 
+def _has_claude_oauth(auth_json: dict) -> bool:
+    oauth = auth_json.get("claudeAiOauth", {})
+    if isinstance(oauth, dict):
+        candidate = oauth.get("accessToken")
+        return isinstance(candidate, str) and candidate.strip() != ""
+    return False
+
+
 def _anthropic_auth_headers(token: str) -> dict:
     if token.startswith("sk-ant-oat"):
         return {"Authorization": f"Bearer {token}"}
@@ -253,14 +261,18 @@ def _claude_version(env: Optional[dict] = None) -> str:
         )
         if proc.returncode != 0:
             return "unknown"
-        parts = proc.stdout.strip().split()
-        return parts[-1] if parts else "unknown"
+        text = proc.stdout.strip()
+        match = re.search(r"\b\d+\.\d+\.\d+\b", text)
+        if match:
+            return match.group(0)
+        parts = text.split()
+        return parts[0] if parts else "unknown"
     except Exception:
         return "unavailable"
 
 
 def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
-    """Set up a temp HOME with an Anthropic API key for the Claude CLI."""
+    """Set up a temp HOME for Claude CLI validation/execution."""
     if DEBUG_DUMP_ENABLED:
         try:
             debug_path = "/tmp/last-claude-auth.json"
@@ -286,31 +298,70 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     env["TMP"] = tmp_dir
     env["TEMP"] = tmp_dir
 
-    # Claude Code reads the API key from the environment variable.
-    env["ANTHROPIC_API_KEY"] = token
-
-    # Store the token so callers can detect rotation (same pattern as Codex).
+    # Store the credentials so callers can detect rotation (same pattern as Codex).
+    # Native Claude Code account-login credentials are *not* public Anthropic API
+    # keys. For those, write the upstream .credentials.json shape and let Claude
+    # Code read it natively instead of forcing ANTHROPIC_API_KEY.
     claude_dir = os.path.join(home_dir, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
-    auth_path = os.path.join(claude_dir, "auth.json")
+    auth_path = os.path.join(claude_dir, ".credentials.json")
     try:
         with open(auth_path, "w", encoding="utf-8") as fh:
             json.dump(auth_json, fh)
         os.chmod(auth_path, 0o600)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"failed to write auth.json: {exc}")
+        raise HTTPException(status_code=500, detail=f"failed to write credentials.json: {exc}")
+
+    if _has_claude_oauth(auth_json) or token.startswith("sk-ant-oat"):
+        env.pop("ANTHROPIC_API_KEY", None)
+    else:
+        env["ANTHROPIC_API_KEY"] = token
 
     return env, home_dir, auth_path
 
 
 def _run_claude_probe(payload) -> dict:
-    """Validate an Anthropic API key with a lightweight messages API call."""
+    """Validate Claude credentials.
+
+    Genuine Anthropic API keys can use a lightweight HTTP probe. Claude Code
+    OAuth credentials must be validated through the native Claude CLI, because
+    their access token is not accepted as a public Anthropic API key.
+    """
     token = _extract_anthropic_token(payload.auth_json)
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
 
     version = _claude_version()
     timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
+    if _has_claude_oauth(payload.auth_json) or token.startswith("sk-ant-oat"):
+        env, home_dir, auth_path = _prepare_claude_env(payload.auth_json)
+        try:
+            proc, latency_ms = _run_claude_exec("Reply Banana if this works.", env, timeout)
+            stdout = (proc.stdout or "").strip()
+            stderr = (proc.stderr or "").strip()
+            ok = proc.returncode == 0 and "banana" in stdout.lower()
+            result = {
+                "status": "ok" if ok else "fail",
+                "latency_ms": latency_ms,
+                "reachable": True,
+                "claude_version": _claude_version(env),
+                "native_oauth": True,
+            }
+            try:
+                with open(auth_path, "r", encoding="utf-8") as fh:
+                    updated_auth = json.load(fh)
+            except Exception:
+                updated_auth = None
+            if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
+                result["updated_auth"] = updated_auth
+            if not ok:
+                parts = [p for p in [stderr, stdout] if p]
+                message = "\n".join(parts).strip()
+                result["reason"] = message[:400] if message else "probe failed"
+            return result
+        finally:
+            shutil.rmtree(home_dir, ignore_errors=True)
+
     start = time.perf_counter()
     try:
         resp = httpx.post(
@@ -400,7 +451,7 @@ def _build_claude_exec_cmd(
     system: Optional[str] = None,
     max_tokens: Optional[int] = None,
 ) -> list[str]:
-    cmd = [CLAUDE_CLI_PATH, "--print", "--no-input"]
+    cmd = [CLAUDE_CLI_PATH, "--print"]
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
     if isinstance(max_tokens, int) and max_tokens > 0:
@@ -1244,5 +1295,3 @@ def exec_prompt(payload: ExecRequest, request: Request):
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
-
-
