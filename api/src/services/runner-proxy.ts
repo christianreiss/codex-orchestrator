@@ -24,6 +24,19 @@ export interface RunnerStatus {
   last_run?: string | null;
   last_error?: string | null;
   last_result?: Record<string, unknown> | null;
+  engines?: {
+    codex: RunnerEngineStatus;
+    claude: RunnerEngineStatus;
+  };
+}
+
+export interface RunnerEngineStatus {
+  state: string | null;
+  last_check: string | null;
+  last_ok: string | null;
+  last_fail: string | null;
+  last_run: string | null;
+  last_error: string | null;
 }
 
 export interface RunnerRunRequest {
@@ -189,8 +202,8 @@ export class RunnerProxyService {
     if (!read) return {};
 
     const map = await read();
-    const codex = runnerEngineStatus(map, '');
-    const claude = runnerEngineStatus(map, '_claude');
+    const codex = normalizeRunnerEngineStatus(runnerEngineStatus(map, ''), 'Codex');
+    const claude = normalizeRunnerEngineStatus(runnerEngineStatus(map, '_claude'), 'Claude');
     const state = codex.state === 'fail' || claude.state === 'fail'
       ? 'fail'
       : codex.state === 'ok' || claude.state === 'ok'
@@ -203,6 +216,7 @@ export class RunnerProxyService {
       last_run: lastRun,
       last_error: state === 'fail' ? latestFailureLabel(codex, claude) : null,
       last_result: { codex, claude },
+      engines: { codex, claude },
     };
   }
 }
@@ -231,6 +245,19 @@ function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude') {
   };
 }
 
+function normalizeRunnerEngineStatus(
+  status: ReturnType<typeof runnerEngineStatus>,
+  label: 'Codex' | 'Claude',
+): RunnerEngineStatus {
+  const state = status.state ?? null;
+  const lastRun = latestIso(status.last_check, status.last_ok, status.last_fail);
+  return {
+    ...status,
+    last_run: lastRun,
+    last_error: state === 'fail' && status.last_fail ? `${label} runner failed at ${status.last_fail}` : null,
+  };
+}
+
 function latestIso(...values: Array<string | null | undefined>): string | null {
   let latest: { value: string; time: number } | null = null;
   for (const value of values) {
@@ -243,12 +270,9 @@ function latestIso(...values: Array<string | null | undefined>): string | null {
 }
 
 function latestFailureLabel(
-  codex: ReturnType<typeof runnerEngineStatus>,
-  claude: ReturnType<typeof runnerEngineStatus>,
+  codex: RunnerEngineStatus,
+  claude: RunnerEngineStatus,
 ): string | null {
-  const failures = [
-    codex.state === 'fail' && codex.last_fail ? `Codex runner failed at ${codex.last_fail}` : null,
-    claude.state === 'fail' && claude.last_fail ? `Claude runner failed at ${claude.last_fail}` : null,
-  ].filter((v): v is string => Boolean(v));
+  const failures = [codex.last_error, claude.last_error].filter((v): v is string => Boolean(v));
   return failures.length > 0 ? failures.join('; ') : null;
 }

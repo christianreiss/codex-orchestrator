@@ -7,12 +7,8 @@
  *   - POST /admin/runner/run-claude    → trigger Claude verification
  *
  * The /admin/runner response shape comes from `RunnerProxyService.status()`
- * (api/src/services/runner-proxy.ts) — currently a minimal probe of the
- * proxy's configuration. The legacy PHP controller surfaced richer fields
- * (state / last_run / last_error / last_result) sourced from the
- * `versions` table; we leave those typed as optional so the card renders
- * gracefully whether the backend has been upgraded to expose them yet or
- * not.
+ * (api/src/services/runner-proxy.ts). It exposes shared runner configuration
+ * plus engine-scoped persisted telemetry under `runner.engines`.
  *
  * No WebSocket events exist for runner state changes today, so the card
  * polls via `refetchInterval`.
@@ -26,9 +22,8 @@ import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-qu
  * Mirrors the {@link RunnerStatus} interface in
  * `api/src/services/runner-proxy.ts`.
  *
- * Optional legacy fields (`state`, `last_run`, `last_error`, `last_result`)
- * were present on the legacy PHP `/admin/runner` payload — kept here so the
- * UI can render them when the backend backfills them.
+ * Combined fields (`state`, `last_run`, `last_error`, `last_result`) are kept
+ * for compatibility, but dashboard rendering should prefer `engines`.
  */
 export interface RunnerStatus {
   configured: boolean;
@@ -43,6 +38,19 @@ export interface RunnerStatus {
   last_error?: string | null;
   /** Optional last successful result blob (string or structured payload). */
   last_result?: string | Record<string, unknown> | null;
+  engines?: {
+    codex?: RunnerEngineStatus | null;
+    claude?: RunnerEngineStatus | null;
+  } | null;
+}
+
+export interface RunnerEngineStatus {
+  state?: string | null;
+  last_check?: string | null;
+  last_ok?: string | null;
+  last_fail?: string | null;
+  last_run?: string | null;
+  last_error?: string | null;
 }
 
 export interface RunnerStateResponse {

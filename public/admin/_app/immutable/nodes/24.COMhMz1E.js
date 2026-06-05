@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BcFzXtc-.js";export{e as component};

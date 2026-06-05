@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerAdminOverviewRoutes } from '../../../src/routes/admin/overview/index.js';
+import { RunnerProxyService } from '../../../src/services/runner-proxy.js';
 import type { Env } from '../../../src/env.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 
@@ -56,5 +57,36 @@ describe('runner endpoints', () => {
     expect(body.status).toBe('unconfigured');
     expect(body.detail).toContain('AUTH_RUNNER_URL');
     expect(body.reachable).toBe(false);
+  });
+
+  it('RunnerProxyService.status exposes Codex and Claude runner telemetry separately', async () => {
+    const svc = new RunnerProxyService(
+      {
+        ADMIN_WS_ENABLED: false,
+        AUTH_RUNNER_URL: 'http://runner:8080/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Env,
+      undefined,
+      {
+        versionReader: async () =>
+          new Map([
+            ['runner_state', 'ok'],
+            ['runner_last_check', '2026-06-05T07:00:00Z'],
+            ['runner_last_ok', '2026-06-05T07:00:00Z'],
+            ['runner_state_claude', 'fail'],
+            ['runner_last_check_claude', '2026-06-05T07:05:00Z'],
+            ['runner_last_fail_claude', '2026-06-05T07:05:00Z'],
+          ]),
+      },
+    );
+
+    const status = await svc.status();
+
+    expect(status.state).toBe('fail');
+    expect(status.engines?.codex.state).toBe('ok');
+    expect(status.engines?.codex.last_run).toBe('2026-06-05T07:00:00Z');
+    expect(status.engines?.claude.state).toBe('fail');
+    expect(status.engines?.claude.last_run).toBe('2026-06-05T07:05:00Z');
+    expect(status.engines?.claude.last_error).toContain('Claude runner failed');
   });
 });

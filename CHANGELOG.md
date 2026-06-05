@@ -1,3 +1,12 @@
+## Dashboard runner state is engine-scoped
+
+- **UI:** Dashboard → Runner state now shows separate Codex and Claude rows with
+  each engine's state, last check, last OK/fail timestamp, and manual probe
+  action instead of one blended status badge.
+- **API:** `/admin/runner` now exposes `runner.engines.codex` and
+  `runner.engines.claude` as first-class telemetry while keeping the previous
+  combined fields for compatibility.
+
 ## clx: Claude advisor model as a fleet-managed `settings.json` key
 
 - **Feature:** the experimental Claude Code advisor tool (routes the full

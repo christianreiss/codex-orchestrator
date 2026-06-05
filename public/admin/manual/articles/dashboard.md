@@ -19,6 +19,10 @@ The dashboard combines host health, token usage, ChatGPT quota windows, Claude u
 
 Token cards show today, week, and month totals where available. Client usage rows come from `token_usage` and `/usage` ingest audits come from `token_usage_ingests`.
 
+## Runner
+
+The Runner state card reads `GET /admin/runner` and displays Codex and Claude telemetry separately from `runner.engines.codex` and `runner.engines.claude`. The Codex row triggers `POST /admin/runner/run`; the Claude row triggers `POST /admin/runner/run-claude`.
+
 ## Refresh
 
 The dashboard has a soft `[r]` shortcut that calls the same data-load path the initial render uses. ChatGPT quota refreshes are explicit because they hit the upstream usage page; most other reads are local-table lookups.
