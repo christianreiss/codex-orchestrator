@@ -2,6 +2,8 @@
 
 - **UI:** Opening New Host now focuses the hostname field, keeps the cursor at
   the end, maps `1`-`6` to the six option buttons, and submits with `Enter`.
+- **UI:** The six New Host option buttons now show their numeric hotkey badges
+  directly in the button.
 
 ## clx MCP servers land where Claude actually reads them
 

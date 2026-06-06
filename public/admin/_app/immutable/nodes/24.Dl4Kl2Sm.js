@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/CZH_2_S8.js";export{e as component};

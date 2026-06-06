@@ -28,6 +28,16 @@
     vibe: z.enum(["secure", "temporary", "insecure-curl", "vip"]).array(),
     engines: z.array(z.enum(["codex", "claude"])).min(1, "Pick at least one engine"),
   });
+  const vibeOptions = [
+    { id: "secure", key: "1", label: "Secure", desc: "mTLS only" },
+    { id: "temporary", key: "2", label: "Temporary", desc: "2h expiry" },
+    { id: "insecure-curl", key: "3", label: "Insecure curl", desc: "no mTLS" },
+    { id: "vip", key: "4", label: "VIP", desc: "no scaling" },
+  ] as const;
+  const engineOptions = [
+    { id: "codex", key: "5", label: "Codex", desc: "OpenAI Codex" },
+    { id: "claude", key: "6", label: "Claude", desc: "Claude Code" },
+  ] as const;
 
   let fqdn = $state("");
   let vibe = $state<("secure" | "temporary" | "insecure-curl" | "vip")[]>(["secure"]);
@@ -210,14 +220,19 @@
         <div class="space-y-2">
           <Label>Vibe</Label>
           <div class="grid grid-cols-2 gap-2">
-            {#each [{ id: "secure", label: "Secure", desc: "mTLS only" }, { id: "temporary", label: "Temporary", desc: "2h expiry" }, { id: "insecure-curl", label: "Insecure curl", desc: "no mTLS" }, { id: "vip", label: "VIP", desc: "no scaling" }] as opt}
-              {@const isOn = vibe.includes(opt.id as "secure" | "temporary" | "insecure-curl" | "vip")}
+            {#each vibeOptions as opt}
+              {@const isOn = vibe.includes(opt.id)}
               <button
                 type="button"
                 class="flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors {isOn ? 'border-primary bg-primary/5' : 'border-input hover:bg-accent'}"
-                onclick={() => toggleVibe(opt.id as "secure" | "temporary" | "insecure-curl" | "vip")}
+                onclick={() => toggleVibe(opt.id)}
               >
-                <span class="text-sm font-medium">{opt.label}</span>
+                <span class="flex w-full items-center justify-between gap-2">
+                  <span class="text-sm font-medium">{opt.label}</span>
+                  <kbd class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
+                    {opt.key}
+                  </kbd>
+                </span>
                 <span class="text-[10px] text-muted-foreground">{opt.desc}</span>
               </button>
             {/each}
@@ -227,22 +242,21 @@
         <div class="space-y-2">
           <Label>Engines</Label>
           <div class="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              class="flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors {engines.includes('codex') ? 'border-primary bg-primary/5' : 'border-input hover:bg-accent'}"
-              onclick={() => toggleEngine("codex")}
-            >
-              <span class="text-sm font-medium">Codex</span>
-              <span class="text-[10px] text-muted-foreground">OpenAI Codex</span>
-            </button>
-            <button
-              type="button"
-              class="flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors {engines.includes('claude') ? 'border-primary bg-primary/5' : 'border-input hover:bg-accent'}"
-              onclick={() => toggleEngine("claude")}
-            >
-              <span class="text-sm font-medium">Claude</span>
-              <span class="text-[10px] text-muted-foreground">Claude Code</span>
-            </button>
+            {#each engineOptions as opt}
+              <button
+                type="button"
+                class="flex flex-col items-start gap-0.5 rounded-md border p-2.5 text-left text-xs transition-colors {engines.includes(opt.id) ? 'border-primary bg-primary/5' : 'border-input hover:bg-accent'}"
+                onclick={() => toggleEngine(opt.id)}
+              >
+                <span class="flex w-full items-center justify-between gap-2">
+                  <span class="text-sm font-medium">{opt.label}</span>
+                  <kbd class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
+                    {opt.key}
+                  </kbd>
+                </span>
+                <span class="text-[10px] text-muted-foreground">{opt.desc}</span>
+              </button>
+            {/each}
           </div>
           {#if errors.engines}
             <p class="text-xs text-destructive">{errors.engines}</p>
