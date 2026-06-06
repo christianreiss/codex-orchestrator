@@ -1,3 +1,8 @@
+## New Host sheet keyboard flow
+
+- **UI:** Opening New Host now focuses the hostname field, keeps the cursor at
+  the end, maps `1`-`6` to the six option buttons, and submits with `Enter`.
+
 ## clx MCP servers land where Claude actually reads them
 
 - **clx (0.6.21):** The managed `mcpServers.clx` block was being merged into

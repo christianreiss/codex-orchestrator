@@ -6,6 +6,7 @@
   import { Label } from "$lib/components/ui/label";
   import Copy from "@lucide/svelte/icons/copy";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import { onMount, tick } from "svelte";
   import { z } from "zod";
   import { toast } from "svelte-sonner";
   import { createRegisterHostMutation, createDeleteHostMutation } from "$lib/api/hosts";
@@ -61,6 +62,42 @@
 
   function toggleEngine(e: "codex" | "claude"): void {
     engines = engines.includes(e) ? engines.filter((x) => x !== e) : [...engines, e];
+  }
+
+  async function focusHostname(): Promise<void> {
+    await tick();
+    const input = document.getElementById("new-fqdn");
+    if (!(input instanceof HTMLInputElement) || input.disabled) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  function handleSheetKeydown(event: KeyboardEvent): void {
+    if (!open || result || submitting || event.defaultPrevented || event.isComposing) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    const actions: Record<string, () => void> = {
+      "1": () => toggleVibe("secure"),
+      "2": () => toggleVibe("temporary"),
+      "3": () => toggleVibe("insecure-curl"),
+      "4": () => toggleVibe("vip"),
+      "5": () => toggleEngine("codex"),
+      "6": () => toggleEngine("claude"),
+    };
+
+    const action = actions[event.key];
+    if (action) {
+      event.preventDefault();
+      event.stopPropagation();
+      action();
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      void submit();
+    }
   }
 
   async function submit(): Promise<void> {
@@ -124,6 +161,17 @@
   function mintAnother(): void {
     reset();
   }
+
+  $effect(() => {
+    if (open && !result) {
+      void focusHostname();
+    }
+  });
+
+  onMount(() => {
+    window.addEventListener("keydown", handleSheetKeydown);
+    return () => window.removeEventListener("keydown", handleSheetKeydown);
+  });
 </script>
 
 <Sheet.Root bind:open onOpenChange={handleOpenChange}>
