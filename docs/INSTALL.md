@@ -116,13 +116,19 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
 docker compose up --build
 ```
 
-- Starts `api`, `admin-ws`, `quota-cron`, `auth-runner`, `mysql`, and `mysql-backup`. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
+For an existing checkout, use the deploy helper:
+
+```bash
+scripts/deploy.sh --backup
+```
+
+It checks the git worktree, fast-forwards from the configured upstream, optionally writes a MySQL dump, builds the compose services, restarts with `--wait` when supported, verifies MySQL, `auth-runner`, and `/healthz`, scans fresh logs for critical failures, and prunes unused Docker build artifacts. Add `--caddy` when this checkout owns the bundled Caddy profile, `--service api` for an API-only restart, or `--skip-git` only when intentionally deploying a local uncommitted tree.
+
+- Starts `api`, `auth-runner`, and `mysql`. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
 - Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable API-side runner checks. Admin seed/admin upload paths now run through the same runner validation/update path as host `/auth` stores, so they also require a reachable runner when enabled. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
-- API container startup runs `php /var/www/html/scripts/migrate.php` before serving traffic (schema + encryption/api-key backfills). Runtime request-path migrations are disabled by default in production.
-- A `quota-cron` sidecar refreshes ChatGPT quota snapshots on a timer (default hourly) by running `scripts/refresh-chatgpt-usage.php`; tune with `CHATGPT_USAGE_CRON_INTERVAL` (seconds). Its container health now follows a local worker heartbeat (`scripts/check-quota-cron-health.php`) instead of only checking MySQL reachability, so repeated refresh failures surface as unhealthy.
-- `admin-ws` listens on `127.0.0.1:8091`; `/admin/ws/info` only advertises it when `ADMIN_WS_ENABLED=1`.
+- API container startup can run migrations/backfills when `RUN_MIGRATIONS_ON_BOOT=1` / `RUN_BACKFILLS_ON_BOOT=1`; production defaults keep both off for explicit operator control.
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
 
 ## Optional: bundled Caddy frontend (no existing proxy)
@@ -136,7 +142,7 @@ docker compose up --build
 
 ## Backups
 
-- Nightly SQL dumps run automatically via the `mysql-backup` sidecar. Tune `DB_BACKUP_CRON` (cron spec), `DB_BACKUP_MAX` (retained files), `DB_BACKUP_BEGIN`, and `DB_BACKUP_FREQUENCY`. Dumps land in `${DATA_ROOT}/backups`.
+- Use `scripts/deploy.sh --backup` before a rollout to write a one-off MySQL dump. Set `CODEX_DEPLOY_BACKUP_DIR` to choose a destination; the default is `./backups`.
 
 ## First-Time Flow
 

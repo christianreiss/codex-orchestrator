@@ -1,5 +1,12 @@
 # 2026-06-06
 
+## Deploy helper
+
+- **Ops:** Added `scripts/deploy.sh` for existing checkouts. It mirrors the
+  Benny-style rollout flow with git safety checks, optional MySQL backup,
+  compose build/up, API/runner/database verification, fresh critical-log scan,
+  optional Caddy profile support, service-scoped deploys, and Docker cleanup.
+
 ## Codex model allowlist refresh
 
 - **API/UI/docs:** Codex model support now matches the current four-model set:
