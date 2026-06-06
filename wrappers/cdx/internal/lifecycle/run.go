@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/update"
@@ -126,6 +127,9 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if dec.Allowed {
 			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
 			codexUpdated = maybeEnsureCodex(ctx, authResp, concurrent, logger)
+			if !concurrent {
+				peer.Reconcile(ctx, cfg, authResp, logger)
+			}
 		}
 
 		// Skills are MCP-served in v2; we still ping /skills to detect

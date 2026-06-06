@@ -27,6 +27,7 @@ import {
   type RunnerValidationService,
 } from '../../../services/runner-validation.js';
 import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
+import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 
@@ -139,6 +140,10 @@ const mintInstallerSchema = z.object({
   engines: enginesSchema,
 });
 
+const setEnginesSchema = z.object({
+  engines: enginesSchema,
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -181,6 +186,7 @@ function hostToWire(h: Host): Record<string, unknown> {
       h.insecureGraceUntil instanceof Date ? h.insecureGraceUntil.toISOString() : h.insecureGraceUntil,
     insecure_window_minutes: h.insecureWindowMinutes,
     engines: h.engines,
+    engines_list: hostEnginesList(h.engines),
     expires_at: h.expiresAt,
     last_refresh: h.lastRefresh,
     claude_last_refresh: h.claudeLastRefresh,
@@ -372,6 +378,24 @@ export async function registerAdminHostsRoutes(
       const id = parseId((req.params as { id: string }).id);
       await hostService.delete(id);
       return { deleted: id };
+    },
+  });
+
+  // ─── #5b POST /admin/hosts/:id/engines ───
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/:id/engines',
+    preHandler: [app.requireAdmin],
+    handler: async (req) => {
+      const id = parseId((req.params as { id: string }).id);
+      const body = parseZod(setEnginesSchema, req.body ?? {});
+      if (!body.engines || body.engines.length === 0) {
+        throw new ValidationError('engines must contain at least one of: codex, claude', {
+          param: 'engines',
+        });
+      }
+      const host = await hostService.setEngines(id, body.engines);
+      return { host: hostToWire(host) };
     },
   });
 

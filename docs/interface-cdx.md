@@ -45,7 +45,9 @@ at build time, then loads the config:
     "id": 42,
     "fqdn": "host01.example.com",
     "secure": true,
-    "browseros_mcp_enabled": false
+    "browseros_mcp_enabled": false,
+    "engines": "codex,claude",
+    "engines_list": ["codex", "claude"]
   },
   "engine_options": {
     "silent": false,
@@ -82,6 +84,16 @@ at build time, then loads the config:
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
+
+## Peer engine reconciliation
+
+After a successful startup sync, `cdx` reads the host `engines_list`. If Claude is
+enabled, `cdx` fetches the signed `clx` config from
+`/wrapper/v2/config?engine=claude`, writes `clx.json{,.sig}`, verifies the
+served SHA256, and installs/updates the `clx` binary beside the running wrapper.
+If Claude is disabled, `cdx` performs local-only full Claude cleanup (wrapper
+binary/config/cron, managed `~/.clx`/Claude state, and the npm global Claude
+Code package when detected) without deleting the host row.
 
 ## Startup sequence
 

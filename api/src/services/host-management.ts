@@ -660,6 +660,31 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { browseros_mcp_enabled: enabled });
   }
 
+  async setEngines(id: number, enginesIn: Engine[]): Promise<Host> {
+    const host = await this.requireById(id);
+    const engines = enginesIn.length ? enginesIn : [];
+    if (!engines.length) {
+      throw new ValidationError('engines must contain at least one of: codex, claude', { param: 'engines' });
+    }
+    const previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
+    const next = serializeEngines(engines);
+    if (next !== previous) {
+      await this.db
+        .update(hosts)
+        .set({ engines: next, updatedAt: nowIso() })
+        .where(eq(hosts.id, id));
+      await this.writeLog(id, 'admin.host.engines', {
+        fqdn: host.fqdn,
+        previous,
+        engines: next,
+      });
+    }
+    return await this.publishUpdate(id, host.fqdn, {
+      previous_engines: previous,
+      engines: next,
+    });
+  }
+
   async setReverseDnsMode(id: number, mode: ReverseDnsModeInput): Promise<Host> {
     const host = await this.requireById(id);
     const value = modeStringToTinyint(mode);

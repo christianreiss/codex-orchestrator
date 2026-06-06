@@ -37,7 +37,7 @@ type SkillRetrieved struct {
 
 func (c *Client) RetrieveSkill(ctx context.Context, slug string) (json.RawMessage, error) {
 	out := &SkillRetrieved{}
-	if err := c.JSON(ctx, http.MethodPost, "/skills/retrieve", map[string]string{"slug": slug}, out, 1); err != nil {
+	if err := c.JSON(ctx, http.MethodPost, "/skills/retrieve", map[string]string{"slug": slug, "engine": "claude"}, out, 1); err != nil {
 		return nil, err
 	}
 	return out.Data, nil

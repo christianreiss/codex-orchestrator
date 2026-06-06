@@ -24,7 +24,6 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
-  import Plus from "@lucide/svelte/icons/plus";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
   import {
@@ -49,8 +48,9 @@
     createClaudeVersionMutation,
     createReverseDnsMutation,
     createAgentsVersionMutation,
+    createHostEnginesMutation,
   } from "$lib/api/hosts";
-  import type { InstallerInfo } from "$lib/api/types";
+  import type { HostEngine, InstallerInfo } from "$lib/api/types";
   import {
     createEnableInsecureMutation,
     createDisableInsecureMutation,
@@ -77,6 +77,7 @@
   const claudeVersion = createClaudeVersionMutation(qc);
   const reverseDns = createReverseDnsMutation(qc);
   const agentsVersion = createAgentsVersionMutation(qc);
+  const hostEnginesMutation = createHostEnginesMutation(qc);
   const insecureEnable = createEnableInsecureMutation(qc);
   const insecureDisable = createDisableInsecureMutation(qc);
 
@@ -202,6 +203,9 @@
   // For controls panel
   const codexEngine = $derived(host ? hostEngines(host).includes("codex") : false);
   const claudeEngine = $derived(host ? hostEngines(host).includes("claude") : false);
+  const engineList = $derived<HostEngine[]>(host ? (hostEngines(host) as HostEngine[]) : []);
+  const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && !claudeEngine));
+  const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && !codexEngine));
   // Pre-select an engine on the Seed Auth dialog when the host has only one.
   const seedDefaultEngine = $derived<"codex" | "claude">(
     codexEngine && !claudeEngine
@@ -229,6 +233,15 @@
           ? "Reverse DNS forced on"
           : "Reverse DNS forced off";
     await run(label, $reverseDns.mutateAsync({ id, mode }));
+  }
+
+  async function setHostEngine(engine: HostEngine, enabled: boolean): Promise<void> {
+    const current: HostEngine[] = engineList.length ? [...engineList] : ["codex"];
+    const next: HostEngine[] = enabled
+      ? Array.from(new Set([...current, engine]))
+      : current.filter((item) => item !== engine);
+    if (next.length === 0) return;
+    await run(`${engine === "codex" ? "Codex" : "Claude"} ${enabled ? "enabled" : "disabled"}`, $hostEnginesMutation.mutateAsync({ id, engines: next }));
   }
 </script>
 
@@ -433,6 +446,8 @@
           {@render toggleRow("BrowserOS MCP", host.browseros_mcp_enabled, (v) =>
             run(v ? "BrowserOS MCP on" : "BrowserOS MCP off", $browserOsMcp.mutateAsync({ id, value: v })),
           )}
+          {@render engineSwitchRow("Codex", codexEngine, codexSwitchDisabled, (v) => setHostEngine("codex", v))}
+          {@render engineSwitchRow("Claude", claudeEngine, claudeSwitchDisabled, (v) => setHostEngine("claude", v))}
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2 border-t pt-4">
@@ -468,14 +483,6 @@
             <Button variant="outline" onclick={() => (codexModelDialogOpen = true)}>
               Codex model override
             </Button>
-          {:else}
-            <Button
-              variant="outline"
-              onclick={() => doMintInstaller(["codex"])}
-              disabled={$mintInstaller.isPending}
-            >
-              <Plus class="h-4 w-4" /> Add Codex
-            </Button>
           {/if}
           {#if claudeEngine}
             <Button variant="outline" onclick={() => (claudeDialogOpen = true)}>
@@ -483,14 +490,6 @@
             </Button>
             <Button variant="outline" onclick={() => (claudeModelDialogOpen = true)}>
               Claude model override
-            </Button>
-          {:else}
-            <Button
-              variant="outline"
-              onclick={() => doMintInstaller(["claude"])}
-              disabled={$mintInstaller.isPending}
-            >
-              <Plus class="h-4 w-4" /> Add Claude
             </Button>
           {/if}
 
@@ -650,6 +649,20 @@
         void onchange(Boolean(v));
       }}
       aria-label={label}
+    />
+  </div>
+{/snippet}
+
+{#snippet engineSwitchRow(label: string, checked: boolean, disabled: boolean, onchange: (v: boolean) => void | Promise<void>)}
+  <div class="flex items-center justify-between rounded-md border p-2.5">
+    <span class="text-sm">{label}</span>
+    <Switch
+      {checked}
+      {disabled}
+      onCheckedChange={(v) => {
+        void onchange(Boolean(v));
+      }}
+      aria-label="{label} engine"
     />
   </div>
 {/snippet}

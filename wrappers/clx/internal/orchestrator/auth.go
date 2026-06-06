@@ -56,20 +56,22 @@ type VersionSummary struct {
 }
 
 type HostInfo struct {
-	FQDN                 string `json:"fqdn"`
-	Status               string `json:"status"`
-	ClaudeLastRefresh    string `json:"claude_last_refresh,omitempty"`
-	UpdatedAt            string `json:"updated_at,omitempty"`
-	ExpiresAt            string `json:"expires_at,omitempty"`
-	ClaudeClientVersion  string `json:"claude_client_version,omitempty"`
-	ClaudeWrapperVersion string `json:"claude_wrapper_version,omitempty"`
-	APICalls             int64  `json:"api_calls,omitempty"`
-	Secure               bool   `json:"secure"`
-	Vip                  bool   `json:"vip,omitempty"`
-	ClaudeModelOverride  string `json:"claude_model_override,omitempty"`
-	ReasoningEffort      string `json:"claude_reasoning_effort_override,omitempty"`
-	AutoUpdateOverride   *bool  `json:"auto_update_override,omitempty"`
-	LastCronCheck        string `json:"last_cron_check,omitempty"`
+	FQDN                 string   `json:"fqdn"`
+	Status               string   `json:"status"`
+	ClaudeLastRefresh    string   `json:"claude_last_refresh,omitempty"`
+	UpdatedAt            string   `json:"updated_at,omitempty"`
+	ExpiresAt            string   `json:"expires_at,omitempty"`
+	ClaudeClientVersion  string   `json:"claude_client_version,omitempty"`
+	ClaudeWrapperVersion string   `json:"claude_wrapper_version,omitempty"`
+	APICalls             int64    `json:"api_calls,omitempty"`
+	Secure               bool     `json:"secure"`
+	Vip                  bool     `json:"vip,omitempty"`
+	ClaudeModelOverride  string   `json:"claude_model_override,omitempty"`
+	ReasoningEffort      string   `json:"claude_reasoning_effort_override,omitempty"`
+	AutoUpdateOverride   *bool    `json:"auto_update_override,omitempty"`
+	LastCronCheck        string   `json:"last_cron_check,omitempty"`
+	Engines              string   `json:"engines,omitempty"`
+	EnginesList          []string `json:"engines_list,omitempty"`
 }
 
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
@@ -88,6 +90,10 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 		// a live API as "offline".
 		if st := InsecureStatusFromError(err); st != "" {
 			return &AuthRetrieveResponse{Status: st}, nil
+		}
+		var he *HTTPError
+		if errors.As(err, &he) && he.Code == "engine_disabled" {
+			return &AuthRetrieveResponse{Status: "disabled", Message: "engine disabled for this host"}, nil
 		}
 		return nil, err
 	}

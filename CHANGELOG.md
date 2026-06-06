@@ -1,5 +1,14 @@
 # 2026-06-06
 
+## Per-host engine switches
+
+- **API/UI/cdx/clx:** Host detail now exposes Codex and Claude as true per-host
+  switches. Each host must keep at least one engine enabled; disabled
+  engine-scoped host routes return `engine_disabled`. Successful `cdx`/`clx`
+  startup syncs now reconcile the peer engine locally: install/update the peer
+  wrapper from signed server metadata when enabled, or fully remove the peer
+  wrapper/cron/state/upstream CLI when disabled.
+
 ## Deploy helper
 
 - **Ops:** Added `scripts/deploy.sh` for existing checkouts. It mirrors the

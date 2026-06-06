@@ -50,9 +50,20 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "claude_model_override": "claude-sonnet-4-6",
     "admin_theme_hint": "auto"
   }
-  // orchestrator / host / wrapper blocks are identical to cdx
+  // orchestrator / host / wrapper blocks are identical to cdx; host includes
+  // engines / engines_list for peer reconciliation
 }
 ```
+
+## Peer engine reconciliation
+
+After a successful startup sync, `clx` reads the host `engines_list`. If Codex is
+enabled, `clx` fetches the signed `cdx` config from
+`/wrapper/v2/config?engine=codex`, writes `cdx.json{,.sig}`, verifies the served
+SHA256, and installs/updates the `cdx` binary beside the running wrapper. If
+Codex is disabled, `clx` performs local-only full Codex cleanup (wrapper
+binary/config/cron, managed `~/.codex` state, `/opt/codex`, and the npm global
+`codex-cli` package when detected) without deleting the host row.
 
 ## Distribution surfaces
 

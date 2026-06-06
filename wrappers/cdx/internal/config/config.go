@@ -27,19 +27,21 @@ type Orchestrator struct {
 }
 
 type Host struct {
-	ID                  int64  `json:"id"`
-	FQDN                string `json:"fqdn"`
-	Secure              bool   `json:"secure"`
-	BrowserOSMCPEnabled bool   `json:"browseros_mcp_enabled,omitempty"`
+	ID                  int64    `json:"id"`
+	FQDN                string   `json:"fqdn"`
+	Secure              bool     `json:"secure"`
+	BrowserOSMCPEnabled bool     `json:"browseros_mcp_enabled,omitempty"`
+	Engines             string   `json:"engines,omitempty"`
+	EnginesList         []string `json:"engines_list,omitempty"`
 }
 
 type EngineOptions struct {
-	Silent                              bool    `json:"silent"`
-	ModelOverride                       *string `json:"model_override,omitempty"`
-	ReasoningEffortOverride             *string `json:"reasoning_effort_override,omitempty"`
-	AdminThemeHint                      *string `json:"admin_theme_hint,omitempty"`
-	ClaudeModelOverride                 *string `json:"claude_model_override,omitempty"`
-	DangerouslyBypassApprovalsAndSandbox bool   `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
+	Silent                               bool    `json:"silent"`
+	ModelOverride                        *string `json:"model_override,omitempty"`
+	ReasoningEffortOverride              *string `json:"reasoning_effort_override,omitempty"`
+	AdminThemeHint                       *string `json:"admin_theme_hint,omitempty"`
+	ClaudeModelOverride                  *string `json:"claude_model_override,omitempty"`
+	DangerouslyBypassApprovalsAndSandbox bool    `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
 }
 
 type Wrapper struct {

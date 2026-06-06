@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
@@ -115,6 +116,9 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
 			claudeUpdated = maybeEnsureClaude(ctx, authResp, concurrent, logger)
+			if !concurrent {
+				peer.Reconcile(ctx, cfg, authResp, logger)
+			}
 		}
 
 		// Skills are MCP-served in v2; we still ping /skills?engine=claude

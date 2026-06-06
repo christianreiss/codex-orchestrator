@@ -181,6 +181,25 @@ describe('HostManagementService.register', () => {
     expect(logKinds).not.toContain('admin.host.engines_added');
   });
 
+  it('sets the complete host engine switch list and rejects empty lists', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const first = await svc.register({
+      fqdn: 'switch.example.com',
+      secure: true,
+      engines: [ENGINE_CODEX, ENGINE_CLAUDE],
+    });
+    await svc.setEngines(first.host.id, [ENGINE_CLAUDE]);
+    expect(mock.rows('hosts')[0]!.engines).toBe('claude');
+    expect(mock.rows('logs').map((l) => l.action)).toContain('admin.host.engines');
+
+    await expect(svc.setEngines(first.host.id, [])).rejects.toThrow(/engines must contain/);
+  });
+
   it('targets the explicitly-requested engine for the installer script (dual-engine install fix)', async () => {
     const mock = createMockDb();
     const env = buildEnv();

@@ -19,6 +19,7 @@ import { createWrapperMetaService } from '../../services/wrapper-meta.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
 import { buildLegacyWrapperTransitionScript } from '../../services/wrapper-transition.js';
 import { publishHostEvent } from '../../services/ws-bridge.js';
+import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 /**
  * Wrapper bakery v2 endpoints.
@@ -118,6 +119,10 @@ export async function registerWrapperV2Routes(
   async function metaHandler(req: FastifyRequest, reply: FastifyReply) {
     await unavailableGuard();
     const engine = engineFromQuery(req);
+    const host = req.authHost;
+    if (!host)
+      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+    assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const data = await meta.forEngine(engine, baseUrl);
     const signer = await signing.active();
@@ -134,6 +139,7 @@ export async function registerWrapperV2Routes(
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     const engine = engineFromQuery(req);
+    assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const sigOnly = isTruthyFlag((req.query as { sig?: string }).sig);
     const platform = platformFromHeaders(req);
@@ -193,6 +199,10 @@ export async function registerWrapperV2Routes(
   async function downloadHandler(req: FastifyRequest, reply: FastifyReply) {
     await unavailableGuard();
     const engine = engineFromQuery(req);
+    const host = req.authHost;
+    if (!host)
+      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+    assertHostEngineEnabled(host, engine);
     const { os, arch } = platformFromHeaders(req);
     const build = await binaries.currentBuild(engine, os, arch);
     if (!build)
@@ -209,6 +219,7 @@ export async function registerWrapperV2Routes(
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     const engine = engineFromQuery(req);
+    assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const platform = platformFromHeaders(req);
 
@@ -252,6 +263,10 @@ export async function registerWrapperV2Routes(
       await unavailableGuard();
       const engine = req.params.engine;
       if (!isEngine(engine)) throw new NotFoundError('unknown engine', 'unknown_engine');
+      const host = req.authHost;
+      if (!host)
+        throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+      assertHostEngineEnabled(host, engine);
       const baseUrl = resolvePublicBaseUrl(req);
       const data = await binaries.engineManifest(engine, baseUrl);
       reply.header('cache-control', 'no-store');
@@ -269,6 +284,10 @@ export async function registerWrapperV2Routes(
       await unavailableGuard();
       const { engine, platform, version, binary } = req.params;
       if (!isEngine(engine)) throw new NotFoundError('unknown engine', 'unknown_engine');
+      const host = req.authHost;
+      if (!host)
+        throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+      assertHostEngineEnabled(host, engine);
       const m = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(platform);
       if (!m || !m[1] || !m[2])
         throw new ValidationError('bad platform', { param: 'platform' });

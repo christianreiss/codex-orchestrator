@@ -22,6 +22,7 @@ import type {
   HostQuickRegisterPayload,
   HostRegisterResponse,
   HostInstallerResponse,
+  HostEngine,
 } from "./types";
 
 // --- query keys -----------------------------------------------------------
@@ -101,6 +102,42 @@ export function createMintInstallerMutation(qc: QueryClient) {
         engines && engines.length ? { engines } : undefined,
       ),
     onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+    },
+  });
+}
+
+export function createHostEnginesMutation(qc: QueryClient) {
+  return createMutation<
+    { host: HostDetail },
+    ApiError,
+    { id: number | string; engines: HostEngine[] },
+    { previous?: HostDetailResponse }
+  >({
+    mutationFn: ({ id, engines }) =>
+      api.post<{ host: HostDetail }>(`/admin/hosts/${id}/engines`, { engines }),
+    onMutate: async ({ id, engines }) => {
+      await qc.cancelQueries({ queryKey: hostsKeys.detail(id) });
+      const previous = qc.getQueryData<HostDetailResponse>(
+        hostsKeys.detail(id),
+      );
+      if (previous?.host) {
+        qc.setQueryData<HostDetailResponse>(hostsKeys.detail(id), {
+          ...previous,
+          host: {
+            ...previous.host,
+            engines: engines.join(","),
+            engines_list: engines,
+          },
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(hostsKeys.detail(vars.id), ctx.previous);
+    },
+    onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
     },

@@ -16,6 +16,7 @@ import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import type { WrapperBinRegistry } from './wrapper-bin-registry.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
+import { hostEnginesList } from './host-engine-policy.js';
 
 /**
  * Per-host wrapper config bakery.
@@ -52,7 +53,14 @@ export interface WrapperConfigPayload {
     allow_insecure: boolean;
     installation_id: string;
   };
-  host: { id: number; fqdn: string; secure: boolean; browseros_mcp_enabled?: boolean };
+  host: {
+    id: number;
+    fqdn: string;
+    secure: boolean;
+    browseros_mcp_enabled?: boolean;
+    engines: string;
+    engines_list: Engine[];
+  };
   engine_options: Record<string, unknown>;
   wrapper: {
     version: string;
@@ -300,6 +308,8 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           fqdn: host.fqdn,
           secure: Boolean(host.secure),
           browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
+          engines: host.engines,
+          engines_list: hostEnginesList(host.engines),
         },
         engine_options: engineOptions(host, engine, { silent, adminTheme }),
         wrapper,

@@ -142,6 +142,10 @@ function makeMocks() {
       calls.push({ method: 'setBrowserOsMcp', args: [id, enabled] });
       return fakeHost({ id, browserosMcpEnabled: enabled ? 1 : 0 });
     },
+    setEngines: async (id: number, engines: string[]) => {
+      calls.push({ method: 'setEngines', args: [id, engines] });
+      return fakeHost({ id, engines: engines.join(',') });
+    },
     setReverseDnsMode: async (id: number, mode: string) => {
       calls.push({ method: 'setReverseDnsMode', args: [id, mode] });
       return fakeHost({
@@ -438,6 +442,33 @@ describe('admin hosts routes', () => {
       const { app } = await build({ authenticated: true });
       const r = await app.inject({ method: 'POST', url: '/admin/hosts/nope/installer' });
       expect(r.statusCode).toBe(422);
+      await app.close();
+    });
+  });
+
+  describe('POST /admin/hosts/:id/engines', () => {
+    it('persists a normalized non-empty engine list', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/engines',
+        payload: { engines: 'claude,codex,claude' },
+      });
+      expect(r.statusCode).toBe(200);
+      const args = calls.find((c) => c.method === 'setEngines')?.args;
+      expect(args).toEqual([42, ['claude', 'codex']]);
+      await app.close();
+    });
+
+    it('rejects a request that would leave the host with no engines', async () => {
+      const { app } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/engines',
+        payload: { engines: [] },
+      });
+      expect(r.statusCode).toBe(422);
+      expect(JSON.parse(r.payload).code).toBe('validation_failed');
       await app.close();
     });
   });

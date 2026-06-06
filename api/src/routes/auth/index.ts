@@ -36,6 +36,7 @@ import {
 } from '../../services/canonical-auth-store.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
+import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
 
 /**
  * Registers the wrapper-facing /auth (+ /sync/*) routes. The legacy PHP
@@ -84,6 +85,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = parseEngine(payload.engine);
+    assertHostEngineEnabled(host, engine);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
 
@@ -115,6 +117,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = parseEngine(payload.engine);
+    assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
 
     const userInput = extractHostUserInput(payload);
@@ -143,6 +146,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
     const engine = parseEngine(payload.engine);
+    assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
 
     const userInput = extractHostUserInput(payload);
@@ -595,6 +599,7 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     auto_update_override: host.autoUpdateOverride === null || host.autoUpdateOverride === undefined ? null : host.autoUpdateOverride === 1,
     last_cron_check: host.lastCronCheck ?? null,
     engines: host.engines,
+    engines_list: hostEnginesList(host.engines),
     claude_client_version: host.claudeClientVersion ?? null,
     claude_client_version_override: host.claudeClientVersionOverride ?? null,
     claude_wrapper_version: host.claudeWrapperVersion ?? null,

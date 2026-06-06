@@ -25,9 +25,11 @@ type Orchestrator struct {
 }
 
 type Host struct {
-	ID     int64  `json:"id"`
-	FQDN   string `json:"fqdn"`
-	Secure bool   `json:"secure"`
+	ID          int64    `json:"id"`
+	FQDN        string   `json:"fqdn"`
+	Secure      bool     `json:"secure"`
+	Engines     string   `json:"engines,omitempty"`
+	EnginesList []string `json:"engines_list,omitempty"`
 }
 
 type EngineOptions struct {

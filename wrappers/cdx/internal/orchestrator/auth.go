@@ -60,24 +60,26 @@ type VersionSummary struct {
 
 // HostInfo mirrors the host block returned in /auth retrieve.
 type HostInfo struct {
-	FQDN                  string `json:"fqdn"`
-	Status                string `json:"status"`
-	LastRefresh           string `json:"last_refresh,omitempty"`
-	UpdatedAt             string `json:"updated_at,omitempty"`
-	ExpiresAt             string `json:"expires_at,omitempty"`
-	ClientVersion         string `json:"client_version,omitempty"`
-	ClientVersionOverride string `json:"client_version_override,omitempty"`
-	WrapperVersion        string `json:"wrapper_version,omitempty"`
-	APICalls              int64  `json:"api_calls,omitempty"`
-	AllowRoamingIps       bool   `json:"allow_roaming_ips,omitempty"`
-	Secure                bool   `json:"secure"`
-	Vip                   bool   `json:"vip,omitempty"`
-	BrowserOSMCPEnabled  bool   `json:"browseros_mcp_enabled,omitempty"`
-	LanePreference        string `json:"lane_preference,omitempty"`
-	ModelOverride         string `json:"model_override,omitempty"`
-	ReasoningEffort       string `json:"reasoning_effort_override,omitempty"`
-	AutoUpdateOverride    *bool  `json:"auto_update_override,omitempty"`
-	LastCronCheck         string `json:"last_cron_check,omitempty"`
+	FQDN                  string   `json:"fqdn"`
+	Status                string   `json:"status"`
+	LastRefresh           string   `json:"last_refresh,omitempty"`
+	UpdatedAt             string   `json:"updated_at,omitempty"`
+	ExpiresAt             string   `json:"expires_at,omitempty"`
+	ClientVersion         string   `json:"client_version,omitempty"`
+	ClientVersionOverride string   `json:"client_version_override,omitempty"`
+	WrapperVersion        string   `json:"wrapper_version,omitempty"`
+	APICalls              int64    `json:"api_calls,omitempty"`
+	AllowRoamingIps       bool     `json:"allow_roaming_ips,omitempty"`
+	Secure                bool     `json:"secure"`
+	Vip                   bool     `json:"vip,omitempty"`
+	BrowserOSMCPEnabled   bool     `json:"browseros_mcp_enabled,omitempty"`
+	LanePreference        string   `json:"lane_preference,omitempty"`
+	ModelOverride         string   `json:"model_override,omitempty"`
+	ReasoningEffort       string   `json:"reasoning_effort_override,omitempty"`
+	AutoUpdateOverride    *bool    `json:"auto_update_override,omitempty"`
+	LastCronCheck         string   `json:"last_cron_check,omitempty"`
+	Engines               string   `json:"engines,omitempty"`
+	EnginesList           []string `json:"engines_list,omitempty"`
 }
 
 // ChatGPTQuota is the per-host ChatGPT usage snapshot. All percent fields are
@@ -130,6 +132,10 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 		// a live API as "offline".
 		if st := InsecureStatusFromError(err); st != "" {
 			return &AuthRetrieveResponse{Status: st}, nil
+		}
+		var he *HTTPError
+		if errors.As(err, &he) && he.Code == "engine_disabled" {
+			return &AuthRetrieveResponse{Status: "disabled", Message: "engine disabled for this host"}, nil
 		}
 		return nil, err
 	}

@@ -30,7 +30,7 @@ function makeKeyring(): Keyring {
   } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
 
-function hostRow(apiKey: string): Record<string, unknown> {
+function hostRow(apiKey: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 1,
     fqdn: 'host.example',
@@ -75,6 +75,7 @@ function hostRow(apiKey: string): Record<string, unknown> {
     clientVersionOverride: null,
     wrapperVersion: null,
     agentsDocumentIdOverride: null,
+    ...overrides,
   };
 }
 
@@ -87,7 +88,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const configSha = createHash('sha256').update(configBody).digest('hex');
 
     const db = createDbFake();
-    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: '0.130.0' },
       { name: 'wrapper_version_codex', version: '0.6.5' },
@@ -139,7 +140,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
   it('stores a Claude auth_candidate inline when canonical auth is missing', async () => {
     const apiKey = 'sk-bootstrap-auth-store';
     const db = createDbFake();
-    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
     db.tables.set(versionsTable, []);
     db.tables.set(agentsDocuments, []);
     db.tables.set(clientConfigDocuments, []);
@@ -172,7 +173,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const apiKey = 'sk-bootstrap-auth-valid';
     const db = createDbFake();
     const keyring = makeKeyring();
-    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
     db.tables.set(versionsTable, []);
     db.tables.set(agentsDocuments, []);
     db.tables.set(clientConfigDocuments, []);

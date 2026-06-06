@@ -16,6 +16,7 @@ import { createHostSyncService } from '../../services/host-sync.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
+import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 /**
  * Registers /host/users, /host/lane (GET+POST), /usage, /versions, /cron/check,
@@ -108,6 +109,8 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   app.post('/usage', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const engine = parseEngine(body.engine);
+    assertHostEngineEnabled(host, engine);
     try {
       const result = await tokenUsage.record(host.id, body, req.clientIp || null);
       return result;
@@ -117,7 +120,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       return {
         recorded: false,
         reason: 'usage ingestion failed',
-        engine: parseEngine(body.engine),
+        engine,
       };
     }
   });
@@ -127,6 +130,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const host = await hostAuth.authenticate(req);
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const engine = parseEngine(body.engine);
+    assertHostEngineEnabled(host, engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
     const rawSummary = await versions.summary(engine);
@@ -210,6 +214,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       throw new ValidationError('client_version or wrapper_version is required');
     }
     const engine = parseEngine(body.engine);
+    assertHostEngineEnabled(host, engine);
     const patch =
       engine === 'claude'
         ? {
