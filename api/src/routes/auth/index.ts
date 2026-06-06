@@ -1,20 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import {
-  authPayloads,
-  authEntries,
   hostAuthDigests,
-  hostAuthStates,
   hosts as hostsTable,
   logs as logsTable,
   type Host,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
-import { ApiError, ServiceUnavailableError, ValidationError } from '../../http/errors.js';
-import { nowIso, isRfc3339 } from '../../util/timestamp.js';
+import { ApiError, ValidationError } from '../../http/errors.js';
+import { nowIso } from '../../util/timestamp.js';
 import { parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { encrypt } from '../../security/secret-box.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { createHostAuthService } from '../../services/host-auth.js';
@@ -32,11 +28,14 @@ import {
   extractAuthPayload,
 } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
+import {
+  assertReasonableLastRefresh,
+  createCanonicalAuthStoreService,
+  touchHostAuthFields,
+  touchHostAuthState,
+} from '../../services/canonical-auth-store.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
-
-const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
-const MAX_FUTURE_SKEW_MS = 300 * 1000;
 
 /**
  * Registers the wrapper-facing /auth (+ /sync/*) routes. The legacy PHP
@@ -72,6 +71,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   const skillsService = new HostSkillsService(ctx.db);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
   const runner = createRunnerClient({ env: ctx.env });
+  const authStore = createCanonicalAuthStoreService({
+    db: ctx.db,
+    keyring: ctx.keyring,
+    runnerValidation,
+    runner,
+  });
 
   // POST /auth — primary wrapper probe.
   app.post('/auth', async (req) => {
@@ -85,7 +90,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (command === 'retrieve') {
       return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions, tokenUsage);
     }
-    return handleStore(app, ctx, enforcedHost, payload, engine, runnerValidation, runner, versions, tokenUsage);
+    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, versions, tokenUsage);
   });
 
   // DELETE /auth — host uninstall.
@@ -148,12 +153,23 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
-      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions, tokenUsage);
+      const authResult = await handleBootstrapAuth(
+        app,
+        ctx,
+        enforced,
+        payload,
+        engine,
+        runnerValidation,
+        authStore,
+        versions,
+        tokenUsage,
+      );
       out.auth = authResult;
       const status = ((authResult as { status?: string }).status ?? '').toLowerCase();
       if (status !== 'valid') {
         out.reasons.push(`auth_${status !== '' ? status : 'unknown'}`);
       }
+      if (status === 'updated') out.reasons.push('auth_stored');
     }
 
     // Inline the agents + client-config bodies so the wrapper's bundle path can
@@ -314,20 +330,133 @@ async function handleRetrieve(
   const matchesCanonical = providedDigest && canonicalDigest && providedDigest === canonicalDigest;
 
   if (matchesCanonical) {
-    await touchHostState(ctx, host.id, canonicalRow.id, canonicalDigest, engine, canonicalLast!);
+    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
+    await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
     return { ...baseResponse, status: 'valid' };
   }
   if (incomingTs >= canonicalTs) {
-    await touchHostState(ctx, host.id, canonicalRow.id, canonicalDigest, engine, canonicalLast!);
+    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
+    await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
     return { ...baseResponse, status: 'upload_required', action: 'store' };
   }
   // Otherwise, host is outdated — serve the canonical auth.
-  await touchHostState(ctx, host.id, canonicalRow.id, canonicalDigest, engine, canonicalLast!);
+  await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
+  await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
   return {
     ...baseResponse,
     status: 'outdated',
     auth: canonicalAuth,
   };
+}
+
+async function buildRetrieveBaseResponse(
+  ctx: RouteContext,
+  host: Host,
+  payload: Record<string, unknown>,
+  engine: Engine,
+  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  tokenUsage: ReturnType<typeof createTokenUsageService>,
+): Promise<Record<string, unknown>> {
+  await ctx.db
+    .update(hostsTable)
+    .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: nowIso() })
+    .where(eq(hostsTable.id, host.id));
+
+  const versions = withLegacyShellWrapperTransition(
+    await versionSvc.summary(engine),
+    payload.wrapper_version,
+    engine,
+  );
+  const totals = await tokenUsage.totalsForMonth(host.id);
+  const baseResponse: Record<string, unknown> = {
+    host: buildHostPayload(host),
+    api_calls: Number(host.apiCalls ?? 0) + 1,
+    token_usage_month: totals,
+    versions,
+    quota_hard_fail: host.vip === 1 ? false : await versionSvc.flag('quota_hard_fail', true),
+    quota_limit_percent: await readQuotaLimitPercent(versionSvc),
+    cdx_silent: versions.cdx_silent,
+    engine,
+  };
+  if (engine === ENGINE_CODEX) {
+    baseResponse.chatgpt = await readChatgptSnapshot(ctx);
+  }
+  return baseResponse;
+}
+
+async function handleBootstrapAuth(
+  app: FastifyInstance,
+  ctx: RouteContext,
+  host: Host,
+  payload: Record<string, unknown>,
+  engine: Engine,
+  runnerValidation: ReturnType<typeof createRunnerValidationService>,
+  authStore: ReturnType<typeof createCanonicalAuthStoreService>,
+  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  tokenUsage: ReturnType<typeof createTokenUsageService>,
+): Promise<Record<string, unknown>> {
+  const candidate = readAuthCandidate(payload);
+  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+
+  const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
+  const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
+  const canonicalDigest = validated?.digest ?? null;
+  const canonicalLast = validated?.last_refresh ?? null;
+  const candidateLast = typeof candidate.last_refresh === 'string' ? candidate.last_refresh.trim() : '';
+  if (candidateLast) assertReasonableLastRefresh(candidateLast, 'auth_candidate.last_refresh');
+
+  if (canonicalRow && canonicalDigest && canonicalLast) {
+    const candidateDigest = canonicalizedCandidateDigest(candidate, candidateLast || canonicalLast, engine, runnerValidation);
+    if (candidateDigest === canonicalDigest) {
+      await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
+      await touchHostAuthFields(ctx.db, host.id, canonicalLast, canonicalDigest, engine);
+      const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc, tokenUsage);
+      return { ...baseResponse, canonical_last_refresh: canonicalLast, canonical_digest: canonicalDigest, status: 'valid' };
+    }
+    if (candidateLast && Date.parse(candidateLast) < Date.parse(canonicalLast)) {
+      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+    }
+  }
+
+  try {
+    const stored = await authStore.storeCandidate({
+      auth: candidate,
+      engine,
+      sourceHostId: host.id,
+      requireLastRefresh: false,
+      logAction: 'auth.store',
+      logDetails: { source: 'sync.bootstrap' },
+    });
+    const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc, tokenUsage);
+    return { ...baseResponse, ...stored };
+  } catch (err) {
+    app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed');
+    return {
+      status: 'error',
+      action: 'store',
+      message: err instanceof Error ? err.message : 'auth_candidate store failed',
+      engine,
+    };
+  }
+}
+
+function readAuthCandidate(payload: Record<string, unknown>): Record<string, unknown> | null {
+  const candidate = payload.auth_candidate;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+  return candidate as Record<string, unknown>;
+}
+
+function canonicalizedCandidateDigest(
+  candidate: Record<string, unknown>,
+  lastRefresh: string,
+  engine: Engine,
+  runnerValidation: ReturnType<typeof createRunnerValidationService>,
+): string | null {
+  const withFallback = runnerValidation.ensureAuthsFallback(candidate, engine);
+  const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
+  if (entries.length === 0) return null;
+  const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
+  return runnerValidation.calculateDigest(JSON.stringify(canonical));
 }
 
 async function handleStore(
@@ -336,110 +465,23 @@ async function handleStore(
   host: Host,
   payload: Record<string, unknown>,
   engine: Engine,
-  runnerValidation: ReturnType<typeof createRunnerValidationService>,
-  runner: ReturnType<typeof createRunnerClient>,
+  authStore: ReturnType<typeof createCanonicalAuthStoreService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
   tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   const incoming = extractAuthPayload(payload);
-  const lastRefresh = typeof incoming.last_refresh === 'string' ? incoming.last_refresh.trim() : '';
-  if (!lastRefresh) throw new ValidationError('last_refresh is required', { param: 'auth.last_refresh' });
-  assertReasonableLastRefresh(lastRefresh, 'auth.last_refresh');
-
-  const withFallback = runnerValidation.ensureAuthsFallback(incoming, engine);
-  const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
-  const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
-  const encoded = JSON.stringify(canonical);
-  const incomingDigest = runnerValidation.calculateDigest(encoded);
-
-  // Optional runner verification — only when configured AND not bypassed.
-  let verificationState: 'pending' | 'verified' | 'failed' = 'pending';
-  let runnerApplied = false;
-  let canonicalToStore = canonical;
-  let encodedToStore = encoded;
-  let digestToStore = incomingDigest;
-  let entriesToStore = entries;
-
-  if (runner.isConfigured()) {
-    const verdict = engine === ENGINE_CLAUDE ? await runner.verifyClaude({ authJson: canonical }) : await runner.verify({ authJson: canonical });
-    if (verdict.ok) {
-      verificationState = 'verified';
-      if (verdict.updated_auth && typeof verdict.updated_auth === 'object') {
-        // Runner returned a refreshed payload; replace canonical.
-        const updated = verdict.updated_auth as Record<string, unknown>;
-        if (typeof updated.last_refresh === 'string') {
-          const withFb = runnerValidation.ensureAuthsFallback(updated, engine);
-          const upEntries = runnerValidation.normalizeAuthEntries(withFb, engine);
-          const upCanon = runnerValidation.canonicalizeAuthPayload(withFb, upEntries, updated.last_refresh);
-          const upEnc = JSON.stringify(upCanon);
-          canonicalToStore = upCanon;
-          encodedToStore = upEnc;
-          digestToStore = runnerValidation.calculateDigest(upEnc);
-          entriesToStore = upEntries;
-          runnerApplied = true;
-        }
-      }
-    } else {
-      // Runner unreachable / failed: refuse store (PHP behaviour).
-      throw new ServiceUnavailableError('Runner verification failed; store is gated', 'runner_unreachable');
-    }
-  }
-
-  const now = nowIso();
-  const lastRefreshToStore = (canonicalToStore.last_refresh as string) ?? lastRefresh;
-
-  // Insert payload row.
-  const ins = await ctx.db.insert(authPayloads).values({
-    lastRefresh: lastRefreshToStore,
-    sha256: digestToStore,
+  const stored = await authStore.storeCandidate({
+    auth: incoming,
+    engine,
     sourceHostId: host.id,
-    createdAt: now,
-    body: encrypt(encodedToStore, ctx.keyring),
-    verificationState,
-    verificationCheckedAt: verificationState === 'verified' ? now : null,
-    verificationReason: null,
-    engine,
+    requireLastRefresh: true,
+    logAction: 'auth.store',
   });
-  const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
-  const payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
-
-  // Insert per-entry rows for auths{}.
-  for (const e of entriesToStore) {
-    await ctx.db.insert(authEntries).values({
-      payloadId,
-      target: e.target,
-      token: encrypt(e.token, ctx.keyring),
-      tokenType: e.tokenType ?? undefined,
-      organization: e.organization ?? undefined,
-      project: e.project ?? undefined,
-      apiBase: e.apiBase ?? undefined,
-      meta: e.meta ?? undefined,
-      createdAt: now,
-    });
-  }
-
-  // Remember digest for this host.
-  await ctx.db.insert(hostAuthDigests).values({
-    hostId: host.id,
-    digest: digestToStore,
-    lastSeen: now,
-    createdAt: now,
-    engine,
-  });
-
-  await touchHostState(ctx, host.id, payloadId, digestToStore, engine, lastRefreshToStore);
-
+  const now = nowIso();
   await ctx.db
     .update(hostsTable)
     .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: now })
     .where(eq(hostsTable.id, host.id));
-
-  await ctx.db.insert(logsTable).values({
-    hostId: host.id,
-    action: 'auth.store',
-    details: JSON.stringify({ status: 'updated', engine, digest: digestToStore }),
-    createdAt: now,
-  });
 
   const totals = await tokenUsage.totalsForMonth(host.id);
   const summary = withLegacyShellWrapperTransition(
@@ -449,51 +491,12 @@ async function handleStore(
   );
 
   return {
-    status: 'updated',
-    auth: canonicalToStore,
-    canonical_last_refresh: lastRefreshToStore,
-    canonical_digest: digestToStore,
-    verification_state: verificationState,
-    pending_payload_id: payloadId,
+    ...stored,
     api_calls: Number(host.apiCalls ?? 0) + 1,
     token_usage_month: totals,
     versions: summary,
     host: buildHostPayload(host),
-    runner_applied: runnerApplied,
-    engine,
   };
-}
-
-async function touchHostState(
-  ctx: RouteContext,
-  hostId: number,
-  payloadId: number,
-  digest: string,
-  engine: Engine,
-  lastRefresh: string,
-): Promise<void> {
-  const now = nowIso();
-  const existing = await ctx.db
-    .select()
-    .from(hostAuthStates)
-    .where(and(eq(hostAuthStates.hostId, hostId), eq(hostAuthStates.engine, engine)))
-    .limit(1);
-  if (existing[0]) {
-    await ctx.db
-      .update(hostAuthStates)
-      .set({ payloadId, seenDigest: digest, seenAt: now })
-      .where(and(eq(hostAuthStates.hostId, hostId), eq(hostAuthStates.engine, engine)));
-  } else {
-    await ctx.db.insert(hostAuthStates).values({ hostId, payloadId, seenDigest: digest, seenAt: now, engine });
-  }
-  await ctx.db
-    .update(hostsTable)
-    .set(
-      engine === ENGINE_CLAUDE
-        ? { claudeLastRefresh: lastRefresh, claudeAuthDigest: digest, updatedAt: now }
-        : { lastRefresh, authDigest: digest, updatedAt: now },
-    )
-    .where(eq(hostsTable.id, hostId));
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -526,14 +529,6 @@ function extractDigest(payload: Record<string, unknown>, required: boolean): str
   }
   if (required) throw new ValidationError('digest is required', { param: 'digest' });
   return null;
-}
-
-function assertReasonableLastRefresh(value: string, field: string): void {
-  if (!isRfc3339(value)) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
-  const ts = Date.parse(value);
-  if (Number.isNaN(ts)) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
-  if (ts < MIN_REFRESH_EPOCH_MS) throw new ValidationError(`${field} is implausibly old`, { param: field });
-  if (ts > Date.now() + MAX_FUTURE_SKEW_MS) throw new ValidationError(`${field} is in the future`, { param: field });
 }
 
 function extractHostUserInput(payload: Record<string, unknown>): { username: string | null; hostname: string | null } {

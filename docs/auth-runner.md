@@ -84,8 +84,9 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner is not configured, request fails with HTTP `503` (`Auth runner required`).
   - If runner is unreachable, request fails with HTTP `503` (`Auth runner unavailable`).
   - If runner returns non-`ok`, request fails with validation error.
-  - If runner returns `updated_auth`, it is applied only when `updated_auth.last_refresh >= upload.last_refresh`.
-- `POST /seed/auth/{token}` and `POST /admin/auth/upload` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
+  - If runner returns `updated_auth`, it is applied only when it has a valid RFC3339 `last_refresh`, has usable auth tokens after engine fallback normalization, and `updated_auth.last_refresh >= upload.last_refresh`.
+  - Older or malformed `updated_auth` is ignored; the runner-verified upload candidate is stored and the response/log includes a skipped reason.
+- `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
 - Scheduled preflight is triggered on each non-admin request except `/versions` and routes starting with `/mcp`.
 - Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are swallowed by the request pipeline and do not block the request.

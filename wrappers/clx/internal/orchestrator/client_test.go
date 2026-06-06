@@ -35,6 +35,29 @@ func TestAuthRetrieveSendsEngineClaude(t *testing.T) {
 	}
 }
 
+func TestAuthStoreReturnsServerAuthResponse(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"command":"store"`) || !strings.Contains(string(body), `"engine":"claude"`) {
+			t.Fatalf("unexpected body: %s", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":             "updated",
+			"canonical_digest":   strings.Repeat("a", 64),
+			"runner_applied":     true,
+			"auth":               map[string]any{"claudeAiOauth": map[string]any{"accessToken": "new"}},
+			"verification_state": "verified",
+		})
+	})
+	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if resp == nil || resp.Status != "updated" || !resp.RunnerApplied || len(resp.Auth) == 0 {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
 func TestRetrieveAgents(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"status":"updated","content":"# CLAUDE.md\n"}}`))

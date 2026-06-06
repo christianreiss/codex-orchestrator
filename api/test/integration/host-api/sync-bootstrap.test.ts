@@ -3,13 +3,17 @@ import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
 import {
+  authEntries,
+  authPayloads,
   hosts as hostsTable,
   versions as versionsTable,
   agentsDocuments,
   clientConfigDocuments,
 } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
+import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
+import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -129,6 +133,98 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const body = JSON.parse(r.payload);
     expect(body.agents).toMatchObject({ status: 'updated', content: agentsBody, sha256: agentsSha });
     expect(body.config).toMatchObject({ status: 'updated', content: configBody, sha256: configSha });
+    await app.close();
+  });
+
+  it('stores a Claude auth_candidate inline when canonical auth is missing', async () => {
+    const apiKey = 'sk-bootstrap-auth-store';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        include_auth: true,
+        auth_candidate: { claudeAiOauth: { accessToken: 'sk-ant-oat01-bootstrap', refreshToken: 'r' } },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('updated');
+    expect(body.reasons).toContain('auth_stored');
+    expect(body.auth.auth.claudeAiOauth.accessToken).toBe('sk-ant-oat01-bootstrap');
+    expect(db.tables.get(authPayloads)!).toHaveLength(1);
+    expect(db.tables.get(authEntries)!).toHaveLength(1);
+    await app.close();
+  });
+
+  it('treats stripped Claude credentials as valid when they canonicalize to server auth', async () => {
+    const apiKey = 'sk-bootstrap-auth-valid';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+
+    const runnerValidation = createRunnerValidationService({ db: db as never, keyring });
+    const canonical = runnerValidation.canonicalizeAuthPayload(
+      {
+        claudeAiOauth: { accessToken: 'sk-ant-oat01-same', refreshToken: 'r' },
+        auths: { 'api.anthropic.com': { token: 'sk-ant-oat01-same', token_type: 'bearer' } },
+      },
+      runnerValidation.normalizeAuthEntries(
+        { auths: { 'api.anthropic.com': { token: 'sk-ant-oat01-same', token_type: 'bearer' } } },
+        'claude',
+      ),
+      '2026-05-20T09:00:00Z',
+    );
+    const encoded = JSON.stringify(canonical);
+    const digest = createHash('sha256').update(encoded).digest('hex');
+    db.tables.set(authPayloads, [
+      {
+        id: 3,
+        lastRefresh: '2026-05-20T09:00:00Z',
+        sha256: digest,
+        sourceHostId: null,
+        createdAt: '2026-05-20T09:00:00Z',
+        body: encrypt(encoded, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: '2026-05-20T09:00:00Z',
+        verificationReason: null,
+        engine: 'claude',
+      },
+    ]);
+
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        include_auth: true,
+        auth_digest: '0'.repeat(64),
+        auth_candidate: { claudeAiOauth: { accessToken: 'sk-ant-oat01-same', refreshToken: 'r' } },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('valid');
+    expect(body.auth.auth).toBeUndefined();
+    expect(db.tables.get(authPayloads)!).toHaveLength(1);
     await app.close();
   });
 

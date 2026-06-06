@@ -77,9 +77,11 @@ version reconciliation, post-run credential re-upload on sha change, JSONL-based
 token usage extraction, and best-effort `/usage` batch POST. Engine-specific
 details:
 
-- Credentials read precedence: `~/.clx/auth/credentials.json` first, then
-  `~/.claude/.credentials.json`; writes go to both so the upstream CLI sees
-  them whichever path it consults.
+- Credentials are read from the newest structurally usable file across
+  `~/.claude/.credentials.json` and `~/.clx/auth/credentials.json`, with
+  `~/.claude/.credentials.json` winning ties because upstream Claude Code writes
+  there. Server-accepted credentials are always written to `~/.claude` and are
+  mirrored to `~/.clx/auth/credentials.json` when that sidecar already exists.
 - **Auth model is native account-login, 1:1 with cdx/`auth.json`.** The fleet
   keeps the host's `.credentials.json` current and Claude Code reads its
   `claudeAiOauth` account login from it directly. clx deliberately does **not**
@@ -90,6 +92,10 @@ details:
   object (not just a derived `auths` bearer), so the refresh token/expiry survive
   the round-trip. The `/anthropic/v1` proxy is a separate gateway for issued
   `sk-claude-*` keys and is not part of the host launch path.
+- `clx auth-upload`, missing/upload-required pre-run upload, and post-run
+  changed-credential upload backfill `last_refresh` only in the uploaded copy.
+  When the server returns canonical auth (including runner-refreshed auth), the
+  wrapper writes that accepted payload back locally.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI

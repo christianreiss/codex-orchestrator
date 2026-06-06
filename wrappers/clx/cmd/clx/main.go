@@ -519,14 +519,21 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	payload, err := claude.ReadAuth()
+	payload, _, err := claude.ReadAuthForUpload()
 	if err != nil {
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	if err := client.AuthStore(ctx, payload); err != nil {
+	resp, err := client.AuthStore(ctx, payload)
+	if err != nil {
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
+	}
+	if resp != nil && len(resp.Auth) > 0 {
+		if err := claude.WriteAuth(resp.Auth); err != nil {
+			fmt.Fprintln(stderr, "auth-upload:", err)
+			return 1
+		}
 	}
 	fmt.Fprintln(stdout, "auth-upload: ok")
 	return 0

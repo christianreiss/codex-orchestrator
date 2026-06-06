@@ -3,15 +3,13 @@ import { eq } from 'drizzle-orm';
 import {
   hosts as hostsTable,
   logs as logsTable,
-  authEntries,
-  authPayloads,
   hostAuthDigests,
   hostAuthStates,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
-import { decryptOrNull, encrypt } from '../../security/secret-box.js';
+import { decryptOrNull } from '../../security/secret-box.js';
 import { sha256 } from '../../security/hash.js';
 import {
   buildInstallerScript,
@@ -20,7 +18,9 @@ import {
   shellErrorScript,
   tokenExpired,
 } from '../../services/install-token.js';
-import { createRunnerValidationService, extractAuthPayload } from '../../services/runner-validation.js';
+import { createRunnerValidationService } from '../../services/runner-validation.js';
+import { createRunnerClient } from '../../services/runner-client.js';
+import { createCanonicalAuthStoreService } from '../../services/canonical-auth-store.js';
 
 const INSTALL_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9-]{36})$/;
 // Seed-auth tokens are minted as randomBytes(32).toString('hex') → 64 hex chars
@@ -49,6 +49,12 @@ const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
 export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const installSvc = createInstallTokenService({ db: ctx.db, keyring: ctx.keyring });
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+  const authStore = createCanonicalAuthStoreService({
+    db: ctx.db,
+    keyring: ctx.keyring,
+    runnerValidation,
+    runner: createRunnerClient({ env: ctx.env }),
+  });
 
   const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
     if (!INSTALL_TOKEN_RE.test(token)) return shellishError(reply, 'Installer not found', 404);
@@ -150,63 +156,18 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     }
 
     const engine = row.engine;
-    const incoming = extractAuthPayload({ auth: candidate as Record<string, unknown> });
-    const lastRefresh = typeof incoming.last_refresh === 'string' ? incoming.last_refresh.trim() : nowIso();
-    const withFallback = runnerValidation.ensureAuthsFallback(incoming, engine);
-    const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
-    if (entries.length === 0) {
-      // Fail loud rather than persist an empty auths{} the wrapper can't use.
-      // Mirrors /admin/auth/upload; reached e.g. when an unrecognised auth
-      // shape normalises to nothing.
-      await installSvc.markSeedUsed(row.id);
-      throw new ValidationError('payload contains no usable auth tokens', { param: 'auth' });
-    }
-    const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
-    const encoded = JSON.stringify(canonical);
-    const digest = sha256(encoded);
-    const now = nowIso();
-
-    const ins = await ctx.db.insert(authPayloads).values({
-      lastRefresh,
-      sha256: digest,
-      sourceHostId: null,
-      createdAt: now,
-      body: encrypt(encoded, ctx.keyring),
-      verificationState: 'verified', // seed paths bypass runner verification
-      verificationCheckedAt: now,
+    const stored = await authStore.storeCandidate({
+      auth: candidate as Record<string, unknown>,
       engine,
+      sourceHostId: null,
+      requireLastRefresh: false,
+      logAction: 'auth.seed.v2.consume',
+      logDetails: { token: token.slice(0, 8) + '…' },
     });
-    const payloadId = (ins[0] as { insertId?: number | bigint } | undefined)?.insertId;
-    const payloadIdNum = payloadId !== undefined ? Number(payloadId) : 0;
-    for (const e of entries) {
-      await ctx.db.insert(authEntries).values({
-        payloadId: payloadIdNum,
-        target: e.target,
-        token: encrypt(e.token, ctx.keyring),
-        tokenType: e.tokenType ?? undefined,
-        organization: e.organization ?? undefined,
-        project: e.project ?? undefined,
-        apiBase: e.apiBase ?? undefined,
-        meta: e.meta ?? undefined,
-        createdAt: now,
-      });
-    }
-
     await installSvc.markSeedUsed(row.id);
-    await ctx.db.insert(logsTable).values({
-      hostId: null,
-      action: 'auth.seed.v2.consume',
-      details: JSON.stringify({ token: token.slice(0, 8) + '…', engine, status: 'updated' }),
-      createdAt: now,
-    });
 
     return {
-      status: 'updated',
-      auth: canonical,
-      canonical_last_refresh: lastRefresh,
-      canonical_digest: digest,
-      engine,
-      pending_payload_id: payloadIdNum,
+      ...stored,
     };
   };
 

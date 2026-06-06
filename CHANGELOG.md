@@ -1,3 +1,17 @@
+# 2026-06-06
+
+## Robust clx auth round-trips
+
+- **API/clx:** Canonical auth writes now use one runner-validated store path for
+  host `/auth`, `/sync/bootstrap` `auth_candidate`, seed uploads, and admin
+  uploads. Bootstrap stores fresh Claude candidates before returning canonical
+  auth, so native `.credentials.json` files without `last_refresh` are not
+  overwritten on first sync. Runner `updated_auth` is applied only when it is
+  valid, usable, and same/newer than the upload. `clx auth-upload` and post-run
+  uploads write server-returned refreshed auth back locally, and `clx` now
+  chooses the newest usable credential across `~/.claude` and `~/.clx` while
+  mirroring accepted auth to Claude's upstream path.
+
 ## New Host sheet keyboard flow
 
 - **UI:** Opening New Host now focuses the hostname field, keeps the cursor at

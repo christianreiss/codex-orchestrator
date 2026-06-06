@@ -8,34 +8,43 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // AuthPath returns the local credential file path.
 //
-// Dual-location precedence (legacy clx parity):
-//  1. ~/.clx/auth/credentials.json — preferred when it already exists
-//     (operator/installer can pre-stage credentials at the clx-native path).
-//  2. ~/.claude/.credentials.json — upstream Claude CLI's canonical location;
-//     always returned when neither exists yet, so first-write lands where the
-//     upstream CLI expects to read it.
+// Dual-location selection:
+//  1. choose the newest structurally usable file across ~/.claude and ~/.clx;
+//  2. prefer ~/.claude on ties because upstream Claude Code writes there;
+//  3. fall back to ~/.claude when neither exists yet.
 func AuthPath() (string, error) {
+	path, _, _, err := selectedAuthFile()
+	if errors.Is(err, os.ErrNotExist) {
+		return path, nil
+	}
+	return path, err
+}
+
+func authPaths() (claudePath, clxPath string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	clxPath := filepath.Join(home, ".clx", "auth", "credentials.json")
-	if _, statErr := os.Stat(clxPath); statErr == nil {
-		return clxPath, nil
+	return filepath.Join(home, ".claude", ".credentials.json"), filepath.Join(home, ".clx", "auth", "credentials.json"), nil
+}
+
+// AuthCandidatePaths returns both credential paths in preference order for scans.
+func AuthCandidatePaths() ([]string, error) {
+	claudePath, clxPath, err := authPaths()
+	if err != nil {
+		return nil, err
 	}
-	return filepath.Join(home, ".claude", ".credentials.json"), nil
+	return []string{claudePath, clxPath}, nil
 }
 
 func LocalDigest() (string, error) {
-	p, err := AuthPath()
-	if err != nil {
-		return "", err
-	}
-	raw, err := os.ReadFile(p)
+	_, raw, _, err := selectedAuthFile()
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
@@ -48,15 +57,34 @@ func LocalDigest() (string, error) {
 
 // ReadAuth returns the raw bytes of the local credentials.json.
 func ReadAuth() (json.RawMessage, error) {
-	p, err := AuthPath()
-	if err != nil {
-		return nil, err
-	}
-	raw, err := os.ReadFile(p)
+	_, raw, _, err := selectedAuthFile()
 	if err != nil {
 		return nil, err
 	}
 	return json.RawMessage(raw), nil
+}
+
+// ReadAuthForUpload returns a server-store-ready copy of the selected
+// credentials. It backfills last_refresh in memory only; local files are changed
+// only after the server accepts and returns canonical auth.
+func ReadAuthForUpload() (json.RawMessage, string, error) {
+	path, raw, _, err := selectedAuthFile()
+	if err != nil {
+		return nil, "", err
+	}
+	out, err := backfillLastRefresh(json.RawMessage(raw))
+	if err != nil {
+		return nil, "", err
+	}
+	return out, path, nil
+}
+
+func ReadAuthForUploadFromPath(path string) (json.RawMessage, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return backfillLastRefresh(json.RawMessage(raw))
 }
 
 func WriteAuth(payload json.RawMessage) error {
@@ -71,18 +99,19 @@ func WriteAuth(payload json.RawMessage) error {
 	if err != nil {
 		return fmt.Errorf("auth payload not valid JSON: %w", err)
 	}
-	p, err := AuthPath()
+	claudePath, clxPath, err := authPaths()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	if err := atomicWrite(claudePath, toWrite); err != nil {
 		return err
 	}
-	tmp := p + ".new"
-	if err := os.WriteFile(tmp, toWrite, 0o600); err != nil {
-		return err
+	if _, statErr := os.Stat(clxPath); statErr == nil {
+		if err := atomicWrite(clxPath, toWrite); err != nil {
+			return err
+		}
 	}
-	return os.Rename(tmp, p)
+	return nil
 }
 
 // extractClaudeFormat returns a credentials JSON that Claude Code accepts.
@@ -103,4 +132,84 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func selectedAuthFile() (string, []byte, os.FileInfo, error) {
+	claudePath, clxPath, err := authPaths()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	type cand struct {
+		path   string
+		raw    []byte
+		info   os.FileInfo
+		usable bool
+	}
+	var found []cand
+	for _, path := range []string{claudePath, clxPath} {
+		raw, readErr := os.ReadFile(path)
+		if errors.Is(readErr, os.ErrNotExist) {
+			continue
+		}
+		if readErr != nil {
+			return "", nil, nil, readErr
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return "", nil, nil, statErr
+		}
+		found = append(found, cand{path: path, raw: raw, info: info, usable: isUsableAuth(raw)})
+	}
+	if len(found) == 0 {
+		return claudePath, nil, nil, os.ErrNotExist
+	}
+	best := found[0]
+	for _, cur := range found[1:] {
+		if cur.usable != best.usable {
+			if cur.usable {
+				best = cur
+			}
+			continue
+		}
+		if cur.info.ModTime().After(best.info.ModTime()) ||
+			(cur.info.ModTime().Equal(best.info.ModTime()) && cur.path == claudePath) {
+			best = cur
+		}
+	}
+	return best.path, best.raw, best.info, nil
+}
+
+func isUsableAuth(raw []byte) bool {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	return hasAnyClaudeToken(doc)
+}
+
+func backfillLastRefresh(payload json.RawMessage) (json.RawMessage, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return nil, err
+	}
+	if cur, ok := obj["last_refresh"].(string); ok && strings.TrimSpace(cur) != "" {
+		return payload, nil
+	}
+	obj["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(out), nil
+}
+
+func atomicWrite(path string, body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".new"
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

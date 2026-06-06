@@ -27,6 +27,8 @@ type AuthRetrieveResponse struct {
 	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
 	Engine               string          `json:"engine,omitempty"`
 	VerificationState    string          `json:"verification_state,omitempty"`
+	RunnerApplied        bool            `json:"runner_applied,omitempty"`
+	RunnerSkippedReason  string          `json:"runner_skipped_reason,omitempty"`
 }
 
 type TokenUsage struct {
@@ -95,7 +97,7 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 	return out, nil
 }
 
-func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
+func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) (*AuthRetrieveResponse, error) {
 	body := map[string]any{
 		"command": "store",
 		"engine":  "claude",
@@ -103,12 +105,12 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 	}
 	out := &AuthRetrieveResponse{}
 	if err := c.JSON(ctx, http.MethodPost, "/auth", body, out, 1); err != nil {
-		return err
+		return nil, err
 	}
 	if out.Status == "error" {
-		return errors.New(out.Message)
+		return out, errors.New(out.Message)
 	}
-	return nil
+	return out, nil
 }
 
 // CheckAuthStatus runs /auth retrieve and returns just the lower-cased

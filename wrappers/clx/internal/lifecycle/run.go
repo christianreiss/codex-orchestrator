@@ -74,14 +74,14 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	authPath, _ := claude.AuthPath()
 
 	var (
-		authResp       *orchestrator.AuthRetrieveResponse
-		authErr        error
-		authSynced     bool
-		agentsUpdated  bool
-		configUpdated  bool
-		skillsUpdated  bool
-		claudeUpdated  string
-		dec            orchestrator.AuthDecision
+		authResp      *orchestrator.AuthRetrieveResponse
+		authErr       error
+		authSynced    bool
+		agentsUpdated bool
+		configUpdated bool
+		skillsUpdated bool
+		claudeUpdated string
+		dec           orchestrator.AuthDecision
 	)
 
 	if !opts.SkipAuthSync {
@@ -101,8 +101,8 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 
 		if dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
-			if raw, rerr := claude.ReadAuth(); rerr == nil && len(raw) > 0 {
-				if err := pushAuthCandidate(ctx, client, raw); err != nil {
+			if raw, _, rerr := claude.ReadAuthForUpload(); rerr == nil && len(raw) > 0 {
+				if err := pushAuthCandidate(ctx, client, raw, logger); err != nil {
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
 					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
@@ -172,13 +172,13 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
 	}
 
-	beforeHash, beforeRefresh := snapshotAuth(authPath)
+	before := snapshotAuthFiles()
 
 	started := time.Now()
 	exitCode, captured, runErr := claude.RunCapture(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
 
-	maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
+	maybePostRunAuthUpload(client, logger, before)
 
 	usageResult, usageTone := reportUsage(client, cfg, started, duration, captured, exitCode, logger)
 
@@ -358,10 +358,19 @@ func isBundleUnsupported(err error) bool {
 	return strings.Contains(s, " -> 404") || strings.Contains(s, " -> 501") || strings.Contains(s, " -> 405")
 }
 
-func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []byte) error {
+func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []byte, logger *slog.Logger) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return client.AuthStore(cctx, raw)
+	resp, err := client.AuthStore(cctx, raw)
+	if err != nil {
+		return err
+	}
+	if resp != nil && len(resp.Auth) > 0 {
+		if werr := claude.WriteAuth(resp.Auth); werr != nil {
+			logger.Debug("auth write-back after upload failed", "err", werr)
+		}
+	}
+	return nil
 }
 
 func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
@@ -458,10 +467,27 @@ func fileDigest(p string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func snapshotAuth(path string) (string, string) {
-	if path == "" {
-		return "", ""
+type authSnapshot struct {
+	Hash    string
+	Refresh string
+}
+
+func snapshotAuthFiles() map[string]authSnapshot {
+	out := map[string]authSnapshot{}
+	paths, err := claude.AuthCandidatePaths()
+	if err != nil {
+		return out
 	}
+	for _, path := range paths {
+		hash, refresh := snapshotAuth(path)
+		if hash != "" {
+			out[path] = authSnapshot{Hash: hash, Refresh: refresh}
+		}
+	}
+	return out
+}
+
+func snapshotAuth(path string) (string, string) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return "", ""
@@ -496,29 +522,32 @@ func extractLastRefresh(raw []byte) string {
 	return tail[:end]
 }
 
-func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) {
-	if path == "" {
+func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, before map[string]authSnapshot) {
+	raw, path, err := claude.ReadAuthForUpload()
+	if err != nil || len(raw) == 0 || path == "" {
 		return
 	}
 	afterHash, afterRefresh := snapshotAuth(path)
 	if afterHash == "" {
 		return
 	}
-	if afterHash == beforeHash && afterRefresh == beforeRefresh {
-		return
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		logger.Debug("post-run auth read failed", "err", err)
+	if prev, ok := before[path]; ok && prev.Hash == afterHash && prev.Refresh == afterRefresh {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := client.AuthStore(ctx, raw); err != nil {
+	resp, err := client.AuthStore(ctx, raw)
+	if err != nil {
 		logger.Debug("post-run auth upload failed", "err", err)
 		return
 	}
-	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)
+	if resp != nil && len(resp.Auth) > 0 {
+		if werr := claude.WriteAuth(resp.Auth); werr != nil {
+			logger.Debug("post-run auth write-back failed", "err", werr)
+		}
+	}
+	prev := before[path]
+	logger.Debug("post-run auth uploaded", "path", path, "hash_changed", prev.Hash != afterHash, "refresh_changed", prev.Refresh != afterRefresh)
 }
 
 // reportUsage extracts Claude usage (pipe-mode capture first, then JSONL

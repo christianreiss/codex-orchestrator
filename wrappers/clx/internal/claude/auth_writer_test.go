@@ -5,14 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-// TestAuthPathDualLocationPrecedence covers the legacy-parity contract:
+// TestAuthPathDualLocationSelection covers the robust two-path contract:
 //
-//  1. ~/.clx/auth/credentials.json wins when it exists on disk.
-//  2. Otherwise we always fall back to ~/.claude/.credentials.json so the
-//     upstream CLI's canonical read path is what we write to on first use.
-func TestAuthPathDualLocationPrecedence(t *testing.T) {
+//  1. newest usable credential file wins.
+//  2. ~/.claude wins ties because upstream Claude Code writes there.
+//  3. missing files fall back to ~/.claude for first write.
+func TestAuthPathDualLocationSelection(t *testing.T) {
 	cases := []struct {
 		name       string
 		setupClx   bool
@@ -38,10 +39,10 @@ func TestAuthPathDualLocationPrecedence(t *testing.T) {
 			wantSuffix: filepath.Join(".clx", "auth", "credentials.json"),
 		},
 		{
-			name:       "both_exist_clx_wins",
+			name:       "both_exist_claude_wins_tie",
 			setupClx:   true,
 			setupClaud: true,
-			wantSuffix: filepath.Join(".clx", "auth", "credentials.json"),
+			wantSuffix: filepath.Join(".claude", ".credentials.json"),
 		},
 	}
 	for _, tc := range cases {
@@ -80,9 +81,46 @@ func TestAuthPathDualLocationPrecedence(t *testing.T) {
 	}
 }
 
-// TestWriteAuthCreatesParentDir verifies WriteAuth honours whichever location
-// AuthPath returns — including the nested ~/.clx/auth/ parent that doesn't
-// yet exist in the fallback (claude-only) case.
+func TestAuthPathChoosesNewestUsableFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	claudeDir := filepath.Join(home, ".claude")
+	clxDir := filepath.Join(home, ".clx", "auth")
+	if err := os.MkdirAll(claudeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(clxDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	claudePath := filepath.Join(claudeDir, ".credentials.json")
+	clxPath := filepath.Join(clxDir, "credentials.json")
+	if err := os.WriteFile(claudePath, []byte(`{"api_key":"claude-key"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clxPath, []byte(`{"api_key":"clx-key"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	newer := time.Now()
+	if err := os.Chtimes(claudePath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(clxPath, newer, newer); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := AuthPath()
+	if err != nil {
+		t.Fatalf("AuthPath: %v", err)
+	}
+	if got != clxPath {
+		t.Fatalf("AuthPath() = %q, want newest %q", got, clxPath)
+	}
+}
+
+// TestWriteAuthCreatesParentDir verifies WriteAuth always lands where upstream
+// Claude Code reads credentials on first use.
 func TestWriteAuthCreatesParentDirForClaudeFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -125,9 +163,48 @@ func TestWriteAuthHonoursClxPathWhenPreStaged(t *testing.T) {
 	if string(raw) != `{"api_key":"new"}` {
 		t.Errorf("clx location not updated: %q", raw)
 	}
-	// And the claude location must not have been written.
-	if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); !os.IsNotExist(err) {
-		t.Errorf("claude location was written when clx pre-staged: %v", err)
+	claudeRaw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	if err != nil {
+		t.Fatalf("read claude mirror: %v", err)
+	}
+	if string(claudeRaw) != `{"api_key":"new"}` {
+		t.Errorf("claude location not mirrored: %q", claudeRaw)
+	}
+}
+
+func TestReadAuthForUploadBackfillsLastRefreshOnlyInMemory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, ".credentials.json")
+	original := `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abc","refreshToken":"r"}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, gotPath, err := ReadAuthForUpload()
+	if err != nil {
+		t.Fatalf("ReadAuthForUpload: %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("upload json: %v", err)
+	}
+	if out["last_refresh"] == "" {
+		t.Fatalf("last_refresh missing in upload payload: %s", raw)
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(onDisk) != original {
+		t.Fatalf("ReadAuthForUpload mutated disk: %s", onDisk)
 	}
 }
 

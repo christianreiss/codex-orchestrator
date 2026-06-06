@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, authEntries, authPayloads, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
+import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { ClientVersionsService } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
@@ -22,9 +22,9 @@ import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { RunnerProxyService } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
-import { createRunnerValidationService, extractAuthPayload } from '../../../services/runner-validation.js';
+import { createRunnerValidationService } from '../../../services/runner-validation.js';
+import { createCanonicalAuthStoreService } from '../../../services/canonical-auth-store.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
-import { encrypt } from '../../../security/secret-box.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
@@ -157,6 +157,7 @@ export async function registerAdminOverviewRoutes(
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+  const runnerClient = createRunnerClient({ env: ctx.env });
   const chatgpt = new ChatGptUsageService(ctx.db, app.log, {
     env: ctx.env,
     keyring: ctx.keyring,
@@ -167,8 +168,14 @@ export async function registerAdminOverviewRoutes(
   const scaling = new UsageScalingService(settings);
   const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
     db: ctx.db,
-    runner: createRunnerClient({ env: ctx.env }),
+    runner: runnerClient,
     runnerValidation,
+  });
+  const authStore = createCanonicalAuthStoreService({
+    db: ctx.db,
+    keyring: ctx.keyring,
+    runnerValidation,
+    runner: runnerClient,
   });
   const adminEventsService = createAdminEventsService(ctx.db);
 
@@ -777,7 +784,11 @@ export async function registerAdminOverviewRoutes(
 
     let incoming: Record<string, unknown>;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      incoming = extractAuthPayload(parsed as Record<string, unknown>);
+      const parsedObj = parsed as Record<string, unknown>;
+      incoming =
+        parsedObj.auth && typeof parsedObj.auth === 'object' && !Array.isArray(parsedObj.auth)
+          ? (parsedObj.auth as Record<string, unknown>)
+          : parsedObj;
     } else if (engine === ENGINE_CLAUDE) {
       incoming = {
         auths: { 'api.anthropic.com': { token: payloadText, token_type: 'bearer' } },
@@ -786,62 +797,19 @@ export async function registerAdminOverviewRoutes(
       throw new ValidationError('payload must be valid JSON for codex auth', { param: 'payload' });
     }
 
-    const lastRefresh = typeof incoming.last_refresh === 'string' && incoming.last_refresh.trim() !== ''
-      ? incoming.last_refresh.trim()
-      : nowIso();
-    const withFallback = runnerValidation.ensureAuthsFallback(incoming, engine);
-    const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
-    if (entries.length === 0) {
-      throw new ValidationError('payload contains no usable auth tokens', { param: 'payload' });
-    }
-    const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
-    const encoded = JSON.stringify(canonical);
-    const digest = runnerValidation.calculateDigest(encoded);
-    const now = nowIso();
-
-    const ins = await ctx.db.insert(authPayloads).values({
-      lastRefresh,
-      sha256: digest,
+    const stored = await authStore.storeCandidate({
+      auth: incoming,
+      engine,
       sourceHostId: null,
-      createdAt: now,
-      body: encrypt(encoded, ctx.keyring),
-      verificationState: 'verified',
-      verificationCheckedAt: now,
-      verificationReason: null,
-      engine,
-    });
-    const insertedRaw = (Array.isArray(ins) ? ins[0] : ins) as { insertId?: number | bigint } | undefined;
-    const payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
-
-    for (const e of entries) {
-      await ctx.db.insert(authEntries).values({
-        payloadId,
-        target: e.target,
-        token: encrypt(e.token, ctx.keyring),
-        tokenType: e.tokenType ?? undefined,
-        organization: e.organization ?? undefined,
-        project: e.project ?? undefined,
-        apiBase: e.apiBase ?? undefined,
-        meta: e.meta ?? undefined,
-        createdAt: now,
-      });
-    }
-
-    await recordLog(ctx, 'admin.auth.upload', {
-      engine,
-      digest,
-      payload_id: payloadId,
-      entries: entries.length,
+      requireLastRefresh: false,
+      logAction: 'admin.auth.upload',
+      logDetails: { size: payloadText.length },
     });
 
     return ok({
-      status: 'updated',
-      engine,
-      canonical_digest: digest,
-      canonical_last_refresh: lastRefresh,
-      pending_payload_id: payloadId,
+      ...stored,
       received: true,
-      size: encoded.length,
+      size: payloadText.length,
     });
   });
 }
