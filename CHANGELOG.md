@@ -13,6 +13,16 @@
   block. This fixes Claude Code sessions seeing no `memory_*`/`project_*`
   tools while the same endpoint worked for Codex.
 
+## Wrapper approval wait hardening
+
+- **cdx/clx (0.6.22):** Error-code parsing now accepts the standard
+  orchestrator envelope plus OpenAI/Anthropic nested error envelopes before
+  classifying insecure-host approval responses. This keeps `423
+  insecure_pending` on `/sync/bootstrap` and `/auth` on the approval-poll path
+  instead of collapsing to the offline cached-auth refusal. The shipped wrapper
+  artifacts were rebuilt so hosts on `0.6.17` can self-update into the waiting
+  behavior.
+
 ## Host online pill uses real last contact
 
 - **UI:** Hosts → Status pill no longer keys the 24-hour online window off

@@ -197,17 +197,24 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("%s %s -> %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
-// parseErrorCode pulls the top-level `code` field out of a standard error
-// envelope ({"status":"error","message":...,"code":...}); returns "" if the
-// body is not JSON or carries no code.
+// parseErrorCode pulls the machine code out of the orchestrator's error
+// envelopes. Host sync routes normally use the standard top-level `code`
+// field, but keep the OpenAI/Anthropic nested shape working too so callers can
+// branch on stable codes across formatter changes.
 func parseErrorCode(raw []byte) string {
 	var env struct {
-		Code string `json:"code"`
+		Code  string `json:"code"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
 	}
 	if json.Unmarshal(raw, &env) != nil {
 		return ""
 	}
-	return env.Code
+	if env.Code != "" {
+		return env.Code
+	}
+	return env.Error.Code
 }
 
 // InsecureStatusFromError maps the orchestrator's insecure-approval HTTP

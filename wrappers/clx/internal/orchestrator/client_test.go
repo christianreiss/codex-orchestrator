@@ -203,3 +203,36 @@ func TestInsecureStatusFromError(t *testing.T) {
 		})
 	}
 }
+
+func TestParseErrorCodeAcceptsSupportedEnvelopes(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "standard top-level code",
+			body: `{"status":"error","message":"pending","code":"insecure_pending"}`,
+			want: "insecure_pending",
+		},
+		{
+			name: "openai nested code",
+			body: `{"error":{"message":"pending","type":"locked_error","code":"insecure_pending"}}`,
+			want: "insecure_pending",
+		},
+		{
+			name: "anthropic nested code",
+			body: `{"type":"error","error":{"type":"locked_error","message":"pending","code":"insecure_pending"}}`,
+			want: "insecure_pending",
+		},
+		{name: "missing code", body: `{"status":"error","message":"pending"}`, want: ""},
+		{name: "invalid json", body: `{`, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseErrorCode([]byte(tc.body)); got != tc.want {
+				t.Fatalf("parseErrorCode = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
