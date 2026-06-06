@@ -335,6 +335,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "profile":
 		return cmdProfile(ctx, cfg, append(subArgs, passthrough...), stderr)
 	case "update":
+		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
+		if err != nil {
+			fmt.Fprintln(stderr, "cdx update:", err)
+			return 1
+		}
+		cfg.Wrapper.Version = artifact.Version
+		cfg.Wrapper.BinaryURL = artifact.URL
+		cfg.Wrapper.BinarySHA256 = artifact.SHA256
 		if err := update.SelfUpdate(ctx, cfg, logger); err != nil {
 			fmt.Fprintln(stderr, "cdx update:", err)
 			return 1
@@ -367,6 +375,103 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
+}
+
+type wrapperUpdateArtifact struct {
+	Version string
+	URL     string
+	SHA256  string
+}
+
+func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, current string) (wrapperUpdateArtifact, error) {
+	if cfg == nil {
+		return wrapperUpdateArtifact{}, fmt.Errorf("wrapper config unavailable")
+	}
+	client, err := orchestrator.New(orchestrator.Options{
+		BaseURL:       cfg.Orchestrator.BaseURL,
+		APIKey:        cfg.Orchestrator.APIKey,
+		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+	})
+	if err == nil {
+		if resp, rerr := client.AuthRetrieve(ctx, ""); rerr == nil && resp != nil {
+			if artifact, ok := artifactFromVersionSummary(resp.Versions); ok {
+				return validateWrapperUpdateArtifact(artifact, current)
+			}
+			switch strings.ToLower(strings.TrimSpace(resp.Status)) {
+			case "insecure":
+				return wrapperUpdateArtifact{}, fmt.Errorf("insecure host approval pending; open the host window first")
+			case "insecure-denied":
+				return wrapperUpdateArtifact{}, fmt.Errorf("insecure host approval denied")
+			}
+		}
+	}
+	return validateWrapperUpdateArtifact(wrapperUpdateArtifact{
+		Version: cfg.Wrapper.Version,
+		URL:     cfg.Wrapper.BinaryURL,
+		SHA256:  cfg.Wrapper.BinarySHA256,
+	}, current)
+}
+
+func artifactFromVersionSummary(v *orchestrator.VersionSummary) (wrapperUpdateArtifact, bool) {
+	if v == nil || !v.AutoUpdateEnabled || v.WrapperVersion == nil || v.WrapperURL == nil || v.WrapperSHA256 == nil {
+		return wrapperUpdateArtifact{}, false
+	}
+	artifact := wrapperUpdateArtifact{
+		Version: strings.TrimSpace(*v.WrapperVersion),
+		URL:     strings.TrimSpace(*v.WrapperURL),
+		SHA256:  strings.TrimSpace(*v.WrapperSHA256),
+	}
+	if artifact.Version == "" || artifact.URL == "" || artifact.SHA256 == "" {
+		return wrapperUpdateArtifact{}, false
+	}
+	return artifact, true
+}
+
+func validateWrapperUpdateArtifact(artifact wrapperUpdateArtifact, current string) (wrapperUpdateArtifact, error) {
+	if artifact.Version == "" || artifact.URL == "" || artifact.SHA256 == "" {
+		return wrapperUpdateArtifact{}, fmt.Errorf("wrapper update metadata incomplete")
+	}
+	if cmp, ok := compareSemver(artifact.Version, current); ok && cmp < 0 {
+		return wrapperUpdateArtifact{}, fmt.Errorf("refusing to downgrade wrapper from %s to %s", current, artifact.Version)
+	}
+	return artifact, nil
+}
+
+func compareSemver(a, b string) (int, bool) {
+	av, okA := parseSemverTriple(a)
+	bv, okB := parseSemverTriple(b)
+	if !okA || !okB {
+		return 0, false
+	}
+	for i := 0; i < 3; i++ {
+		if av[i] < bv[i] {
+			return -1, true
+		}
+		if av[i] > bv[i] {
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func parseSemverTriple(v string) ([3]int, bool) {
+	var out [3]int
+	base := strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if idx := strings.IndexAny(base, "+-"); idx >= 0 {
+		base = base[:idx]
+	}
+	parts := strings.Split(base, ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
 }
 
 // parseFlags pulls flags + positional args out of argv, honouring "--" as

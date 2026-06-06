@@ -15,6 +15,12 @@
 
 ## Wrapper approval wait hardening
 
+- **cdx/clx (0.6.23):** The explicit `--update` path now asks the orchestrator
+  for the current wrapper artifact metadata before falling back to the baked
+  local config, and refuses semver downgrades. This prevents stale host
+  `cdx.json` / `clx.json` files from reinstalling older wrappers after the
+  fleet target has moved forward.
+
 - **cdx/clx (0.6.22):** Error-code parsing now accepts the standard
   orchestrator envelope plus OpenAI/Anthropic nested error envelopes before
   classifying insecure-host approval responses. This keeps `423

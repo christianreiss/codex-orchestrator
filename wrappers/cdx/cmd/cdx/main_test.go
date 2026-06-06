@@ -155,3 +155,23 @@ func TestRunSnapshotsArgv(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateWrapperUpdateArtifactRefusesDowngrade(t *testing.T) {
+	artifact := wrapperUpdateArtifact{Version: "0.6.15", URL: "https://example.invalid/cdx", SHA256: strings.Repeat("a", 64)}
+	if _, err := validateWrapperUpdateArtifact(artifact, "0.6.22"); err == nil {
+		t.Fatal("expected downgrade refusal")
+	} else if !strings.Contains(err.Error(), "refusing to downgrade") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateWrapperUpdateArtifactAllowsUpgrade(t *testing.T) {
+	artifact := wrapperUpdateArtifact{Version: "0.6.23", URL: "https://example.invalid/cdx", SHA256: strings.Repeat("a", 64)}
+	got, err := validateWrapperUpdateArtifact(artifact, "0.6.22")
+	if err != nil {
+		t.Fatalf("validate upgrade: %v", err)
+	}
+	if got.Version != "0.6.23" {
+		t.Fatalf("version = %q", got.Version)
+	}
+}
