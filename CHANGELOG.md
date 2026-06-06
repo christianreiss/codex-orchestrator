@@ -1,5 +1,13 @@
 # 2026-06-06
 
+## Codex model allowlist refresh
+
+- **API/UI/docs:** Codex model support now matches the current four-model set:
+  `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`.
+  Removed `gpt-5.3-codex` and `gpt-5.2` from the supported allowlists, and
+  legacy/removed Codex models now normalize to `gpt-5.5` with `high` reasoning
+  effort where a forced migration is needed.
+
 ## Robust clx auth round-trips
 
 - **API/clx:** Canonical auth writes now use one runner-validated store path for

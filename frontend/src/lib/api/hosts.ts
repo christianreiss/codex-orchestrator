@@ -295,12 +295,16 @@ export function createModelOverrideMutation(qc: QueryClient) {
       reasoning_effort?: string | null;
     }
   >({
-    mutationFn: ({ id, engine, model, reasoning_effort }) =>
-      api.post(`/admin/hosts/${id}/model`, {
-        engine,
-        model,
-        reasoning_effort,
-      }),
+    mutationFn: ({ id, engine, model, reasoning_effort }) => {
+      const body =
+        engine === "claude"
+          ? { claude_model_override: model ?? null }
+          : {
+              model_override: model ?? null,
+              reasoning_effort_override: reasoning_effort ?? undefined,
+            };
+      return api.post(`/admin/hosts/${id}/model`, body);
+    },
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });

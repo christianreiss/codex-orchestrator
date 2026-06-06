@@ -13,8 +13,8 @@ import (
 //
 // Mapping (mirroring the legacy bash wrapper):
 //
-//	spark  → --model gpt-5.4-mini
-//	normal → --model gpt-5.3-codex
+//	spark  → --model gpt-5.3-codex-spark
+//	normal → --model gpt-5.5
 //
 // If the user already supplied --model or --profile we leave args alone.
 func applyLaneAndProfile(cfg *config.Config, args []string) []string {

@@ -210,7 +210,7 @@ describe('/v1/chat/completions', () => {
     const body = JSON.parse(r.payload);
     expect(body.object).toBe('chat.completion');
     expect(body.choices[0].message.content).toBe('pong');
-    expect(body.model).toBe('gpt-5.4');
+    expect(body.model).toBe('gpt-5.5');
   });
 
   it('returns 400 with param=messages when missing messages', async () => {
@@ -244,10 +244,10 @@ describe('/v1/chat/completions', () => {
       method: 'POST',
       url: '/v1/chat/completions',
       headers: { authorization: `Bearer ${validKey}` },
-      payload: { model: 'gpt-5.2-codex', messages: [{ role: 'user', content: 'x' }] },
+      payload: { model: 'gpt-5.3-codex', messages: [{ role: 'user', content: 'x' }] },
     });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload).model).toBe('gpt-5.4');
+    expect(JSON.parse(r.payload).model).toBe('gpt-5.5');
   });
 
   it('returns 503 with code=api_disabled when kill switch is on', async () => {

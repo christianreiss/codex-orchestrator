@@ -49,7 +49,7 @@ at build time, then loads the config:
   },
   "engine_options": {
     "silent": false,
-    "model_override": "gpt-5.4",
+    "model_override": "gpt-5.5",
     "reasoning_effort_override": "high",
     "admin_theme_hint": "auto"
   },

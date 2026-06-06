@@ -17,19 +17,19 @@
 
 import { createHash } from 'node:crypto';
 
-export const FORCE_UPGRADE_MODEL = 'gpt-5.4';
+export const FORCE_UPGRADE_MODEL = 'gpt-5.5';
 export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-5.5',
   'gpt-5.4',
   'gpt-5.4-mini',
-  'gpt-5.3-codex',
-  'gpt-5.2',
+  'gpt-5.3-codex-spark',
 ];
 
 export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
-  'gpt-5.3-codex-spark': FORCE_UPGRADE_MODEL,
+  'gpt-5.3-codex': FORCE_UPGRADE_MODEL,
+  'gpt-5.2': FORCE_UPGRADE_MODEL,
   'gpt-5.2-codex': FORCE_UPGRADE_MODEL,
   'gpt-5.1-codex-max': FORCE_UPGRADE_MODEL,
   'gpt-5.1-codex-mini': FORCE_UPGRADE_MODEL,
@@ -59,8 +59,7 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
   'gpt-5.5': ['minimal', 'low', 'medium', 'high'],
   'gpt-5.4': ['minimal', 'low', 'medium', 'high'],
   'gpt-5.4-mini': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5.3-codex': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5.2': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.3-codex-spark': ['minimal', 'low', 'medium', 'high'],
 };
 
 export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];

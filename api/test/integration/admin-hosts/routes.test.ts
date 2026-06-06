@@ -643,6 +643,29 @@ describe('admin hosts routes', () => {
     });
   });
 
+  describe('POST /admin/hosts/:id/model', () => {
+    it('passes Codex model overrides through with canonical field names', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/model',
+        payload: { model_override: 'gpt-5.5', reasoning_effort_override: 'high' },
+      });
+      expect(r.statusCode).toBe(200);
+      const call = calls.find((c) => c.method === 'setModelOverrides');
+      expect(call?.args).toEqual([
+        42,
+        {
+          model_override: 'gpt-5.5',
+          reasoning_effort_override: 'high',
+          claude_model_override: undefined,
+          includeClaudeOverride: false,
+        },
+      ]);
+      await app.close();
+    });
+  });
+
   describe('version override routes', () => {
     it('codex-version accepts a semver', async () => {
       const { app, calls } = await build({ authenticated: true });

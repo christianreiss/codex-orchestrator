@@ -11,15 +11,15 @@ export const OPENAI_MODELS: readonly string[] = [
   'gpt-5.5',
   'gpt-5.4',
   'gpt-5.4-mini',
-  'gpt-5.3-codex',
-  'gpt-5.2',
+  'gpt-5.3-codex-spark',
 ] as const;
 
-export const OPENAI_DEFAULT_MODEL = 'gpt-5.4';
+export const OPENAI_DEFAULT_MODEL = 'gpt-5.5';
 
 /** Older model IDs we silently upgrade to the current default. */
 export const OPENAI_LEGACY_MODEL_UPGRADES: Record<string, string> = {
-  'gpt-5.3-codex-spark': OPENAI_DEFAULT_MODEL,
+  'gpt-5.3-codex': OPENAI_DEFAULT_MODEL,
+  'gpt-5.2': OPENAI_DEFAULT_MODEL,
   'gpt-5.2-codex': OPENAI_DEFAULT_MODEL,
   'gpt-5.1-codex-max': OPENAI_DEFAULT_MODEL,
   'gpt-5.1-codex-mini': OPENAI_DEFAULT_MODEL,

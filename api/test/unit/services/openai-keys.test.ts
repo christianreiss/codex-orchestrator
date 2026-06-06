@@ -108,6 +108,8 @@ describe('openai-models', () => {
   });
 
   it('upgrades legacy model aliases silently', () => {
+    expect(resolveRequestedModel('gpt-5.3-codex')).toBe(OPENAI_DEFAULT_MODEL);
+    expect(resolveRequestedModel('gpt-5.2')).toBe(OPENAI_DEFAULT_MODEL);
     expect(resolveRequestedModel('gpt-5.2-codex')).toBe(OPENAI_DEFAULT_MODEL);
     expect(resolveRequestedModel('GPT-5.1-CODEX-MAX')).toBe(OPENAI_DEFAULT_MODEL);
   });
@@ -115,6 +117,7 @@ describe('openai-models', () => {
   it('passes supported models through verbatim', () => {
     expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-5.5');
     expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.4-mini');
+    expect(resolveRequestedModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
   });
 
   it('throws UnsupportedModelError for unknown models', () => {
@@ -124,7 +127,12 @@ describe('openai-models', () => {
   it('builds an OpenAI-shape model list', () => {
     const list = buildModelList(['gpt-5.5']); // duplicate should dedupe
     expect(list.object).toBe('list');
-    expect(list.data.length).toBeGreaterThanOrEqual(5);
+    expect(list.data.map((m) => m.id)).toEqual([
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex-spark',
+    ]);
     for (const m of list.data) {
       expect(m).toMatchObject({ object: 'model', owned_by: 'codex-orchestrator' });
       expect(typeof m.id).toBe('string');

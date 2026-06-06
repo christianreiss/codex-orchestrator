@@ -58,7 +58,7 @@ These pieces were ported well enough that no follow-up is required:
   `wrappers/cdx/internal/lifecycle/run.go:166-225`.
 - Project-trust autoadd, OTEL env export, IPv4-proxy startup hook.
   `wrappers/cdx/internal/codex/preexec.go`.
-- Lane env mapping (`spark` → `gpt-5.4-mini`, `normal` → `gpt-5.3-codex`)
+- Lane env mapping (`spark` → `gpt-5.3-codex-spark`, `normal` → `gpt-5.5`)
   through `applyLaneAndProfile`. `wrappers/cdx/internal/codex/lane.go`.
 - Auth retrieve / store and self-update happy paths.
 
@@ -179,7 +179,7 @@ The orchestrator already sends back a normalised TOML that includes:
 - Managed `[mcp_servers.cdx]` block
 - Per-user `[projects."<home>"]` trust stanza (server uses `home`/`username`
   hints from the request)
-- Removed-model upgrade migration (e.g. `gpt-5.3-codex-spark` → `gpt-5.4`)
+- Removed-model upgrade migration (e.g. `gpt-5.3-codex` → `gpt-5.5`)
 
 v2 sends *only* `{engine: "codex", sha256: ...}` — no `home` / `username` hints
 (`wrappers/cdx/internal/orchestrator/config_retrieve.go:15-25`), so the server

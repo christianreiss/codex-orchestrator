@@ -23,8 +23,12 @@ import {
 
 describe('config-normalizer constants', () => {
   it('exposes the supported model list', () => {
-    expect(SUPPORTED_MODELS).toContain('gpt-5.4');
-    expect(SUPPORTED_MODELS.length).toBeGreaterThanOrEqual(3);
+    expect(SUPPORTED_MODELS).toEqual([
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex-spark',
+    ]);
   });
 
   it('lists every reasoning effort tier', () => {
@@ -37,6 +41,9 @@ describe('config-normalizer constants', () => {
 
   it('maps legacy models to upgrades', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.1-codex-max']).toBe(FORCE_UPGRADE_MODEL);
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex']).toBe(FORCE_UPGRADE_MODEL);
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.2']).toBe(FORCE_UPGRADE_MODEL);
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBeUndefined();
   });
 
   it('maps legacy Claude models to upgrades', () => {
@@ -47,12 +54,15 @@ describe('config-normalizer constants', () => {
 
 describe('normalizeStoredModel', () => {
   it('passes through supported models', () => {
-    expect(normalizeStoredModel('gpt-5.4')).toBe('gpt-5.4');
+    expect(normalizeStoredModel('gpt-5.5')).toBe('gpt-5.5');
+    expect(normalizeStoredModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
   });
 
   it('upgrades legacy models', () => {
     expect(normalizeStoredModel('gpt-5.1-codex-max')).toBe(FORCE_UPGRADE_MODEL);
     expect(isLegacyModelUpgrade('gpt-5.1-codex-max')).toBe(true);
+    expect(normalizeStoredModel('gpt-5.3-codex')).toBe(FORCE_UPGRADE_MODEL);
+    expect(normalizeStoredModel('gpt-5.2')).toBe(FORCE_UPGRADE_MODEL);
   });
 
   it('passes through unknown models verbatim (forward-compat)', () => {
@@ -111,7 +121,8 @@ describe('normalizeReasoningEffort', () => {
     expect(normalizeReasoningEffort('extreme')).toBeNull();
   });
   it('restricts effort to those supported by model', () => {
-    expect(normalizeReasoningEffortForModel('high', 'gpt-5.4')).toBe('high');
+    expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
+    expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.3-codex-spark')).toBe('minimal');
   });
 });
 
@@ -184,12 +195,12 @@ describe('normalizeSettings()', () => {
   it('normalizes profile reasoning efforts', () => {
     const s = normalizeSettings({
       profiles: [
-        { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'xhigh' },
+        { name: 'max', model: 'gpt-5.5', model_reasoning_effort: 'xhigh' },
         { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
       ],
     });
     expect(s.profiles).toEqual([
-      { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'high' },
+      { name: 'max', model: 'gpt-5.5', model_reasoning_effort: 'high' },
       { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
     ]);
   });

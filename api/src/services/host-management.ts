@@ -23,6 +23,12 @@ import {
   tinyintToModeString,
   type ReverseDnsModeInput,
 } from './reverse-dns.js';
+import {
+  FORCE_UPGRADE_REASONING_EFFORT,
+  isLegacyModelUpgrade,
+  normalizeReasoningEffortForModel,
+  normalizeSupportedModel,
+} from './config-normalizer.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -678,13 +684,39 @@ export class HostManagementService {
   ): Promise<Host> {
     const host = await this.requireById(id);
     const patch: Partial<Host> = { updatedAt: nowIso() };
+    const rawModelOverride =
+      payload.model_override === undefined ? undefined : payload.model_override?.trim() ?? '';
+    const modelWasLegacy = isLegacyModelUpgrade(rawModelOverride);
     if (payload.model_override !== undefined) {
-      patch.modelOverride = payload.model_override ? payload.model_override.trim() || null : null;
+      if (rawModelOverride === '') {
+        patch.modelOverride = null;
+      } else {
+        const normalizedModel = normalizeSupportedModel(rawModelOverride);
+        if (normalizedModel === null) {
+          throw new ValidationError(
+            'model_override must be one of: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark',
+            { param: 'model_override' },
+          );
+        }
+        patch.modelOverride = normalizedModel;
+      }
     }
     if (payload.reasoning_effort_override !== undefined) {
-      patch.reasoningEffortOverride = payload.reasoning_effort_override
-        ? payload.reasoning_effort_override.trim() || null
-        : null;
+      const rawEffort = payload.reasoning_effort_override?.trim() ?? '';
+      if (rawEffort === '') {
+        patch.reasoningEffortOverride = null;
+      } else {
+        const effectiveModel = patch.modelOverride ?? host.modelOverride ?? null;
+        const normalizedEffort = normalizeReasoningEffortForModel(rawEffort, effectiveModel);
+        if (normalizedEffort === null) {
+          throw new ValidationError('reasoning_effort_override must be one of: minimal, low, medium, high', {
+            param: 'reasoning_effort_override',
+          });
+        }
+        patch.reasoningEffortOverride = normalizedEffort;
+      }
+    } else if (modelWasLegacy && patch.modelOverride !== null) {
+      patch.reasoningEffortOverride = FORCE_UPGRADE_REASONING_EFFORT;
     }
     if (payload.includeClaudeOverride) {
       patch.claudeModelOverride = payload.claude_model_override

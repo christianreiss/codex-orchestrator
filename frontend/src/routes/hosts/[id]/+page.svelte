@@ -560,9 +560,9 @@
     bind:open={codexModelDialogOpen}
     onOpenChange={(v) => (codexModelDialogOpen = v)}
     title="Codex model override"
-    description="Pin a specific model (e.g. gpt-5). Empty clears the override."
+    description="Pin a specific Codex model. Empty clears the override."
     label="Model"
-    placeholder="gpt-5"
+    placeholder="gpt-5.5"
     initialValue={host.model_override ?? ""}
     onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }))}
   />
