@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BcSiw-zd.js";export{e as component};

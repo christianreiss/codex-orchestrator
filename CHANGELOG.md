@@ -29,6 +29,13 @@
   artifacts were rebuilt so hosts on `0.6.17` can self-update into the waiting
   behavior.
 
+## Admin host creation shortcut
+
+- **UI:** The global `N` shortcut now opens the New Host sheet through the same
+  dialog route/event path as the command palette, so it works reliably from
+  anywhere in the admin shell and reopens the sheet even if the current page is
+  already Hosts.
+
 ## Host online pill uses real last contact
 
 - **UI:** Hosts → Status pill no longer keys the 24-hour online window off

@@ -221,7 +221,10 @@ function buildActionCommands(): PaletteCommand[] {
       icon: Plus,
       keywords: ["host", "add", "register", "create"],
       run() {
-        void goto(`${base}/hosts/new`);
+        void goto(`${base}/hosts?dialog=new-host`);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("codex:open-new-host"));
+        }
         commandPalette.close();
       },
     },

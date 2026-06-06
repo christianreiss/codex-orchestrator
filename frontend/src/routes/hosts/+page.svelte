@@ -113,23 +113,42 @@
     hostsSummary.setActiveInsecureWindows(activeWindows);
   });
 
-  onMount(() => {
-    // Initial sync
-  });
-
   // --- sheets / dialogs ---------------------------------------------------
   let newOpen = $state(false);
   let quickOpen = $state(false);
   let seedOpen = $state(false);
 
+  function openNewHost(): void {
+    newOpen = true;
+  }
+
+  function openQuickVm(): void {
+    quickOpen = true;
+  }
+
   function openInsecureApprovals(): void {
     window.dispatchEvent(new CustomEvent("codex:open-insecure-approvals"));
   }
 
+  function clearDialogParam(dialog: string): void {
+    if (page.url.pathname.replace(base, "") === "/hosts/new") {
+      void goto(`${base}/hosts`, { replaceState: true });
+      return;
+    }
+    if (page.url.searchParams.get("dialog") !== dialog) return;
+    const url = new URL(page.url);
+    url.searchParams.delete("dialog");
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+  }
+
   // /hosts/new path opens the sheet on landing
   $effect(() => {
-    if (page.url.pathname.replace(base, "") === "/hosts/new") {
-      newOpen = true;
+    const dialog = page.url.searchParams.get("dialog");
+    if (page.url.pathname.replace(base, "") === "/hosts/new" || dialog === "new-host") {
+      openNewHost();
+    }
+    if (dialog === "quick-vm") {
+      openQuickVm();
     }
   });
 
@@ -137,6 +156,17 @@
     if (page.url.searchParams.get("insecure") === "1") {
       openInsecureApprovals();
     }
+  });
+
+  onMount(() => {
+    const newHostListener = () => openNewHost();
+    const quickVmListener = () => openQuickVm();
+    window.addEventListener("codex:open-new-host", newHostListener);
+    window.addEventListener("codex:open-quick-vm", quickVmListener);
+    return () => {
+      window.removeEventListener("codex:open-new-host", newHostListener);
+      window.removeEventListener("codex:open-quick-vm", quickVmListener);
+    };
   });
 
 </script>
@@ -154,10 +184,10 @@
     <Button variant="outline" onclick={() => (seedOpen = true)}>
       <KeyRound class="h-4 w-4" /> Seed auth
     </Button>
-    <Button variant="secondary" onclick={() => (quickOpen = true)}>
+    <Button variant="secondary" onclick={openQuickVm}>
       <Rocket class="h-4 w-4" /> Quick VM
     </Button>
-    <Button onclick={() => (newOpen = true)}>
+    <Button onclick={openNewHost}>
       <Plus class="h-4 w-4" /> New host
     </Button>
   {/snippet}
@@ -194,10 +224,18 @@
   bind:open={newOpen}
   onOpenChange={(o) => {
     newOpen = o;
-    if (!o && page.url.pathname.replace(base, "") === "/hosts/new") {
-      void goto(`${base}/hosts`, { replaceState: true });
+    if (!o) {
+      clearDialogParam("new-host");
     }
   }}
 />
-<QuickVmDialog bind:open={quickOpen} />
+<QuickVmDialog
+  bind:open={quickOpen}
+  onOpenChange={(o) => {
+    quickOpen = o;
+    if (!o) {
+      clearDialogParam("quick-vm");
+    }
+  }}
+/>
 <SeedAuthDialog bind:open={seedOpen} />

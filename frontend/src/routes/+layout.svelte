@@ -37,6 +37,11 @@
   let unsubscribeShortcuts: (() => void) | null = null;
   let unsubscribeWs: (() => void) | null = null;
 
+  function openNewHostSheet(): void {
+    void goto(`${base}/hosts?dialog=new-host`);
+    window.dispatchEvent(new CustomEvent("codex:open-new-host"));
+  }
+
   onMount(() => {
     if (!browser) return;
 
@@ -52,7 +57,7 @@
       "/": () => commandPalette.open(),
       Escape: () => commandPalette.close(),
       "?": () => window.dispatchEvent(new CustomEvent("codex:open-shortcuts")),
-      n: () => void goto(`${base}/hosts/new`),
+      n: () => openNewHostSheet(),
     });
 
     const cmdK = (event: KeyboardEvent) => {
