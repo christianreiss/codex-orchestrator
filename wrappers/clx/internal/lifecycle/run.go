@@ -25,15 +25,17 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/update"
 )
 
 type Options struct {
-	Config       *config.Config
-	ExtraArgs    []string
-	SkipAuthSync bool
-	SkipBoot     bool
-	Minimal      bool
-	Logger       *slog.Logger
+	Config         *config.Config
+	ExtraArgs      []string
+	SkipAuthSync   bool
+	SkipBoot       bool
+	Minimal        bool
+	WrapperVersion string
+	Logger         *slog.Logger
 }
 
 // localProbe binds the claude package freshness/validity helpers to the
@@ -115,6 +117,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// PR-2: keep the local Claude CLI within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
+			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
 			claudeUpdated = maybeEnsureClaude(ctx, authResp, concurrent, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, logger)
@@ -136,6 +139,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
 		Config:         cfg,
+		WrapperVersion: currentWrapperVersion(opts, cfg),
 		Auth:           authResp,
 		AuthErr:        authErr,
 		Concurrent:     concurrent,
@@ -667,6 +671,13 @@ func wrapperVersion(cfg *config.Config) string {
 	return "dev"
 }
 
+func currentWrapperVersion(opts Options, cfg *config.Config) string {
+	if opts.WrapperVersion != "" {
+		return opts.WrapperVersion
+	}
+	return wrapperVersion(cfg)
+}
+
 // maybeEnsureClaude repairs the local Claude CLI when the orchestrator
 // reports auto-update enabled and the local version differs from target.
 // Failures are logged but never block launch.
@@ -711,4 +722,42 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 	}
 	fmt.Fprintf(os.Stderr, "clx: claude CLI updated to %s\n", post)
 	return post
+}
+
+func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent bool, logger *slog.Logger) {
+	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
+		return
+	}
+	v := auth.Versions
+	if !v.AutoUpdateEnabled || v.WrapperVersion == nil || *v.WrapperVersion == "" {
+		return
+	}
+	target := *v.WrapperVersion
+	if current == target {
+		return
+	}
+	if os.Getenv("CLAUDE_WRAPPER_RESTARTED") == "1" {
+		logger.Warn("wrapper auto-update skipped after restart", "current", current, "target", target)
+		return
+	}
+	if v.WrapperURL == nil || *v.WrapperURL == "" || v.WrapperSHA256 == nil || *v.WrapperSHA256 == "" {
+		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
+		return
+	}
+	if current == "" || current == "unknown" {
+		fmt.Fprintf(os.Stderr, "clx: installing wrapper %s...\n", target)
+	} else {
+		fmt.Fprintf(os.Stderr, "clx: installing wrapper %s -> %s...\n", current, target)
+	}
+	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
+	if err != nil {
+		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
+		fmt.Fprintf(os.Stderr, "clx: wrapper auto-update skipped: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "clx: wrapper updated to %s; restarting...\n", target)
+	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
+		logger.Warn("wrapper restart after update failed", "err", err)
+		fmt.Fprintf(os.Stderr, "clx: wrapper restart after update failed: %v\n", err)
+	}
 }

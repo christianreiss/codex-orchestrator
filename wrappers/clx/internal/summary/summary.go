@@ -14,6 +14,7 @@ import (
 
 type Inputs struct {
 	Config         *config.Config
+	WrapperVersion string
 	Auth           *orchestrator.AuthRetrieveResponse
 	AuthErr        error
 	Concurrent     bool
@@ -37,7 +38,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	claudeTarget := ""
 
 	wrapperVer := ""
-	if cfg != nil {
+	if in.WrapperVersion != "" {
+		wrapperVer = in.WrapperVersion
+	} else if cfg != nil {
 		wrapperVer = cfg.Wrapper.Version
 	}
 	wrapperTone := ui.ToneOK

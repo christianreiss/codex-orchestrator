@@ -209,11 +209,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:    cfg,
-			ExtraArgs: append(subArgs, passthrough...),
-			SkipBoot:  f.skipBoot,
-			Minimal:   f.minimal,
-			Logger:    logger,
+			Config:         cfg,
+			ExtraArgs:      append(subArgs, passthrough...),
+			SkipBoot:       f.skipBoot,
+			Minimal:        f.minimal,
+			WrapperVersion: Version,
+			Logger:         logger,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "clx run:", err)
@@ -228,17 +229,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "execute":
 		argv := append([]string{"-p", f.executePrompt}, append(subArgs, passthrough...)...)
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:    cfg,
-			ExtraArgs: argv,
-			SkipBoot:  true,
-			Logger:    logger,
+			Config:         cfg,
+			ExtraArgs:      argv,
+			SkipBoot:       true,
+			WrapperVersion: Version,
+			Logger:         logger,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "clx execute:", err)
 		}
 		return exit
 	case "status":
-		return cmdStatus(ctx, cfg, stderr, f.minimal)
+		return cmdStatus(ctx, cfg, Version, stderr, f.minimal)
 	case "doctor":
 		if err := claude.Doctor(ctx, cfg, stderr, Version); err != nil {
 			return 1
@@ -472,7 +474,7 @@ func parseFlags(args []string) (flags, []string, []string) {
 	return f, positional, passthrough
 }
 
-func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal bool) int {
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, w io.Writer, minimal bool) int {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -497,7 +499,12 @@ func cmdStatus(ctx context.Context, cfg *config.Config, w io.Writer, minimal boo
 		}
 	}
 
-	state := summary.Build(ctx, summary.Inputs{Config: cfg, Auth: resp, AuthErr: authErr})
+	state := summary.Build(ctx, summary.Inputs{
+		Config:         cfg,
+		WrapperVersion: wrapperVersion,
+		Auth:           resp,
+		AuthErr:        authErr,
+	})
 	if minimal {
 		ui.PrintMinimalScreen(w, state)
 	} else {

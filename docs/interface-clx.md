@@ -35,6 +35,10 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `--uninstall` | Remove credentials + local state + cron entry; refuses on multi-user hosts without sudo |
 
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
+On normal startup, managed hosts install the server-advertised `clx` wrapper
+artifact first, re-exec the original argv after a successful swap, then repair a
+stale Claude Code CLI. Root-owned wrapper installs use the same verified
+temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
 
 ## Per-host config (typed, signed)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,5 +48,52 @@ func lookup(env []string, key string) string {
 func TestReExecAfterUpdateRejectsEmptyExe(t *testing.T) {
 	if err := ReExecAfterUpdate("", []string{"a"}); err == nil {
 		t.Fatal("expected error on empty exe")
+	}
+}
+
+func TestInstallVerifiedBinaryCopiesExecutable(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dest := filepath.Join(dir, "clx")
+	if err := os.WriteFile(src, []byte("new-binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installVerifiedBinary(src, dest); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "new-binary" {
+		t.Fatalf("dest body = %q", body)
+	}
+	st, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o755 {
+		t.Fatalf("dest mode = %o, want 755", st.Mode().Perm())
+	}
+}
+
+func TestInstallVerifiedBinaryReportsSwapFailureWithoutSudo(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("new-binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	err := installVerifiedBinary(src, filepath.Join(dir, "missing", "clx"))
+	if err == nil {
+		t.Fatal("expected install failure")
+	}
+	if !strings.Contains(err.Error(), "atomic swap failed") {
+		t.Fatalf("error = %q, want atomic swap context", err.Error())
 	}
 }

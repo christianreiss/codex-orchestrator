@@ -1,3 +1,14 @@
+# 2026-06-07
+
+## clx startup self-update parity
+
+- **clx (0.6.24):** Normal startup now installs server-advertised wrapper
+  updates before repairing the Claude CLI, then re-execs the original argv like
+  `cdx`.
+  Self-update also uses the robust temp-file plus `sudo -n install` fallback
+  path, so root-owned `/usr/local/bin/clx` installs can advance without relying
+  on writing `clx.new` beside the binary.
+
 # 2026-06-06
 
 ## Per-host engine switches
