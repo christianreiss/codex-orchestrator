@@ -9,8 +9,10 @@
   import { ModeWatcher } from "mode-watcher";
   import AppShell from "$lib/components/layout/AppShell.svelte";
   import CommandPalette from "$lib/components/command-palette/CommandPalette.svelte";
+  import SearchModal from "$lib/components/search-modal/SearchModal.svelte";
   import Toaster from "$lib/components/feedback/Toaster.svelte";
   import { commandPalette } from "$lib/stores/command-palette";
+  import { searchModal } from "$lib/stores/search-modal";
   import { bindGlobalShortcuts } from "$lib/utils/shortcuts";
   import { authStore } from "$lib/stores/auth";
   import { hydratePalette } from "$lib/stores/theme";
@@ -54,7 +56,7 @@
     });
 
     unsubscribeShortcuts = bindGlobalShortcuts({
-      "/": () => commandPalette.open(),
+      "/": () => searchModal.open(),
       Escape: () => commandPalette.close(),
       "?": () => window.dispatchEvent(new CustomEvent("codex:open-shortcuts")),
       n: () => openNewHostSheet(),
@@ -123,6 +125,7 @@
       <InsecureApprovalsAutoPopup events={wsHandle.events} />
     {/if}
   {/if}
+  <SearchModal />
   <CommandPalette />
   <Toaster />
 </QueryClientProvider>
