@@ -179,9 +179,12 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     if (targetClient && submittedClient) {
       const submittedComparable = normalizeVersionForCompare(submittedClient);
       const targetComparable = normalizeVersionForCompare(targetClient);
-      needClient = summary.client_version_enforce_exact
+      // If submittedClient can't be parsed as semver (e.g. "unknown"), treat
+      // as not-installed so the server always pushes the update.
+      const submittedIsSemver = /^\d/.test(submittedComparable);
+      needClient = !submittedIsSemver || (summary.client_version_enforce_exact
         ? submittedComparable !== targetComparable
-        : compareSemver(submittedComparable, targetComparable) < 0;
+        : compareSemver(submittedComparable, targetComparable) < 0);
     } else if (targetClient && !submittedClient) {
       needClient = true;
     }
