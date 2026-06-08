@@ -103,7 +103,14 @@ func installPeer(ctx context.Context, cfg *config.Config) error {
 	if err := writePeerConfig(rawPayload, b.Signature.Value); err != nil {
 		return err
 	}
-	return installPeerBinary(ctx, cfg, url, sum)
+	if err := installPeerBinary(ctx, cfg, url, sum); err != nil {
+		return err
+	}
+	// Trigger the peer's cron to install the claude CLI immediately instead of
+	// waiting for the next scheduled cron run.
+	peerPath := peerBinaryPath()
+	_ = exec.CommandContext(ctx, peerPath, "--cron", "run").Run()
+	return nil
 }
 
 func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, error) {
