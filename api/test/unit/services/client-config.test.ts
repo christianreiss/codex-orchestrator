@@ -121,7 +121,8 @@ describe('client-config: renderToml', () => {
     });
     expect(rendered.content).toContain('[mcp_servers.cdx]');
     expect(rendered.content).toContain('url = "https://coord.example/mcp"');
-    expect(rendered.content).toContain('http_headers = { Authorization = "Bearer abc123" }');
+    expect(rendered.content).toContain('Authorization = "Bearer abc123"');
+    expect(rendered.content).toContain('X-Engine = "codex"');
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
     expect(rendered.content).not.toContain('codex-memory');
     expect(rendered.content).toContain('[projects."/home/chris"]');

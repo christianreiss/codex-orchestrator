@@ -44,7 +44,7 @@ export type ToolResult =
   | { content: Array<{ type: 'text'; text: string }>; isError?: boolean }
   | Record<string, unknown>;
 
-type ToolHandler = (args: Record<string, unknown>, host: Host) => Promise<unknown>;
+type ToolHandler = (args: Record<string, unknown>, host: Host, engine?: Engine | null) => Promise<unknown>;
 
 interface ToolEntry {
   definition: ToolDefinition;
@@ -90,7 +90,7 @@ export class McpToolsRegistry {
     return canAccess(capability, entry.capability);
   }
 
-  async dispatch(name: string, args: unknown, host: Host, capability: Capability = 'host'): Promise<ToolResult> {
+  async dispatch(name: string, args: unknown, host: Host, capability: Capability = 'host', engine: Engine | null = null): Promise<ToolResult> {
     const normalized = this.normalizeName(name);
     const entry = this.entries.get(normalized);
     if (!entry || !canAccess(capability, entry.capability)) {
@@ -98,7 +98,7 @@ export class McpToolsRegistry {
     }
     const argsObj = normalizeArgs(normalized, args);
     try {
-      const result = await entry.handler(argsObj, host);
+      const result = await entry.handler(argsObj, host, engine);
       return wrapContent(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -194,7 +194,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         required: ['content'],
       },
     },
-    handler: async (args, host) => deps.memories.store(args, host),
+    handler: async (args, host, engine) => deps.memories.store(args, host, engine ?? null),
   });
   inputs.push({
     definition: {

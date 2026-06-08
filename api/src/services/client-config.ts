@@ -349,7 +349,7 @@ function injectManagedMcp(
   const entry = {
     name: opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx',
     url: `${base}/mcp`,
-    http_headers: { Authorization: `Bearer ${bearerToken}` },
+    http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
     startup_timeout_sec: 30,
   };
   const managedNames = opts.engine === ENGINE_CLAUDE

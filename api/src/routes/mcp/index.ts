@@ -18,6 +18,7 @@ import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
 import { extractApiKey, parseBearer } from '../../util/api-key-helpers.js';
+import { isEngine } from '../../util/engine.js';
 
 import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
@@ -119,11 +120,14 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }
 
     const body = req.body;
+    const engineHeader = req.headers['x-engine'];
+    const engine = isEngine(engineHeader) ? engineHeader : null;
     const result = await server.handlePayload(body, {
       host,
       clientIp: clientIp(req),
       serverVersion: '2.0.0',
       capability: detectCapability(req),
+      engine,
     });
 
     if (result === null) {

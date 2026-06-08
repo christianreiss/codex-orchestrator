@@ -5,6 +5,7 @@ import type { Host } from '../db/schema.js';
 import type { Capability, McpToolsRegistry } from './mcp-tools.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { McpAccessLogService } from './mcp-access-log.js';
+import type { Engine } from '../util/engine.js';
 
 export interface JsonRpcRequest {
   jsonrpc?: unknown;
@@ -30,6 +31,7 @@ export interface DispatchContext {
    * from the bearer token (matches MCP_OPERATOR_TOKEN → 'operator').
    */
   capability?: Capability;
+  engine?: Engine | null;
 }
 
 export class McpServer {
@@ -128,7 +130,7 @@ export class McpServer {
             logErrorMessage = 'Method not found';
             break;
           }
-          const result = await this.tools.dispatch(name, args, ctx.host, capability);
+          const result = await this.tools.dispatch(name, args, ctx.host, capability, ctx.engine ?? null);
           response = okResponse(id, result);
           if (typeof result === 'object' && result !== null && (result as { isError?: boolean }).isError === true) {
             logSuccess = false;

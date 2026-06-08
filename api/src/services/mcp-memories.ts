@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import { mcpMemories, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
+import type { Engine } from '../util/engine.js';
 import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -20,7 +21,7 @@ const RESERVED_COCO = /^coco(?:$|[._:-])/i;
 export class McpMemoriesService {
   constructor(private readonly db: Database) {}
 
-  async store(payload: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
+  async store(payload: Record<string, unknown>, host: Host, engine: Engine | null = null): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     let memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], true, errors);
 
@@ -67,6 +68,7 @@ export class McpMemoriesService {
         tags: tags.length > 0 ? tags : null,
         tagsText,
         summary: existing?.summary ?? null,
+        engine: engine ?? null,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
@@ -77,6 +79,7 @@ export class McpMemoriesService {
           metadata: metadata ?? null,
           tags: tags.length > 0 ? tags : null,
           tagsText,
+          engine: engine ?? null,
           updatedAt: now,
           deletedAt: null,
         },
