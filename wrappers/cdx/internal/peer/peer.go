@@ -201,11 +201,10 @@ func peerBinaryPath() string {
 	if p, err := exec.LookPath(peerName); err == nil && p != "" {
 		return p
 	}
-	if exe, err := os.Executable(); err == nil {
-		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
-			exe = resolved
-		}
-		return filepath.Join(filepath.Dir(exe), peerName)
+	// Look up the cdx shim in PATH rather than os.Executable(): in shim mode
+	// os.Executable() resolves to the data-dir binary, not the PATH-visible shim.
+	if cdx, err := exec.LookPath("cdx"); err == nil && cdx != "" {
+		return filepath.Join(filepath.Dir(cdx), peerName)
 	}
 	return filepath.Join("/usr/local/bin", peerName)
 }
