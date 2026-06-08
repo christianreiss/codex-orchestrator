@@ -359,6 +359,9 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 			return res, fmt.Errorf("cron: codex update: %w", err)
 		}
 	}
+	if err := codex.EnsureShellAliases(); err != nil {
+		logger.Warn("cron: ensureShellAliases", "err", err)
+	}
 
 	// Re-read codex version (it may have changed) for the report.
 	newCodexVer := strings.TrimSpace(codex.Version(ctx))

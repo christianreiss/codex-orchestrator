@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,7 +24,50 @@ import (
 // output, so we keep the most recent ~1 MB and discard older bytes.
 const captureMaxBytes = 1 << 20 // 1 MiB
 
+func codexBinCachePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "codex-orchestrator", "cdx-codex-bin"), nil
+}
+
+// cacheCodex persists the resolved codex binary path for future runs.
+func cacheCodex(path string) error {
+	p, err := codexBinCachePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(path), 0o644)
+}
+
+// cachedCodexBin returns the previously cached codex binary path, or "" if
+// the cache is missing, empty, or the path is no longer accessible.
+func cachedCodexBin() string {
+	p, err := codexBinCachePath()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	cached := strings.TrimSpace(string(b))
+	if cached == "" {
+		return ""
+	}
+	if _, err := os.Stat(cached); err != nil {
+		return ""
+	}
+	return cached
+}
+
 // FindCLI locates the upstream `codex` binary on PATH (override via $CDX_CODEX_BIN).
+// Checks the path cache before PATH lookup; writes the cache on a successful
+// lookup so future runs (e.g. cron) work without a full npm-bin PATH.
 func FindCLI() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")); v != "" {
 		if _, err := os.Stat(v); err == nil {
@@ -31,10 +75,14 @@ func FindCLI() (string, error) {
 		}
 		return "", fmt.Errorf("CDX_CODEX_BIN points at %q which is not accessible", v)
 	}
+	if cached := cachedCodexBin(); cached != "" {
+		return cached, nil
+	}
 	path, err := exec.LookPath("codex")
 	if err != nil {
 		return "", errors.New("codex CLI not found on PATH (install it or set CDX_CODEX_BIN)")
 	}
+	_ = cacheCodex(path)
 	return path, nil
 }
 

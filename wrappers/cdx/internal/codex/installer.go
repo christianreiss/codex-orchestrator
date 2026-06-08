@@ -79,6 +79,7 @@ func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logge
 	cmd := exec.CommandContext(ctx, "npm", args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
+		cacheInstalledCodexNpm(ctx)
 		return nil
 	}
 	// Permission failure → retry under sudo when available (non-interactive).
@@ -89,12 +90,30 @@ func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logge
 			cmd = exec.CommandContext(ctx, "sudo", args...)
 			out2, serr := cmd.CombinedOutput()
 			if serr == nil {
+				cacheInstalledCodexNpm(ctx)
 				return nil
 			}
 			return fmt.Errorf("npm install %s failed under sudo: %w: %s", spec, serr, strings.TrimSpace(string(out2)))
 		}
 	}
 	return fmt.Errorf("npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(out)))
+}
+
+// cacheInstalledCodexNpm resolves the codex binary path via npm's global bin
+// dir and writes it to the cache so cron and restricted-PATH environments can
+// find it without a full PATH scan.
+func cacheInstalledCodexNpm(ctx context.Context) {
+	out, err := exec.CommandContext(ctx, "npm", "bin", "-g").Output()
+	if err == nil {
+		p := filepath.Join(strings.TrimSpace(string(out)), "codex")
+		if _, serr := os.Stat(p); serr == nil {
+			_ = cacheCodex(p)
+			return
+		}
+	}
+	if p, lerr := exec.LookPath("codex"); lerr == nil {
+		_ = cacheCodex(p)
+	}
 }
 
 func isPermErr(out []byte, err error) bool {
@@ -289,14 +308,20 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	dest := resolveCodexDest()
 	logger.Debug("EnsureCodex: installing", "version", rel.TagName, "asset", asset.Name, "dest", dest)
 
+	var installErr error
 	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
-		return installFromTarball(dlPath, dest)
+		installErr = installFromTarball(dlPath, dest)
+	} else {
+		// Raw binary.
+		if err := chmodExec(dlPath); err != nil {
+			return err
+		}
+		installErr = installBinary(dlPath, dest)
 	}
-	// Raw binary.
-	if err := chmodExec(dlPath); err != nil {
-		return err
+	if installErr == nil {
+		_ = cacheCodex(dest)
 	}
-	return installBinary(dlPath, dest)
+	return installErr
 }
 
 func releaseVersion(rel Release) string {

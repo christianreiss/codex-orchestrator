@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,7 +23,50 @@ import (
 // upstream Claude CLI prints "Token usage:" near the tail; ~1 MiB is plenty.
 const captureMaxBytes = 1 << 20 // 1 MiB
 
+func claudeBinCachePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".clx", "state", "claude-bin"), nil
+}
+
+// cacheClaude persists the resolved claude binary path for future runs.
+func cacheClaude(path string) error {
+	p, err := claudeBinCachePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(path), 0o644)
+}
+
+// cachedClaudeBin returns the previously cached claude binary path, or "" if
+// the cache is missing, empty, or the path is no longer accessible.
+func cachedClaudeBin() string {
+	p, err := claudeBinCachePath()
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	cached := strings.TrimSpace(string(b))
+	if cached == "" {
+		return ""
+	}
+	if _, err := os.Stat(cached); err != nil {
+		return ""
+	}
+	return cached
+}
+
 // FindCLI locates the upstream `claude` binary (override via $CLX_CLAUDE_BIN).
+// Checks the path cache before PATH lookup; writes the cache on a successful
+// lookup so future runs (e.g. cron) work without a full npm-bin PATH.
 // Falls back to `claude-code` if `claude` is missing.
 func FindCLI() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("CLX_CLAUDE_BIN")); v != "" {
@@ -31,8 +75,12 @@ func FindCLI() (string, error) {
 		}
 		return "", fmt.Errorf("CLX_CLAUDE_BIN points at %q which is not accessible", v)
 	}
+	if cached := cachedClaudeBin(); cached != "" {
+		return cached, nil
+	}
 	for _, name := range []string{"claude", "claude-code"} {
 		if path, err := exec.LookPath(name); err == nil {
+			_ = cacheClaude(path)
 			return path, nil
 		}
 	}

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,6 +43,7 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	cmd := exec.CommandContext(ctx, "npm", args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
+		cacheInstalledClaude(ctx)
 		return nil
 	}
 	if isPermErr(out, err) {
@@ -50,12 +53,37 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 			cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
 			out2, serr := cmd.CombinedOutput()
 			if serr == nil {
+				cacheInstalledClaude(ctx)
 				return nil
 			}
 			return fmt.Errorf("npm install %s failed under sudo: %w: %s", spec, serr, strings.TrimSpace(string(out2)))
 		}
 	}
 	return fmt.Errorf("npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(out)))
+}
+
+// cacheInstalledClaude resolves the claude binary location via npm's global
+// bin dir and writes it to the cache so future runs (including cron) can find
+// it without a full PATH lookup.
+func cacheInstalledClaude(ctx context.Context) {
+	out, err := exec.CommandContext(ctx, "npm", "bin", "-g").Output()
+	if err == nil {
+		dir := strings.TrimSpace(string(out))
+		for _, name := range []string{"claude", "claude-code"} {
+			p := filepath.Join(dir, name)
+			if _, serr := os.Stat(p); serr == nil {
+				_ = cacheClaude(p)
+				return
+			}
+		}
+	}
+	// Fallback: standard PATH lookup.
+	for _, name := range []string{"claude", "claude-code"} {
+		if p, lerr := exec.LookPath(name); lerr == nil {
+			_ = cacheClaude(p)
+			return
+		}
+	}
 }
 
 func isPermErr(out []byte, err error) bool {

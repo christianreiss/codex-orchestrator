@@ -300,6 +300,9 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 			return res, fmt.Errorf("cron: claude update: %w", err)
 		}
 	}
+	if err := claude.EnsureShellAliases(); err != nil {
+		logger.Warn("cron: ensureShellAliases", "err", err)
+	}
 
 	newVer := strings.TrimSpace(claude.Version(ctx))
 	res.CodexVersion = newVer
