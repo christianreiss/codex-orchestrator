@@ -63,7 +63,7 @@ export interface SessionResult {
 }
 
 const SESSION_TTL_MIN_SECONDS = 300;
-const SESSION_TTL_MAX_SECONDS = 7 * 24 * 60 * 60;
+const SESSION_TTL_MAX_SECONDS = 30 * 24 * 60 * 60;
 const PASSWORD_MIN_LENGTH = 12;
 
 export class AdminAuthService {

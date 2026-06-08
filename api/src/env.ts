@@ -90,7 +90,7 @@ const schema = z
     // Admin
     ADMIN_ACCESS_MODE: z.enum(['mtls', 'cookie', 'open']).default('mtls'),
     ADMIN_SESSION_COOKIE: z.string().default('codex_admin_session'),
-    ADMIN_SESSION_TTL_MINUTES: intish(60 * 12),
+    ADMIN_SESSION_TTL_MINUTES: intish(60 * 24 * 30),
     ADMIN_WS_ENABLED: boolish.default(false),
     ADMIN_WS_PUBLIC_URL: z.string().optional(),
     ADMIN_WS_HEARTBEAT_SECONDS: intish(30),

@@ -7,6 +7,7 @@ import type { Database } from '../../db/client.js';
 import { sha256 } from '../../security/hash.js';
 import type { Env } from '../../env.js';
 import { UnauthorizedError, ForbiddenError } from '../errors.js';
+import { isoOffsetSeconds } from '../../util/timestamp.js';
 
 export interface AdminContext {
   user: AdminUser;
@@ -21,6 +22,15 @@ declare module 'fastify' {
     requireAdmin: preHandlerHookHandler;
     resolveAdmin(req: FastifyRequest): Promise<AdminContext | null>;
   }
+}
+
+const SESSION_TTL_MIN_SECONDS = 300;
+const SESSION_TTL_MAX_SECONDS = 30 * 24 * 60 * 60;
+
+function sessionTtlSeconds(env: Env): number {
+  const minutes = env.ADMIN_SESSION_TTL_MINUTES ?? 12 * 60;
+  const seconds = Math.max(0, minutes) * 60;
+  return Math.min(SESSION_TTL_MAX_SECONDS, Math.max(SESSION_TTL_MIN_SECONDS, seconds));
 }
 
 export function makeAuthAdminPlugin(db: Database, env: Env) {
@@ -45,11 +55,11 @@ export function makeAuthAdminPlugin(db: Database, env: Env) {
         const row = rows[0];
         if (!row) return null;
         if (!row.user.active) return null;
-        // Best-effort: touch lastSeenAt
+        // Best-effort: roll session expiry (keeps active sessions alive)
         try {
           await db
             .update(adminSessions)
-            .set({ lastSeenAt: nowIso })
+            .set({ lastSeenAt: nowIso, expiresAt: isoOffsetSeconds(sessionTtlSeconds(env)) })
             .where(eq(adminSessions.id, row.session.id));
         } catch {
           /* non-fatal */
