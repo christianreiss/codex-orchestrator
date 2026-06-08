@@ -113,6 +113,7 @@ export interface NormalizedSettings {
   hooks?: Record<string, unknown>;
   statusLine?: Record<string, unknown>;
   permissions?: { allow: string[]; ask: string[]; deny: string[] };
+  permissionMode?: string;
   env?: Record<string, string>;
   advisorModel?: string;
 }
@@ -318,6 +319,8 @@ export function normalizeSettings(raw: unknown): NormalizedSettings {
   if (statusLine) out.statusLine = statusLine;
   const permissions = normalizeClaudePermissions(settings.permissions);
   if (permissions) out.permissions = permissions;
+  const permissionMode = normalizeClaudePermissionMode(settings.permissionMode);
+  if (permissionMode) out.permissionMode = permissionMode;
   const env = normalizeClaudeEnv(settings.env);
   if (env) out.env = env;
   const advisorModel = normalizeClaudeAdvisorModel(settings.advisorModel);
@@ -369,6 +372,15 @@ export function normalizeClaudePermissions(
   const deny = normalizeStringList(rec.deny);
   if (allow.length === 0 && ask.length === 0 && deny.length === 0) return null;
   return { allow, ask, deny };
+}
+
+export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'autoEdit', 'bypassPermissions'] as const;
+
+/** Claude settings.json `permissionMode` key: controls auto-approve aggressiveness. */
+export function normalizeClaudePermissionMode(value: unknown): string | null {
+  const s = normalizeString(value);
+  if (s === null) return null;
+  return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(s) ? s : null;
 }
 
 /** Claude settings.json `statusLine` block: passed through verbatim. */

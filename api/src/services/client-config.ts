@@ -412,6 +412,7 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
     }
     if (Object.keys(perms).length > 0) result['permissions'] = perms;
   }
+  if (settings.permissionMode) result['permissionMode'] = settings.permissionMode;
   return JSON.stringify(result, null, 2) + '\n';
 }
 
@@ -463,6 +464,10 @@ export function renderClaudeSettingsPartial(
       }
     }
     if (Object.keys(perms).length > 0) partial['permissions'] = perms;
+  }
+  if (settings.permissionMode) {
+    partial['permissionMode'] = settings.permissionMode;
+    owned.push('permissionMode');
   }
   if (settings.advisorModel) {
     partial['advisorModel'] = settings.advisorModel;
