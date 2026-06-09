@@ -736,6 +736,10 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 	if current == target {
 		return
 	}
+	if current != "" && current != "unknown" && !semverGT(target, current) {
+		logger.Warn("skipping wrapper downgrade", "current", current, "target", target)
+		return
+	}
 	if os.Getenv("CODEX_WRAPPER_RESTARTED") == "1" {
 		logger.Warn("wrapper auto-update skipped after restart", "current", current, "target", target)
 		return
