@@ -197,7 +197,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
         const submittedWrapperComparable = normalizeVersionForCompare(submittedWrapper);
         const targetWrapperComparable = normalizeVersionForCompare(targetWrapper);
         const submittedWrapperIsSemver = /^\d/.test(submittedWrapperComparable);
-        needWrapper = !submittedWrapperIsSemver || compareSemver(submittedWrapperComparable, targetWrapperComparable) < 0;
+        needWrapper = usingLegacyTransition || !submittedWrapperIsSemver || compareSemver(submittedWrapperComparable, targetWrapperComparable) < 0;
       }
       if (needWrapper) wrapperUpdate.action = 'update';
     }
