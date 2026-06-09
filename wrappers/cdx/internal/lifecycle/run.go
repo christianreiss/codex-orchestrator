@@ -685,21 +685,16 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 		target = *v.ClientVersionOverride
 	}
 	current := strings.TrimSpace(codex.Version(ctx))
-	if current == target {
+	// Defer "latest" (and empty) alias upgrades to cron — must be before the semver guards.
+	if target == "" || target == "latest" {
 		return ""
 	}
-	if target == "" {
-		return ""
-	}
-	if current != "" && current != "unknown" && !semverGT(target, current) {
-		logger.Warn("skipping downgrade", "current", current, "target", target)
-		return ""
-	}
-	if target == "latest" {
-		latest, err := codex.LatestVersion(ctx)
-		if err != nil {
-			logger.Warn("codex latest-version probe failed", "err", err, "current", current)
-		} else if current == latest {
+	if !v.ClientVersionEnforceExact {
+		if current == target {
+			return ""
+		}
+		if current != "" && current != "unknown" && !semverGT(target, current) {
+			logger.Warn("skipping downgrade", "current", current, "target", target)
 			return ""
 		}
 	}

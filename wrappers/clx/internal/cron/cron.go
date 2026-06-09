@@ -268,24 +268,28 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 		if check.Wrapper.URL == "" || check.Wrapper.SHA256 == "" || check.Wrapper.TargetVersion == "" {
 			return res, fmt.Errorf("cron: wrapper update requested but metadata incomplete (%+v)", check.Wrapper)
 		}
-		downloadURL := resolveURL(cfg.Orchestrator.BaseURL, check.Wrapper.URL)
-		exe, err := os.Executable()
-		if err != nil {
-			return res, fmt.Errorf("cron: resolve self path: %w", err)
+		if !claude.SemverGT(check.Wrapper.TargetVersion, WrapperVersion) {
+			logger.Warn("cron: skipping wrapper downgrade", "current", WrapperVersion, "target", check.Wrapper.TargetVersion)
+		} else {
+			downloadURL := resolveURL(cfg.Orchestrator.BaseURL, check.Wrapper.URL)
+			exe, err := os.Executable()
+			if err != nil {
+				return res, fmt.Errorf("cron: resolve self path: %w", err)
+			}
+			if exe, err = filepath.EvalSymlinks(exe); err != nil {
+				return res, fmt.Errorf("cron: eval self path: %w", err)
+			}
+			if err := downloadAndSwap(ctx, cfg, downloadURL, check.Wrapper.SHA256, exe); err != nil {
+				return res, fmt.Errorf("cron: wrapper self-update: %w", err)
+			}
+			logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
+			res.WrapperAction = "updated"
+			res.WrapperTarget = check.Wrapper.TargetVersion
+			if err := update.ReExecAfterUpdate(exe, []string{"--cron", "run"}); err != nil {
+				return res, fmt.Errorf("cron: re-exec after wrapper update: %w", err)
+			}
+			return res, nil
 		}
-		if exe, err = filepath.EvalSymlinks(exe); err != nil {
-			return res, fmt.Errorf("cron: eval self path: %w", err)
-		}
-		if err := downloadAndSwap(ctx, cfg, downloadURL, check.Wrapper.SHA256, exe); err != nil {
-			return res, fmt.Errorf("cron: wrapper self-update: %w", err)
-		}
-		logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
-		res.WrapperAction = "updated"
-		res.WrapperTarget = check.Wrapper.TargetVersion
-		if err := update.ReExecAfterUpdate(exe, []string{"--cron", "run"}); err != nil {
-			return res, fmt.Errorf("cron: re-exec after wrapper update: %w", err)
-		}
-		return res, nil
 	}
 
 	targetClient := check.TargetVersion

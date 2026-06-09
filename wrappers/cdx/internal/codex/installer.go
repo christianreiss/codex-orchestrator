@@ -41,9 +41,15 @@ func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *
 	}
 
 	current := strings.TrimSpace(Version(ctx))
-	if !enforceExact && current != "" && current != "unknown" && current == target {
-		logger.Debug("EnsureCodex: already at target", "version", current)
-		return nil
+	if !enforceExact && current != "" && current != "unknown" && target != "" {
+		if current == target {
+			logger.Debug("EnsureCodex: already at target", "version", current)
+			return nil
+		}
+		if !semverGT(target, current) {
+			logger.Debug("EnsureCodex: skipping downgrade", "current", current, "target", target)
+			return nil
+		}
 	}
 
 	if isManagedByNpm(ctx) {

@@ -28,9 +28,15 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	}
 
 	current := strings.TrimSpace(Version(ctx))
-	if !enforceExact && current != "" && current != "unknown" && target != "" && current == target {
-		logger.Debug("EnsureClaude: already at target", "version", current)
-		return nil
+	if !enforceExact && current != "" && current != "unknown" && target != "" {
+		if current == target {
+			logger.Debug("EnsureClaude: already at target", "version", current)
+			return nil
+		}
+		if !semverGT(target, current) {
+			logger.Debug("EnsureClaude: skipping downgrade", "current", current, "target", target)
+			return nil
+		}
 	}
 
 	spec := "@anthropic-ai/claude-code"

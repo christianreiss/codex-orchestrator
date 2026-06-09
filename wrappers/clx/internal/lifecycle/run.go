@@ -104,7 +104,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			}
 		}
 
-		if dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
+		if !concurrent && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if raw, _, rerr := claude.ReadAuthForUpload(); rerr == nil && len(raw) > 0 {
 				if err := pushAuthCandidate(ctx, client, raw, logger); err != nil {
 					logger.Warn("auth-candidate upload failed", "err", err)
@@ -701,16 +701,18 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 		target = *v.ClientVersionOverride
 	}
 	current := strings.TrimSpace(claude.Version(ctx))
-	if current == target {
-		return ""
-	}
-	if current != "" && current != "unknown" && !semverGT(target, current) {
-		logger.Warn("skipping downgrade", "current", current, "target", target)
-		return ""
-	}
-	// See the cdx-side counterpart: defer "latest" alias upgrades to cron.
+	// Defer "latest" alias upgrades to cron — must be before the semver guards.
 	if target == "" || target == "latest" {
 		return ""
+	}
+	if !v.ClientVersionEnforceExact {
+		if current == target {
+			return ""
+		}
+		if current != "" && current != "unknown" && !semverGT(target, current) {
+			logger.Warn("skipping downgrade", "current", current, "target", target)
+			return ""
+		}
 	}
 	if current == "" || current == "unknown" {
 		fmt.Fprintf(os.Stderr, "clx: installing claude CLI %s…\n", target)
