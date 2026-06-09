@@ -22,7 +22,7 @@ func Version(ctx context.Context) string {
 			if s != "" {
 				parts := strings.Fields(s)
 				if len(parts) >= 2 && (strings.EqualFold(parts[0], "claude") || strings.EqualFold(parts[0], "claude-code")) {
-					return strings.Join(parts[1:], " ")
+					return parts[1]
 				}
 				return s
 			}

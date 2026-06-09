@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -703,6 +704,10 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 	if current == target {
 		return ""
 	}
+	if current != "" && current != "unknown" && !semverGT(target, current) {
+		logger.Warn("skipping downgrade", "current", current, "target", target)
+		return ""
+	}
 	// See the cdx-side counterpart: defer "latest" alias upgrades to cron.
 	if target == "" || target == "latest" {
 		return ""
@@ -760,4 +765,40 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 		logger.Warn("wrapper restart after update failed", "err", err)
 		fmt.Fprintf(os.Stderr, "clx: wrapper restart after update failed: %v\n", err)
 	}
+}
+
+// semverGT returns true when a > b using simple X.Y.Z numeric comparison.
+// Returns false (not greater) when either string cannot be parsed.
+func semverGT(a, b string) bool {
+	parse := func(s string) (maj, min, pat int, ok bool) {
+		p := strings.SplitN(strings.SplitN(s, "+", 2)[0], ".", 3)
+		if len(p) != 3 {
+			return
+		}
+		var err error
+		if maj, err = strconv.Atoi(p[0]); err != nil {
+			return
+		}
+		if min, err = strconv.Atoi(p[1]); err != nil {
+			return
+		}
+		pre := strings.SplitN(p[2], "-", 2)[0]
+		if pat, err = strconv.Atoi(pre); err != nil {
+			return
+		}
+		ok = true
+		return
+	}
+	aMaj, aMin, aPat, aOk := parse(a)
+	bMaj, bMin, bPat, bOk := parse(b)
+	if !aOk || !bOk {
+		return false
+	}
+	if aMaj != bMaj {
+		return aMaj > bMaj
+	}
+	if aMin != bMin {
+		return aMin > bMin
+	}
+	return aPat > bPat
 }
