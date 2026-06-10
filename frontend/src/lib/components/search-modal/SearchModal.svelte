@@ -23,6 +23,7 @@
   let query = $state("");
   let results = $state<PaletteCommand[]>([]);
   let loading = $state(false);
+  let openKey = $state(0);
 
   let inflightToken = 0;
 
@@ -31,6 +32,7 @@
     if (s.open) {
       query = "";
       results = [];
+      openKey++;
     }
   });
 
@@ -91,10 +93,10 @@
   <Dialog.Content class="overflow-hidden p-0 sm:max-w-[560px]">
     <Dialog.Title class="sr-only">Search</Dialog.Title>
     <Dialog.Description class="sr-only">Search hosts, projects, skills, and users.</Dialog.Description>
+    {#key openKey}
     <Command.Root shouldFilter={false} class="[&_[data-cmdk-input-wrapper]]:px-3">
       <Command.Input
         autofocus
-        value={query}
         oninput={onInput}
         placeholder="Search hosts, projects, skills, users…"
       />
@@ -131,5 +133,6 @@
         {/if}
       </Command.List>
     </Command.Root>
+    {/key}
   </Dialog.Content>
 </Dialog.Root>
