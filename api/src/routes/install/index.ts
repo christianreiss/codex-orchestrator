@@ -18,6 +18,7 @@ import {
   shellErrorScript,
   tokenExpired,
 } from '../../services/install-token.js';
+import { hostEnginesList } from '../../services/host-engine-policy.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
 import { createCanonicalAuthStoreService } from '../../services/canonical-auth-store.js';
@@ -85,7 +86,13 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
 
     let body: string;
     try {
-      body = buildInstallerScript({ fqdn: host.fqdn, apiKey, baseUrl, engine: row.engine });
+      body = buildInstallerScript({
+        fqdn: host.fqdn,
+        apiKey,
+        baseUrl,
+        engine: row.engine,
+        enginesList: hostEnginesList(host.engines),
+      });
     } catch (err) {
       return shellishError(
         reply,

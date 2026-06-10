@@ -124,8 +124,12 @@ export function buildInstallerScript(opts: {
   apiKey: string;
   baseUrl: string;
   engine: Engine;
+  enginesList?: Engine[];
 }): string {
-  return buildWrapperV2InstallerScript(opts);
+  return buildWrapperV2InstallerScript({
+    ...opts,
+    peerEngines: (opts.enginesList ?? []).filter((e) => e !== opts.engine),
+  });
 }
 
 export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engine: Engine }): string {
