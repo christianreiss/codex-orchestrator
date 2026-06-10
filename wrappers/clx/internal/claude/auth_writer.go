@@ -134,6 +134,13 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 	return out, nil
 }
 
+// HasUsableAuth reports whether a structurally usable local credentials file
+// exists (either location, containing at least one Claude token).
+func HasUsableAuth() bool {
+	_, raw, _, err := selectedAuthFile()
+	return err == nil && isUsableAuth(raw)
+}
+
 func selectedAuthFile() (string, []byte, os.FileInfo, error) {
 	claudePath, clxPath, err := authPaths()
 	if err != nil {

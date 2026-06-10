@@ -109,6 +109,25 @@ func TestDecide_TableDriven(t *testing.T) {
 			want: wantD{reason: "Installation ID mismatch"},
 		},
 		{
+			name:  "error fresh local",
+			resp:  &AuthRetrieveResponse{Status: "error", Message: "runner unreachable"},
+			path:  "/dev/null",
+			probe: probeFresh24Only,
+			want:  wantD{allowed: true, local: true, reason: "cached credentials"},
+		},
+		{
+			name:  "error stale local",
+			resp:  &AuthRetrieveResponse{Status: "error", Message: "runner unreachable"},
+			path:  "/dev/null",
+			probe: probeInvalid,
+			want:  wantD{reason: "runner unreachable"},
+		},
+		{
+			name: "error no local",
+			resp: &AuthRetrieveResponse{Status: "error"},
+			want: wantD{reason: "server returned an error"},
+		},
+		{
 			name: "unknown",
 			resp: &AuthRetrieveResponse{Status: "limbo"},
 			want: wantD{reason: "Unknown auth status"},

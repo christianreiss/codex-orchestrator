@@ -521,13 +521,15 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		logger.Debug("post-run auth read failed", "err", err)
+		logger.Warn("post-run auth read failed", "err", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 15s budget: a login during the session is the one credential mint the
+	// fleet must not lose — give the upload room and make failure visible.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := client.AuthStore(ctx, raw); err != nil {
-		logger.Debug("post-run auth upload failed", "err", err)
+		logger.Warn("post-run auth upload failed", "err", err)
 		return
 	}
 	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)

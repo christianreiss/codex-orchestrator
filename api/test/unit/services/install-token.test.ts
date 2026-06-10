@@ -38,7 +38,10 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('-H "X-API-Key: $HOST_API_KEY"');
     expect(out).toContain('CONFIG_FILE=\'cdx.json\'');
     expect(out).toContain('INSTALL_CONTEXT=installer');
-    expect(out).toContain('Install Codex CLI manually');
+    expect(out).toContain('the wrapper will install it automatically');
+    // Primary engine bootstrap: cron entry + one tick (engine install + check-in).
+    expect(out).toContain('"$TARGET_BIN" --cron install');
+    expect(out).toContain('"$TARGET_BIN" --cron run');
     // strip trailing slashes on baseUrl
     expect(out).not.toContain("baseUrl '''https://orchestrator.example.com/");
   });

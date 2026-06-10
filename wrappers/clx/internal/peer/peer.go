@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
@@ -23,6 +24,12 @@ import (
 
 const peerEngine = "codex"
 const peerName = "cdx"
+const peerEngineCLI = "codex"
+
+// peerSpawnEnv guards against reconcile ping-pong: when a wrapper spawns the
+// peer's `--cron run`, the peer must not reconcile back into us. Same name in
+// both wrappers.
+const peerSpawnEnv = "CODEX_ORCH_PEER_SPAWN"
 
 type bundle struct {
 	Payload   map[string]any `json:"payload"`
@@ -44,6 +51,24 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 	}
 	if err := removePeer(ctx, logger); err != nil {
 		logger.Warn("peer wrapper removal skipped", "engine", peerEngine, "err", err)
+	}
+}
+
+// EnsureForCron is the cron-tick variant of Reconcile: it installs/updates the
+// peer wrapper and engine when the host config says the peer engine is desired,
+// but never removes anything — removal stays on the interactive path where a
+// fresh server-provided engines list is available (a stale local config must
+// not be able to wipe the peer's home directories from an unattended tick).
+func EnsureForCron(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
+	if os.Getenv(peerSpawnEnv) == "1" {
+		return
+	}
+	engines, ok := desiredEngines(cfg, nil)
+	if !ok || !hasEngine(engines, peerEngine) {
+		return
+	}
+	if err := installPeer(ctx, cfg); err != nil {
+		logger.Warn("peer wrapper cron ensure skipped", "engine", peerEngine, "err", err)
 	}
 }
 
@@ -103,8 +128,47 @@ func installPeer(ctx context.Context, cfg *config.Config) error {
 	if err := writePeerConfig(rawPayload, b.Signature.Value); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "clx: installing cdx…\n")
-	return installPeerBinary(ctx, cfg, url, sum)
+	installed := false
+	if !peerBinaryCurrent(sum) {
+		fmt.Fprintf(os.Stderr, "clx: installing cdx…\n")
+		if err := installPeerBinary(ctx, cfg, url, sum); err != nil {
+			return err
+		}
+		installed = true
+	}
+	// Run the peer's cron tick when its wrapper was just (re)installed or its
+	// engine CLI is missing: that tick installs/updates the codex binary and
+	// checks in with the orchestrator, so a dual-engine host is fully usable
+	// right away instead of waiting for the next scheduled cron run.
+	if installed || !peerEngineCLIPresent() {
+		runPeerCronTick(ctx)
+	}
+	return nil
+}
+
+// peerBinaryCurrent reports whether the installed peer wrapper already matches
+// the bundle's sha256 — the short-circuit that keeps Reconcile from
+// re-downloading the peer binary on every single launch.
+func peerBinaryCurrent(expected string) bool {
+	p := peerBinaryPath()
+	fi, err := os.Stat(p)
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	return verifySHA256(p, expected) == nil
+}
+
+func peerEngineCLIPresent() bool {
+	_, err := exec.LookPath(peerEngineCLI)
+	return err == nil
+}
+
+func runPeerCronTick(ctx context.Context) {
+	tctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(tctx, peerBinaryPath(), "--cron", "run")
+	cmd.Env = append(os.Environ(), peerSpawnEnv+"=1")
+	_ = cmd.Run()
 }
 
 func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, error) {

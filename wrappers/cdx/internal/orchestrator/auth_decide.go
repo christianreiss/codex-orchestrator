@@ -155,6 +155,25 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		}
 		d.Reason = "API offline and cached auth.json older than allowed window."
 		return d
+
+	case "error":
+		// Server-side processing error (e.g. runner verification gate). Treat
+		// like offline: fall back to local credentials if fresh, else refuse.
+		if localAuthPath != "" && probe.IsFresh != nil {
+			fresh, _ := probe.IsFresh(localAuthPath, MaxLocalAuthAge)
+			if fresh {
+				d.Allowed = true
+				d.LocalUsable = true
+				d.Reason = "Server error; using cached auth.json."
+				return d
+			}
+		}
+		msg := resp.Message
+		if msg == "" {
+			msg = "server returned an error"
+		}
+		d.Reason = "Auth server error: " + msg + "; no usable cached credentials."
+		return d
 	}
 
 	// Unrecognised status — refuse with a stable message rather than letting

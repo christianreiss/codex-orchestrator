@@ -1,3 +1,47 @@
+# 2026-06-10
+
+## Full dual-engine install/update coverage (wrappers 0.6.27)
+
+- **cdx/clx cron:** `--cron run` now reconciles the peer too: a single cron
+  entry keeps all four components current (both wrappers via sha-compared
+  signed bundles, both engine CLIs via the peer's own tick). A
+  `CODEX_ORCH_PEER_SPAWN=1` guard prevents reconcile ping-pong; the cron path
+  never removes a peer (removal stays on the interactive path with a fresh
+  server engines list).
+- **cdx/clx peer install:** Peer wrapper downloads are skipped when the
+  installed binary already matches the bundle sha256 (previously re-downloaded
+  on every launch). `clx` now triggers `cdx --cron run` after installing the
+  peer (parity with cdx→clx), and both wrappers trigger the peer tick whenever
+  the peer engine CLI is missing — so the codex/claude binaries actually land.
+- **Installer:** The minted installer now bootstraps the PRIMARY engine as
+  well: after the wrapper binary lands it runs `--cron install` (auto-update
+  entry) and `--cron run` (engine CLI install + orchestrator check-in). The
+  peer block does the same. Previously only the peer got a tick, so
+  dual-engine installs left the primary engine binary and cron missing.
+
+## Auth status "error" no longer strands hosts
+
+- **cdx/clx:** `Decide()` handles `status: error` like offline — launch from
+  fresh cached credentials, otherwise refuse with the server's message
+  (previously: "Unknown auth status error; refusing to start").
+- **API:** `handleBootstrapAuth` and `handleStore` fall back to the retrieve
+  path when the canonical store throws (e.g. runner verification gate down)
+  instead of returning a `status: error` envelope. Malformed payloads still
+  surface as validation errors.
+
+## Fresh-host Claude onboarding
+
+- **clx:** When usable credentials exist, clx seeds
+  `hasCompletedOnboarding: true` into `~/.claude.json` (merge-safe, never
+  touches an unparseable file). Without it Claude Code ran its first-start
+  wizard (theme + login picker) even though the orchestrator had already
+  minted valid credentials.
+
+## Post-run credential upload hardening
+
+- **cdx/clx:** Post-session auth uploads (login during a session) get a 15s
+  budget instead of 5s and log failures at warn instead of debug.
+
 # 2026-06-07
 
 ## clx startup self-update parity

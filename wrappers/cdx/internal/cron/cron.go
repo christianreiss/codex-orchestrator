@@ -33,6 +33,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/update"
 )
 
@@ -366,6 +367,12 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	if err := codex.EnsureShellAliases(); err != nil {
 		logger.Warn("cron: ensureShellAliases", "err", err)
 	}
+
+	// Keep the peer wrapper + engine current too: a dual-engine host must have
+	// all four components (cdx, clx, codex, claude) updated by a single cron
+	// entry. EnsureForCron no-ops when this tick was itself spawned by the
+	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
+	peer.EnsureForCron(ctx, cfg, logger)
 
 	// Re-read codex version (it may have changed) for the report.
 	newCodexVer := strings.TrimSpace(codex.Version(ctx))

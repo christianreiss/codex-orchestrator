@@ -122,6 +122,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			claudeUpdated = maybeEnsureClaude(ctx, authResp, concurrent, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, logger)
+				// Fresh hosts: minted credentials alone don't stop Claude's
+				// first-start login wizard — ~/.claude.json must carry the
+				// onboarding flag too.
+				if claude.HasUsableAuth() {
+					ensureOnboardingState(logger)
+				}
 			}
 		}
 
@@ -543,16 +549,18 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 	if prev, ok := before[path]; ok && prev.Hash == afterHash && prev.Refresh == afterRefresh {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 15s budget: a login during the session is the one credential mint the
+	// fleet must not lose — give the upload room and make failure visible.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	resp, err := client.AuthStore(ctx, raw)
 	if err != nil {
-		logger.Debug("post-run auth upload failed", "err", err)
+		logger.Warn("post-run auth upload failed", "err", err)
 		return
 	}
 	if resp != nil && len(resp.Auth) > 0 {
 		if werr := claude.WriteAuth(resp.Auth); werr != nil {
-			logger.Debug("post-run auth write-back failed", "err", werr)
+			logger.Warn("post-run auth write-back failed", "err", werr)
 		}
 	}
 	prev := before[path]

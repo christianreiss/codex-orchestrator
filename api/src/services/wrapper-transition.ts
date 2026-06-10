@@ -50,7 +50,7 @@ export function buildWrapperV2InstallerScript(opts: {
     exit 1
   fi
 fi`
-      : `command -v ${cliName} >/dev/null 2>&1 || echo ">> Install Codex CLI manually (e.g. via the upstream installer) and re-run."`;
+      : `command -v ${cliName} >/dev/null 2>&1 || echo ">> codex CLI not found — the wrapper will install it automatically during bootstrap."`;
 
   const peers = (opts.peerEngines ?? []).filter((e) => e !== opts.engine);
   const peerBlock = peers.length > 0 ? peers.map(peerInstallBlock).join('\n') : undefined;
@@ -360,7 +360,16 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
     echo ">> Put $BIN_ROOT earlier in PATH or run directly: $TARGET_BIN run"
   fi
   echo ">> If your shell cached an older $NAME, run: hash -r 2>/dev/null || rehash 2>/dev/null || true"
-fi${peerSection}`;
+fi
+
+# 2b. Bootstrap the primary engine: install the auto-update cron entry, then
+#     run one tick — that installs/updates the engine CLI itself and checks in
+#     with the orchestrator (versions, pending auth seed). Without this only
+#     the wrapper binary lands and the engine stays missing until the first
+#     manual run.
+echo ">> Bootstrapping $NAME (cron + engine install)…"
+"$TARGET_BIN" --cron install || echo ">> Warning: $NAME --cron install failed; auto-update cron not set up." >&2
+"$TARGET_BIN" --cron run || echo ">> Warning: $NAME --cron run failed; run it manually to finish engine setup." >&2${peerSection}`;
 }
 
 function peerInstallBlock(engine: Engine): string {
@@ -471,7 +480,9 @@ PY
     install_bin "$PEER_BIN_TMP" "$PEER_TARGET_BIN"
     rm -f "$PEER_BIN_TMP"
   fi
-  "$PEER_TARGET_BIN" --cron run 2>/dev/null || true
+  echo ">> Bootstrapping $PEER_NAME (cron + engine install)…"
+  "$PEER_TARGET_BIN" --cron install || echo ">> Warning: $PEER_NAME --cron install failed; auto-update cron not set up." >&2
+  "$PEER_TARGET_BIN" --cron run || echo ">> Warning: $PEER_NAME --cron run failed; run it manually to finish engine setup." >&2
 )
 PEER_EXIT=$?
 set -e

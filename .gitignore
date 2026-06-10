@@ -15,3 +15,8 @@ __pycache__/
 # Wrapper bakery v2: local dev build output goes into wrappers/bin/ via `make all`;
 # committed binaries live under storage/wrapper/v2/bin/ (handled by their own .gitignore).
 /wrappers/bin/
+
+# Stray wrapper release output: the LIVE store is ../store (one level above the
+# repo, mounted to /app/storage). A `make release OUTROOT=../store` run from
+# wrappers/ resolves HERE instead — never commit those binaries.
+/store/

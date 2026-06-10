@@ -92,7 +92,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (command === 'retrieve') {
       return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions, tokenUsage);
     }
-    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, versions, tokenUsage);
+    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, versions, tokenUsage);
   });
 
   // DELETE /auth — host uninstall.
@@ -434,13 +434,8 @@ async function handleBootstrapAuth(
     const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc, tokenUsage);
     return { ...baseResponse, ...stored };
   } catch (err) {
-    app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed');
-    return {
-      status: 'error',
-      action: 'store',
-      message: err instanceof Error ? err.message : 'auth_candidate store failed',
-      engine,
-    };
+    app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
   }
 }
 
@@ -464,23 +459,35 @@ function canonicalizedCandidateDigest(
 }
 
 async function handleStore(
-  _app: FastifyInstance,
+  app: FastifyInstance,
   ctx: RouteContext,
   host: Host,
   payload: Record<string, unknown>,
   engine: Engine,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
+  runnerValidation: ReturnType<typeof createRunnerValidationService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
   tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   const incoming = extractAuthPayload(payload);
-  const stored = await authStore.storeCandidate({
-    auth: incoming,
-    engine,
-    sourceHostId: host.id,
-    requireLastRefresh: true,
-    logAction: 'auth.store',
-  });
+  let stored;
+  try {
+    stored = await authStore.storeCandidate({
+      auth: incoming,
+      engine,
+      sourceHostId: host.id,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+  } catch (err) {
+    // A malformed payload is the host's bug — surface it. Infrastructure
+    // failures (runner gate down, DB hiccup) must not turn into a
+    // status:error envelope that strands the wrapper: serve the canonical
+    // state via retrieve instead, same as handleBootstrapAuth.
+    if (err instanceof ValidationError) throw err;
+    app.log.warn({ err, host: host.fqdn, engine }, 'auth store failed; falling back to retrieve');
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+  }
   const now = nowIso();
   await ctx.db
     .update(hostsTable)
