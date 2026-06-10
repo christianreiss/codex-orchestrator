@@ -705,14 +705,9 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 	if target == "" || target == "latest" {
 		return ""
 	}
-	if !v.ClientVersionEnforceExact {
-		if current == target {
-			return ""
-		}
-		if current != "" && current != "unknown" && !semverGT(target, current) {
-			logger.Warn("skipping downgrade", "current", current, "target", target)
-			return ""
-		}
+	if claude.IsDowngrade(current, target) {
+		logger.Debug("skipping downgrade", "current", current, "target", target)
+		return ""
 	}
 	if current == "" || current == "unknown" {
 		fmt.Fprintf(os.Stderr, "clx: installing claude CLI %s…\n", target)

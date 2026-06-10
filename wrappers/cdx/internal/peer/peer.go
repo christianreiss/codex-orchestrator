@@ -103,6 +103,7 @@ func installPeer(ctx context.Context, cfg *config.Config) error {
 	if err := writePeerConfig(rawPayload, b.Signature.Value); err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "cdx: installing clx…\n")
 	if err := installPeerBinary(ctx, cfg, url, sum); err != nil {
 		return err
 	}
