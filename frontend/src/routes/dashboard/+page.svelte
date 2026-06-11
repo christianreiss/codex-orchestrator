@@ -6,8 +6,6 @@
   import DashboardAlerts from "./DashboardAlerts.svelte";
   import { overviewQuery } from "$lib/api/overview";
   import Server from "@lucide/svelte/icons/server";
-  import Package from "@lucide/svelte/icons/package";
-  import Bot from "@lucide/svelte/icons/bot";
 
   const overview = overviewQuery();
 
@@ -32,10 +30,6 @@
       null,
   );
 
-  const claudeVersion = $derived(
-    ($overview.data?.versions?.claude_version as string | null | undefined) ?? null,
-  );
-
   const refreshHint = $derived.by(() => {
     if (!$overview.data) return null;
     const lr = $overview.data.last_refresh;
@@ -53,8 +47,8 @@
 <PageHeader title="Dashboard" subtitle="Fleet overview" />
 
 <div class="flex flex-col gap-6">
-  <!-- Fleet + version stat cards -->
-  <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
+  <!-- Fleet stats -->
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <StatCard
       label="Hosts"
       value={stats?.hosts ?? 0}
@@ -63,24 +57,6 @@
     >
       {#snippet icon()}
         <Server class="h-4 w-4" />
-      {/snippet}
-    </StatCard>
-    <StatCard
-      label="Codex version"
-      value={currentVersion ?? "—"}
-      loading={$overview.isPending}
-    >
-      {#snippet icon()}
-        <Package class="h-4 w-4" />
-      {/snippet}
-    </StatCard>
-    <StatCard
-      label="Claude version"
-      value={claudeVersion ?? "—"}
-      loading={$overview.isPending}
-    >
-      {#snippet icon()}
-        <Bot class="h-4 w-4" />
       {/snippet}
     </StatCard>
   </div>
