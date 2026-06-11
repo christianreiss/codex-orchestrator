@@ -55,8 +55,8 @@
       });
   });
 
-  const versionLabel = $derived($versionQ.data?.version ?? null);
-  const versionUpdated = $derived($versionQ.data?.updated_at ?? null);
+  const versionLabel = $derived($versionQ.data?.client_version ?? null);
+  const versionUpdated = $derived($versionQ.data?.client_version_lock_updated_at ?? null);
 </script>
 
 <Card class="flex flex-col">

@@ -109,14 +109,19 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       const suffix = engine === ENGINE_CLAUDE ? '_claude' : '_codex';
       const get = (k: string) => map.get(k);
       const rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
-      const codexExactLock = engine === ENGINE_CODEX ? semanticOrNull(get('client_version_lock')) : null;
+      const exactLock =
+        engine === ENGINE_CODEX
+          ? semanticOrNull(get('client_version_lock'))
+          : engine === ENGINE_CLAUDE
+            ? semanticOrNull(get('client_version_lock_claude'))
+            : null;
       const explicitOverride = semanticOrNull(get(`client_version_override${suffix}`));
-      const clientOverride = codexExactLock ?? explicitOverride;
+      const clientOverride = exactLock ?? explicitOverride;
       return {
         client_version: resolveClientVersion(rawClient, map, engine),
         client_version_override: clientOverride,
         client_version_enforce_exact:
-          codexExactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),
+          exactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),
         wrapper_version: get(`wrapper_version${suffix}`) ?? get('wrapper_version') ?? null,
         wrapper_sha256: get(`wrapper_sha256${suffix}`) ?? get('wrapper_sha256') ?? null,
         wrapper_url: get(`wrapper_url${suffix}`) ?? get('wrapper_url') ?? null,

@@ -28,6 +28,31 @@ describe('client-versions helpers', () => {
     expect(normalizeVersion('')).toBeNull();
   });
 
+  it('fetches the current Claude Code release from npm', async () => {
+    const settings = {
+      getWithMeta: vi.fn().mockResolvedValue({ value: null, updatedAt: null }),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: '2.1.173' }),
+    } as Response);
+
+    const svc = new ClientVersionsService(settings as never);
+    const release = await svc.availableClientVersion(true, 'claude');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest',
+      expect.any(Object),
+    );
+    expect(release?.version).toBe('2.1.173');
+    expect(settings.set).toHaveBeenCalledWith(
+      'github_release_claude-cli',
+      expect.stringContaining('"version":"2.1.173"'),
+      { publish: false },
+    );
+  });
+
   it('fetches the current OpenAI Codex release repo and normalizes rust tags', async () => {
     const settings = {
       getWithMeta: vi.fn().mockResolvedValue({ value: null, updatedAt: null }),

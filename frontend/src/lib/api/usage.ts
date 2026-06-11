@@ -76,9 +76,10 @@ export interface ChatGptHistoryResponse {
 /* Claude ---------------------------------------------------------------- */
 
 export interface ClaudeVersionResponse {
-  version?: string | null;
-  locked?: boolean;
-  updated_at?: string | null;
+  client_version?: string | null;
+  client_version_lock?: string | null;
+  client_version_enforce_exact?: boolean;
+  client_version_lock_updated_at?: string | null;
 }
 
 export interface ClaudeHistoryRow {

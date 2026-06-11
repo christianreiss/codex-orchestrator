@@ -254,6 +254,102 @@ describe('POST /cron/check', () => {
   });
 });
 
+describe('POST /cron/check (claude engine)', () => {
+  it('resolves latest claude target before comparing client versions', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-claude-cron-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_claude', version: 'latest' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'wrapper_version_claude', version: '0.6.2' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        client_version: '2.1.168',
+        wrapper_version: '0.6.2',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      action: 'update',
+      target_version: '2.1.173',
+      tag: '2.1.173',
+      enforce_exact: false,
+      wrapper: { action: 'no_update' },
+    });
+    await app.close();
+  });
+
+  it('uses the settings claude lock as an exact cron target', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-claude-cron-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_claude', version: 'latest' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'client_version_lock_claude', version: '2.1.168' },
+      { name: 'wrapper_version_claude', version: '0.6.2' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        client_version: '2.1.173',
+        wrapper_version: '0.6.2',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      action: 'update',
+      target_version: '2.1.168',
+      tag: '2.1.168',
+      enforce_exact: true,
+      wrapper: { action: 'no_update' },
+    });
+    await app.close();
+  });
+
+  it('returns no_update when claude client is already at latest', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-claude-cron-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_claude', version: 'latest' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'wrapper_version_claude', version: '0.6.2' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        client_version: '2.1.173',
+        wrapper_version: '0.6.2',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      action: 'no_update',
+      wrapper: { action: 'no_update' },
+    });
+    await app.close();
+  });
+});
+
 function makeKeyring(): Keyring {
   process.env.ENCRYPTION_ACTIVE_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
   return Keyring.fromEnv({

@@ -328,31 +328,55 @@ export async function registerAdminSettingsRoutes(
 
   // ── versions/check ────────────────────────────────────────────────────────
   app.post('/admin/versions/check', { preHandler: app.requireAdmin }, async () => {
-    const [available, summary] = await Promise.all([
-      clientVersions.availableClientVersion(true),
-      clientVersions.versionSummary(),
+    const [availableCodex, availableClaude, summaryCodex, summaryClaude] = await Promise.all([
+      clientVersions.availableClientVersion(true, 'codex'),
+      clientVersions.availableClientVersion(true, 'claude'),
+      clientVersions.versionSummary('codex'),
+      clientVersions.versionSummary('claude'),
     ]);
-    return ok({ available_client: available, versions: summary });
+    return ok({
+      available_client: availableCodex,
+      versions: summaryCodex,
+      claude_available_client: availableClaude,
+      claude_versions: summaryClaude,
+    });
   });
 
   // ── claude/version ────────────────────────────────────────────────────────
   app.get('/admin/claude/version', { preHandler: app.requireAdmin }, async () => {
-    const [version, locked, updatedAt] = await Promise.all([
-      settings.getString('claude_fleet_version'),
-      settings.getFlag('claude_version_locked', false),
-      settings.getString('claude_fleet_version_updated_at'),
-    ]);
-    return ok({ version, locked, updated_at: updatedAt });
+    const summary = await clientVersions.versionSummary('claude');
+    return ok(summary);
   });
   app.post('/admin/claude/version', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { version?: unknown; locked?: unknown };
-    const version = typeof body.version === 'string' ? body.version.trim() : '';
-    const locked = normalizeBool(body.locked) ?? false;
-    await settings.set('claude_fleet_version', version);
-    await settings.setFlag('claude_version_locked', locked);
-    await settings.set('claude_fleet_version_updated_at', nowIso());
-    await recordLog(ctx, 'admin.claude_version', { version: version || null, locked });
-    return ok({});
+    const body = (req.body ?? {}) as { selection?: unknown };
+    if (typeof body.selection !== 'string' || body.selection.trim() === '') {
+      throw new ValidationError('selection must be one of: latest, or a version like 2.1.170', {
+        param: 'selection',
+      });
+    }
+    const selection = body.selection.trim();
+    const lower = selection.toLowerCase();
+    let logSelection: string = 'latest';
+    let lock: { locked_version: string | null; locked_at: string | null };
+    if (lower === 'latest' || lower === 'auto') {
+      await settings.set('client_version_claude', 'latest');
+      lock = await clientVersions.setClaudeVersionLock(null);
+      void clientVersions.availableClientVersion(true, 'claude');
+    } else {
+      const normalized = normalizeVersion(selection);
+      if (!normalized || !isSemanticVersion(normalized)) {
+        throw new ValidationError('selection must be a semantic version like 2.1.170', {
+          param: 'selection',
+        });
+      }
+      lock = await clientVersions.setClaudeVersionLock(normalized);
+      logSelection = normalized;
+    }
+    await recordLog(ctx, 'admin.claude_version', {
+      selection: logSelection,
+      locked_version: lock.locked_version,
+    });
+    return ok(lock);
   });
 
   // ── claude/usage/history ──────────────────────────────────────────────────

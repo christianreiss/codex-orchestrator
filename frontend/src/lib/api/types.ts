@@ -909,6 +909,11 @@ export interface ClaudeVersionValue {
   updated_at: string | null;
 }
 
+export interface ClaudeVersionLockValue {
+  locked_version: string | null;
+  locked_at: string | null;
+}
+
 export interface QuotaModeValue {
   hard_fail: boolean;
   limit_percent: number;
@@ -951,6 +956,12 @@ export interface CodexVersionsCheckResult {
     [key: string]: unknown;
   };
   versions: CodexVersionsSummary;
+  claude_available_client?: {
+    version?: string | null;
+    url?: string | null;
+    [key: string]: unknown;
+  } | null;
+  claude_versions?: CodexVersionsSummary | null;
 }
 
 export interface ScalingTierRule {

@@ -19,7 +19,7 @@ import type {
   AutoUpdateValue,
   CdxSilentValue,
   ClaudeSettingsValue,
-  ClaudeVersionValue,
+  ClaudeVersionLockValue,
   CodexVersionLockValue,
   CodexVersionsCheckResult,
   InsecureApprovalValue,
@@ -134,24 +134,37 @@ export function claudeSettingsMutation(
 
 /* ─────────────────── 3b. Claude version (engine) ─────────────────── */
 
-export const claudeVersionQueryKey = ["settings", "claude-version"] as const;
+export const claudeVersionsQueryKey = ["settings", "claude-versions"] as const;
 
-export function claudeVersionQuery() {
-  return createQuery<ClaudeVersionValue>({
-    queryKey: claudeVersionQueryKey,
-    queryFn: () => api.get<ClaudeVersionValue>("/admin/claude/version"),
+export function claudeVersionsQuery() {
+  return createQuery<CodexVersionsCheckResult>({
+    queryKey: claudeVersionsQueryKey,
+    queryFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
   });
 }
 
-export function claudeVersionMutation(
-  opts: MutationOpts<unknown, { version: string | null; locked: boolean }> = {},
+export function claudeVersionsCheckMutation(
+  opts: MutationOpts<CodexVersionsCheckResult, void> = {},
 ) {
   const qc = useQueryClient();
-  return createMutation<unknown, Error, { version: string | null; locked: boolean }>({
-    mutationFn: (payload) => api.post("/admin/claude/version", payload),
+  return createMutation<CodexVersionsCheckResult, Error, void>({
+    mutationFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
     ...opts,
     onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: claudeVersionQueryKey });
+      void qc.invalidateQueries({ queryKey: claudeVersionsQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+export function claudeVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, string> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ClaudeVersionLockValue, Error, string>({
+    mutationFn: (selection) =>
+      api.post<ClaudeVersionLockValue>("/admin/claude/version", { selection }),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: claudeVersionsQueryKey });
       opts.onSettled?.(...args);
     },
   });

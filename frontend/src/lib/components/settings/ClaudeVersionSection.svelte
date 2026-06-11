@@ -4,12 +4,21 @@
   import { Label } from "$lib/components/ui/label";
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SectionCard from "./SectionCard.svelte";
-  import SwitchRow from "./SwitchRow.svelte";
-  import { claudeVersionMutation, claudeVersionQuery } from "$lib/api/settings";
+  import {
+    claudeVersionMutation,
+    claudeVersionsCheckMutation,
+    claudeVersionsQuery,
+  } from "$lib/api/settings";
 
-  const query = claudeVersionQuery();
+  const query = claudeVersionsQuery();
   let lastSavedAt = $state<Date | null>(null);
+
+  const checkM = claudeVersionsCheckMutation({
+    onSuccess: () => toast.success("Refreshed Claude version list"),
+    onError: (err) => toast.error(err.message),
+  });
 
   const setM = claudeVersionMutation({
     onSuccess: () => {
@@ -22,37 +31,38 @@
   type Selection = "latest" | "exact";
   let selection = $state<Selection>("latest");
   let exactVersion = $state("");
-  let locked = $state(false);
   let initialized = false;
 
-  const current = $derived($query.data ?? null);
-  const currentVersion = $derived(current?.version ?? null);
-  const currentLocked = $derived(Boolean(current?.locked));
-  const updatedAt = $derived(current?.updated_at ?? null);
+  const summary = $derived($query.data?.claude_versions ?? null);
+  const reportedClient = $derived(summary?.reported_client_version ?? null);
+  const currentClient = $derived(summary?.client_version ?? null);
+  const enforceExact = $derived(Boolean(summary?.client_version_enforce_exact));
+  const availableLatest = $derived(
+    ($query.data?.claude_available_client?.version as string | null) ?? null,
+  );
 
   $effect(() => {
-    if (!current || initialized) return;
-    if (current.version && current.version.trim() !== "") {
+    if (!summary || initialized) return;
+    if (summary.client_version_enforce_exact && summary.client_version) {
       selection = "exact";
-      exactVersion = current.version;
+      exactVersion = String(summary.client_version);
     } else {
       selection = "latest";
       exactVersion = "";
     }
-    locked = Boolean(current.locked);
     initialized = true;
   });
 
   function save() {
     if (selection === "latest") {
-      $setM.mutate({ version: null, locked });
+      $setM.mutate("latest");
     } else {
       const v = exactVersion.trim();
       if (!v) {
-        toast.error("Enter a version like 0.2.4");
+        toast.error("Enter a version like 2.1.170");
         return;
       }
-      $setM.mutate({ version: v, locked });
+      $setM.mutate(v);
     }
   }
 
@@ -67,11 +77,23 @@
 <SectionCard
   id="claude-version"
   title="Claude version"
-  description="Pin the fleet to the latest Claude wrapper release or a specific semantic version."
+  description="Pin the fleet to the latest Claude Code release or a specific semantic version."
   {status}
   savedAt={lastSavedAt}
   error={$setM.error?.message}
 >
+  {#snippet headerAction()}
+    <Button
+      variant="outline"
+      size="sm"
+      onclick={() => $checkM.mutate()}
+      disabled={$checkM.isPending}
+    >
+      <RefreshCw class="mr-1.5 h-3.5 w-3.5 {$checkM.isPending ? 'animate-spin' : ''}" />
+      Check for updates
+    </Button>
+  {/snippet}
+
   <div class="grid gap-3 sm:grid-cols-2">
     <div class="grid gap-1.5">
       <Label for="claude-version-selection">Selection</Label>
@@ -95,35 +117,27 @@
     {#if selection === "exact"}
       <div class="grid gap-1.5">
         <Label for="claude-version-exact">Version</Label>
-        <Input id="claude-version-exact" bind:value={exactVersion} placeholder="0.2.4" />
+        <Input id="claude-version-exact" bind:value={exactVersion} placeholder="2.1.170" />
       </div>
     {/if}
   </div>
 
-  <SwitchRow
-    id="claude-version-locked"
-    label="Lock fleet to this version"
-    description="When locked, hosts will not auto-upgrade past the selected Claude version."
-    checked={locked}
-    onCheckedChange={(v) => (locked = v)}
-  />
-
   <dl class="grid gap-2 rounded-md border bg-muted/20 px-4 py-3 text-xs sm:grid-cols-3">
     <div>
-      <dt class="text-muted-foreground">Current version</dt>
-      <dd class="font-mono">{currentVersion ?? "—"}</dd>
+      <dt class="text-muted-foreground">Resolved client</dt>
+      <dd class="font-mono">{currentClient ?? "—"}</dd>
     </div>
     <div>
-      <dt class="text-muted-foreground">Lock state</dt>
-      <dd>{currentLocked ? "Locked" : "Unlocked"}</dd>
+      <dt class="text-muted-foreground">Latest available</dt>
+      <dd class="font-mono">{availableLatest ?? "—"}</dd>
     </div>
     <div>
-      <dt class="text-muted-foreground">Last updated</dt>
-      <dd class="tabular-nums">{updatedAt ?? "—"}</dd>
+      <dt class="text-muted-foreground">Reported by hosts</dt>
+      <dd class="font-mono">{reportedClient ?? "—"}</dd>
     </div>
     <div class="sm:col-span-3">
       <dt class="text-muted-foreground">Mode</dt>
-      <dd>{currentLocked ? "Pinned (locked)" : currentVersion ? "Pinned (unlocked)" : "Latest (auto)"}</dd>
+      <dd>{enforceExact ? "Pinned (exact)" : "Latest (auto)"}</dd>
     </div>
   </dl>
 

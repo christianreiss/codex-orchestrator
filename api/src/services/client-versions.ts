@@ -1,8 +1,8 @@
 /**
  * Reads and writes engine client/wrapper version metadata from the `versions`
- * table. /admin/versions/check additionally queries the upstream GitHub
- * release endpoint, caching the result back into `versions` under a key like
- * `github_release_<name>` with a 1-hour TTL.
+ * table. /admin/versions/check additionally queries the upstream release
+ * endpoint (GitHub for Codex, npm for Claude Code), caching the result back
+ * into `versions` under a key like `github_release_<name>` with a 1-hour TTL.
  */
 
 import { SettingsService } from './settings.js';
@@ -44,12 +44,15 @@ export class ClientVersionsService {
   ) {}
 
   async versionSummary(engine: 'codex' | 'claude' = 'codex'): Promise<VersionSummary> {
-    const prefix = engine === 'claude' ? 'claude_' : '';
-    const [client, wrapper, checkedAt, lock] = await Promise.all([
-      this.settings.getString(`${prefix}client_version`),
-      this.settings.getString(`${prefix}wrapper_version`),
-      this.settings.getString(`${prefix}client_version_checked_at`),
-      this.settings.getWithMeta(`${prefix}client_version_lock`),
+    const suffix = `_${engine}`;
+    // Codex uses the unsuffixed lock key for backwards-compat; Claude uses _claude suffix.
+    const lockKey = engine === 'codex' ? 'client_version_lock' : `client_version_lock_${engine}`;
+    const [client, wrapper, checkedAt, lock, enforceExact] = await Promise.all([
+      this.settings.getString(`client_version${suffix}`),
+      this.settings.getString(`wrapper_version${suffix}`),
+      this.settings.getString(`client_version_checked_at${suffix}`),
+      this.settings.getWithMeta(lockKey),
+      this.settings.getFlag(`client_version_enforce_exact${suffix}`, false),
     ]);
     return {
       client_version: client,
@@ -57,10 +60,7 @@ export class ClientVersionsService {
       client_version_checked_at: checkedAt,
       client_version_lock: lock.value,
       client_version_lock_updated_at: lock.updatedAt,
-      client_version_enforce_exact: await this.settings.getFlag(
-        `${prefix}client_version_enforce_exact`,
-        false,
-      ),
+      client_version_enforce_exact: lock.value !== null || enforceExact,
     };
   }
 
@@ -94,7 +94,10 @@ export class ClientVersionsService {
   }
 
   private async fetchUpstream(name: string): Promise<AvailableRelease | null> {
-    const repo = name === 'claude-cli' ? 'anthropics/claude-cli' : 'openai/codex';
+    // Claude Code ships on npm, not GitHub.
+    if (name === 'claude-cli') return this.fetchNpm('@anthropic-ai/claude-code');
+
+    const repo = 'openai/codex';
     const url = `https://api.github.com/repos/${repo}/releases/latest`;
     try {
       const ac = new AbortController();
@@ -134,6 +137,42 @@ export class ClientVersionsService {
     }
   }
 
+  private async fetchNpm(pkg: string): Promise<AvailableRelease | null> {
+    const encoded = pkg.startsWith('@') ? pkg.replace('/', '%2F') : pkg;
+    const url = `https://registry.npmjs.org/${encoded}/latest`;
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 5000);
+      let resp: Response | null = null;
+      try {
+        resp = await fetch(url, {
+          headers: { Accept: 'application/json', 'User-Agent': 'codex-orchestrator' },
+          signal: ac.signal,
+        });
+      } catch (err) {
+        this.log?.warn?.({ err, pkg }, 'npm release fetch failed');
+        resp = null;
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!resp || !resp.ok) return null;
+      const json = (await resp.json()) as { version?: string };
+      const version = normalizeVersion(json.version);
+      if (!version || !isSemanticVersion(version)) return null;
+      return {
+        name: 'claude-cli',
+        version,
+        url: `https://www.npmjs.com/package/${pkg}/v/${version}`,
+        published_at: null,
+        fetched_at: nowIso(),
+        cached: false,
+      };
+    } catch (err) {
+      this.log?.warn?.({ err, pkg }, 'npm release fetch errored');
+      return null;
+    }
+  }
+
   async setCodexVersionLock(
     value: string | null,
   ): Promise<{ locked_version: string | null; locked_at: string | null }> {
@@ -144,6 +183,19 @@ export class ClientVersionsService {
     }
     wsPublisher.publish('settings.changed', { key: 'client_version_lock' });
     const meta = await this.settings.getWithMeta('client_version_lock');
+    return { locked_version: meta.value, locked_at: meta.updatedAt };
+  }
+
+  async setClaudeVersionLock(
+    value: string | null,
+  ): Promise<{ locked_version: string | null; locked_at: string | null }> {
+    if (value === null) {
+      await this.settings.delete('client_version_lock_claude');
+    } else {
+      await this.settings.set('client_version_lock_claude', value);
+    }
+    wsPublisher.publish('settings.changed', { key: 'client_version_lock_claude' });
+    const meta = await this.settings.getWithMeta('client_version_lock_claude');
     return { locked_version: meta.value, locked_at: meta.updatedAt };
   }
 }
