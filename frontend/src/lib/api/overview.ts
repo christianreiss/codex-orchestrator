@@ -16,6 +16,8 @@ export interface OverviewVersions {
   cdx_version_checked_at?: string | null;
   client_version_checked_at?: string | null;
   claude_version?: string | null;
+  claude_version_available?: string | null;
+  claude_version_checked_at?: string | null;
   claude_wrapper_version?: string | null;
   claude_client_version_minimum?: string | null;
   [key: string]: unknown;

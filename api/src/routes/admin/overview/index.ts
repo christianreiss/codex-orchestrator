@@ -162,9 +162,13 @@ export async function registerAdminOverviewRoutes(
     const hostRows = await ctx.db.select().from(hosts);
     const latestLog = await dashboard.latestLog();
 
-    const [versionSummary, claudeVersionSummary] = await Promise.all([
+    const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable] = await Promise.all([
       clientVersions.versionSummary('codex'),
       clientVersions.versionSummary('claude'),
+      // Live upstream latest (GitHub for Codex, npm for Claude); cached 1h so
+      // the dashboard poll only hits upstream once the cache goes stale.
+      clientVersions.availableClientVersion(false, 'codex'),
+      clientVersions.availableClientVersion(false, 'claude'),
     ]);
 
     let lastRefresh: string | null = null;
@@ -260,6 +264,10 @@ export async function registerAdminOverviewRoutes(
         ...versionSummary,
         claude_version: claudeVersionSummary.client_version,
         claude_wrapper_version: claudeVersionSummary.wrapper_version,
+        cdx_version_available: codexAvailable?.version ?? null,
+        cdx_version_checked_at: codexAvailable?.fetched_at ?? null,
+        claude_version_available: claudeAvailable?.version ?? null,
+        claude_version_checked_at: claudeAvailable?.fetched_at ?? null,
       },
       chatgpt_usage: chatgptResult.snapshot,
       chatgpt_usage_summary: chatgptSummary,
