@@ -11,7 +11,6 @@ import { Keyring } from '../../../src/security/keyring.js';
 import type { Env } from '../../../src/env.js';
 import type { Host } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
-import { registerWrapperV2Routes } from '../../../src/routes/wrapper-v2/index.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { createWrapperBinRegistry } from '../../../src/services/wrapper-bin-registry.js';
 import type {
@@ -125,7 +124,7 @@ function fakeDb(host: Host): Database {
       set: () => ({
         where: async () => {
           host.configVersion = (host.configVersion ?? 0) + 1;
-          hostSelectCount; // silence unused
+          void hostSelectCount;
         },
       }),
     }),

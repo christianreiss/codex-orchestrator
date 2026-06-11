@@ -1,5 +1,17 @@
 # 2026-06-11
 
+## Pre-prod code quality pass (api)
+
+- Fix 5 ESLint errors: rewrite comma expression in `uniqueNonEmpty`, remove
+  redundant regex escapes in `SEMVER_RE`, drop dead `resolve;` statement in
+  in-memory-db test helper, use `void` on intentionally unused expression in
+  wrapper-v2 test.
+- Remove unused imports/symbols: `NotFoundError` in `routes/host`, `sha256` in
+  `routes/install`, `tinyintToModeString` in `services/host-management`,
+  `registerWrapperV2Routes` in wrapper-v2 integration test, `env` parameter
+  renamed to `_env` in `makeRateLimitPlugin`.
+- Rebuild frontend (public/admin/) and refresh content-hashed chunk names.
+
 ## Remove token-usage counting (cdx, clx, api, dashboard, db)
 
 The LLM token-usage metering feature is gone end-to-end. (The Anthropic/OpenAI

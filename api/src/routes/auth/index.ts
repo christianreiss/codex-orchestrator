@@ -549,7 +549,7 @@ function normalizeBoolean(v: unknown): boolean | null {
 function uniqueNonEmpty(list: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const v of list) if (v && !seen.has(v)) (seen.add(v), out.push(v));
+  for (const v of list) { if (v && !seen.has(v)) { seen.add(v); out.push(v); } }
   return out;
 }
 

@@ -91,7 +91,7 @@ declare module 'fastify' {
 
 const BYPASS_PREFIXES = ['/admin/_app/', '/admin/manual/articles/', '/admin/favicon'];
 
-export function makeRateLimitPlugin(env: Env) {
+export function makeRateLimitPlugin(_env: Env) {
   return fp(
     async function rateLimitPlugin(app: FastifyInstance) {
       app.addHook('preHandler', async (req: FastifyRequest) => {

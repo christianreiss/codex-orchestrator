@@ -20,7 +20,6 @@ import type { AdminEventsWriter } from './admin-events-writer.js';
 import {
   parseReverseDnsModeInput,
   modeStringToTinyint,
-  tinyintToModeString,
   type ReverseDnsModeInput,
 } from './reverse-dns.js';
 import {
@@ -91,7 +90,7 @@ export function installerModeLabel(mode: 'codex' | 'claude' | 'both'): string {
 // Semantic version validation (used by codex/claude version overrides)
 // ────────────────────────────────────────────────────────────────────────────
 
-const SEMVER_RE = /^\d+\.\d+\.\d+(?:[+\-][0-9A-Za-z.\-]+)?$/;
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:[+-][0-9A-Za-z.-]+)?$/;
 export function isSemanticVersion(input: string): boolean {
   return SEMVER_RE.test(input.trim());
 }

@@ -221,7 +221,6 @@ export function createMockDb(): MockDb {
                   row[alias] = null;
                 }
               }
-              resolve;
               return row;
             });
           } else {

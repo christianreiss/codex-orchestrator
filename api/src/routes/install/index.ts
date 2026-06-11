@@ -10,7 +10,6 @@ import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
 import { decryptOrNull } from '../../security/secret-box.js';
-import { sha256 } from '../../security/hash.js';
 import {
   buildInstallerScript,
   buildSeedAuthScript,

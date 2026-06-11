@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
 import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
-import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
+import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
 import { parseEngine } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
