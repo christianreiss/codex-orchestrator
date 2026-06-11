@@ -9,7 +9,6 @@
   let { children }: { children?: Snippet } = $props();
 
   const TABS = [
-    { value: "api", label: "API", path: "/logs/api" },
     { value: "mcp", label: "MCP", path: "/logs/mcp" },
     { value: "events", label: "Events", path: "/logs/events" },
   ] as const;
@@ -19,7 +18,7 @@
     for (const tab of TABS) {
       if (path === tab.path || path.startsWith(tab.path + "/")) return tab.value;
     }
-    return "api";
+    return "mcp";
   });
 
   function onValueChange(value: unknown) {

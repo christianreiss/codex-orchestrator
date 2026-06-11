@@ -59,7 +59,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		}
 	}
 
-	var tokenSum, apiCalls int64
+	var apiCalls int64
 	var dots []ui.HealthDot
 	result := "Ready (Claude go brrrr)."
 	resultTone := ui.ToneOK
@@ -71,9 +71,6 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			if model == "" {
 				model = auth.Host.ClaudeModelOverride
 			}
-		}
-		if auth.TokenUsageMonth != nil {
-			tokenSum = auth.TokenUsageMonth.Total
 		}
 		if auth.APICalls > 0 {
 			apiCalls = auth.APICalls
@@ -121,7 +118,6 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		HostFQDN:       fqdn,
 		Insecure:       insecure,
 		Model:          model,
-		TokenSum:       tokenSum,
 		APICalls:       apiCalls,
 		Concurrent:     in.Concurrent,
 		ConcurrentNote: in.ConcurrentNote,

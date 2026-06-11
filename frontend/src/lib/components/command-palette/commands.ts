@@ -133,7 +133,6 @@ const NAV_ICON_MAP: Record<string, Component> = {
 
 /** Deep-link navigation entries (in addition to top-level NAV). */
 const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?: string[] }> = [
-  { href: "/logs/api", label: "Logs / API", icon: ScrollText, keywords: ["api", "client"] },
   { href: "/logs/mcp", label: "Logs / MCP", icon: ScrollText, keywords: ["mcp"] },
   {
     href: "/logs/events",

@@ -1,41 +1,35 @@
 ---
 
 title: Dashboard
-summary: KPIs, ChatGPT quota windows, Claude usage, runner state, and how the charts are fed.
-sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/claude-usage.ts, api/src/services/usage-scaling.ts, api/src/services/dashboard-stats.ts
+summary: KPIs, ChatGPT quota windows, runner state, and how the charts are fed.
+sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/usage-scaling.ts, api/src/services/dashboard-stats.ts
 ---
 
 # Dashboard
 
-The dashboard combines host health, token usage, ChatGPT quota windows, Claude usage, runner state, and version status.
+The dashboard combines host health, ChatGPT quota windows, runner state, and version status.
 
 ## Data sources
 
-- **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, which also registers all other core admin routes) returns host totals, token aggregates, versions, quota settings, and cached ChatGPT/Claude summaries.
+- **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, which also registers all other core admin routes) returns host totals, versions, quota settings, and the cached ChatGPT summary.
 - **ChatGPT quota** — `ChatgptUsageService` (`api/src/services/chatgpt-usage.ts`) reads canonical Codex auth and stores quota snapshots. The dashboard card surfaces `primary_window` and `secondary_window` from the unified summary.
-- **Claude usage** — `ClaudeUsageService` (`api/src/services/claude-usage.ts`) groups Claude token rows by model and time window.
-- **Graph stats** — `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) keeps compact usage/quota history in `dashboard_graph_usage_daily_stats` and `dashboard_graph_quota_snapshots`, separate from verbose raw logs.
+- **Graph stats** — `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) keeps compact quota history in `dashboard_graph_quota_snapshots`, separate from verbose raw logs.
 
 ## Overview endpoint
 
-`GET /admin/overview` returns: host count (`totals.hosts`), `last_refresh`, `avg_refresh_age_days`, three token aggregates (`tokens_day` using calendar-day boundaries, `tokens_week` using a rolling 6-day lookback via `isoOffsetDays(-6)`, `tokens_month` using calendar-month boundaries), version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, `claude_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
-
-The same source file also registers: `/admin/hosts`, `/admin/hosts/:id/detail`, `/admin/hosts/insecure`, `/admin/logs`, `/admin/usage`, `/admin/usage/ingests`, `/admin/chatgpt/usage` (and history/refresh), `/admin/tokens`, `/admin/toasts`, `/admin/runner` (and run/run-claude), `/admin/auth/seed-command`, `/admin/auth/upload`, `/admin/ws/info`.
+`GET /admin/overview` returns: host count (`totals.hosts`), `last_refresh`, `avg_refresh_age_days`, version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
 
 ## Stat cards
 
-The dashboard renders four stat cards sourced from a single `overviewQuery()` call against `GET /admin/overview`:
+The dashboard renders three stat cards sourced from a single `overviewQuery()` call against `GET /admin/overview`:
 
 | Card | Field | Notes |
 |---|---|---|
 | Hosts | `totals.hosts` | Always shows total host count. An active-only subset is not available from this endpoint without a separate round-trip; the card falls back to the total. |
-| Tokens today | `tokens_day` | Calendar day |
-| Tokens (7d) | `tokens_week` | Rolling 7-day window (`isoOffsetDays(-6)`) |
-| Tokens (30d) | `tokens_month` | Calendar-month boundaries |
+| Codex version | `versions.client_version` | Installed Codex client version (falls back to `cdx_version`). |
+| Claude version | `versions.claude_version` | Installed Claude client version. |
 
 The Hosts card also displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh").
-
-The backing raw rows come from the `token_usages` table. Pre-aggregated graph history is stored in `dashboard_graph_usage_daily_stats` and `dashboard_graph_quota_snapshots`. Token ingest audits (`token_usage_ingests`) are exposed at `/admin/usage/ingests` and are not surfaced on the dashboard.
 
 ## Alerts
 
@@ -56,10 +50,6 @@ The backing raw rows come from the `token_usages` table. Pre-aggregated graph hi
 
 There are no separate "normal lane" vs "Spark lane" meters in the rendered card — only `primary_window` and `secondary_window` from the unified summary are displayed.
 
-## Claude usage card
-
-`ClaudeUsageCard` similarly queries the Claude usage endpoint and displays Claude token usage.
-
 ## Runner
 
 The Runner state card polls `GET /admin/runner` every 15 seconds. It reads `runner.engines.codex` and `runner.engines.claude` and renders one row per engine showing a status badge (idle / running / ready / fail / unconfigured), last-run / last-ok / last-fail timestamps, and a play button. The Codex row triggers `POST /admin/runner/run`; the Claude row triggers `POST /admin/runner/run-claude`. After a trigger the query is explicitly invalidated to reflect the updated state.
@@ -76,7 +66,6 @@ There is no keyboard shortcut for refreshing the dashboard. ChatGPT quota refres
 
 - `api/src/routes/admin/overview/index.ts` (overview + all core admin routes)
 - `api/src/services/chatgpt-usage.ts`
-- `api/src/services/claude-usage.ts`
 - `api/src/services/dashboard-stats.ts`
-- `api/src/db/schema.ts` (`token_usages`, `dashboard_graph_usage_daily_stats`, `dashboard_graph_quota_snapshots`)
+- `api/src/db/schema.ts` (`dashboard_graph_quota_snapshots`)
 - `src/routes/dashboard/+page.svelte`

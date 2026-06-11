@@ -1,7 +1,7 @@
 /**
- * /admin/overview, /admin/hosts (JSON listing), /admin/logs, /admin/usage,
+ * /admin/overview, /admin/hosts (JSON listing), /admin/logs,
  * /admin/chatgpt/usage*, /admin/runner/*, /admin/auth/{seed-command,upload},
- * /admin/ws/info, /admin/tokens, /admin/toasts.
+ * /admin/ws/info, /admin/toasts.
  *
  * All endpoints require an admin session (app.requireAdmin). The kill-switch
  * GET /admin/api/state is intentionally NOT gated by the kill-switch in
@@ -17,7 +17,6 @@ import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/sche
 import { SettingsService } from '../../../services/settings.js';
 import { ClientVersionsService } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
-import { ClaudeUsageService } from '../../../services/claude-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { RunnerProxyService } from '../../../services/runner-proxy.js';
@@ -37,26 +36,6 @@ function intQuery(value: unknown, fallback: number): number {
 
 function stringQuery(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
-}
-
-function isoOffsetDays(days: number, now: Date = new Date()): string {
-  return new Date(now.getTime() + days * 86400 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
-function startOfDayIso(now: Date = new Date()): string {
-  const d = new Date(now);
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
-function startOfMonthIso(now: Date = new Date()): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
-function startOfNextMonthIso(now: Date = new Date()): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 async function recordLog(
@@ -163,7 +142,6 @@ export async function registerAdminOverviewRoutes(
     keyring: ctx.keyring,
     runnerValidation,
   });
-  const claude = new ClaudeUsageService(ctx.db);
   const dashboard = new DashboardStatsService(ctx.db);
   const scaling = new UsageScalingService(settings);
   const runnerProxy = new RunnerProxyService(ctx.env, app.log, {
@@ -206,24 +184,8 @@ export async function registerAdminOverviewRoutes(
     }
     const avgRefreshAgeDays = countSeconds > 0 ? totalSeconds / countSeconds / 86400 : null;
 
-    const dayStart = startOfDayIso();
-    const dayEnd = isoOffsetDays(1);
-    const monthStart = startOfMonthIso();
-    const monthEnd = startOfNextMonthIso();
-    const weekStart = isoOffsetDays(-6);
-    const weekEnd = nowIso();
-
-    const [tokens, tokensDay, tokensMonth, tokensWeek, topHost] = await Promise.all([
-      dashboard.totals(),
-      dashboard.totalsForRange(dayStart, dayEnd),
-      dashboard.totalsForRange(monthStart, monthEnd),
-      dashboard.totalsForRange(weekStart, weekEnd),
-      dashboard.topHost(),
-    ]);
-
     const chatgptResult = await chatgpt.fetchLatest(false);
     const chatgptSummary = await chatgpt.latestWindowSummary();
-    const claudeSummary = await claude.dashboardSummary();
 
     const [
       quotaHardFail,
@@ -265,25 +227,44 @@ export async function registerAdminOverviewRoutes(
       scaling.currentStatus(),
     ]);
 
+    // Version distribution — derived from hostRows already in scope, no extra queries.
+    const codexVersionCounts = new Map<string, number>();
+    const claudeVersionCounts = new Map<string, number>();
+    let installBoth = 0, installCodexOnly = 0, installClaudeOnly = 0, installNeither = 0;
+    for (const h of hostRows) {
+      const cv = h.clientVersion ?? 'unknown';
+      const clv = h.claudeClientVersion ?? null;
+      codexVersionCounts.set(cv, (codexVersionCounts.get(cv) ?? 0) + 1);
+      if (clv) claudeVersionCounts.set(clv, (claudeVersionCounts.get(clv) ?? 0) + 1);
+      const hasCodex = h.clientVersion != null;
+      const hasClaude = h.claudeClientVersion != null;
+      if (hasCodex && hasClaude) installBoth++;
+      else if (hasCodex) installCodexOnly++;
+      else if (hasClaude) installClaudeOnly++;
+      else installNeither++;
+    }
+    const toSortedArr = (m: Map<string, number>) =>
+      [...m.entries()].map(([version, count]) => ({ version, count })).sort((a, b) => b.count - a.count);
+
     return ok({
       totals: { hosts: hostRows.length },
       latest_log_at: latestLog?.createdAt ?? null,
       last_refresh: lastRefresh,
       avg_refresh_age_days: avgRefreshAgeDays,
+      version_distribution: {
+        codex: toSortedArr(codexVersionCounts),
+        claude: toSortedArr(claudeVersionCounts),
+        install: { both: installBoth, codex_only: installCodexOnly, claude_only: installClaudeOnly, neither: installNeither },
+      },
       versions: {
         ...versionSummary,
         claude_version: claudeVersionSummary.client_version,
         claude_wrapper_version: claudeVersionSummary.wrapper_version,
       },
-      tokens: { ...tokens, top_host: topHost },
-      tokens_day: tokensDay,
-      tokens_month: tokensMonth,
-      tokens_week: tokensWeek,
       chatgpt_usage: chatgptResult.snapshot,
       chatgpt_usage_summary: chatgptSummary,
       chatgpt_cached: chatgptResult.cached,
       chatgpt_next_eligible_at: chatgptResult.next_eligible_at,
-      claude_usage_summary: claudeSummary,
       quota_hard_fail: quotaHardFail,
       quota_limit_percent: quotaLimitPercent,
       quota_week_partition: quotaWeekPartition,
@@ -581,48 +562,6 @@ export async function registerAdminOverviewRoutes(
     return ok({ logs: rows });
   });
 
-  // ── /admin/usage/ingests ──────────────────────────────────────────────────
-  app.get('/admin/usage/ingests', { preHandler: app.requireAdmin }, async (req) => {
-    const q = req.query as Record<string, unknown>;
-    const hostIdRaw = q.host_id !== undefined ? Number(q.host_id) : null;
-    const hostId = hostIdRaw !== null && Number.isFinite(hostIdRaw) ? hostIdRaw : null;
-    const result = await dashboard.ingestsSearch({
-      page: intQuery(q.page, 1),
-      perPage: intQuery(q.per_page, 50),
-      hostId,
-      query: stringQuery(q.q),
-      sort: stringQuery(q.sort) ?? 'created_at',
-      direction: stringQuery(q.direction) === 'asc' ? 'asc' : 'desc',
-    });
-    return ok(result);
-  });
-
-  // ── /admin/usage ──────────────────────────────────────────────────────────
-  app.get('/admin/usage', { preHandler: app.requireAdmin }, async (req) => {
-    const q = req.query as Record<string, unknown>;
-    const limit = Math.max(1, Math.min(500, intQuery(q.limit, 50)));
-    const usages = await dashboard.recentTokens(limit);
-    const dayStart = startOfDayIso();
-    const dayEnd = isoOffsetDays(1);
-    const weekStart = isoOffsetDays(-6);
-    const weekEnd = nowIso();
-    const monthStart = isoOffsetDays(-29);
-    const monthEnd = nowIso();
-    const [tokensDay, tokensWeek, tokensMonth] = await Promise.all([
-      dashboard.totalsForRange(dayStart, dayEnd),
-      dashboard.totalsForRange(weekStart, weekEnd),
-      dashboard.totalsForRange(monthStart, monthEnd),
-    ]);
-    return ok({
-      usages,
-      totals: {
-        day: tokensDay,
-        '7d': tokensWeek,
-        '30d': tokensMonth,
-      },
-    });
-  });
-
   // ── /admin/chatgpt/usage* ─────────────────────────────────────────────────
   app.get('/admin/chatgpt/usage', { preHandler: app.requireAdmin }, async (req) => {
     const q = req.query as Record<string, unknown>;
@@ -671,14 +610,6 @@ export async function registerAdminOverviewRoutes(
   app.post('/admin/chatgpt/usage/refresh', { preHandler: app.requireAdmin }, async () => {
     const result = await chatgpt.refresh();
     return ok(result);
-  });
-
-  // ── /admin/tokens ─────────────────────────────────────────────────────────
-  app.get('/admin/tokens', { preHandler: app.requireAdmin }, async (req) => {
-    const q = req.query as Record<string, unknown>;
-    const limit = Math.max(1, Math.min(500, intQuery(q.limit, 50)));
-    const tokens = await dashboard.topTokens(limit);
-    return ok({ tokens });
   });
 
   // ── /admin/toasts ─────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ POSIX transition launcher ─GET /wrapper/v2/config──> /wrapper/v2 route han
                                                                      ├─ config.json.sig
                                                                      └─ meta.json
 POSIX transition launcher ─GET /wrapper/v2/bin/...──> serves precomputed static binary
-binary  ─POST /auth, /usage, ...──> existing host API surface (untouched)
+binary  ─POST /auth, ...──> existing host API surface (untouched)
 ```
 
 ## Why typed JSON beats bash placeholders

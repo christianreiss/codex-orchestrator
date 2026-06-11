@@ -216,7 +216,6 @@ export interface ApiKey {
 
 export interface UsageSnapshot {
   provider: "openai" | "claude" | string;
-  total_tokens?: number;
   total_cost?: number;
   window_start?: string | null;
   window_end?: string | null;
@@ -613,14 +612,6 @@ export type HostAutoUpdateState =
   | "unknown"
   | string;
 
-export interface HostTokenUsage {
-  ts?: string | null;
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  total_tokens?: number | null;
-  [key: string]: unknown;
-}
-
 /** Row shape returned by GET /admin/hosts. */
 export interface HostListItem {
   id: number;
@@ -672,7 +663,6 @@ export interface HostListItem {
   authed: boolean;
   auth_outdated: boolean;
   auth_source: boolean;
-  token_usage: HostTokenUsage | null;
   users: Array<{
     user_id?: number | string;
     username?: string;
@@ -780,32 +770,6 @@ export interface HostQuickRegisterPayload {
 // hosts feature ↑ ----------------------------------------------------------
 
 // logs feature ↓
-/** A row from `/admin/usage/ingests`. */
-export interface UsageIngestRow {
-  id: number | string;
-  host_id: number | null;
-  engine?: string | null;
-  fqdn?: string | null;
-  entries?: number | null;
-  total?: number | null;
-  input?: number | null;
-  output?: number | null;
-  cached?: number | null;
-  reasoning?: number | null;
-  client_ip?: string | null;
-  payload?: unknown;
-  created_at?: string | null;
-}
-
-/** Paginated envelope returned from `/admin/usage/ingests`. */
-export interface UsageIngestPage {
-  items: UsageIngestRow[];
-  total: number;
-  page: number;
-  per_page: number;
-  pages: number;
-}
-
 /** A row from `/admin/mcp/logs`. */
 export interface McpAccessLogRow {
   id: number | string;

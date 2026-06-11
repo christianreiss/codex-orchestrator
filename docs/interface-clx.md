@@ -88,9 +88,8 @@ Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — single-instance
 flock, bundle (`/sync/bootstrap` with `include_auth=true`; resource envelopes
 are unwrapped before `CLAUDE.md` / `settings.json` writes), typed auth decision
 matrix including approval-pending polling, FQDN runtime guard, Claude CLI
-version reconciliation, post-run credential re-upload on sha change, JSONL-based
-token usage extraction, and best-effort `/usage` batch POST. Engine-specific
-details:
+version reconciliation, and post-run credential re-upload on sha change.
+Engine-specific details:
 
 - Credentials are read from the newest structurally usable file across
   `~/.claude/.credentials.json` and `~/.clx/auth/credentials.json`, with

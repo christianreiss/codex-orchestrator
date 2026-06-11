@@ -79,7 +79,6 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	}
 
 	var laneStr string
-	var tokenSum int64
 	var apiCalls int64
 	var dots []ui.HealthDot
 	var quotaRows []ui.QuotaRow
@@ -93,9 +92,6 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			browserOS = auth.Host.BrowserOSMCPEnabled
 			laneStr = auth.Host.LanePreference
 			apiCalls = auth.Host.APICalls
-		}
-		if auth.TokenUsageMonth != nil {
-			tokenSum = auth.TokenUsageMonth.Total
 		}
 		if auth.APICalls > 0 {
 			apiCalls = auth.APICalls
@@ -155,7 +151,6 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		Insecure:       insecure,
 		BrowserOS:      browserOS,
 		Lane:           laneStr,
-		TokenSum:       tokenSum,
 		APICalls:       apiCalls,
 		Concurrent:     in.Concurrent,
 		ConcurrentNote: in.ConcurrentNote,

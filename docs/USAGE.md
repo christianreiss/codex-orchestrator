@@ -140,7 +140,6 @@ The wrapper is the supported entrypoint because it:
 - Syncs `~/.codex/config.toml` and `~/.codex/AGENTS.md` via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
 - Enforces the server’s quota policy and kill switch.
 - Self-updates the wrapper and Codex CLI as needed (when the host can write install locations).
-- Reports token usage back to `/usage` on a best-effort basis. The wrapper first checks only the last ~256 KiB of the PTY capture for a final legacy `Token usage:` line, then falls back to session JSONL / full-log parsing only when needed. Slow or wedged `/usage` calls are capped to roughly a 3-second total budget so wrapper exit does not feel hung.
 
 Common commands:
 
@@ -173,7 +172,7 @@ cdx auth-upload
 # direct codex exec fast path, not the full wrapper sync lifecycle)
 cdx --execute "explain what this repo does in 5 bullets"
 
-# Force IPv4 for wrapper network calls (sync/usage/update/download)
+# Force IPv4 for wrapper network calls (sync/update/download)
 cdx -4
 
 # Wrapper diagnostics
@@ -251,7 +250,7 @@ This is the fastest way to confirm the baked base URL, wrapper version, and that
 - **HTTP 503 / “API disabled”**: the admin kill switch is on (`/admin/api/state`). Only an operator can clear it.
 - **HTTP 401/403**: usually a bad API key (wrong wrapper) or an IP-binding mismatch. Operators can re-register the host (rotates API key) or enable roaming IPs.
 - **HTTP 429**: you hit a rate limit bucket (global or auth-fail). Back off until the server-provided `reset_at`.
-- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync/usage/wrapper-update HTTPS calls bypass TLS verification.
+- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync/wrapper-update HTTPS calls bypass TLS verification.
 
 ### What to collect for an operator
 

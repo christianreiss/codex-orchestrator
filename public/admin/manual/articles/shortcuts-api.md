@@ -176,7 +176,6 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 | GET/POST | `/admin/claude/state` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
-| GET | `/admin/claude/usage/history` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
 
@@ -189,9 +188,6 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 | GET | `/admin/overview` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/ws/info` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/toasts` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/tokens` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/usage` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/usage/ingests` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/chatgpt/usage` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/chatgpt/usage/history` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/chatgpt/usage/refresh` | api/src/routes/admin/overview/index.ts |
@@ -270,7 +266,6 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | GET | `/versions` | api/src/routes/host/index.ts |
 | POST | `/host/users` | api/src/routes/host/index.ts |
 | GET/POST | `/host/lane` | api/src/routes/host/index.ts |
-| POST | `/usage` | api/src/routes/host/index.ts |
 | POST | `/cron/check` | api/src/routes/host/index.ts |
 | POST | `/cron/report` | api/src/routes/host/index.ts |
 | GET | `/wrapper` (alias of `/wrapper/v2/meta`) | api/src/routes/wrapper-v2/index.ts |

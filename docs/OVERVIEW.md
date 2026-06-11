@@ -17,7 +17,6 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   - `auth-retrieve.schema.json`
   - `auth-store.schema.json`
   - `versions.schema.json`
-  - `usage-ingest.schema.json`
   - `sync-status.schema.json`
   - `sync-bootstrap.schema.json`
 - CI validates contract coverage by replaying recorded fixtures through the running Node server (`api/test/contract/contract.test.ts`) and through integration suites under `api/test/integration/`.
@@ -29,11 +28,11 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth on scheduled preflight checks (default ~8h) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (canonical-auth-changing uploads, including admin/seed uploads, require a reachable runner when enabled).
-- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, token usage ingest (total/input/output/cached/reasoning), ChatGPT `/wham/usage` snapshots.
+- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, ChatGPT `/wham/usage` snapshots.
 
 ## Key components (code map)
 
-- **`api/src/server.ts` boot** — boots env, key manager + secretbox, Drizzle client, services, scheduled preflight (8h), global rate limiting, and registers all routes under `api/src/routes/*` (host/admin/installer/seed/auth/sync/skills/projects/agents/config/MCP/usage/chatgpt/versions). Drizzle is the single source of truth for schema (`api/src/db/schema.ts`); migrations are generated/applied with `pnpm drizzle:generate` + `pnpm drizzle:push`.
+- **`api/src/server.ts` boot** — boots env, key manager + secretbox, Drizzle client, services, scheduled preflight (8h), global rate limiting, and registers all routes under `api/src/routes/*` (host/admin/installer/seed/auth/sync/skills/projects/agents/config/MCP/chatgpt/versions). Drizzle is the single source of truth for schema (`api/src/db/schema.ts`); migrations are generated/applied with `pnpm drizzle:generate` + `pnpm drizzle:push`.
 - **`api/src/services/host-auth.ts`** — orchestrates `/auth`, host registration, IP binding/roaming, insecure-host windows, digest caching, canonicalization (auths synthesized from `tokens.access_token`/`OPENAI_API_KEY` when missing), token quality checks, version snapshotting, host pruning (inactive 30d or never-provisioned >30m), and runner integration with recovery/backoff.
 - **`api/src/services/runner-client.ts` + `runner-validation.ts`** — HTTP client to the auth-runner; probes readiness, posts canonical auth, requests skill summaries, requests memory summaries, requests admin skill drafts, requests admin project metadata drafts, and returns runner telemetry.
 - **Wrapper bakery v2** — `api/src/services/wrapper-config.ts` composes the typed per-host JSON config and signs it with Ed25519 via `wrapper-signing-key.ts`; `wrapper-bin-registry.ts` discovers per-platform binaries under `storage/wrapper/v2/bin/`; `wrapper-meta.ts` and `wrapper-download.ts` back `/wrapper/v2/meta` and `/wrapper/v2/download`, while `wrapper-transition.ts` builds the legacy POSIX transition launcher served from `/wrapper/download` that writes config before execing the binary. Wrappers themselves are static Go binaries built from `wrappers/cdx/` and `wrappers/clx/`.
@@ -82,12 +81,11 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - The normal boot summary is now sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language labels and grouped numbers for calls/tokens.
-   - Non-empty post-run output ends with a compact footer (`Run usage`, `Sync`). `/usage` upload stays best effort with roughly a 3-second total request budget so wrapper exit remains prompt even when telemetry is slow.
+   - Non-empty post-run output ends with a compact footer (`Run usage`, `Sync`).
    - Summary blocks are compacted into aligned columns (default up to three entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW`), with Quota defaulting to one metric per row via `CODEX_SUMMARY_ITEMS_PER_ROW_QUOTA=1` and Versions defaulting to two entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW_VERSIONS=2`.
    - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
 
-5) **Usage and host telemetry**
-   - `/usage` ingests token lines (array or single) with optional cached/reasoning/model fields; sanitizes log lines, stores per-row entries with their resolved engine (`codex` or `claude`), and records a per-request ingest row (`token_usage_ingests`) with aggregates, payload snapshot, client IP, engine.
+5) **Host telemetry**
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|spark|null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/skills` list/retrieve/store; admin routes write delete markers that propagate to hosts on next sync. When project coordination is enabled, this same path auto-ships the managed `coco` skill to clients.

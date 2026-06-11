@@ -45,7 +45,7 @@ The `runner/` directory contains a small FastAPI service (`runner/app.py`) that 
 
 1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
 2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).
-3. Execs the upstream `codex` / `claude` CLI with the prepared env, then reports token usage to `/usage`.
+3. Execs the upstream `codex` / `claude` CLI with the prepared env.
 
 The binary self-updates if `wrapper.auto_update` is true in its config: when the server-side SHA256 differs from the local copy, the bootstrap transition launcher downloads the new binary, verifies its hash, and atomically replaces it.
 
@@ -62,7 +62,7 @@ Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts`
 - `host_auth_digests` — per-host snapshots so sync-status can say "nothing changed" cheaply.
 - `admin_users`, `admin_sessions`, `admin_passkeys`, `admin_password_resets` — the admin identity stack.
 - `projects`, `project_notes`, `project_todos`, `project_files`, `project_feedback`, `project_events` — the Projects module.
-- `token_usage`, `token_usage_ingests`, `chatgpt_usage`, `dashboard_graph_stats` — usage telemetry.
+- `chatgpt_usage` — ChatGPT quota snapshots.
 - `mcp_session_tokens`, `mcp_access_log`, `memories` — MCP identity and memory store.
 - `wrapper_signing_keys` — Ed25519 signing keys used by `wrapper-signing-key.ts`.
 

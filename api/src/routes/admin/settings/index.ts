@@ -18,7 +18,6 @@ import {
   normalizeVersion,
 } from '../../../services/client-versions.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
-import { ClaudeUsageService } from '../../../services/claude-usage.js';
 import { ValidationError } from '../../../http/errors.js';
 import { ok } from '../../../http/reply.js';
 import { logs } from '../../../db/schema.js';
@@ -75,7 +74,6 @@ export async function registerAdminSettingsRoutes(
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
   const scaling = new UsageScalingService(settings);
-  const claudeUsage = new ClaudeUsageService(ctx.db);
 
   // ── api/state — kill switch (GET allowed even when killed) ────────────────
   app.get('/admin/api/state', { preHandler: app.requireAdmin }, async () => {
@@ -377,16 +375,6 @@ export async function registerAdminSettingsRoutes(
       locked_version: lock.locked_version,
     });
     return ok(lock);
-  });
-
-  // ── claude/usage/history ──────────────────────────────────────────────────
-  app.get('/admin/claude/usage/history', { preHandler: app.requireAdmin }, async (req) => {
-    const query = req.query as { bucket?: string; period?: string; model?: string };
-    const bucket: 'hourly' | 'daily' = query.bucket === 'hourly' ? 'hourly' : 'daily';
-    const period: '24h' | '7d' | '30d' =
-      query.period === '24h' || query.period === '30d' ? query.period : '7d';
-    const data = await claudeUsage.history(bucket, period, query.model ?? null);
-    return ok(data);
   });
 
   // ── openai/state (per-engine kill switch) ─────────────────────────────────

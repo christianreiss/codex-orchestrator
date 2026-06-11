@@ -1,1 +1,0 @@
-import{n as e}from"./BDjq9T9v.js";function t(t){let n=`/admin/claude/${t}`;return{list:()=>e.get(n),get:t=>e.get(`${n}/${encodeURIComponent(t)}`),store:t=>e.post(`${n}/store`,t),delete:t=>e.delete(`${n}/${encodeURIComponent(t)}`)}}function n(e){return{all:[e],list:()=>[e,`list`],detail:t=>[e,`detail`,t]}}export{t as n,n as t};

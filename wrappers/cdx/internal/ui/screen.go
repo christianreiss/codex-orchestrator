@@ -23,8 +23,7 @@ type ScreenInput struct {
 	BrowserOS bool
 
 	Lane     string // "normal" | "spark" | ""
-	TokenSum int64  // current month total tokens — shown in compact format
-	APICalls int64  // shown if TokenSum is 0
+	APICalls int64  // request count — shown in compact format
 
 	Concurrent     bool
 	ConcurrentNote string
@@ -70,7 +69,7 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 		wrapperLine += "  " + caps.Palette.Yellow + "→ " + in.WrapperTarget + caps.Palette.Reset
 	}
 
-	// Context line: insecure · lane · tokens
+	// Context line: insecure · lane · calls
 	ctxParts := []string{}
 	if in.Insecure {
 		ctxParts = append(ctxParts, caps.Palette.Yellow+"🔓 insecure"+caps.Palette.Reset)
@@ -88,10 +87,7 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 		}
 		ctxParts = append(ctxParts, laneTxt)
 	}
-	switch {
-	case in.TokenSum > 0:
-		ctxParts = append(ctxParts, fmt.Sprintf("%s tokens", CompactNumber(in.TokenSum)))
-	case in.APICalls > 0:
+	if in.APICalls > 0 {
 		ctxParts = append(ctxParts, fmt.Sprintf("%s calls", CompactNumber(in.APICalls)))
 	}
 	contextLine := strings.Join(ctxParts, "  ·  ")

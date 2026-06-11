@@ -106,7 +106,6 @@ Code package when detected) without deleting the host row.
 7. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Never blocks launch.
 8. Snapshot `auth.json` sha256 + `last_refresh`; `exec` the upstream `codex` CLI; forward stdio + signals.
 9. Post-exit auth re-upload: if either the sha or `last_refresh` changed during the run (token rotation, `codex login`), POST the new payload to `/auth` store.
-10. Token usage extraction (pipe-mode tee first, `~/.codex/sessions/**/*.jsonl` discovery as fallback) → POST `/usage` as `{engine, fqdn, usages: [...]}`. Best-effort, 5 s budget.
 
 ## Refusal modes
 

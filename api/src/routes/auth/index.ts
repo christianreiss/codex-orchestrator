@@ -16,7 +16,6 @@ import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
-import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { HostAgentsService } from '../../services/host-agents.js';
 import { HostClaudeArtifactsService, type ArtifactDigestMap } from '../../services/host-claude-artifacts.js';
@@ -45,7 +44,6 @@ import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-en
  *   - insecure-window   (sliding window + grace + approval)
  *   - runner-validation (canonical payload + digest)
  *   - host-sync         (sync envelope content)
- *   - token-usage       (current-month totals)
  *   - version-snapshot  (versions block)
  *
  * /auth is the wrapper's "what's the latest canonical auth blob" probe;
@@ -61,8 +59,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     db: ctx.db,
     installationId: ctx.env.INSTALLATION_ID ?? null,
   });
-  const tokenUsage = createTokenUsageService({ db: ctx.db });
-  const syncService = createHostSyncService({ db: ctx.db, versions, tokenUsage });
+  const syncService = createHostSyncService({ db: ctx.db, versions });
   const agentsService = new HostAgentsService(ctx.db, {
     publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
     keyring: ctx.keyring,
@@ -90,9 +87,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
 
     if (command === 'retrieve') {
-      return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions, tokenUsage);
+      return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions);
     }
-    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, versions, tokenUsage);
+    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, versions);
   });
 
   // DELETE /auth — host uninstall.
@@ -128,7 +125,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
-      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions, tokenUsage);
+      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions);
       out.auth = authResult;
       const authStatus = ((authResult as { status?: string }).status ?? '').toLowerCase();
       if (authStatus !== 'valid') {
@@ -166,7 +163,6 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         runnerValidation,
         authStore,
         versions,
-        tokenUsage,
       );
       out.auth = authResult;
       const status = ((authResult as { status?: string }).status ?? '').toLowerCase();
@@ -278,7 +274,6 @@ async function handleRetrieve(
   engine: Engine,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
-  tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   const providedDigest = extractDigest(payload, false);
   const incomingLast =
@@ -304,13 +299,11 @@ async function handleRetrieve(
     payload.wrapper_version,
     engine,
   );
-  const totals = await tokenUsage.totalsForMonth(host.id);
   const baseResponse: Record<string, unknown> = {
     canonical_last_refresh: canonicalLast,
     canonical_digest: canonicalDigest,
     host: buildHostPayload(host),
     api_calls: Number(host.apiCalls ?? 0) + 1,
-    token_usage_month: totals,
     versions,
     quota_hard_fail: host.vip === 1 ? false : await versionSvc.flag('quota_hard_fail', true),
     quota_limit_percent: await readQuotaLimitPercent(versionSvc),
@@ -359,7 +352,6 @@ async function buildRetrieveBaseResponse(
   payload: Record<string, unknown>,
   engine: Engine,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
-  tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   await ctx.db
     .update(hostsTable)
@@ -371,11 +363,9 @@ async function buildRetrieveBaseResponse(
     payload.wrapper_version,
     engine,
   );
-  const totals = await tokenUsage.totalsForMonth(host.id);
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host),
     api_calls: Number(host.apiCalls ?? 0) + 1,
-    token_usage_month: totals,
     versions,
     quota_hard_fail: host.vip === 1 ? false : await versionSvc.flag('quota_hard_fail', true),
     quota_limit_percent: await readQuotaLimitPercent(versionSvc),
@@ -397,10 +387,9 @@ async function handleBootstrapAuth(
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
-  tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   const candidate = readAuthCandidate(payload);
-  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
 
   const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
@@ -414,11 +403,11 @@ async function handleBootstrapAuth(
     if (candidateDigest === canonicalDigest) {
       await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
       await touchHostAuthFields(ctx.db, host.id, canonicalLast, canonicalDigest, engine);
-      const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc, tokenUsage);
+      const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
       return { ...baseResponse, canonical_last_refresh: canonicalLast, canonical_digest: canonicalDigest, status: 'valid' };
     }
     if (candidateLast && Date.parse(candidateLast) < Date.parse(canonicalLast)) {
-      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
     }
   }
 
@@ -431,11 +420,11 @@ async function handleBootstrapAuth(
       logAction: 'auth.store',
       logDetails: { source: 'sync.bootstrap' },
     });
-    const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc, tokenUsage);
+    const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
   }
 }
 
@@ -467,7 +456,6 @@ async function handleStore(
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
-  tokenUsage: ReturnType<typeof createTokenUsageService>,
 ): Promise<Record<string, unknown>> {
   const incoming = extractAuthPayload(payload);
   let stored;
@@ -486,7 +474,7 @@ async function handleStore(
     // state via retrieve instead, same as handleBootstrapAuth.
     if (err instanceof ValidationError) throw err;
     app.log.warn({ err, host: host.fqdn, engine }, 'auth store failed; falling back to retrieve');
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, tokenUsage);
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
   }
   const now = nowIso();
   await ctx.db
@@ -494,7 +482,6 @@ async function handleStore(
     .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: now })
     .where(eq(hostsTable.id, host.id));
 
-  const totals = await tokenUsage.totalsForMonth(host.id);
   const summary = withLegacyShellWrapperTransition(
     await versionSvc.summary(engine),
     payload.wrapper_version,
@@ -504,7 +491,6 @@ async function handleStore(
   return {
     ...stored,
     api_calls: Number(host.apiCalls ?? 0) + 1,
-    token_usage_month: totals,
     versions: summary,
     host: buildHostPayload(host),
   };

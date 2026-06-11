@@ -6,7 +6,6 @@
  *
  * Timestamps are stored as VARCHAR(100) ISO 8601 strings everywhere except:
  *   - hosts.insecure_enabled_until / insecure_grace_until (real DATETIME)
- *   - dashboard_graph_claude_daily_stats.date_bucket (real DATE)
  * Booleans are TINYINT(1). SHA-256 digests are CHAR(64). Encrypted blobs use
  * the `*_enc` LONGTEXT convention and hold an `sbox:v1:…` envelope.
  */
@@ -21,7 +20,6 @@ import {
   char,
   int,
   datetime,
-  date,
   json,
   varbinary,
   index,
@@ -694,53 +692,6 @@ export const insecureDomainAllows = mysqlTable(
   }),
 );
 
-export const tokenUsageIngests = mysqlTable(
-  'token_usage_ingests',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
-    entries: int('entries', { unsigned: true }).notNull().default(0),
-    total: bigint('total', { mode: 'number', unsigned: true }),
-    inputTokens: bigint('input_tokens', { mode: 'number', unsigned: true }),
-    outputTokens: bigint('output_tokens', { mode: 'number', unsigned: true }),
-    cachedTokens: bigint('cached_tokens', { mode: 'number', unsigned: true }),
-    reasoningTokens: bigint('reasoning_tokens', { mode: 'number', unsigned: true }),
-    clientIp: varchar('client_ip', { length: 64 }),
-    payload: longtext('payload'),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    engine: varchar('engine', { length: 16 }).default('codex'),
-  },
-  (t) => ({
-    hostIdx: index('idx_usage_ingests_host').on(t.hostId),
-    createdAtIdx: index('idx_usage_ingests_created_at').on(t.createdAt),
-    engineIdx: index('idx_usage_ingests_engine').on(t.engine),
-  }),
-);
-
-export const tokenUsages = mysqlTable(
-  'token_usages',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
-    ingestId: bigint('ingest_id', { mode: 'number', unsigned: true }),
-    total: bigint('total', { mode: 'number', unsigned: true }),
-    inputTokens: bigint('input_tokens', { mode: 'number', unsigned: true }),
-    outputTokens: bigint('output_tokens', { mode: 'number', unsigned: true }),
-    cachedTokens: bigint('cached_tokens', { mode: 'number', unsigned: true }),
-    reasoningTokens: bigint('reasoning_tokens', { mode: 'number', unsigned: true }),
-    model: varchar('model', { length: 128 }),
-    line: text('line'),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    engine: varchar('engine', { length: 16 }).default('codex'),
-  },
-  (t) => ({
-    hostIdx: index('idx_token_usage_host').on(t.hostId),
-    ingestIdx: index('idx_token_usage_ingest').on(t.ingestId),
-    createdAtIdx: index('idx_token_usage_created_at').on(t.createdAt),
-    engineIdx: index('idx_token_usage_engine').on(t.engine),
-  }),
-);
-
 export const chatgptUsageSnapshots = mysqlTable(
   'chatgpt_usage_snapshots',
   {
@@ -793,25 +744,6 @@ export const chatgptUsageSnapshots = mysqlTable(
   (t) => ({
     hostIdx: index('idx_chatgpt_usage_host').on(t.hostId),
     fetchedIdx: index('idx_chatgpt_usage_fetched').on(t.fetchedAt),
-  }),
-);
-
-export const dashboardGraphUsageDailyStats = mysqlTable(
-  'dashboard_graph_usage_daily_stats',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    statDate: varchar('stat_date', { length: 10 }).notNull(),
-    totalTokens: bigint('total_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    inputTokens: bigint('input_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    outputTokens: bigint('output_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    cachedTokens: bigint('cached_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    reasoningTokens: bigint('reasoning_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    updatedAt: varchar('updated_at', { length: 100 }).notNull().default('1970-01-01T00:00:00Z'),
-  },
-  (t) => ({
-    statDateUnique: uniqueIndex('uniq_dashboard_graph_usage_day').on(t.statDate),
-    updatedIdx: index('idx_dashboard_graph_usage_updated').on(t.updatedAt),
   }),
 );
 
@@ -950,38 +882,6 @@ export const openaiApiKeys = mysqlTable(
   }),
 );
 
-export const claudeUsageSnapshots = mysqlTable(
-  'claude_usage_snapshots',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    status: varchar('status', { length: 32 }).notNull().default('ok'),
-    modelsJson: longtext('models_json'),
-    fetchedAt: varchar('fetched_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    createdIdx: index('idx_created').on(t.createdAt),
-    fetchedIdx: index('idx_fetched').on(t.fetchedAt),
-  }),
-);
-
-export const dashboardGraphClaudeDailyStats = mysqlTable(
-  'dashboard_graph_claude_daily_stats',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    dateBucket: date('date_bucket').notNull(),
-    model: varchar('model', { length: 128 }).notNull().default('unknown'),
-    inputTokens: bigint('input_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    outputTokens: bigint('output_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    cachedTokens: bigint('cached_tokens', { mode: 'number', unsigned: true }).notNull().default(0),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    dateModelUnique: uniqueIndex('uk_date_model').on(t.dateBucket, t.model),
-    dateIdx: index('idx_date').on(t.dateBucket),
-  }),
-);
-
 export const dashboardGraphClaudeQuotaSnapshots = mysqlTable(
   'dashboard_graph_claude_quota_snapshots',
   {
@@ -1048,7 +948,6 @@ export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;
 export type CoordProject = typeof coordProjects.$inferSelect;
 export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
-export type TokenUsage = typeof tokenUsages.$inferSelect;
 export type IpRateLimit = typeof ipRateLimits.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;

@@ -1,32 +1,18 @@
 ---
-title: Logs — API, MCP, and Events
+title: Logs — MCP and Events
 section: Admin workspace
-verified: 2026-06-05
+verified: 2026-06-11
 sources: api/src/db/schema.ts, api/src/services/admin-events.ts, api/src/services/mcp-access-log.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/settings/index.ts, api/src/ws/server.ts
 ---
 
-Three log streams live in the admin UI under `/logs/*`. Each has its own tab and its own retention knob. They differ in what writes to them and how often.
+Two log streams live in the admin UI under `/logs/*`. Each has its own tab and its own retention knob. They differ in what writes to them and how often.
 
-## The three streams
+## The two streams
 
-- **API** — `/logs/api`. Token-usage ingest records: one row per host request that reports token consumption. Backed by the `token_usage_ingests` table.
 - **MCP** — `/logs/mcp`. Every tool call against the MCP server. Backed by `mcp_access_logs`.
 - **Events** — `/logs/events`. Administrative audit trail: logins, role changes, config stores, agent reverts, host deletes, insecure approvals. Backed by `admin_events`.
 
-Open any of the three via the tab bar at the top of the Logs area.
-
-## API tab
-
-Calls `GET /admin/usage/ingests` and returns paginated rows from `token_usage_ingests`.
-
-**Columns:** Timestamp, FQDN, Client IP, Input (tokens), Output (tokens), Cached (tokens), Reasoning (tokens).
-
-**Toolbar controls:**
-- Free-text search — matches against FQDN, client IP, or row ID.
-- Page-size selector — 10 / 25 / 50 / 100 / 250 rows.
-- Refresh button.
-
-All columns support server-side sort; previous/next pagination controls appear below the table. Rows are not expandable. There is no action filter and no time-window filter on this tab.
+Open either via the tab bar at the top of the Logs area.
 
 ## MCP tab
 
@@ -87,11 +73,10 @@ When `ADMIN_WS_ENABLED=true`, the admin UI opens a WebSocket to `/admin/ws` (URL
 
 ## Source references
 
-- api/src/db/schema.ts (token_usage_ingests, admin_events, mcp_access_logs tables)
+- api/src/db/schema.ts (admin_events, mcp_access_logs tables)
 - api/src/services/admin-events.ts (event recording helper)
 - api/src/services/mcp-access-log.ts (MCP access log writes)
 - api/src/routes/admin/overview/index.ts (/admin/logs)
-- api/src/routes/admin/usage/index.ts (/admin/usage/ingests)
 - api/src/routes/admin/config/index.ts (/admin/mcp/logs)
 - api/src/routes/admin/settings/index.ts (log retention endpoints)
 - api/src/ws/server.ts, api/src/ws/publisher.ts (live event stream)

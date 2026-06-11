@@ -21,7 +21,6 @@ type ScreenInput struct {
 	Insecure bool
 	Model    string
 
-	TokenSum int64
 	APICalls int64
 
 	Concurrent     bool
@@ -62,10 +61,7 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 	if in.Model != "" {
 		ctxParts = append(ctxParts, in.Model)
 	}
-	switch {
-	case in.TokenSum > 0:
-		ctxParts = append(ctxParts, fmt.Sprintf("%s tokens", CompactNumber(in.TokenSum)))
-	case in.APICalls > 0:
+	if in.APICalls > 0 {
 		ctxParts = append(ctxParts, fmt.Sprintf("%s calls", CompactNumber(in.APICalls)))
 	}
 	contextLine := strings.Join(ctxParts, "  ·  ")

@@ -22,7 +22,6 @@ type AuthRetrieveResponse struct {
 	CanonicalLastRefresh string          `json:"canonical_last_refresh,omitempty"`
 	Auth                 json.RawMessage `json:"auth,omitempty"`
 	APICalls             int64           `json:"api_calls,omitempty"`
-	TokenUsageMonth      *TokenUsage     `json:"token_usage_month,omitempty"`
 	Versions             *VersionSummary `json:"versions,omitempty"`
 	Host                 *HostInfo       `json:"host,omitempty"`
 	ChatGPT              *ChatGPTQuota   `json:"chatgpt,omitempty"`
@@ -30,15 +29,6 @@ type AuthRetrieveResponse struct {
 	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
 	Engine               string          `json:"engine,omitempty"`
 	VerificationState    string          `json:"verification_state,omitempty"`
-}
-
-// TokenUsage is the rolling month-to-date token tally for this host.
-type TokenUsage struct {
-	Total     int64 `json:"total"`
-	Input     int64 `json:"input"`
-	Output    int64 `json:"output"`
-	Cached    int64 `json:"cached"`
-	Reasoning int64 `json:"reasoning"`
 }
 
 // VersionSummary mirrors VersionSnapshot on the server.

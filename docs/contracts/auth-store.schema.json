@@ -17,7 +17,6 @@
         "canonical_last_refresh",
         "canonical_digest",
         "api_calls",
-        "token_usage_month",
         "versions",
         "quota_hard_fail",
         "quota_limit_percent",
@@ -207,59 +206,6 @@
         },
         "api_calls": {
           "type": "integer"
-        },
-        "token_usage_month": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "required": [
-            "total",
-            "input",
-            "output",
-            "cached",
-            "reasoning",
-            "events"
-          ],
-          "properties": {
-            "total": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "input": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "output": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "cached": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "reasoning": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "events": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            }
-          },
-          "additionalProperties": true
         },
         "versions": {
           "type": "object",

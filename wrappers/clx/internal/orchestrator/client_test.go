@@ -71,63 +71,6 @@ func TestRetrieveAgents(t *testing.T) {
 	}
 }
 
-func TestPostUsagesArrayShape(t *testing.T) {
-	var gotBody string
-	var gotPath string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	batch := UsagesBatch{
-		Engine: "claude",
-		FQDN:   "h.example.com",
-		Usages: []UsageEntry{
-			{Model: "claude-sonnet-4-6", Total: 150, Input: 100, Output: 50, Cached: 10, CacheCreation: 5, Line: "Token usage: total=150 input=100 (+ 15 cached) output=50"},
-		},
-	}
-	if err := c.PostUsages(context.Background(), batch); err != nil {
-		t.Fatalf("post usages: %v", err)
-	}
-	if gotPath != "/usage" {
-		t.Errorf("path = %q want /usage", gotPath)
-	}
-	for _, want := range []string{
-		`"engine":"claude"`,
-		`"fqdn":"h.example.com"`,
-		`"usages":[`,
-		`"total":150`,
-		`"input":100`,
-		`"output":50`,
-		`"cached":10`,
-		`"cache_creation":5`,
-	} {
-		if !strings.Contains(gotBody, want) {
-			t.Errorf("body missing %q\nbody=%s", want, gotBody)
-		}
-	}
-	// reasoning field doesn't exist on the Claude shape — must NOT appear.
-	if strings.Contains(gotBody, `"reasoning"`) {
-		t.Errorf("body should not include reasoning for claude: %s", gotBody)
-	}
-}
-
-func TestPostUsagesDefaultsEngine(t *testing.T) {
-	var gotBody string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	if err := c.PostUsages(context.Background(), UsagesBatch{Usages: []UsageEntry{{Total: 1}}}); err != nil {
-		t.Fatalf("post: %v", err)
-	}
-	if !strings.Contains(gotBody, `"engine":"claude"`) {
-		t.Errorf("engine default missing: %s", gotBody)
-	}
-}
-
 func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
 	var requestBody string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

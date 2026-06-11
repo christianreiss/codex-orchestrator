@@ -31,7 +31,7 @@ API keys are read from HTTP **headers** in all cases via `extractApiKey(req.head
    - `status: 'missing'` — no canonical payload exists yet.
 5. **No runner call** — the runner is never called on the retrieve path.
 
-The retrieve response includes `versions`, `token_usage_month`, `canonical_digest`, `canonical_last_refresh`, `host`, `quota_hard_fail`, `quota_limit_percent`, and (when `status: 'outdated'`) the `auth` blob. Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
+The retrieve response includes `versions`, `canonical_digest`, `canonical_last_refresh`, `host`, `quota_hard_fail`, `quota_limit_percent`, and (when `status: 'outdated'`) the `auth` blob. Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
 
 ### Store (`command=store`)
 

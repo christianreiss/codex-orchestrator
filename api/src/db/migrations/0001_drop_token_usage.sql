@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS token_usages, token_usage_ingests, dashboard_graph_usage_daily_stats, dashboard_graph_claude_daily_stats, claude_usage_snapshots;

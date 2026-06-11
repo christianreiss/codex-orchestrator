@@ -1,6 +1,6 @@
 // Package lifecycle orchestrates the startup sequence for a single `cdx run`:
 // lock → bundle (auth + agents + config in one POST) → decide → boot screen →
-// pre-exec → Codex → post-exec auth upload → usage report → exit footer.
+// pre-exec → Codex → post-exec auth upload → exit footer.
 package lifecycle
 
 import (
@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,14 +193,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	beforeHash, beforeRefresh := snapshotAuth(authPath)
 
 	started := time.Now()
-	exitCode, captured, runErr := codex.RunCapture(ctx, cfg, opts.ExtraArgs)
+	exitCode, _, runErr := codex.RunCapture(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
 
 	// Post-exec auth upload (best-effort, 5s budget). A `codex login` mid-run
 	// rotates tokens; we want to push the rotated payload to canonical store.
 	maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
-
-	usageResult, usageTone := reportUsage(client, cfg, started, duration, captured, exitCode, logger)
 
 	// Exit footer.
 	if !opts.SkipBoot {
@@ -211,8 +208,6 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			When:         time.Now(),
 			HeaderText:   "Run summary",
 			RunDuration:  duration,
-			UsageStatus:  usageResult,
-			UsageTone:    usageTone,
 			AuthStatus:   "not-needed",
 			AuthTone:     ui.ToneOK,
 			CodexVersion: codexUpdated,
@@ -534,88 +529,6 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	}
 	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)
 }
-
-// reportUsage extracts token counts (pipe-mode capture first, JSONL session
-// files as fallback) and POSTs the legacy `{engine,fqdn,usages:[…]}` batch
-// to /usage. Best-effort: any failure is logged at debug and surfaced in the
-// exit footer, never blocking the foreground exec.
-func reportUsage(client *orchestrator.Client, cfg *config.Config, started time.Time, dur time.Duration, captured []byte, exit int, logger *slog.Logger) (string, ui.Tone) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	model := ""
-	if cfg.EngineOptions.ModelOverride != nil {
-		model = *cfg.EngineOptions.ModelOverride
-	}
-
-	var tokens codex.Tokens
-	var line string
-	if len(captured) > 0 {
-		if t, ok := codex.ParseStdoutCapture(captured); ok {
-			tokens = t
-			line = extractUsageLine(captured)
-		}
-	}
-	if tokens.IsZero() {
-		if home, herr := os.UserHomeDir(); herr == nil {
-			files, _ := codex.DiscoverSessions(filepath.Join(home, ".codex", "sessions"), started)
-			for _, f := range files {
-				if t, err := codex.ParseSessionJSONL(f); err == nil {
-					tokens.Add(t)
-				}
-			}
-		}
-	}
-
-	entry := orchestrator.UsageEntry{
-		Model:     model,
-		Total:     tokens.Total,
-		Input:     tokens.Input,
-		Output:    tokens.Output,
-		Cached:    tokens.Cached,
-		Reasoning: tokens.Reasoning,
-		Duration:  dur.Seconds(),
-		Line:      line,
-	}
-	batch := orchestrator.UsagesBatch{
-		Engine: "codex",
-		FQDN:   cfg.Host.FQDN,
-		Usages: []orchestrator.UsageEntry{entry},
-	}
-	if err := client.PostUsages(ctx, batch); err != nil {
-		logger.Debug("usage report failed", "err", err, "exit", exit)
-		return "skipped (" + err.Error() + ")", ui.ToneWarn
-	}
-	if tokens.IsZero() {
-		return "uploaded (no tokens detected)", ui.ToneOK
-	}
-	return "uploaded", ui.ToneOK
-}
-
-// extractUsageLine pulls the literal "Token usage: …" line from the captured
-// stdout buffer so the server-side audit log shows the upstream phrasing.
-// Strips ANSI/control bytes to match the legacy bash payload.
-func extractUsageLine(buf []byte) string {
-	if len(buf) == 0 {
-		return ""
-	}
-	s := lineStripper.ReplaceAllString(string(buf), "")
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if strings.Contains(strings.ToLower(line), "token usage") {
-			if len(line) > 240 {
-				return line[:240] + "…"
-			}
-			return line
-		}
-	}
-	return ""
-}
-
-// lineStripper is a cheap one-shot noise filter for log lines (ANSI CSI +
-// the common control chars). codex/usage.go has the full triple-pass; here
-// we just need clean enough output for the audit string.
-var lineStripper = regexp.MustCompile(`\x1B\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
 
 // concurrentNote picks the right "Concurrent" row text for the boot screen.
 // Empty string means PrintConcurrentRow uses its own default

@@ -1,3 +1,42 @@
+# 2026-06-11
+
+## Remove token-usage counting (cdx, clx, api, dashboard, db)
+
+The LLM token-usage metering feature is gone end-to-end. (The Anthropic/OpenAI
+wire-protocol `usage:{input_tokens,output_tokens,…}` on `/anthropic/*` and
+`/openai/*`, ChatGPT quota windows, and usage-scaling are unaffected — those are
+not token counting.)
+
+- **cdx/clx:** Removed token parsing (`Token usage:` footer + session-JSONL
+  summing), the `reportUsage`/`PostUsage(s)` flow, the `/usage` POST, the
+  `TokenUsageMonth` field read from `/auth`, and the exit-footer/boot-screen
+  token displays (the Sync row no longer shows a `usage` dot). Absent
+  `token_usage_month` is backward-compatible (Go zero-values it), so wrapper and
+  API need not deploy atomically.
+- **API:** Deleted the `POST /usage` ingest endpoint, the `token-usage` and
+  `claude-usage` services, the token methods on `DashboardStatsService`, and the
+  admin endpoints `GET /admin/usage`, `/admin/usage/ingests`, `/admin/tokens`,
+  `/admin/claude/usage/history`. Dropped `token_usage_month` from `/auth`,
+  `/sync/status`, `/sync/bootstrap` responses; dropped `tokens*` and
+  `claude_usage_summary` from `/admin/overview`; removed the
+  `claude.usage.updated` ws event.
+- **db:** Removed tables `token_usages`, `token_usage_ingests`,
+  `dashboard_graph_usage_daily_stats`, `dashboard_graph_claude_daily_stats`,
+  `claude_usage_snapshots` from the Drizzle schema. At deploy time, run the
+  reviewable `api/src/db/migrations/0001_drop_token_usage.sql`
+  (`DROP TABLE IF EXISTS …`) directly against the DB — it is intent-exact (those
+  five tables, nothing else) and permanently deletes existing token data. Do
+  **not** reach for `npm run drizzle:push` as a shortcut: push ignores the
+  migrations folder and reconciles the *entire* hand-maintained `schema.ts`
+  mirror against live prod, so any pre-existing drift would be applied alongside
+  the drops.
+- **dashboard:** Removed the token stat-cards, the Claude token-history card,
+  and the `/logs/api` token-ingest page (and its nav/command entries); stat grid
+  rebalanced. ChatGPT usage card retained.
+- **docs/contracts:** Updated the API/DB/wrapper reference docs, manual
+  articles, and machine-readable contracts (deleted `usage-ingest.schema.json`;
+  dropped `token_usage_month` from the auth-store/auth-retrieve schemas).
+
 # 2026-06-10
 
 ## Full dual-engine install/update coverage (wrappers 0.6.27)

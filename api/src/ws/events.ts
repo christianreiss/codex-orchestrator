@@ -56,7 +56,6 @@ export const WS_EVENT_TYPES = [
   'usage.refreshed',
   'usage.refresh',
   'chatgpt.usage.updated',
-  'claude.usage.updated',
   'insecure.approval.changed',
 
   // Account

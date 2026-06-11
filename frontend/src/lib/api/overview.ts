@@ -8,16 +8,6 @@
 import { api } from "./client";
 import { createQuery, createMutation } from "@tanstack/svelte-query";
 
-/** Token totals as returned by TokenUsageRepository::normalizeTotalsRow. */
-export interface TokenTotals {
-  total: number;
-  input: number;
-  output: number;
-  cached: number;
-  reasoning: number;
-  events: number;
-}
-
 export interface OverviewVersions {
   client_version?: string | null;
   wrapper_version?: string | null;
@@ -31,20 +21,22 @@ export interface OverviewVersions {
   [key: string]: unknown;
 }
 
+export interface VersionDistribution {
+  codex: Array<{ version: string; count: number }>;
+  claude: Array<{ version: string; count: number }>;
+  install: { both: number; codex_only: number; claude_only: number; neither: number };
+}
+
 export interface OverviewResponse {
   totals: { hosts: number };
   latest_log_at?: string | null;
   last_refresh?: string | null;
   avg_refresh_age_days?: number | null;
+  version_distribution?: VersionDistribution | null;
   versions: OverviewVersions;
-  tokens?: TokenTotals & { top_host?: unknown };
-  tokens_day?: TokenTotals;
-  tokens_week?: TokenTotals;
-  tokens_month?: TokenTotals;
   chatgpt_usage?: unknown;
   chatgpt_usage_summary?: unknown;
   chatgpt_cached?: boolean;
-  claude_usage_summary?: unknown;
   has_canonical_auth?: boolean;
   seed_required?: boolean;
   insecure_approval_enabled?: boolean;

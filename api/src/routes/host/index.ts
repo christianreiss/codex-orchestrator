@@ -11,7 +11,6 @@ import { wsPublisher } from '../../ws/publisher.js';
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
-import { createTokenUsageService } from '../../services/token-usage.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
@@ -19,7 +18,7 @@ import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 /**
- * Registers /host/users, /host/lane (GET+POST), /usage, /versions, /cron/check,
+ * Registers /host/users, /host/lane (GET+POST), /versions, /cron/check,
  * /cron/report, /agents/retrieve, /config/retrieve.
  *
  * /versions is public — every other route requires a host API key. /cron/*
@@ -30,12 +29,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   const failures = createAuthFailureTracker(app);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
-  const tokenUsage = createTokenUsageService({ db: ctx.db });
   const versions = createVersionSnapshotService({
     db: ctx.db,
     installationId: ctx.env.INSTALLATION_ID ?? null,
   });
-  const sync = createHostSyncService({ db: ctx.db, versions, tokenUsage });
+  const sync = createHostSyncService({ db: ctx.db, versions });
 
   const binRoot = ctx.env.DATA_ROOT
     ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
@@ -103,26 +101,6 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       host_id: host.id,
       fqdn: host.fqdn,
     };
-  });
-
-  // POST /usage — ingest token usage.
-  app.post('/usage', async (req) => {
-    const host = await hostAuth.authenticate(req);
-    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
-    const engine = parseEngine(body.engine);
-    assertHostEngineEnabled(host, engine);
-    try {
-      const result = await tokenUsage.record(host.id, body, req.clientIp || null);
-      return result;
-    } catch (err) {
-      req.log.warn({ err }, 'usage ingestion failed');
-      // Contract: return 200 with recorded:false on ingest failure (never bubble).
-      return {
-        recorded: false,
-        reason: 'usage ingestion failed',
-        engine,
-      };
-    }
   });
 
   // POST /cron/check — slimmed auto-update probe.

@@ -116,13 +116,10 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
   - Manual Codex run: `POST /admin/runner/run` (`settings.manage`).
   - Manual Claude run: `POST /admin/runner/run-claude` (`settings.manage`).
-- **Usage, ChatGPT, Logs**:
-  - Usage rows: `GET /admin/usage` (`limit`, repository clamps to `1..500`).
-  - Usage ingests: `GET /admin/usage/ingests` (`page`, `per_page<=200`, `host_id`, `q`, `sort`, `direction`).
+- **ChatGPT, Logs**:
   - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
   - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
   - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh` (`settings.manage`).
-  - Token line aggregates: `GET /admin/tokens` (`limit`, repository clamps to `1..200`).
   - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
   - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:

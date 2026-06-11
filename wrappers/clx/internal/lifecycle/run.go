@@ -1,6 +1,6 @@
 // Package lifecycle orchestrates the startup sequence for a single `clx run`:
 // lock → bundle (auth + agents + settings in one POST) → decide → boot screen
-// → pre-exec → Claude → post-exec auth upload → usage report → exit footer.
+// → pre-exec → Claude → post-exec auth upload → exit footer.
 package lifecycle
 
 import (
@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -190,12 +189,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	before := snapshotAuthFiles()
 
 	started := time.Now()
-	exitCode, captured, runErr := claude.RunCapture(ctx, cfg, opts.ExtraArgs)
+	exitCode, _, runErr := claude.RunCapture(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
 
 	maybePostRunAuthUpload(client, logger, before)
-
-	usageResult, usageTone := reportUsage(client, cfg, started, duration, captured, exitCode, logger)
 
 	if !opts.SkipBoot {
 		caps := ui.DetectCaps(themeFromConfig(cfg))
@@ -204,8 +201,6 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			When:         time.Now(),
 			HeaderText:   "Run summary",
 			RunDuration:  duration,
-			UsageStatus:  usageResult,
-			UsageTone:    usageTone,
 			AuthStatus:   "not-needed",
 			AuthTone:     ui.ToneOK,
 			CodexVersion: claudeUpdated,
@@ -566,85 +561,6 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 	prev := before[path]
 	logger.Debug("post-run auth uploaded", "path", path, "hash_changed", prev.Hash != afterHash, "refresh_changed", prev.Refresh != afterRefresh)
 }
-
-// reportUsage extracts Claude usage (pipe-mode capture first, then JSONL
-// session-file discovery under ~/.claude/projects and ~/.claude) and POSTs
-// the legacy `{engine,fqdn,usages:[…]}` batch to /usage. Best-effort: any
-// failure surfaces in the exit footer but never blocks the foreground exec.
-func reportUsage(client *orchestrator.Client, cfg *config.Config, started time.Time, dur time.Duration, captured []byte, exit int, logger *slog.Logger) (string, ui.Tone) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	model := ""
-	if cfg.EngineOptions.ClaudeModelOverride != nil {
-		model = *cfg.EngineOptions.ClaudeModelOverride
-	}
-
-	var tokens claude.Tokens
-	var line string
-	if len(captured) > 0 {
-		if t, ok := claude.ParseStdoutCapture(captured); ok {
-			tokens = t
-			line = extractUsageLine(captured)
-		}
-	}
-	if tokens.IsZero() {
-		roots := claude.DefaultSessionRoots()
-		files, _ := claude.DiscoverSessions(roots, started)
-		for _, f := range files {
-			if t, err := claude.ParseSessionJSONL(f); err == nil {
-				tokens.Add(t)
-			}
-		}
-	}
-
-	entry := orchestrator.UsageEntry{
-		Model:         model,
-		Total:         tokens.Total,
-		Input:         tokens.Input,
-		Output:        tokens.Output,
-		Cached:        tokens.Cached,
-		CacheCreation: tokens.CacheCreation,
-		Duration:      dur.Seconds(),
-		Line:          line,
-	}
-	batch := orchestrator.UsagesBatch{
-		Engine: "claude",
-		FQDN:   cfg.Host.FQDN,
-		Usages: []orchestrator.UsageEntry{entry},
-	}
-	if err := client.PostUsages(ctx, batch); err != nil {
-		logger.Debug("usage report failed", "err", err, "exit", exit)
-		return "skipped (" + err.Error() + ")", ui.ToneWarn
-	}
-	if tokens.IsZero() {
-		return "uploaded (no tokens detected)", ui.ToneOK
-	}
-	return "uploaded", ui.ToneOK
-}
-
-// extractUsageLine pulls the literal "Token usage: …" footer line from the
-// captured stdout buffer so the server-side audit log shows the upstream
-// phrasing. Strips ANSI/control bytes to match the legacy bash payload.
-func extractUsageLine(buf []byte) string {
-	if len(buf) == 0 {
-		return ""
-	}
-	s := lineStripper.ReplaceAllString(string(buf), "")
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if strings.Contains(strings.ToLower(line), "token usage") {
-			if len(line) > 240 {
-				return line[:240] + "…"
-			}
-			return line
-		}
-	}
-	return ""
-}
-
-// lineStripper is a cheap one-shot noise filter for log lines.
-var lineStripper = regexp.MustCompile(`\x1B\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
 
 func themeFromConfig(cfg *config.Config) string {
 	if cfg == nil || cfg.EngineOptions.AdminThemeHint == nil {

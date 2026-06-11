@@ -19,16 +19,6 @@ export function relativeTime(input: Date | string | number | null | undefined): 
   return formatDistanceToNowStrict(date, { addSuffix: true });
 }
 
-/** Format an integer token count as a short string: 12.5k, 1.2M, 3B. */
-export function formatTokens(n: number | null | undefined): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return "0";
-  const abs = Math.abs(n);
-  if (abs < 1_000) return `${n}`;
-  if (abs < 1_000_000) return `${(n / 1_000).toFixed(abs < 10_000 ? 1 : 0)}k`;
-  if (abs < 1_000_000_000) return `${(n / 1_000_000).toFixed(abs < 10_000_000 ? 1 : 0)}M`;
-  return `${(n / 1_000_000_000).toFixed(1)}B`;
-}
-
 /** Format byte size as KB/MB/GB string. */
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "0 B";

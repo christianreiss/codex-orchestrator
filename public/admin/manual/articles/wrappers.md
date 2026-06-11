@@ -106,7 +106,7 @@ Implemented in `wrappers/cdx/internal/lifecycle/run.go` (mirrored for clx):
    env, forwarding stdio and signals. Stdout is captured for token extraction.
 10. **Post-exec** — `maybePostRunAuthUpload` pushes a rotated `auth.json` back
     to the orchestrator if the SHA or `last_refresh` changed during the run.
-    `reportUsage` posts token counts to `POST /usage`. Render exit footer.
+    Render exit footer.
 
 ## Subcommands and flags
 

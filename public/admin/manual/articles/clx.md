@@ -132,9 +132,7 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    `exec claude`.
 
 7. **Post-run**: if `~/.claude/.credentials.json` hash changed, upload to
-   orchestrator (`AuthStore`). Report token usage via `/usage` batch POST
-   (extracted from stdout capture or `~/.claude/projects` JSONL session files).
-   Print exit footer.
+   orchestrator (`AuthStore`). Print exit footer.
 
 ## Authentication model
 

@@ -82,25 +82,12 @@ export interface ClaudeVersionResponse {
   client_version_lock_updated_at?: string | null;
 }
 
-export interface ClaudeHistoryRow {
-  bucket: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cached_tokens: number;
-  total_tokens: number;
-}
-
-export type ClaudeHistoryResponse = ClaudeHistoryRow[];
-
 /* Query keys ------------------------------------------------------------ */
 
 export const usageKeys = {
   chatgpt: ["usage", "chatgpt"] as const,
   chatgptHistory: (days = 60) => ["usage", "chatgpt", "history", days] as const,
   claudeVersion: ["usage", "claude", "version"] as const,
-  claudeHistory: (period = "7d", bucket = "daily") =>
-    ["usage", "claude", "history", period, bucket] as const,
 };
 
 /* Query / mutation builders -------------------------------------------- */
@@ -138,32 +125,7 @@ export function claudeVersionQuery() {
   });
 }
 
-export function claudeHistoryQuery(period: "24h" | "7d" | "30d" = "7d", bucket: "hourly" | "daily" = "daily") {
-  return createQuery<ClaudeHistoryResponse>({
-    queryKey: usageKeys.claudeHistory(period, bucket),
-    queryFn: () =>
-      api.get<ClaudeHistoryResponse>(
-        `/admin/claude/usage/history?period=${period}&bucket=${bucket}`,
-      ),
-  });
-}
-
 /* Aggregations --------------------------------------------------------- */
-
-/**
- * Collapse Claude per-model rows into a single time-series usable by the
- * trend chart. Sums tokens across all models per bucket.
- */
-export function flattenClaudeHistory(rows: ClaudeHistoryResponse | undefined): Array<{ ts: string; value: number }> {
-  if (!rows || rows.length === 0) return [];
-  const byBucket = new Map<string, number>();
-  for (const row of rows) {
-    byBucket.set(row.bucket, (byBucket.get(row.bucket) ?? 0) + row.total_tokens);
-  }
-  return [...byBucket.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([ts, value]) => ({ ts, value }));
-}
 
 /** Find the most "interesting" ChatGPT series (highest absolute usage). */
 export function pickPrimaryChatgptSeries(history: ChatGptHistoryResponse | undefined): ChatGptHistorySeries | null {

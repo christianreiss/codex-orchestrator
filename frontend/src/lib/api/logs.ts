@@ -1,9 +1,5 @@
 /**
  * svelte-query builders for the Logs feature.
- *
- * Brief-facing surface uses `limit` / `offset` / `dir`; the backend's
- * `/admin/usage/ingests` actually accepts `per_page` / `page` / `direction`,
- * so we translate transparently.
  */
 import type { CreateQueryOptions } from "@tanstack/svelte-query";
 import { api } from "./client";
@@ -11,19 +7,7 @@ import type {
   AdminAuditLogRow,
   HostFqdnSummary,
   McpAccessLogRow,
-  UsageIngestPage,
 } from "./types";
-
-export type SortDirection = "asc" | "desc";
-
-export interface UsageIngestsParams {
-  limit?: number;
-  offset?: number;
-  q?: string;
-  sort?: string;
-  dir?: SortDirection;
-  hostId?: number | null;
-}
 
 function buildQuery(params: Record<string, string | number | null | undefined>): string {
   const search = new URLSearchParams();
@@ -35,39 +19,6 @@ function buildQuery(params: Record<string, string | number | null | undefined>):
   }
   const s = search.toString();
   return s ? `?${s}` : "";
-}
-
-/** Convert brief-style `limit`/`offset` into backend-style `per_page`/`page`. */
-function paginate(limit?: number, offset?: number): { per_page: number; page: number } {
-  const perPage = Math.max(1, Math.min(200, limit ?? 50));
-  const off = Math.max(0, offset ?? 0);
-  const page = Math.floor(off / perPage) + 1;
-  return { per_page: perPage, page };
-}
-
-/**
- * Query builder for paginated API-traffic ingest rows.
- * Endpoint: `GET /admin/usage/ingests`
- */
-export function usageIngestsQuery(
-  params: UsageIngestsParams = {},
-): CreateQueryOptions<UsageIngestPage, Error> {
-  const { limit, offset, q, sort, dir, hostId } = params;
-  const { per_page, page } = paginate(limit, offset);
-  const direction = dir === "asc" ? "asc" : "desc";
-  const qs = buildQuery({
-    per_page,
-    page,
-    q: q && q.trim() !== "" ? q.trim() : undefined,
-    sort: sort && sort.trim() !== "" ? sort.trim() : "created_at",
-    direction,
-    host_id: hostId ?? undefined,
-  });
-  return {
-    queryKey: ["logs", "api", { per_page, page, q: q ?? "", sort: sort ?? "created_at", dir: direction, hostId: hostId ?? null }],
-    queryFn: () => api.get<UsageIngestPage>(`/admin/usage/ingests${qs}`),
-    placeholderData: (prev) => prev,
-  };
 }
 
 /**

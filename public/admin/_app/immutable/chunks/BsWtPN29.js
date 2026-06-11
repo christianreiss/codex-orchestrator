@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./zRYLR_tu.js";import"./BD-4OuCl.js";import{t as n}from"./DyboCd8x.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M5 12h14`}],[`path`,{d:`M12 5v14`}]];n(r,t({name:`plus`},()=>a,{get iconNode(){return o}}))}export{r as t};

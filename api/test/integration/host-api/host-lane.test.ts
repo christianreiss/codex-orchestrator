@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
-import { hosts as hostsTable, versions as versionsTable, hostUsers, tokenUsages } from '../../../src/db/schema.js';
+import { hosts as hostsTable, versions as versionsTable, hostUsers } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 
@@ -68,7 +68,6 @@ function setupHost(db: ReturnType<typeof createDbFake>): void {
   ]);
   db.tables.set(versionsTable, []);
   db.tables.set(hostUsers, []);
-  db.tables.set(tokenUsages, []);
 }
 
 function makeKeyring(): Keyring {

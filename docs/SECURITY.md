@@ -44,7 +44,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Authentication & Authorization
 
-- **Host-authenticated routes**: `POST/DELETE /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `/wrapper*`, `/usage`, `/host/users`, `/host/lane`, `/agents/retrieve`, `/config/retrieve`, `/skills*`, `/mcp/memories/*`, and `POST /mcp` require API key authentication and IP binding (subject to roaming/insecure overrides/runner CIDR bypass rules).
+- **Host-authenticated routes**: `POST/DELETE /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `/wrapper*`, `/host/users`, `/host/lane`, `/agents/retrieve`, `/config/retrieve`, `/skills*`, `/mcp/memories/*`, and `POST /mcp` require API key authentication and IP binding (subject to roaming/insecure overrides/runner CIDR bypass rules).
 - **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
 - **Installer** (`/install/{token}`): public endpoint that returns a shell script; token is validated for expiry/one-time use and tags host/base URL plus installer mode. Returned script bakes API key/FQDN/base URL into the engine-appropriate wrapper(s).
 - **Installation binding**: If a client sends `installation_id` and it does not match server `INSTALLATION_ID`, auth calls are rejected with `403 installation_mismatch`. Omitted `installation_id` is accepted for legacy clients.

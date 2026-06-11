@@ -43,19 +43,6 @@ func TestAuthRetrieveSendsDigestAndAPIKey(t *testing.T) {
 	}
 }
 
-func TestPostUsage(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/usage" {
-			t.Errorf("path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	err := c.PostUsage(context.Background(), UsageRecord{Engine: "codex", InputTokens: 100, OutputTokens: 50})
-	if err != nil {
-		t.Fatalf("usage: %v", err)
-	}
-}
-
 func TestGetLaneRoundTrip(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"lane":"spark"}}`))
@@ -117,62 +104,6 @@ func TestRetrieveAgentsUnwrapsContent(t *testing.T) {
 	}
 }
 
-func TestPostUsagesArrayShape(t *testing.T) {
-	var gotBody string
-	var gotPath string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	batch := UsagesBatch{
-		Engine: "codex",
-		FQDN:   "h.example.com",
-		Usages: []UsageEntry{
-			{Model: "gpt-5.4", Total: 100, Input: 70, Output: 30, Line: "Token usage: total=100 input=70 output=30"},
-		},
-	}
-	if err := c.PostUsages(context.Background(), batch); err != nil {
-		t.Fatalf("post usages: %v", err)
-	}
-	if gotPath != "/usage" {
-		t.Errorf("path = %q want /usage", gotPath)
-	}
-	for _, want := range []string{
-		`"engine":"codex"`,
-		`"fqdn":"h.example.com"`,
-		`"usages":[`,
-		`"total":100`,
-		`"input":70`,
-		`"output":30`,
-		`"line":"Token usage: total=100 input=70 output=30"`,
-	} {
-		if !strings.Contains(gotBody, want) {
-			t.Errorf("body missing %q\nbody=%s", want, gotBody)
-		}
-	}
-	// Zero counters must be omitted to match legacy bash payload semantics.
-	if strings.Contains(gotBody, `"cached":0`) || strings.Contains(gotBody, `"reasoning":0`) {
-		t.Errorf("zero counters should be omitted, body=%s", gotBody)
-	}
-}
-
-func TestPostUsagesDefaultsEngine(t *testing.T) {
-	var gotBody string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		gotBody = string(body)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	if err := c.PostUsages(context.Background(), UsagesBatch{Usages: []UsageEntry{{Total: 1}}}); err != nil {
-		t.Fatalf("post: %v", err)
-	}
-	if !strings.Contains(gotBody, `"engine":"codex"`) {
-		t.Errorf("engine default missing: %s", gotBody)
-	}
-}
-
 func TestRetryOn5xx(t *testing.T) {
 	attempts := 0
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -183,8 +114,8 @@ func TestRetryOn5xx(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	// PostUsage passes retries=1, so total attempts is 2.
-	err := c.PostUsage(context.Background(), UsageRecord{Engine: "codex"})
+	// SetLane passes retries=1, so total attempts is 2.
+	err := c.SetLane(context.Background(), "spark")
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}

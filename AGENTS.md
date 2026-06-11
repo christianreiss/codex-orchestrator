@@ -88,7 +88,6 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - Runner IP bypass requires `AUTH_RUNNER_IP_BYPASS` enabled and matching CIDRs in `AUTH_RUNNER_BYPASS_SUBNETS`.
 
 4. **Telemetry + sync extras**
-   - `/usage` accepts `line` and/or numeric fields (`total`, `input`, `output`, `cached`, `reasoning`; commas allowed), stores per-entry + ingest rows, and returns HTTP 200 with `recorded:false` if ingestion throws.
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
    - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
@@ -102,7 +101,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.
    - `/admin/quota-mode` manages `quota_hard_fail`, `quota_limit_percent` (clamped 50–100), and `quota_week_partition` (`off|5|7`); `/admin/hosts/{id}/vip` forces warn-only behavior for VIP hosts.
-   - `/admin/usage*`, `/admin/chatgpt/usage*`, `/admin/config*`, `/admin/agents*`, `/admin/skills*`, `/admin/mcp/*`, `/admin/logs`, `/admin/tokens`, and `/admin/ws/info` back dashboard operations.
+   - `/admin/chatgpt/usage*`, `/admin/config*`, `/admin/agents*`, `/admin/skills*`, `/admin/mcp/*`, `/admin/logs`, and `/admin/ws/info` back dashboard operations.
 
 ## Operational Checkpoints
 
@@ -119,7 +118,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
   - Acquires a run lock (unless `--allow-concurrent-sync`), reads and verifies its signed per-host JSON config (Ed25519 detached signature), syncs auth via `/auth`, prunes legacy prompt state, then syncs skills / `AGENTS.md` / config before launch.
   - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
   - Uses local-auth freshness windows of 24h and secure-host fallback up to 7 days during API outages.
-  - Reports host users, handles lane preference sync via `/host/lane` (Codex only), parses Codex/Claude token output, and POSTs `/usage`.
+  - Reports host users and handles lane preference sync via `/host/lane` (Codex only).
   - Honors `/auth` quota controls (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`) and displays ChatGPT usage windows + runner state.
   - Purges local auth after run when host is insecure and no concurrent-run guard blocks cleanup.
 - Wrapper CLI surface includes: `-4`, `--allow-concurrent-sync`, `lane`, `--wrapper-version|-W`, `status|--status`, `doctor|--doctor`, `--update|-U`, `--uninstall`, `--execute "<prompt>"`, `--debug|--verbose`, and `cdx <profile>` shorthand when profile exists in synced `config.toml`.

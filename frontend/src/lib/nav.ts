@@ -28,13 +28,13 @@ export const NAV: NavItem[] = [
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/api-keys", label: "API Keys", icon: KeyRound },
   { href: "/authoring", label: "Authoring", icon: BookOpen },
-  { href: "/logs/api", label: "Logs", icon: ScrollText, match: /^\/logs(\/|$)/ },
+  { href: "/logs/mcp", label: "Logs", icon: ScrollText, match: /^\/logs(\/|$)/ },
   { href: "/settings", label: "Settings", icon: Settings, match: /^\/settings(\/|$)/ },
 ];
 
 /** Items shown in the mobile bottom tab bar (the rest go in overflow). */
 export const MOBILE_NAV_PRIMARY: NavItem[] = NAV.filter((n) =>
-  ["/dashboard", "/hosts", "/projects", "/logs/api", "/settings"].includes(n.href),
+  ["/dashboard", "/hosts", "/projects", "/logs/mcp", "/settings"].includes(n.href),
 );
 
 /** Items shown in the mobile overflow sheet. */
