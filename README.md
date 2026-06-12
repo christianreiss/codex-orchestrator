@@ -28,7 +28,7 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 - A global kill switch lets you cut API access fleet-wide in seconds if something goes sideways.
 
 **See what's happening**
-- Track token usage per host and per engine with built-in dashboards.
+- Track fleet health, sync activity, and ChatGPT quota windows with built-in dashboards.
 - Quota warnings nudge you before you hit limits. VIP hosts can bypass them when it matters.
 - ChatGPT quota snapshots refresh automatically so you always know where you stand.
 

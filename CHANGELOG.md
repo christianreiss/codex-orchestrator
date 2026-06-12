@@ -1,5 +1,13 @@
 # 2026-06-12
 
+## Remove stale wrapper usage artifacts
+
+- **wrappers:** Rebuilt the served wrapper-v2 artifact matrix so current
+  manifests point at clean `0.6.28` binaries without the removed `/usage`
+  POST path.
+- **docs:** Removed stale operator-facing references to host run-token usage
+  counting; ChatGPT quota usage endpoints remain documented.
+
 ## clx skips same-version Claude installs
 
 - **clx:** Startup and installer reconciliation now no-op when the local Claude

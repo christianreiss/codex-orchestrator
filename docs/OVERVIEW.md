@@ -81,7 +81,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - The normal boot summary is now sectioned (`Health`, `Versions`, `Usage`, `Quota`, `Result`) with plain-language labels and grouped numbers for calls/tokens.
-   - Non-empty post-run output ends with a compact footer (`Run usage`, `Sync`).
+   - Non-empty post-run output ends with a compact `Sync` footer.
    - Summary blocks are compacted into aligned columns (default up to three entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW`), with Quota defaulting to one metric per row via `CODEX_SUMMARY_ITEMS_PER_ROW_QUOTA=1` and Versions defaulting to two entries per row via `CODEX_SUMMARY_ITEMS_PER_ROW_VERSIONS=2`.
    - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
 
@@ -107,7 +107,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 
 - Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). Those canonical payloads are engine-scoped (`codex` and `claude`), `host_auth_states` tracks what each host last saw per engine, and `host_auth_digests` caches up to 3 recent digests per host per engine.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, token usages, Skills, project coordination tables, ChatGPT snapshots, and version flags all live in MySQL; storage is the compose volume.
+- Logs, Skills, project coordination tables, ChatGPT snapshots, and version flags all live in MySQL; storage is the compose volume.
 
 ## Fleet workflow at a glance
 

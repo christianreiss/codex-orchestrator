@@ -7,7 +7,7 @@ import { registerCliAuthRoutes } from '../cli-auth/index.js';
 
 /**
  * Single entrypoint for the host-api worktree (Phase 2.1 of BACKEND-redo).
- * Wires the wrapper-facing /auth, /sync/*, /host/*, /usage, /versions, /cron/*,
+ * Wires the wrapper-facing /auth, /sync/*, /host/*, /versions, /cron/*,
  * /agents/retrieve, /config/retrieve, /install*, /seed/auth/*, and /cli/auth/*
  * routes. The integration step calls this from src/routes/index.ts.
  */

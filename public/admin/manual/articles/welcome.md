@@ -6,7 +6,7 @@ verified: 2026-06-05
 sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, frontend/src/lib/nav.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/ShortcutsModal.svelte
 ---
 
-Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared `AGENTS.md`, serves canonical skills through MCP, and collects usage back from every run. Each host gets its own API key baked into a wrapper binary (`cdx` for Codex, `clx` for Claude); there is no shared token pasted across machines.
+Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared `AGENTS.md`, serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key baked into a wrapper binary (`cdx` for Codex, `clx` for Claude); there is no shared token pasted across machines.
 
 This manual is the in-app operator reference. Every article is written from the live codebase — filenames in each *Source references* footer point at the exact code the article describes.
 
@@ -24,7 +24,7 @@ The admin is a single-page SvelteKit app whose HTML shell is returned by the Fas
 
 The left rail contains seven top-level navigation items:
 
-- **Dashboard** — at `/dashboard`, fed by `GET /admin/overview`. Displays four stat cards (Hosts, Tokens today, Tokens 7d, Tokens 30d), a DashboardAlerts row, side-by-side ChatGPT and Claude usage cards, and a RunnerCard.
+- **Dashboard** — at `/dashboard`, fed by `GET /admin/overview`. Displays fleet status cards, a DashboardAlerts row, the ChatGPT quota card, and a RunnerCard.
 - **Hosts** — fleet management at `/hosts`. Each host has its own detail page.
 - **Projects** — top-level project management at `/projects`.
 - **API Keys** — API key management at `/api-keys`.

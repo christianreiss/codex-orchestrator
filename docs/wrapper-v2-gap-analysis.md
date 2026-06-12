@@ -149,14 +149,18 @@ Missing decisions:
 | **`cdx lane` clear: prints + exits when no args** | Yes | `cmdLane` does print effective lane, but `clear` requires `--persist` (legacy allowed `clear` alone for read-back of "follow inherited"). | **P2**. |
 | **`--execute` runs through the full lifecycle (auth/sync/update gates) before launching** | Yes | v2 sets `SkipBoot: true` and **skips auth+resource sync entirely** — `--execute` is a thin adapter onto `codex exec` only. `wrappers/cdx/cmd/cdx/main.go:131-144` | **P0**. Headless callers now skip the auth refresh. |
 
-### B5. Usage reporting (P0)
+### B5. Usage reporting (retired)
+
+This section is historical. Host run-token metering was removed on 2026-06-11;
+current wrappers must not extract session token counts or submit run-usage
+payloads.
 
 | Behaviour | Legacy | v2 today | Gap |
 |---|---|---|---|
-| **Token-count extraction from `~/.codex/sessions/.../*.jsonl`** by mtime, scoped to run start | Yes (`extract_token_usage_payload` python) | **Not implemented**. `reportUsage` posts only `{engine, model, duration_seconds}` with zero token counts. `wrappers/cdx/internal/lifecycle/run.go:247-263` | **P0**. The whole `chatgpt_usage` chart now reports zero tokens for every Codex run; this is the orchestrator's primary usage data source. |
-| **Pipe-mode tee + `Token usage:` line parsing + structured `token_count` and `turn.completed` event parsing** | Yes | n/a | Same. |
-| **Best-effort budget** (~3s, retry with `line` stripped on retryable failures) | Yes | Single 5s timeout; no retry-with-strip | **P2**. |
-| **`/usage` envelope** is `{usages: [entry]}` per legacy; v2 sends a single record at the top level | Spec mismatch | The server in this repo accepts both, but the documented contract says `usages` array | **P1** (documentation/spec drift). |
+| **Token-count extraction from `~/.codex/sessions/.../*.jsonl`** by mtime, scoped to run start | Yes (`extract_token_usage_payload` python) | Removed | No current gap. |
+| **Pipe-mode tee + `Token usage:` line parsing + structured `token_count` and `turn.completed` event parsing** | Yes | Removed | No current gap. |
+| **Best-effort run-usage upload budget** | Yes | Removed | No current gap. |
+| **Legacy run-usage ingest envelope** | Yes | Removed | No current gap. |
 
 ### B6. Skills / MCP / Memories sync (P1)
 
@@ -313,22 +317,10 @@ status string maps to an expected decision.
 20. Set `PROMPT_TOOLKIT_NO_CPR=1` in `codex.BuildEnv` when stdin or stdout is
     not a TTY.
 
-### Phase 4 — Usage reporting (P0)
+### Phase 4 — Usage reporting (retired)
 
-21. Implement `wrappers/cdx/internal/codex/usage.go`:
-    - `Discover(sessionsDir, since time.Time) []string` — JSONL files modified
-      after `since`.
-    - `Parse(path) UsageRecord` — handles both `Token usage:` lines from
-      stdout tee and structured `{type:"token_count"|"turn.completed"}` events.
-22. Pipe-mode capture: when stdout is not a TTY, wrap the Codex stdout with a
-    `tee` (`io.MultiWriter(os.Stdout, &captureBuf)`); after exit, parse
-    captureBuf for `Token usage:` and `session id:` first, then fall back to
-    JSONL discovery.
-23. Update `lifecycle.reportUsage` to populate `UsageRecord` token fields and
-    submit as `{engine, fqdn, usages: [...]}` per the legacy contract; the
-    server already accepts both shapes but the contract is the array.
-24. Mirror into clx (Claude session JSONL lives under `~/.claude/sessions/`;
-    different parser needed).
+21. Historical only: host run-token metering was removed on 2026-06-11 and must
+    not be reintroduced through wrapper lifecycle code.
 
 ### Phase 5 — Uninstall + clx-specific bugs (P0–P1)
 
@@ -402,7 +394,7 @@ scope for v2.
 | Phase 1 — Auth correctness, freshness windows, bundle path, post-run upload | DONE | PR-1 (`0d8d4971`, `1dd0ce3a`, `cdb1a879`) |
 | Phase 2 — Codex/Claude installers, full cron pipeline, restart-loop guard | DONE | PR-2 (`bf394f2f`, `f6f90f82`, `c8a3b63d`, `35799db6`, `ebf3f041`, `05c777c5`, `6da31d16`) |
 | Phase 3 — Help passthrough, `--execute` audit, concurrent-note, bundle path, `home`+`username`, `PROMPT_TOOLKIT_NO_CPR` | DONE | PR-4 (`c3830b25`, …) + this commit (concurrent-note, quota-warn) |
-| Phase 4 — Token usage extraction + pipe-mode tee + array `/usage` shape | DONE | PR-3 (`b5b96fda`, `cf5b8504`, `bbd20fb9`, `12551681`, `dc9883fa`) |
+| Phase 4 — Token usage extraction + pipe-mode tee + ingest shape | RETIRED | Removed by the 2026-06-11 token-usage cleanup |
 | Phase 5 — Engine-aware uninstall with multi-user safety, clx settings mirror, CLAUDE_MD env, `--continue`/`--resume` | DONE | PR-4 (`12c41565`, `945543a9`, `108032c5`, `62d2f213`) |
 | Phase 6 — Skills probe + legacy skill-dir prune | DONE | this commit (`wrappers/{cdx,clx}/internal/lifecycle/skills.go`) |
 | Phase 7 — `cdx ls`, `cdx <profile>` shorthand, `last_refresh` backfill on `auth-upload` | DONE | this commit (`wrappers/cdx/internal/codex/profile.go`, backfill in `auth_writer.go`) |
