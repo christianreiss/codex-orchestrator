@@ -629,6 +629,10 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 	if target == "" || target == "latest" {
 		return ""
 	}
+	if current == target {
+		logger.Debug("claude auto-update skipped: already at target", "version", current)
+		return ""
+	}
 	if claude.IsDowngrade(current, target) {
 		logger.Debug("skipping downgrade", "current", current, "target", target)
 		return ""

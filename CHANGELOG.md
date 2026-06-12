@@ -1,3 +1,11 @@
+# 2026-06-12
+
+## clx skips same-version Claude installs
+
+- **clx:** Startup and installer reconciliation now no-op when the local Claude
+  Code version already equals the server target, including exact pins, so
+  concurrent or repeated runs no longer print/install `X -> X` as an update.
+
 # 2026-06-11
 
 ## Pre-prod code quality pass (api)

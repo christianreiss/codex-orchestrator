@@ -37,7 +37,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
 On normal startup, managed hosts install the server-advertised `clx` wrapper
 artifact first, re-exec the original argv after a successful swap, then repair a
-stale Claude Code CLI. Root-owned wrapper installs use the same verified
+stale Claude Code CLI; an already matching Claude Code version is a no-op even
+when the fleet policy is an exact pin. Root-owned wrapper installs use the same verified
 temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
 
 ## Per-host config (typed, signed)

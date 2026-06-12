@@ -15,9 +15,8 @@ import (
 )
 
 // EnsureClaude makes sure the locally-installed Claude CLI is at the target
-// version (or just installed at all). enforceExact=true always reinstalls
-// the pinned version; enforceExact=false short-circuits when the local
-// version already matches.
+// version (or just installed at all). enforceExact=true allows downgrades to
+// the pinned version; an already-matching local version is always a no-op.
 func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
@@ -28,11 +27,11 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	}
 
 	current := strings.TrimSpace(Version(ctx))
+	if current != "" && current != "unknown" && target != "" && target != "latest" && current == target {
+		logger.Debug("EnsureClaude: already at target", "version", current)
+		return nil
+	}
 	if !enforceExact && current != "" && current != "unknown" && target != "" {
-		if current == target {
-			logger.Debug("EnsureClaude: already at target", "version", current)
-			return nil
-		}
 		if !semverGT(target, current) {
 			logger.Debug("EnsureClaude: skipping downgrade", "current", current, "target", target)
 			return nil
