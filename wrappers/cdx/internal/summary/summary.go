@@ -97,9 +97,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			apiCalls = auth.APICalls
 		}
 		if auth.Versions != nil {
-			if auth.Versions.ClientVersion != nil && codexVer != "" && codexVer != *auth.Versions.ClientVersion {
+			if target := clientTarget(auth.Versions); shouldShowClientTarget(codexVer, target, auth.Versions.ClientVersionEnforceExact) {
 				codexTone = ui.ToneWarn
-				codexTarget = *auth.Versions.ClientVersion
+				codexTarget = target
 			}
 			if auth.Versions.WrapperVersion != nil && wrapperVer != "" && wrapperVer != *auth.Versions.WrapperVersion {
 				wrapperTone = ui.ToneWarn
@@ -163,6 +163,34 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		ResultTone:     resultTone,
 		Theme:          theme,
 	}
+}
+
+func clientTarget(v *orchestrator.VersionSummary) string {
+	if v == nil {
+		return ""
+	}
+	if v.ClientVersionOverride != nil && strings.TrimSpace(*v.ClientVersionOverride) != "" {
+		return strings.TrimSpace(*v.ClientVersionOverride)
+	}
+	if v.ClientVersion != nil {
+		return strings.TrimSpace(*v.ClientVersion)
+	}
+	return ""
+}
+
+func shouldShowClientTarget(current, target string, enforceExact bool) bool {
+	current = strings.TrimSpace(current)
+	target = strings.TrimSpace(target)
+	if target == "" || target == "latest" || current == target {
+		return false
+	}
+	if current == "" || current == "unknown" {
+		return true
+	}
+	if enforceExact {
+		return true
+	}
+	return codex.SemverGT(target, current)
 }
 
 // sessionRows turns the per-run SessionCounts struct into the labeled rows

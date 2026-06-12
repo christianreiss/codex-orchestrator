@@ -5,6 +5,10 @@
 - **clx:** Startup and installer reconciliation now no-op when the local Claude
   Code version already equals the server target, including exact pins, so
   concurrent or repeated runs no longer print/install `X -> X` as an update.
+- **cdx/clx:** Boot summaries now apply the same client-version policy as the
+  updater: floor/latest targets only show a version arrow when the target is
+  newer than the local CLI. A stale upstream cache like local Claude `2.1.175`
+  versus resolved target `2.1.168` no longer appears as an "upgrade".
 
 # 2026-06-11
 
