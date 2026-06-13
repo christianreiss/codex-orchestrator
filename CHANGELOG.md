@@ -6,6 +6,9 @@
   retrieve response instead of accepting the upload. This makes runner-gated
   Claude credential failures visible to `clx auth-upload` and post-run sync
   instead of printing a false `auth-upload: ok`.
+- **API:** Explicit `/auth command=store` requests now propagate validation and
+  runner failures as non-2xx errors instead of falling back to a canonical
+  retrieve response; malformed uploads still store nothing.
 
 # 2026-06-12
 

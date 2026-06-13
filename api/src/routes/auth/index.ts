@@ -468,13 +468,8 @@ async function handleStore(
       logAction: 'auth.store',
     });
   } catch (err) {
-    // A malformed payload is the host's bug — surface it. Infrastructure
-    // failures (runner gate down, DB hiccup) must not turn into a
-    // status:error envelope that strands the wrapper: serve the canonical
-    // state via retrieve instead, same as handleBootstrapAuth.
-    if (err instanceof ValidationError) throw err;
-    app.log.warn({ err, host: host.fqdn, engine }, 'auth store failed; falling back to retrieve');
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
+    app.log.warn({ err, host: host.fqdn, engine }, 'auth store failed');
+    throw err;
   }
   const now = nowIso();
   await ctx.db
