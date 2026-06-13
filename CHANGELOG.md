@@ -1,3 +1,12 @@
+# 2026-06-13
+
+## Auth upload failures are visible
+
+- **cdx/clx:** Auth uploads now fail when `/auth command=store` falls back to a
+  retrieve response instead of accepting the upload. This makes runner-gated
+  Claude credential failures visible to `clx auth-upload` and post-run sync
+  instead of printing a false `auth-upload: ok`.
+
 # 2026-06-12
 
 ## Remove stale wrapper usage artifacts

@@ -113,7 +113,10 @@ Engine-specific details:
 - `clx auth-upload`, missing/upload-required pre-run upload, and post-run
   changed-credential upload backfill `last_refresh` only in the uploaded copy.
   When the server returns canonical auth (including runner-refreshed auth), the
-  wrapper writes that accepted payload back locally.
+  wrapper writes that accepted payload back locally. Explicit upload attempts
+  exit non-zero unless the server confirms `status:"updated"`; a 200 response
+  that fell back to canonical retrieve because runner validation failed is not
+  treated as success.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI

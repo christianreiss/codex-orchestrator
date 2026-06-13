@@ -58,6 +58,27 @@ func TestAuthStoreReturnsServerAuthResponse(t *testing.T) {
 	}
 }
 
+func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "outdated",
+			"action":  "store",
+			"message": "runner verification failed",
+			"auth":    map[string]any{"claudeAiOauth": map[string]any{"accessToken": "old"}},
+		})
+	})
+	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err == nil {
+		t.Fatalf("expected store rejection, got resp=%#v", resp)
+	}
+	if resp == nil || resp.Status != "outdated" {
+		t.Fatalf("expected fallback response to be returned, got %#v", resp)
+	}
+	if !strings.Contains(err.Error(), "status=outdated") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRetrieveAgents(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"status":"updated","content":"# CLAUDE.md\n"}}`))

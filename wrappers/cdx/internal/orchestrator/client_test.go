@@ -43,6 +43,24 @@ func TestAuthRetrieveSendsDigestAndAPIKey(t *testing.T) {
 	}
 }
 
+func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "outdated",
+			"action":  "store",
+			"message": "runner verification failed",
+			"auth":    map[string]any{"tokens": map[string]any{"access_token": "old"}},
+		})
+	})
+	err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err == nil {
+		t.Fatal("expected store rejection")
+	}
+	if !strings.Contains(err.Error(), "status=outdated") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestGetLaneRoundTrip(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"lane":"spark"}}`))

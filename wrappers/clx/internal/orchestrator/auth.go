@@ -107,6 +107,16 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) (*AuthR
 	if out.Status == "error" {
 		return out, errors.New(out.Message)
 	}
+	if strings.ToLower(strings.TrimSpace(out.Status)) != "updated" {
+		reason := out.Message
+		if reason == "" {
+			reason = out.Action
+		}
+		if reason == "" {
+			reason = "server did not accept uploaded auth"
+		}
+		return out, fmt.Errorf("auth store not accepted: status=%s reason=%s", out.Status, reason)
+	}
 	return out, nil
 }
 
