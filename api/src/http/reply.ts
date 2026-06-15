@@ -1,5 +1,4 @@
 import type { FastifyReply } from 'fastify';
-import { ApiError } from './errors.js';
 
 /**
  * Reply helpers. Handlers either:
@@ -19,10 +18,6 @@ declare module 'fastify' {
 
 export function ok<T>(data?: T): { ok: true; data: T | undefined } {
   return { ok: true, data };
-}
-
-export function fail(message: string, code = 'error', status = 400): never {
-  throw new ApiError(message, { code, status });
 }
 
 export function raw(reply: FastifyReply): FastifyReply {

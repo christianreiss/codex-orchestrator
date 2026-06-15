@@ -51,10 +51,6 @@ const KEY_ORDER: readonly string[] = [
 
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 
-export function isArtifactKind(x: unknown): x is ArtifactKind {
-  return typeof x === 'string' && (ARTIFACT_KINDS as readonly string[]).includes(x);
-}
-
 /** Accepts singular or plural / hyphen-or-underscore spellings of a kind. */
 export function normalizeKind(raw: unknown): ArtifactKind {
   const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
@@ -219,9 +215,3 @@ export function validateForKind(kind: ArtifactKind, frontmatter: Record<string, 
   }
 }
 
-/** List frontmatter keys: tools/allowed-tools/disallowed-tools are list-typed. */
-export function listKeysForKind(kind: ArtifactKind): readonly string[] {
-  if (kind === 'subagent') return ['tools', 'disallowed-tools'];
-  if (kind === 'command') return ['allowed-tools'];
-  return [];
-}

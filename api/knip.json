@@ -1,0 +1,12 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/routes/index.ts",
+    "test/**/*.test.ts",
+    "scripts/boot-listen.ts",
+    "scripts/smoke.ts"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
+  "ignoreDependencies": ["pino-pretty", "libsodium", "@types/libsodium-wrappers"],
+  "ignoreExportsUsedInFile": true
+}

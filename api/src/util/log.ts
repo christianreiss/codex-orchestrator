@@ -1,4 +1,4 @@
-import pino, { type Logger, type LoggerOptions } from 'pino';
+import { type LoggerOptions } from 'pino';
 import type { Env } from '../env.js';
 
 /** Build the pino options object Fastify expects in its `logger` field. */
@@ -32,7 +32,3 @@ export function loggerOptions(env: Env): LoggerOptions {
   };
 }
 
-/** Standalone pino instance (for code paths outside Fastify's request scope). */
-export function createLogger(env: Env): Logger {
-  return pino(loggerOptions(env));
-}

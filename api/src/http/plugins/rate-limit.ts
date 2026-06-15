@@ -113,5 +113,3 @@ export function makeRateLimitPlugin(_env: Env) {
   );
 }
 
-// Re-export defaults so other services can derive consistent values.
-export const RATE_DEFAULTS = DEFAULTS;

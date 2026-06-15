@@ -11,6 +11,3 @@ export function parseEngine(x: unknown, fallback: Engine = ENGINE_CODEX): Engine
   return isEngine(x) ? x : fallback;
 }
 
-export function agentsDocumentName(engine: Engine): 'AGENTS.md' | 'CLAUDE.md' {
-  return engine === ENGINE_CLAUDE ? 'CLAUDE.md' : 'AGENTS.md';
-}

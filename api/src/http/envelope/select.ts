@@ -40,6 +40,3 @@ export function selectFormatter(url: string): EnvelopeFormatter {
   return FORMATTERS.standard;
 }
 
-export function getFormatter(kind: EnvelopeKind): EnvelopeFormatter {
-  return FORMATTERS[kind];
-}

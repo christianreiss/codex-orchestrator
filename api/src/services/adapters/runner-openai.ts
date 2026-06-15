@@ -109,11 +109,6 @@ export interface RunnerOpenAiConfig {
   authSnapshot?: () => Promise<unknown | null>;
 }
 
-export function isConfigured(env: Env): boolean {
-  const url = env.AUTH_RUNNER_URL ?? env.AUTH_RUNNER_CODEX_BASE_URL;
-  return Boolean(url && env.AUTH_RUNNER_SHARED_SECRET);
-}
-
 export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
   const url = env.AUTH_RUNNER_URL ?? env.AUTH_RUNNER_CODEX_BASE_URL;
   if (!url || !env.AUTH_RUNNER_SHARED_SECRET) return null;

@@ -184,10 +184,6 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
   };
 }
 
-export function clampInsecureWindow(v: number | null | undefined): number {
-  return clampWindow(v);
-}
-
 function clampWindow(v: number | null | undefined): number {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : DEFAULT_WINDOW;
   if (n < MIN_WINDOW) return MIN_WINDOW;

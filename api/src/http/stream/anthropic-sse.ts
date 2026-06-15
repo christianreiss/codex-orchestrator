@@ -135,13 +135,6 @@ export async function writeSseResponse(
   raw.end();
 }
 
-/**
- * Emit a single `ping` event. Useful for keepalive on long-running streams.
- */
-export function pingEvent(): AnthropicSseEvent {
-  return { event: 'ping', data: { type: 'ping' } };
-}
-
 function randomHex(bytes: number): string {
   const buf = new Uint8Array(bytes);
   globalThis.crypto.getRandomValues(buf);

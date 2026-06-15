@@ -22,7 +22,6 @@ import { wsPublisher } from '../ws/publisher.js';
 
 export const AGENTS_MODE_LATEST = 'latest';
 export const AGENTS_MODE_LOCKED = 'locked';
-export const AGENTS_BACKUP_LIMIT_DEFAULT: number | null = null;
 const MAX_BACKUP_LIMIT = 200;
 
 function stateRowId(engine: Engine): number {

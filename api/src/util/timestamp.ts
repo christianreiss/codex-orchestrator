@@ -7,10 +7,6 @@ export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-export function nowIsoMillis(): string {
-  return new Date().toISOString();
-}
-
 export function isoOffsetSeconds(seconds: number, from: Date = new Date()): string {
   return new Date(from.getTime() + seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }

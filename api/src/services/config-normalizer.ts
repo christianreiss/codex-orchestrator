@@ -413,15 +413,3 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-export function assertSha256(value: unknown, allowNull = false): void {
-  if (value === null || value === undefined) {
-    if (allowNull) return;
-    throw new Error('sha256 is required');
-  }
-  if (typeof value !== 'string') throw new Error('sha256 must be a string');
-  const v = value.trim().toLowerCase();
-  if (v === '' && allowNull) return;
-  if (!/^[a-f0-9]{64}$/.test(v)) {
-    throw new Error('sha256 must be 64 hex characters');
-  }
-}
