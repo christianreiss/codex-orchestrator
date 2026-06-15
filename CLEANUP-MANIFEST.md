@@ -164,14 +164,21 @@ The detailed pre-execution inventory is retained below for the record.
 - Version pickers: confirmed OUT (D2 = models only). Untouched.
 - Verified: frontend `check` 0/0, `build` ✓ (public/admin rebuilt). docs in lock-step.
 
-## PILLAR 4 — Docs + CHANGELOG (lock-step, per change)
+## PILLAR 4 — Docs + CHANGELOG (lock-step) — ✅ DONE
 
-- [ ] Update `docs/interface-*.md` / `docs/API.md` / dashboard copy as behavior changes.
-- [ ] `CHANGELOG.md` newest-date-first for every human-visible change.
-- [ ] Reconcile model-list lock-step comment in `models.ts`.
+- [x] `docs/API.md` + `docs/interface-api.md` Claude model ids brought to the gate set.
+- [x] `CHANGELOG.md` updated (newest-first) for all four human-visible changesets.
+- [x] `models.ts` lock-step comment now points at `claude-models.ts` (the gate).
 
-## VERIFY (final)
+## VERIFY (final) — ✅ ALL GREEN (2026-06-15)
 
-`cd api && npm run typecheck && npm test && npm run build` ·
-`cd frontend && npm run check && npm run build` ·
-`go vet ./... && go test ./...` in each wrapper.
+- api: `typecheck` ✓ · `test` 651 pass/1 skip ✓ · `build` ✓ (dist/server.js)
+- frontend: `check` 0 err/0 warn ✓ · `build` ✓ (public/admin rebuilt)
+- wrappers/cdx + wrappers/clx: `go vet` ✓ · `go test` ✓
+- Detectors: `knip` exits clean for api **and** frontend; `go deadcode` residual = parity stubs only.
+
+## STATUS: Definition of Done MET. All work committed locally on `main`; nothing pushed.
+
+Commits: 7206539d (manifest) · 573f10ec (stubs/D1) · 9075eb1a (model reconcile) ·
+6ea83968 (ModelSelect) · 04521701 (api dead code) · 2368bcd6 (wrappers dead code) ·
+ca55f397 (frontend dead code).
