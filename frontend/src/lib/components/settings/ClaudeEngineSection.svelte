@@ -6,6 +6,8 @@
   import { Separator } from "$lib/components/ui/separator";
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
+  import { ModelSelect } from "$lib/components/ui/model-select";
+  import { CLAUDE_MODEL_OPTIONS } from "$lib/constants/models";
   import {
     claudeSettingsMutation,
     claudeSettingsQuery,
@@ -94,7 +96,15 @@
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
         <Label for="claude-model">Default model</Label>
-        <Input id="claude-model" bind:value={modelInput} placeholder="claude-sonnet-4-6" />
+        <ModelSelect
+          id="claude-model"
+          allowCustom
+          bind:value={modelInput}
+          options={CLAUDE_MODEL_OPTIONS}
+          label="Default model"
+          placeholder="claude-sonnet-4-6"
+          class="w-full"
+        />
       </div>
       <div class="grid gap-1.5">
         <Label for="claude-max-tokens">Max tokens</Label>

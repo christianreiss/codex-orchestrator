@@ -26,6 +26,7 @@
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
+  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS } from "$lib/constants/models";
   import {
     hostDetailQuery,
     hostsKeys,
@@ -562,6 +563,7 @@
     description="Pin a specific Codex model. Empty clears the override."
     label="Model"
     placeholder="gpt-5.5"
+    options={CODEX_MODELS}
     initialValue={host.model_override ?? ""}
     onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }))}
   />
@@ -571,7 +573,8 @@
     title="Claude model override"
     description="Pin a specific Claude model. Empty clears the override."
     label="Model"
-    placeholder="claude-sonnet-4-7"
+    placeholder="claude-sonnet-4-6"
+    options={CLAUDE_MODEL_OPTIONS}
     initialValue={host.claude_model_override ?? ""}
     onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }))}
   />

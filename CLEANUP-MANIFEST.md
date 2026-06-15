@@ -63,13 +63,15 @@ Also keep (engine-parity, documented intentional deltas — AGENTS.md:27-39):
 
 ---
 
-## PILLAR 1 — Stubs (finalize OR document-as-intentional)
+## PILLAR 1 — Stubs (finalize OR document-as-intentional) — ✅ DONE (573f10ec)
 
-- [ ] **D1 cluster** *(opus)* — pending D1. If finalize: add `runner`+`runnerValidation`
-      to `RouteContext` (`routes/index.ts:28`), instantiate in `server.ts:64`, thread
-      into the two draft factories. If document: doc-note + align `docs/API.md:368`.
-- [ ] **501/503 comment nit** *(sonnet)* — `project-drafts.ts:5` & `skill-drafts.ts:7`
-      say "501" but code throws 503. One-word doc fix (do with D1).
+- [x] **D1 cluster** *(opus)* — FINALIZED. Wired runner deps into both draft
+      factories via the established local-factory pattern, guarded on
+      `runner.isConfigured()` (preserves graceful `runner_unavailable` when
+      `AUTH_RUNNER_URL` unset; existing degradation tests unchanged). Added a
+      happy-path unit test for `SkillDraftsService.generate`. `docs/API.md:368`
+      already described it correctly — now true.
+- [x] **501/503 comment nit** — fixed in both service doc comments.
 - [x] INTENTIONAL (all already documented, no action): responses-stream×2, clx
       `ReasoningEffort`, clx `Lane`. Verified.
 
@@ -132,21 +134,26 @@ Also keep (engine-parity, documented intentional deltas — AGENTS.md:27-39):
       so the dead set is reproducible. Collapses the ~86 "used-internally over-export"
       and the ~140 shadcn namespace-barrel false positives.
 
-## PILLAR 3 — UX: shared `<ModelSelect>`
+## PILLAR 3 — UX: shared `<ModelSelect>` — ✅ DONE
 
-- [ ] *(opus)* Resolve model-list drift per DECIDED DEFAULT (align frontend +
-      config-normalizer to `claude-models.ts`); fix the misleading lock-step comment;
-      add frontend `CODEX_MODELS` mirroring backend `SUPPORTED_MODELS` (for engine="codex").
-- [ ] *(opus)* Build `frontend/src/lib/components/ui/model-select/` — props:
-      `value, onValueChange, engine?, variant?(model|advisor), options?, allowCustom?,
-      inheritSentinel?, id?, label!(a11y), placeholder?, disabled?`. Thin wrapper over
-      `ui/select`. **Never emit ""** (keep non-empty `inherit`/`off` sentinels — bits-ui bug).
-- [ ] *(sonnet)* Roll out the 4 constant-bound dropdowns: `authoring/settings:178`(model),
-      `authoring/settings:200`(advisor), `authoring/subagents/[name]:163`, `authoring/commands/[name]:164`.
-- [ ] *(opus)* Convert free-text sites (allowCustom): `hosts/[id]:568`(claude),
-      `hosts/[id]:558`(codex), `settings/ClaudeEngineSection:97`(fleet default) — pending D2.
-- Version pickers (`ClaudeVersionSection`, `CodexVersionSection`, per-host version
-  `InputDialog`s): out of scope unless D2 says otherwise.
+- [x] *(opus)* Model-list drift fixed (B4 + advisor): frontend `CLAUDE_MODELS` →
+      gate ids; deleted config-normalizer's dead duplicate `CLAUDE_SUPPORTED_MODELS`
+      (no-op pass-through); re-pointed its legacy map values to gate-valid ids +
+      dropped the haiku self-downgrade; **added gate healing aliases**
+      `claude-opus-4-6→4-7`, `claude-haiku-4-5→…-20251001` so already-stored old-picker
+      ids upgrade instead of 400. Lock-step comment now names `claude-models.ts`.
+      Added `CLAUDE_MODEL_OPTIONS` (no-inherit) + `CODEX_MODELS`. Tests updated.
+- [x] *(opus)* Built `frontend/src/lib/components/ui/model-select/` — props
+      `value(bind), options, label!(a11y aria-label), placeholder?, allowCustom?,
+      fallback?, id?, disabled?, class?`. Dropdown (bits-ui Select) + allowCustom
+      (Input+datalist combobox). Sentinel handled as a normal option (call site maps).
+- [x] *(sonnet)* Rolled out the 4 constant-bound dropdowns (settings model+advisor,
+      subagents, commands) — unused `Select`/`modelLabel`/display vars removed.
+- [x] *(opus)* Converted free-text sites via `allowCustom`: fleet default
+      (`ClaudeEngineSection`) + per-host Codex/Claude overrides (via a new optional
+      `options` prop on the shared `InputDialog`). Free-text preserved.
+- Version pickers: confirmed OUT (D2 = models only). Untouched.
+- Verified: frontend `check` 0/0, `build` ✓ (public/admin rebuilt). docs in lock-step.
 
 ## PILLAR 4 — Docs + CHANGELOG (lock-step, per change)
 

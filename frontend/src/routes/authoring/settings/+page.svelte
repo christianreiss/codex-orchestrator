@@ -5,11 +5,10 @@
   import type { ClaudeConfigResponse, ClaudeConfigSettings } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import { ADVISOR_MODELS, ADVISOR_OFF, CLAUDE_MODELS, INHERIT_MODEL } from "$lib/constants/models";
-  import { modelLabel } from "$lib/utils/artifact";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Badge } from "$lib/components/ui/badge";
-  import * as Select from "$lib/components/ui/select";
+  import { ModelSelect } from "$lib/components/ui/model-select";
   import RepeatableList from "$lib/components/authoring/RepeatableList.svelte";
   import KeyValueList from "$lib/components/authoring/KeyValueList.svelte";
   import type { KeyValueRow } from "$lib/components/authoring/KeyValueList.svelte";
@@ -72,7 +71,6 @@
     }
   });
 
-  const modelDisplay = $derived(modelLabel(model));
 
   // Build the canonical settings object from local state (omit empty blocks).
   const builtSettings = $derived.by<ClaudeConfigSettings>(() => {
@@ -116,10 +114,6 @@
 
     return out;
   });
-
-  const advisorModelDisplay = $derived(
-    ADVISOR_MODELS.find((m) => m.value === advisorModel)?.label ?? "Off",
-  );
 
   // ---- Save ----
   const saveMutation = createMutation({
@@ -175,16 +169,7 @@
       <!-- Model -->
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-3 text-sm font-semibold">Model</h3>
-        <Select.Root type="single" value={model} onValueChange={(v) => (model = v ?? INHERIT_MODEL)}>
-          <Select.Trigger class="w-full max-w-xs" aria-label="Model">
-            <Select.Value placeholder="Inherit">{modelDisplay}</Select.Value>
-          </Select.Trigger>
-          <Select.Content>
-            {#each CLAUDE_MODELS as m (m.value)}
-              <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
-            {/each}
-          </Select.Content>
-        </Select.Root>
+        <ModelSelect bind:value={model} options={CLAUDE_MODELS} label="Model" placeholder="Inherit" fallback={INHERIT_MODEL} />
       </div>
 
       <!-- Advisor model (experimental) -->
@@ -197,20 +182,7 @@
           Sets <span class="font-mono">advisorModel</span> in settings.json. When set, the advisor tool
           routes the full transcript to a stronger reviewer model. Off omits the key.
         </p>
-        <Select.Root
-          type="single"
-          value={advisorModel}
-          onValueChange={(v) => (advisorModel = v ?? ADVISOR_OFF)}
-        >
-          <Select.Trigger class="w-full max-w-xs" aria-label="Advisor model">
-            <Select.Value placeholder="Off">{advisorModelDisplay}</Select.Value>
-          </Select.Trigger>
-          <Select.Content>
-            {#each ADVISOR_MODELS as m (m.value)}
-              <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
-            {/each}
-          </Select.Content>
-        </Select.Root>
+        <ModelSelect bind:value={advisorModel} options={ADVISOR_MODELS} label="Advisor model" placeholder="Off" fallback={ADVISOR_OFF} />
       </div>
 
       <!-- Env -->

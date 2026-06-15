@@ -3,6 +3,8 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
+  import { ModelSelect } from "$lib/components/ui/model-select";
+  import type { ModelOption } from "$lib/constants/models";
 
   type Props = {
     open: boolean;
@@ -15,6 +17,8 @@
     confirmLabel?: string;
     /** Allow clearing the field to send null. */
     allowEmpty?: boolean;
+    /** When set, render an editable model combobox (constant suggestions) instead of a plain input. */
+    options?: ModelOption[];
     onSubmit: (value: string | null) => void | Promise<void>;
   };
 
@@ -28,6 +32,7 @@
     initialValue,
     confirmLabel = "Save",
     allowEmpty = true,
+    options,
     onSubmit,
   }: Props = $props();
 
@@ -76,7 +81,19 @@
     >
       <div class="space-y-1.5">
         <Label for="inputdialog-field">{label}</Label>
-        <Input id="inputdialog-field" bind:value {placeholder} autocomplete="off" />
+        {#if options}
+          <ModelSelect
+            id="inputdialog-field"
+            allowCustom
+            bind:value
+            {options}
+            {label}
+            {placeholder}
+            class="w-full"
+          />
+        {:else}
+          <Input id="inputdialog-field" bind:value {placeholder} autocomplete="off" />
+        {/if}
         {#if allowEmpty}
           <p class="text-[11px] text-muted-foreground">Leave blank to clear.</p>
         {/if}

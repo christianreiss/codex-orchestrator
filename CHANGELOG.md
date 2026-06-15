@@ -10,6 +10,32 @@
   runner is not configured the endpoints still return the actionable
   `runner_unavailable` prompt, so unconfigured deployments are unchanged.
 
+## Claude model lists reconciled to the inference gate
+
+- **API/Dashboard:** The admin model picker and per-host overrides offered
+  `claude-opus-4-6` and `claude-haiku-4-5`, which the Anthropic-compatible
+  inference gate (`resolveRequestedModel`) rejects with HTTP 400 — so a host
+  pinned to either id failed at inference time. The dashboard list,
+  `config-normalizer`'s stale duplicate list, and the docs are now aligned to the
+  gate's canonical ids (`claude-opus-4-7`, `claude-sonnet-4-6`,
+  `claude-haiku-4-5-20251001`).
+- **API:** The inference gate now additionally upgrades the legacy
+  `claude-opus-4-6` / `claude-haiku-4-5` ids instead of 400-ing them, so
+  already-stored overrides and in-flight requests using the old ids keep working.
+- **API:** Removed the dead `CLAUDE_SUPPORTED_MODELS` duplicate in
+  `config-normalizer` (its membership check was a no-op pass-through) and dropped a
+  legacy mapping that downgraded the canonical `claude-haiku-4-5-20251001` back to
+  a gate-rejected id.
+
+## Shared <ModelSelect> for every model picker
+
+- **Dashboard:** Every model picker — authoring settings model + advisor, subagent
+  and command model, the per-host Codex/Claude overrides, and the fleet Claude
+  default — now uses one shared `<ModelSelect>` bound to the central model
+  constants, replacing duplicated inline dropdowns and free-text inputs. The
+  per-host overrides and fleet default keep free-text entry (a combobox with
+  suggestions) so operators can still pin a model that is not yet in the list.
+
 # 2026-06-13
 
 ## Auth upload failures are visible

@@ -9,7 +9,8 @@
   import { ApiError } from "$lib/api/client";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { CLAUDE_MODELS, INHERIT_MODEL, SUBAGENT_COLORS } from "$lib/constants/models";
-  import { asString, asStringArray, modelLabel } from "$lib/utils/artifact";
+  import { asString, asStringArray } from "$lib/utils/artifact";
+  import { ModelSelect } from "$lib/components/ui/model-select";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -61,7 +62,6 @@
   });
 
   const colorValue = $derived(color || "none");
-  const modelDisplay = $derived(modelLabel(model));
 
   // ---- Save ----
   const saveMutation = createMutation({
@@ -160,16 +160,7 @@
           </div>
           <div class="space-y-1.5">
             <label for="fm-model" class="text-xs font-medium">Model</label>
-            <Select.Root type="single" value={model} onValueChange={(v) => (model = v ?? INHERIT_MODEL)}>
-              <Select.Trigger id="fm-model" class="w-full" aria-label="Model">
-                <Select.Value placeholder="Inherit">{modelDisplay}</Select.Value>
-              </Select.Trigger>
-              <Select.Content>
-                {#each CLAUDE_MODELS as m (m.value)}
-                  <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
+            <ModelSelect bind:value={model} options={CLAUDE_MODELS} label="Model" placeholder="Inherit" fallback={INHERIT_MODEL} />
           </div>
           <div class="space-y-1.5">
             <label for="fm-color" class="text-xs font-medium">Color</label>

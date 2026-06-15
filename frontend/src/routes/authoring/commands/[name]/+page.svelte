@@ -9,13 +9,13 @@
   import { ApiError } from "$lib/api/client";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { CLAUDE_MODELS, INHERIT_MODEL } from "$lib/constants/models";
-  import { asString, asStringArray, modelLabel } from "$lib/utils/artifact";
+  import { asString, asStringArray } from "$lib/utils/artifact";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
-  import * as Select from "$lib/components/ui/select";
+  import { ModelSelect } from "$lib/components/ui/model-select";
   import * as Dialog from "$lib/components/ui/dialog";
   import RepeatableList from "$lib/components/authoring/RepeatableList.svelte";
   import MdPreview from "$lib/components/authoring/MdPreview.svelte";
@@ -58,8 +58,6 @@
       hydrated = true;
     }
   });
-
-  const modelDisplay = $derived(modelLabel(model));
 
   // ---- Save ----
   const saveMutation = createMutation({
@@ -161,16 +159,7 @@
           </div>
           <div class="space-y-1.5">
             <label for="fm-model" class="text-xs font-medium">Model</label>
-            <Select.Root type="single" value={model} onValueChange={(v) => (model = v ?? INHERIT_MODEL)}>
-              <Select.Trigger id="fm-model" class="w-full" aria-label="Model">
-                <Select.Value placeholder="Inherit">{modelDisplay}</Select.Value>
-              </Select.Trigger>
-              <Select.Content>
-                {#each CLAUDE_MODELS as m (m.value)}
-                  <Select.Item value={m.value} label={m.label}>{m.label}</Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
+            <ModelSelect bind:value={model} options={CLAUDE_MODELS} label="Model" placeholder="Inherit" fallback={INHERIT_MODEL} />
           </div>
           <div class="space-y-1.5">
             <span class="text-xs font-medium">Allowed tools</span>
