@@ -2,7 +2,7 @@
  * AI-assisted project drafting. Port of `App\Services\ProjectDraftService`.
  * Calls the runner's `/projects/assist` endpoint with the project's current
  * detail snapshot and returns sanitized about / roster suggestions plus a
- * changed-fields diff. Without runner+db deps it returns the legacy 501
+ * changed-fields diff. Without runner+db deps it returns the legacy 503
  * `runner_unavailable` shape.
  */
 import { ApiError } from '../http/errors.js';

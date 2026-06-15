@@ -39,6 +39,8 @@ import { ClientConfigService } from '../../../services/client-config.js';
 import { MemoriesService } from '../../../services/memories.js';
 import { SkillDraftsService } from '../../../services/skill-drafts.js';
 import { SkillsService } from '../../../services/skills.js';
+import { createRunnerClient } from '../../../services/runner-client.js';
+import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { ClaudeArtifactsService } from '../../../services/claude-artifacts.js';
 import { normalizeKind } from '../../../services/claude-frontmatter.js';
 import { nowIso } from '../../../util/timestamp.js';
@@ -63,7 +65,19 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   const clientConfig = new ClientConfigService(db);
   const skills = new SkillsService(db);
   const claudeArtifacts = new ClaudeArtifactsService(db);
-  const skillDrafts = new SkillDraftsService();
+  // AI-assisted skill drafting. Wire the runner only when configured
+  // (AUTH_RUNNER_URL set); otherwise the service returns the actionable
+  // `runner_unavailable` prompt for /admin/skills/{generate,assist}.
+  const skillRunner = createRunnerClient({ env: ctx.env });
+  const skillDrafts = new SkillDraftsService(
+    skillRunner.isConfigured()
+      ? {
+          db,
+          runner: skillRunner,
+          runnerValidation: createRunnerValidationService({ db, keyring: ctx.keyring }),
+        }
+      : { db },
+  );
   const memories = new MemoriesService(db);
   const agents = new AgentsService(db, async () => {
     const rows = await db.select().from(versions).where(sql`name = ${AGENTS_BACKUP_LIMIT_KEY}`).limit(1);

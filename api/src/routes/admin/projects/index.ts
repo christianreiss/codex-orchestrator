@@ -34,6 +34,8 @@ import type { RouteContext } from '../../index.js';
 import { ProjectContentService } from '../../../services/project-content.js';
 import { ProjectDraftsService } from '../../../services/project-drafts.js';
 import { ProjectsService } from '../../../services/projects.js';
+import { createRunnerClient } from '../../../services/runner-client.js';
+import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 function parseInteger(value: unknown): number | null {
@@ -50,7 +52,20 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const projects = new ProjectsService(ctx.db);
   const content = new ProjectContentService(ctx.db, projects);
-  const drafts = new ProjectDraftsService();
+  // AI-assisted draft helper. Wire the runner integration only when it is
+  // actually configured (AUTH_RUNNER_URL set); otherwise leave the runner deps
+  // off so /assist returns the actionable `runner_unavailable` prompt.
+  const draftRunner = createRunnerClient({ env: ctx.env });
+  const drafts = new ProjectDraftsService(
+    draftRunner.isConfigured()
+      ? {
+          db: ctx.db,
+          projects,
+          runner: draftRunner,
+          runnerValidation: createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }),
+        }
+      : { db: ctx.db, projects },
+  );
 
   // ── module state ─────────────────────────────────────────────────────────
 

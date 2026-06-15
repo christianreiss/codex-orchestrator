@@ -1,3 +1,15 @@
+# 2026-06-15
+
+## AI-assisted draft endpoints are wired to the runner
+
+- **API:** `POST /admin/skills/generate`, `POST /admin/skills/assist`, and
+  `POST /admin/projects/{slug}/assist` now reach the runner integration when it
+  is configured (`AUTH_RUNNER_URL` set), restoring the documented runner-backed
+  draft helpers. Previously the draft services were constructed without their
+  runner dependencies, so every call returned `503 runner_unavailable`. When the
+  runner is not configured the endpoints still return the actionable
+  `runner_unavailable` prompt, so unconfigured deployments are unchanged.
+
 # 2026-06-13
 
 ## Auth upload failures are visible

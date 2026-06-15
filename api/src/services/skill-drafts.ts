@@ -3,7 +3,7 @@
  * the runner integration is wired (db + runner client + runner validation),
  * the service POSTs canonical auth + prompt to the runner's
  * `/skills/{generate,assist}` endpoints, normalizes the returned draft, and
- * renders a manifest. Without deps it returns the legacy 501
+ * renders a manifest. Without deps it returns the legacy 503
  * `runner_unavailable` shape so the WebUI can show an actionable prompt.
  */
 import { ApiError, ValidationError } from '../http/errors.js';
