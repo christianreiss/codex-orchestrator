@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -78,74 +77,3 @@ func DurationShort(d time.Duration) string {
 	}
 }
 
-// DurationLong renders "3 days, 4 hours, 2 minutes" (Oxford-comma joined).
-func DurationLong(d time.Duration) string {
-	if d <= 0 {
-		return "0 minutes"
-	}
-	days := int(d / (24 * time.Hour))
-	d -= time.Duration(days) * 24 * time.Hour
-	hours := int(d / time.Hour)
-	d -= time.Duration(hours) * time.Hour
-	mins := int(d / time.Minute)
-
-	parts := []string{}
-	if days > 0 {
-		parts = append(parts, plural(days, "day", "days"))
-	}
-	if hours > 0 {
-		parts = append(parts, plural(hours, "hour", "hours"))
-	}
-	if mins > 0 || len(parts) == 0 {
-		parts = append(parts, plural(mins, "minute", "minutes"))
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	if len(parts) == 2 {
-		return parts[0] + " and " + parts[1]
-	}
-	return strings.Join(parts[:len(parts)-1], ", ") + ", and " + parts[len(parts)-1]
-}
-
-func plural(n int, singular, plural string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, singular)
-	}
-	return fmt.Sprintf("%d %s", n, plural)
-}
-
-// RelativeIso parses an RFC3339 timestamp and returns "5m ago" / "2d ago".
-// Empty or unparseable input returns "".
-func RelativeIso(iso string) string {
-	if strings.TrimSpace(iso) == "" {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339, iso)
-	if err != nil {
-		t, err = time.Parse("2006-01-02T15:04:05Z", iso)
-		if err != nil {
-			return ""
-		}
-	}
-	d := time.Since(t)
-	if d < 0 {
-		return "now"
-	}
-	return DurationShort(d) + " ago"
-}
-
-// SecondsSinceIso returns seconds since the given timestamp (or -1 if invalid).
-func SecondsSinceIso(iso string) int64 {
-	if strings.TrimSpace(iso) == "" {
-		return -1
-	}
-	t, err := time.Parse(time.RFC3339, iso)
-	if err != nil {
-		t, err = time.Parse("2006-01-02T15:04:05Z", iso)
-		if err != nil {
-			return -1
-		}
-	}
-	return int64(time.Since(t).Seconds())
-}

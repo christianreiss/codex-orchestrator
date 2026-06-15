@@ -236,15 +236,6 @@ func PadRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-w)
 }
 
-// PadLeft pads s with spaces on the left so its visible width reaches width.
-func PadLeft(s string, width int) string {
-	w := VisibleWidth(s)
-	if w >= width {
-		return s
-	}
-	return strings.Repeat(" ", width-w) + s
-}
-
 // BannerColor picks the banner colour based on theme. Falls back to bold-only
 // when colour is disabled.
 func (c Caps) BannerColor() string {

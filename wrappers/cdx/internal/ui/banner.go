@@ -101,7 +101,3 @@ func Header(w io.Writer, caps Caps, prefix, body string) {
 	fmt.Fprintln(w, caps.Palette.Dim+prefix+caps.Palette.Reset+"  ·  "+body)
 }
 
-// Row prints "label   · value", left-padding the label to width.
-func Row(w io.Writer, caps Caps, label string, labelWidth int, value string) {
-	fmt.Fprintln(w, caps.Palette.Dim+PadRight(label, labelWidth)+caps.Palette.Reset+"  ·  "+value)
-}

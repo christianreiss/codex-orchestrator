@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 )
 
 // ScreenInput is everything the renderer needs to draw the boot/status screen.
@@ -198,9 +197,6 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 	}
 	_ = caps
 }
-
-// nowStamp is exposed for tests.
-var nowStamp = func() time.Time { return time.Now() }
 
 func strOr(s, def string) string {
 	if strings.TrimSpace(s) == "" {

@@ -339,20 +339,6 @@ func releaseVersion(rel Release) string {
 	return ""
 }
 
-// LatestVersion resolves GitHub's current Codex release to a comparable
-// semantic version string without downloading the release asset.
-func LatestVersion(ctx context.Context) (string, error) {
-	rel, err := fetchRelease(ctx, "latest")
-	if err != nil {
-		return "", err
-	}
-	v := releaseVersion(rel)
-	if v == "" {
-		return "", fmt.Errorf("codex latest release has no semantic version")
-	}
-	return v, nil
-}
-
 // resolveCodexDest picks /usr/local/bin/codex when writable (or via sudo),
 // else ~/.local/bin/codex. Returns the path; caller may not actually have
 // permission, in which case installBinary triggers the sudo fallback.
