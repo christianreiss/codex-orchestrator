@@ -31,6 +31,11 @@ const peerEngineCLI = "claude"
 // both wrappers.
 const peerSpawnEnv = "CODEX_ORCH_PEER_SPAWN"
 
+// errPeerEngineDisabled is returned by fetchBundle when the server reports the
+// peer engine is not enabled for this host (HTTP 403 engine_disabled). The cron
+// path treats it as a clean "no peer engine" skip rather than an error.
+var errPeerEngineDisabled = errors.New("peer engine not enabled for host")
+
 type bundle struct {
 	Payload   map[string]any `json:"payload"`
 	Signature struct {
@@ -63,11 +68,18 @@ func EnsureForCron(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 	if os.Getenv(peerSpawnEnv) == "1" {
 		return
 	}
-	engines, ok := desiredEngines(cfg, nil)
-	if !ok || !hasEngine(engines, peerEngine) {
-		return
-	}
+	// Authoritative engine state lives on the server. The locally-cached config
+	// (cfg.Host.Engines) can be stale when an operator enables the peer engine
+	// after this host was installed; gating on it here used to leave the peer
+	// wrapper unprovisioned on cron-only hosts. Ask the server instead: a served
+	// bundle means the peer engine is enabled, a 403 (engine_disabled) means it
+	// is not — skip silently then. As with interactive Reconcile we never
+	// persist the engines list locally and never remove the peer from an
+	// unattended tick.
 	if err := installPeer(ctx, cfg); err != nil {
+		if errors.Is(err, errPeerEngineDisabled) {
+			return
+		}
 		logger.Warn("peer wrapper cron ensure skipped", "engine", peerEngine, "err", err)
 	}
 }
@@ -183,6 +195,9 @@ func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, erro
 		return nil, nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, nil, errPeerEngineDisabled
+	}
 	if resp.StatusCode >= 400 {
 		return nil, nil, fmt.Errorf("peer config HTTP %d", resp.StatusCode)
 	}
