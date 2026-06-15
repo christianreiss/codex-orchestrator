@@ -3,7 +3,6 @@
  * `Record<string, unknown>`. Keep these tolerant so a malformed value never
  * crashes an editor.
  */
-import { CLAUDE_MODELS } from "$lib/constants/models";
 
 export function asString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -22,11 +21,4 @@ export function asStringArray(value: unknown): string[] {
       .filter((v) => v !== "");
   }
   return [];
-}
-
-/** Human-readable label for a model id; falls back to the raw value. */
-export function modelLabel(value: string): string {
-  const match = CLAUDE_MODELS.find((m) => m.value === value);
-  if (match) return match.label;
-  return value || "Inherit";
 }

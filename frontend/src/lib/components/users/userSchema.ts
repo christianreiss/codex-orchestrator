@@ -25,12 +25,6 @@ export const passwordSchema = z
   .min(12, "Must be at least 12 characters")
   .refine(passwordCharacterMix, "Mix at least two of: lowercase, uppercase, digit, symbol");
 
-export const optionalPasswordSchema = z
-  .string()
-  .refine((v) => v === "" || passwordCharacterMix(v), {
-    message: "Must be ≥ 12 chars with two character classes",
-  });
-
 const baseShape = {
   name: z
     .string()
@@ -79,9 +73,6 @@ export const editUserSchema = z
     message: "Passwords do not match",
     path: ["password_confirm"],
   });
-
-export type CreateUserInput = z.infer<typeof createUserSchema>;
-export type EditUserInput = z.infer<typeof editUserSchema>;
 
 export const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: "admin", label: "Admin" },

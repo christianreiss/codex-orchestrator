@@ -3,9 +3,9 @@
  * writable that also persists the user's choice to localStorage so the
  * inline FOUC-prevention script in app.html can apply it before mount.
  */
-import { writable, type Readable } from "svelte/store";
+import { writable } from "svelte/store";
 import { browser } from "$app/environment";
-import { setMode, mode } from "mode-watcher";
+import { setMode } from "mode-watcher";
 import { getTheme } from "$lib/api/account";
 
 export type ThemeChoice = "light" | "dark" | "system";
@@ -80,8 +80,6 @@ if (browser) {
   }
 }
 
-export const themeStore: Readable<ThemeChoice> = { subscribe: store.subscribe };
-
 /** Programmatically change the theme. Persists + applies via mode-watcher. */
 export function setTheme(value: ThemeChoice): void {
   store.set(value);
@@ -103,5 +101,3 @@ export function setTheme(value: ThemeChoice): void {
   }
 }
 
-/** Re-export mode-watcher's current resolved mode for consumers. */
-export const resolvedMode = mode;

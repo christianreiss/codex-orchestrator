@@ -13,7 +13,6 @@ import {
 } from "@tanstack/svelte-query";
 import { api } from "./client";
 import type {
-  AdminAuthStatusResponse,
   AdminUser,
   AdminUserListResponse,
   AdminUserPayload,
@@ -21,15 +20,10 @@ import type {
 } from "./types";
 
 export const USERS_QUERY_KEY = ["users"] as const;
-export const AUTH_STATUS_QUERY_KEY = ["auth", "status"] as const;
 
 export async function listUsers(): Promise<AdminUser[]> {
   const data = await api.get<AdminUserListResponse>("/admin/users");
   return data?.users ?? [];
-}
-
-export async function fetchAuthStatus(): Promise<AdminAuthStatusResponse> {
-  return await api.get<AdminAuthStatusResponse>("/admin/auth/status");
 }
 
 export async function createUser(payload: AdminUserPayload): Promise<AdminUser> {
@@ -56,14 +50,6 @@ export function createUsersQuery(): CreateQueryResult<AdminUser[], Error> {
   return createQuery<AdminUser[], Error>({
     queryKey: USERS_QUERY_KEY,
     queryFn: listUsers,
-  });
-}
-
-export function createAuthStatusQuery(): CreateQueryResult<AdminAuthStatusResponse, Error> {
-  return createQuery<AdminAuthStatusResponse, Error>({
-    queryKey: AUTH_STATUS_QUERY_KEY,
-    queryFn: fetchAuthStatus,
-    staleTime: 5 * 60_000,
   });
 }
 

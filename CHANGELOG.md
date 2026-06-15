@@ -36,6 +36,24 @@
   per-host overrides and fleet default keep free-text entry (a combobox with
   suggestions) so operators can still pin a model that is not yet in the list.
 
+## Removed tool-proven dead code
+
+- **API:** Deleted an orphaned 15-file test factory/seed cluster (nothing imported
+  it; vitest has no setup hook, and the contract suite uses replay fixtures), ~25
+  unused exports/types, and unused dependencies (`uuid`, `pino-http`, `smol-toml`).
+  Declared the previously-unlisted `fastify-plugin` / `@eslint/js` /
+  `@simplewebauthn/types`. Added a committed `api/knip.json` so the dead set stays
+  reproducible.
+- **Dashboard:** Removed 3 unused components/files, ~20 unused exports/types
+  (including `modelLabel`, now dead after the picker consolidation), and unused
+  dependencies (`@tanstack/svelte-table`, `svelte-chartjs`, `sveltekit-superforms`).
+  Added a committed `frontend/knip.json` (vendored shadcn `ui/**` excluded — its
+  namespace-imported barrels are knip false positives).
+- **wrappers:** Removed 8 unreachable `cdx`/`clx` UI helpers flagged by
+  `go deadcode` (`PadLeft`, `Row`, `DurationLong`, `plural`, `RelativeIso`,
+  `SecondsSinceIso`, plus cdx-only `LatestVersion` and `nowStamp`). Engine-parity
+  quota stubs were preserved.
+
 # 2026-06-13
 
 ## Auth upload failures are visible

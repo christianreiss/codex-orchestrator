@@ -184,11 +184,3 @@ export function wireWsToQueryClient(
   });
 }
 
-/** Merge feature-specific entries into the default map at module load. */
-export function extendInvalidations(map: WsInvalidationMap): WsInvalidationMap {
-  for (const [evt, keys] of Object.entries(map)) {
-    const existing = DEFAULT_INVALIDATIONS[evt] ?? [];
-    DEFAULT_INVALIDATIONS[evt] = [...existing, ...keys];
-  }
-  return DEFAULT_INVALIDATIONS;
-}

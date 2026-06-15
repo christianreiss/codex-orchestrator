@@ -83,19 +83,6 @@ export type CommandSource = (query: string) => PaletteCommand[] | Promise<Palett
 
 const externalSources: CommandSource[] = [];
 
-/**
- * Register an additional dynamic command source. Returns an unregister
- * function. Phase 3 / feature agents can extend the palette without
- * touching this file's core wiring.
- */
-export function registerCommandSource(source: CommandSource): () => void {
-  externalSources.push(source);
-  return () => {
-    const idx = externalSources.indexOf(source);
-    if (idx >= 0) externalSources.splice(idx, 1);
-  };
-}
-
 /* -------------------------------------------------------------------------- */
 /*  Static commands                                                            */
 /* -------------------------------------------------------------------------- */
@@ -480,15 +467,6 @@ export function buildDynamicSources(qc: QueryClient): CommandSource[] {
   };
 
   return [hostSource, projectSource, skillSource, userSource];
-}
-
-/**
- * Legacy helper retained for callers that want a single flat list of
- * commands for a query (without group-aware streaming).
- */
-export async function collectCommands(query: string): Promise<PaletteCommand[]> {
-  const dynamic = await Promise.all(externalSources.map((src) => src(query)));
-  return [...STATIC_COMMANDS, ...dynamic.flat()];
 }
 
 /** Snapshot of external sources for the palette to merge. */

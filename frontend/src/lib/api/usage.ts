@@ -73,21 +73,11 @@ export interface ChatGptHistoryResponse {
   points?: Array<Record<string, unknown>>;
 }
 
-/* Claude ---------------------------------------------------------------- */
-
-export interface ClaudeVersionResponse {
-  client_version?: string | null;
-  client_version_lock?: string | null;
-  client_version_enforce_exact?: boolean;
-  client_version_lock_updated_at?: string | null;
-}
-
 /* Query keys ------------------------------------------------------------ */
 
 export const usageKeys = {
   chatgpt: ["usage", "chatgpt"] as const,
   chatgptHistory: (days = 60) => ["usage", "chatgpt", "history", days] as const,
-  claudeVersion: ["usage", "claude", "version"] as const,
 };
 
 /* Query / mutation builders -------------------------------------------- */
@@ -115,13 +105,6 @@ export function chatgptRefreshMutation() {
       void qc.invalidateQueries({ queryKey: ["usage", "chatgpt"] });
       void qc.invalidateQueries({ queryKey: ["overview"] });
     },
-  });
-}
-
-export function claudeVersionQuery() {
-  return createQuery<ClaudeVersionResponse>({
-    queryKey: usageKeys.claudeVersion,
-    queryFn: () => api.get<ClaudeVersionResponse>("/admin/claude/version"),
   });
 }
 

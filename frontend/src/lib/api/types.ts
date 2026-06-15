@@ -29,28 +29,6 @@ export interface AdminBootstrap {
   user: User | null;
 }
 
-export interface Host {
-  id: number | string;
-  hostname: string;
-  display_name?: string | null;
-  status?: "online" | "offline" | "pending" | string;
-  secure?: boolean;
-  vip?: boolean;
-  roaming?: boolean;
-  insecure_window_open?: boolean;
-  last_seen?: string | null;
-  ip_address?: string | null;
-}
-
-export interface Project {
-  id: number | string;
-  slug: string;
-  name: string;
-  about?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
 // projects feature ↓
 export interface ProjectAbout {
   title?: string | null;
@@ -187,64 +165,6 @@ export interface Skill {
   manifest?: string | null;
   body?: string | null;
   updated_at?: string | null;
-}
-
-export interface Memory {
-  id: number | string;
-  key: string;
-  value: string;
-  created_at?: string | null;
-}
-
-export interface LogEntry {
-  id: number | string;
-  ts?: string;
-  level?: string;
-  message: string;
-  source?: string | null;
-  meta?: Record<string, unknown>;
-}
-
-export interface ApiKey {
-  id: number | string;
-  label?: string | null;
-  provider: "openai" | "claude" | string;
-  enabled?: boolean;
-  last_used_at?: string | null;
-  created_at?: string | null;
-}
-
-export interface UsageSnapshot {
-  provider: "openai" | "claude" | string;
-  total_cost?: number;
-  window_start?: string | null;
-  window_end?: string | null;
-  buckets?: Array<{ ts: string; value: number }>;
-}
-
-/** Standard backend envelope for admin routes. */
-export interface OkEnvelope<T> {
-  status: "ok";
-  data?: T;
-  [key: string]: unknown;
-}
-
-export interface ErrorEnvelope {
-  status: "error";
-  message?: string;
-  code?: string;
-  [key: string]: unknown;
-}
-
-/** OpenAI-shaped error envelope (used by some controllers). */
-export interface OpenAIErrorEnvelope {
-  error: { message?: string; type?: string; code?: string };
-}
-
-/** Anthropic-shaped error envelope (used by Claude controllers). */
-export interface AnthropicErrorEnvelope {
-  type: "error";
-  error: { message?: string; type?: string; code?: string };
 }
 
 // account feature ↓
@@ -451,8 +371,6 @@ export interface AgentsStoreResult {
 }
 
 // Claude collection artifacts (subagents / commands / output-styles)
-
-export type ClaudeArtifactKind = "subagents" | "commands" | "output-styles";
 
 export interface ArtifactView {
   id: number | string;
@@ -867,12 +785,6 @@ export interface ClaudeSettingsValue {
   disabled: boolean;
 }
 
-export interface ClaudeVersionValue {
-  version: string | null;
-  locked: boolean;
-  updated_at: string | null;
-}
-
 export interface ClaudeVersionLockValue {
   locked_version: string | null;
   locked_at: string | null;
@@ -986,16 +898,4 @@ export interface AdminUserPayload {
   access_level: UserRole | string;
   active: boolean;
   password?: string;
-}
-
-export interface AdminAuthStatusResponse {
-  has_users: boolean;
-  admin_count: number;
-  enforced: boolean;
-  authenticated: boolean;
-  user: AdminUser | null;
-  /** Role key → human-readable label, e.g. `{admin: "Admin", ...}`. */
-  roles: Record<string, string>;
-  passkeys_registered?: number;
-  passkey_login_available?: boolean;
 }

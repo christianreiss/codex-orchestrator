@@ -86,4 +86,3 @@ export const HOOK_EVENTS = [
   "PreCompact",
 ] as const;
 
-export type HookEvent = (typeof HOOK_EVENTS)[number];

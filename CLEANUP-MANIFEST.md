@@ -75,11 +75,20 @@ Also keep (engine-parity, documented intentional deltas — AGENTS.md:27-39):
 - [x] INTENTIONAL (all already documented, no action): responses-stream×2, clx
       `ReasoningEffort`, clx `Lane`. Verified.
 
-## PILLAR 2 — Dead code (tool-proven) — **EXECUTE LAST**
+## PILLAR 2 — Dead code (tool-proven) — ✅ DONE
 
-> Sequencing: stubs + UX land first (they change the dead set), THEN re-run
-> `knip`/`deadcode`, remove, loop until dry. Inventory below is provisional.
-> Rule: remove only flagged-AND-grep-confirmed-zero-reference. Remove cascades together.
+> Ran last (after stubs + UX changed the dead set). Committed `api/knip.json` +
+> `frontend/knip.json` (FPs collapsed via `ignoreExportsUsedInFile`; shadcn `ui/**`
+> excluded as vendored namespace-import barrels). **Both knip runs now exit 0 with
+> zero output; `go vet` clean.** Removed: api 15-file orphaned test cluster + ~25
+> unused exports/types + 3 dead deps (added 3 unlisted); frontend 3 files + ~20
+> unused exports/types (incl. `modelLabel`, dead `Host`/`Project`/`Memory`) + 3 dead
+> deps; 8 Go UI helpers across both wrappers. Cascades removed together
+> (`UserEventType`/`ProjectEventType`, `resetDbRaw`, `AdminAuthStatusResponse`, the
+> usage/auth-status query chains). Kept (documented): dev scripts `smoke`/`boot-listen`
+> (entry points), `tslib`/`@types/dompurify` (build deps), clx parity quota stubs.
+
+The detailed pre-execution inventory is retained below for the record.
 
 ### api — files *(opus: dev-utils & test seam)*
 - [ ] `scripts/boot-listen.ts`, `scripts/smoke.ts` — manual dev utils, unwired. Judge keep/remove.
