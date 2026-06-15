@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_LEGACY_MODEL_UPGRADES,
-  CLAUDE_SUPPORTED_MODELS,
   FORCE_UPGRADE_MODEL,
   FORCE_UPGRADE_REASONING_EFFORT,
   LEGACY_MODEL_UPGRADES,
@@ -46,9 +45,10 @@ describe('config-normalizer constants', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBeUndefined();
   });
 
-  it('maps legacy Claude models to upgrades', () => {
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-6');
-    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-opus-4-6');
+  it('maps legacy Claude models onto current gate ids', () => {
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-haiku-20240307']).toBe('claude-haiku-4-5-20251001');
   });
 });
 
@@ -84,7 +84,7 @@ describe('normalizeSupportedModel', () => {
 
 describe('normalizeClaudeModel', () => {
   it('upgrades legacy claude models', () => {
-    expect(normalizeClaudeModel('claude-3-opus-20240229')).toBe('claude-opus-4-6');
+    expect(normalizeClaudeModel('claude-3-opus-20240229')).toBe('claude-opus-4-7');
   });
   it('passes through current claude models', () => {
     expect(normalizeClaudeModel('claude-sonnet-4-6')).toBe('claude-sonnet-4-6');

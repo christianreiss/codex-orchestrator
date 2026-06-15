@@ -35,22 +35,20 @@ export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   'gpt-5.1-codex-mini': FORCE_UPGRADE_MODEL,
 };
 
-export const CLAUDE_SUPPORTED_MODELS: readonly string[] = [
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-];
-
+// Legacy stored-override ids mapped onto the canonical gate ids defined in
+// api/src/services/claude-models.ts (CLAUDE_SUPPORTED_MODELS). Values MUST be
+// valid gate models so the rendered per-host config and the inference gate
+// agree — never downgrade to a gate-rejected id. This map is the stored-override
+// input domain and is deliberately separate from the gate's request-side map.
 export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
-  'claude-3-opus-20240229': 'claude-opus-4-6',
+  'claude-3-opus-20240229': 'claude-opus-4-7',
   'claude-3-sonnet-20240229': 'claude-sonnet-4-6',
-  'claude-3-haiku-20240307': 'claude-haiku-4-5',
+  'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
   'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
   'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
-  'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
   'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
-  'claude-opus-4-20250514': 'claude-opus-4-6',
-  'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+  'claude-opus-4-20250514': 'claude-opus-4-7',
 };
 
 export const REASONING_EFFORTS: readonly string[] = ['minimal', 'low', 'medium', 'high'];
@@ -173,9 +171,9 @@ export function normalizeSupportedModel(value: unknown): string | null {
 export function normalizeClaudeModel(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
-  const upgraded = CLAUDE_LEGACY_MODEL_UPGRADES[s];
-  if (upgraded !== undefined) return upgraded;
-  return CLAUDE_SUPPORTED_MODELS.includes(s) ? s : s;
+  // Upgrade known legacy ids; pass through anything else verbatim so wrappers
+  // can self-test newer models (the inference gate is the real allowlist).
+  return CLAUDE_LEGACY_MODEL_UPGRADES[s] ?? s;
 }
 
 export function normalizeReasoningEffort(value: unknown): string | null {

@@ -32,7 +32,7 @@ Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error enve
 
 **Rate limiting**: per-key RPM using the `anthropic:{key_id}` bucket (default 60 RPM, configurable per key). Exceeding the limit returns HTTP 429 with a `Retry-After: 60` header.
 
-**Supported models**: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to the current equivalents.
+**Supported models**: `claude-opus-4-7`, `claude-sonnet-4-6` (default), `claude-haiku-4-5-20251001`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to the current equivalents.
 
 #### `POST /anthropic/v1/messages`
 
@@ -154,9 +154,9 @@ List available Claude models.
 {
   "object": "list",
   "data": [
-    {"id": "claude-opus-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"id": "claude-opus-4-7", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
     {"id": "claude-sonnet-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-haiku-4-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
+    {"id": "claude-haiku-4-5-20251001", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
   ]
 }
 ```
@@ -323,7 +323,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/vip` — toggle VIP (VIP hosts always behave warn-only for quota hard-fail).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle sync TLS verification bypass (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`).
-- `POST /admin/hosts/{id}/model` — set per-host Codex `model_override` / `reasoning_effort_override` and Claude `claude_model_override` (null/empty clears). Codex supported models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`; effort must be valid for the selected model. Claude supported models: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`. Stored legacy Codex overrides on removed models are backfilled to `gpt-5.5` with `high` effort.
+- `POST /admin/hosts/{id}/model` — set per-host Codex `model_override` / `reasoning_effort_override` and Claude `claude_model_override` (null/empty clears). Codex supported models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`; effort must be valid for the selected model. Claude supported models: `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Stored legacy Codex overrides on removed models are backfilled to `gpt-5.5` with `high` effort.
 - `POST /admin/hosts/{id}/codex-version` — set per-host Codex version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`).
 - `POST /admin/hosts/{id}/claude-version` — set per-host Claude Code version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`, or `claude_client_version_override`).
 - `POST /admin/hosts/{id}/agents-version` — set per-host AGENTS document override (`selection: "global"|"fleet"|"default"|<version_id>`).
@@ -352,7 +352,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability.
   - `GET /admin/claude/settings` — get Claude fleet settings. Returns `{status, data: {default_model, max_tokens, disabled}}`.
-  - `POST /admin/claude/settings` — update Claude fleet settings. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-opus-4-6`, `claude-sonnet-4-6` (default), `claude-haiku-4-5`.
+  - `POST /admin/claude/settings` — update Claude fleet settings. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-opus-4-7`, `claude-sonnet-4-6` (default), `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).

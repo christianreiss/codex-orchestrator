@@ -36,6 +36,11 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-opus-4-20250514': 'claude-opus-4-7',
   'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   'claude-sonnet-4-5': 'claude-sonnet-4-6',
+  // Heal ids issued by the pre-2026-06-15 admin picker, which offered the short
+  // `claude-opus-4-6` / `claude-haiku-4-5` ids that this gate never accepted.
+  // Upgrade already-stored overrides/requests instead of 400-ing them.
+  'claude-opus-4-6': 'claude-opus-4-7',
+  'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 };
 
 export interface ClaudeModelInfo {

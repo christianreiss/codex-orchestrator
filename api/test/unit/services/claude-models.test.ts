@@ -57,6 +57,14 @@ describe('claude-models', () => {
     expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-4-6');
   });
 
+  it('upgrades pre-reconciliation picker ids to the gate canon', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-6']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
+    expect(await svc.resolveRequestedModel('claude-opus-4-6')).toBe('claude-opus-4-7');
+    expect(await svc.resolveRequestedModel('claude-haiku-4-5')).toBe('claude-haiku-4-5-20251001');
+  });
+
   it('throws Anthropic-shaped 400 for unsupported ids', async () => {
     const svc = createClaudeModelsService(fakeDb());
     let err: unknown = null;
