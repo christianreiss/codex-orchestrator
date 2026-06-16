@@ -87,6 +87,24 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner returns `updated_auth`, it is applied only when it has a valid RFC3339 `last_refresh`, has usable auth tokens after engine fallback normalization, and `updated_auth.last_refresh >= upload.last_refresh`.
   - Older or malformed `updated_auth` is ignored; the runner-verified upload candidate is stored and the response/log includes a skipped reason.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
+- **Launch-gate verification (retrieve side, Claude).** `/auth retrieve` and the
+  `/sync/bootstrap` candidate-match path run `ensureServedVerification` before
+  reporting a green status for the Claude engine, so a digest-match no longer
+  implies "works". It is TTL-bounded by `AUTH_RUNNER_VERIFY_TTL_SECONDS`
+  (default `900`): a canonical row whose `verification_checked_at` is within the
+  window is trusted (no probe); otherwise the served canonical is verified live
+  via `/verify-claude`. Outcomes are surfaced as `verification_state`
+  (`verified` | `failed` | `unknown`) plus optional `verification_reason`:
+  - `verified` — token chain proved live (cached within TTL, or freshly probed);
+    served normally.
+  - `failed` — runner reached the provider and the credentials do not work; the
+    known-bad blob is withheld and the wrapper refuses launch with a re-login
+    prompt instead of a raw 401.
+  - `unknown` — runner not configured or unreachable; the response preserves the
+    legacy digest-derived status and the wrapper keeps its offline/cached
+    behaviour (a runner outage never downgrades a payload to `failed`).
+  - When the runner refreshes the token during this probe, the refreshed blob is
+    persisted as a fresh canonical (rotation-safe) and served as `outdated`.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
 - Scheduled preflight is triggered on each non-admin request except `/versions` and routes starting with `/mcp`.
 - Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are swallowed by the request pipeline and do not block the request.
@@ -116,6 +134,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): preflight interval. Default: `28800` (8h). Non-positive values fall back to `28800`.
+- `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): launch-gate freshness for the Claude retrieve-side live verification. Default: `900` (15m). Within the window a prior `verified` verdict is trusted; older than it, the served canonical is re-verified before a green status is reported.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.

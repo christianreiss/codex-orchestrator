@@ -85,6 +85,11 @@ const schema = z
     AUTH_RUNNER_IP_BYPASS: boolish.default(false),
     AUTH_RUNNER_BYPASS_SUBNETS: z.string().default(''),
     AUTH_RUNNER_PREFLIGHT_SECONDS: intish(28800),
+    // Start-side launch-gate freshness: when a wrapper retrieves auth and the
+    // served canonical was last runner-verified longer ago than this, the
+    // retrieve path re-verifies it live before reporting a green status. Keeps
+    // most launches instant while bounding stale-token 401 exposure.
+    AUTH_RUNNER_VERIFY_TTL_SECONDS: intish(900),
     AUTH_SEED_TOKEN_TTL_SECONDS: intish(900),
 
     // Admin

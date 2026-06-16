@@ -98,6 +98,8 @@ describe('RunnerProxyService', () => {
         body: '{}',
         engine: 'claude',
         createdAt: '2026-05-20T10:00:00Z',
+        verificationState: 'verified',
+        verificationCheckedAt: '2026-05-20T10:00:00Z',
       }),
       validateCanonicalPayload: () => ({
         auth: { auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } },

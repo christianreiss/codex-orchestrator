@@ -1,3 +1,39 @@
+# 2026-06-16
+
+## clx launch gate proves Claude auth before reporting green (no more silent 401)
+
+- **Problem:** `clx` showed `● auth` green and launched Claude Code, which then
+  failed with `401 Invalid authentication credentials` / "Please run /login".
+  The launch gate derived its status purely from **digest comparison** on the
+  server (`handleRetrieve`) — it never checked whether the canonical credentials
+  actually authenticate. A stale-but-digest-matching OAuth token sailed straight
+  through to a 401 inside Claude. Uploads were already runner-verified before
+  acceptance (`storeCandidate`); **retrieves/launches were not** — that asymmetry
+  was the bug.
+- **API:** Added `ensureServedVerification` to the canonical auth store and wired
+  it into the `/auth retrieve` and `/sync/bootstrap` candidate-match paths
+  (Claude engine). Before any green status is reported, the served canonical is
+  runner-verified live, **TTL-bounded** by the new
+  `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`): within the window a prior
+  `verified` verdict is trusted (probe-free), otherwise it re-verifies. The
+  response now carries `verification_state` (`verified` | `failed` | `unknown`)
+  and `verification_reason`.
+  - A runner **outage** (transport failure) yields `unknown` and never downgrades
+    a payload — launches fall back to the existing offline/cached path instead of
+    being blocked by an infrastructure blip.
+  - A runner-**refreshed** token is persisted as a fresh canonical (reusing the
+    tested store gate) so the host receives live credentials rather than a
+    possibly-rotated pre-refresh `refreshToken`.
+  - When no runner is configured the path returns `unknown` and behavior is
+    unchanged (backward-compatible).
+- **API:** `resolveCanonicalPayload` now surfaces `verificationState` /
+  `verificationCheckedAt` on the canonical row so the gate can honor them.
+- **clx wrapper:** `orchestrator.Decide` refuses the managed launch when the
+  server reports `verification_state=failed`, with an actionable re-login message
+  instead of dropping the user into a raw 401. The boot-screen `● auth` dot turns
+  red on a failed live verification even when the digest status alone looked
+  green.
+
 # 2026-06-15
 
 ## AI-assisted draft endpoints are wired to the runner

@@ -173,6 +173,12 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 	case "insecure":
 		authTone = ui.ToneWarn
 	}
+	// A live-verification failure overrides the digest-derived tone: the token
+	// the host would launch with does not authenticate, so the dot must read red
+	// even when the digest status alone looked green.
+	if strings.EqualFold(strings.TrimSpace(auth.VerificationState), "failed") {
+		authTone = ui.ToneFail
+	}
 
 	return []ui.HealthDot{
 		{Name: "api", Tone: apiTone},

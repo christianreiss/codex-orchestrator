@@ -87,7 +87,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
 
     if (command === 'retrieve') {
-      return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions);
+      return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions, authStore);
     }
     return handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, versions);
   });
@@ -125,7 +125,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
-      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions);
+      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions, authStore);
       out.auth = authResult;
       const authStatus = ((authResult as { status?: string }).status ?? '').toLowerCase();
       if (authStatus !== 'valid') {
@@ -274,6 +274,7 @@ async function handleRetrieve(
   engine: Engine,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  authStore: ReturnType<typeof createCanonicalAuthStoreService>,
 ): Promise<Record<string, unknown>> {
   const providedDigest = extractDigest(payload, false);
   const incomingLast =
@@ -322,27 +323,66 @@ async function handleRetrieve(
     };
   }
 
+  // Launch-gate proof: before reporting any green status, ensure the canonical
+  // auth the host is about to launch with actually works. TTL-bounded so the
+  // common path stays probe-free; scoped to Claude (the engine whose stale
+  // OAuth tokens surface as a 401 / "Please run /login" inside the client).
+  let servedAuth = canonicalAuth!;
+  let servedDigest = canonicalDigest;
+  let servedLast = canonicalLast!;
+  if (engine === ENGINE_CLAUDE) {
+    const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
+    const verdict = await authStore.ensureServedVerification({
+      engine,
+      hostId: host.id,
+      row: {
+        id: canonicalRow.id,
+        verificationState: canonicalRow.verificationState,
+        verificationCheckedAt: canonicalRow.verificationCheckedAt,
+      },
+      auth: canonicalAuth!,
+      digest: canonicalDigest,
+      lastRefresh: canonicalLast!,
+      ttlSeconds,
+    });
+    baseResponse.verification_state = verdict.state;
+    if (verdict.reason) baseResponse.verification_reason = verdict.reason;
+    if (verdict.state === 'failed') {
+      // Definitively bad credentials. Do not serve the known-bad blob; surface
+      // verification_state so the wrapper refuses launch with an actionable
+      // re-login message instead of dropping the user into a raw 401.
+      await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+      return { ...baseResponse, status: 'outdated' };
+    }
+    servedAuth = verdict.auth;
+    servedDigest = verdict.digest;
+    servedLast = verdict.lastRefresh;
+    // Keep the advertised canonical metadata consistent with a refreshed blob.
+    baseResponse.canonical_digest = servedDigest;
+    baseResponse.canonical_last_refresh = servedLast;
+  }
+
   const incomingTs = incomingLast ? Date.parse(incomingLast) : 0;
-  const canonicalTs = canonicalLast ? Date.parse(canonicalLast) : 0;
-  const matchesCanonical = providedDigest && canonicalDigest && providedDigest === canonicalDigest;
+  const canonicalTs = servedLast ? Date.parse(servedLast) : 0;
+  const matchesCanonical = providedDigest && servedDigest && providedDigest === servedDigest;
 
   if (matchesCanonical) {
-    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
-    await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
+    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+    await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
     return { ...baseResponse, status: 'valid' };
   }
   if (incomingTs >= canonicalTs) {
-    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
-    await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
+    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+    await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
     return { ...baseResponse, status: 'upload_required', action: 'store' };
   }
-  // Otherwise, host is outdated — serve the canonical auth.
-  await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
-  await touchHostAuthFields(ctx.db, host.id, canonicalLast!, canonicalDigest, engine);
+  // Otherwise, host is outdated — serve the (verified) canonical auth.
+  await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+  await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
   return {
     ...baseResponse,
     status: 'outdated',
-    auth: canonicalAuth,
+    auth: servedAuth,
   };
 }
 
@@ -389,7 +429,7 @@ async function handleBootstrapAuth(
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
 ): Promise<Record<string, unknown>> {
   const candidate = readAuthCandidate(payload);
-  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
+  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
 
   const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
@@ -398,16 +438,53 @@ async function handleBootstrapAuth(
   const candidateLast = typeof candidate.last_refresh === 'string' ? candidate.last_refresh.trim() : '';
   if (candidateLast) assertReasonableLastRefresh(candidateLast, 'auth_candidate.last_refresh');
 
-  if (canonicalRow && canonicalDigest && canonicalLast) {
+  if (canonicalRow && canonicalDigest && canonicalLast && validated) {
     const candidateDigest = canonicalizedCandidateDigest(candidate, candidateLast || canonicalLast, engine, runnerValidation);
     if (candidateDigest === canonicalDigest) {
-      await touchHostAuthState(ctx.db, host.id, canonicalRow.id, canonicalDigest, engine);
-      await touchHostAuthFields(ctx.db, host.id, canonicalLast, canonicalDigest, engine);
+      // Candidate already matches canonical: this is the common warm-launch
+      // path. Prove the shared blob still works (TTL-bounded) before reporting
+      // green, mirroring handleRetrieve — otherwise a stale-but-matching token
+      // sails through to a 401 inside Claude.
       const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
-      return { ...baseResponse, canonical_last_refresh: canonicalLast, canonical_digest: canonicalDigest, status: 'valid' };
+      let servedDigest = canonicalDigest;
+      let servedLast = canonicalLast;
+      if (engine === ENGINE_CLAUDE) {
+        const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
+        const verdict = await authStore.ensureServedVerification({
+          engine,
+          hostId: host.id,
+          row: {
+            id: canonicalRow.id,
+            verificationState: canonicalRow.verificationState,
+            verificationCheckedAt: canonicalRow.verificationCheckedAt,
+          },
+          auth: validated.auth,
+          digest: canonicalDigest,
+          lastRefresh: canonicalLast,
+          ttlSeconds,
+        });
+        baseResponse.verification_state = verdict.state;
+        if (verdict.reason) baseResponse.verification_reason = verdict.reason;
+        if (verdict.state === 'failed') {
+          await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+          return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'outdated' };
+        }
+        servedDigest = verdict.digest;
+        servedLast = verdict.lastRefresh;
+        // A refresh during verification means the candidate no longer matches:
+        // serve the refreshed blob so the host upgrades to live credentials.
+        if (verdict.refreshed) {
+          await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+          await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
+          return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'outdated', auth: verdict.auth };
+        }
+      }
+      await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+      await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
+      return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'valid' };
     }
     if (candidateLast && Date.parse(candidateLast) < Date.parse(canonicalLast)) {
-      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
+      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
     }
   }
 
@@ -424,7 +501,7 @@ async function handleBootstrapAuth(
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc);
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
   }
 }
 

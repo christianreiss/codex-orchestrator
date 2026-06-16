@@ -109,6 +109,30 @@ func TestDecide_TableDriven(t *testing.T) {
 			want: wantD{reason: "Installation ID mismatch"},
 		},
 		{
+			name: "verification failed overrides green status",
+			resp: &AuthRetrieveResponse{
+				Status:            "valid",
+				VerificationState: "failed",
+			},
+			want: wantD{reason: "failed live verification"},
+		},
+		{
+			name: "verification verified allows",
+			resp: &AuthRetrieveResponse{
+				Status:            "valid",
+				VerificationState: "verified",
+			},
+			want: wantD{allowed: true},
+		},
+		{
+			name: "verification unknown does not block",
+			resp: &AuthRetrieveResponse{
+				Status:            "outdated",
+				VerificationState: "unknown",
+			},
+			want: wantD{allowed: true},
+		},
+		{
 			name:  "error fresh local",
 			resp:  &AuthRetrieveResponse{Status: "error", Message: "runner unreachable"},
 			path:  "/dev/null",

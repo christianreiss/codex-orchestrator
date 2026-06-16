@@ -21,6 +21,43 @@ function runner(verdict: RunnerVerifyResult): RunnerClient {
   };
 }
 
+function countingRunner(
+  verdict: RunnerVerifyResult,
+  configured = true,
+): { client: RunnerClient; calls: () => number } {
+  let calls = 0;
+  const probe = async (_input: RunnerVerifyInput) => {
+    calls += 1;
+    return verdict;
+  };
+  return {
+    client: { isConfigured: () => configured, verify: probe, verifyClaude: probe },
+    calls: () => calls,
+  };
+}
+
+const CLAUDE_AUTH = {
+  last_refresh: '2026-05-20T09:00:00Z',
+  auths: { 'api.anthropic.com': { token: 'tok' } },
+  claudeAiOauth: { accessToken: 'sk-ant-oat01-a', refreshToken: 'r1' },
+};
+
+function makeStore(client: RunnerClient, seedState = 'pending') {
+  const db = createDbFake();
+  db.tables.set(authPayloads, [
+    { id: 1, verificationState: seedState, verificationCheckedAt: null, verificationReason: null },
+  ]);
+  db.tables.set(authEntries, []);
+  const keyring = makeKeyring();
+  const svc = createCanonicalAuthStoreService({
+    db: db as never,
+    keyring,
+    runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+    runner: client,
+  });
+  return { db, svc };
+}
+
 describe('CanonicalAuthStoreService', () => {
   it('applies same-or-newer runner updated_auth and persists the refreshed payload', async () => {
     const db = createDbFake();
@@ -125,3 +162,104 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(0);
   });
 });
+
+describe('ensureServedVerification (launch-gate proof)', () => {
+  const base = {
+    engine: 'claude' as const,
+    hostId: null,
+    auth: CLAUDE_AUTH,
+    digest: 'dig',
+    lastRefresh: CLAUDE_AUTH.last_refresh,
+    ttlSeconds: 900,
+  };
+
+  it('returns unknown without downgrading when the runner is not configured', async () => {
+    const { client } = countingRunner({ ok: true, status: 'ok', reachable: true }, false);
+    const { svc } = makeStore(client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      row: { id: 1, verificationState: 'pending', verificationCheckedAt: null },
+    });
+    expect(out.state).toBe('unknown');
+    expect(out.refreshed).toBe(false);
+  });
+
+  it('trusts a within-TTL verified verdict and skips the live probe', async () => {
+    const r = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const { svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 1_000_000,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(60) },
+    });
+    expect(out.state).toBe('verified');
+    expect(r.calls()).toBe(0);
+  });
+
+  it('stamps verified and serves the blob unchanged on a live ok verdict', async () => {
+    const r = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const { db, svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'pending', verificationCheckedAt: null },
+    });
+    expect(out.state).toBe('verified');
+    expect(out.digest).toBe('dig');
+    expect(r.calls()).toBe(1);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
+  it('marks the payload failed when the runner reaches the provider and rejects', async () => {
+    const r = countingRunner({ ok: false, status: 'fail', reachable: true, reason: 'token expired' });
+    const { db, svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+    });
+    expect(out.state).toBe('failed');
+    expect(out.reason).toBe('token expired');
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
+  });
+
+  it('returns unknown without downgrading on a runner outage', async () => {
+    const r = countingRunner({ ok: false, status: 'fail', reachable: false, reason: 'down' });
+    const { db, svc } = makeStore(r.client, 'verified');
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+    });
+    expect(out.state).toBe('unknown');
+    // Outage must not flip a previously-verified payload to failed.
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
+  it('persists and serves a runner-refreshed blob (rotation-safe)', async () => {
+    const r = countingRunner({
+      ok: true,
+      status: 'ok',
+      reachable: true,
+      updated_auth: {
+        last_refresh: '2026-05-20T10:00:00Z',
+        claudeAiOauth: { accessToken: 'sk-ant-oat01-new', refreshToken: 'r2' },
+      },
+    });
+    const { db, svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'pending', verificationCheckedAt: null },
+    });
+    expect(out.state).toBe('verified');
+    expect(out.refreshed).toBe(true);
+    expect(out.lastRefresh).toBe('2026-05-20T10:00:00Z');
+    // A fresh canonical row was minted for the refreshed credentials.
+    expect(db.tables.get(authPayloads)!.length).toBeGreaterThan(1);
+  });
+});
+
+function nowMinus(seconds: number): string {
+  return new Date(Date.now() - seconds * 1000).toISOString();
+}

@@ -48,8 +48,34 @@ export interface StoreAuthCandidateResult {
   engine: Engine;
 }
 
+export interface EnsureServedVerificationInput {
+  engine: Engine;
+  hostId: number | null;
+  row: { id: number; verificationState: string; verificationCheckedAt: string | null };
+  auth: Record<string, unknown>;
+  digest: string;
+  lastRefresh: string;
+  ttlSeconds: number;
+}
+
+export interface EnsureServedVerificationResult {
+  /**
+   * verified — token chain proved live (cached within TTL, or freshly probed).
+   * failed   — runner reached the provider and the credentials do not work.
+   * unknown  — runner not configured or unreachable; caller keeps legacy
+   *            offline/cached behaviour and must NOT treat this as proof.
+   */
+  state: 'verified' | 'failed' | 'unknown';
+  auth: Record<string, unknown>;
+  digest: string;
+  lastRefresh: string;
+  refreshed: boolean;
+  reason?: string;
+}
+
 export interface CanonicalAuthStoreService {
   storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult>;
+  ensureServedVerification(input: EnsureServedVerificationInput): Promise<EnsureServedVerificationResult>;
 }
 
 export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): CanonicalAuthStoreService {
@@ -71,8 +97,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     }
   }
 
-  return {
-    async storeCandidate(input) {
+  async function storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult> {
       const { engine } = input;
       const rawLastRefresh = typeof input.auth.last_refresh === 'string' ? input.auth.last_refresh.trim() : '';
       const lastRefresh = rawLastRefresh || (input.requireLastRefresh ? '' : nowIso());
@@ -176,8 +201,94 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
         engine,
       };
-    },
-  };
+  }
+
+  // ensureServedVerification proves the canonical auth a host is about to launch
+  // with actually works, bounded by a TTL so the common path stays probe-free.
+  // This is the launch-gate counterpart to storeCandidate's upload-gate verify:
+  // uploads are checked before acceptance, retrieves before being reported green.
+  async function ensureServedVerification(
+    input: EnsureServedVerificationInput,
+  ): Promise<EnsureServedVerificationResult> {
+    const { engine, hostId, row, auth, digest, lastRefresh, ttlSeconds } = input;
+    const unchanged: EnsureServedVerificationResult = {
+      state: 'unknown',
+      auth,
+      digest,
+      lastRefresh,
+      refreshed: false,
+    };
+
+    // Without a runner we cannot prove the token works; preserve legacy
+    // behaviour and report 'unknown' so the gate neither blocks nor falsely
+    // claims verification.
+    if (!runner.isConfigured()) return unchanged;
+
+    // Trust a recent verdict: within the TTL a previously-verified payload is
+    // served as-is, keeping the common launch path probe-free.
+    const checkedMs = row.verificationCheckedAt ? Date.parse(row.verificationCheckedAt) : NaN;
+    const withinTtl =
+      Number.isFinite(checkedMs) && Date.now() - checkedMs <= Math.max(0, ttlSeconds) * 1000;
+    if (row.verificationState === 'verified' && withinTtl) {
+      return { ...unchanged, state: 'verified' };
+    }
+
+    const verdict =
+      engine === ENGINE_CLAUDE
+        ? await runner.verifyClaude({ authJson: auth })
+        : await runner.verify({ authJson: auth });
+
+    // Runner outage (transport failure): do NOT downgrade the payload. Report
+    // 'unknown' so the gate falls back to its offline/cached-credentials logic
+    // instead of refusing launch during an infrastructure blip.
+    if (!verdict.reachable) return unchanged;
+
+    const now = nowIso();
+    if (!verdict.ok) {
+      await db
+        .update(authPayloads)
+        .set({
+          verificationState: 'failed',
+          verificationCheckedAt: now,
+          verificationReason: (verdict.reason ?? 'runner verification failed').slice(0, 500),
+        })
+        .where(eq(authPayloads.id, row.id));
+      return { ...unchanged, state: 'failed', reason: verdict.reason };
+    }
+
+    // Verified. If the runner refreshed the token, persist the refreshed blob as
+    // a fresh canonical so the host receives live credentials rather than a
+    // possibly-rotated pre-refresh refreshToken (reuses the tested store gate).
+    const refreshed = prepareRunnerUpdatedAuth(verdict.updated_auth, lastRefresh, engine, runnerValidation);
+    if (refreshed.ok && refreshed.digest !== digest) {
+      try {
+        const stored = await storeCandidate({
+          auth: verdict.updated_auth as Record<string, unknown>,
+          engine,
+          sourceHostId: hostId,
+          requireLastRefresh: false,
+          logAction: 'auth.reverify_refresh',
+        });
+        return {
+          state: 'verified',
+          auth: stored.auth,
+          digest: stored.canonical_digest,
+          lastRefresh: stored.canonical_last_refresh,
+          refreshed: true,
+        };
+      } catch {
+        // Fall through: stamp the existing row verified below.
+      }
+    }
+
+    await db
+      .update(authPayloads)
+      .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
+      .where(eq(authPayloads.id, row.id));
+    return { ...unchanged, state: 'verified' };
+  }
+
+  return { storeCandidate, ensureServedVerification };
 }
 
 export async function touchHostAuthFields(

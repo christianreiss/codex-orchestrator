@@ -30,6 +30,8 @@ export interface CanonicalPayloadRow {
   body: string | null;
   engine: string;
   createdAt: string;
+  verificationState: string;
+  verificationCheckedAt: string | null;
 }
 
 export interface NormalizedAuthEntry {
@@ -91,6 +93,8 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
         body: row.body ?? null,
         engine: row.engine,
         createdAt: row.createdAt,
+        verificationState: row.verificationState,
+        verificationCheckedAt: row.verificationCheckedAt ?? null,
       };
     },
 

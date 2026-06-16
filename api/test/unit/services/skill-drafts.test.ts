@@ -21,6 +21,8 @@ function fakeValidation(): RunnerValidationService {
     body: '{}',
     engine: 'codex',
     createdAt: '2026-01-01T00:00:00Z',
+    verificationState: 'verified',
+    verificationCheckedAt: '2026-01-01T00:00:00Z',
   };
   return {
     async resolveCanonicalPayload() {

@@ -53,6 +53,16 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		return d
 	}
 
+	// Live launch-gate proof: when the server reached Anthropic and the canonical
+	// credentials did NOT authenticate, refuse the managed launch instead of
+	// dropping the user into a raw 401 / "Please run /login" inside Claude. The
+	// server only emits "failed" when the runner reached the provider, so a local
+	// cached-credentials fallback would 401 too — re-login is the only fix.
+	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		d.Reason = "Claude credentials failed live verification (login expired). Re-authenticate with `claude` → `/login`, then re-run clx."
+		return d
+	}
+
 	switch status {
 	case "valid", "current", "ok", "unchanged", "updated", "outdated":
 		d.Allowed = true
