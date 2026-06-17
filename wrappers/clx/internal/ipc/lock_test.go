@@ -16,3 +16,18 @@ func TestAcquireBlocksWhenHeld(t *testing.T) {
 		t.Fatalf("expected ErrHeld, got %v", err)
 	}
 }
+
+func TestAcquireDoesNotShareCodexLock(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	cdx, err := Acquire("cdx-cross-test")
+	if err != nil {
+		t.Fatalf("acquire cdx lock: %v", err)
+	}
+	defer cdx.Release()
+
+	clx, err := Acquire("clx-cross-test")
+	if err != nil {
+		t.Fatalf("clx lock should not be blocked by cdx lock: %v", err)
+	}
+	defer clx.Release()
+}

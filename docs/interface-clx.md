@@ -86,13 +86,16 @@ orchestrator can bake the matching `binary_url` / SHA256 for this host.
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — single-instance
-flock, bundle (`/sync/bootstrap` with `include_auth=true`; resource envelopes
-are unwrapped before `CLAUDE.md` / `settings.json` writes), typed auth decision
-matrix including approval-pending polling, FQDN runtime guard, Claude CLI
-version reconciliation, and post-run credential re-upload on sha change. The
-boot summary uses the same client-version policy as the updater: non-exact
-latest/current targets only show an arrow when the resolved target is newer
-than the local Claude CLI.
+flock on `$XDG_RUNTIME_DIR/clx.lock` (or `/tmp/clx-<uid>.lock`), bundle
+(`/sync/bootstrap` with `include_auth=true`; resource envelopes are unwrapped
+before `CLAUDE.md` / `settings.json` writes), typed auth decision matrix
+including approval-pending polling, FQDN runtime guard, Claude CLI version
+reconciliation, and post-run credential re-upload on sha change. The `clx`
+lock is deliberately independent from `cdx.lock`, so active Codex and Claude
+sessions can run side by side without forcing each other into read-only mode.
+The boot summary uses the same client-version policy as the updater:
+non-exact latest/current targets only show an arrow when the resolved target is
+newer than the local Claude CLI.
 Engine-specific details:
 
 - Credentials are read from the newest structurally usable file across

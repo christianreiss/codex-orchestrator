@@ -1,3 +1,12 @@
+# 2026-06-17
+
+## cdx/clx run locks are documented and regression-tested as engine-local
+
+- **Wrappers:** Added regression coverage that a held `cdx` lock does not block
+  `clx`, and a held `clx` lock does not block `cdx`. The interface docs now
+  state the concrete lock paths (`cdx.lock` vs `clx.lock`) so this remains an
+  explicit dual-engine contract.
+
 # 2026-06-16
 
 ## clx launch gate proves Claude auth before reporting green (no more silent 401)
