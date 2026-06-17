@@ -42,11 +42,12 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
           // Awaitable: returns ALL rows
           const builder: any = Promise.resolve(rows);
           builder.where = (_w: unknown) => {
-            const inner: any = Promise.resolve(rows);
-            inner.limit = (_n: number) => Promise.resolve(rows.slice(0, _n));
+            const filtered = filterRows(rows, _w);
+            const inner: any = Promise.resolve(filtered);
+            inner.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
             inner.orderBy = (..._args: unknown[]) => {
-              const o: any = Promise.resolve(rows);
-              o.limit = (_n: number) => Promise.resolve(rows.slice(0, _n));
+              const o: any = Promise.resolve(filtered);
+              o.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
               return o;
             };
             return inner;
@@ -83,9 +84,9 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
           where: (w: unknown) => {
             fake.updates.push({ table, set: vals, where: w });
             const rows = tables.get(table) ?? [];
-            // naive: apply to all rows (tests typically have one host)
-            for (const r of rows) Object.assign(r, vals);
-            return Promise.resolve([{ affectedRows: rows.length }]);
+            const filtered = filterRows(rows, w);
+            for (const r of filtered) Object.assign(r, vals);
+            return Promise.resolve([{ affectedRows: filtered.length }]);
           },
         }),
       };
@@ -102,6 +103,36 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
     },
   };
   return fake;
+}
+
+function filterRows(rows: Row[], where: unknown): Row[] {
+  const values = whereValues(where);
+  if (values.length === 0) return rows;
+  return rows.filter((row) => Object.values(row).some((value) => values.includes(value)));
+}
+
+function whereValues(where: unknown): unknown[] {
+  const out: unknown[] = [];
+  visitWhere(where, out, new WeakSet<object>());
+  return out;
+}
+
+function visitWhere(value: unknown, out: unknown[], seen: WeakSet<object>): void {
+  if (!value || typeof value !== 'object') return;
+  if (seen.has(value)) return;
+  seen.add(value);
+  const ctor = (value as { constructor?: { name?: string } }).constructor?.name;
+  if (ctor === 'Param' && 'value' in value) {
+    out.push((value as { value: unknown }).value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) visitWhere(item, out, seen);
+    return;
+  }
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    visitWhere(item, out, seen);
+  }
 }
 
 // Expose tables for convenient setup.

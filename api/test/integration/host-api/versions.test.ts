@@ -85,7 +85,7 @@ describe('POST /cron/check', () => {
     db.tables.set(hostsTable, [hostRow(apiKey)]);
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: 'latest' },
-      { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.137.0"}' },
+      { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.137.0"}', updatedAt: '2099-01-01T00:00:00Z' },
       { name: 'wrapper_version_codex', version: '0.6.2' },
       { name: 'auto_update_enabled', version: '1' },
     ]);
@@ -261,7 +261,7 @@ describe('POST /cron/check (claude engine)', () => {
     db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
     db.tables.set(versionsTable, [
       { name: 'client_version_claude', version: 'latest' },
-      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}', updatedAt: '2099-01-01T00:00:00Z' },
       { name: 'wrapper_version_claude', version: '0.6.2' },
       { name: 'auto_update_enabled', version: '1' },
     ]);
@@ -293,7 +293,7 @@ describe('POST /cron/check (claude engine)', () => {
     db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
     db.tables.set(versionsTable, [
       { name: 'client_version_claude', version: 'latest' },
-      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}', updatedAt: '2099-01-01T00:00:00Z' },
       { name: 'client_version_lock_claude', version: '2.1.168' },
       { name: 'wrapper_version_claude', version: '0.6.2' },
       { name: 'auto_update_enabled', version: '1' },
@@ -326,7 +326,7 @@ describe('POST /cron/check (claude engine)', () => {
     db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'claude,codex' }]);
     db.tables.set(versionsTable, [
       { name: 'client_version_claude', version: 'latest' },
-      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}' },
+      { name: 'github_release_claude-cli', version: '{"version":"2.1.173"}', updatedAt: '2099-01-01T00:00:00Z' },
       { name: 'wrapper_version_claude', version: '0.6.2' },
       { name: 'auto_update_enabled', version: '1' },
     ]);

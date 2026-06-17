@@ -70,6 +70,24 @@ describe('version-snapshot', () => {
     expect(s.client_version).toBe('0.137.0');
   });
 
+  it('refreshes latest codex metadata before resolving the target', async () => {
+    const rows = [
+      { name: 'client_version_codex', version: 'latest' },
+      { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.139.0"}' },
+    ];
+    const db = makeDb(rows);
+    const svc = createVersionSnapshotService({
+      db,
+      installationId: null,
+      refreshLatestClientVersion: async (engine) => {
+        expect(engine).toBe('codex');
+        rows[1] = { name: 'github_release_codex-cli', version: '{"tag_name":"rust-v0.140.0"}' };
+      },
+    });
+    const s = await svc.summary('codex');
+    expect(s.client_version).toBe('0.140.0');
+  });
+
   it('falls back to cached available version for latest codex alias', async () => {
     const db = makeDb([
       { name: 'client_version_codex', version: 'latest' },

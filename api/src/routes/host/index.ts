@@ -9,9 +9,11 @@ import { parseEngine } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
+import { ClientVersionsService } from '../../services/client-versions.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createHostSyncService } from '../../services/host-sync.js';
+import { SettingsService } from '../../services/settings.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
@@ -29,9 +31,13 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   const failures = createAuthFailureTracker(app);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
+  const clientVersions = new ClientVersionsService(new SettingsService(ctx.db), app.log);
   const versions = createVersionSnapshotService({
     db: ctx.db,
     installationId: ctx.env.INSTALLATION_ID ?? null,
+    refreshLatestClientVersion: async (engine) => {
+      await clientVersions.availableClientVersion(false, engine);
+    },
   });
   const sync = createHostSyncService({ db: ctx.db, versions });
 

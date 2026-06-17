@@ -1,5 +1,14 @@
 # 2026-06-17
 
+## Host-facing Codex `latest` target refreshes before auto-update decisions
+
+- **API:** `/auth`, `/sync/*`, `/versions`, and `/cron/check` now refresh the
+  cached upstream Codex/Claude client release metadata before resolving
+  `client_version_* = latest|auto`. Previously those host-facing paths could
+  keep serving an old cached Codex target (for example `0.139.0`) even after
+  GitHub/npm had published a newer release, so `cdx` and cron correctly saw
+  "already at target" and skipped the real update.
+
 ## cdx/clx run locks are documented and regression-tested as engine-local
 
 - **Wrappers:** Added regression coverage that a held `cdx` lock does not block

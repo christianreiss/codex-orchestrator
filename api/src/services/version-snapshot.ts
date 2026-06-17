@@ -39,6 +39,7 @@ export interface VersionSnapshotService {
 export interface VersionSnapshotDeps {
   db: Database;
   installationId: string | null;
+  refreshLatestClientVersion?: (engine: Engine) => Promise<void>;
 }
 
 export function createVersionSnapshotService(deps: VersionSnapshotDeps): VersionSnapshotService {
@@ -105,10 +106,15 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
 
   return {
     async summary(engine = ENGINE_CODEX) {
-      const map = await readMap();
+      let map = await readMap();
       const suffix = engine === ENGINE_CLAUDE ? '_claude' : '_codex';
       const get = (k: string) => map.get(k);
-      const rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+      let rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+      if (isLatestAlias(rawClient) && deps.refreshLatestClientVersion) {
+        await deps.refreshLatestClientVersion(engine);
+        map = await readMap();
+        rawClient = get(`client_version${suffix}`) ?? get('client_version') ?? null;
+      }
       const exactLock =
         engine === ENGINE_CODEX
           ? semanticOrNull(get('client_version_lock'))
