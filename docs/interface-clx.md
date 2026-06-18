@@ -30,7 +30,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `--resume <session>` | Passed straight through to the upstream `claude` binary |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot |
-| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code |
+| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove credentials + local state + cron entry; refuses on multi-user hosts without sudo |
@@ -70,6 +70,11 @@ SHA256, and installs/updates the `cdx` binary beside the running wrapper. If
 Codex is disabled, `clx` performs local-only full Codex cleanup (wrapper
 binary/config/cron, managed `~/.codex` state, `/opt/codex`, and the npm global
 `codex-cli` package when detected) without deleting the host row.
+During `clx --cron run`, peer reconciliation also runs one guarded
+`cdx --cron run` tick even when the `cdx` wrapper and `codex` CLI are already
+present. The shared `CODEX_ORCH_PEER_SPAWN=1` guard prevents recursion, so one
+managed clx cron entry keeps both wrappers and both engine CLIs current on
+dual-engine hosts.
 
 ## Distribution surfaces
 

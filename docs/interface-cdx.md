@@ -80,7 +80,7 @@ at build time, then loads the config:
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
 | `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
-| `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex |
+| `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
@@ -94,6 +94,11 @@ served SHA256, and installs/updates the `clx` binary beside the running wrapper.
 If Claude is disabled, `cdx` performs local-only full Claude cleanup (wrapper
 binary/config/cron, managed `~/.clx`/Claude state, and the npm global Claude
 Code package when detected) without deleting the host row.
+During `cdx --cron run`, peer reconciliation also runs one guarded
+`clx --cron run` tick even when the `clx` wrapper and `claude` CLI are already
+present. The `CODEX_ORCH_PEER_SPAWN=1` guard prevents the peer tick from
+recursing back into `cdx`, so one managed cdx cron entry keeps both wrappers and
+both engine CLIs current on dual-engine hosts.
 
 ## Startup sequence
 

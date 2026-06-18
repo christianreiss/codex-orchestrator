@@ -90,3 +90,26 @@ func TestPeerBinaryCurrentScansShadowedPath(t *testing.T) {
 		t.Fatal("expected peerBinaryCurrent to find current peer behind stale PATH shadow")
 	}
 }
+
+func TestShouldRunPeerCronTick(t *testing.T) {
+	tests := []struct {
+		name          string
+		installed     bool
+		enginePresent bool
+		force         bool
+		want          bool
+	}{
+		{name: "interactive current peer current engine", installed: false, enginePresent: true, force: false, want: false},
+		{name: "interactive installed peer", installed: true, enginePresent: true, force: false, want: true},
+		{name: "interactive missing engine cli", installed: false, enginePresent: false, force: false, want: true},
+		{name: "cron current peer current engine", installed: false, enginePresent: true, force: true, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRunPeerCronTick(tt.installed, tt.enginePresent, tt.force); got != tt.want {
+				t.Fatalf("want %v, got %v", tt.want, got)
+			}
+		})
+	}
+}

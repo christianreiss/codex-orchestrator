@@ -49,7 +49,7 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 		return
 	}
 	if hasEngine(engines, peerEngine) {
-		if err := installPeer(ctx, cfg); err != nil {
+		if err := installPeer(ctx, cfg, false); err != nil {
 			logger.Warn("peer wrapper install skipped", "engine", peerEngine, "err", err)
 		}
 		return
@@ -76,7 +76,7 @@ func EnsureForCron(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 	// is not — skip silently then. As with interactive Reconcile we never
 	// persist the engines list locally and never remove the peer from an
 	// unattended tick.
-	if err := installPeer(ctx, cfg); err != nil {
+	if err := installPeer(ctx, cfg, true); err != nil {
 		if errors.Is(err, errPeerEngineDisabled) {
 			return
 		}
@@ -123,7 +123,7 @@ func hasEngine(engines []string, want string) bool {
 	return false
 }
 
-func installPeer(ctx context.Context, cfg *config.Config) error {
+func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) error {
 	b, rawPayload, err := fetchBundle(ctx, cfg)
 	if err != nil {
 		return err
@@ -148,14 +148,18 @@ func installPeer(ctx context.Context, cfg *config.Config) error {
 		}
 		installed = true
 	}
-	// Run the peer's cron tick when its wrapper was just (re)installed or its
-	// engine CLI is missing: that tick installs/updates the claude binary and
-	// checks in with the orchestrator, so a dual-engine host is fully usable
-	// right away instead of waiting for the next scheduled cron run.
-	if installed || !peerEngineCLIPresent() {
+	// Interactive launches keep this lightweight and only run the peer tick when
+	// the peer was just installed or its engine CLI is missing. Cron forces the
+	// guarded peer tick so a single managed cdx cron entry refreshes clx and
+	// claude too.
+	if shouldRunPeerCronTick(installed, peerEngineCLIPresent(), forceCronTick) {
 		runPeerCronTick(ctx)
 	}
 	return nil
+}
+
+func shouldRunPeerCronTick(installed, enginePresent, force bool) bool {
+	return force || installed || !enginePresent
 }
 
 // peerBinaryCurrent reports whether the installed peer wrapper already matches

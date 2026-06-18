@@ -1,5 +1,13 @@
 # 2026-06-18
 
+## Dual-engine cron updates the peer engine too
+
+- **cdx/clx:** Cron peer reconciliation now forces one guarded peer cron tick on
+  dual-engine hosts even when the peer wrapper and peer engine CLI are already
+  present. A single managed `cdx --cron run` now refreshes `cdx`, `clx`,
+  Codex, and Claude Code instead of leaving a stale but installed peer CLI until
+  someone runs the peer wrapper manually.
+
 ## clx can recover expired Claude login interactively
 
 - **clx:** When managed Claude credentials are missing or fail live
