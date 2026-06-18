@@ -115,13 +115,23 @@ func Run(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 //     upstream prompt_toolkit-based CLI doesn't probe cursor position over a
 //     pipe (the probe never returns and hangs the child).
 func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []byte, error) {
+	teardown, err := PreExec(ctx, cfg)
+	if err != nil {
+		return 1, nil, err
+	}
+	defer teardown()
+
+	return RunCapturePrepared(ctx, cfg, args)
+}
+
+// RunCapturePrepared runs the upstream Codex CLI after the caller has already
+// completed PreExec and arranged to call its teardown. Lifecycle uses this so
+// the boot screen's "Ready" line is printed only after wrapper-side setup.
+func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) (int, []byte, error) {
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err
 	}
-
-	teardown, _ := PreExec(ctx, cfg)
-	defer teardown()
 
 	args = applyLaneAndProfile(cfg, args)
 	args = applyDangerousBypass(cfg, args)

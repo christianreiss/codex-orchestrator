@@ -1,6 +1,10 @@
 package codex
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
@@ -38,5 +42,28 @@ func TestBuildEnvIncludesOverrides(t *testing.T) {
 		if !have[want] {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+func TestRunCaptureReturnsPreExecError(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho should-not-run\n"), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	t.Setenv("CDX_CODEX_BIN", bin)
+
+	cfg := &config.Config{Host: config.Host{FQDN: "definitely-not-this-host.invalid"}}
+	exit, out, err := RunCapture(context.Background(), cfg, []string{"--version"})
+	if err == nil {
+		t.Fatal("expected preexec FQDN error")
+	}
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1", exit)
+	}
+	if len(out) != 0 {
+		t.Fatalf("captured output = %q, want empty", string(out))
+	}
+	if !strings.Contains(err.Error(), "does not match baked FQDN") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -1,5 +1,14 @@
 # 2026-06-18
 
+## cdx Ready screen means handoff is immediate
+
+- **cdx:** Runtime setup that can touch `~/.codex/config.toml` now runs before
+  the boot screen is printed. After `Ready (Codex go brrrr).`, the wrapper
+  proceeds directly to starting the upstream Codex CLI instead of doing
+  project-trust/OTEL preparation first.
+- **cdx:** Direct run paths now return `PreExec` failures instead of silently
+  continuing, so the documented host-FQDN guard is enforced consistently.
+
 ## Peer wrapper currentness tolerates PATH shadows
 
 - **cdx/clx:** Peer reconciliation now checks every peer binary visible in

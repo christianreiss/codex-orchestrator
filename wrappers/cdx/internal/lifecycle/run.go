@@ -163,37 +163,53 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		state.ResultLabel = dec.Reason
 		state.ResultTone = ui.ToneFail
 	}
-	if !opts.SkipBoot {
-		if opts.Minimal {
-			ui.PrintMinimalScreen(os.Stderr, state)
-		} else {
-			ui.PrintBootScreen(os.Stderr, state)
+	printBoot := func() {
+		if !opts.SkipBoot {
+			if opts.Minimal {
+				ui.PrintMinimalScreen(os.Stderr, state)
+			} else {
+				ui.PrintBootScreen(os.Stderr, state)
+			}
+		} else if state.QuotaWarn != "" {
+			// Headless path: surface the quota warning so cron/CI logs capture
+			// it. The boot-screen path already renders this text inline.
+			fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaWarn)
+			logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 		}
-	} else if state.QuotaWarn != "" {
-		// Headless path: surface the quota warning so cron/CI logs capture
-		// it. The boot-screen path already renders this text inline.
-		fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaWarn)
-		logger.Warn("quota approaching limit", "warn", state.QuotaWarn)
 	}
 
 	// Refuse launch on auth decision.
 	if !opts.SkipAuthSync && !dec.Allowed {
+		printBoot()
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
 	}
 
 	// Block launch if hard-fail quota.
 	if authResp != nil && authResp.QuotaHardFail && authResp.ChatGPT != nil {
-		state := summary.Build(ctx, summary.Inputs{Config: cfg, Auth: authResp})
 		if state.QuotaBlock != "" {
+			state.ResultLabel = state.QuotaBlock
+			state.ResultTone = ui.ToneFail
+			printBoot()
 			return 1, fmt.Errorf("launch refused: %s", state.QuotaBlock)
 		}
 	}
+
+	teardown, err := codex.PreExec(ctx, cfg)
+	if err != nil {
+		state.ResultLabel = err.Error()
+		state.ResultTone = ui.ToneFail
+		printBoot()
+		return 1, err
+	}
+	defer teardown()
+
+	printBoot()
 
 	// Snapshot local auth before the run so we can detect post-run rotation.
 	beforeHash, beforeRefresh := snapshotAuth(authPath)
 
 	started := time.Now()
-	exitCode, _, runErr := codex.RunCapture(ctx, cfg, opts.ExtraArgs)
+	exitCode, _, runErr := codex.RunCapturePrepared(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
 
 	// Post-exec auth upload (best-effort, 5s budget). A `codex login` mid-run
