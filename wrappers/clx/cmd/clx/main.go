@@ -66,6 +66,7 @@ type flags struct {
 // reservedClaudeSubcommands lists Claude CLI subcommands whose `--help`
 // invocations route straight to the upstream binary.
 var reservedClaudeSubcommands = map[string]bool{
+	"auth":     true,
 	"login":    true,
 	"logout":   true,
 	"mcp":      true,

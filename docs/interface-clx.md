@@ -25,6 +25,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `status` | Local config summary + `/sync/status` ping |
 | `doctor` | Self-diagnostic (config, CLI present, credentials, reachability) |
 | `auth-upload` | POST the local credentials file to canonical store |
+| `auth ...` | Passed straight through to the upstream `claude auth` command |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `--resume <session>` | Passed straight through to the upstream `claude` binary |
@@ -120,6 +121,12 @@ Engine-specific details:
   exit non-zero unless the server confirms `status:"updated"`; a 200 response
   that fell back to canonical retrieve because runner validation failed is not
   treated as success.
+- Interactive `clx run` can recover missing or live-verification-failed
+  credentials: it prompts before launch, runs `claude auth login` on acceptance,
+  uploads the resulting local credentials through `/auth command=store`, and
+  re-runs the startup auth check. Launch proceeds only after the server accepts
+  and verifies the new credentials. Non-interactive runs fail closed instead of
+  opening a login flow.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI

@@ -4,6 +4,7 @@
 package lifecycle
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
@@ -44,6 +47,9 @@ var localProbe = orchestrator.LocalAuthProbe{
 	IsValid: claude.IsValidLocalAuth,
 	IsFresh: claude.IsFresh,
 }
+
+var errAuthRecoveryDeclined = errors.New("Claude authentication was not refreshed")
+var errAuthRecoveryNonInteractive = errors.New("Claude authentication refresh requires an interactive terminal")
 
 func Run(ctx context.Context, opts Options) (int, error) {
 	cfg := opts.Config
@@ -103,14 +109,30 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			}
 		}
 
+		var authCandidateErr error
 		if !concurrent && dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if raw, _, rerr := claude.ReadAuthForUpload(); rerr == nil && len(raw) > 0 {
 				if err := pushAuthCandidate(ctx, client, raw, logger); err != nil {
+					authCandidateErr = err
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
 					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
+			} else if rerr != nil {
+				authCandidateErr = rerr
+			}
+		}
+
+		if needsInteractiveAuthRecovery(dec, authCandidateErr) && !concurrent {
+			reason := recoveryReason(dec, authCandidateErr)
+			if err := recoverClaudeAuth(ctx, cfg, client, logger, reason); err != nil {
+				logger.Warn("interactive Claude auth recovery failed", "err", err)
+				dec.Allowed = false
+				dec.Reason = err.Error()
+			} else {
+				authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 			}
 		}
 
@@ -380,6 +402,66 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []b
 			logger.Debug("auth write-back after upload failed", "err", werr)
 		}
 	}
+	return nil
+}
+
+func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
+	if strings.EqualFold(strings.TrimSpace(dec.Status), "valid") && strings.Contains(strings.ToLower(dec.Reason), "live verification") {
+		return true
+	}
+	if !dec.Allowed && strings.Contains(strings.ToLower(dec.Reason), "live verification") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
+	case "missing", "upload_required":
+		return uploadErr != nil || !claude.HasUsableAuth()
+	}
+	return false
+}
+
+func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
+	if uploadErr != nil {
+		return "Local Claude credentials were not accepted by the server: " + uploadErr.Error()
+	}
+	if dec.Reason != "" {
+		return dec.Reason
+	}
+	return "Claude credentials are missing from the orchestrator."
+}
+
+func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, logger *slog.Logger, reason string) error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return errAuthRecoveryNonInteractive
+	}
+	fmt.Fprintln(os.Stderr)
+	if strings.TrimSpace(reason) != "" {
+		fmt.Fprintln(os.Stderr, "clx: "+reason)
+	}
+	fmt.Fprint(os.Stderr, "clx: Run `claude auth login`, upload credentials, and verify with the server now? [y/N] ")
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read auth recovery answer: %w", err)
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if answer != "y" && answer != "yes" {
+		return errAuthRecoveryDeclined
+	}
+
+	exit, err := claude.Run(ctx, cfg, []string{"auth", "login"})
+	if err != nil {
+		return fmt.Errorf("claude auth login: %w", err)
+	}
+	if exit != 0 {
+		return fmt.Errorf("claude auth login exited with status %d", exit)
+	}
+	raw, _, err := claude.ReadAuthForUpload()
+	if err != nil {
+		return fmt.Errorf("read Claude credentials after login: %w", err)
+	}
+	if err := pushAuthCandidate(ctx, client, raw, logger); err != nil {
+		return fmt.Errorf("upload Claude credentials after login: %w", err)
+	}
+	fmt.Fprintln(os.Stderr, "clx: Claude credentials uploaded and accepted by the server.")
 	return nil
 }
 

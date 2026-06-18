@@ -1,5 +1,15 @@
 # 2026-06-18
 
+## clx can recover expired Claude login interactively
+
+- **clx:** When managed Claude credentials are missing or fail live
+  verification, interactive `clx run` now offers to run `claude auth login`,
+  uploads the resulting local credentials through `/auth command=store`, and
+  re-checks server verification before launching Claude Code. Non-interactive
+  runs still fail closed with an explicit message.
+- **clx:** `clx auth ...` now passes through to the upstream Claude auth
+  command, matching current Claude Code's authentication subcommand surface.
+
 ## cdx Ready screen means handoff is immediate
 
 - **cdx:** Runtime setup that can touch `~/.codex/config.toml` now runs before

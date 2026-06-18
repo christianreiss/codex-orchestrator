@@ -17,6 +17,7 @@ func TestIsHelpPassthrough(t *testing.T) {
 		{"top-level -h", []string{"-h"}, true},
 		{"bare help", []string{"help"}, true},
 		{"reserved mcp --help", []string{"mcp", "--help"}, true},
+		{"reserved auth --help", []string{"auth", "--help"}, true},
 		{"reserved config --help", []string{"config", "--help"}, true},
 		{"reserved doctor --help", []string{"doctor", "--help"}, true},
 		{"reserved login --help", []string{"login", "--help"}, true},
