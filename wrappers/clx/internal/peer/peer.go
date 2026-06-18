@@ -162,12 +162,16 @@ func installPeer(ctx context.Context, cfg *config.Config) error {
 // the bundle's sha256 — the short-circuit that keeps Reconcile from
 // re-downloading the peer binary on every single launch.
 func peerBinaryCurrent(expected string) bool {
-	p := peerBinaryPath()
-	fi, err := os.Stat(p)
-	if err != nil || fi.IsDir() {
-		return false
+	for _, p := range peerBinaryCandidates() {
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() {
+			continue
+		}
+		if verifySHA256(p, expected) == nil {
+			return true
+		}
 	}
-	return verifySHA256(p, expected) == nil
+	return false
 }
 
 func peerEngineCLIPresent() bool {
@@ -288,6 +292,33 @@ func peerBinaryPath() string {
 		return filepath.Join(filepath.Dir(exe), peerName)
 	}
 	return filepath.Join("/usr/local/bin", peerName)
+}
+
+func peerBinaryCandidates() []string {
+	var out []string
+	seen := make(map[string]struct{})
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		add(filepath.Join(dir, peerName))
+	}
+	if clx, err := exec.LookPath("clx"); err == nil && clx != "" {
+		add(filepath.Join(filepath.Dir(clx), peerName))
+	}
+	add(filepath.Join("/usr/local/bin", peerName))
+	add(filepath.Join("/usr/local/sbin", peerName))
+	return out
 }
 
 func installFile(src, dest string) error {

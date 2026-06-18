@@ -2,9 +2,13 @@ package peer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
@@ -66,5 +70,23 @@ func TestFetchBundleOtherErrorNotSentinel(t *testing.T) {
 	_, _, err := fetchBundle(context.Background(), cfg)
 	if err == nil || errors.Is(err, errPeerEngineDisabled) {
 		t.Fatalf("want generic error, got %v", err)
+	}
+}
+
+func TestPeerBinaryCurrentScansShadowedPath(t *testing.T) {
+	oldDir := t.TempDir()
+	currentDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(oldDir, peerName), []byte("old-clx"), 0o755); err != nil {
+		t.Fatalf("write old peer: %v", err)
+	}
+	current := []byte("current-clx")
+	if err := os.WriteFile(filepath.Join(currentDir, peerName), current, 0o755); err != nil {
+		t.Fatalf("write current peer: %v", err)
+	}
+	t.Setenv("PATH", oldDir+string(os.PathListSeparator)+currentDir)
+
+	sum := sha256.Sum256(current)
+	if !peerBinaryCurrent(hex.EncodeToString(sum[:])) {
+		t.Fatal("expected peerBinaryCurrent to find current peer behind stale PATH shadow")
 	}
 }

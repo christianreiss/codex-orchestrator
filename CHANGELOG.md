@@ -1,3 +1,13 @@
+# 2026-06-18
+
+## Peer wrapper currentness tolerates PATH shadows
+
+- **cdx/clx:** Peer reconciliation now checks every peer binary visible in
+  `PATH` plus `/usr/local/bin` and `/usr/local/sbin` before deciding the peer
+  wrapper is stale. A stale shadow no longer makes non-concurrent `cdx` runs
+  repeatedly print `cdx: installing clx` when a current `clx` is already
+  installed elsewhere.
+
 # 2026-06-17
 
 ## Host-facing Codex `latest` target refreshes before auto-update decisions
