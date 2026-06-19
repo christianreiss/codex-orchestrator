@@ -68,6 +68,12 @@ func cachedCodexBin() string {
 // FindCLI locates the upstream `codex` binary on PATH (override via $CDX_CODEX_BIN).
 // Checks the path cache before PATH lookup; writes the cache on a successful
 // lookup so future runs (e.g. cron) work without a full npm-bin PATH.
+//
+// A self-shadow guard skips any candidate that resolves to this running wrapper:
+// if an operator points `codex` at cdx (symlink/copy on PATH, the natural
+// companion to a `codex=cdx` shell alias), exec'ing it would re-enter cdx
+// instead of the real Codex CLI — so `cdx login` / interactive recovery could
+// never reach the upstream login flow. Better to fail loudly with a fix-it hint.
 func FindCLI() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")); v != "" {
 		if _, err := os.Stat(v); err == nil {
@@ -75,15 +81,36 @@ func FindCLI() (string, error) {
 		}
 		return "", fmt.Errorf("CDX_CODEX_BIN points at %q which is not accessible", v)
 	}
-	if cached := cachedCodexBin(); cached != "" {
+	if cached := cachedCodexBin(); cached != "" && !isWrapperSelf(cached) {
 		return cached, nil
 	}
 	path, err := exec.LookPath("codex")
 	if err != nil {
 		return "", errors.New("codex CLI not found on PATH (install it or set CDX_CODEX_BIN)")
 	}
+	if isWrapperSelf(path) {
+		return "", errors.New("resolved \"codex\" to the cdx wrapper itself; set CDX_CODEX_BIN to the real Codex CLI")
+	}
 	_ = cacheCodex(path)
 	return path, nil
+}
+
+// isWrapperSelf reports whether path resolves (through symlinks) to this running
+// wrapper executable. Used by FindCLI to break a would-be exec recursion.
+func isWrapperSelf(path string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	selfReal, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		selfReal = self
+	}
+	pathReal, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		pathReal = path
+	}
+	return selfReal == pathReal
 }
 
 // Run is the historical 2-return entry point retained for backwards

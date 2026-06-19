@@ -4,6 +4,7 @@
 package lifecycle
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
@@ -44,6 +47,9 @@ var localProbe = orchestrator.LocalAuthProbe{
 	IsValid: codex.IsValidLocalAuth,
 	IsFresh: codex.IsFresh,
 }
+
+var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
+var errAuthRecoveryNonInteractive = errors.New("Codex authentication refresh requires an interactive terminal")
 
 // Run executes one full Codex session and returns the upstream exit code.
 func Run(ctx context.Context, opts Options) (int, error) {
@@ -111,14 +117,36 @@ func Run(ctx context.Context, opts Options) (int, error) {
 
 		// On missing/upload_required, push the local file via /sync/bootstrap
 		// auth_candidate and re-decide.
+		var authCandidateErr error
 		if dec.Allowed && (dec.Status == "missing" || dec.Status == "upload_required") {
 			if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
 				if err := pushAuthCandidate(ctx, client, raw); err != nil {
+					authCandidateErr = err
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
 					authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
+			} else if rerr != nil {
+				authCandidateErr = rerr
+			}
+		}
+
+		// Interactive recovery: a live-verification failure (server reached the
+		// provider and the canonical token is dead) or a missing/rejected
+		// candidate means there is no usable credential anywhere on the fleet.
+		// Offer to run `codex login` here, upload the freshly minted token, and
+		// re-verify — the only fix for a rotated/expired refresh token. Headless
+		// runs (cron, --execute) fail closed instead of opening a login flow.
+		if !concurrent && needsInteractiveAuthRecovery(dec, authCandidateErr) {
+			reason := recoveryReason(dec, authCandidateErr)
+			if err := recoverCodexAuth(ctx, cfg, client, reason); err != nil {
+				logger.Warn("interactive Codex auth recovery failed", "err", err)
+				dec.Allowed = false
+				dec.Reason = err.Error()
+			} else {
+				authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 			}
 		}
 
@@ -384,6 +412,84 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []b
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return client.AuthStore(cctx, raw)
+}
+
+// needsInteractiveAuthRecovery reports whether the launch gate has reached a
+// dead end that only a fresh `codex login` can resolve: a server-confirmed live
+// verification failure, or a missing/upload-required state where the local file
+// is unusable or the server rejected it.
+func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
+	if strings.Contains(strings.ToLower(dec.Reason), "live verification") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
+	case "missing", "upload_required":
+		return uploadErr != nil || !localAuthUsable()
+	}
+	return false
+}
+
+// recoveryReason renders the human-facing line shown before the login prompt.
+func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
+	if uploadErr != nil {
+		return "Local Codex credentials were not accepted by the server: " + uploadErr.Error()
+	}
+	if dec.Reason != "" {
+		return dec.Reason
+	}
+	return "Codex credentials are missing from the orchestrator."
+}
+
+// localAuthUsable reports whether the on-disk auth.json is structurally valid.
+func localAuthUsable() bool {
+	path, err := codex.AuthPath()
+	if err != nil || path == "" {
+		return false
+	}
+	return codex.IsValidLocalAuth(path)
+}
+
+// recoverCodexAuth runs the interactive `codex login` flow, uploads the freshly
+// minted credentials to the canonical store, and reports success only once the
+// server has accepted them. Refuses outside an interactive terminal so cron and
+// --execute fail closed rather than hanging on a prompt.
+func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, reason string) error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return errAuthRecoveryNonInteractive
+	}
+	fmt.Fprintln(os.Stderr)
+	if strings.TrimSpace(reason) != "" {
+		fmt.Fprintln(os.Stderr, "cdx: "+reason)
+	}
+	fmt.Fprint(os.Stderr, "cdx: Run `codex login`, upload credentials, and verify with the server now? [y/N] ")
+	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read auth recovery answer: %w", err)
+	}
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if answer != "y" && answer != "yes" {
+		return errAuthRecoveryDeclined
+	}
+
+	exit, err := codex.Run(ctx, cfg, []string{"login"})
+	if err != nil {
+		return fmt.Errorf("codex login: %w", err)
+	}
+	if exit != 0 {
+		return fmt.Errorf("codex login exited with status %d", exit)
+	}
+	raw, err := codex.ReadAuth()
+	if err != nil {
+		return fmt.Errorf("read Codex credentials after login: %w", err)
+	}
+	if len(raw) == 0 {
+		return fmt.Errorf("no Codex credentials found after login")
+	}
+	if err := pushAuthCandidate(ctx, client, raw); err != nil {
+		return fmt.Errorf("upload Codex credentials after login: %w", err)
+	}
+	fmt.Fprintln(os.Stderr, "cdx: Codex credentials uploaded and accepted by the server.")
+	return nil
 }
 
 func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {

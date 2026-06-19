@@ -75,16 +75,42 @@ func FindCLI() (string, error) {
 		}
 		return "", fmt.Errorf("CLX_CLAUDE_BIN points at %q which is not accessible", v)
 	}
-	if cached := cachedClaudeBin(); cached != "" {
+	if cached := cachedClaudeBin(); cached != "" && !isWrapperSelf(cached) {
 		return cached, nil
 	}
+	// Self-shadow guard: skip any candidate that resolves to this running clx
+	// wrapper. With `claude=clx` shell aliases in play, an operator may also
+	// symlink/copy `claude` to clx on PATH; exec'ing that would re-enter clx
+	// instead of the real Claude CLI, so interactive `claude auth login`
+	// recovery could never reach the upstream login flow.
 	for _, name := range []string{"claude", "claude-code"} {
 		if path, err := exec.LookPath(name); err == nil {
+			if isWrapperSelf(path) {
+				continue
+			}
 			_ = cacheClaude(path)
 			return path, nil
 		}
 	}
 	return "", errors.New("claude CLI not found on PATH (install it or set CLX_CLAUDE_BIN)")
+}
+
+// isWrapperSelf reports whether path resolves (through symlinks) to this running
+// wrapper executable. Used by FindCLI to break a would-be exec recursion.
+func isWrapperSelf(path string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	selfReal, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		selfReal = self
+	}
+	pathReal, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		pathReal = path
+	}
+	return selfReal == pathReal
 }
 
 // Run keeps the historical 2-return entry point for cmd/clx/main.go. New code

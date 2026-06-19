@@ -42,6 +42,12 @@ const CLAUDE_AUTH = {
   claudeAiOauth: { accessToken: 'sk-ant-oat01-a', refreshToken: 'r1' },
 };
 
+const CODEX_AUTH = {
+  last_refresh: '2026-05-20T09:00:00Z',
+  auths: { 'api.openai.com': { token: 'tok' } },
+  tokens: { access_token: 'at1', refresh_token: 'r1' },
+};
+
 function makeStore(client: RunnerClient, seedState = 'pending') {
   const db = createDbFake();
   db.tables.set(authPayloads, [
@@ -257,6 +263,45 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(out.lastRefresh).toBe('2026-05-20T10:00:00Z');
     // A fresh canonical row was minted for the refreshed credentials.
     expect(db.tables.get(authPayloads)!.length).toBeGreaterThan(1);
+  });
+
+  it('verifies the codex engine via runner.verify and marks a dead token failed', async () => {
+    const r = countingRunner({ ok: false, status: 'fail', reachable: true, reason: 'refresh token already used' });
+    const { db, svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      engine: 'codex',
+      hostId: null,
+      auth: CODEX_AUTH,
+      digest: 'dig',
+      lastRefresh: CODEX_AUTH.last_refresh,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+    });
+    expect(out.state).toBe('failed');
+    expect(out.reason).toBe('refresh token already used');
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
+  });
+
+  it('single-flights concurrent codex probes for one canonical row', async () => {
+    const r = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const { svc } = makeStore(r.client);
+    const input = {
+      engine: 'codex' as const,
+      hostId: null,
+      auth: CODEX_AUTH,
+      digest: 'dig',
+      lastRefresh: CODEX_AUTH.last_refresh,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified' as const, verificationCheckedAt: nowMinus(99999) },
+    };
+    const [a, b] = await Promise.all([
+      svc.ensureServedVerification(input),
+      svc.ensureServedVerification(input),
+    ]);
+    expect(a.state).toBe('verified');
+    expect(b.state).toBe('verified');
+    // Both callers shared one live probe instead of racing the token rotation.
+    expect(r.calls()).toBe(1);
   });
 });
 

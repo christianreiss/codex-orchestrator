@@ -46,6 +46,21 @@ func TestDecide_TableDriven(t *testing.T) {
 		{name: "outdated", resp: &AuthRetrieveResponse{Status: "outdated"}, want: wantD{allowed: true}},
 		{name: "missing", resp: &AuthRetrieveResponse{Status: "missing"}, want: wantD{allowed: true, reason: "missing"}},
 		{name: "upload_required", resp: &AuthRetrieveResponse{Status: "upload_required"}, want: wantD{allowed: true, reason: "upload"}},
+		{
+			name: "verification failed overrides green status",
+			resp: &AuthRetrieveResponse{Status: "outdated", VerificationState: "failed"},
+			want: wantD{reason: "failed live verification"},
+		},
+		{
+			name: "verification verified allows",
+			resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "verified"},
+			want: wantD{allowed: true},
+		},
+		{
+			name: "verification unknown does not block",
+			resp: &AuthRetrieveResponse{Status: "outdated", VerificationState: "unknown"},
+			want: wantD{allowed: true},
+		},
 		{name: "disabled", resp: &AuthRetrieveResponse{Status: "disabled"}, want: wantD{reason: "disabled"}},
 		{name: "invalid", resp: &AuthRetrieveResponse{Status: "invalid"}, want: wantD{reason: "Invalid API key"}},
 		{name: "insecure", resp: &AuthRetrieveResponse{Status: "insecure"}, want: wantD{poll: true, reason: "approval pending"}},

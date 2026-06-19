@@ -331,12 +331,14 @@ async function handleRetrieve(
 
   // Launch-gate proof: before reporting any green status, ensure the canonical
   // auth the host is about to launch with actually works. TTL-bounded so the
-  // common path stays probe-free; scoped to Claude (the engine whose stale
-  // OAuth tokens surface as a 401 / "Please run /login" inside the client).
+  // common path stays probe-free. Runs for BOTH engines — codex's rotated
+  // ChatGPT refresh tokens fail with "refresh token already used" exactly the
+  // way Claude's stale OAuth surfaces a 401 / "Please run /login" inside the
+  // client; serving either unverified drops the user into a raw failure.
   let servedAuth = canonicalAuth!;
   let servedDigest = canonicalDigest;
   let servedLast = canonicalLast!;
-  if (engine === ENGINE_CLAUDE) {
+  {
     const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
     const verdict = await authStore.ensureServedVerification({
       engine,
@@ -450,11 +452,12 @@ async function handleBootstrapAuth(
       // Candidate already matches canonical: this is the common warm-launch
       // path. Prove the shared blob still works (TTL-bounded) before reporting
       // green, mirroring handleRetrieve — otherwise a stale-but-matching token
-      // sails through to a 401 inside Claude.
+      // sails through to a 401 inside Claude (or a "refresh token already used"
+      // failure inside codex).
       const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
       let servedDigest = canonicalDigest;
       let servedLast = canonicalLast;
-      if (engine === ENGINE_CLAUDE) {
+      {
         const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
         const verdict = await authStore.ensureServedVerification({
           engine,

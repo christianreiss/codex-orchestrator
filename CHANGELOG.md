@@ -1,3 +1,48 @@
+# 2026-06-19
+
+## Codex auth is proven live before launch (no more dead-token handoff)
+
+- **api:** The launch-gate runner proof (`ensureServedVerification`) now runs for
+  the **codex** engine too, not just Claude. Before `/auth retrieve` or the
+  `/sync/bootstrap` candidate-match path reports a green status, the served
+  canonical auth is runner-verified live (TTL-bounded by
+  `AUTH_RUNNER_VERIFY_TTL_SECONDS`, default 900s). A rotated/expired ChatGPT
+  refresh token that previously sailed through to a `refresh token already used`
+  / "Please log out and sign in again" error inside Codex is now detected: the
+  payload is marked `failed`, the known-bad blob is no longer served, and the
+  host receives `verification_state: "failed"`. A runner-refreshed token is
+  persisted as a fresh canonical (rotation-safe); a runner outage yields
+  `unknown` and never blocks launch on an infra blip.
+- **api:** `ensureServedVerification` now single-flights concurrent live probes
+  per canonical payload (keyed by engine + payload id). Without it, many codex
+  hosts hitting an expired-but-refreshable canonical at once would each spawn a
+  probe and race the refresh-token rotation — the first rotates the token, the
+  rest reuse the now-dead one and report a false `failed`. The API runs
+  single-instance, so collapsing the probes in-process is sufficient.
+
+## cdx can recover an expired Codex login interactively
+
+- **cdx:** When managed Codex credentials fail live verification or are
+  missing/rejected, interactive `cdx run` now offers to run `codex login`,
+  uploads the freshly minted token through `/auth command=store`, and re-checks
+  server verification before launching Codex. Non-interactive runs (cron,
+  `--execute`) fail closed with an explicit message instead of opening a login
+  flow. This mirrors the clx recovery shipped 2026-06-18.
+- **cdx:** `orchestrator.Decide` refuses the managed launch on
+  `verification_state=failed` with an actionable re-login message, and the
+  boot-screen `● auth` dot turns red on a failed live verification, instead of
+  dropping the user into a raw token error inside Codex.
+
+## Wrapper CLI resolution tolerates a self-shadow
+
+- **cdx/clx:** `FindCLI` now skips any `codex`/`claude` candidate on `PATH` (or
+  in the resolution cache) that resolves to the running wrapper itself. With
+  `codex=cdx` / `claude=clx` shell aliases in play, an operator who also points
+  the engine name at the wrapper (symlink/copy on `PATH`) would otherwise make
+  `cdx login` / `claude auth login` re-enter the wrapper instead of reaching the
+  real CLI — leaving no way to log in. The guard fails loudly with a fix-it hint
+  (set `CDX_CODEX_BIN` / `CLX_CLAUDE_BIN`) rather than recursing.
+
 # 2026-06-18
 
 ## Dual-engine cron updates the peer engine too

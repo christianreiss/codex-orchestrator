@@ -87,22 +87,26 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner returns `updated_auth`, it is applied only when it has a valid RFC3339 `last_refresh`, has usable auth tokens after engine fallback normalization, and `updated_auth.last_refresh >= upload.last_refresh`.
   - Older or malformed `updated_auth` is ignored; the runner-verified upload candidate is stored and the response/log includes a skipped reason.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
-- **Launch-gate verification (retrieve side, Claude).** `/auth retrieve` and the
-  `/sync/bootstrap` candidate-match path run `ensureServedVerification` before
-  reporting a green status for the Claude engine, so a digest-match no longer
-  implies "works". It is TTL-bounded by `AUTH_RUNNER_VERIFY_TTL_SECONDS`
-  (default `900`): a canonical row whose `verification_checked_at` is within the
-  window is trusted (no probe); otherwise the served canonical is verified live
-  via `/verify-claude`. Outcomes are surfaced as `verification_state`
+- **Launch-gate verification (retrieve side, both engines).** `/auth retrieve`
+  and the `/sync/bootstrap` candidate-match path run `ensureServedVerification`
+  before reporting a green status for **both** the Claude and Codex engines, so a
+  digest-match no longer implies "works". It is TTL-bounded by
+  `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`): a canonical row whose
+  `verification_checked_at` is within the window is trusted (no probe); otherwise
+  the served canonical is verified live via `/verify-claude` (Claude) or
+  `/verify` (Codex). Outcomes are surfaced as `verification_state`
   (`verified` | `failed` | `unknown`) plus optional `verification_reason`:
   - `verified` — token chain proved live (cached within TTL, or freshly probed);
     served normally.
   - `failed` — runner reached the provider and the credentials do not work; the
     known-bad blob is withheld and the wrapper refuses launch with a re-login
-    prompt instead of a raw 401.
+    prompt instead of a raw 401 (Claude) / `refresh token already used` (Codex).
   - `unknown` — runner not configured or unreachable; the response preserves the
     legacy digest-derived status and the wrapper keeps its offline/cached
     behaviour (a runner outage never downgrades a payload to `failed`).
+  Concurrent live probes for the same canonical payload are single-flighted
+  in-process (keyed by engine + payload id) so a fleet of Codex hosts cannot race
+  the refresh-token rotation into spurious `failed` verdicts.
   - When the runner refreshes the token during this probe, the refreshed blob is
     persisted as a fresh canonical (rotation-safe) and served as `outdated`.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.

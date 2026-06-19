@@ -88,6 +88,19 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		return d
 	}
 
+	// Live launch-gate proof: when the server reached the provider and the
+	// canonical credentials did NOT authenticate, refuse the managed launch
+	// instead of dropping the user into a raw "refresh token already used" /
+	// "Please log out and sign in again" error inside Codex. The server only
+	// emits "failed" when the runner reached the provider, so a local cached
+	// fallback would fail too — re-login is the only fix. The "live verification"
+	// phrasing is matched by lifecycle.needsInteractiveAuthRecovery to open the
+	// interactive `codex login` recovery.
+	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		d.Reason = "Codex credentials failed live verification (login expired). Re-authenticate with `codex login`, then re-run cdx."
+		return d
+	}
+
 	switch status {
 	case "valid", "current", "ok", "unchanged", "updated", "outdated":
 		d.Allowed = true

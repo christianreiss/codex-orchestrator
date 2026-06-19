@@ -81,6 +81,15 @@ export interface CanonicalAuthStoreService {
 export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): CanonicalAuthStoreService {
   const { db, keyring, runnerValidation, runner } = deps;
 
+  // In-process single-flight for the launch-gate live probe, keyed by
+  // `${engine}:${payloadId}`. Without it, ~103 codex hosts hitting an
+  // expired-but-refreshable canonical at the same moment each spawn a `codex
+  // exec` probe and race the refresh-token rotation: the first rotates the
+  // token, the rest reuse the now-dead one and get a false "refresh token
+  // already used" → spurious `failed` verdicts and a fleet re-login storm. The
+  // API runs single-instance, so collapsing concurrent probes here is enough.
+  const verifyInflight = new Map<string, Promise<EnsureServedVerificationResult>>();
+
   async function persistEntries(payloadId: number, entries: NormalizedAuthEntry[], now: string): Promise<void> {
     for (const e of entries) {
       await db.insert(authEntries).values({
@@ -233,59 +242,74 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       return { ...unchanged, state: 'verified' };
     }
 
-    const verdict =
-      engine === ENGINE_CLAUDE
-        ? await runner.verifyClaude({ authJson: auth })
-        : await runner.verify({ authJson: auth });
+    // Past the probe-free fast paths: dedupe concurrent live probes for this
+    // exact canonical row (see verifyInflight).
+    const inflightKey = `${engine}:${row.id}`;
+    const pending = verifyInflight.get(inflightKey);
+    if (pending) return pending;
 
-    // Runner outage (transport failure): do NOT downgrade the payload. Report
-    // 'unknown' so the gate falls back to its offline/cached-credentials logic
-    // instead of refusing launch during an infrastructure blip.
-    if (!verdict.reachable) return unchanged;
+    const probe = (async (): Promise<EnsureServedVerificationResult> => {
+      const verdict =
+        engine === ENGINE_CLAUDE
+          ? await runner.verifyClaude({ authJson: auth })
+          : await runner.verify({ authJson: auth });
 
-    const now = nowIso();
-    if (!verdict.ok) {
+      // Runner outage (transport failure): do NOT downgrade the payload. Report
+      // 'unknown' so the gate falls back to its offline/cached-credentials logic
+      // instead of refusing launch during an infrastructure blip.
+      if (!verdict.reachable) return unchanged;
+
+      const now = nowIso();
+      if (!verdict.ok) {
+        await db
+          .update(authPayloads)
+          .set({
+            verificationState: 'failed',
+            verificationCheckedAt: now,
+            verificationReason: (verdict.reason ?? 'runner verification failed').slice(0, 500),
+          })
+          .where(eq(authPayloads.id, row.id));
+        return { ...unchanged, state: 'failed', reason: verdict.reason };
+      }
+
+      // Verified. If the runner refreshed the token, persist the refreshed blob
+      // as a fresh canonical so the host receives live credentials rather than a
+      // possibly-rotated pre-refresh refreshToken (reuses the tested store gate).
+      const refreshed = prepareRunnerUpdatedAuth(verdict.updated_auth, lastRefresh, engine, runnerValidation);
+      if (refreshed.ok && refreshed.digest !== digest) {
+        try {
+          const stored = await storeCandidate({
+            auth: verdict.updated_auth as Record<string, unknown>,
+            engine,
+            sourceHostId: hostId,
+            requireLastRefresh: false,
+            logAction: 'auth.reverify_refresh',
+          });
+          return {
+            state: 'verified',
+            auth: stored.auth,
+            digest: stored.canonical_digest,
+            lastRefresh: stored.canonical_last_refresh,
+            refreshed: true,
+          };
+        } catch {
+          // Fall through: stamp the existing row verified below.
+        }
+      }
+
       await db
         .update(authPayloads)
-        .set({
-          verificationState: 'failed',
-          verificationCheckedAt: now,
-          verificationReason: (verdict.reason ?? 'runner verification failed').slice(0, 500),
-        })
+        .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
         .where(eq(authPayloads.id, row.id));
-      return { ...unchanged, state: 'failed', reason: verdict.reason };
-    }
+      return { ...unchanged, state: 'verified' };
+    })();
 
-    // Verified. If the runner refreshed the token, persist the refreshed blob as
-    // a fresh canonical so the host receives live credentials rather than a
-    // possibly-rotated pre-refresh refreshToken (reuses the tested store gate).
-    const refreshed = prepareRunnerUpdatedAuth(verdict.updated_auth, lastRefresh, engine, runnerValidation);
-    if (refreshed.ok && refreshed.digest !== digest) {
-      try {
-        const stored = await storeCandidate({
-          auth: verdict.updated_auth as Record<string, unknown>,
-          engine,
-          sourceHostId: hostId,
-          requireLastRefresh: false,
-          logAction: 'auth.reverify_refresh',
-        });
-        return {
-          state: 'verified',
-          auth: stored.auth,
-          digest: stored.canonical_digest,
-          lastRefresh: stored.canonical_last_refresh,
-          refreshed: true,
-        };
-      } catch {
-        // Fall through: stamp the existing row verified below.
-      }
+    verifyInflight.set(inflightKey, probe);
+    try {
+      return await probe;
+    } finally {
+      verifyInflight.delete(inflightKey);
     }
-
-    await db
-      .update(authPayloads)
-      .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
-      .where(eq(authPayloads.id, row.id));
-    return { ...unchanged, state: 'verified' };
   }
 
   return { storeCandidate, ensureServedVerification };
