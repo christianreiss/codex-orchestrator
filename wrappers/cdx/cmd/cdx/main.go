@@ -1,7 +1,7 @@
 // cdx — Codex Orchestrator wrapper, engine=codex.
 //
 // Subcommands: run (default), status, doctor, lane, profile, exec, auth-upload,
-// --version, --update, --cron [install|remove|run], --uninstall, --execute.
+// --version, --update, --cron [install|remove|run], --uninstall, --execute, --resume.
 package main
 
 import (
@@ -58,6 +58,7 @@ type flags struct {
 	doctorFlag      bool
 	cronArgs        []string
 	executePrompt   string
+	resumeSession   string
 	forceIPv4       bool
 	allowConc       bool
 	helpPassthrough bool
@@ -372,7 +373,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
+		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
 }
@@ -536,6 +537,18 @@ func parseFlags(args []string) (flags, []string, []string) {
 				f.executePrompt = args[i+1]
 				i++
 			}
+		case a == "--resume":
+			f.resumeSession = ""
+			if i+1 < len(args) {
+				f.resumeSession = args[i+1]
+				passthrough = append(passthrough, "--resume", args[i+1])
+				i++
+			} else {
+				passthrough = append(passthrough, "--resume")
+			}
+		case strings.HasPrefix(a, "--resume="):
+			f.resumeSession = strings.TrimPrefix(a, "--resume=")
+			passthrough = append(passthrough, a)
 		case a == "--config" && i+1 < len(args):
 			f.configPath = args[i+1]
 			i++

@@ -1,7 +1,7 @@
 // clx — Codex Orchestrator wrapper, engine=claude.
 //
 // Subcommands: run (default), status, doctor, exec, auth-upload, --version,
-// --update, --uninstall, --cron [install|remove|run], --execute.
+// --update, --uninstall, --cron [install|remove|run], --execute, --resume.
 package main
 
 import (
@@ -287,7 +287,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot")
+		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot")
 		return 2
 	}
 }

@@ -79,6 +79,7 @@ at build time, then loads the config:
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
+| `--resume <session>` / `--resume=<session>` | Passed through the normal startup lifecycle to the upstream `codex` binary |
 | `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
 | `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too |
 | `--version` | Print version + commit + embedded pubkey status |

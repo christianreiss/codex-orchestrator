@@ -63,21 +63,27 @@ func TestParseFlagsContinueIsForwarded(t *testing.T) {
 }
 
 func TestParseFlagsResumeIsForwarded(t *testing.T) {
-	f, _, pass := parseFlags([]string{"--resume", "session-7"})
-	if f.resumeSession != "session-7" {
+	f, pos, pass := parseFlags([]string{"--resume", "d9647178-2855-42b5-afaf-07caef131f73"})
+	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
 		t.Errorf("resumeSession = %q", f.resumeSession)
 	}
-	if len(pass) != 2 || pass[0] != "--resume" || pass[1] != "session-7" {
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 2 || pass[0] != "--resume" || pass[1] != "d9647178-2855-42b5-afaf-07caef131f73" {
 		t.Errorf("passthrough = %v", pass)
 	}
 }
 
 func TestParseFlagsResumeEqualForm(t *testing.T) {
-	f, _, pass := parseFlags([]string{"--resume=session-9"})
-	if f.resumeSession != "session-9" {
+	f, pos, pass := parseFlags([]string{"--resume=d9647178-2855-42b5-afaf-07caef131f73"})
+	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
 		t.Errorf("resumeSession = %q", f.resumeSession)
 	}
-	if len(pass) != 1 || pass[0] != "--resume=session-9" {
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 1 || pass[0] != "--resume=d9647178-2855-42b5-afaf-07caef131f73" {
 		t.Errorf("passthrough = %v", pass)
 	}
 }

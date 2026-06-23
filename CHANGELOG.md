@@ -1,3 +1,13 @@
+# 2026-06-23
+
+## cdx/clx resume flags pass through cleanly
+
+- **cdx:** Top-level `--resume <session>` and `--resume=<session>` now run through
+  the normal wrapper lifecycle and forward to upstream Codex instead of being
+  parsed as an unknown wrapper subcommand.
+- **clx:** Existing `--resume` passthrough is regression-tested with the same
+  UUID-shaped session form and documented alongside the equals form.
+
 # 2026-06-19
 
 ## Codex auth is proven live before launch (no more dead-token handoff)

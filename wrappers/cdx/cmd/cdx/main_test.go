@@ -51,6 +51,7 @@ func TestIsHelpPassthrough(t *testing.T) {
 		{"version flag", []string{"--version"}, false},
 		{"cron action", []string{"--cron", "run"}, false},
 		{"execute prompt", []string{"--execute", "hello"}, false},
+		{"resume with session", []string{"--resume", "d9647178-2855-42b5-afaf-07caef131f73"}, false},
 		// Long-form help help — both trigger.
 		{"help with extra args", []string{"help", "exec"}, true},
 		// Top-level help with extra trailing args.
@@ -90,6 +91,32 @@ func TestParseFlagsNonHelpStillParses(t *testing.T) {
 		t.Errorf("positional = %v", pos)
 	}
 	if len(pass) != 1 || pass[0] != "--unknown" {
+		t.Errorf("passthrough = %v", pass)
+	}
+}
+
+func TestParseFlagsResumeIsForwarded(t *testing.T) {
+	f, pos, pass := parseFlags([]string{"--resume", "d9647178-2855-42b5-afaf-07caef131f73"})
+	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
+		t.Errorf("resumeSession = %q", f.resumeSession)
+	}
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 2 || pass[0] != "--resume" || pass[1] != "d9647178-2855-42b5-afaf-07caef131f73" {
+		t.Errorf("passthrough = %v", pass)
+	}
+}
+
+func TestParseFlagsResumeEqualForm(t *testing.T) {
+	f, pos, pass := parseFlags([]string{"--resume=d9647178-2855-42b5-afaf-07caef131f73"})
+	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
+		t.Errorf("resumeSession = %q", f.resumeSession)
+	}
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 1 || pass[0] != "--resume=d9647178-2855-42b5-afaf-07caef131f73" {
 		t.Errorf("passthrough = %v", pass)
 	}
 }
