@@ -444,6 +444,8 @@ export interface ClaudeConfigSettings {
   model?: string;
   env?: Record<string, string>;
   permissions?: ClaudePermissions;
+  /** Fleet default permission mode → rendered as `permissions.defaultMode`. */
+  permissionMode?: string;
   statusLine?: ClaudeStatusLine;
   hooks?: ClaudeHooks;
   advisorModel?: string;

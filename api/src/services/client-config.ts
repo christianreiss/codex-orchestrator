@@ -51,6 +51,7 @@ import {
   normalizeClaudeModel,
   isLegacyModelUpgrade,
   settingsHash,
+  DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import type { Host } from '../db/schema.js';
@@ -404,15 +405,18 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
   if (settings.env) result['env'] = settings.env;
   if (settings.statusLine) result['statusLine'] = settings.statusLine;
   if (settings.hooks) result['hooks'] = settings.hooks;
+  const perms: Record<string, unknown> = {};
   if (settings.permissions) {
-    const perms: Record<string, unknown> = {};
     for (const bucket of ['allow', 'ask', 'deny'] as const) {
       const arr = settings.permissions[bucket];
       if (arr && arr.length > 0) perms[bucket] = arr;
     }
-    if (Object.keys(perms).length > 0) result['permissions'] = perms;
   }
-  if (settings.permissionMode) result['permissionMode'] = settings.permissionMode;
+  // Claude Code reads the default permission mode from `permissions.defaultMode`
+  // (a top-level `permissionMode` key is ignored). Always emit it so the fleet
+  // default (`auto`) lands even when no rules are configured.
+  perms['defaultMode'] = settings.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE;
+  result['permissions'] = perms;
   return JSON.stringify(result, null, 2) + '\n';
 }
 
@@ -454,8 +458,8 @@ export function renderClaudeSettingsPartial(
     partial['hooks'] = settings.hooks;
     for (const event of Object.keys(settings.hooks)) owned.push(`hooks.${event}`);
   }
+  const perms: Record<string, unknown> = {};
   if (settings.permissions) {
-    const perms: Record<string, unknown> = {};
     for (const bucket of ['allow', 'ask', 'deny'] as const) {
       const arr = settings.permissions[bucket];
       if (arr && arr.length > 0) {
@@ -463,12 +467,14 @@ export function renderClaudeSettingsPartial(
         owned.push(`permissions.${bucket}`);
       }
     }
-    if (Object.keys(perms).length > 0) partial['permissions'] = perms;
   }
-  if (settings.permissionMode) {
-    partial['permissionMode'] = settings.permissionMode;
-    owned.push('permissionMode');
-  }
+  // `permissions.defaultMode` is a plain leaf path: it rides the generic dotted
+  // merge in the wrapper (NOT the allow/ask/deny union special-case), so it is
+  // written verbatim and removed via the stale-path pass when ownership drops.
+  // Claude Code ignores a top-level `permissionMode`; this is the honored form.
+  perms['defaultMode'] = settings.permissionMode ?? DEFAULT_CLAUDE_PERMISSION_MODE;
+  owned.push('permissions.defaultMode');
+  partial['permissions'] = perms;
   if (settings.advisorModel) {
     partial['advisorModel'] = settings.advisorModel;
     owned.push('advisorModel');

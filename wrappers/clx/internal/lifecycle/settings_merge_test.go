@@ -97,6 +97,47 @@ func TestMergePermissionsUnionAndPrevFleetStrip(t *testing.T) {
 	}
 }
 
+func TestMergeDefaultModeScalarCoexistsWithBuckets(t *testing.T) {
+	// permissions.defaultMode is a plain scalar leaf — NOT one of the
+	// allow/ask/deny union buckets — so it must ride the generic dotted merge,
+	// survive alongside a deny bucket, and not be pruned.
+	user := []byte(`{"permissions":{"deny":["Bash(sudo *)"]}}`)
+	partial := map[string]any{
+		"permissions": map[string]any{
+			"defaultMode": "auto",
+			"deny":        []any{"Bash(curl *)"},
+		},
+	}
+	owned := []string{"permissions.defaultMode", "permissions.deny"}
+	out, st, err := MergeSettings(user, partial, owned, emptyState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	perms := parseObj(t, out)["permissions"].(map[string]any)
+	if perms["defaultMode"] != "auto" {
+		t.Errorf("defaultMode = %v, want auto", perms["defaultMode"])
+	}
+	deny := toStringSlice(perms["deny"])
+	if !reflect.DeepEqual(deny, []string{"Bash(sudo *)", "Bash(curl *)"}) {
+		t.Errorf("deny = %v; user rule + fleet rule expected", deny)
+	}
+
+	// Next run the fleet owns nothing: the stale-path pass must strip
+	// defaultMode and our previously-injected deny rule, leaving only the
+	// user-authored deny rule intact.
+	out2, _, err := MergeSettings(out, map[string]any{}, []string{}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perms2 := parseObj(t, out2)["permissions"].(map[string]any)
+	if _, ok := perms2["defaultMode"]; ok {
+		t.Error("defaultMode must be removed once the fleet stops owning it")
+	}
+	if got := toStringSlice(perms2["deny"]); !reflect.DeepEqual(got, []string{"Bash(sudo *)"}) {
+		t.Errorf("after strip deny = %v, want user rule only", got)
+	}
+}
+
 func TestMergeEmptyUserSettings(t *testing.T) {
 	out, _, err := MergeSettings(nil, map[string]any{"model": "opus"}, []string{"model"}, emptyState())
 	if err != nil {

@@ -372,9 +372,29 @@ export function normalizeClaudePermissions(
   return { allow, ask, deny };
 }
 
-export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'autoEdit', 'bypassPermissions'] as const;
+// The exact `--permission-mode` / `permissions.defaultMode` choices the upstream
+// `claude` CLI accepts (verified against `claude --help`). Anything outside this
+// set is rejected by Claude Code, so we drop it on normalize.
+export const CLAUDE_PERMISSION_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'auto',
+  'dontAsk',
+  'bypassPermissions',
+] as const;
 
-/** Claude settings.json `permissionMode` key: controls auto-approve aggressiveness. */
+/**
+ * Fleet default permission mode applied to every Claude host when the settings
+ * doc does not pin one. `auto` = Claude Code auto-approves tool calls with its
+ * background safety checks (the "auto mode" operators asked for). Operators can
+ * still pin `default` (prompt every time) or any other value in the fleet
+ * settings. Rendered as `permissions.defaultMode`, NOT a top-level key — Claude
+ * Code only reads the nested form.
+ */
+export const DEFAULT_CLAUDE_PERMISSION_MODE = 'auto';
+
+/** Claude settings.json `permissions.defaultMode`: controls auto-approve aggressiveness. */
 export function normalizeClaudePermissionMode(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;

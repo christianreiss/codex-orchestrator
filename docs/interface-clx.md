@@ -184,8 +184,19 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
 `~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
 `claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
 the fleet-managed keys (`model`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
-`hooks.<Event>`, `permissions.{allow,ask,deny}`, `advisorModel`) and `owned_paths`
-are the leaf-granular dot-paths the fleet owns this run.
+`hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
+`advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
+this run.
+
+- `permissions.defaultMode` is the startup permission mode every managed Claude
+  host runs in. It is **always** emitted: when the fleet settings pin no value it
+  defaults to `auto` (Claude Code auto-approves tool calls with its background
+  safety checks). Accepted values are exactly the upstream `claude
+  --permission-mode` choices — `default`, `acceptEdits`, `plan`, `auto`,
+  `dontAsk`, `bypassPermissions`; anything else falls back to the `auto` default.
+  Claude Code ignores a top-level `permissionMode` key, so the wrapper writes the
+  nested `permissions.defaultMode` form (a plain scalar leaf — it rides the
+  generic dotted merge, not the allow/ask/deny union special-case).
 
 - `advisorModel` enables Claude Code's experimental advisor tool (routes the full
   transcript to a stronger reviewer model). Restricted to the tier aliases

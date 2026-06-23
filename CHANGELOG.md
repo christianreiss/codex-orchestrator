@@ -8,6 +8,36 @@
 - **clx:** Existing `--resume` passthrough is regression-tested with the same
   UUID-shaped session form and documented alongside the equals form.
 
+# 2026-06-22
+
+## clx default permission mode is now `auto` — and Claude actually honors it
+
+- **api:** The fleet-managed Claude permission mode is now rendered as
+  `permissions.defaultMode` in `settings.json` instead of a top-level
+  `permissionMode` key. Claude Code **ignores** the top-level key, so the
+  previous server-side `permissionMode` support (added 2026-06-08) was an inert
+  no-op on the host. The nested form is the one Claude Code reads, so the setting
+  finally takes effect. (`client-config.ts`)
+- **api:** `permissions.defaultMode` is now **always emitted** and defaults to
+  `auto` when the fleet settings pin no value — i.e. out of the box every managed
+  Claude host starts in auto-approve mode (Claude Code auto-approves tool calls
+  with its background safety checks). Operators who want the old prompt-every-time
+  behavior must explicitly pin `default` in **Authoring → Fleet settings**. This
+  changes on-disk `settings.json` for every Claude host on next sync.
+- **api:** Corrected the accepted permission-mode values to the exact upstream
+  `claude --permission-mode` choices (`default`, `acceptEdits`, `plan`, `auto`,
+  `dontAsk`, `bypassPermissions`), verified against the deployed binary. The
+  previously-listed bogus `autoEdit` value is dropped; an invalid stored value now
+  falls back to the `auto` default. (`config-normalizer.ts`)
+- **admin:** Added a **Permission mode** picker to Authoring → Fleet settings so
+  operators can change the fleet default from the dashboard (it was never exposed
+  before). The `settings.json` preview shows the resulting `permissions.defaultMode`.
+- **clx:** No wrapper change required — `permissions.defaultMode` is a plain scalar
+  leaf that rides the existing generic dotted-path merge (not the allow/ask/deny
+  union special-case), so it is written verbatim and cleaned up via the stale-path
+  pass when ownership drops. The old top-level `permissionMode` any 2026-06-08-era
+  wrapper wrote is auto-stripped on next sync by that same cleanup.
+
 # 2026-06-19
 
 ## Codex auth is proven live before launch (no more dead-token handoff)

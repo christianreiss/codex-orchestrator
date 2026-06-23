@@ -167,3 +167,45 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
     expect(owned_paths).not.toContain('advisorModel');
   });
 });
+
+describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', () => {
+  it('defaults to `auto` and renders it under permissions.defaultMode (never top-level)', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(normalizeSettings({}));
+    expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('auto');
+    expect(owned_paths).toContain('permissions.defaultMode');
+    // The top-level key Claude Code ignores must NOT be emitted.
+    expect(partial).not.toHaveProperty('permissionMode');
+    expect(owned_paths).not.toContain('permissionMode');
+  });
+
+  it('honors an operator-pinned mode', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(
+      normalizeSettings({ permissionMode: 'default' }),
+    );
+    expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('default');
+    expect(owned_paths).toContain('permissions.defaultMode');
+  });
+
+  it('falls back to the default when the pinned mode is invalid', () => {
+    const { partial } = renderClaudeSettingsPartial(
+      normalizeSettings({ permissionMode: 'autoEdit' }),
+    );
+    expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('auto');
+  });
+
+  it('keeps defaultMode alongside allow/ask/deny buckets and owns each leaf', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(
+      normalizeSettings({
+        permissionMode: 'acceptEdits',
+        permissions: { allow: ['Bash(npm run *)'], deny: ['Read(./secrets/**)'] },
+      }),
+    );
+    const perms = partial.permissions as Record<string, unknown>;
+    expect(perms.defaultMode).toBe('acceptEdits');
+    expect(perms.allow).toEqual(['Bash(npm run *)']);
+    expect(perms.deny).toEqual(['Read(./secrets/**)']);
+    expect(owned_paths).toEqual(
+      expect.arrayContaining(['permissions.allow', 'permissions.deny', 'permissions.defaultMode']),
+    );
+  });
+});

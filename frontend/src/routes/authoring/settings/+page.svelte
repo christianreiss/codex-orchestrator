@@ -4,7 +4,14 @@
   import { claudeSettingsApi, claudeSettingsKeys } from "$lib/api/claudeSettings";
   import type { ClaudeConfigResponse, ClaudeConfigSettings } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
-  import { ADVISOR_MODELS, ADVISOR_OFF, CLAUDE_MODELS, INHERIT_MODEL } from "$lib/constants/models";
+  import {
+    ADVISOR_MODELS,
+    ADVISOR_OFF,
+    CLAUDE_MODELS,
+    CLAUDE_PERMISSION_MODES,
+    DEFAULT_CLAUDE_PERMISSION_MODE,
+    INHERIT_MODEL,
+  } from "$lib/constants/models";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Badge } from "$lib/components/ui/badge";
@@ -31,6 +38,7 @@
   let allow = $state<string[]>([]);
   let ask = $state<string[]>([]);
   let deny = $state<string[]>([]);
+  let permissionMode = $state(DEFAULT_CLAUDE_PERMISSION_MODE);
   let statusLineCommand = $state("");
   let advisorModel = $state(ADVISOR_OFF);
   let hooks = $state<HooksMap>({});
@@ -63,6 +71,7 @@
       allow = [...(s.permissions?.allow ?? [])];
       ask = [...(s.permissions?.ask ?? [])];
       deny = [...(s.permissions?.deny ?? [])];
+      permissionMode = s.permissionMode || DEFAULT_CLAUDE_PERMISSION_MODE;
       statusLineCommand = typeof s.statusLine?.command === "string" ? s.statusLine.command : "";
       advisorModel = s.advisorModel || ADVISOR_OFF;
       hooks = hooksFromConfig(s.hooks);
@@ -93,6 +102,8 @@
       if (askList.length) out.permissions.ask = askList;
       if (denyList.length) out.permissions.deny = denyList;
     }
+
+    if (permissionMode) out.permissionMode = permissionMode;
 
     if (statusLineCommand.trim()) {
       out.statusLine = { type: "command", command: statusLineCommand.trim() };
@@ -189,6 +200,22 @@
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-3 text-sm font-semibold">Environment variables</h3>
         <KeyValueList bind:rows={env} keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
+      </div>
+
+      <!-- Permission mode -->
+      <div class="rounded-lg border bg-card p-4">
+        <h3 class="mb-1 text-sm font-semibold">Permission mode</h3>
+        <p class="mb-3 text-xs text-muted-foreground">
+          Sets <span class="font-mono">permissions.defaultMode</span> in settings.json — the mode every
+          managed Claude host starts in. <span class="font-mono">auto</span> auto-approves tool calls with
+          background safety checks; <span class="font-mono">default</span> prompts each time.
+        </p>
+        <ModelSelect
+          bind:value={permissionMode}
+          options={CLAUDE_PERMISSION_MODES}
+          label="Permission mode"
+          fallback={DEFAULT_CLAUDE_PERMISSION_MODE}
+        />
       </div>
 
       <!-- Permissions -->

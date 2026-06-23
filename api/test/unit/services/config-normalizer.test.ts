@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_LEGACY_MODEL_UPGRADES,
+  CLAUDE_PERMISSION_MODES,
+  DEFAULT_CLAUDE_PERMISSION_MODE,
   FORCE_UPGRADE_MODEL,
   FORCE_UPGRADE_REASONING_EFFORT,
   LEGACY_MODEL_UPGRADES,
@@ -12,6 +14,7 @@ import {
   normalizeApprovalPolicy,
   normalizeClaudeAdvisorModel,
   normalizeClaudeModel,
+  normalizeClaudePermissionMode,
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
   normalizeSettings,
@@ -105,6 +108,33 @@ describe('normalizeClaudeAdvisorModel', () => {
     expect(normalizeClaudeAdvisorModel('gpt-5')).toBeNull();
     expect(normalizeClaudeAdvisorModel('')).toBeNull();
     expect(normalizeClaudeAdvisorModel(undefined)).toBeNull();
+  });
+});
+
+describe('normalizeClaudePermissionMode', () => {
+  it('exposes exactly the upstream `claude --permission-mode` choices', () => {
+    expect(CLAUDE_PERMISSION_MODES).toEqual([
+      'default',
+      'acceptEdits',
+      'plan',
+      'auto',
+      'dontAsk',
+      'bypassPermissions',
+    ]);
+    expect(DEFAULT_CLAUDE_PERMISSION_MODE).toBe('auto');
+    // The default must itself be a valid choice.
+    expect(CLAUDE_PERMISSION_MODES).toContain(DEFAULT_CLAUDE_PERMISSION_MODE);
+  });
+  it('accepts every valid mode, including auto', () => {
+    for (const mode of CLAUDE_PERMISSION_MODES) {
+      expect(normalizeClaudePermissionMode(mode)).toBe(mode);
+    }
+  });
+  it('rejects the bogus legacy `autoEdit` value and other junk (-> null)', () => {
+    expect(normalizeClaudePermissionMode('autoEdit')).toBeNull();
+    expect(normalizeClaudePermissionMode('AUTO')).toBeNull();
+    expect(normalizeClaudePermissionMode('')).toBeNull();
+    expect(normalizeClaudePermissionMode(undefined)).toBeNull();
   });
 });
 
