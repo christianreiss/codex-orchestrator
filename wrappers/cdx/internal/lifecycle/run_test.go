@@ -84,3 +84,26 @@ func TestDecideAuthRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldWriteServerAuth(t *testing.T) {
+	auth := []byte(`{"auths":{"api.openai.com":{"token":"token"}}}`)
+	cases := []struct {
+		status string
+		auth   []byte
+		want   bool
+	}{
+		{"outdated", auth, true},
+		{"updated", auth, true},
+		{"missing", auth, true},
+		{" UPDATED ", auth, true},
+		{"valid", auth, false},
+		{"outdated", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status, func(t *testing.T) {
+			if got := shouldWriteServerAuth(tc.status, tc.auth); got != tc.want {
+				t.Fatalf("shouldWriteServerAuth(%q, len=%d) = %v, want %v", tc.status, len(tc.auth), got, tc.want)
+			}
+		})
+	}
+}

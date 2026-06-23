@@ -1,5 +1,18 @@
 # 2026-06-23
 
+## cdx/clx concurrent auth freshness fix
+
+- **clx:** Concurrent secondary runs now still perform the startup auth digest
+  check and atomically write server-returned canonical credentials on
+  `outdated`/`updated`/`missing`, instead of launching Claude with stale local
+  `.credentials.json` and surfacing upstream `401 Invalid authentication
+  credentials`. The secondary run remains read-only for managed
+  `CLAUDE.md`/settings/collections/skills, and now has the same final local-auth
+  usability gate as cdx.
+- **cdx:** Mirrored the auth-only concurrent update behavior for parity: stale
+  `auth.json` is refreshed from verified server auth even when the run lock is
+  held, while AGENTS/config/skills remain read-only during the secondary run.
+
 ## clx production-readiness pass — broken/unenforced features fixed, every fix tested
 
 A verification sweep of the `clx` wrapper against the live orchestrator and the

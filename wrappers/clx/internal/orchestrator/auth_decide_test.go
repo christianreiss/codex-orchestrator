@@ -204,3 +204,29 @@ func TestDecide_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyConcurrent(t *testing.T) {
+	valid := LocalAuthProbe{IsValid: func(string) bool { return true }}
+	invalid := LocalAuthProbe{IsValid: func(string) bool { return false }}
+
+	got := ApplyConcurrent(AuthDecision{Allowed: true, Status: "valid"}, "/dev/null", valid)
+	if !got.Allowed || !got.LocalUsable {
+		t.Fatalf("allow+valid: got Allowed=%v LocalUsable=%v, want both true", got.Allowed, got.LocalUsable)
+	}
+
+	got = ApplyConcurrent(AuthDecision{Allowed: true, Status: "valid"}, "/dev/null", invalid)
+	if got.Allowed {
+		t.Fatalf("allow+invalid local must refuse, got Allowed=true")
+	}
+	if !strings.Contains(strings.ToLower(got.Reason), "active clx run") {
+		t.Fatalf("reason = %q, want the concurrent refusal message", got.Reason)
+	}
+
+	got = ApplyConcurrent(AuthDecision{Allowed: false, Reason: "Auth API disabled by administrator."}, "/dev/null", valid)
+	if got.Allowed {
+		t.Fatalf("concurrent must never upgrade a refusal to allow")
+	}
+	if got.Reason != "Auth API disabled by administrator." {
+		t.Fatalf("hard-stop reason was clobbered: %q", got.Reason)
+	}
+}

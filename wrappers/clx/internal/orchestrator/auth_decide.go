@@ -157,3 +157,19 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	d.Reason = "Unknown auth status " + status + "; refusing to start Claude Code."
 	return d
 }
+
+// ApplyConcurrent adjusts a base decision for a read-only secondary run. It
+// never upgrades a refusal; it only refuses an otherwise-allowed launch when the
+// local Claude credentials file is not structurally usable.
+func ApplyConcurrent(dec AuthDecision, localAuthPath string, probe LocalAuthProbe) AuthDecision {
+	if !dec.Allowed {
+		return dec
+	}
+	if localAuthPath != "" && probe.IsValid != nil && probe.IsValid(localAuthPath) {
+		dec.LocalUsable = true
+		return dec
+	}
+	dec.Allowed = false
+	dec.Reason = "Active clx run detected and local credentials are invalid or absent."
+	return dec
+}

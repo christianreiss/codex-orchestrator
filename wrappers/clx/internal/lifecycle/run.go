@@ -162,6 +162,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 	}
 
+	if concurrent {
+		dec = orchestrator.ApplyConcurrent(dec, authPath, localProbe)
+	}
+
 	// Build the boot-screen state once: even when SkipBoot suppresses the
 	// rendered screen we still want the derived QuotaWarn text so headless
 	// callers (cron, --execute) see the warning on stderr.
@@ -300,15 +304,12 @@ func bootstrap(
 		authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
 	}
 	authSynced := false
-	if !concurrent && len(authResp.Auth) > 0 {
-		switch strings.ToLower(authResp.Status) {
-		case "outdated", "updated", "missing":
-			if err := claude.WriteAuth(authResp.Auth); err != nil {
-				logger.Warn("credentials.json write from bundle failed", "err", err)
-			} else {
-				authSynced = true
-				logger.Debug("credentials.json updated from /sync/bootstrap")
-			}
+	if shouldWriteServerAuth(authResp.Status, authResp.Auth) {
+		if err := claude.WriteAuth(authResp.Auth); err != nil {
+			logger.Warn("credentials.json write from bundle failed", "err", err)
+		} else {
+			authSynced = true
+			logger.Debug("credentials.json updated from /sync/bootstrap", "concurrent", concurrent)
 		}
 	}
 
@@ -478,19 +479,28 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 	case "current", "ok", "valid", "unchanged", "":
 		return resp, nil, false
 	case "outdated", "updated", "missing":
-		if concurrent {
-			return resp, nil, false
-		}
 		if len(resp.Auth) == 0 {
 			return resp, nil, false
 		}
 		if err := claude.WriteAuth(resp.Auth); err != nil {
 			return resp, err, false
 		}
-		logger.Debug("credentials.json updated from orchestrator")
+		logger.Debug("credentials.json updated from orchestrator", "concurrent", concurrent)
 		return resp, nil, true
 	default:
 		return resp, nil, false
+	}
+}
+
+func shouldWriteServerAuth(status string, auth []byte) bool {
+	if len(auth) == 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "outdated", "updated", "missing":
+		return true
+	default:
+		return false
 	}
 }
 
