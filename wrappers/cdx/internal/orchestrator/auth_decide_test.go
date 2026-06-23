@@ -185,3 +185,56 @@ func TestDecide_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestDecideEngineDisabled pins the launch-gate refusal for an engine disabled
+// on the /sync/bootstrap path, where the 403 body (code "engine_disabled") is
+// folded into the synthesized offline Message. Without the dedicated branch the
+// status would be "offline" and a fresh-cache host would launch a disabled
+// engine instead of refusing.
+func TestDecideEngineDisabled(t *testing.T) {
+	resp := &AuthRetrieveResponse{
+		Status:  "offline",
+		Message: `POST /sync/bootstrap -> 403: {"status":"error","message":"Engine codex is disabled for this host","code":"engine_disabled"}`,
+	}
+	got := Decide(resp, "/dev/null", true, LocalAuthProbe{
+		IsValid: func(string) bool { return true },
+		IsFresh: func(string, time.Duration) (bool, error) { return true, nil },
+	})
+	if got.Allowed {
+		t.Fatalf("engine_disabled must refuse launch, got Allowed=true (reason=%q)", got.Reason)
+	}
+	if !strings.Contains(strings.ToLower(got.Reason), "disabled") {
+		t.Fatalf("reason = %q, want a 'disabled' refusal", got.Reason)
+	}
+}
+
+// TestApplyConcurrent pins the read-only secondary-run gate: only downgrades an
+// allow to a refusal when local auth is unusable; never upgrades a refusal.
+func TestApplyConcurrent(t *testing.T) {
+	valid := LocalAuthProbe{IsValid: func(string) bool { return true }}
+	invalid := LocalAuthProbe{IsValid: func(string) bool { return false }}
+
+	// allow + usable local → still allowed, marked LocalUsable.
+	got := ApplyConcurrent(AuthDecision{Allowed: true, Status: "valid"}, "/dev/null", valid)
+	if !got.Allowed || !got.LocalUsable {
+		t.Fatalf("allow+valid: got Allowed=%v LocalUsable=%v, want both true", got.Allowed, got.LocalUsable)
+	}
+
+	// allow + unusable local → refuse with the spec message.
+	got = ApplyConcurrent(AuthDecision{Allowed: true, Status: "valid"}, "/dev/null", invalid)
+	if got.Allowed {
+		t.Fatalf("allow+invalid local must refuse, got Allowed=true")
+	}
+	if !strings.Contains(strings.ToLower(got.Reason), "active cdx run") {
+		t.Fatalf("reason = %q, want the concurrent refusal message", got.Reason)
+	}
+
+	// refusal is never upgraded, regardless of local auth validity.
+	got = ApplyConcurrent(AuthDecision{Allowed: false, Reason: "Auth API disabled by administrator."}, "/dev/null", valid)
+	if got.Allowed {
+		t.Fatalf("concurrent must never upgrade a refusal to allow")
+	}
+	if got.Reason != "Auth API disabled by administrator." {
+		t.Fatalf("hard-stop reason was clobbered: %q", got.Reason)
+	}
+}

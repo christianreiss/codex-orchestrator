@@ -37,6 +37,15 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 	}
 	ts, err := lastRefreshFrom(raw)
 	if err != nil {
+		// Fleet-written and claude-CLI-written OAuth credentials carry only a
+		// `claudeAiOauth` block with no `last_refresh` (WriteAuth strips it). Fall
+		// back to the OAuth token's own expiry: an access token that has not yet
+		// expired is directly usable for an offline launch. This is the fallback
+		// the package doc promises and the reason OAuth hosts must not be refused
+		// a launch during a brief orchestrator outage.
+		if exp, ok := oauthExpiry(raw); ok {
+			return time.Now().UTC().Before(exp), nil
+		}
 		return false, err
 	}
 	now := time.Now().UTC()
@@ -45,6 +54,24 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 		return false, nil
 	}
 	return delta <= window, nil
+}
+
+// oauthExpiry extracts claudeAiOauth.expiresAt (Unix epoch milliseconds, as
+// written by Claude Code) as a UTC time. Returns ok=false when absent or
+// non-positive.
+func oauthExpiry(raw []byte) (time.Time, bool) {
+	var doc struct {
+		ClaudeAIOauth struct {
+			ExpiresAt int64 `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return time.Time{}, false
+	}
+	if doc.ClaudeAIOauth.ExpiresAt <= 0 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(doc.ClaudeAIOauth.ExpiresAt).UTC(), true
 }
 
 // IsValidLocalAuth reports whether the file at path looks structurally usable.

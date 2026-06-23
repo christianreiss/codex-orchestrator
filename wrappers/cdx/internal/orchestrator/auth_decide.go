@@ -87,6 +87,15 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "reverse DNS mismatch; refusing to sync."
 		return d
 	}
+	// Engine disabled for this host. The non-bundle /auth path maps this to
+	// status "disabled", but the /sync/bootstrap path folds the 403 body into
+	// the synthesized offline Message — without this branch an over-cache host
+	// would fall through to the offline path and launch a disabled engine from
+	// cached auth instead of refusing.
+	if strings.Contains(strings.ToLower(resp.Message), "engine_disabled") {
+		d.Reason = "Engine disabled for this host by administrator."
+		return d
+	}
 
 	// Live launch-gate proof: when the server reached the provider and the
 	// canonical credentials did NOT authenticate, refuse the managed launch
@@ -194,4 +203,25 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// wrapper update, not a silent launch).
 	d.Reason = "Unknown auth status " + status + "; refusing to start Codex."
 	return d
+}
+
+// ApplyConcurrent adjusts a base decision for a read-only secondary run — one
+// where another local instance already holds the cdx lock, so this process
+// never re-synced auth. It NEVER upgrades a refusal to a launch; it only refuses
+// an otherwise-allowed launch when the on-disk auth.json is not structurally
+// usable, since Codex would otherwise boot without tokens. This is what makes
+// the spec's refusal real: "Lock held by another PID with invalid local auth →
+// refuse" (previously unreachable, because the local lock state was never mapped
+// onto the decision).
+func ApplyConcurrent(dec AuthDecision, localAuthPath string, probe LocalAuthProbe) AuthDecision {
+	if !dec.Allowed {
+		return dec
+	}
+	if localAuthPath != "" && probe.IsValid != nil && probe.IsValid(localAuthPath) {
+		dec.LocalUsable = true
+		return dec
+	}
+	dec.Allowed = false
+	dec.Reason = "Active cdx run detected and local auth.json is invalid or absent."
+	return dec
 }

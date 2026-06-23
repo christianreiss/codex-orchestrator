@@ -130,7 +130,13 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 	if err != nil {
 		return 127, nil, err
 	}
-	teardown, _ := PreExec(ctx, cfg)
+	// PreExec returns an error only on an FQDN guard mismatch (a documented
+	// launch refusal); honour it instead of launching Claude against the wrong
+	// host identity. Mirrors cdx/internal/codex/exec.go.
+	teardown, err := PreExec(ctx, cfg)
+	if err != nil {
+		return 1, nil, err
+	}
 	defer teardown()
 
 	stdoutIsTTY := term.IsTerminal(int(os.Stdout.Fd()))

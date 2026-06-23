@@ -20,6 +20,28 @@ func TestVerifyChecksum(t *testing.T) {
 	}
 }
 
+func TestVerifyChecksumUppercaseMatches(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f")
+	body := []byte("clx-binary-bytes")
+	_ = os.WriteFile(p, body, 0o644)
+	sum := sha256.Sum256(body)
+	up := strings.ToUpper(hex.EncodeToString(sum[:]))
+	if err := VerifyChecksum(p, up); err != nil {
+		t.Fatalf("uppercase digest should match: %v", err)
+	}
+}
+
+func TestVerifyChecksumMismatchRejected(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f")
+	_ = os.WriteFile(p, []byte("real-bytes"), 0o644)
+	wrong := sha256.Sum256([]byte("other-bytes"))
+	if err := VerifyChecksum(p, hex.EncodeToString(wrong[:])); err == nil {
+		t.Fatal("mismatched digest must be rejected")
+	}
+}
+
 func TestSetEnvKVAddsAndReplaces(t *testing.T) {
 	env := []string{"PATH=/usr/bin", "HOME=/h"}
 	env = setEnvKV(env, "FOO", "bar")

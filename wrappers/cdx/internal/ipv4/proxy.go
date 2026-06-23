@@ -52,8 +52,12 @@ func Start(ctx context.Context) (*Proxy, error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Route directly through an http.HandlerFunc rather than an http.ServeMux:
+	// ServeMux issues a 301 redirect for CONNECT requests (it tries the
+	// /tree → /tree/ slash redirect before dispatching), which kills every
+	// HTTPS tunnel — and HTTPS is essentially all of Codex's API traffic. A
+	// bare handler sees CONNECT verbatim.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodConnect {
 			handleConnect(w, r, dial4)
 			return
@@ -61,7 +65,7 @@ func Start(ctx context.Context) (*Proxy, error) {
 		handleHTTP(w, r, transport)
 	})
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: handler}
 	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), server: srv}
 	p.wg.Add(1)
 	go func() {
@@ -99,13 +103,17 @@ func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context
 		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	// Do NOT call w.WriteHeader before hijacking: net/http would flush its own
+	// status line + Date + chunked-Transfer-Encoding headers, and the manual
+	// "200 OK" below plus the tunneled bytes would then arrive as chunked body,
+	// corrupting the handshake. Hijack first, then write the single CONNECT-OK
+	// status line ourselves.
 	src, _, err := hj.Hijack()
 	if err != nil {
 		return
 	}
 	defer src.Close()
-	_, _ = src.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	_, _ = src.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	go io.Copy(dst, src) //nolint:errcheck
 	io.Copy(src, dst)    //nolint:errcheck

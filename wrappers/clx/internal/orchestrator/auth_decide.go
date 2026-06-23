@@ -52,6 +52,17 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "Installation ID mismatch; refusing to sync."
 		return d
 	}
+	// Reverse-DNS mismatch: the server resolved the caller's IP to a hostname
+	// that does not match the registered FQDN. Surface the reason explicitly so
+	// operators can diagnose split-horizon DNS or NAT setups without digging
+	// through server logs. The rejection arrives as an HTTP error whose body
+	// (carrying the reverse_dns code) is threaded into resp.Message via the
+	// offline sentinel, so this fires before the offline launch-from-cache path.
+	if strings.Contains(strings.ToLower(resp.Message), "reverse_dns") ||
+		strings.Contains(strings.ToLower(resp.Message), "reverse dns") {
+		d.Reason = "reverse DNS mismatch; refusing to sync."
+		return d
+	}
 
 	// Live launch-gate proof: when the server reached Anthropic and the canonical
 	// credentials did NOT authenticate, refuse the managed launch instead of

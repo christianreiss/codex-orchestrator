@@ -20,6 +20,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/signing"
 )
 
 const peerEngine = "codex"
@@ -127,6 +128,19 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	b, rawPayload, err := fetchBundle(ctx, cfg)
 	if err != nil {
 		return err
+	}
+	// Verify the bundle's detached signature against the embedded fleet key
+	// BEFORE trusting any field in it. binary_url + binary_sha256 are read from
+	// this same payload and drive a download-and-execute of the peer binary, so
+	// the sha256 check downstream is only meaningful once the payload itself is
+	// proven authentic. This mirrors config.Load, which verifies the very bytes
+	// (rawPayload) this path later writes to cdx.json.
+	pubkey, err := signing.PublicKey()
+	if err != nil {
+		return fmt.Errorf("peer config: no signing key: %w", err)
+	}
+	if err := config.VerifyDetached(rawPayload, []byte(b.Signature.Value), pubkey); err != nil {
+		return fmt.Errorf("peer config signature invalid: %w", err)
 	}
 	wrapper, ok := b.Payload["wrapper"].(map[string]any)
 	if !ok {
@@ -289,11 +303,12 @@ func peerBinaryPath() string {
 	if p, err := exec.LookPath(peerName); err == nil && p != "" {
 		return p
 	}
-	if exe, err := os.Executable(); err == nil {
-		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
-			exe = resolved
-		}
-		return filepath.Join(filepath.Dir(exe), peerName)
+	// Look up the clx shim in PATH rather than os.Executable(): in shim mode
+	// os.Executable() resolves to the data-dir binary, not the PATH-visible shim,
+	// so the peer (cdx) would be installed off-PATH and never found. Mirrors the
+	// peerBinaryCandidates lookup below (cdx fix d24f6f38).
+	if clx, err := exec.LookPath("clx"); err == nil && clx != "" {
+		return filepath.Join(filepath.Dir(clx), peerName)
 	}
 	return filepath.Join("/usr/local/bin", peerName)
 }

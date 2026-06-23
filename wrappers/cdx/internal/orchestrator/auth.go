@@ -105,6 +105,64 @@ type ChatGPTQuota struct {
 	SparkSecondaryResetAt    string `json:"spark_secondary_reset_at,omitempty"`
 }
 
+// quotaWindow is one nested window object inside `spark_window` (and the
+// normal_window/primary_window siblings). The server emits the spark lane's
+// limit/reset values ONLY here — there are no flat `spark_primary_limit_seconds`
+// / `spark_primary_reset_after_seconds` root keys — so without reading the
+// nested window the spark quota bars lose their reset countdown and projection.
+type quotaWindow struct {
+	UsedPercent   *int   `json:"used_percent"`
+	LimitSec      *int64 `json:"limit_seconds"`
+	ResetAfterSec *int64 `json:"reset_after_seconds"`
+	ResetAt       string `json:"reset_at"`
+}
+
+// UnmarshalJSON decodes the flat ChatGPTQuota fields and then backfills the
+// spark lane's limit/reset values from the nested `spark_window` object the
+// server actually emits. Implemented at the unmarshal layer so every decode
+// path (POST /auth retrieve and the /sync/bootstrap bundle) normalizes
+// identically. Flat fields, if a future server ever emits them, win over the
+// nested copy.
+func (q *ChatGPTQuota) UnmarshalJSON(data []byte) error {
+	type alias ChatGPTQuota
+	aux := &struct {
+		SparkWindow *struct {
+			Primary   *quotaWindow `json:"primary_window"`
+			Secondary *quotaWindow `json:"secondary_window"`
+		} `json:"spark_window"`
+		*alias
+	}{alias: (*alias)(q)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.SparkWindow != nil {
+		fillSparkFromWindow(aux.SparkWindow.Primary, &q.SparkPrimaryUsed, &q.SparkPrimaryLimitSec, &q.SparkPrimaryResetAfter, &q.SparkPrimaryResetAt)
+		fillSparkFromWindow(aux.SparkWindow.Secondary, &q.SparkSecondaryUsed, &q.SparkSecondaryLimitSec, &q.SparkSecondaryResetAfter, &q.SparkSecondaryResetAt)
+	}
+	return nil
+}
+
+// fillSparkFromWindow copies the nested window's fields into the flat spark
+// targets, but only where the flat value is still unset — so an explicit flat
+// field from the server is never clobbered.
+func fillSparkFromWindow(win *quotaWindow, used **int, limit **int64, resetAfter **int64, resetAt *string) {
+	if win == nil {
+		return
+	}
+	if *used == nil && win.UsedPercent != nil {
+		*used = win.UsedPercent
+	}
+	if *limit == nil && win.LimitSec != nil {
+		*limit = win.LimitSec
+	}
+	if *resetAfter == nil && win.ResetAfterSec != nil {
+		*resetAfter = win.ResetAfterSec
+	}
+	if *resetAt == "" && win.ResetAt != "" {
+		*resetAt = win.ResetAt
+	}
+}
+
 // AuthRetrieve calls POST /auth with command=retrieve.
 func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieveResponse, error) {
 	body := map[string]any{

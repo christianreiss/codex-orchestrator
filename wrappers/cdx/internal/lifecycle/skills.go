@@ -78,11 +78,13 @@ func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.L
 
 // fingerprintSkills builds a stable hex digest over the (slug, sha256) pairs
 // in the server response. Order-independent: the list is sorted before hashing
-// so the server's row order doesn't matter.
+// so the server's row order doesn't matter. (sha256 already changes whenever a
+// skill body changes, so there's no separate version to fold in — the server
+// never emits one.)
 func fingerprintSkills(list []orchestrator.Skill) string {
 	pairs := make([]string, 0, len(list))
 	for _, s := range list {
-		pairs = append(pairs, s.Slug+"|"+s.SHA256+"|"+s.Version)
+		pairs = append(pairs, s.Slug+"|"+s.SHA256)
 	}
 	sort.Strings(pairs)
 	h := sha256.Sum256([]byte(strings.Join(pairs, "\n")))

@@ -124,6 +124,31 @@ func isHelpPassthrough(args []string) bool {
 	return false
 }
 
+// helpExecArgv rewrites the argv used for help passthrough so the upstream
+// Claude CLI actually renders help. Unlike `codex help`, `claude help` treats
+// `help` as a prompt and opens an interactive session (which hangs a
+// non-interactive caller), so a bare leading `help` positional token is
+// rewritten to `--help`. Every other help form (`--help`, `-h`,
+// `<subcommand> --help`) already renders help upstream and is forwarded
+// verbatim.
+func helpExecArgv(args []string) []string {
+	out := append([]string(nil), args...)
+	for i, a := range out {
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		// First positional token: only a bare `help` needs rewriting.
+		if a == "help" {
+			out[i] = "--help"
+		}
+		break
+	}
+	return out
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
@@ -143,14 +168,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	f, positional, passthrough := parseFlags(args)
 
 	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
-	// no update check, no boot screen, no footer. argv is unmodified.
+	// no update check, no boot screen, no footer. argv is forwarded as-is except
+	// that a bare leading `help` token is rewritten to `--help` (see
+	// helpExecArgv) so the upstream Claude CLI renders help instead of opening an
+	// interactive session.
 	if f.helpPassthrough {
 		cli, err := claude.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "clx --help:", err)
 			return 127
 		}
-		execArgv := append([]string{cli}, args...)
+		execArgv := append([]string{cli}, helpExecArgv(args)...)
 		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
 			fmt.Fprintln(stderr, "clx --help: exec failed:", err)
 			return 127

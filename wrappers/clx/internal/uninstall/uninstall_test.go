@@ -103,6 +103,22 @@ func TestOtherUsersHonoursRootLevelUsersShape(t *testing.T) {
 	}
 }
 
+// otherUsers deliberately fails OPEN on a /host/users lookup error: an explicit
+// user-initiated `clx --uninstall` must not be blocked by a transient
+// orchestrator outage. The host-wide destructive ops it then reaches
+// (npm -g remove, system cron removal) are still OS-permission-bounded, so a
+// non-root user cannot actually nuke another user's shared state. This test
+// locks that contract — flipping it to fail-closed is a deliberate decision, not
+// an accident.
+func TestOtherUsersReturnsEmptyOnNetworkError(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	if got := otherUsers(context.Background(), c, "alice"); len(got) != 0 {
+		t.Fatalf("network error must yield no other users (fail-open), got %v", got)
+	}
+}
+
 func TestEnsureCanDestructivelyTouchOtherUsersRefusesWhenNonRootAndNoSudo(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("test relies on non-root euid")

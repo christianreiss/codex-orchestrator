@@ -61,16 +61,150 @@ func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
 	}
 }
 
+// TestGetLaneRoundTrip pins GetLane to the *real* GET /host/lane contract, in
+// which the orchestrator returns {lane_preference, effective_lane} both at the
+// root and under `data`. The earlier fixture asserted a `data.lane` field the
+// server never emits, so the test was green while `cdx lane` printed an empty
+// lane against the live server.
 func TestGetLaneRoundTrip(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"ok","data":{"lane":"spark"}}`))
-	})
-	lane, err := c.GetLane(context.Background())
-	if err != nil {
-		t.Fatalf("lane: %v", err)
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "standard envelope with root + data copies",
+			body: `{"status":"ok","data":{"lane_preference":"spark","effective_lane":"spark","host_id":1,"fqdn":"h"},"lane_preference":"spark","effective_lane":"spark","host_id":1,"fqdn":"h"}`,
+			want: "spark",
+		},
+		{
+			name: "data-only envelope (legacy bash shape)",
+			body: `{"status":"ok","data":{"lane_preference":null,"effective_lane":"normal"}}`,
+			want: "normal",
+		},
+		{
+			name: "no preference set defaults to normal",
+			body: `{"status":"ok","data":{"lane_preference":null,"effective_lane":""}}`,
+			want: "normal",
+		},
 	}
-	if lane != "spark" {
-		t.Errorf("lane: %s", lane)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+			lane, err := c.GetLane(context.Background())
+			if err != nil {
+				t.Fatalf("lane: %v", err)
+			}
+			if lane != tc.want {
+				t.Errorf("lane = %q, want %q", lane, tc.want)
+			}
+		})
+	}
+}
+
+// TestListSkillsRealShape pins ListSkills to the real GET /skills?engine=codex
+// contract: the handler returns {engine, skills:[…]} which the envelope exposes
+// at both the root and under `data`. The skill array therefore lives at
+// `skills`/`data.skills`, never at `data` (which is an object). The earlier
+// struct decoded `data` straight into a []Skill, so every list call errored and
+// the boot-screen "skills" dot never updated.
+func TestListSkillsRealShape(t *testing.T) {
+	var sawPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.RequestURI()
+		_, _ = w.Write([]byte(`{"status":"ok",` +
+			`"data":{"engine":"codex","skills":[` +
+			`{"slug":"coco","sha256":"aaa","display_name":"Coco","managed":true},` +
+			`{"slug":"deploy","sha256":"bbb","display_name":"Deploy"}]},` +
+			`"engine":"codex",` +
+			`"skills":[` +
+			`{"slug":"coco","sha256":"aaa","display_name":"Coco","managed":true},` +
+			`{"slug":"deploy","sha256":"bbb","display_name":"Deploy"}]}`))
+	})
+	list, err := c.ListSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list skills: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d skills, want 2: %+v", len(list), list)
+	}
+	if list[0].Slug != "coco" || list[0].SHA256 != "aaa" || list[0].DisplayName != "Coco" {
+		t.Fatalf("unexpected first skill: %+v", list[0])
+	}
+	if sawPath != "/skills?engine=codex" {
+		t.Fatalf("request path = %q, want /skills?engine=codex", sawPath)
+	}
+}
+
+// TestListSkillsDataOnlyEnvelope covers a server build that emits only the
+// `data`-nested copy (no root duplication), so the fallback path is exercised.
+func TestListSkillsDataOnlyEnvelope(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":{"engine":"codex","skills":[{"slug":"only","sha256":"ccc"}]}}`))
+	})
+	list, err := c.ListSkills(context.Background())
+	if err != nil {
+		t.Fatalf("list skills: %v", err)
+	}
+	if len(list) != 1 || list[0].Slug != "only" || list[0].SHA256 != "ccc" {
+		t.Fatalf("unexpected skills: %+v", list)
+	}
+}
+
+// TestChatGPTQuotaSparkWindowBackfill pins the spark-lane quota decode to the
+// real crane shape: the spark limit/reset values live ONLY under
+// chatgpt.spark_window.{primary,secondary}_window, never as flat
+// spark_primary_limit_seconds root keys. Without the backfill the spark quota
+// bars render a percent but no reset countdown / projection.
+func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"valid","chatgpt":{` +
+			`"status":"active",` +
+			`"primary_used_percent":2,"primary_limit_seconds":18000,"primary_reset_after_seconds":11520,` +
+			`"secondary_used_percent":5,"secondary_limit_seconds":604800,"secondary_reset_after_seconds":169200,` +
+			`"spark_primary_used_percent":42,` +
+			`"spark_secondary_used_percent":7,` +
+			`"spark_window":{` +
+			`"primary_window":{"used_percent":42,"limit_seconds":18000,"reset_after_seconds":3600,"reset_at":null},` +
+			`"secondary_window":{"used_percent":7,"limit_seconds":604800,"reset_after_seconds":123456}` +
+			`}}}`))
+	})
+	resp, err := c.AuthRetrieve(context.Background(), "")
+	if err != nil {
+		t.Fatalf("retrieve: %v", err)
+	}
+	q := resp.ChatGPT
+	if q == nil {
+		t.Fatal("nil chatgpt quota")
+	}
+	// Normal-lane fields (flat at root) must still decode through the custom
+	// UnmarshalJSON — they drive the live boot-screen quota bars + projection.
+	if q.PrimaryUsed == nil || *q.PrimaryUsed != 2 {
+		t.Fatalf("normal primary used = %v, want 2", q.PrimaryUsed)
+	}
+	if q.PrimaryResetAfter == nil || *q.PrimaryResetAfter != 11520 {
+		t.Fatalf("normal primary reset_after = %v, want 11520", q.PrimaryResetAfter)
+	}
+	if q.SecondaryUsed == nil || *q.SecondaryUsed != 5 {
+		t.Fatalf("normal secondary used = %v, want 5", q.SecondaryUsed)
+	}
+	if q.SparkPrimaryLimitSec == nil || *q.SparkPrimaryLimitSec != 18000 {
+		t.Fatalf("spark primary limit = %v, want 18000", q.SparkPrimaryLimitSec)
+	}
+	if q.SparkPrimaryResetAfter == nil || *q.SparkPrimaryResetAfter != 3600 {
+		t.Fatalf("spark primary reset_after = %v, want 3600", q.SparkPrimaryResetAfter)
+	}
+	if q.SparkSecondaryLimitSec == nil || *q.SparkSecondaryLimitSec != 604800 {
+		t.Fatalf("spark secondary limit = %v, want 604800", q.SparkSecondaryLimitSec)
+	}
+	if q.SparkSecondaryResetAfter == nil || *q.SparkSecondaryResetAfter != 123456 {
+		t.Fatalf("spark secondary reset_after = %v, want 123456", q.SparkSecondaryResetAfter)
+	}
+	// Used percent is present at root AND in the window; both agree.
+	if q.SparkPrimaryUsed == nil || *q.SparkPrimaryUsed != 42 {
+		t.Fatalf("spark primary used = %v, want 42", q.SparkPrimaryUsed)
 	}
 }
 

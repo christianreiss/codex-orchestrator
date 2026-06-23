@@ -99,7 +99,11 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		result = fmt.Sprintf("Sync failed: %s.", in.AuthErr.Error())
 		resultTone = ui.ToneFail
 	} else if insecure {
-		result = "Ready on insecure host."
+		if in.AuthSynced {
+			result = "Synced on insecure host; auth refreshed."
+		} else {
+			result = "Ready on insecure host."
+		}
 		resultTone = ui.ToneWarn
 	}
 
@@ -180,10 +184,26 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		authTone = ui.ToneFail
 	}
 
-	return []ui.HealthDot{
+	dots := []ui.HealthDot{
 		{Name: "api", Tone: apiTone},
 		{Name: "auth", Tone: authTone, Updated: in.AuthSynced || strings.EqualFold(auth.Status, "outdated") || strings.EqualFold(auth.Status, "updated")},
 		{Name: "skills", Tone: ui.ToneOK, Updated: in.SkillsUpdated},
 		{Name: "config", Tone: ui.ToneOK, Updated: in.ConfigUpdated || in.AgentsUpdated},
 	}
+	// Runner health dot: the server reports the credential-runner state for this
+	// host (the background job that refreshes/verifies fleet credentials). Mirror
+	// the cdx boot screen so operators get the same signal on Claude hosts.
+	if auth.Versions != nil && auth.Versions.RunnerState != nil {
+		rt := ui.ToneOK
+		switch strings.ToLower(strings.TrimSpace(*auth.Versions.RunnerState)) {
+		case "ok", "fresh", "verified":
+			rt = ui.ToneOK
+		case "stale":
+			rt = ui.ToneWarn
+		case "fail", "broken", "":
+			rt = ui.ToneFail
+		}
+		dots = append(dots, ui.HealthDot{Name: "runner", Tone: rt})
+	}
+	return dots
 }

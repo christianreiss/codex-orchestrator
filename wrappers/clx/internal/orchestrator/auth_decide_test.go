@@ -109,6 +109,29 @@ func TestDecide_TableDriven(t *testing.T) {
 			want: wantD{reason: "Installation ID mismatch"},
 		},
 		{
+			name: "reverse_dns mismatch refuses (offline-wrapped server error)",
+			resp: &AuthRetrieveResponse{
+				Status:  "offline",
+				Message: "GET /sync/bootstrap -> 401: {\"code\":\"reverse_dns_failed\",\"message\":\"Reverse DNS check failed\"}",
+			},
+			path:  "/dev/null",
+			probe: probeFresh24Only,
+			want:  wantD{reason: "reverse DNS mismatch"},
+		},
+		{
+			name:  "offline no path",
+			resp:  &AuthRetrieveResponse{Status: "offline"},
+			probe: probeFresh24Only,
+			want:  wantD{reason: "no cached credentials"},
+		},
+		{
+			name:  "empty status falls through to offline",
+			resp:  &AuthRetrieveResponse{Status: ""},
+			path:  "/dev/null",
+			probe: probeFresh24Only,
+			want:  wantD{allowed: true, local: true, reason: "cached credentials"},
+		},
+		{
 			name: "verification failed overrides green status",
 			resp: &AuthRetrieveResponse{
 				Status:            "valid",

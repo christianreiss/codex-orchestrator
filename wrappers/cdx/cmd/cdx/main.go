@@ -315,6 +315,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Config:         cfg,
 			ExtraArgs:      argv,
 			SkipBoot:       true,
+			Headless:       true,
 			Logger:         logger,
 			WrapperVersion: Version,
 		})

@@ -1,5 +1,135 @@
 # 2026-06-23
 
+## clx production-readiness pass — broken/unenforced features fixed, every fix tested
+
+A verification sweep of the `clx` wrapper against the live orchestrator and the
+`docs/interface-clx.md` contract (a four-dimension audit: contract↔code, twin
+parity vs `cdx`, the auth/credential hot path, and error-handling/coverage).
+Each item below either did not work or silently under-/over-delivered against the
+contract; every fix ships with a test, and the read-only surfaces were
+re-verified live against the deployed server.
+
+- **`clx help` hung instead of printing help.** Upstream `claude help` (unlike
+  `codex help`) treats `help` as a prompt and opens an interactive session, so the
+  copied-from-cdx passthrough hung. A bare leading `help` token is now normalized
+  to `--help`. (`cmd/clx/main.go`)
+- **The FQDN launch guard was documented but unenforced.** `RunCapture` discarded
+  the `PreExec` error, so a host whose runtime hostname did not match its baked
+  FQDN launched Claude against the wrong host identity anyway. The guard is now
+  fatal (override `CLAUDE_ALLOW_FQDN_MISMATCH=1`), matching cdx.
+  (`internal/claude/exec.go`)
+- **A brief orchestrator outage refused launch on valid native-OAuth hosts — the
+  primary auth model.** `WriteAuth` strips `last_refresh` from `claudeAiOauth`
+  credentials, and the offline freshness gate read only `last_refresh`, so every
+  OAuth host failed the cached-credential check the moment the API blipped.
+  `IsFresh` now falls back to `claudeAiOauth.expiresAt` (the fallback the package
+  doc already promised — a token that has not expired is usable offline).
+  (`internal/claude/freshness.go`)
+- **The peer (cdx) config bundle signature was never verified before clx
+  downloaded, installed, and executed the peer binary.** `binary_url` /
+  `binary_sha256` were read from the same unverified payload, making the
+  downstream SHA256 check worthless (arbitrary-code-execution vector when
+  `allow_insecure` is set). The bundle's Ed25519 signature is now verified against
+  the embedded fleet key before any disk write or peer exec — proven against a
+  live bundle. (`internal/peer/peer.go`)
+- **The peer binary was installed off-PATH in shim mode.** `peerBinaryPath` used
+  `os.Executable()`, which resolves to the data-dir binary, so cdx landed where
+  PATH could not find it (cdx fix `d24f6f38` had never been ported). It is now
+  installed beside the PATH-visible `clx` shim. (`internal/peer/peer.go`)
+- **A server reverse-DNS rejection fell through to an offline cached-credential
+  launch** instead of refusing. `Decide` now surfaces "reverse DNS mismatch;
+  refusing to sync." before the offline path. (`internal/orchestrator/auth_decide.go`)
+- **The boot screen dropped the `runner` health dot** the server already
+  populates; restored (operators now see runner state on Claude hosts). The
+  insecure-host boot line now distinguishes "Synced … auth refreshed" from
+  "Ready". (`internal/summary/summary.go`)
+- **`clx --update` rejected a valid uppercase SHA256.** The wrapper self-update
+  checksum was case-sensitive while cron/peer were not; now case-insensitive
+  fleet-wide. (`internal/update/verify.go`)
+- Diagnostics: lock-acquire errors now include the lock path. (`internal/ipc/lock.go`)
+- Docs: `docs/interface-clx.md` `status` and `help` rows corrected to match actual
+  behavior (status does `/auth` + fresh-install credential seeding, not a
+  `/sync/status` ping).
+- Tests added/restored: peer signature gate, OAuth `expiresAt` freshness (+ expiry/
+  no-signal cases), FQDN launch refusal, reverse-DNS refusal, uppercase &
+  mismatched checksum, `claude/version.go` (previously untested), `signing.PublicKey`
+  build canary, `help` argv normalization, and the uninstall multi-user fail-open
+  contract.
+
+Proof scope: the CLI surface plus the `exec`/`status`/`doctor`/`--version`/help
+paths were exercised live against the orchestrator; the full startup-sync
+lifecycle (bundle deep-merge, skills/collections, MCP split, peer reconcile,
+launch-gate `Decide`) is proven via unit tests and the audit rather than a live
+full `run`, deliberately avoided so it would not tick the peer **cdx** binary
+during the concurrent cdx work. Note: `clx doctor`'s "Auth fresh" age is
+file-modtime-based, so it can read greener than the launch gate's `IsFresh` — a
+cosmetic mismatch, left as-is.
+
+## cdx production-readiness pass — broken features fixed, every fix proven
+
+A verification sweep of the `cdx` wrapper against the live orchestrator and the
+`docs/interface-cdx.md` contract. Each item below was a feature that built and
+(mostly) had green tests but did **not** actually work against the real server —
+the unit fixtures had been hand-written to match the client's assumptions rather
+than what the orchestrator sends. Every fix ships with a test pinned to the real
+server shape (captured from the live API), and the read-only paths were
+re-verified end-to-end against the deployed server.
+
+- **`cdx lane` printed an empty lane.** The client decoded a `data.lane` field
+  the server never emits; `GET /host/lane` returns `lane_preference` /
+  `effective_lane`. `cdx lane` now reports the effective lane (e.g.
+  `effective=normal`). (`internal/orchestrator/lane.go`)
+- **The `-4` / `CODEX_FORCE_IPV4=1` proxy was completely broken for HTTPS.** The
+  forward proxy registered its handler on an `http.ServeMux`, which 301-redirects
+  CONNECT requests before the handler runs — so every Codex HTTPS tunnel died.
+  A second bug wrote response headers before hijacking the connection, corrupting
+  the tunnel handshake. The proxy now routes CONNECT correctly and establishes a
+  clean tunnel (new end-to-end test in a previously untested package).
+  (`internal/ipv4/proxy.go`)
+- **`cdx doctor` reported "all checks passed ✅" — and exited 0 — with red rows.**
+  The Sync, Disk, Cron, and Paths rows were never counted toward the verdict, so
+  a host with <500 MB free disk (a FAIL row) still exited 0, contradicting the
+  command's own contract. The verdict is now tallied from every rendered row;
+  warnings downgrade to "passed with warnings ⚠" and any failure exits non-zero.
+  (`internal/codex/doctor.go`)
+- **Skills change-detection never fired.** `GET /skills` returns
+  `{engine, skills:[…]}`, but the client decoded `data` straight into a slice,
+  so every list call errored and the boot-screen "skills" dot never lit on a
+  change. The client now reads `data.skills`, scopes the request to
+  `?engine=codex` (so dual-engine hosts don't fingerprint Claude skills), and
+  drops a never-emitted `version` field from the fingerprint.
+  (`internal/orchestrator/skills.go`, `internal/lifecycle/skills.go`)
+- **Spark-lane quota lost its reset countdown and projection.** The client read
+  flat `spark_primary_limit_seconds` / `…_reset_after_seconds` keys that don't
+  exist; the server nests them under `chatgpt.spark_window.{primary,secondary}_window`.
+  Decode now backfills the spark fields from the nested window.
+  (`internal/orchestrator/auth.go`)
+- **The `QUOTA_HARD_FAIL=0` override was advertised but never implemented.** The
+  refusal message (and the spec) promised the escape hatch, but nothing read the
+  env var, so an over-quota hard-fail host could never launch. The override is
+  now honored (with a logged warning). (`internal/lifecycle/run.go`)
+- **Headless `--execute` could open an interactive `codex login` prompt.** The
+  auth-recovery gate keyed only on `term.IsTerminal`, so `--execute` attached to
+  a TTY would prompt instead of failing closed as the spec requires.
+  Non-interactive runs now fail closed. (`internal/lifecycle/run.go`,
+  `cmd/cdx/main.go`)
+- **A disabled engine could launch from cached auth.** On the `/sync/bootstrap`
+  path the server's `engine_disabled` 403 was folded into an "offline" status and
+  fell through to the cached-auth fallback. The launch gate now refuses on
+  `engine_disabled`. (`internal/orchestrator/auth_decide.go`)
+- **The concurrent-run refusal never fired.** The documented "lock held by
+  another PID with invalid local auth → refuse" guard keyed off a server status
+  string that a local lock never produces. A read-only secondary run is now gated
+  on the local `auth.json` being usable (downgrade-only — it never overrides a
+  server-side hard stop). (`internal/orchestrator/auth_decide.go`,
+  `internal/lifecycle/run.go`)
+- **The runtime FQDN guard ran too late.** It fired inside `PreExec`, after
+  bootstrap had already persisted fleet auth/config, after a possible self-update,
+  and after peer reconciliation (which can prune Claude state). On a cloned or
+  mis-deployed host it now refuses *before* any of those side effects, with the
+  `CODEX_ALLOW_FQDN_MISMATCH=1` override preserved. (`internal/lifecycle/run.go`,
+  `internal/codex/preexec.go`)
+
 ## cdx/clx resume flags pass through cleanly
 
 - **cdx:** Top-level `--resume <session>` and `--resume=<session>` now run through

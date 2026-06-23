@@ -14,7 +14,7 @@ func TestGuardFQDN_AllowsMatch(t *testing.T) {
 		t.Skip("no hostname available")
 	}
 	cfg := &config.Config{Host: config.Host{FQDN: hn}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("exact-match should allow: %v", err)
 	}
 }
@@ -22,7 +22,7 @@ func TestGuardFQDN_AllowsMatch(t *testing.T) {
 func TestGuardFQDN_RejectsMismatch(t *testing.T) {
 	t.Setenv("CODEX_ALLOW_FQDN_MISMATCH", "")
 	cfg := &config.Config{Host: config.Host{FQDN: "definitely-not-this-host.example.invalid"}}
-	err := guardFQDN(cfg)
+	err := GuardFQDN(cfg)
 	if err == nil {
 		t.Fatalf("mismatch should error")
 	}
@@ -34,20 +34,20 @@ func TestGuardFQDN_RejectsMismatch(t *testing.T) {
 func TestGuardFQDN_OverrideEnvAllows(t *testing.T) {
 	t.Setenv("CODEX_ALLOW_FQDN_MISMATCH", "1")
 	cfg := &config.Config{Host: config.Host{FQDN: "wrong.example"}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("override should allow: %v", err)
 	}
 }
 
 func TestGuardFQDN_EmptyBakedFQDNAllows(t *testing.T) {
 	cfg := &config.Config{Host: config.Host{FQDN: ""}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("empty baked FQDN should pass: %v", err)
 	}
 }
 
 func TestGuardFQDN_NilConfigAllows(t *testing.T) {
-	if err := guardFQDN(nil); err != nil {
+	if err := GuardFQDN(nil); err != nil {
 		t.Fatalf("nil cfg should pass: %v", err)
 	}
 }
@@ -59,7 +59,7 @@ func TestGuardFQDN_SuffixMatch(t *testing.T) {
 		t.Skip("no hostname")
 	}
 	cfg := &config.Config{Host: config.Host{FQDN: hn + ".prod.example"}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("suffix match (baked extends short hostname) should pass: %v", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestGuardFQDN_PrefixMatch(t *testing.T) {
 	if !strings.Contains(hn, ".") {
 		baked := strings.SplitN(hn, ".", 2)[0]
 		cfg := &config.Config{Host: config.Host{FQDN: baked}}
-		if err := guardFQDN(cfg); err != nil {
+		if err := GuardFQDN(cfg); err != nil {
 			t.Fatalf("baked short matches runtime FQDN prefix: %v", err)
 		}
 	}

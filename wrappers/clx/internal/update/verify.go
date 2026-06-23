@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 func VerifyChecksum(path, expectedHex string) error {
@@ -23,7 +24,9 @@ func VerifyChecksum(path, expectedHex string) error {
 		return err
 	}
 	got := hex.EncodeToString(h.Sum(nil))
-	if got != expectedHex {
+	// Case-insensitive: a server-emitted uppercase digest is still a correct
+	// match (consistent with the cron and peer sha256 checks).
+	if !strings.EqualFold(got, expectedHex) {
 		return fmt.Errorf("sha256 mismatch: got %s want %s", got, expectedHex)
 	}
 	return nil

@@ -42,6 +42,30 @@ func TestIsHelpPassthrough(t *testing.T) {
 	}
 }
 
+func TestHelpExecArgv(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want []string
+	}{
+		{"bare help rewritten", []string{"help"}, []string{"--help"}},
+		{"help with trailing token", []string{"help", "mcp"}, []string{"--help", "mcp"}},
+		{"top-level --help untouched", []string{"--help"}, []string{"--help"}},
+		{"short -h untouched", []string{"-h"}, []string{"-h"}},
+		{"subcommand help untouched", []string{"mcp", "--help"}, []string{"mcp", "--help"}},
+		{"flags before help still rewritten", []string{"--debug", "help"}, []string{"--debug", "--help"}},
+		{"help after -- untouched", []string{"--", "help"}, []string{"--", "help"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := helpExecArgv(tc.argv)
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("helpExecArgv(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseFlagsHelpShortCircuits(t *testing.T) {
 	f, pos, pass := parseFlags([]string{"mcp", "--help"})
 	if !f.helpPassthrough {

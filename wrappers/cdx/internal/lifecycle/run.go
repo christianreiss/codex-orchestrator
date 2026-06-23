@@ -32,11 +32,16 @@ import (
 )
 
 type Options struct {
-	Config         *config.Config
-	ExtraArgs      []string
-	SkipAuthSync   bool
-	SkipBoot       bool
-	Minimal        bool
+	Config       *config.Config
+	ExtraArgs    []string
+	SkipAuthSync bool
+	SkipBoot     bool
+	Minimal      bool
+	// Headless marks a non-interactive invocation (`--execute`, cron). Such
+	// runs must never open the interactive `codex login` recovery flow — they
+	// fail closed instead. Distinct from SkipBoot, which only suppresses the
+	// boot banner on an otherwise-interactive `cdx run`.
+	Headless       bool
 	Logger         *slog.Logger
 	WrapperVersion string
 }
@@ -71,6 +76,16 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		fmt.Fprintln(os.Stderr, "cdx: another instance is already running — entering read-only mode")
 	} else {
 		defer lock.Release()
+	}
+
+	// Runtime FQDN guard, run BEFORE any sync so a cloned/mis-deployed host
+	// refuses up front — before bootstrap persists fleet auth/config, before a
+	// self-update, and before peer.Reconcile (which can prune Claude state).
+	// PreExec keeps a second copy as defense-in-depth. Honors
+	// CODEX_ALLOW_FQDN_MISMATCH=1.
+	if err := codex.GuardFQDN(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1, err
 	}
 
 	client, err := orchestrator.New(orchestrator.Options{
@@ -138,7 +153,15 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// Offer to run `codex login` here, upload the freshly minted token, and
 		// re-verify — the only fix for a rotated/expired refresh token. Headless
 		// runs (cron, --execute) fail closed instead of opening a login flow.
-		if !concurrent && needsInteractiveAuthRecovery(dec, authCandidateErr) {
+		switch decideAuthRecovery(concurrent, opts.Headless, needsInteractiveAuthRecovery(dec, authCandidateErr)) {
+		case authRecoveryFailClosed:
+			// Non-interactive callers (cron, --execute) must not open a
+			// `codex login` prompt — fail closed with the underlying reason.
+			reason := recoveryReason(dec, authCandidateErr)
+			logger.Warn("Codex auth recovery needed but caller is headless; failing closed", "reason", reason)
+			dec.Allowed = false
+			dec.Reason = reason
+		case authRecoveryInteractive:
 			reason := recoveryReason(dec, authCandidateErr)
 			if err := recoverCodexAuth(ctx, cfg, client, reason); err != nil {
 				logger.Warn("interactive Codex auth recovery failed", "err", err)
@@ -168,6 +191,14 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			skillsUpdated = syncSkills(ctx, client, logger)
 			pruneLegacySkillDirs(wrapperVersion(cfg), logger)
 		}
+	}
+
+	// Concurrent (read-only) secondary run: this process never re-synced auth,
+	// so launch is gated on the existing local auth.json being usable. Applied
+	// as the final verdict (before the boot screen renders it) so it can only
+	// downgrade an allow to a refusal, never override a server-side hard stop.
+	if concurrent {
+		dec = orchestrator.ApplyConcurrent(dec, authPath, localProbe)
 	}
 
 	// Build the boot-screen state once: even when SkipBoot suppresses the
@@ -212,9 +243,15 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
 	}
 
-	// Block launch if hard-fail quota.
-	if authResp != nil && authResp.QuotaHardFail && authResp.ChatGPT != nil {
-		if state.QuotaBlock != "" {
+	// Block launch if hard-fail quota — unless the operator sets the documented
+	// QUOTA_HARD_FAIL=0 escape hatch named in the refusal message itself. The
+	// override was advertised in the message and the spec but never read; an
+	// over-quota host could otherwise never launch.
+	if authResp != nil && authResp.QuotaHardFail && authResp.ChatGPT != nil && state.QuotaBlock != "" {
+		if os.Getenv("QUOTA_HARD_FAIL") == "0" {
+			logger.Warn("quota over hard-fail limit; launching anyway because QUOTA_HARD_FAIL=0", "quota", state.QuotaBlock)
+			fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaBlock+" — overridden by QUOTA_HARD_FAIL=0")
+		} else {
 			state.ResultLabel = state.QuotaBlock
 			state.ResultTone = ui.ToneFail
 			printBoot()
@@ -418,6 +455,31 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []b
 // dead end that only a fresh `codex login` can resolve: a server-confirmed live
 // verification failure, or a missing/upload-required state where the local file
 // is unusable or the server rejected it.
+// authRecoveryAction is the verdict for how a run responds when the auth
+// decision says credentials need re-minting.
+type authRecoveryAction int
+
+const (
+	authRecoverySkip        authRecoveryAction = iota // nothing to do
+	authRecoveryInteractive                           // offer `codex login`
+	authRecoveryFailClosed                            // headless: refuse, no prompt
+)
+
+// decideAuthRecovery encodes the launch-gate rule: a concurrent (read-only) run
+// never recovers; a non-interactive run (cron, --execute → headless) fails
+// closed rather than opening a login prompt; an interactive run offers
+// `codex login`. Kept pure so the policy is unit-testable without the full
+// network/exec lifecycle.
+func decideAuthRecovery(concurrent, headless, recoveryNeeded bool) authRecoveryAction {
+	if concurrent || !recoveryNeeded {
+		return authRecoverySkip
+	}
+	if headless {
+		return authRecoveryFailClosed
+	}
+	return authRecoveryInteractive
+}
+
 func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
 	if strings.Contains(strings.ToLower(dec.Reason), "live verification") {
 		return true

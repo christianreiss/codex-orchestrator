@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
@@ -70,6 +71,35 @@ func TestFetchBundleOtherErrorNotSentinel(t *testing.T) {
 	_, _, err := fetchBundle(context.Background(), cfg)
 	if err == nil || errors.Is(err, errPeerEngineDisabled) {
 		t.Fatalf("want generic error, got %v", err)
+	}
+}
+
+// A bundle whose detached signature does not verify against the embedded fleet
+// key must be rejected before any peer config is written or peer binary is
+// downloaded/executed. Without this gate the downstream sha256 check is
+// worthless (the hash rides in the same unverified payload).
+func TestInstallPeerRejectsBadSignature(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"payload":{"wrapper":{"binary_url":"http://x/cdx","binary_sha256":"` +
+			"0000000000000000000000000000000000000000000000000000000000000000" +
+			`"}},"signature":{"value":"not-a-valid-signature"}}`))
+	}))
+	defer srv.Close()
+
+	cfgPath := filepath.Join(t.TempDir(), "cdx.json")
+	t.Setenv("CDX_CONFIG_PATH", cfgPath)
+
+	cfg := &config.Config{}
+	cfg.Orchestrator.BaseURL = srv.URL
+	cfg.Orchestrator.APIKey = "k"
+
+	err := installPeer(context.Background(), cfg, false)
+	if err == nil || !strings.Contains(err.Error(), "signature") {
+		t.Fatalf("want signature-invalid error, got %v", err)
+	}
+	if _, statErr := os.Stat(cfgPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("peer config must not be written on signature failure (stat=%v)", statErr)
 	}
 }
 

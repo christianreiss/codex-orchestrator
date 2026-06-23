@@ -3,9 +3,12 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func writeCreds(t *testing.T, body string) string {
 	t.Helper()
@@ -59,6 +62,44 @@ func TestIsFresh_MissingFile(t *testing.T) {
 	_, err := IsFresh(filepath.Join(t.TempDir(), "missing"), MaxAge24h)
 	if err != ErrNoAuthFile {
 		t.Fatalf("want ErrNoAuthFile, got %v", err)
+	}
+}
+
+func TestIsFresh_OAuthExpiresAtFallback(t *testing.T) {
+	// claudeAiOauth-only file (no last_refresh, as WriteAuth produces) with a
+	// future expiry must be treated as fresh — the offline launch gate must not
+	// refuse an OAuth host whose token is still valid.
+	future := time.Now().Add(2 * time.Hour).UnixMilli()
+	p := writeCreds(t, `{"claudeAiOauth":{"accessToken":"sk-ant-oat-x","expiresAt":`+itoa(future)+`}}`)
+	ok, err := IsFresh(p, MaxAge24h)
+	if err != nil || !ok {
+		t.Fatalf("future-expiry OAuth creds should be fresh: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestIsFresh_OAuthExpiredIsStale(t *testing.T) {
+	past := time.Now().Add(-1 * time.Hour).UnixMilli()
+	p := writeCreds(t, `{"claudeAiOauth":{"accessToken":"sk-ant-oat-x","expiresAt":`+itoa(past)+`}}`)
+	ok, _ := IsFresh(p, MaxAge24h)
+	if ok {
+		t.Fatalf("expired OAuth token must not be fresh")
+	}
+}
+
+func TestIsFresh_NoRefreshNoExpiry(t *testing.T) {
+	// Neither last_refresh nor a usable expiresAt: must surface stale, not panic.
+	p := writeCreds(t, `{"claudeAiOauth":{"accessToken":"sk-ant-oat-x"}}`)
+	if ok, _ := IsFresh(p, MaxAge24h); ok {
+		t.Fatalf("file without last_refresh or expiresAt must not be fresh")
+	}
+}
+
+func TestIsFresh_LastRefreshWinsOverExpiry(t *testing.T) {
+	// A recent last_refresh stays the primary signal even when expiresAt is set.
+	future := time.Now().Add(2 * time.Hour).UnixMilli()
+	p := writeCreds(t, `{"last_refresh":"`+tsZ(time.Now().Add(-2*time.Hour))+`","claudeAiOauth":{"expiresAt":`+itoa(future)+`}}`)
+	if ok, err := IsFresh(p, MaxAge24h); err != nil || !ok {
+		t.Fatalf("recent last_refresh should be fresh: ok=%v err=%v", ok, err)
 	}
 }
 

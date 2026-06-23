@@ -22,14 +22,14 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | Subcommand | Purpose |
 |---|---|
 | `run` (default) | One Claude session; runs the full startup sequence first |
-| `status` | Local config summary + `/sync/status` ping |
+| `status` | Local config summary + `/auth` round-trip (api/auth/skills/config health). On a fresh install it also seeds credentials: if the server returns auth while local status is `outdated`/`updated`/`missing`, it writes them so the first `clx run` skips Claude's interactive login |
 | `doctor` | Self-diagnostic (config, CLI present, credentials, reachability) |
 | `auth-upload` | POST the local credentials file to canonical store |
 | `auth ...` | Passed straight through to the upstream `claude auth` command |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `--resume <session>` / `--resume=<session>` | Passed straight through to the upstream `claude` binary |
-| `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot |
+| `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help |
 | `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too |
 | `--version` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |

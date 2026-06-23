@@ -25,7 +25,7 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	// 0) FQDN guard. A signed config has the FQDN baked in; if we boot on a
 	// different host (cloned image, mis-deployed wrapper) we refuse rather
 	// than mint usage against the wrong host id.
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		return teardown, err
 	}
 
@@ -54,10 +54,10 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	return teardown, nil
 }
 
-// guardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
+// GuardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
 // the runtime hostname. Suffix match counts (so a baked "alpha.example.com"
 // matches a short hostname "alpha"). Override with CODEX_ALLOW_FQDN_MISMATCH=1.
-func guardFQDN(cfg *config.Config) error {
+func GuardFQDN(cfg *config.Config) error {
 	if cfg == nil || strings.TrimSpace(cfg.Host.FQDN) == "" {
 		return nil
 	}

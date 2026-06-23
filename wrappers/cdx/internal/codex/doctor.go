@@ -27,48 +27,24 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 		WhenLine: fmt.Sprintf("cdx %s  ·  Doctor report", time.Now().Format("2006-01-02 15:04")),
 	}
 	hints := []string{}
-	failures := 0
-	worst := ui.ToneOK
-
-	bump := func(tone ui.Tone) {
-		switch tone {
-		case ui.ToneFail:
-			failures++
-			worst = ui.ToneFail
-		case ui.ToneWarn:
-			if worst != ui.ToneFail {
-				worst = ui.ToneWarn
-			}
-		}
-	}
 
 	// Deps
-	depRow := checkDeps(&hints)
-	bump(depRow.Tone)
-	report.Rows = append(report.Rows, depRow)
+	report.Rows = append(report.Rows, checkDeps(&hints))
 
 	// Paths
 	report.Rows = append(report.Rows, checkPaths())
 
 	// Auth
-	authRow := checkAuth()
-	bump(authRow.Tone)
-	report.Rows = append(report.Rows, authRow)
+	report.Rows = append(report.Rows, checkAuth())
 
 	// Config
-	confRow := checkConfig()
-	bump(confRow.Tone)
-	report.Rows = append(report.Rows, confRow)
+	report.Rows = append(report.Rows, checkConfig())
 
 	// MCP
-	mcpRow := checkMCP(&hints)
-	bump(mcpRow.Tone)
-	report.Rows = append(report.Rows, mcpRow)
+	report.Rows = append(report.Rows, checkMCP(&hints))
 
 	// API + Latency
 	apiRow, latRow, syncTone, syncDetail := checkAPI(ctx, cfg)
-	bump(apiRow.Tone)
-	bump(latRow.Tone)
 	report.Rows = append(report.Rows, ui.DoctorRow{Label: "Sync", Tone: syncTone, Value: syncDetail})
 	report.Rows = append(report.Rows, apiRow)
 	report.Rows = append(report.Rows, latRow)
@@ -85,7 +61,12 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	// CLI
 	report.Rows = append(report.Rows, checkCLI(cfg, wrapperVersion))
 
-	// Result
+	// Result — tallied from EVERY appended row so no check is silently dropped
+	// from the verdict. (Sync/Disk/Cron/Paths were previously omitted from the
+	// tally, so a red Disk row would still print "all checks passed" and exit 0,
+	// contradicting this function's contract.)
+	failures, worst := tallyRows(report.Rows)
+
 	switch {
 	case failures > 0:
 		report.Result = ui.DoctorRow{
@@ -105,6 +86,26 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 		return fmt.Errorf("%d doctor checks failed", failures)
 	}
 	return nil
+}
+
+// tallyRows reduces a set of report rows to (failure count, worst tone). It is
+// the single source of truth for the doctor verdict so that every row a check
+// appends is counted — adding a new row can never again be forgotten in a
+// separate per-row bump call.
+func tallyRows(rows []ui.DoctorRow) (failures int, worst ui.Tone) {
+	worst = ui.ToneOK
+	for _, row := range rows {
+		switch row.Tone {
+		case ui.ToneFail:
+			failures++
+			worst = ui.ToneFail
+		case ui.ToneWarn:
+			if worst != ui.ToneFail {
+				worst = ui.ToneWarn
+			}
+		}
+	}
+	return failures, worst
 }
 
 func checkDeps(hints *[]string) ui.DoctorRow {
