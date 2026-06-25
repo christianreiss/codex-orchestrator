@@ -48,7 +48,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 - **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
 - **Installer** (`/install/{token}`): public endpoint that returns a shell script; token is validated for expiry/one-time use and tags host/base URL plus installer mode. Returned script bakes API key/FQDN/base URL into the engine-appropriate wrapper(s).
 - **Installation binding**: If a client sends `installation_id` and it does not match server `INSTALLATION_ID`, auth calls are rejected with `403 installation_mismatch`. Omitted `installation_id` is accepted for legacy clients.
-- **Runner**: Optional external validator invoked on preflight/store/admin trigger when configured (`AUTH_RUNNER_URL`). Runner requests can be authenticated with `AUTH_RUNNER_SHARED_SECRET`/`RUNNER_SHARED_SECRET` (`X-Runner-Auth` header).
+- **Runner**: Optional external validator invoked by the background auth-verification worker and by store/admin triggers when configured (`AUTH_RUNNER_URL`). Runner requests can be authenticated with `AUTH_RUNNER_SHARED_SECRET`/`RUNNER_SHARED_SECRET` (`X-Runner-Auth` header).
 
 ## Abuse Controls
 

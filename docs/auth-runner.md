@@ -87,16 +87,15 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - If runner returns `updated_auth`, it is applied only when it has a valid RFC3339 `last_refresh`, has usable auth tokens after engine fallback normalization, and `updated_auth.last_refresh >= upload.last_refresh`.
   - Older or malformed `updated_auth` is ignored; the runner-verified upload candidate is stored and the response/log includes a skipped reason.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
-- **Launch-gate verification (retrieve side, both engines).** `/auth retrieve`
-  and the `/sync/bootstrap` candidate-match path run `ensureServedVerification`
-  before reporting a green status for **both** the Claude and Codex engines, so a
-  digest-match no longer implies "works". It is TTL-bounded by
-  `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`): a canonical row whose
-  `verification_checked_at` is within the window is trusted (no probe); otherwise
-  the served canonical is verified live via `/verify-claude` (Claude) or
-  `/verify` (Codex). Outcomes are surfaced as `verification_state`
+- **Background launch-gate verification (both engines).** The API starts an
+  auth-verification worker when `AUTH_RUNNER_URL` is configured. It runs on boot
+  and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default `300`),
+  checking the latest Claude and Codex canonical payloads when their stored
+  verdict is older than `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`). `/auth
+  retrieve` and the `/sync/bootstrap` candidate-match path do not call the
+  runner inline; they surface the latest stored `verification_state`
   (`verified` | `failed` | `unknown`) plus optional `verification_reason`:
-  - `verified` — token chain proved live (cached within TTL, or freshly probed);
+  - `verified` — token chain proved live by the worker or a strict store path;
     served normally.
   - `failed` — runner reached the provider and the credentials do not work; the
     known-bad blob is withheld and the wrapper refuses launch with a re-login
@@ -104,14 +103,14 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - `unknown` — runner not configured or unreachable; the response preserves the
     legacy digest-derived status and the wrapper keeps its offline/cached
     behaviour (a runner outage never downgrades a payload to `failed`).
-  Concurrent live probes for the same canonical payload are single-flighted
-  in-process (keyed by engine + payload id) so a fleet of Codex hosts cannot race
-  the refresh-token rotation into spurious `failed` verdicts.
-  - When the runner refreshes the token during this probe, the refreshed blob is
-    persisted as a fresh canonical (rotation-safe) and served as `outdated`.
+  Worker/store probes for the same canonical payload are single-flighted
+  in-process (keyed by engine + payload id) so a fleet of checks cannot race the
+  refresh-token rotation into spurious `failed` verdicts. When the runner
+  refreshes the token during a worker probe, the refreshed blob is persisted as a
+  fresh canonical (rotation-safe) and picked up by the next retrieve.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
-- Scheduled preflight is triggered on each non-admin request except `/versions` and routes starting with `/mcp`.
-- Preflight behavior: refresh GitHub client-version cache and (when runner is configured and canonical auth exists) run runner validation with trigger `scheduled_preflight`; preflight exceptions are swallowed by the request pipeline and do not block the request.
+- The auth-verification worker is timer-driven, not request-driven; wrapper
+  startup does not wait for stale canonical auth to be re-probed.
 - Recovery behavior when `runner_state=fail`: retries are triggered on boot-id change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path). Recovery failures are logged and do not block serving auth.
 - Manual trigger `POST /admin/runner/run` forces one Codex runner pass
   (`trigger=manual`) and returns whether canonical digest changed (`applied`).
@@ -137,8 +136,9 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - `AUTH_RUNNER_TIMEOUT` (API): default runner timeout passed to verifier payload and HTTP client timeout. Default: `8` seconds.
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
-- `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): preflight interval. Default: `28800` (8h). Non-positive values fall back to `28800`.
-- `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): launch-gate freshness for the Claude retrieve-side live verification. Default: `900` (15m). Within the window a prior `verified` verdict is trusted; older than it, the served canonical is re-verified before a green status is reported.
+- `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): legacy preflight interval retained for old deployments. Default: `28800` (8h).
+- `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): background verification freshness. Default: `900` (15m). Within the window a prior `verified` or `failed` verdict is trusted by worker probes.
+- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (API): background verifier interval. Default: `300` (5m), minimum effective interval 30s.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.

@@ -51,7 +51,12 @@ export interface StoreAuthCandidateResult {
 export interface EnsureServedVerificationInput {
   engine: Engine;
   hostId: number | null;
-  row: { id: number; verificationState: string; verificationCheckedAt: string | null };
+  row: {
+    id: number;
+    verificationState: string;
+    verificationCheckedAt: string | null;
+    verificationReason?: string | null;
+  };
   auth: Record<string, unknown>;
   digest: string;
   lastRefresh: string;
@@ -75,6 +80,7 @@ export interface EnsureServedVerificationResult {
 
 export interface CanonicalAuthStoreService {
   storeCandidate(input: StoreAuthCandidateInput): Promise<StoreAuthCandidateResult>;
+  servedVerificationSnapshot(input: EnsureServedVerificationInput): EnsureServedVerificationResult;
   ensureServedVerification(input: EnsureServedVerificationInput): Promise<EnsureServedVerificationResult>;
 }
 
@@ -216,6 +222,30 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   // with actually works, bounded by a TTL so the common path stays probe-free.
   // This is the launch-gate counterpart to storeCandidate's upload-gate verify:
   // uploads are checked before acceptance, retrieves before being reported green.
+  function servedVerificationSnapshot(
+    input: EnsureServedVerificationInput,
+  ): EnsureServedVerificationResult {
+    const { row, auth, digest, lastRefresh } = input;
+    const unchanged: EnsureServedVerificationResult = {
+      state: 'unknown',
+      auth,
+      digest,
+      lastRefresh,
+      refreshed: false,
+    };
+
+    if (!runner.isConfigured()) return unchanged;
+    if (row.verificationState === 'verified') return { ...unchanged, state: 'verified' };
+    if (row.verificationState === 'failed') {
+      return {
+        ...unchanged,
+        state: 'failed',
+        reason: row.verificationReason ?? 'runner verification failed',
+      };
+    }
+    return unchanged;
+  }
+
   async function ensureServedVerification(
     input: EnsureServedVerificationInput,
   ): Promise<EnsureServedVerificationResult> {
@@ -240,6 +270,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       Number.isFinite(checkedMs) && Date.now() - checkedMs <= Math.max(0, ttlSeconds) * 1000;
     if (row.verificationState === 'verified' && withinTtl) {
       return { ...unchanged, state: 'verified' };
+    }
+    if (row.verificationState === 'failed' && withinTtl) {
+      return {
+        ...unchanged,
+        state: 'failed',
+        reason: row.verificationReason ?? 'runner verification failed',
+      };
     }
 
     // Past the probe-free fast paths: dedupe concurrent live probes for this
@@ -312,7 +349,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     }
   }
 
-  return { storeCandidate, ensureServedVerification };
+  return { storeCandidate, servedVerificationSnapshot, ensureServedVerification };
 }
 
 export async function touchHostAuthFields(

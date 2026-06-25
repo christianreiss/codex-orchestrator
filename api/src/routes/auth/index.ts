@@ -329,24 +329,22 @@ async function handleRetrieve(
     };
   }
 
-  // Launch-gate proof: before reporting any green status, ensure the canonical
-  // auth the host is about to launch with actually works. TTL-bounded so the
-  // common path stays probe-free. Runs for BOTH engines — codex's rotated
-  // ChatGPT refresh tokens fail with "refresh token already used" exactly the
-  // way Claude's stale OAuth surfaces a 401 / "Please run /login" inside the
-  // client; serving either unverified drops the user into a raw failure.
+  // Launch-gate state: host startup must not wait on the runner. The background
+  // auth-verification worker keeps canonical payloads fresh; retrieve serves the
+  // latest stored verdict and only refuses on a known provider-side failure.
   let servedAuth = canonicalAuth!;
   let servedDigest = canonicalDigest;
   let servedLast = canonicalLast!;
   {
     const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
-    const verdict = await authStore.ensureServedVerification({
+    const verdict = authStore.servedVerificationSnapshot({
       engine,
       hostId: host.id,
       row: {
         id: canonicalRow.id,
         verificationState: canonicalRow.verificationState,
         verificationCheckedAt: canonicalRow.verificationCheckedAt,
+        verificationReason: canonicalRow.verificationReason,
       },
       auth: canonicalAuth!,
       digest: canonicalDigest,
@@ -450,22 +448,21 @@ async function handleBootstrapAuth(
     const candidateDigest = canonicalizedCandidateDigest(candidate, candidateLast || canonicalLast, engine, runnerValidation);
     if (candidateDigest === canonicalDigest) {
       // Candidate already matches canonical: this is the common warm-launch
-      // path. Prove the shared blob still works (TTL-bounded) before reporting
-      // green, mirroring handleRetrieve — otherwise a stale-but-matching token
-      // sails through to a 401 inside Claude (or a "refresh token already used"
-      // failure inside codex).
+      // path. Startup must not wait on live runner probes; use the latest stored
+      // verdict from the background auth-verification worker.
       const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
       let servedDigest = canonicalDigest;
       let servedLast = canonicalLast;
       {
         const ttlSeconds = Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900);
-        const verdict = await authStore.ensureServedVerification({
+        const verdict = authStore.servedVerificationSnapshot({
           engine,
           hostId: host.id,
           row: {
             id: canonicalRow.id,
             verificationState: canonicalRow.verificationState,
             verificationCheckedAt: canonicalRow.verificationCheckedAt,
+            verificationReason: canonicalRow.verificationReason,
           },
           auth: validated.auth,
           digest: canonicalDigest,
@@ -480,13 +477,6 @@ async function handleBootstrapAuth(
         }
         servedDigest = verdict.digest;
         servedLast = verdict.lastRefresh;
-        // A refresh during verification means the candidate no longer matches:
-        // serve the refreshed blob so the host upgrades to live credentials.
-        if (verdict.refreshed) {
-          await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
-          await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
-          return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'outdated', auth: verdict.auth };
-        }
       }
       await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
       await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);

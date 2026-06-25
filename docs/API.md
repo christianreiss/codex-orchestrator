@@ -372,9 +372,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 
 ## Runner & Versions
-- Scheduled preflight runs on first non-admin request after interval (`AUTH_RUNNER_PREFLIGHT_SECONDS`, default 28800), excluding `/versions` and `/mcp`: refreshes cached GitHub client version and runs runner validation when configured.
+- The auth-verification worker starts with the API and runs every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s), refreshing stale Codex/Claude canonical auth according to `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s). Wrapper startup reads the stored verdict and does not run runner validation inline.
 - Runner state is recorded in `runner_state` / `runner_state_claude` (`ok|fail`) with timestamps (`runner_last_ok`, `runner_last_fail`, `runner_last_check`, and Claude-suffixed equivalents).
-- Runner failures do not block `/auth` retrieve. Failed runner attempts still update runner last-check metadata, and background preflight/recovery probes use a short timeout so startup sync can fall back to cached auth promptly. Store update candidates are blocked when runner is unavailable/non-OK. Manual `POST /admin/runner/run` and `POST /admin/runner/run-claude` bypass interval guards.
+- Runner failures do not block `/auth` retrieve. Failed worker/manual runner attempts still update runner last-check metadata. Store update candidates are blocked when runner is unavailable/non-OK. Manual `POST /admin/runner/run` and `POST /admin/runner/run-claude` bypass interval guards.
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage

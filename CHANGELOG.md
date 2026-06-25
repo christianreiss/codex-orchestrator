@@ -1,3 +1,18 @@
+# 2026-06-25
+
+## Auth runner verification moved off the wrapper startup path
+
+- **API:** `/auth retrieve` and `/sync/bootstrap` no longer run live runner
+  verification inline when `cdx`/`clx` start. They now return the latest stored
+  `verification_state`, so normal non-concurrent wrapper startup is not blocked
+  by the runner.
+- **API:** Added an auth-verification worker that starts with the server and
+  keeps the latest Codex and Claude canonical payloads verified/refreshed in the
+  background (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s;
+  freshness TTL still `AUTH_RUNNER_VERIFY_TTL_SECONDS`, default 900s). Store
+  paths remain strict and still require runner validation before accepting new
+  canonical auth.
+
 # 2026-06-23
 
 ## cdx/clx concurrent auth freshness fix

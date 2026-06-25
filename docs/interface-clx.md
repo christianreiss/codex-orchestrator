@@ -99,6 +99,10 @@ including approval-pending polling, FQDN runtime guard, Claude CLI version
 reconciliation, and post-run credential re-upload on sha change. The `clx`
 lock is deliberately independent from `cdx.lock`, so active Codex and Claude
 sessions can run side by side without forcing each other into read-only mode.
+Startup does not wait on live runner verification; `/auth` and
+`/sync/bootstrap` return the latest stored background-worker verdict, and a
+stored `verification_state=failed` still refuses launch with the interactive
+Claude login recovery path.
 When the `clx` lock is already held, the secondary run remains read-only for
 managed `CLAUDE.md`, settings, collections, and skills, but it still performs
 the startup auth digest check and atomically writes server-returned canonical

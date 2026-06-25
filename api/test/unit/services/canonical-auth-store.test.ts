@@ -190,6 +190,31 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(out.refreshed).toBe(false);
   });
 
+  it('serves only the stored verification snapshot without probing the runner', () => {
+    const r = countingRunner({ ok: false, status: 'fail', reachable: true, reason: 'would block' });
+    const { svc } = makeStore(r.client);
+    const verified = svc.servedVerificationSnapshot({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+    });
+    const failed = svc.servedVerificationSnapshot({
+      ...base,
+      ttlSeconds: 0,
+      row: {
+        id: 1,
+        verificationState: 'failed',
+        verificationCheckedAt: nowMinus(99999),
+        verificationReason: 'token expired',
+      },
+    });
+
+    expect(verified.state).toBe('verified');
+    expect(failed.state).toBe('failed');
+    expect(failed.reason).toBe('token expired');
+    expect(r.calls()).toBe(0);
+  });
+
   it('trusts a within-TTL verified verdict and skips the live probe', async () => {
     const r = countingRunner({ ok: true, status: 'ok', reachable: true });
     const { svc } = makeStore(r.client);
@@ -227,6 +252,24 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(out.state).toBe('failed');
     expect(out.reason).toBe('token expired');
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
+  });
+
+  it('trusts a within-TTL failed verdict and skips the live probe', async () => {
+    const r = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const { svc } = makeStore(r.client, 'failed');
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 1_000_000,
+      row: {
+        id: 1,
+        verificationState: 'failed',
+        verificationCheckedAt: nowMinus(60),
+        verificationReason: 'token expired',
+      },
+    });
+    expect(out.state).toBe('failed');
+    expect(out.reason).toBe('token expired');
+    expect(r.calls()).toBe(0);
   });
 
   it('returns unknown without downgrading on a runner outage', async () => {
