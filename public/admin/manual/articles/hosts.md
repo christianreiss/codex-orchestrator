@@ -1,21 +1,28 @@
+---
+title: Hosts — secure, insecure, unprovisioned
+section: Fleet operations
+verified: 2026-07-01
+sources: api/src/routes/admin/hosts/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/settings/index.ts, api/src/services/host-management.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/insecure-window-admin.ts, api/src/db/schema.ts
+---
+
 # Hosts — secure, insecure, unprovisioned
 
-A *host* is any machine running `cdx` or `clx` under your orchestrator. The Hosts page at `/hosts` shows the full fleet and provides filter chips to narrow the view. Detail pages live at `/hosts/[id]` and are driven by `api/src/routes/admin/hosts/index.ts`.
+A *host* is any machine running `cdx` or `clx` under your orchestrator. The Hosts page at `/hosts` shows the full fleet and provides filter chips to narrow the view. Detail pages live at `/hosts/[id]`. The list and detail JSON are served by `api/src/routes/admin/overview/index.ts` (`GET /admin/hosts`, `GET /admin/hosts/{id}/detail`); host mutations (register, toggles, overrides, insecure windows, approvals) are handled by `api/src/routes/admin/hosts/index.ts`.
 
 ## The filter chips
 
-The host list page offers eight client-side filter chips — no separate backend queries back each one. All filtering runs over a single result set from `GET /admin/overview` (which returns the fleet list among other data):
+The host list page offers eight client-side filter chips — no separate backend queries back each one. All filtering runs client-side over a single result set from `GET /admin/hosts` (the dedicated fleet-listing endpoint; `GET /admin/overview` is a separate endpoint that feeds the Dashboard page, not this list):
 
 - **All** — the full fleet, unfiltered.
 - **Online** — hosts whose computed status is "online" (see *Online status* below).
 - **Offline** — hosts whose computed status is "offline".
 - **Secure** — hosts where `secure = true`.
 - **Insecure** — hosts where `secure = false`.
-- **Unprovisioned** — hosts that have registered but never completed their first sync.
+- **Unprovisioned** — hosts missing the required canonical auth digest for their configured engine(s) (`hostHasRequiredAuth()` returns false). Usually a host that registered but never completed its first sync — but a host whose auth was cleared also lands here until it re-syncs.
 - **VIP** — hosts with the VIP flag set (bypass quota).
 - **Roaming** — hosts with IP re-binding enabled.
 
-A debounced search box (searches `fqdn`, version, and status) sits alongside the chips. Filtering is entirely client-side.
+A debounced search box (searches `fqdn`, Codex/Claude version including overrides, and status) sits alongside the chips. Filtering is entirely client-side.
 
 > Note: `GET /admin/hosts/insecure` is a separate endpoint used exclusively by the insecure approvals panel — it is not the backing query for the Insecure filter chip.
 
@@ -61,7 +68,7 @@ Online status is computed entirely in the frontend by `hostStatusKind()` — the
 
 ## Host detail page
 
-Visiting `/hosts/[id]` loads the detail view. Page data is fetched from `GET /admin/hosts/{id}/detail` only (there is no separate `GET /admin/hosts/{id}/auth` endpoint).
+Visiting `/hosts/[id]` loads the detail view. Page data is fetched from `GET /admin/hosts/{id}/detail`. A separate `GET /admin/hosts/{id}/auth` endpoint also exists (`engine` and `include_body` query params) for pulling a host's canonical digest/auth view directly, but the detail page itself does not call it.
 
 ### Status pills
 
@@ -98,7 +105,7 @@ Host ID, FQDN, IPv4/IPv6, Codex version (override or reported), Claude version, 
 
 ### Controls card
 
-Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**.
+Toggle switches: **Secure**, **Auto-update**, **VIP**, **Roaming**, **Scaling exempt**, **Curl insecure**, **BrowserOS MCP**, and per-engine **Codex**/**Claude** switches (each disabled when it's the host's only remaining engine, via `POST /admin/hosts/{id}/engines`).
 
 Buttons depend on host state:
 
@@ -131,6 +138,7 @@ All mutations require an authenticated admin session.
 | Pin Claude version | `POST /admin/hosts/{id}/claude-version` |
 | Pin AGENTS.md version | `POST /admin/hosts/{id}/agents-version` |
 | Set reverse-DNS mode | `POST /admin/hosts/{id}/reverse-dns` |
+| Toggle engine (codex/claude) | `POST /admin/hosts/{id}/engines` |
 | Toggle BrowserOS MCP | `POST /admin/hosts/{id}/browseros-mcp` |
 | Toggle curl-insecure probe | `POST /admin/hosts/{id}/curl-insecure` |
 | Mint installer | `POST /admin/hosts/{id}/installer` |
@@ -146,18 +154,19 @@ Review endpoints:
 - `POST /admin/insecure-approvals/{id}/deny` — deny and log.
 - `POST /admin/insecure-approvals/{id}/allow-domain` — add the requester's domain to the trusted list.
 - `POST /admin/insecure-domain-allows/{id}/revoke` — reverse a previous domain allow.
-- `POST /admin/hosts/insecure/extend` — re-extend the active window for every insecure host by its stored `duration_minutes`.
+- `POST /admin/hosts/insecure/extend` — re-extend the active window for every currently-open insecure host by its stored `insecure_window_minutes` (falls back to 60 if unset, clamped to 5–1440).
 - `POST /admin/hosts/insecure/disable-all` — close every insecure window at once.
 
 ## Pruning stale hosts
 
-Hosts that have not checked in for a long time can be auto-deleted. `POST /admin/prune-policy` (in the settings routes) sets the policy; cleanup runs during the periodic preflight. Configure the policy in *Settings → General*.
+`POST /admin/prune-policy` (in the settings routes) sets `inactivity_window_days` (clamped 0–60, default 30; `0` disables it), configurable in *Settings → General*. The routine that would act on it — `HostAuthService.pruneInactiveHosts()` in `host-auth.ts`, which deletes host rows whose `updated_at` is older than the window and publishes `host.pruned` — exists but is not wired to any scheduler or route in this codebase, so the stored policy is not currently enforced automatically.
 
 ## Source references
 
 - `api/src/routes/admin/hosts/index.ts` — every `/admin/hosts/*` mutation, insecure approvals
-- `api/src/routes/admin/overview/index.ts` — fleet listing (`GET /admin/overview`), host detail JSON
-- `api/src/services/host-auth.ts` — `handleAuth`, refusal codes
+- `api/src/routes/admin/overview/index.ts` — `GET /admin/hosts` (fleet list), `GET /admin/hosts/{id}/detail`, `GET /admin/hosts/insecure`, `POST /admin/hosts/insecure/{extend,disable-all}`
+- `api/src/routes/admin/settings/index.ts` — `POST /admin/prune-policy`
+- `api/src/services/host-auth.ts` — `authenticate`, IP binding, `pruneInactiveHosts`
 - `api/src/services/host-management.ts` — registration, mutations, insecure-window clamps
 - `api/src/services/insecure-window-admin.ts` — approval helpers
 - `api/src/db/schema.ts` — `hosts`, `insecure_auth_requests`, `insecure_domain_allows`

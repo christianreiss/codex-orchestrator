@@ -1,8 +1,8 @@
 ---
 title: Settings reference
 section: Admin workspace
-verified: 2026-06-05
-sources: api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts
+verified: 2026-07-01
+sources: api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts
 ---
 
 Configuration in Codex Orchestrator is spread across several distinct routes. This article covers the **Settings page** (`/settings`) and distinguishes it from the separate admin routes that handle users, agents, skills, memories, projects, and fleet Claude settings. A final section documents environment variables that can only be set at deployment time and are not accessible through the admin UI.
@@ -61,7 +61,7 @@ The Settings page is a single flat page with a sticky table-of-contents sidebar 
 
 ### Claude version
 
-`GET /admin/claude/version`, `POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body includes the version string and a `locked` boolean.
+`GET /admin/claude/version`, `POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body is `{ selection }`: either a semver string (e.g. `2.1.170`) or `'latest'`/`'auto'` to clear the pin. There is no separate `locked` boolean in the request; the response reports the resulting `locked_version` and `locked_at`.
 
 Claude API proxy defaults (default model and max tokens used when proxying Claude API calls) are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
 
@@ -78,7 +78,7 @@ Note: this endpoint controls only the API proxy behaviour. Fleet-wide Claude CLI
 
 ### Prune policy
 
-`POST /admin/prune-policy` — sets `inactivity_days` (integer 0–60). Hosts inactive longer than this threshold are deleted by the preflight job. There is no paired GET for this endpoint.
+`POST /admin/prune-policy` — sets `inactivity_days` (integer 0–60), stored as `inactivity_window_days`. There is no paired GET for this endpoint. The deletion logic for hosts inactive longer than this threshold lives in `HostAuthService.pruneInactiveHosts` (`api/src/services/host-auth.ts`), but as of this verification it is not invoked by any scheduled job or cron — the setting is stored and echoed back on the fleet overview, but nothing currently calls the pruning method automatically. Treat this as a stored policy value rather than an active enforcement mechanism until a caller is wired up.
 
 ### Log retention
 
@@ -154,6 +154,7 @@ This page builds and publishes the `settings.json` delivered to all Claude CLI h
 | `model` | Dropdown from `CLAUDE_MODELS`; select `inherit` to leave unset. |
 | `advisorModel` | Dropdown; marked experimental. Sets `advisorModel` in the delivered settings.json. |
 | `env` | Key-value pairs written to the `env` block. |
+| `permissionMode` | Dropdown of `CLAUDE_PERMISSION_MODES`; writes `permissions.defaultMode` in the delivered settings.json. Fleet default is `'auto'` (`DEFAULT_CLAUDE_PERMISSION_MODE`) — every managed host auto-approves tool calls unless pinned to `'default'` or another mode. |
 | `permissions` | Allow, ask, and deny lists. |
 | `statusLine.command` | String; type is fixed to `'command'`. |
 | `hooks` | Event → `[{matcher, commands[]}]` map, edited via `HooksEditor`. |
@@ -191,7 +192,7 @@ The following variables are read from the process environment at startup. They c
 | `SMTP_*` | Email delivery configuration. |
 | `GPT51_*_PER_1K`, `CLAUDE_*_PER_1K` | Per-token pricing overrides for usage accounting. |
 | `PRICING_URL`, `PRICING_CURRENCY` | External pricing source and currency. |
-| `ADMIN_WEBAUTHN_RP_ID` / `ORIGIN` | WebAuthn passkey login configuration. |
+| `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN` | WebAuthn passkey login configuration. |
 | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL` | Public-facing URL roots. |
 | `INSTALLATION_ID`, `DATA_ROOT` | Instance identity and data directory. |
 
@@ -201,11 +202,12 @@ The following variables are read from the process environment at startup. They c
 
 - `api/src/routes/admin/settings/index.ts` — all /settings page endpoints
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
-- `api/src/routes/admin/keys/openai.ts`, `api/src/routes/admin/keys/claude.ts`
 - `api/src/routes/admin/users/index.ts`
 - `api/src/routes/admin/projects/index.ts`
 - `api/src/services/agents.ts`
 - `api/src/services/skills.ts`, `api/src/services/skill-drafts.ts`, `api/src/services/skill-manifest.ts`
 - `api/src/services/memories.ts`, `api/src/services/mcp-memories.ts`
 - `api/src/services/client-config.ts`, `api/src/services/config-normalizer.ts`
+- `api/src/services/client-versions.ts` — version lock read/write shape (no `locked` request field)
+- `api/src/services/host-auth.ts` — `pruneInactiveHosts`; confirms the prune-policy setting has no scheduled caller
 - `api/src/services/usage-scaling.ts`

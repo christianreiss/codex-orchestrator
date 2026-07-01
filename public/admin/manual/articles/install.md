@@ -1,8 +1,8 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-06-05
-sources: README.md, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/install/index.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, scripts/wrapper-v2-init-keys.sh
+verified: 2026-07-01
+sources: README.md, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/install/index.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/hosts/index.ts, api/src/security/keyring.ts, scripts/wrapper-v2-init-keys.sh
 ---
 
 Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/setup.sh` walks you through first-time configuration and brings up the stack.
@@ -31,7 +31,7 @@ docker compose --profile caddy up -d
 ## First boot
 
 1. **Clone and run setup.** `bin/setup.sh` prompts for `.env` values (public base URL, admin access mode, runner secret, TLS material), writes `.env` in the repo root, and calls `docker compose up -d`.
-2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` is the single source of truth. Migrations are applied via `drizzle-kit` outside the running app (the boot path can apply them in place when `RUN_MIGRATIONS_ON_BOOT=true`, otherwise it expects the schema to already be current).
+2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` is the single source of truth. Migrations are applied manually with `drizzle-kit` (`npm run drizzle:generate` / `drizzle:push` from `api/`) outside the running app. `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` are declared in `api/src/env.ts` but nothing in the current boot path (`api/src/server.ts`, `api/src/ops/boot-checks.ts`) reads either flag — setting them has no effect today, so always run migrations yourself before or after deploying.
 3. **No admins, no gating.** While `AdminAuthService.isEnforced()` returns false (i.e. `admin_users` is empty), the admin UI serves the first-run screens that let you create the initial admin. The moment you create one, session enforcement flips on for everyone.
 4. **Wrapper signing key.** Run `scripts/wrapper-v2-init-keys.sh` once per environment to generate the Ed25519 keypair used to sign per-host wrapper configs. The keypair is stored in the `wrapper_signing_keys` table by `wrapper-signing-key.ts`. Then `cd wrappers && make pubkey` embeds the public key into the Go binaries at build time.
 
@@ -51,7 +51,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Fails startup if `PUBLIC_BASE_URL` is missing.
 - `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
-- `ADMIN_SESSION_TTL_MINUTES` — default 720 (12 h), clamped to 5 min – 7 days.
+- `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
 - `ADMIN_WS_ENABLED` — defaults to `false` in env.ts, but **the compose file sets it to `1` (enabled) by default** when using the compose stack. Also: `ADMIN_WS_PUBLIC_URL`, `ADMIN_WS_HEARTBEAT_SECONDS`, `ADMIN_WS_BACKLOG_LIMIT`.
 - `INSTALLATION_ID` — optional installation identifier.
@@ -60,9 +60,12 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `AUTH_RUNNER_URL`, `AUTH_RUNNER_SHARED_SECRET` — how the API reaches the Python runner. **Note:** the compose file passes `RUNNER_SHARED_SECRET` to the `auth-runner` container; `AUTH_RUNNER_SHARED_SECRET` is what the API reads. These are separate variables for different services.
 - `AUTH_RUNNER_CODEX_BASE_URL` — Codex auth base URL for the runner.
+- `AUTH_RUNNER_TIMEOUT` — default `8` (seconds). HTTP timeout used for calls to the runner (health checks, verify, exec).
+- `AUTH_RUNNER_VERIFY_TTL_SECONDS` — default `900`. How stale a canonical auth's stored verification verdict may get before the background auth-verification worker re-checks it.
+- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` — default `300`. Poll interval for the background worker (`api/src/ops/auth-verification-worker.ts`, started from `server.ts`) that replaced synchronous runner verification on the request/boot path.
 - `AUTH_RUNNER_IP_BYPASS` — bool, default `false`. Bypass runner IP checks.
 - `AUTH_RUNNER_BYPASS_SUBNETS` — subnets exempt from runner IP checks (used when `AUTH_RUNNER_IP_BYPASS` is true).
-- `AUTH_RUNNER_PREFLIGHT_SECONDS` — default `28800`. Runner preflight window.
+- `AUTH_RUNNER_PREFLIGHT_SECONDS` — still declared in `env.ts` (default `28800`) but no longer read anywhere in `api/src`; superseded by `AUTH_RUNNER_VERIFY_TTL_SECONDS` / `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` above.
 
 ### Encryption / keyring
 
@@ -89,8 +92,8 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### Boot behaviour
 
-- `RUN_MIGRATIONS_ON_BOOT` — apply Drizzle migrations on startup.
-- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Run data backfills on startup.
+- `RUN_MIGRATIONS_ON_BOOT` — bool, default `false`. Declared in `env.ts` but currently unread by the boot path (`server.ts`, `ops/boot-checks.ts`); has no effect. Apply migrations manually with `drizzle-kit`.
+- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Same status as above: declared but not currently consumed anywhere in `api/src`.
 
 ### MCP
 
@@ -109,8 +112,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K` (and other `GPT51_*` variants)
 - `CHATGPT_PLUS_PLAN_COST`, `CHATGPT_PRO_PLAN_COST`
 - `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`
-- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K`
-- `ANTHROPIC_API_KEY` — used for Claude usage tracking.
+- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K`, `ANTHROPIC_API_KEY` — parsed by `env.ts`, but currently unused elsewhere in `api/src`; there is no `claude-usage.ts` service consuming them yet (only `chatgpt-usage.ts` is wired up).
 - `PRICING_URL`, `PRICING_CURRENCY`
 
 Check `.env.example` in the repo for the full, current list.
@@ -152,9 +154,8 @@ Canonical wrapper sources are the Go modules under `wrappers/cdx/` and `wrappers
 
 ## Post-install smoke test
 
-- From the admin UI, visit *Dashboard*. New hosts appear under *Hosts → Unprovisioned* until they complete a successful sync; after that they move to *Secure* (or *Insecure*, if you activated insecure mode on registration).
+- From the admin UI, visit *Dashboard*. New hosts appear under *Hosts → Unprovisioned* until they complete a successful sync; after that they move to *Secure* (or *Insecure*, if you activated insecure mode on registration). Use the **Runner state** card's **Run verification** button (one per engine) to confirm the runner is reachable; it calls `POST /admin/runner/run` for Codex or `/admin/runner/run-claude` for Claude.
 - Click into any host to see its per-host baked config version, last auth digest, and IP binding state.
-- Trigger *Settings → Runner → Run probe* to verify the runner is reachable; the endpoint is `POST /admin/runner/run` (or `/admin/runner/run-claude` for the Claude side).
 
 ## Backups
 
@@ -175,6 +176,8 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 - api/src/server.ts (Fastify boot)
 - api/src/db/schema.ts (Drizzle schema — single source of truth)
 - api/src/routes/install/index.ts (install / seed endpoints)
+- api/src/services/admin-auth.ts (login-time session TTL clamp, isEnforced/countAdmins)
+- api/src/http/plugins/auth-admin.ts (rolling session TTL clamp on every request)
 - api/src/services/wrapper-config.ts (signed per-host config bakery)
 - api/src/services/wrapper-signing-key.ts (Ed25519 keypair from wrapper_signing_keys)
 - api/src/services/wrapper-bin-registry.ts (per-platform binary inventory)

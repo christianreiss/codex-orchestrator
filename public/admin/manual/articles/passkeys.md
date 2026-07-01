@@ -1,8 +1,8 @@
 ---
 title: Passkeys and passwords
 section: Admin access and identity
-verified: 2026-06-05
-sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts
+verified: 2026-07-01
+sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts, frontend/src/routes/account/password/+page.svelte, frontend/src/lib/components/users/userSchema.ts
 ---
 
 Passkeys (WebAuthn) are the preferred way to sign in. Password auth exists but is second-class: there is no self-service reset by default, passwords enforce minimum requirements, and any user with a registered passkey is locked out of password login.
@@ -57,11 +57,11 @@ All three require an active session and operate on the session user implicitly; 
 
 ## Passwords
 
-Password requirements (enforced both client-side via zod and by the backend):
+Password requirements differ between the backend and the two frontend forms that create/change one:
 
-- At least 12 characters (`PASSWORD_MIN_LENGTH = 12`)
-- Contains at least one digit
-- Contains at least one symbol (non-alphanumeric character)
+- The backend (`AdminAuthService.validatePasswordOrThrow`) enforces only a minimum length, `PASSWORD_MIN_LENGTH = 12` — no digit, symbol, or character-class check. This is the only rule applied to `POST /admin/auth/password/change`, `POST /admin/auth/password/reset`, and `POST /admin/users` (create/update).
+- The `/account/password` page's zod schema is stricter: 12+ characters, and must contain a digit, and must contain a symbol (non-alphanumeric character) — both are mandatory, not "at least one of."
+- The `Settings → Users` create/edit form uses a third rule (`passwordCharacterMix` in `frontend/src/lib/components/users/userSchema.ts`): 12+ characters plus at least two of {lowercase, uppercase, digit, symbol} — see [Roles and capabilities](/admin/manual/roles).
 
 The `/account/password` page displays a live rule checklist that updates as the user types. Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
 
@@ -77,13 +77,13 @@ Submit calls `POST /admin/auth/password/change` with body `{ current_password, n
 
 ### Resetting a password by email
 
-The **Reset by email** card has a **Send reset email** button. Clicking it opens a confirmation dialog; on confirm the page calls `POST /admin/auth/password/request` using the current signed-in username automatically — no email input is shown. The endpoint accepts either `{ username }` or `{ email }` as identifier (one must be present).
+The **Reset by email** card has a **Send reset email** button. Clicking it opens a confirmation dialog; on confirm the page calls `POST /admin/auth/password/request` using the current signed-in username automatically — no email input is shown. The endpoint's schema accepts either `{ username }` or `{ email }` as identifier, but `AdminPasswordService.requestReset` only ever looks the user up by username internally — passing `email` never resolves a real account (it falls through to the equivalent-cost "unknown user" path) unless it happens to also be that user's username. The shipped UI is unaffected since it always sends `{ username }`.
 
-The reset flow requires SMTP to be configured (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, etc.).
+Delivering the email needs `SMTP_HOST` set (`api/src/services/mailer.ts`); the other `SMTP_*` vars are optional with fallbacks. Without `SMTP_HOST`, no email goes out, but a 1-hour reset token is still created in `admin_password_resets` and the endpoint always reports success.
 
 `POST /admin/auth/password/reset` consumes the reset token. Tokens live in `admin_password_resets`.
 
-If the reset flow is disabled, the recovery path is: another admin opens *Settings → Users*, sets a temporary password, the target admin logs in with it, and then changes it immediately.
+If SMTP isn't configured, the recovery path is: another admin opens *Settings → Users*, sets a temporary password, the target admin logs in with it, and then changes it immediately.
 
 ## Locked out of every passkey?
 
@@ -91,13 +91,16 @@ There is no shipped recovery CLI in the current stack. Recovery is done by an op
 
 ## Counter drift and cloned authenticators
 
-WebAuthn credentials carry a monotonically increasing signature counter. `completeAuthentication` compares the incoming counter to the stored one; a decrease means the credential has been cloned or the authenticator is misbehaving, and the login fails. This is standard WebAuthn defence-in-depth; users with non-compliant hardware may occasionally need their passkey removed and re-registered.
+WebAuthn credentials carry a monotonically increasing signature counter. `@simplewebauthn/server`'s `verifyAuthenticationResponse` (called from `completeAuthentication`) rejects the assertion whenever the incoming counter is not strictly greater than the stored one (an exact repeat included, not just a decrease) — unless both are `0`, which signals an authenticator that doesn't support counters at all. A rejection here means the credential has likely been cloned or the authenticator is misbehaving. This is standard WebAuthn defence-in-depth; users with non-compliant hardware may occasionally need their passkey removed and re-registered.
 
 ## Source references
 
-- api/src/services/admin-passkey.ts (registration, authentication, management)
-- api/src/services/admin-auth.ts (session creation, requiresPasskey, password length)
-- api/src/services/admin-password.ts (password change + reset flows)
+- api/src/services/admin-passkey.ts (registration, authentication, management, counter-drift check via @simplewebauthn/server)
+- api/src/services/admin-auth.ts (session creation, requiresPasskey, backend password-length-only validation)
+- api/src/services/admin-password.ts (password change + reset flows; requestReset only looks up by username)
+- api/src/services/mailer.ts (NoopMailer vs SmtpMailer, SMTP_HOST-gated delivery)
 - api/src/security/password.ts (argon2 hashing + bcrypt/phpass legacy verify)
 - api/src/routes/admin/auth/index.ts (every /admin/auth/* and /admin/passkeys/* route)
 - api/src/db/schema.ts (admin_passkeys, admin_webauthn_challenges, admin_password_resets)
+- frontend/src/routes/account/password/+page.svelte (self-service password-change zod schema: length + digit + symbol)
+- frontend/src/lib/components/users/userSchema.ts (Settings → Users form password schema: length + 2-of-4 classes)

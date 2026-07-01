@@ -1,8 +1,8 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-06-05
-sources: api/src/routes/admin/projects/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/db/schema.ts
+verified: 2026-07-01
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts
 ---
 
 Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
@@ -11,10 +11,10 @@ Projects is an optional workspace module that gives your agents a shared surface
 
 The module toggle is embedded in the header area of the `/projects` list page — it is not under a separate Settings section. The backing endpoints:
 
-- `GET /admin/projects/state` — returns `{ enabled: bool, … }`.
+- `GET /admin/projects/state` — returns `{ enabled: bool, updated_at, managed_skill: { slug, uri } }`.
 - `POST /admin/projects/state` — flip the flag.
 
-When disabled, a warning alert renders on the list page, the `project_*` MCP tools are not registered (see `mcp-tools.ts`), and the rail section is hidden. When enabled, host API keys can call the host-facing project routes and the MCP tools appear in their capability.
+When disabled: the `/projects` list page shows a warning banner and disables the "New project" button, and the synthetic `coco` skill stops being served (`getManagedCocoSkillIfEnabled` in `managed-coco-skill.ts` returns `null` while the flag is off — see "The `coco` skill" below). The flag does **not** gate anything else: the `project_*` MCP tools are unconditionally registered in `McpToolsRegistry` (`mcp-tools.ts`), the host-facing `/projects/*` REST routes (`routes/projects-client/index.ts`) have no enabled check, and the admin CRUD surface bypasses the flag by design (see the comment atop `projects.ts`). The `Projects` sidebar nav item (`frontend/src/lib/nav.ts`) is also always visible regardless of state. In practice the toggle only affects the admin UI's list-page messaging and whether `coco` is offered to agents.
 
 ## Creating and listing projects
 
@@ -27,11 +27,12 @@ Admin surface in `api/src/routes/admin/projects/index.ts` (all gated by `require
 
 The list page renders projects as cards in a responsive grid. The "New project" button (disabled when the module is off) opens a `NewProjectDialog`. Each card has a delete action that requires confirmation.
 
-The `coord_projects` table also has an `archived_at` column, which supports soft-archive semantics at the schema level, but this is not currently surfaced in the UI or admin API.
+The `coord_projects` table also has an `archived_at` column, which supports soft-archive semantics at the schema level, but this is not currently surfaced in the UI or admin API — though host-facing lookups (`HostProjectsService.listProjects`/`findBySlug`) already filter on it, so a row archived by direct DB access would disappear from a host's `GET /projects` listing.
 
-Host-facing surface (authenticated by per-host API key):
+Host-facing surface (authenticated by per-host API key, `routes/projects-client/index.ts`):
 
 - `GET /projects`, `POST /projects`, `GET /projects/{slug}`, `GET /projects/{slug}/bootstrap` — the bootstrap endpoint is the compact context payload agents read to orient themselves.
+- The full sub-resource set also has host-facing equivalents: notes, todos (including `.../done` and `.../undone`), files, feedback, and `GET /projects/{slug}/changes` all mirror the admin routes described in their respective sections below, one-to-one.
 
 ## Project detail layout
 
@@ -58,7 +59,7 @@ Endpoints:
 - `POST /admin/projects/{slug}/about` — replaces the about value. The service accepts either a bare object (used directly as the stored value) or a wrapper `{ about: <object> }` form; both are equivalent.
 - `POST /admin/projects/{slug}/roster` — replaces the roster markdown. Accepts either `{ roster_markdown }` or `{ markdown }` as aliases; both work.
 
-These endpoints are only confirmed on the admin surface. The host-facing `/projects/{slug}/...` surface should be verified separately before relying on it for agent self-updates.
+The host-facing surface mirrors these exactly: `POST /projects/{slug}/about` and `POST /projects/{slug}/roster` (`routes/projects-client/index.ts` → `HostProjectsService.updateAbout`/`updateRoster`) accept the same bodies and are safe for agents to call directly for self-updates.
 
 ## The assist button
 
@@ -86,7 +87,7 @@ Explicit done/undone helpers so MCP tool calls can toggle cheaply:
 
 ## Files
 
-Small blob artifacts stored entirely in the database (`coord_project_files` table — no disk). Each file record stores: `stored_name` (unique per project), `description`, `mime_type`, `content` (longtext), `content_sha256` (SHA-256 hash of the content, computed at upsert), and `size_bytes` (computed at upsert).
+Small blob artifacts stored entirely in the database (`coord_project_files` table — no disk). Each file record stores: `stored_name` (unique per project), `description`, `mime_type`, `content` (longtext), and `content_sha256` (SHA-256 hash of the content, computed at upsert). `size_bytes` is not a stored column — it is derived on every read as `Buffer.byteLength(content, 'utf8')` (see `formatFile()` in `projects.ts`).
 
 Upsert-style: `POST /admin/projects/{slug}/files` overwrites an existing `stored_name` or creates a new one.
 
@@ -112,7 +113,16 @@ The Activity tab shows the 10 most recent events sorted by sequence descending. 
 
 ## The `coco` skill
 
-When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_todo_create`, …) and the expected workflow. `SkillsService` (`api/src/services/skills.ts`) ensures this skill is always at the latest orchestrator-wide version.
+When the Projects module is on, a canonical *coco* skill ships to every host. It documents the MCP tools an agent should call (`project_list`, `project_bootstrap`, `project_note_upsert`, `project_todo_create`, …) and the expected workflow. Unlike ordinary skills, `coco` is not a row in the `skills` table: its manifest is a hardcoded constant synthesized on demand by `managed-coco-skill.ts` (`buildManagedCocoSkill`), and `getManagedCocoSkillIfEnabled()` returns it only while `projects_module_enabled` is on. `HostSkillsService` (`api/src/services/host-skills.ts`) merges this managed skill into the host-facing `/skills` list, `/skills/retrieve`, and the on-disk Claude skill bundle, and rejects any attempt to store or delete the `coco` slug directly (`SkillsService`/`HostSkillsService` both special-case `isManagedCocoSlug`). Because the manifest text is fixed at deploy time rather than versioned in the DB, "latest version" here means the current build's constant, not a DB-tracked revision history like other skills.
+
+## MCP resource exposure
+
+Beyond the `project_*` tools, projects are also exposed as MCP resources (`resources/list` / `resources/read`) via `McpResourcesService` (`api/src/services/mcp-resources.ts`):
+
+- `project://{slug}` — the same compact bootstrap payload as `project_bootstrap`, JSON-encoded.
+- `project://{slug}/files/{stored_name}` — a single project file's raw content; `mimeType` is taken from the file's `mime_type`, with binary-looking types downgraded to `application/octet-stream` for transport.
+
+`resources/list` enumerates every project as a `project://` entry plus up to 50 of its files each (`PROJECT_FILES_LIST_CAP`); reading a file by exact stored name works even if it wasn't included in that cap. These templates are advertised via `listTemplates()` alongside `memory://{key}` and `skill://{slug}`.
 
 ## Bootstrapping an agent into a project
 
@@ -128,10 +138,13 @@ The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 ## Source references
 
 - api/src/routes/admin/projects/index.ts (admin surface)
-- api/src/routes/projects-client/index.ts (host-facing /projects/* surface)
+- api/src/routes/projects-client/index.ts (host-facing /projects/* surface — mirrors the admin surface, not gated by the module flag)
 - api/src/services/projects.ts (project CRUD)
 - api/src/services/project-drafts.ts (assist via runner)
 - api/src/services/project-content.ts (notes/todos/files/feedback)
-- api/src/services/host-projects.ts (MCP-facing access for hosts)
-- api/src/services/mcp-tools.ts (project_* tool definitions)
+- api/src/services/host-projects.ts (host-facing project service used by both REST routes and MCP tools)
+- api/src/services/mcp-tools.ts (project_* tool definitions; always registered regardless of module state)
+- api/src/services/mcp-resources.ts (project:// resource exposure)
+- api/src/services/managed-coco-skill.ts (synthesized coco skill manifest, gated on projects_module_enabled)
+- api/src/services/host-skills.ts (merges the managed coco skill into host-facing skill list/retrieve/bundle)
 - api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_todos, coord_project_files, coord_project_feedback, coord_project_events)

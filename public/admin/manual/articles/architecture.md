@@ -2,8 +2,8 @@
 
 title: Architecture at a glance
 section: Orientation
-verified: 2026-06-05
-sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/runner-validation.ts, runner/app.py, wrappers/cdx, wrappers/clx, api/src/services/mcp-server.ts, api/src/db/schema.ts, api/src/ws/server.ts
+verified: 2026-07-01
+sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/host-management.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-proxy.ts, api/src/ops/auth-verification-worker.ts, api/src/services/mcp-server.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, api/src/db/schema.ts, api/src/env.ts, docker-compose.yml, runner/app.py, wrappers/cdx, wrappers/clx, scripts/wrapper-v2-init-keys.sh
 ---
 
 Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 8.4 through Drizzle ORM. The HTTP entry point is `api/src/server.ts`; routes live under `api/src/routes/<group>/*.ts` and are mounted by `api/src/routes/index.ts`. Domain logic lives in plain TypeScript services under `api/src/services/`. A Python FastAPI auth-runner sidecar talks to OpenAI / Anthropic on the orchestrator's behalf, and two Go wrappers (`cdx`, `clx`) run on every host.
@@ -30,14 +30,16 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
 ## Layers
 
 - **Routes** — `api/src/routes/<group>/*.ts`. Thin Fastify handlers that parse input, call services, and reply. The envelope plugin shapes errors based on URL prefix (`/anthropic/v1/*` Anthropic-style, `/v1/*` OpenAI-style, everything else the canonical `{ "status": "error", "message": … }` shape).
-- **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-validation.ts` (Python runner probe), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` / `claude-usage.ts` (dashboard usage), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
+- **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-client.ts` (low-level HTTP transport to the auth-runner sidecar), `runner-validation.ts` (resolves + validates the canonical auth payload for an engine), `canonical-auth-store.ts` (stores candidate auth and decides whether the served payload is still verified), `runner-proxy.ts` (admin-triggered runner actions: run a prompt on demand, mint seed commands), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` (dashboard ChatGPT usage — the `CLAUDE_*` pricing env vars are parsed by `env.ts` but no equivalent Claude usage-tracking service consumes them yet), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
 - **Database** — Drizzle queries against a single schema in `api/src/db/schema.ts`. Services receive a `Database` handle (`api/src/db/client.ts`) and write SQL through Drizzle's typed query builder. No repository layer; tables are queried where they're used.
 - **MCP** — `api/src/services/mcp-server.ts`, `mcp-tools.ts`, `mcp-resources.ts`, `mcp-fs.ts`. The HTTP entry point is `/mcp` (routes in `api/src/routes/mcp/index.ts`); auth uses either a per-host API key or an `MCP_OPERATOR_TOKEN` bearer (operator capability). MCP routes use a fourth preflight based on `mcp_session_tokens` bearer tokens.
 - **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), `mtls.ts` (proxy-forwarded mTLS header parsing), and `hash.ts` (sha256 helpers).
 
 ## The runner sidecar
 
-The `runner/` directory contains a small FastAPI service (`runner/app.py`) that actually talks to OpenAI and Anthropic. The orchestrator itself never calls those APIs; it delegates to the runner over a shared-secret HTTP channel. In the compose stack the runner runs as the service named `auth-runner`. `AUTH_RUNNER_URL` defaults to `http://auth-runner:8080/verify` — it points directly at the `/verify` endpoint, not a generic base URL. `AUTH_RUNNER_SHARED_SECRET` authenticates the calls, and `runner-validation.ts` wraps the two operations: verify (did this auth.json actually get us a valid completion?) and execute (run a Claude prompt on demand). Keeping this split lets you upgrade the runner's SDK versions without touching the orchestrator.
+The `runner/` directory contains a small FastAPI service (`runner/app.py`) that actually talks to OpenAI and Anthropic. The orchestrator itself never calls those APIs; it delegates to the runner over a shared-secret HTTP channel. In the compose stack the runner runs as the service named `auth-runner`. `AUTH_RUNNER_URL` has no default in `api/src/env.ts` (it's optional there); `docker-compose.yml` sets it to `http://auth-runner:8080/verify` for the shipped stack — pointing directly at the `/verify` endpoint, not a generic base URL. `AUTH_RUNNER_SHARED_SECRET` authenticates the calls.
+
+Verification no longer happens on the request/boot path. `runner-client.ts` is the low-level HTTP client (`/verify`, `/verify-claude`, plus a few AI-assist endpoints); `runner-validation.ts` resolves and validates the canonical auth payload for an engine; `canonical-auth-store.ts` ties the two together (`ensureServedVerification`) to decide whether the currently-served payload is still good. A background worker — `startAuthVerificationWorker` in `api/src/ops/auth-verification-worker.ts`, started from `server.ts` after routes are registered — re-checks each engine on an interval set by `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300 s) and refreshes the stored verdict once it's older than `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900 s); hosts fetching auth just read the stored verdict instead of waiting on a live probe. Running a prompt on demand is a separate, admin-triggered operation — `RunnerProxyService.run()` in `runner-proxy.ts`, behind `POST /admin/runner/run` / `run-claude`. Keeping the runner split from the orchestrator lets you upgrade its SDK versions without touching the orchestrator.
 
 ## The wrappers
 
@@ -51,19 +53,19 @@ The binary self-updates if `wrapper.auto_update` is true in its config: when the
 
 ## Admin websocket
 
-Live admin events stream over `/admin/ws` using `@fastify/websocket` (see `api/src/ws/server.ts`). The websocket runs in-process — no separate daemon — and requires the same admin session cookie used elsewhere. Services publish events through the singleton `wsPublisher` in `api/src/ws/publisher.ts` (`wsPublisher.publish(type, payload)`); the WS handler fans them out to every connected client. The admin UI discovers the URL via `GET /admin/ws/info`. The websocket is **on by default** (`ADMIN_WS_ENABLED` defaults to `1`); set it to `0` to disable, in which case the UI falls back to polling.
+Live admin events stream over `/admin/ws` using `@fastify/websocket` (see `api/src/ws/server.ts`). The websocket runs in-process — no separate daemon — and requires the same admin session cookie used elsewhere. Services publish events through the singleton `wsPublisher` in `api/src/ws/publisher.ts` (`wsPublisher.publish(type, payload)`); the WS handler fans them out to every connected client. The admin UI discovers the URL via `GET /admin/ws/info`. `ADMIN_WS_ENABLED` defaults to `false` in `api/src/env.ts`, but the shipped `docker-compose.yml` overrides it to `1`, so the websocket is on by default in a standard compose deployment; set it to `0` to disable, in which case the UI falls back to polling.
 
 ## Database
 
-Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts` — that file is the single source of truth. The compose service is named `mysql` and uses the `mysql:8.4` image; there is no MariaDB image in the stack. Migrations are applied with `drizzle-kit` from outside the running app (`RUN_MIGRATIONS_ON_BOOT` defaults to `0`; opt in to run them automatically on boot). Tables you will care about most:
+Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts` — that file is the single source of truth. The compose service is named `mysql` and uses the `mysql:8.4` image; there is no MariaDB image in the stack. Migrations are applied manually with `drizzle-kit` (`npm run drizzle:generate` / `drizzle:push` in `api/`) from outside the running app. `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` are still declared in `api/src/env.ts` (both default `false`) but nothing in the current boot path (`api/src/server.ts`, `api/src/ops/boot-checks.ts`) reads either flag — setting them has no effect today. Tables you will care about most:
 
-- `hosts` — one row per registered host; state like `api_key_hash`, `ip_binding`, `secure`, `insecure_enabled_until`, version strings, and IP binding metadata.
+- `hosts` — one row per registered host; state like `api_key_hash`, `secure`, `insecure_enabled_until`, per-engine version strings, and the IP binding fields `ip4`, `ip6`, `allow_roaming_ips`, `reverse_dns_mode` (there is no single `ip_binding` column).
 - `auth_entries` / `auth_payloads` — the encrypted canonical auth, versioned.
 - `host_auth_digests` — per-host snapshots so sync-status can say "nothing changed" cheaply.
 - `admin_users`, `admin_sessions`, `admin_passkeys`, `admin_password_resets` — the admin identity stack.
-- `projects`, `project_notes`, `project_todos`, `project_files`, `project_feedback`, `project_events` — the Projects module.
-- `chatgpt_usage` — ChatGPT quota snapshots.
-- `mcp_session_tokens`, `mcp_access_log`, `memories` — MCP identity and memory store.
+- `coord_projects`, `coord_project_notes`, `coord_project_todos`, `coord_project_files`, `coord_project_feedback`, `coord_project_events` — the Projects module (all `coord_`-prefixed).
+- `chatgpt_usage_snapshots` — ChatGPT quota snapshots.
+- `mcp_session_tokens`, `mcp_access_logs`, `mcp_memories` — MCP identity, access log, and memory store.
 - `wrapper_signing_keys` — Ed25519 signing keys used by `wrapper-signing-key.ts`.
 
 The MySQL container lives next to the app in `docker-compose.yml`; backups are your responsibility.
@@ -80,10 +82,16 @@ Everything that can vary by engine takes an `Engine` value from `api/src/util/en
 - api/src/services/host-auth.ts (auth distribution, host lifecycle)
 - api/src/services/host-management.ts (registration, mutations)
 - api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts (signed per-host config + Ed25519 keys)
-- api/src/services/runner-validation.ts (runner probe)
+- api/src/services/runner-validation.ts (resolves + validates canonical auth payloads)
+- api/src/services/runner-client.ts (low-level HTTP client to the auth-runner)
+- api/src/services/canonical-auth-store.ts (ties validation + runner verify + digests together)
+- api/src/services/runner-proxy.ts (admin-triggered run / seed-command actions)
+- api/src/ops/auth-verification-worker.ts (background re-verification loop, replaces startup-path checks)
 - api/src/services/mcp-server.ts (JSON-RPC dispatch)
 - api/src/ws/server.ts, api/src/ws/publisher.ts (admin WS + event bus)
 - api/src/db/schema.ts (Drizzle schema, single source of truth)
+- api/src/env.ts (env var defaults, incl. ADMIN_WS_ENABLED, AUTH_RUNNER_VERIFY_* )
+- docker-compose.yml (compose-level env var overrides, e.g. ADMIN_WS_ENABLED, AUTH_RUNNER_URL)
 - runner/app.py (FastAPI verify / exec endpoints)
 - wrappers/cdx, wrappers/clx (Go modules — host wrappers)
 - scripts/wrapper-v2-init-keys.sh (Ed25519 keypair bootstrap)

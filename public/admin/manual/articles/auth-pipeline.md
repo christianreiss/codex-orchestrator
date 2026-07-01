@@ -1,8 +1,8 @@
 ---
 title: The auth distribution pipeline
 section: Fleet operations
-verified: 2026-06-05
-sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/runner-client.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts
+verified: 2026-07-01
+sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/clx/internal/claude/auth_writer.go
 ---
 
 Every host gets its credentials by asking the orchestrator; the orchestrator is the single writer of canonical auth payloads. The pipeline is built around three requirements: **encrypt at rest**, **authenticate the caller**, and **refuse to hand out anything a compromised host should not have**.
@@ -10,7 +10,7 @@ Every host gets its credentials by asking the orchestrator; the orchestrator is 
 ## The public endpoints
 
 - `POST /auth` — the main host-facing auth endpoint. Accepts a `command` field: `retrieve` (default) or `store`. Both paths authenticate the caller via API key extracted from HTTP **headers**.
-- `POST /sync/status` / `POST /sync/bootstrap` — sync endpoints the wrappers hit on every run. Both inline a full auth retrieve (unless `include_auth=false`) and embed the result in the response.
+- `POST /sync/status` / `POST /sync/bootstrap` — sync endpoints the wrappers hit on every run. Both inline an auth check (unless `include_auth=false`) and embed the result in the response — see *Sync routes* below for how the two differ.
 - `DELETE /auth` — self-uninstall. The host sends its API key; the route deletes the `host_auth_digests` and `hosts` rows, logs `host.delete`, and publishes a WebSocket event.
 
 API keys are read from HTTP **headers** in all cases via `extractApiKey(req.headers)` in `host-auth.ts`. There is no body-based API key flavor.
@@ -29,9 +29,9 @@ API keys are read from HTTP **headers** in all cases via `extractApiKey(req.head
    - `status: 'outdated'` — host is behind; response includes the decrypted auth blob.
    - `status: 'upload_required'` — host has a newer timestamp; tells the host to store.
    - `status: 'missing'` — no canonical payload exists yet.
-5. **No runner call** — the runner is never called on the retrieve path.
+5. **No live runner call** — retrieve never blocks on a live runner probe. It consults the latest stored verdict from the background auth-verification worker (see below) via `servedVerificationSnapshot`; if that verdict is `failed`, retrieve returns `status: 'outdated'` *without* the `auth` blob rather than serving known-bad credentials.
 
-The retrieve response includes `versions`, `canonical_digest`, `canonical_last_refresh`, `host`, `quota_hard_fail`, `quota_limit_percent`, and (when `status: 'outdated'`) the `auth` blob. Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
+The retrieve response includes `versions`, `canonical_digest`, `canonical_last_refresh`, `host`, `api_calls`, `engine`, `quota_hard_fail`, `quota_limit_percent`, `verification_state` (`verified`/`failed`/`unknown`, plus `verification_reason` when `failed`), and (when `status: 'outdated'`) the `auth` blob. Codex retrieves also carry a `chatgpt` usage snapshot. Skills manifests and AGENTS.md hashes are part of `/sync/bootstrap`, not `/auth`.
 
 ### Store (`command=store`)
 
@@ -73,11 +73,13 @@ Both `/sync/status` and `/sync/bootstrap`:
 1. Call `hostAuth.authenticate`.
 2. Call `maybeEnforceInsecure`.
 3. Call `syncService.collect`.
-4. Inline a full `handleRetrieve` call (unless `include_auth=false`) and embed the result in `out.auth`.
+4. Inline an auth check (unless `include_auth=false`) and embed the result in `out.auth`.
+
+The auth step differs between the two routes. `/sync/status` always inlines a plain `handleRetrieve`. `/sync/bootstrap` inlines `handleBootstrapAuth`, which additionally accepts an `auth_candidate` body field: if the host posts one and its canonicalized digest already matches canonical, bootstrap returns `status: 'valid'` straight from the stored verification verdict (no `handleRetrieve` round trip); if the candidate is newer than canonical it is persisted via `storeCandidate` (live runner verification, same as `store`); otherwise (no candidate, or a stale one) it falls back to `handleRetrieve`.
 
 `/sync/bootstrap` additionally fetches agents, config, `claude_artifacts`, `claude_settings`, `claude_skills` (Claude engine only), and session counts. `status: ok` vs `update` is determined by whether `out.reasons` is empty.
 
-The `host_auth_digests` table is written on store/retrieve, but the sync routes do not short-circuit via a digest lookup — they always inline a fresh `handleRetrieve` call.
+The `host_auth_digests` table is written on store/retrieve, but the sync routes do not short-circuit via a digest lookup — they always run the auth step described above.
 
 ## Encryption
 
@@ -99,11 +101,24 @@ Lose all keys and the encrypted rows are unreadable. Back up the keyring.
 - `POST /verify-claude` — Claude engine verification. Same contract.
 - `/skills/generate`, `/skills/assist`, `/projects/assist` — feature endpoints derived from the base URL.
 
-There is no `/exec` endpoint in this client. All runner calls use the `x-runner-auth` header with `AUTH_RUNNER_SHARED_SECRET` sent as-is.
+There is no `/exec` endpoint in this client. All runner calls use the `x-runner-auth` header with `AUTH_RUNNER_SHARED_SECRET` sent as-is. Every response also carries `reachable` (`false` only on a transport/timeout error — the runner responding with `ok: false` still counts as reachable) and, on failure, `reason`.
+
+## Background auth verification
+
+Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verification-worker.ts` starts an in-process worker (only when `AUTH_RUNNER_URL` is configured) that keeps the latest Codex and Claude canonical payloads verified in the background:
+
+- The first tick fires ~1 second after boot; subsequent ticks run every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s, floor 30s).
+- Each tick calls `canonical-auth-store.ts`'s `ensureServedVerification` for both engines, TTL-bounded by `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s): a payload verified within the TTL is left alone; otherwise the worker probes the runner live.
+- A `verified` verdict stamps `auth_payloads.verification_state` / `verification_checked_at`. A `failed` verdict (the runner reached the provider and the credentials don't work) also stamps `verification_reason` — this is what makes `/auth retrieve` refuse to serve that payload (`status: 'outdated'`, no `auth` blob).
+- If the runner returns a refreshed `updated_auth` with a newer digest, the worker persists it as a new canonical payload via the same `storeCandidate` path a `store` upload uses.
+- Concurrent probes for the same canonical row are collapsed in-process (the `verifyInflight` map in `canonical-auth-store.ts`), so a fleet of hosts hitting an expired token at the same moment doesn't spawn a refresh-token race.
+- A transport failure (`reachable: false`) leaves the stored state untouched and is reported as `unknown`, not `failed` — an infrastructure blip does not lock hosts out.
+
+`/auth retrieve` and `/sync/bootstrap`'s warm-launch path only ever read this stored verdict via `servedVerificationSnapshot` (synchronous, no I/O) — they never call `ensureServedVerification` themselves. `store` (both a direct upload and this worker's refresh path) is the only caller that performs a live runner call, via `storeCandidate`.
 
 ## Credentials file on the host
 
-The `clx` auth writer writes credentials to `~/.clx/auth/credentials.json` if that path exists, otherwise to `~/.claude/.credentials.json` (the upstream Claude CLI location). The write is atomic (temp file + rename) with 0600 permissions. The file is named `credentials.json`, not `auth.json`.
+The `clx` auth writer (`WriteAuth` in `wrappers/clx/internal/claude/auth_writer.go`) always writes `~/.claude/.credentials.json` (the upstream Claude CLI location) first, then additionally mirrors the same write to `~/.clx/auth/credentials.json` *only if that path already exists*. Reads (`selectedAuthFile`) pick whichever of the two candidate files is structurally usable and has the newest mtime, preferring `~/.claude/.credentials.json` on a tie. Both writes are atomic (temp file + rename) with 0600 permissions, serialized by an advisory flock on a sibling `.lock` file. Note the differing filenames: `~/.claude/.credentials.json` (dot-prefixed, upstream convention) vs. `~/.clx/auth/credentials.json` (no leading dot) — neither is named `auth.json`.
 
 ## Killing the pipeline in an emergency
 
@@ -117,7 +132,11 @@ The `clx` auth writer writes credentials to `~/.clx/auth/credentials.json` if th
 - api/src/routes/auth/index.ts (POST /auth retrieve+store, DELETE /auth, /sync/status, /sync/bootstrap)
 - api/src/services/host-auth.ts (authenticate, IP binding, refusal codes)
 - api/src/services/insecure-window.ts, api/src/services/insecure-window-admin.ts (window/grace math, domain allows, approvals)
+- api/src/services/canonical-auth-store.ts (storeCandidate, servedVerificationSnapshot, ensureServedVerification)
+- api/src/services/runner-validation.ts (canonical payload resolve/validate, digest, auths{} normalization)
 - api/src/services/runner-client.ts (verify, verifyClaude, feature endpoints)
+- api/src/ops/auth-verification-worker.ts (background verification loop)
 - api/src/services/reverse-dns.ts
 - api/src/security/secret-box.ts, api/src/security/keyring.ts
-- api/src/db/schema.ts (auth_entries, auth_payloads, host_auth_digests, insecure_auth_requests, insecure_domain_allows)
+- api/src/db/schema.ts (auth_entries, auth_payloads, host_auth_digests, host_auth_states, insecure_auth_requests, insecure_domain_allows)
+- wrappers/clx/internal/claude/auth_writer.go (host-side credentials file selection/write)

@@ -1,52 +1,27 @@
 ---
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
-verified: 2026-06-05
-sources: api/src/routes/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte
+verified: 2026-07-01
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
 
 ## Keyboard shortcuts
 
-Shortcuts are handled by the admin SPA. Modifier combinations (Ctrl/Alt/Cmd) are ignored; shortcuts pause while typing in an editable target.
+Shortcuts are bound globally in `frontend/src/routes/+layout.svelte` via `bindGlobalShortcuts()` (`frontend/src/lib/utils/shortcuts.ts`); the help overlay is `frontend/src/lib/components/shortcuts/ShortcutsModal.svelte`. The old chord/rail-group navigation (`h a`, `l c`, `s g`, …) is gone — a Cmd-K command palette replaced it.
 
-**Single-key shortcuts**
+Single-key shortcuts pause while typing in an editable target (`input`, `textarea`, `select`, or `contenteditable`) — except `Esc`, which always fires regardless of focus. `Ctrl`/`Cmd`+`K` is wired by a separate global listener and is **not** suppressed while typing.
 
 | Key | Action |
 |-----|--------|
-| `d` | Jump to `/admin/dashboard` |
-| `m` | Jump to `/admin/manual` |
-| `n` | New item (host, user, command, skill — contextual) |
-| `r` | Refresh the current view |
-| `t` | Toggle the visible drawer/panel |
-| `/` | Focus the active search box (or host search on dashboard) |
+| `Ctrl`/`Cmd` + `K` | Open/close the command palette |
+| `/` | Open the search modal (fuzzy search over hosts, projects, skills, users) |
+| `n` | New host — opens the "New host" sheet on `/hosts` |
 | `?` | Show the keyboard-shortcuts help modal |
-| `Esc` | Close open modal / dismiss |
+| `Esc` | Close the command palette (dialog-based overlays also close on `Esc` via their own handling) |
 
-**Prefixed shortcuts** (press the first letter, then the second)
-
-| Chord | Action |
-|-------|--------|
-| `h a` | Hosts — all |
-| `h s` | Hosts — secure |
-| `h i` | Hosts — insecure |
-| `h n` | New host |
-| `l c` | Logs — API |
-| `l m` | Logs — MCP |
-| `l e` | Logs — events |
-| `s g` | Settings — general |
-| `s u` | Settings — users |
-| `s a` | Settings — agents |
-| `s c` | Settings — OpenAI config |
-| `s l` | Settings — Claude |
-| `s i` | Settings — API keys |
-| `s k` | Settings — skills |
-| `s m` | Settings — memories |
-| `s p` | Settings — projects |
-| `s r` | Settings — profiles |
-
-Pressing the prefix key a second time in a row (e.g. `h h`) toggles the matching rail group open/closed instead of navigating.
+The command palette (`frontend/src/lib/components/command-palette/`) groups its results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It fuzzy-matches every top-level nav destination (Dashboard, Hosts, Projects, API Keys, Authoring, Logs, Settings) plus deep links (Logs/MCP, Logs/Events, Authoring/Agents, Account/Password, Account/Passkeys, Settings/Users, Manual), and exposes quick actions (New host, Quick VM, New project, New API key, Open shortcuts, Sign out) and theme switching — this is what replaced the old per-section chord shortcuts.
 
 ## API Keys
 
@@ -65,7 +40,7 @@ Key prefixes differ by engine:
 
 ### /api-keys admin page
 
-Navigate to **API Keys** in the admin sidebar (keyboard shortcut `s i`). The page header reads "API Keys" with subtitle "Issue and revoke programmatic access" and a **New key** button in the top-right corner.
+Navigate to **API Keys** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette). The page header reads "API Keys" with subtitle "Issue and revoke programmatic access" and a **New key** button in the top-right corner.
 
 The page is divided into two tabs: **OpenAI** and **Claude**. The active tab determines which engine the **New key** button targets.
 
@@ -81,7 +56,7 @@ Lists all keys for the engine with columns: Name, Key prefix (first 16 chars fol
 
 ### Creating a key
 
-Click **New key** (or use `s i` then **New key**). The dialog form has:
+Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
 - **Engine** — select "OpenAI (Codex)" or "Claude (Anthropic)"
 - **Name** — required text field
@@ -92,7 +67,7 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 
 ## Admin HTTP routes
 
-Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted.
+`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `openai-compat` (`/v1/*` + OpenAI key admin), `anthropic-compat` (`/anthropic/v1/*` + Claude key admin), `admin-auth-users`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects), and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted.
 
 ### Admin auth + passkeys
 
@@ -135,6 +110,7 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 | GET | `/admin/hosts/:id/auth` | api/src/routes/admin/hosts/index.ts |
 | GET | `/admin/hosts/:id/installer` | api/src/routes/admin/hosts/index.ts |
 | DELETE | `/admin/hosts/:id` | api/src/routes/admin/hosts/index.ts |
+| POST | `/admin/hosts/:id/engines` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/clear` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/roaming` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/secure` | api/src/routes/admin/hosts/index.ts |
@@ -222,6 +198,22 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 | POST | `/admin/skills/store` | api/src/routes/admin/config/index.ts |
 | DELETE | `/admin/skills/:slug` | api/src/routes/admin/config/index.ts |
 
+### Admin Claude client config and artifacts
+
+Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped to the Claude Code CLI client. This is distinct from `/admin/claude/settings` (in the settings table above), which configures the Anthropic-compat *proxy's* default model and max-tokens, not the CLI client config below.
+
+| Method | Route | Source |
+|--------|-------|--------|
+| GET | `/admin/claude/config` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/claude/config/render` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/claude/config/store` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/claude/:kind` | api/src/routes/admin/config/index.ts |
+| GET | `/admin/claude/:kind/:slug` | api/src/routes/admin/config/index.ts |
+| POST | `/admin/claude/:kind/store` | api/src/routes/admin/config/index.ts |
+| DELETE | `/admin/claude/:kind/:slug` | api/src/routes/admin/config/index.ts |
+
+`:kind` normalizes (via `api/src/services/claude-frontmatter.ts`) to one of `subagent`, `command`, or `output-style` — accepting both singular and plural forms in the URL.
+
 ### Admin API keys
 
 | Method | Route | Source |
@@ -239,7 +231,7 @@ Mounted by `api/src/routes/index.ts`. Method + path + the source file. All `/adm
 
 ### Admin projects
 
-Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts`. See [projects](/admin/manual/projects) for the full shape.
+Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts` (registered by the `projects-mcp` barrel alongside `api/src/routes/mcp/index.ts`). See [projects](/admin/manual/projects) for the full shape — the host-facing `/projects/*` routes aren't re-listed in the tables above for that reason.
 
 ### Admin manual
 
@@ -287,19 +279,37 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | POST | `/cli/auth/approve` | api/src/routes/cli-auth/index.ts |
 | POST | `/cli/auth/deny` | api/src/routes/cli-auth/index.ts |
 | GET/POST | `/mcp` | api/src/routes/mcp/index.ts |
+| GET | `/healthz` | api/src/routes/health.ts |
+| GET | `/readyz` | api/src/routes/health.ts |
+
+`/healthz` and `/readyz` are unauthenticated liveness/readiness probes — both return `{ ok: true, ts }`.
 
 ### OpenAI- and Anthropic-compatible APIs
 
-Under `/v1/*` — `api/src/routes/openai-compat/` — and `/anthropic/v1/*` — `api/src/routes/anthropic-compat/`. Each supports `chat/completions`, `responses`, `completions`, `embeddings`, `models`, plus CORS `OPTIONS`. Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface and `sk-ant-…` keys for the Anthropic-compat surface. Requests proxy through the shared runner with quota accounting.
+`/v1/*` handlers live in `api/src/routes/v1/index.ts`; the `api/src/routes/openai-compat/index.ts` barrel wires them up alongside the admin OpenAI key routes. It supports `chat/completions`, `responses`, `completions`, `models`, plus CORS `OPTIONS` (`embeddings` returns `501 feature_not_supported` — the runner backend has no embeddings support).
+
+`/anthropic/v1/*` handlers live in `api/src/routes/anthropic-v1/index.ts`; the `api/src/routes/anthropic-compat/index.ts` barrel wires them up alongside the admin Claude key routes. It supports `messages`, `completions` (deprecated but supported), `models`, `responses` (non-streaming only), plus CORS `OPTIONS` (`embeddings` returns `501` — Anthropic has no embeddings API). Note the Anthropic-compat surface uses `messages`, not `chat/completions` — the two proxies are not path-symmetric.
+
+Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface and `sk-ant-…` keys for the Anthropic-compat surface. Requests proxy through the shared runner with quota accounting.
 
 ## Source references
 
-- api/src/routes/index.ts (route mounting)
-- api/src/routes/admin/**/*.ts (every admin route)
-- api/src/routes/auth/index.ts, host/index.ts, cli-auth/index.ts (host-facing surface)
-- api/src/routes/wrapper-v2/index.ts, install/index.ts (wrapper + install endpoints)
+- api/src/routes/index.ts (top-level route mounting via `registerAllRoutes`)
+- api/src/routes/host-api/index.ts, admin-auth-users/index.ts, admin-overview-settings/index.ts, admin-content/index.ts (barrel modules that group the route files below)
+- api/src/routes/openai-compat/index.ts, anthropic-compat/index.ts (barrels wiring `/v1/*` and `/anthropic/v1/*` up with their admin key routes)
+- api/src/routes/admin/**/*.ts (every admin route: auth, hosts, settings, overview, users, config, keys, projects, manual)
+- api/src/routes/auth/index.ts, host/index.ts, cli-auth/index.ts, install/index.ts (host-facing surface)
+- api/src/routes/wrapper-v2/index.ts (wrapper bakery v2 endpoints)
+- api/src/routes/v1/index.ts, anthropic-v1/index.ts (actual OpenAI-compat and Anthropic-compat handlers)
+- api/src/routes/projects-client/index.ts (host-facing `/projects/*`, mirrored by the admin projects routes)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
+- api/src/routes/health.ts (liveness/readiness probes)
 - api/src/ws/server.ts (admin websocket)
 - api/src/services/openai-keys.ts, api/src/services/claude-keys.ts (key prefixes and auth)
+- api/src/services/claude-frontmatter.ts (`:kind` normalization for Claude artifacts)
 - api/src/db/schema.ts (openai_api_keys table schema)
 - frontend/src/routes/api-keys/+page.svelte (API Keys admin page)
+- frontend/src/lib/utils/shortcuts.ts (global single-key shortcut handler)
+- frontend/src/routes/+layout.svelte (shortcut + Cmd-K wiring)
+- frontend/src/lib/components/shortcuts/ShortcutsModal.svelte (shortcuts help modal)
+- frontend/src/lib/components/command-palette/commands.ts (command palette registry)

@@ -1,11 +1,11 @@
 ---
 title: Roles and capabilities
 section: Admin access and identity
-verified: 2026-06-05
-sources: api/src/services/admin-auth.ts, api/src/services/admin-users.ts, api/src/http/plugins/auth-admin.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/users/index.ts
+verified: 2026-07-01
+sources: api/src/services/admin-auth.ts, api/src/services/admin-users.ts, api/src/http/plugins/auth-admin.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/users/index.ts, frontend/src/lib/components/users/UsersPage.svelte, frontend/src/lib/components/users/userSchema.ts, frontend/src/lib/api/types.ts
 ---
 
-The current admin gate is single-tier: every protected admin route attaches `app.requireAdmin` (from `api/src/http/plugins/auth-admin.ts`), which requires an active session backed by an `admin_users` row with `active = 1`. A role string is stored on each user (`admin_users.access_level`) and surfaced in *Settings → Users*; it is the hook for finer-grained gating but is not currently used to differentiate request authorization.
+Most of the admin gate is still single-tier: every protected admin route attaches `app.requireAdmin` (from `api/src/http/plugins/auth-admin.ts`), which requires an active session backed by an `admin_users` row with `active = 1` and does not otherwise look at the caller's role. A role string is stored on each user (`admin_users.access_level`) and surfaced in *Settings → Users*. One area now does differentiate on it: the user-management mutation routes (`POST /admin/users`, `POST /admin/users/:id`, `DELETE /admin/users/:id`, `POST /admin/users/wipe`) additionally attach a `requireUserManagementRole` preHandler (`api/src/routes/admin/users/index.ts`) that requires `owner` or `admin` — every other role (`viewer`, `fleet_operator`, `trusted_user`, `user`) can still list users via `GET /admin/users` but gets a 403 (`admin_role_required`) on any of the mutating routes. The *Settings → Users* page itself does not hide its Add/Edit/Delete/Wipe controls for those roles — the 403 only surfaces when the request is submitted. Outside of user management, there is still no capability matrix: an authenticated admin of any role can call any other admin route.
 
 ## Role labels
 
@@ -44,7 +44,7 @@ Every gated admin endpoint has `preHandler: app.requireAdmin`. That decorator:
 3. Rejects with 401 (`admin_required`) when no row matches, with 403 (`admin_disabled`) when the user row is inactive.
 4. On success, attaches `req.admin = { user, session }` for the route handler.
 
-There is no further capability matrix between "has session" and "doesn't"; an authenticated admin can call any admin route. The legacy four-tier matrix (`settings.manage` / `hosts.manage` / `hosts.activate` / `users.manage`) is not currently enforced.
+Beyond that, there is no further capability matrix between "has session" and "doesn't" — an authenticated admin of any role can call almost any admin route. The one exception is `/admin/users/*` mutations (see above), gated by `requireUserManagementRole` to `owner`/`admin`. The legacy four-tier matrix (`settings.manage` / `hosts.manage` / `hosts.activate` / `users.manage`) is not otherwise enforced.
 
 ## First-run path
 
@@ -67,15 +67,15 @@ The page provides:
 
 `UserFormDialog` accepts username, password, role (from `ROLE_OPTIONS`), and active status. The frontend enforces a stricter password policy than the backend: minimum 12 characters and at least two character classes (lowercase, uppercase, digit, symbol).
 
-Submitting the form calls `POST /admin/users` (create) or `POST /admin/users/:id` (update). The mutation is gated by `requireAdmin`. `AdminUserService.update` validates the new role against `VALID_ACCESS_LEVELS` and refuses changes that would leave zero active `owner`/`admin` rows (`countActiveAdminsExcluding`).
+Submitting the form calls `POST /admin/users` (create) or `POST /admin/users/:id` (update). The mutation is gated by `requireAdmin` plus `requireUserManagementRole` (caller must be `owner`/`admin`). `AdminUserService.update` validates the new role against `VALID_ACCESS_LEVELS` and refuses changes that would leave zero active `owner`/`admin` rows (`countActiveAdminsExcluding`).
 
 ### Deleting a single user
 
-`ConfirmDeleteDialog` triggers `DELETE /admin/users/:id`. The same `guardLastAdmin` guard prevents deleting the last active owner or admin.
+`ConfirmDeleteDialog` triggers `DELETE /admin/users/:id`, gated the same way (`requireAdmin` + `requireUserManagementRole`). The `guardLastAdmin` guard prevents deleting the last active owner or admin.
 
 ## The wipe path
 
-`POST /admin/users/wipe` deletes all users **except the currently authenticated caller**. The caller's identity is taken from `req.admin.user.id` (set by `requireAdmin`) and is always excluded — there is no payload option to include the caller in the wipe. The endpoint requires `{ confirm: 'WIPE' }` in the request body.
+`POST /admin/users/wipe` (gated by `requireAdmin` + `requireUserManagementRole`, so only `owner`/`admin` can call it) deletes all users **except the currently authenticated caller**. The caller's identity is taken from `req.admin.user.id` (set by `requireAdmin`) and is always excluded — there is no payload option to include the caller in the wipe. The endpoint requires `{ confirm: 'WIPE' }` in the request body.
 
 After a wipe, all other users' sessions are invalidated and an `admin.user.wipe` event is written. Because the caller is preserved, `isEnforced()` remains true and the bootstrap path does not reopen.
 
@@ -85,4 +85,7 @@ After a wipe, all other users' sessions are invalidated and an `admin.user.wipe`
 - api/src/services/admin-users.ts (create/update/delete/wipe + "first user must be admin" + "at least one active admin")
 - api/src/http/plugins/auth-admin.ts (requireAdmin decorator)
 - api/src/routes/admin/auth/index.ts (auth endpoints)
-- api/src/routes/admin/users/index.ts (user CRUD)
+- api/src/routes/admin/users/index.ts (user CRUD; requireUserManagementRole owner/admin gate on mutations)
+- frontend/src/lib/components/users/UsersPage.svelte (role sort order; no client-side hiding of mutation controls)
+- frontend/src/lib/components/users/userSchema.ts (ROLE_OPTIONS, password character-mix rule)
+- frontend/src/lib/api/types.ts (USER_ROLES frontend type)
