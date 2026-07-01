@@ -353,11 +353,22 @@ export class WrapperSigningUnavailableError extends Error {
 }
 
 async function bumpConfigVersion(db: Database, hostId: number): Promise<number> {
-  const rows = await db.select().from(hostsTable).where(eq(hostsTable.id, hostId)).limit(1);
-  const cur = rows[0]?.configVersion ?? 0;
-  const next = cur + 1;
-  await db.update(hostsTable).set({ configVersion: next }).where(eq(hostsTable.id, hostId));
-  return next;
+  return db.transaction(async (tx) => {
+    // SELECT ... FOR UPDATE locks the row so concurrent bakes for the same
+    // host serialize instead of both reading the same `cur` and computing
+    // the same `next` (which would stamp two different payloads with an
+    // identical config_version).
+    const rows = await tx
+      .select({ configVersion: hostsTable.configVersion })
+      .from(hostsTable)
+      .where(eq(hostsTable.id, hostId))
+      .for('update')
+      .limit(1);
+    const cur = rows[0]?.configVersion ?? 0;
+    const next = cur + 1;
+    await tx.update(hostsTable).set({ configVersion: next }).where(eq(hostsTable.id, hostId));
+    return next;
+  });
 }
 
 async function stampBakedAt(

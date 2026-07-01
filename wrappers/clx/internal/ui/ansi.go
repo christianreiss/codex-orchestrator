@@ -162,6 +162,11 @@ func looksUTF8() bool {
 	return false
 }
 
+// maxAtoiSafe bounds the values atoiSafe will return; callers use this for
+// terminal widths, so anything beyond a generous sanity limit is rejected
+// rather than risking overflow or a huge strings.Repeat allocation downstream.
+const maxAtoiSafe = 1000
+
 func atoiSafe(s string) int {
 	n := 0
 	for _, c := range s {
@@ -169,6 +174,9 @@ func atoiSafe(s string) int {
 			return 0
 		}
 		n = n*10 + int(c-'0')
+		if n > maxAtoiSafe {
+			return 0
+		}
 	}
 	return n
 }

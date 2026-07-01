@@ -292,12 +292,24 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 	}
 	changed := !bytesEqual(userRaw, merged)
 	if changed {
-		if err := atomicWrite(path, merged, 0o644); err != nil {
+		// Preserve the existing mode, defaulting to private; the merged env.*
+		// block can carry fleet-injected secrets (API keys, tokens), so a
+		// freshly created settings.json must not be world-readable.
+		mode := os.FileMode(0o600)
+		if fi, serr := os.Stat(path); serr == nil {
+			mode = fi.Mode().Perm()
+		}
+		if err := atomicWrite(path, merged, mode); err != nil {
 			logger.Debug("merged settings write failed", "err", err)
 			return mcpChanged
 		}
 		if home, herr := os.UserHomeDir(); herr == nil {
-			_ = atomicWrite(filepath.Join(home, ".clx", "config", "settings.json"), merged, 0o644)
+			mirrorPath := filepath.Join(home, ".clx", "config", "settings.json")
+			mirrorMode := os.FileMode(0o600)
+			if fi, serr := os.Stat(mirrorPath); serr == nil {
+				mirrorMode = fi.Mode().Perm()
+			}
+			_ = atomicWrite(mirrorPath, merged, mirrorMode)
 		}
 	}
 	if serr := saveManagedState(newState); serr != nil {
@@ -323,7 +335,19 @@ func stripManagedSettings(logger *slog.Logger) {
 		return
 	}
 	if !bytesEqual(userRaw, merged) {
-		_ = atomicWrite(path, merged, 0o644)
+		mode := os.FileMode(0o600)
+		if fi, serr := os.Stat(path); serr == nil {
+			mode = fi.Mode().Perm()
+		}
+		_ = atomicWrite(path, merged, mode)
+		if home, herr := os.UserHomeDir(); herr == nil {
+			mirrorPath := filepath.Join(home, ".clx", "config", "settings.json")
+			mirrorMode := os.FileMode(0o600)
+			if fi, serr := os.Stat(mirrorPath); serr == nil {
+				mirrorMode = fi.Mode().Perm()
+			}
+			_ = atomicWrite(mirrorPath, merged, mirrorMode)
+		}
 	}
 	_ = saveManagedState(managedState{Version: 1, KeyPaths: []string{}, PermissionRules: map[string][]string{}})
 }

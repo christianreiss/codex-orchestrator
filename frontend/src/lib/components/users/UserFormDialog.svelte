@@ -50,7 +50,7 @@
       username = initial?.username ?? "";
       email = initial?.email ?? "";
       access_level = (ROLE_OPTIONS.find((r) => r.value === initial?.access_level)?.value
-        ?? (isEdit ? "user" : "admin")) as UserRole;
+        ?? "user") as UserRole;
       active = initial?.active ?? true;
       password = "";
       passwordConfirm = "";

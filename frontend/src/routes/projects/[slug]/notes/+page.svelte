@@ -119,9 +119,9 @@
       if (ctx?.previous !== undefined) qc.setQueryData(projectKeys.notes(slug), ctx.previous);
       toast.error(err instanceof ApiError ? err.message : "Could not update note");
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       toast.success("Note updated");
-      cancelEdit();
+      if (editingId === vars.id) cancelEdit();
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: projectKeys.notes(slug) });

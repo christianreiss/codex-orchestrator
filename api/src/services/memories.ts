@@ -107,22 +107,34 @@ export class MemoriesService {
       if (orExpr) conditions.push(orExpr);
     }
 
-    const rows = await this.db
-      .select()
-      .from(mcpMemories)
-      .where(and(...conditions))
-      .orderBy(desc(mcpMemories.updatedAt))
-      .limit(limit * (searchTags.length > 0 ? 3 : 1));
-
+    // Tag filtering happens in JS below (tags is a JSON column, not indexed
+    // for containment queries), so page through the query results in batches
+    // until we have `limit` matches or the underlying result set is
+    // exhausted. A single fixed-size fetch would silently drop matches that
+    // fall outside the first page whenever a tag filter is applied.
+    const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
     const filtered: MemoryView[] = [];
-    for (const r of rows) {
-      const view = toView(r);
-      if (searchTags.length > 0) {
-        const rowTags = view.tags.map((t) => t.toLowerCase());
-        if (!searchTags.every((t) => rowTags.includes(t))) continue;
+    let offset = 0;
+    for (;;) {
+      const rows = await this.db
+        .select()
+        .from(mcpMemories)
+        .where(and(...conditions))
+        .orderBy(desc(mcpMemories.updatedAt), desc(mcpMemories.id))
+        .limit(batchSize)
+        .offset(offset);
+
+      for (const r of rows) {
+        const view = toView(r);
+        if (searchTags.length > 0) {
+          const rowTags = view.tags.map((t) => t.toLowerCase());
+          if (!searchTags.every((t) => rowTags.includes(t))) continue;
+        }
+        filtered.push(view);
+        if (filtered.length >= limit) break;
       }
-      filtered.push(view);
-      if (filtered.length >= limit) break;
+      if (filtered.length >= limit || rows.length < batchSize) break;
+      offset += batchSize;
     }
 
     return {

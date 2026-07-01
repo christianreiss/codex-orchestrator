@@ -64,6 +64,8 @@
   $effect(() => {
     if (!open) {
       if (debounceTimer) clearTimeout(debounceTimer);
+      ++inflightToken;
+      results = [];
       return;
     }
     refreshResults(query);

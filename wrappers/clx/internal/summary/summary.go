@@ -176,6 +176,8 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		authTone = ui.ToneFail
 	case "insecure":
 		authTone = ui.ToneWarn
+	default:
+		authTone = ui.ToneWarn
 	}
 	// A live-verification failure overrides the digest-derived tone: the token
 	// the host would launch with does not authenticate, so the dot must read red
@@ -202,6 +204,8 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 			rt = ui.ToneWarn
 		case "fail", "broken", "":
 			rt = ui.ToneFail
+		default:
+			rt = ui.ToneWarn
 		}
 		dots = append(dots, ui.HealthDot{Name: "runner", Tone: rt})
 	}

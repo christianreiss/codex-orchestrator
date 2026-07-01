@@ -93,8 +93,8 @@ function toApiError(err: unknown): ApiError {
     if (status === 401) return new ApiError(fe.message ?? 'Unauthorized', { status, code: 'unauthorized' });
     if (status === 404) return new ApiError(fe.message ?? 'Not found', { status, code: 'not_found' });
     if (status === 415) return new ApiError(fe.message ?? 'Unsupported media type', { status, code: 'unsupported_media_type' });
+    if (status >= 500) return new ApiError('Internal server error', { status, code: fe.code ?? 'server_error' });
     return new ApiError(fe.message ?? 'Error', { status });
   }
-  const msg = err instanceof Error ? err.message : String(err);
-  return new ApiError(msg || 'Internal server error', { status: 500, code: 'server_error' });
+  return new ApiError('Internal server error', { status: 500, code: 'server_error' });
 }

@@ -94,11 +94,11 @@ func TestEnsureCanDestructivelyTouchOtherUsersRefusesWhenNonRootAndNoSudo(t *tes
 	}
 	// We can't reliably guarantee sudo is unavailable in every CI; if the
 	// test runner has passwordless sudo, the refusal won't fire.
-	if sudoWorksNonInteractively() {
+	if sudoWorksNonInteractively(context.Background()) {
 		t.Skip("passwordless sudo available — refusal path skipped")
 	}
 	var buf bytes.Buffer
-	err := ensureCanDestructivelyTouchOtherUsers(&buf, []string{"bob"})
+	err := ensureCanDestructivelyTouchOtherUsers(context.Background(), &buf, []string{"bob"})
 	if err == nil {
 		t.Fatal("expected refusal error, got nil")
 	}

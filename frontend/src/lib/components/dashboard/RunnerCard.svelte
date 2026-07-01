@@ -73,7 +73,13 @@
     buildEngineRow("claude", "Claude"),
   ]);
 
-  const anyEngineRunning = $derived(engineRows.some((row) => row.token === "running"));
+  // Note: the backend only ever persists `state: 'idle' | 'ok' | 'fail'` for
+  // runner engines (see `RunnerProxyService.run`), so `row.token === "running"`
+  // never actually occurs — /admin/runner/run(-claude) are synchronous calls
+  // that resolve only once the sidecar verification finishes. Gate on the
+  // client-side mutation pending flags instead so triggering one engine's
+  // verification also disables the other engine's button while in flight.
+  const anyEngineRunning = $derived(pending("codex") || pending("claude"));
 
   function buildEngineRow(engine: EngineKey, label: string): EngineRow {
     const status = engineStatus(engine);
@@ -207,6 +213,12 @@
       </CardDescription>
     </div>
     <div class="flex shrink-0 items-center gap-2">
+      {#if $state.isError && runner}
+        <Badge variant="warning" title={$state.error?.message ?? "Runner status may be stale"}>
+          <AlertTriangle class="mr-1 h-3 w-3" />
+          stale
+        </Badge>
+      {/if}
       <Badge variant={sharedVariant}>{sharedLabel}</Badge>
     </div>
   </CardHeader>

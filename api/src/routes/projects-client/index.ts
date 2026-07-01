@@ -18,7 +18,7 @@ import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, type Engine } from '../../util/engine.js';
-import { UnauthorizedError } from '../../http/errors.js';
+import { UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 function extractEngine(input: unknown): Engine {
@@ -35,6 +35,12 @@ function parseSlug(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+function parseInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return parseInt(value.trim(), 10);
+  return null;
 }
 
 function requireHost(req: FastifyRequest) {
@@ -98,11 +104,19 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   });
   app.post('/projects/:slug/notes/:id', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.upsertNote(parseSlug(slug), Number(id), (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+    const noteId = parseInteger(id);
+    if (noteId === null || noteId <= 0) {
+      throw new ValidationError('note id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.upsertNote(parseSlug(slug), noteId, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
   });
   app.delete('/projects/:slug/notes/:id', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.deleteNote(parseSlug(slug), Number(id), requireHost(req)));
+    const noteId = parseInteger(id);
+    if (noteId === null || noteId <= 0) {
+      throw new ValidationError('note id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.deleteNote(parseSlug(slug), noteId, requireHost(req)));
   });
 
   // Todos
@@ -116,19 +130,35 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   });
   app.post('/projects/:slug/todos/:id', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.updateTodo(parseSlug(slug), Number(id), (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+    const todoId = parseInteger(id);
+    if (todoId === null || todoId <= 0) {
+      throw new ValidationError('todo id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.updateTodo(parseSlug(slug), todoId, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
   });
   app.post('/projects/:slug/todos/:id/done', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.setTodoDone(parseSlug(slug), Number(id), true, requireHost(req)));
+    const todoId = parseInteger(id);
+    if (todoId === null || todoId <= 0) {
+      throw new ValidationError('todo id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.setTodoDone(parseSlug(slug), todoId, true, requireHost(req)));
   });
   app.post('/projects/:slug/todos/:id/undone', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.setTodoDone(parseSlug(slug), Number(id), false, requireHost(req)));
+    const todoId = parseInteger(id);
+    if (todoId === null || todoId <= 0) {
+      throw new ValidationError('todo id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.setTodoDone(parseSlug(slug), todoId, false, requireHost(req)));
   });
   app.delete('/projects/:slug/todos/:id', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.deleteTodo(parseSlug(slug), Number(id), requireHost(req)));
+    const todoId = parseInteger(id);
+    if (todoId === null || todoId <= 0) {
+      throw new ValidationError('todo id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.deleteTodo(parseSlug(slug), todoId, requireHost(req)));
   });
 
   // Files
@@ -142,7 +172,11 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   });
   app.delete('/projects/:slug/files/:id', { preHandler: auth }, async (req) => {
     const { slug, id } = req.params as { slug: string; id: string };
-    return ok(await projects.deleteFile(parseSlug(slug), Number(id), requireHost(req)));
+    const fileId = parseInteger(id);
+    if (fileId === null || fileId <= 0) {
+      throw new ValidationError('file id must be a positive integer', { param: 'id' });
+    }
+    return ok(await projects.deleteFile(parseSlug(slug), fileId, requireHost(req)));
   });
 
   // Feedback

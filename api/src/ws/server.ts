@@ -31,7 +31,7 @@ export async function registerWsServer(app: FastifyInstance, env: Env): Promise<
         if (!ctx) throw new UnauthorizedError('Admin session required', 'admin_required');
       },
     },
-    (socket: Socket) => {
+    (socket: Socket, req: FastifyRequest) => {
       socket.send(JSON.stringify({ type: 'hello', ts: nowIso() }));
       const unsub = wsPublisher.subscribe((evt) => {
         if (socket.readyState !== 1) return;
@@ -43,11 +43,18 @@ export async function registerWsServer(app: FastifyInstance, env: Env): Promise<
       });
       const interval = setInterval(() => {
         if (socket.readyState !== 1) return;
-        try {
-          socket.send(JSON.stringify({ type: 'ping', ts: nowIso() }));
-        } catch {
-          /* drop */
-        }
+        void (async () => {
+          const ctx = await app.resolveAdmin?.(req);
+          if (!ctx) {
+            socket.close();
+            return;
+          }
+          try {
+            socket.send(JSON.stringify({ type: 'ping', ts: nowIso() }));
+          } catch {
+            /* drop */
+          }
+        })();
       }, (env.ADMIN_WS_HEARTBEAT_SECONDS ?? 30) * 1000);
       socket.on('close', () => {
         clearInterval(interval);

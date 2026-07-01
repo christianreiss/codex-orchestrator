@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { hostUsers, type Host } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { nowIso } from '../util/timestamp.js';
@@ -63,22 +63,18 @@ export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
       const u = (username ?? '').trim();
       if (u !== '') {
         const now = nowIso();
-        const existing = await db.select().from(hostUsers).where(eq(hostUsers.hostId, hostId)).limit(50);
-        const found = existing.find((e) => e.username === u);
-        if (found) {
-          await db
-            .update(hostUsers)
-            .set({ lastSeen: now, hostname: hostname ?? found.hostname ?? null })
-            .where(eq(hostUsers.id, found.id));
-        } else {
-          await db.insert(hostUsers).values({
+        await db
+          .insert(hostUsers)
+          .values({
             hostId,
             username: u,
             hostname: hostname ?? undefined,
             firstSeen: now,
             lastSeen: now,
+          })
+          .onDuplicateKeyUpdate({
+            set: { lastSeen: now, hostname: sql`coalesce(values(hostname), hostname)` },
           });
-        }
       }
       return readUsers(db, hostId);
     },

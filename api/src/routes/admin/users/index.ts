@@ -2,8 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
-import { NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
-import { createAdminAuthService } from '../../../services/admin-auth.js';
+import { ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
+import { ROLE_ADMIN, ROLE_OWNER, createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminUsersService } from '../../../services/admin-users.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -40,6 +40,20 @@ export async function registerAdminUsersRoutes(
     ) => Promise<void>)(req, reply, () => undefined);
   };
 
+  // Mutating user management (create/update/delete/wipe other admin
+  // accounts) is restricted to owner/admin accounts. Every other access
+  // level (viewer, fleet_operator, trusted_user, user) may still read the
+  // roster via GET, but must not be able to manage accounts, including its
+  // own. When `req.admin` is unset (the bootstrap path above), there is
+  // nothing to check yet — the service layer already requires the first
+  // user to be an owner/admin.
+  const requireUserManagementRole = async (req: FastifyRequest): Promise<void> => {
+    const level = req.admin?.user.accessLevel;
+    if (level !== undefined && level !== ROLE_OWNER && level !== ROLE_ADMIN) {
+      throw new ForbiddenError('Insufficient access level', 'admin_role_required');
+    }
+  };
+
   // -----------------------------------------------------------------------
   // GET /admin/users
   // -----------------------------------------------------------------------
@@ -58,25 +72,30 @@ export async function registerAdminUsersRoutes(
     access_level: z.string(),
     active: z.union([z.boolean(), z.string(), z.number()]).optional(),
   });
-  app.post('/admin/users', { preHandler: [requireAdminOrBootstrap] }, async (req: FastifyRequest) => {
-    const body = createSchema.parse((req.body ?? {}) as Record<string, unknown>);
-    const user = await users.create({
-      name: body.name,
-      username: body.username,
-      email: body.email,
-      password: body.password,
-      access_level: body.access_level,
-      active: typeof body.active === 'boolean' ? body.active : body.active === undefined ? true : Boolean(body.active),
-    });
-    return ok({ user });
-  });
+  app.post(
+    '/admin/users',
+    { preHandler: [requireAdminOrBootstrap, requireUserManagementRole] },
+    async (req: FastifyRequest) => {
+      const body = createSchema.parse((req.body ?? {}) as Record<string, unknown>);
+      const user = await users.create({
+        name: body.name,
+        username: body.username,
+        email: body.email,
+        password: body.password,
+        access_level: body.access_level,
+        active:
+          typeof body.active === 'boolean' ? body.active : body.active === undefined ? true : Boolean(body.active),
+      });
+      return ok({ user });
+    },
+  );
 
   // -----------------------------------------------------------------------
   // POST /admin/users/wipe — must precede the dynamic /:id route
   // -----------------------------------------------------------------------
   app.post(
     '/admin/users/wipe',
-    { preHandler: [app.requireAdmin] },
+    { preHandler: [app.requireAdmin, requireUserManagementRole] },
     async (req: FastifyRequest) => {
       const adminCtx = req.admin;
       if (!adminCtx) throw new UnauthorizedError();
@@ -104,7 +123,7 @@ export async function registerAdminUsersRoutes(
     .strict();
   app.post(
     '/admin/users/:id',
-    { preHandler: [app.requireAdmin] },
+    { preHandler: [app.requireAdmin, requireUserManagementRole] },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);
@@ -131,7 +150,7 @@ export async function registerAdminUsersRoutes(
   // -----------------------------------------------------------------------
   app.delete(
     '/admin/users/:id',
-    { preHandler: [app.requireAdmin] },
+    { preHandler: [app.requireAdmin, requireUserManagementRole] },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);

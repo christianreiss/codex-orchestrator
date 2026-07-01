@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -122,7 +124,10 @@ func installCrontab() error {
 }
 
 func installUserCron(bin string, min, hr int) error {
-	cur, _ := readCrontab()
+	cur, err := readCrontab()
+	if err != nil {
+		return err
+	}
 	lines := stripManaged(cur)
 	home, _ := os.UserHomeDir()
 	logFile := filepath.Join(home, ".codex", "cron.log")
@@ -446,6 +451,21 @@ func pingCronCheck(ctx context.Context, cfg *config.Config) error {
 	return err
 }
 
+// sameHost reports whether target and base parse as URLs with the same host
+// (including port). Used to gate the outbound API key header so a tampered or
+// misdirected download URL can't exfiltrate it to an arbitrary third party.
+func sameHost(target, base string) bool {
+	t, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	b, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return t.Host != "" && t.Host == b.Host
+}
+
 // resolveURL returns abs when it already has a scheme; otherwise it prefixes
 // abs with the configured orchestrator base URL.
 func resolveURL(base, abs string) string {
@@ -469,11 +489,18 @@ func downloadAndSwap(ctx context.Context, cfg *config.Config, url, expectedSHA, 
 	if err != nil {
 		return err
 	}
-	if cfg.Orchestrator.APIKey != "" {
+	// Only attach the orchestrator API key when the download URL actually
+	// resolves back to the configured orchestrator host — resolveURL passes
+	// through absolute URLs unchanged, so a tampered/misconfigured /cron/check
+	// response pointing elsewhere must never leak the live API key.
+	if cfg.Orchestrator.APIKey != "" && sameHost(url, cfg.Orchestrator.BaseURL) {
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
 	}
 	req.Header.Set("User-Agent", "cdx-cron-update/"+WrapperVersion)
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{
+		Timeout:   5 * time.Minute,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Orchestrator.AllowInsecure}},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
@@ -502,21 +529,49 @@ func downloadAndSwap(ctx context.Context, cfg *config.Config, url, expectedSHA, 
 	if !strings.EqualFold(got, expectedSHA) {
 		return fmt.Errorf("sha256 mismatch (got %s, want %s)", got, expectedSHA)
 	}
+	// Sanity-check the downloaded binary actually runs on this host (catches
+	// wrong arch, a server bug, or a truncated-but-hash-matching build
+	// artifact) before it ever gets installed over dest. installWrapperTemp's
+	// swap is a rename (atomic on the same filesystem) or a single `sudo
+	// install`, so failing here means dest is never touched — the previous
+	// good binary is left in place with no separate backup/restore needed.
+	if err := verifyWrapperBinary(ctx, tmp); err != nil {
+		return err
+	}
 	if err := installWrapperTemp(tmp, dest); err != nil {
 		return err
 	}
 	return nil
 }
 
-func createWrapperTemp(dest string) (string, *os.File, error) {
-	tmp := dest + ".cron-new"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err == nil {
-		return tmp, f, nil
-	}
-	f, err = os.CreateTemp("", filepath.Base(dest)+"-cron-*.new")
+// verifyWrapperBinary runs the freshly downloaded wrapper with --version to
+// confirm it is a runnable binary for this host before installWrapperTemp
+// swaps it over the live executable.
+func verifyWrapperBinary(ctx context.Context, tmp string) error {
+	vctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(vctx, tmp, "--version")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", nil, err
+		return fmt.Errorf("new wrapper binary failed sanity check (%s --version): %w: %s", tmp, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// createWrapperTemp creates a unique, per-process temp file to download the
+// new wrapper into. Using os.CreateTemp (rather than a fixed dest+".cron-new"
+// name) ensures two overlapping `cdx --cron run` invocations never write into
+// the same inode: each gets its own exclusively-created path, so one
+// process's rename over dest can never race with another's still-open
+// download.
+func createWrapperTemp(dest string) (string, *os.File, error) {
+	pattern := filepath.Base(dest) + ".cron-new-*"
+	f, err := os.CreateTemp(filepath.Dir(dest), pattern)
+	if err != nil {
+		f, err = os.CreateTemp("", filepath.Base(dest)+"-cron-*.new")
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	if chmodErr := f.Chmod(0o755); chmodErr != nil {
 		_ = f.Close()

@@ -81,7 +81,18 @@ export class AdminPasswordService {
   async requestReset(username: string): Promise<{ delivered: boolean }> {
     const user = await this.auth.findUserByUsername(username);
     if (!user || user.active !== 1) {
-      return { delivered: false };
+      // Do equivalent-cost dummy work (token generation + a side-effect-free
+      // DB round trip) so an unknown username produces neither a latency nor
+      // a response-shape signal distinguishable from a known one, and always
+      // report success per the docstring above.
+      const dummyToken = randomHex(32);
+      const dummyHash = sha256(dummyToken);
+      await this.db
+        .select({ id: adminPasswordResets.id })
+        .from(adminPasswordResets)
+        .where(eq(adminPasswordResets.tokenHash, dummyHash))
+        .limit(1);
+      return { delivered: true };
     }
 
     const token = randomHex(32);
@@ -117,7 +128,9 @@ export class AdminPasswordService {
       { broadcast: false },
     );
 
-    return { delivered: result.delivered };
+    // Always report success to the caller (see docstring); the real
+    // delivery outcome is preserved above only in the internal audit event.
+    return { delivered: true };
   }
 
   async applyReset(token: string, newPassword: string, confirmPassword: string): Promise<SanitizedAdminUser> {

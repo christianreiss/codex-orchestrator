@@ -33,7 +33,12 @@
   // svelte-ignore state_referenced_locally
   let engine = $state<ApiKeyEngine>(defaultEngine);
   let name = $state("");
-  let rateLimitRpm = $state(60);
+  // Tracked as a string (not bind:value to a number $state) because clearing
+  // a <input type="number"> to empty does not propagate to a bound numeric
+  // Svelte state -- the state silently keeps its last valid value while the
+  // input displays empty, which let an emptied field slip through as "60"
+  // even with `required` set. A string mirrors the input's real content.
+  let rateLimitRpm = $state("60");
   let expiresEnabled = $state(false);
   let expiresAt = $state(""); // datetime-local string
 
@@ -46,7 +51,7 @@
     if (open) {
       engine = defaultEngine;
       name = "";
-      rateLimitRpm = 60;
+      rateLimitRpm = "60";
       expiresEnabled = false;
       expiresAt = "";
       issued = null;
@@ -87,9 +92,15 @@
       return;
     }
     const rpm = Number(rateLimitRpm);
+    if (!Number.isFinite(rpm) || rpm <= 0) {
+      toast.error("Rate limit is required", {
+        description: "Enter a positive number of requests per minute.",
+      });
+      return;
+    }
     const payload: CreateApiKeyPayload = {
       name: trimmed,
-      rate_limit_rpm: Number.isFinite(rpm) && rpm > 0 ? rpm : 60,
+      rate_limit_rpm: rpm,
       expires_at: expiresEnabled ? toIso(expiresAt) : null,
     };
     $createMut.mutate({ engine, payload });
@@ -110,11 +121,23 @@
   }
 
   function close() {
+    if ($createMut.isPending) return;
     open = false;
+  }
+
+  // Guard against Escape/overlay-click/close-button dismissal while a create
+  // request is still in flight, so a stale onSuccess can't hijack the
+  // one-time key reveal screen out from under a second, unrelated submission.
+  function handleOpenChange(next: boolean) {
+    if (!next && $createMut.isPending) {
+      open = true;
+      return;
+    }
+    open = next;
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content class="sm:max-w-md">
     {#if issued}
       <Dialog.Header>
@@ -201,6 +224,7 @@
               type="number"
               min="1"
               max="100000"
+              required
               bind:value={rateLimitRpm}
             />
           </div>
@@ -231,7 +255,12 @@
         </div>
 
         <Dialog.Footer>
-          <Button type="button" variant="outline" onclick={close}>Cancel</Button>
+          <Button
+            type="button"
+            variant="outline"
+            onclick={close}
+            disabled={$createMut.isPending}>Cancel</Button
+          >
           <Button type="submit" disabled={$createMut.isPending}>
             {$createMut.isPending ? "Creating…" : "Create key"}
           </Button>

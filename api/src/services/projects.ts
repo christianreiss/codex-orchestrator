@@ -14,7 +14,7 @@
  * additionally check the flag — the legacy admin paths bypassed the gate
  * for management operations as well, so we follow that convention.
  */
-import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   coordProjectEvents,
@@ -191,31 +191,36 @@ export class ProjectsService {
       throw new Error('recordEvent requires a stored project');
     }
     const nowTs = nowIso();
-    // Increment latest_event_seq and read back the new value.
-    await this.db
-      .update(coordProjects)
-      .set({ latestEventSeq: sql`${coordProjects.latestEventSeq} + 1`, updatedAt: nowTs })
-      .where(eq(coordProjects.id, projectId));
-    const seqRows = await this.db
-      .select({ seq: coordProjects.latestEventSeq })
-      .from(coordProjects)
-      .where(eq(coordProjects.id, projectId))
-      .limit(1);
-    const seq = seqRows[0]?.seq ?? 0;
+    // Increment latest_event_seq and read back the new value atomically:
+    // lock the project row for the duration of the transaction so concurrent
+    // mutations on the same project can't allocate the same seq.
+    return await this.db.transaction(async (tx) => {
+      const lockedRows = await tx
+        .select({ seq: coordProjects.latestEventSeq })
+        .from(coordProjects)
+        .where(eq(coordProjects.id, projectId))
+        .for('update');
+      const seq = (lockedRows[0]?.seq ?? 0) + 1;
 
-    const inserted = await this.db.insert(coordProjectEvents).values({
-      projectId,
-      seq,
-      eventType,
-      action,
-      entityType,
-      entityId: entityId === null ? null : String(entityId),
-      payloadJson: payload as unknown as Record<string, unknown> | null,
-      sourceHostId,
-      createdAt: nowTs,
-    }).$returningId();
+      await tx
+        .update(coordProjects)
+        .set({ latestEventSeq: seq, updatedAt: nowTs })
+        .where(eq(coordProjects.id, projectId));
 
-    return { seq, id: inserted[0]?.id ?? 0 };
+      const inserted = await tx.insert(coordProjectEvents).values({
+        projectId,
+        seq,
+        eventType,
+        action,
+        entityType,
+        entityId: entityId === null ? null : String(entityId),
+        payloadJson: payload as unknown as Record<string, unknown> | null,
+        sourceHostId,
+        createdAt: nowTs,
+      }).$returningId();
+
+      return { seq, id: inserted[0]?.id ?? 0 };
+    });
   }
 
   async create(payload: { slug?: unknown; about?: unknown; roster_markdown?: unknown; agents_markdown?: unknown }, sourceHostId: number | null = null): Promise<ProjectDetail> {
@@ -257,13 +262,15 @@ export class ProjectsService {
   async deleteBySlug(rawSlug: string, _sourceHostId: number | null = null): Promise<{ deleted: string }> {
     const project = await this.requireProject(rawSlug);
     // Cascades: notes, todos, files, feedback, events are FK-attached;
-    // delete in dependency order.
-    await this.db.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id));
-    await this.db.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId, project.id));
-    await this.db.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id));
-    await this.db.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId, project.id));
-    await this.db.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId, project.id));
-    await this.db.delete(coordProjects).where(eq(coordProjects.id, project.id));
+    // delete in dependency order, all-or-nothing.
+    await this.db.transaction(async (tx) => {
+      await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id));
+      await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId, project.id));
+      await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id));
+      await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId, project.id));
+      await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId, project.id));
+      await tx.delete(coordProjects).where(eq(coordProjects.id, project.id));
+    });
 
     wsPublisher.publish('project.deleted', { slug: project.slug, id: project.id });
     wsPublisher.publish('project.changed', { slug: project.slug });

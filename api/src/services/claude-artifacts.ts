@@ -92,6 +92,21 @@ function asTrimmedString(v: unknown): string | undefined {
   return s === '' ? undefined : s;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Duplicate-key detection (store() TOCTOU on the `uq_claude_artifacts_kind_slug`
+// unique index — same pattern as host-management.ts's isDuplicateFqdnError)
+// ────────────────────────────────────────────────────────────────────────────
+function isDuplicateSlugError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; errno?: unknown; message?: unknown; sqlMessage?: unknown };
+  const isDupEntry = e.code === 'ER_DUP_ENTRY' || e.errno === 1062;
+  if (!isDupEntry) return false;
+  const msg = `${typeof e.sqlMessage === 'string' ? e.sqlMessage : ''} ${
+    typeof e.message === 'string' ? e.message : ''
+  }`.toLowerCase();
+  return msg.includes('kind_slug');
+}
+
 function toView(row: ClaudeArtifact): ArtifactView {
   return {
     id: row.id,
@@ -221,27 +236,40 @@ export class ClaudeArtifactsService {
       .select()
       .from(claudeArtifacts)
       .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug)));
-    const existing = existingRows.find((r) => r.kind === kind && r.slug === slug);
+    let existing = existingRows.find((r) => r.kind === kind && r.slug === slug);
     const nowTs = nowIso();
 
     if (!existing) {
-      await this.db.insert(claudeArtifacts).values({
-        kind,
-        slug,
-        sha256: computedSha,
-        displayName,
-        description,
-        model,
-        frontmatter,
-        body,
-        sourceHostId,
-        engine,
-        createdAt: nowTs,
-        updatedAt: nowTs,
-      });
-      wsPublisher.publish('claude_artifact.stored', { kind, slug, status: 'created' });
-      wsPublisher.publish('claude_artifact.updated', { kind, slug });
-      return { status: 'created', kind, slug, sha256: computedSha, updated_at: nowTs };
+      try {
+        await this.db.insert(claudeArtifacts).values({
+          kind,
+          slug,
+          sha256: computedSha,
+          displayName,
+          description,
+          model,
+          frontmatter,
+          body,
+          sourceHostId,
+          engine,
+          createdAt: nowTs,
+          updatedAt: nowTs,
+        });
+        wsPublisher.publish('claude_artifact.stored', { kind, slug, status: 'created' });
+        wsPublisher.publish('claude_artifact.updated', { kind, slug });
+        return { status: 'created', kind, slug, sha256: computedSha, updated_at: nowTs };
+      } catch (err) {
+        if (!isDuplicateSlugError(err)) throw err;
+        // Lost a race with a concurrent first-time store() for this (kind, slug):
+        // the other insert won the unique index, so re-fetch and fall through
+        // to the update path below instead of leaking the raw DB error.
+        const raceRows = await this.db
+          .select()
+          .from(claudeArtifacts)
+          .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug)));
+        existing = raceRows.find((r) => r.kind === kind && r.slug === slug);
+        if (!existing) throw err;
+      }
     }
 
     const metadataUnchanged =

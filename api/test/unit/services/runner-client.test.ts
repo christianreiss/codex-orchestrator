@@ -42,6 +42,35 @@ describe('runner-client', () => {
     expect(res.status).toBe('fail');
   });
 
+  it('maps FastAPI HTTPException {detail} envelope to reason', async () => {
+    const env = { ...baseEnv, AUTH_RUNNER_URL: 'https://runner/verify' };
+    const fakeFetch = (async () =>
+      new Response(JSON.stringify({ detail: 'invalid shared secret' }), {
+        status: 401,
+      })) as unknown as typeof fetch;
+    const c = createRunnerClient({ env, fetchImpl: fakeFetch });
+    const res = await c.verify({ authJson: {} });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe('fail');
+    expect(res.reason).toBe('invalid shared secret');
+  });
+
+  it('maps FastAPI 422 validation-error {detail: [...]} list to reason', async () => {
+    const env = { ...baseEnv, AUTH_RUNNER_URL: 'https://runner/verify' };
+    const fakeFetch = (async () =>
+      new Response(
+        JSON.stringify({
+          detail: [{ loc: ['body', 'auth_json'], msg: 'field required', type: 'value_error.missing' }],
+        }),
+        { status: 422 },
+      )) as unknown as typeof fetch;
+    const c = createRunnerClient({ env, fetchImpl: fakeFetch });
+    const res = await c.verify({ authJson: {} });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe('fail');
+    expect(res.reason).toBe('field required');
+  });
+
   it('handles non-JSON gracefully', async () => {
     const env = { ...baseEnv, AUTH_RUNNER_URL: 'https://runner/verify' };
     const fakeFetch = (async () => new Response('plain text', { status: 200 })) as unknown as typeof fetch;

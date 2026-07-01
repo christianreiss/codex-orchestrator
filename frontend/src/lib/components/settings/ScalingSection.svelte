@@ -65,7 +65,7 @@
   description="Usage-driven autoscaling. The tier ruleset is edited as JSON to keep the field set flexible across schema revisions."
   {status}
   savedAt={lastSavedAt}
-  error={$mutation.error?.message ?? parseError}
+  error={$mutation.error?.message ?? parseError ?? $query.error?.message}
 >
   <SwitchRow
     id="scaling-enabled"
@@ -90,6 +90,10 @@
   </div>
 
   <div>
-    <Button size="sm" onclick={save} disabled={$mutation.isPending}>Save scaling</Button>
+    <Button
+      size="sm"
+      onclick={save}
+      disabled={$query.isPending || $query.isError || $mutation.isPending}>Save scaling</Button
+    >
   </div>
 </SectionCard>

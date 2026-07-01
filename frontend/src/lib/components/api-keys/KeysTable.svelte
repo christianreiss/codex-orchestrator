@@ -33,24 +33,30 @@
     unknown,
     Error,
     { id: number; active: boolean },
-    { previous?: AdminApiKey[] }
+    { previousActive?: number | boolean }
   >({
     mutationFn: ({ id, active }) => keysApi.toggle(engineKey, id, active),
     onMutate: async ({ id, active }) => {
       await qc.cancelQueries({ queryKey: listKey });
       const previous = qc.getQueryData<AdminApiKey[]>(listKey);
-      if (previous) {
-        qc.setQueryData<AdminApiKey[]>(
-          listKey,
-          previous.map((k) =>
-            k.id === id ? { ...k, is_active: active ? 1 : 0 } : k,
-          ),
-        );
-      }
-      return { previous };
+      const previousActive = previous?.find((k) => k.id === id)?.is_active;
+      qc.setQueryData<AdminApiKey[]>(listKey, (current) =>
+        current?.map((k) =>
+          k.id === id ? { ...k, is_active: active ? 1 : 0 } : k,
+        ),
+      );
+      return { previousActive };
     },
     onError: (err, vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(listKey, ctx.previous);
+      // Patch only the row that failed rather than restoring the whole
+      // snapshot, so a concurrent mutation on another row isn't clobbered.
+      qc.setQueryData<AdminApiKey[]>(listKey, (current) =>
+        current?.map((k) =>
+          k.id === vars.id && ctx?.previousActive !== undefined
+            ? { ...k, is_active: ctx.previousActive }
+            : k,
+        ),
+      );
       toast.error(`Failed to ${vars.active ? "enable" : "disable"} key`, {
         description: err.message,
       });
@@ -67,22 +73,36 @@
     unknown,
     Error,
     number,
-    { previous?: AdminApiKey[] }
+    { previousRecord?: AdminApiKey; previousIndex?: number }
   >({
     mutationFn: (id) => keysApi.remove(engineKey, id),
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: listKey });
       const previous = qc.getQueryData<AdminApiKey[]>(listKey);
-      if (previous) {
-        qc.setQueryData<AdminApiKey[]>(
-          listKey,
-          previous.filter((k) => k.id !== id),
-        );
-      }
-      return { previous };
+      const previousIndex = previous?.findIndex((k) => k.id === id);
+      const previousRecord =
+        previousIndex !== undefined && previousIndex >= 0
+          ? previous?.[previousIndex]
+          : undefined;
+      qc.setQueryData<AdminApiKey[]>(listKey, (current) =>
+        current?.filter((k) => k.id !== id),
+      );
+      return { previousRecord, previousIndex };
     },
     onError: (err, _id, ctx) => {
-      if (ctx?.previous) qc.setQueryData(listKey, ctx.previous);
+      // Re-insert only the row that failed to delete rather than restoring
+      // the whole snapshot, so a concurrent mutation on another row isn't
+      // clobbered.
+      const record = ctx?.previousRecord;
+      if (record) {
+        qc.setQueryData<AdminApiKey[]>(listKey, (current) => {
+          if (!current || current.some((k) => k.id === record.id)) return current;
+          const index = Math.min(ctx?.previousIndex ?? current.length, current.length);
+          const next = current.slice();
+          next.splice(index, 0, record);
+          return next;
+        });
+      }
       toast.error("Failed to revoke key", { description: err.message });
     },
     onSuccess: () => {

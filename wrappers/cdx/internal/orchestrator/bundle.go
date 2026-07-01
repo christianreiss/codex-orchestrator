@@ -36,13 +36,17 @@ type BundleRequest struct {
 
 // BundleResponse matches the envelope returned by /sync/bootstrap. The auth
 // block, when present, is the same shape as a standalone /auth retrieve.
+//
+// Note: the server never sets a top-level `host` key on this envelope — host
+// info only ever arrives nested under Auth.Host (see auth.go's HostInfo).
+// There is intentionally no Host field here; don't add one back without
+// confirming the server side actually populates it.
 type BundleResponse struct {
 	Status   string                `json:"status"`
 	Reasons  []string              `json:"reasons,omitempty"`
 	Auth     *AuthRetrieveResponse `json:"auth,omitempty"`
 	Agents   json.RawMessage       `json:"agents,omitempty"`
 	Config   json.RawMessage       `json:"config,omitempty"`
-	Host     *HostInfo             `json:"host,omitempty"`
 	Sessions *FleetSessions        `json:"sessions,omitempty"`
 }
 

@@ -6,10 +6,12 @@
   import Copy from "@lucide/svelte/icons/copy";
   import Check from "@lucide/svelte/icons/check";
   import { eventLogsQuery, hostsForLogsQuery, buildHostLabelMap } from "$lib/api/logs";
+  import { ApiError } from "$lib/api/client";
   import type { AdminAuditLogRow, HostFqdnSummary } from "$lib/api/types";
   import { relativeTime } from "$lib/utils/format";
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
+  import * as Alert from "$lib/components/ui/alert";
   import {
     Select,
     SelectTrigger,
@@ -308,6 +310,15 @@
       </Button>
     </div>
   </LogToolbar>
+
+  {#if result.isError}
+    <Alert.Root variant="destructive">
+      <Alert.Title>Could not load audit events</Alert.Title>
+      <Alert.Description>
+        {result.error instanceof ApiError ? result.error.message : "Unknown error"}
+      </Alert.Description>
+    </Alert.Root>
+  {/if}
 
   <LogTable
     rows={filtered}

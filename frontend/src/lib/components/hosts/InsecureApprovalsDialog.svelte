@@ -100,7 +100,11 @@
       {/if}
 
       <!-- Pending approvals -->
-      {#if $approvals.data?.requests && $approvals.data.requests.length > 0}
+      {#if $approvals.isError}
+        <p class="text-xs text-destructive">
+          Failed to load pending approval requests. There may be requests awaiting review.
+        </p>
+      {:else if $approvals.data?.requests && $approvals.data.requests.length > 0}
         <section class="space-y-2">
           <header class="flex items-center justify-between">
             <h3 class="text-sm font-semibold">Pending requests</h3>
@@ -168,6 +172,8 @@
         </header>
         {#if $summary.isLoading}
           <p class="text-xs text-muted-foreground">Loading…</p>
+        {:else if $summary.isError}
+          <p class="text-xs text-destructive">Failed to load active insecure windows.</p>
         {:else if !$summary.data?.hosts.length}
           <p class="text-xs text-muted-foreground">No hosts currently in an insecure window.</p>
         {:else}
@@ -215,7 +221,9 @@
             {$summary.data?.domains_active ?? 0} active
           </span>
         </header>
-        {#if !$summary.data?.domains.length}
+        {#if $summary.isError}
+          <p class="text-xs text-destructive">Failed to load allowed domains.</p>
+        {:else if !$summary.data?.domains.length}
           <p class="text-xs text-muted-foreground">No active domain allow-list entries.</p>
         {:else}
           <ul class="divide-y rounded-md border">

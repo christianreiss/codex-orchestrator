@@ -84,6 +84,13 @@
     else commandPalette.close();
   }
 
+  // Dynamic commands are already filtered against `query` by their source
+  // (e.g. project/skill descriptions), which can include fields not present
+  // in `cmd.keywords`. Track their ids so the rendered `value` can force a
+  // match in cmdk's own re-filtering below, instead of silently losing
+  // results that matched on a field cmdk doesn't know about.
+  const dynamicIds = $derived(new Set(dynamicCommands.map((c) => c.id)));
+
   // Merge static + dynamic commands, group, and order.
   const grouped = $derived.by(() => {
     const all = [...STATIC_COMMANDS, ...dynamicCommands];
@@ -119,7 +126,9 @@
             <Command.Group heading={group}>
               {#each items as cmd (cmd.id)}
                 <Command.Item
-                  value={`${cmd.label} ${(cmd.keywords ?? []).join(" ")}`}
+                  value={`${cmd.label} ${(cmd.keywords ?? []).join(" ")}${
+                    dynamicIds.has(cmd.id) ? ` ${query}` : ""
+                  }`}
                   onSelect={() => void cmd.run()}
                 >
                   {#if cmd.icon}

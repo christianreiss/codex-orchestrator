@@ -273,9 +273,10 @@
                     <span class="font-medium">{p.name || "Unnamed passkey"}</span>
                     <button
                       type="button"
-                      class="text-muted-foreground opacity-60 transition hover:text-foreground hover:opacity-100"
+                      class="text-muted-foreground opacity-60 transition hover:text-foreground hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
                       aria-label="Rename"
                       onclick={() => startEdit(p)}
+                      disabled={editingId !== null}
                     >
                       <Pencil class="h-3.5 w-3.5" />
                     </button>

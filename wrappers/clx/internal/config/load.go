@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func Load(configPath string, pubkey ed25519.PublicKey, allowUnsignedForTests bool) (*Config, error) {
@@ -40,15 +41,18 @@ func Load(configPath string, pubkey ed25519.PublicKey, allowUnsignedForTests boo
 	return cfg, nil
 }
 
-func DefaultPath() string {
+func DefaultPath() (string, error) {
 	if env := strings.TrimSpace(os.Getenv("CLX_CONFIG_PATH")); env != "" {
-		return env
+		return env, nil
 	}
 	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "codex-orchestrator", "clx.json")
+		return filepath.Join(xdg, "codex-orchestrator", "clx.json"), nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "codex-orchestrator", "clx.json")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".config", "codex-orchestrator", "clx.json"), nil
 }
 
 func VerifyDetached(payload, sigRaw []byte, pubkey ed25519.PublicKey) error {
@@ -95,6 +99,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Wrapper.BinaryURL == "" {
 		return errors.New("wrapper.binary_url required")
+	}
+	if c.ExpiresAt != nil {
+		expiresAt, err := time.Parse(time.RFC3339, *c.ExpiresAt)
+		if err != nil {
+			return fmt.Errorf("expires_at invalid: %w", err)
+		}
+		if time.Now().After(expiresAt) {
+			return fmt.Errorf("config expired at %s", expiresAt.Format(time.RFC3339))
+		}
 	}
 	return nil
 }

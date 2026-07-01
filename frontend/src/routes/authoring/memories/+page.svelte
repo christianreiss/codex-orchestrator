@@ -183,7 +183,7 @@
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={row.record_id === null && row.id === null}
+                disabled={row.record_id == null && row.id == null}
                 onclick={() => (deleteTarget = row)}
               >
                 <Trash2 class="h-4 w-4 text-destructive" />

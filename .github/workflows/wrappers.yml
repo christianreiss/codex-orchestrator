@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25.11'
           cache: true
           cache-dependency-path: 'wrappers/${{ matrix.engine }}/go.sum'
       - name: go vet
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25.11'
       - name: cross-compile
         working-directory: wrappers/${{ matrix.engine }}
         env:

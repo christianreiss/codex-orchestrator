@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import {
   hosts as hostsTable,
   insecureAuthRequests,
@@ -135,9 +135,9 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         .select()
         .from(insecureAuthRequests)
         .where(eq(insecureAuthRequests.hostId, hostId))
-        .orderBy(insecureAuthRequests.requestedAt)
-        .limit(50);
-      const latestRow = latest[latest.length - 1];
+        .orderBy(desc(insecureAuthRequests.requestedAt))
+        .limit(1);
+      const latestRow = latest[0];
       if (latestRow && latestRow.status === 'denied' && latestRow.resolvedAt) {
         const resolved = parseDate(latestRow.resolvedAt);
         if (resolved && now.getTime() - resolved.getTime() < APPROVAL_DENY_COOLDOWN_SECONDS * 1000) {

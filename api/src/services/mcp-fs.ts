@@ -14,7 +14,7 @@
  */
 import { promises as fsp, type Dirent, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolve as resolvePath, relative as relativePath, join as joinPath, sep } from 'node:path';
+import { resolve as resolvePath, relative as relativePath, join as joinPath, sep, basename } from 'node:path';
 import { NotFoundError, ValidationError } from '../http/errors.js';
 
 export interface McpFsConfig {
@@ -124,15 +124,46 @@ export class McpFsTools {
     }
     const modeRaw = args['mode'];
     const mode = typeof modeRaw === 'number' && Number.isFinite(modeRaw) ? modeRaw : 0o644;
-    // Ensure parent dir is inside root too (defense in depth for ../ inside dir).
+    // Resolve the parent dir's symlinks and re-check confinement — a lexical
+    // check alone would let a pre-existing symlink under the root redirect
+    // the write outside it (see resolveSafe's requireExists path).
     const parent = resolvePath(safe, '..');
-    if (!isInside(this.root, parent)) {
+    let realParent: string;
+    try {
+      realParent = await fsp.realpath(parent);
+    } catch {
+      throw new NotFoundError('parent directory not found');
+    }
+    if (!isInside(this.root, realParent)) {
       throw new ValidationError('path escapes filesystem root', { param: 'path' });
     }
+    const target = joinPath(realParent, basename(safe));
+    // If the target itself already exists as a symlink, resolve it too so we
+    // don't write through it to somewhere outside the root (including a
+    // dangling symlink, which realpath() rejects with ENOENT).
+    let writePath = target;
+    let existing: Stats | null;
+    try {
+      existing = await fsp.lstat(target);
+    } catch {
+      existing = null; // doesn't exist yet — writing a new file is fine
+    }
+    if (existing?.isSymbolicLink()) {
+      let realTarget: string;
+      try {
+        realTarget = await fsp.realpath(target);
+      } catch {
+        throw new ValidationError('path escapes filesystem root', { param: 'path' });
+      }
+      if (!isInside(this.root, realTarget)) {
+        throw new ValidationError('path escapes filesystem root', { param: 'path' });
+      }
+      writePath = realTarget;
+    }
     const buf = Buffer.from(content, 'utf8');
-    await fsp.writeFile(safe, buf, { mode });
+    await fsp.writeFile(writePath, buf, { mode });
     return {
-      path: this.relPath(safe),
+      path: this.relPath(writePath),
       bytes_written: buf.length,
     };
   }
@@ -224,6 +255,8 @@ export class McpFsTools {
       let text: string;
       try {
         // Cap per-file read to avoid OOM on huge files. Search is best-effort.
+        const fstat = await fsp.stat(file);
+        if (fstat.size > this.maxReadBytes) continue;
         const buf = await fsp.readFile(file);
         text = buf.toString('utf8');
       } catch {

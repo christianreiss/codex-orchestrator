@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cliAuthRequests } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt, decryptOrNull } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
-import { ApiError, NotFoundError, RateLimitedError } from '../http/errors.js';
+import { ApiError, ConflictError, NotFoundError, RateLimitedError } from '../http/errors.js';
 import type { FastifyInstance } from 'fastify';
 import type { HostRegistrationService } from './host-registration.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -114,7 +114,11 @@ export function createCliAuthService(deps: CliAuthDeps): CliAuthService {
       if (status === 'denied') return { status: 'denied' };
       if (status === 'approved') {
         if (row.consumedAt) return { status: 'consumed' };
-        await db.update(cliAuthRequests).set({ consumedAt: nowIso() }).where(eq(cliAuthRequests.id, row.id));
+        const result = await db
+          .update(cliAuthRequests)
+          .set({ consumedAt: nowIso() })
+          .where(and(eq(cliAuthRequests.id, row.id), isNull(cliAuthRequests.consumedAt)));
+        if (Number(result[0]?.affectedRows ?? 0) === 0) return { status: 'consumed' };
         const apiKey = decryptOrNull(row.apiKeyEnc ?? null, keyring);
         return { status: 'approved', api_key: apiKey, fqdn: row.fqdn, secure: row.secure === 1 };
       }
@@ -151,6 +155,9 @@ export function createCliAuthService(deps: CliAuthDeps): CliAuthService {
       if (!r) throw new NotFoundError('Login request not found or expired');
       if (Date.parse(r.expiresAt) <= Date.now()) {
         throw new ApiError('Login request has expired', { status: 410, code: 'expired' });
+      }
+      if (r.status !== 'pending') {
+        throw new ConflictError('Login request already resolved');
       }
 
       const reg = await registration.registerOrRotate({ fqdn: r.fqdn, secure: r.secure === 1, createdBy: approvedByName ?? null });

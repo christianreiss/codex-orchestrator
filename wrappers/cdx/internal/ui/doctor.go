@@ -52,7 +52,7 @@ func PrintDoctor(w io.Writer, caps Caps, r DoctorReport) {
 	for i, h := range r.Hints {
 		col := caps.Palette.Yellow + caps.Palette.Bold
 		fmt.Fprintf(w, "%s%s%s | %s\n",
-			col, padLabel(fmt.Sprintf("Hint %d", i+1), width), caps.Palette.Reset, h)
+			col, padLabel(fmt.Sprintf("Hint %d", i+1), width), caps.Palette.Reset, StripANSI(h))
 	}
 	Divider(w, caps)
 }
@@ -78,7 +78,7 @@ func printDoctorRow(w io.Writer, caps Caps, width int, row DoctorRow) {
 	}
 	fmt.Fprintf(w, "%s%s%s | %s%s%s\n",
 		caps.Palette.Dim, padLabel(row.Label, width), caps.Palette.Reset,
-		col, row.Value+icon, caps.Palette.Reset,
+		col, StripANSI(row.Value)+icon, caps.Palette.Reset,
 	)
 }
 

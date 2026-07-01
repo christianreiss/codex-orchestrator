@@ -64,11 +64,25 @@
   );
 
   const pendingCount = $derived($pending.data?.requests?.length ?? 0);
+  const pendingError = $derived($pending.isError);
 </script>
 
-{#if pendingCount > 0 || upgradeAvailable}
+{#if pendingCount > 0 || upgradeAvailable || pendingError}
   <div class="flex flex-col gap-3">
-    {#if pendingCount > 0}
+    {#if pendingError}
+      <AlertBanner
+        variant="destructive"
+        title="Could not check insecure approvals"
+        description="The insecure-approvals check failed, so hosts waiting on approval may not be shown."
+      >
+        {#snippet icon()}
+          <ShieldAlert class="h-4 w-4" />
+        {/snippet}
+        {#snippet actions()}
+          <Button size="sm" variant="outline" onclick={() => $pending.refetch()}>Retry</Button>
+        {/snippet}
+      </AlertBanner>
+    {:else if pendingCount > 0}
       <AlertBanner
         variant="warning"
         title="Insecure approvals waiting"

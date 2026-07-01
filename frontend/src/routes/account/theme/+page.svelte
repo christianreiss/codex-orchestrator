@@ -95,6 +95,13 @@
         activePreset = t;
         selected = presetBase(t);
         applyBodyTheme(t);
+      } else {
+        // Server state unknown (e.g. the initial fetch never succeeded) —
+        // don't leave the optimistic, unsaved selection looking applied.
+        seeded = false;
+        selected = "auto";
+        activePreset = null;
+        applyBodyTheme("auto");
       }
     },
   });
@@ -136,6 +143,13 @@
         activePreset = null;
         selected = t;
         applyBodyTheme(t);
+      } else {
+        // Server state unknown (e.g. the initial fetch never succeeded) —
+        // don't leave the optimistic, unsaved selection looking applied.
+        seeded = false;
+        selected = "auto";
+        activePreset = null;
+        applyBodyTheme("auto");
       }
     },
   });
@@ -193,28 +207,36 @@
       </Card.Description>
     </Card.Header>
     <Card.Content>
-      <RadioGroup
-        value={selected}
-        onValueChange={onChange}
-        disabled={$themeQuery.isLoading || $themeMutation.isPending}
-        class="grid gap-3"
-      >
-        {#each options as opt (opt.value)}
-          {@const Icon = opt.icon}
-          {@const id = `theme-${opt.value}`}
-          <Label
-            for={id}
-            class="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3 transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/60"
-          >
-            <RadioGroupItem {id} value={opt.value} class="mt-1" />
-            <Icon class="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <span class="flex flex-col gap-0.5">
-              <span class="text-sm font-medium leading-none">{opt.label}</span>
-              <span class="text-xs text-muted-foreground">{opt.description}</span>
-            </span>
-          </Label>
-        {/each}
-      </RadioGroup>
+      {#if $themeQuery.isError}
+        <p class="text-sm text-destructive">
+          {$themeQuery.error instanceof Error
+            ? $themeQuery.error.message
+            : "Failed to load theme preference."}
+        </p>
+      {:else}
+        <RadioGroup
+          value={selected}
+          onValueChange={onChange}
+          disabled={$themeQuery.isLoading || $themeMutation.isPending || $presetMutation.isPending}
+          class="grid gap-3"
+        >
+          {#each options as opt (opt.value)}
+            {@const Icon = opt.icon}
+            {@const id = `theme-${opt.value}`}
+            <Label
+              for={id}
+              class="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3 transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/60"
+            >
+              <RadioGroupItem {id} value={opt.value} class="mt-1" />
+              <Icon class="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <span class="flex flex-col gap-0.5">
+                <span class="text-sm font-medium leading-none">{opt.label}</span>
+                <span class="text-xs text-muted-foreground">{opt.description}</span>
+              </span>
+            </Label>
+          {/each}
+        </RadioGroup>
+      {/if}
 
       {#if resolved}
         <p class="mt-4 text-xs text-muted-foreground">
@@ -241,7 +263,10 @@
             "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-accent/40",
             activePreset === preset && "border-primary bg-accent/60 text-foreground",
           )}
-          disabled={$themeQuery.isLoading || $presetMutation.isPending || $themeMutation.isPending}
+          disabled={$themeQuery.isLoading ||
+            $themeQuery.isError ||
+            $presetMutation.isPending ||
+            $themeMutation.isPending}
           onclick={() => onChoosePreset(preset)}
         >{presetLabel(preset)}</button>
       {/each}

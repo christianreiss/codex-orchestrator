@@ -132,9 +132,44 @@ func drawApprovalBox(w io.Writer, caps Caps, d approvalBoxData) {
 	fmt.Fprintln(w, top)
 	fmt.Fprintln(w, line(caps.Palette.Bold+title+caps.Palette.Reset))
 	fmt.Fprintln(w, line(body))
-	fmt.Fprintln(w, line(status))
+	fmt.Fprintln(w, line(truncateVisible(status, inner-2)))
 	fmt.Fprintln(w, line(last+"   "+count))
 	fmt.Fprintln(w, bot)
+}
+
+// truncateVisible clamps s to at most width visible columns, replacing any
+// overflow with a trailing ellipsis. Server-supplied text (status/reason)
+// has no upper bound, and PadRight never shortens an over-long string, so
+// without this the box would wrap onto extra terminal lines and corrupt
+// PollApproval's fixed-height redraw.
+func truncateVisible(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if VisibleWidth(s) <= width {
+		return s
+	}
+	r := []rune(s)
+	if width <= 3 {
+		if len(r) > width {
+			r = r[:width]
+		}
+		return string(r)
+	}
+	w := 0
+	i := 0
+	for i < len(r) {
+		cw := 1
+		if isWide(r[i]) {
+			cw = 2
+		}
+		if w+cw > width-3 {
+			break
+		}
+		w += cw
+		i++
+	}
+	return string(r[:i]) + "..."
 }
 
 func durationShort(d time.Duration) string {

@@ -140,18 +140,19 @@ export class McpMemoriesService {
     const searchTags = this.normalizedArray(tags);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
-    const fetchLimit = limit * (searchTags.length > 0 ? 3 : 1);
+    const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
 
-    let rawResults: Array<Record<string, unknown>>;
-    if (!query) {
-      const rows = await this.db
-        .select()
-        .from(mcpMemories)
-        .where(and(eq(mcpMemories.hostId, host.id), isNull(mcpMemories.deletedAt)))
-        .orderBy(desc(mcpMemories.updatedAt), desc(mcpMemories.id))
-        .limit(fetchLimit);
-      rawResults = rows as unknown as Array<Record<string, unknown>>;
-    } else {
+    const fetchBatch = async (fetchOffset: number): Promise<Array<Record<string, unknown>>> => {
+      if (!query) {
+        const rows = await this.db
+          .select()
+          .from(mcpMemories)
+          .where(and(eq(mcpMemories.hostId, host.id), isNull(mcpMemories.deletedAt)))
+          .orderBy(desc(mcpMemories.updatedAt), desc(mcpMemories.id))
+          .limit(batchSize)
+          .offset(fetchOffset);
+        return rows as unknown as Array<Record<string, unknown>>;
+      }
       const res = await this.db.execute(
         sql`SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
                    MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
@@ -159,21 +160,32 @@ export class McpMemoriesService {
             WHERE host_id = ${host.id}
               AND deleted_at IS NULL
               AND MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE)
-            ORDER BY score DESC, updated_at DESC
-            LIMIT ${fetchLimit}`,
+            ORDER BY score DESC, updated_at DESC, id DESC
+            LIMIT ${batchSize} OFFSET ${fetchOffset}`,
       );
       const rows = Array.isArray(res) ? (res[0] as unknown) : (res as unknown);
-      rawResults = Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
-    }
+      return Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+    };
 
+    // Tag filtering happens in JS below (tags is a JSON column, not indexed for
+    // containment queries), so page through the query results in batches until
+    // we have `limit` matches or the underlying result set is exhausted. A
+    // single fixed-size fetch would silently drop matches that fall outside
+    // the first page whenever a tag filter is applied.
     const filtered: Record<string, unknown>[] = [];
-    for (const r of rawResults) {
-      const rowTags = this.normalizedArray(parseTags((r as { tags?: unknown }).tags ?? null));
-      const includesAll = searchTags.every((t) => rowTags.includes(t));
-      if (!includesAll) continue;
-      const score = typeof (r as { score?: unknown }).score === 'number' ? ((r as { score: number }).score) : null;
-      filtered.push(this.formatMemory(r as never, score));
-      if (filtered.length >= limit) break;
+    let offset = 0;
+    for (;;) {
+      const rawResults = await fetchBatch(offset);
+      for (const r of rawResults) {
+        const rowTags = this.normalizedArray(parseTags((r as { tags?: unknown }).tags ?? null));
+        const includesAll = searchTags.every((t) => rowTags.includes(t));
+        if (!includesAll) continue;
+        const score = typeof (r as { score?: unknown }).score === 'number' ? ((r as { score: number }).score) : null;
+        filtered.push(this.formatMemory(r as never, score));
+        if (filtered.length >= limit) break;
+      }
+      if (filtered.length >= limit || rawResults.length < batchSize) break;
+      offset += batchSize;
     }
 
     await this.recordLog(host.id, 'memory.search', {

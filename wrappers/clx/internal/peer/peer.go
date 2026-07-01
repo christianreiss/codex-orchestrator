@@ -38,7 +38,7 @@ const peerSpawnEnv = "CODEX_ORCH_PEER_SPAWN"
 var errPeerEngineDisabled = errors.New("peer engine not enabled for host")
 
 type bundle struct {
-	Payload   map[string]any `json:"payload"`
+	Payload   json.RawMessage `json:"payload"`
 	Signature struct {
 		Value string `json:"value"`
 	} `json:"signature"`
@@ -142,7 +142,11 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	if err := config.VerifyDetached(rawPayload, []byte(b.Signature.Value), pubkey); err != nil {
 		return fmt.Errorf("peer config signature invalid: %w", err)
 	}
-	wrapper, ok := b.Payload["wrapper"].(map[string]any)
+	var payload map[string]any
+	if err := json.Unmarshal(b.Payload, &payload); err != nil {
+		return fmt.Errorf("peer config payload decode: %w", err)
+	}
+	wrapper, ok := payload["wrapper"].(map[string]any)
 	if !ok {
 		return errors.New("peer config missing wrapper block")
 	}
@@ -206,6 +210,8 @@ func runPeerCronTick(ctx context.Context) {
 }
 
 func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Orchestrator.BaseURL+"/wrapper/v2/config?engine="+peerEngine, nil)
 	if err != nil {
 		return nil, nil, err
@@ -227,14 +233,15 @@ func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, erro
 	if err := json.NewDecoder(resp.Body).Decode(&b); err != nil {
 		return nil, nil, err
 	}
-	if b.Payload == nil || b.Signature.Value == "" {
+	if len(b.Payload) == 0 || b.Signature.Value == "" {
 		return nil, nil, errors.New("peer config bundle incomplete")
 	}
-	rawPayload, err := json.Marshal(b.Payload)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &b, rawPayload, nil
+	// Verify against the exact bytes received on the wire (json.RawMessage),
+	// not a Go re-marshal of a decoded map[string]any: re-marshaling would
+	// HTML-escape '&'/'<'/'>' that the server's canonical signer does not,
+	// silently breaking signature verification for payload values containing
+	// those characters. Mirrors config.Load, which verifies the raw file bytes.
+	return &b, []byte(b.Payload), nil
 }
 
 func httpClient(cfg *config.Config) *http.Client {
@@ -267,6 +274,8 @@ func peerConfigPath() string {
 }
 
 func installPeerBinary(ctx context.Context, cfg *config.Config, url, expected string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err

@@ -15,7 +15,7 @@ import { decryptOrNull, encrypt as sboxEncrypt } from '../security/secret-box.js
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
-import { NotFoundError, ValidationError, ApiError } from '../http/errors.js';
+import { NotFoundError, ValidationError, ApiError, ConflictError } from '../http/errors.js';
 import type { AdminEventsWriter } from './admin-events-writer.js';
 import {
   parseReverseDnsModeInput,
@@ -124,6 +124,21 @@ export function computeGraceUntil(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Duplicate-key detection (register() TOCTOU on the `fqdn` unique index)
+// ────────────────────────────────────────────────────────────────────────────
+
+function isDuplicateFqdnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; errno?: unknown; message?: unknown; sqlMessage?: unknown };
+  const isDupEntry = e.code === 'ER_DUP_ENTRY' || e.errno === 1062;
+  if (!isDupEntry) return false;
+  const msg = `${typeof e.sqlMessage === 'string' ? e.sqlMessage : ''} ${
+    typeof e.message === 'string' ? e.message : ''
+  }`.toLowerCase();
+  return msg.includes('fqdn');
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Service
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -212,11 +227,19 @@ export class HostManagementService {
     const fqdn = (req.fqdn ?? '').trim();
     if (!fqdn) throw new ValidationError('fqdn is required', { param: 'fqdn' });
 
-    const secure = req.secure ?? true;
+    const existing = await this.findByFqdn(fqdn);
+
+    // When re-registering/rotating an already-known host, an omitted
+    // secure/engines field means "keep what's there", not "reset to the
+    // global default" — otherwise every API-key rotation on an existing host
+    // would silently downgrade its engines and flip it back to secure=1.
+    const secure = req.secure ?? (existing ? existing.secure === 1 : true);
     const enginesIn =
       req.engines && req.engines.length
         ? req.engines
-        : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+        : existing
+          ? parseEnginesInput(existing.engines, [ENGINE_CODEX])
+          : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     const engines = enginesIn.length ? enginesIn : [ENGINE_CODEX];
 
     const apiKeyPlain = `sk-codex-${randomBytes(32).toString('hex')}`;
@@ -224,7 +247,6 @@ export class HostManagementService {
     const apiKeyEnc = sboxEncrypt(apiKeyPlain, this.keyring);
     const now = nowIso();
 
-    const existing = await this.findByFqdn(fqdn);
     let host: Host;
 
     if (existing) {
@@ -245,17 +267,24 @@ export class HostManagementService {
         engines: serializeEngines(engines),
       });
     } else {
-      await this.db.insert(hosts).values({
-        fqdn,
-        apiKey: apiKeyHash,
-        apiKeyHash,
-        apiKeyEnc,
-        status: 'active',
-        secure: secure ? 1 : 0,
-        engines: serializeEngines(engines),
-        createdAt: now,
-        updatedAt: now,
-      });
+      try {
+        await this.db.insert(hosts).values({
+          fqdn,
+          apiKey: apiKeyHash,
+          apiKeyHash,
+          apiKeyEnc,
+          status: 'active',
+          secure: secure ? 1 : 0,
+          engines: serializeEngines(engines),
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err) {
+        if (isDuplicateFqdnError(err)) {
+          throw new ConflictError(`Host "${fqdn}" is already registered`, 'host_fqdn_conflict');
+        }
+        throw err;
+      }
       host = (await this.findByFqdn(fqdn))!;
       await this.writeLog(host.id, 'register', {
         result: 'created',

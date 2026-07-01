@@ -425,6 +425,11 @@ export async function registerAdminOverviewRoutes(
         ip6: h.ip6,
         secure: h.secure === 1,
         vip: h.vip === 1,
+        allow_roaming_ips: h.allowRoamingIps === 1,
+        curl_insecure: h.curlInsecure === 1,
+        insecure_enabled_until: h.insecureEnabledUntil,
+        last_cron_check: h.lastCronCheck,
+        reverse_dns_mode: h.reverseDnsMode,
         engines: h.engines,
         canonical_digest: h.authDigest,
         claude_canonical_digest: h.claudeAuthDigest,
@@ -435,7 +440,14 @@ export async function registerAdminOverviewRoutes(
         lane_preference: h.lanePreference,
         browseros_mcp_enabled: h.browserosMcpEnabled === 1,
         model_override: h.modelOverride,
+        reasoning_effort_override: h.reasoningEffortOverride,
         claude_model_override: h.claudeModelOverride,
+        client_version_override: h.clientVersionOverride,
+        claude_client_version_override: h.claudeClientVersionOverride,
+        agents_document_id_override: h.agentsDocumentIdOverride,
+        effective_auto_update_enabled:
+          h.autoUpdateOverride === null ? autoUpdateEnabled : h.autoUpdateOverride === 1,
+        auto_update_label: null,
         config_version: Number(h.configVersion ?? 0),
       },
       overview: {
@@ -468,8 +480,11 @@ export async function registerAdminOverviewRoutes(
       const isSecure = h.secure === 1;
       if (isSecure) continue;
       const enabledUntil = h.insecureEnabledUntil ? new Date(h.insecureEnabledUntil).toISOString() : null;
+      const graceUntil = h.insecureGraceUntil ? new Date(h.insecureGraceUntil).toISOString() : null;
       const ts = enabledUntil ? parseIso(enabledUntil)?.getTime() : null;
-      const isActive = ts !== null && ts !== undefined && ts > nowMs;
+      const graceTs = graceUntil ? parseIso(graceUntil)?.getTime() : null;
+      const isActive = (ts !== null && ts !== undefined && ts > nowMs) ||
+        (graceTs !== null && graceTs !== undefined && graceTs > nowMs);
       if (!isActive) continue;
       active += 1;
       items.push({
@@ -550,7 +565,8 @@ export async function registerAdminOverviewRoutes(
     for (const h of allHosts) {
       if (h.secure === 1) continue;
       const enabledUntilMs = h.insecureEnabledUntil ? new Date(h.insecureEnabledUntil).getTime() : 0;
-      if (enabledUntilMs <= nowMs) continue;
+      const graceUntilMs = h.insecureGraceUntil ? new Date(h.insecureGraceUntil).getTime() : 0;
+      if (enabledUntilMs <= nowMs && graceUntilMs <= nowMs) continue;
       await ctx.db
         .update(hosts)
         .set({ insecureEnabledUntil: null, insecureGraceUntil: null, updatedAt: nowIso() })

@@ -180,14 +180,45 @@ export class OpenAiKeyService {
     return rows;
   }
 
-  async setActive(id: number, active: boolean): Promise<void> {
+  /**
+   * Toggle a key's active state, scoped to `engine` so a codex-admin request
+   * can't mutate (or silently no-op on) a claude-owned row that happens to
+   * share the same auto-increment id. Returns null when no row matched the
+   * (id, engine) pair so callers can surface a 404.
+   */
+  async setActive(
+    id: number,
+    active: boolean,
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<OpenaiApiKey | null> {
+    const existing = await this.findByIdAndEngine(id, engine);
+    if (!existing) return null;
     await this.deps.db
       .update(openaiApiKeys)
       .set({ isActive: active ? 1 : 0, updatedAt: nowIso() })
-      .where(eq(openaiApiKeys.id, id));
+      .where(and(eq(openaiApiKeys.id, id), eq(openaiApiKeys.engine, engine)));
+    return this.findByIdAndEngine(id, engine);
   }
 
-  async delete(id: number): Promise<void> {
-    await this.deps.db.delete(openaiApiKeys).where(eq(openaiApiKeys.id, id));
+  /**
+   * Delete a key, scoped to `engine` for the same reason as `setActive`.
+   * Returns false when no row matched the (id, engine) pair.
+   */
+  async delete(id: number, engine: Engine = ENGINE_CODEX): Promise<boolean> {
+    const existing = await this.findByIdAndEngine(id, engine);
+    if (!existing) return false;
+    await this.deps.db
+      .delete(openaiApiKeys)
+      .where(and(eq(openaiApiKeys.id, id), eq(openaiApiKeys.engine, engine)));
+    return true;
+  }
+
+  private async findByIdAndEngine(id: number, engine: Engine): Promise<OpenaiApiKey | null> {
+    const rows = await this.deps.db
+      .select()
+      .from(openaiApiKeys)
+      .where(and(eq(openaiApiKeys.id, id), eq(openaiApiKeys.engine, engine)))
+      .limit(1);
+    return rows[0] ?? null;
   }
 }

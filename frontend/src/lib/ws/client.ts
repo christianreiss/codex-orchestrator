@@ -89,6 +89,7 @@ export function createWsClient(): WsClientHandle {
       scheduleReconnect();
       return;
     }
+    if (state.stopped) return;
     if (info.enabled === false || !info.url) {
       state.enabled = false;
       status.set("disabled");

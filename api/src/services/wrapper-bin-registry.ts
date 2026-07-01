@@ -1,5 +1,6 @@
 import { stat, readdir, readFile } from 'node:fs/promises';
 import { createReadStream, type ReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Engine } from '../util/engine.js';
 
@@ -158,6 +159,20 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
     }
   }
 
+  async function sha256File(path: string): Promise<string | null> {
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const hash = createHash('sha256');
+        const stream = createReadStream(path);
+        stream.on('error', reject);
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('end', () => resolve(hash.digest('hex')));
+      });
+    } catch {
+      return null;
+    }
+  }
+
   async function fallbackBuildFromDir(
     engine: Engine,
     platform: string,
@@ -179,7 +194,12 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
     const path = binaryPath(engine, os, arch, latest);
     const st = await safeStat(path);
     if (!st || !st.isFile()) return null;
-    return { version: latest, sha256: '', size_bytes: st.size };
+    // No manifest.json means no recorded checksum; compute the real digest
+    // rather than serving a falsy sha256 that downstream code would treat
+    // as "no hash available" and replace with an all-zero placeholder.
+    const sha256 = await sha256File(path);
+    if (!sha256) return null;
+    return { version: latest, sha256, size_bytes: st.size };
   }
 
   return {

@@ -87,6 +87,8 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       if (!force) {
         host = await enforceIpBinding(deps, host, ip, bypassCidrs);
         await enforceReverseDns(host, ip, settings);
+      } else {
+        logForceDeleteIpMismatch(req, host, ip);
       }
       return host;
     },
@@ -146,6 +148,25 @@ async function enforceIpBinding(
     throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
   }
   return host;
+}
+
+/**
+ * Force-delete (`DELETE /auth?force=1`) intentionally skips IP-binding and
+ * reverse-DNS enforcement so a host can self-uninstall after its network
+ * position changed. That bypass still needs a non-bypassable trail: flag
+ * force deletes whose request IP doesn't match either bound address so a
+ * leaked key used off-network to deregister a host doesn't go unnoticed.
+ */
+function logForceDeleteIpMismatch(req: FastifyRequest, host: Host, ip: string | null): void {
+  const bound4 = host.ip4 ?? null;
+  const bound6 = host.ip6 ?? null;
+  if (!bound4 && !bound6) return;
+  if (!ip || ip === bound4 || ip === bound6) return;
+  req.log.warn(
+    { hostId: host.id, fqdn: host.fqdn, ip, boundIp4: bound4, boundIp6: bound6 },
+    'force delete used from an IP that does not match the bound IP',
+  );
+  wsPublisher.publish('host.force_delete_ip_mismatch', { id: host.id, fqdn: host.fqdn, ip });
 }
 
 async function bindIp(db: Database, host: Host, ip: string, family: 'ipv4' | 'ipv6'): Promise<Host> {

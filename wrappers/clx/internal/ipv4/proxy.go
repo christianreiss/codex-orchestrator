@@ -23,6 +23,9 @@ type Proxy struct {
 	URL    string
 	server *http.Server
 	wg     sync.WaitGroup
+
+	connsMu sync.Mutex
+	conns   map[net.Conn]struct{}
 }
 
 // Start spins up the proxy on a kernel-assigned 127.0.0.1 port.
@@ -39,7 +42,11 @@ func Start(ctx context.Context) (*Proxy, error) {
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{}
-				return d.DialContext(ctx, "udp4", address)
+				net4 := "udp4"
+				if strings.HasPrefix(network, "tcp") {
+					net4 = "tcp4"
+				}
+				return d.DialContext(ctx, net4, address)
 			},
 		},
 	}
@@ -52,8 +59,12 @@ func Start(ctx context.Context) (*Proxy, error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Route directly through an http.HandlerFunc rather than an http.ServeMux:
+	// ServeMux issues a 301 redirect for CONNECT requests (it tries the
+	// /tree → /tree/ slash redirect before dispatching), which kills every
+	// HTTPS tunnel — and HTTPS is essentially all of Claude Code's API traffic.
+	// A bare handler sees CONNECT verbatim.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodConnect {
 			handleConnect(w, r, dial4)
 			return
@@ -61,8 +72,8 @@ func Start(ctx context.Context) (*Proxy, error) {
 		handleHTTP(w, r, transport)
 	})
 
-	srv := &http.Server{Handler: mux}
-	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), server: srv}
+	srv := &http.Server{Handler: handler}
+	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), server: srv, conns: make(map[net.Conn]struct{})}
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
@@ -99,13 +110,17 @@ func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context
 		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	// Do NOT call w.WriteHeader before hijacking: net/http would flush its own
+	// status line + Date + chunked-Transfer-Encoding headers, and the manual
+	// "200 OK" below plus the tunneled bytes would then arrive as chunked body,
+	// corrupting the handshake. Hijack first, then write the single CONNECT-OK
+	// status line ourselves.
 	src, _, err := hj.Hijack()
 	if err != nil {
 		return
 	}
 	defer src.Close()
-	_, _ = src.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	_, _ = src.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	go io.Copy(dst, src) //nolint:errcheck
 	io.Copy(src, dst)    //nolint:errcheck

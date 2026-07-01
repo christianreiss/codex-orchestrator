@@ -25,10 +25,15 @@ function trimStr(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+const STORED_NAME_RE = /^[^\0]+$/;
+
 function normalizeStoredName(value: unknown): string {
   let name = trimStr(value);
   if (name === '') {
     throw new ValidationError('stored_name is required', { param: 'stored_name' });
+  }
+  if (!STORED_NAME_RE.test(name)) {
+    throw new ValidationError('stored_name is invalid', { param: 'stored_name' });
   }
   name = name.replace(/\\/g, '/');
   name = name.replace(/\/+/g, '/');

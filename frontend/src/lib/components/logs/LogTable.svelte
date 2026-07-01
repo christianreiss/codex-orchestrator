@@ -1,5 +1,5 @@
 <script lang="ts" generics="TData">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -75,7 +75,7 @@
     }
     const el = scrollEl;
     virtualizer = createVirtualizer<HTMLDivElement, HTMLDivElement>({
-      count: rows.length,
+      count: untrack(() => rows.length),
       getScrollElement: () => el,
       estimateSize: () => rowHeight,
       overscan: 8,

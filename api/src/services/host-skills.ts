@@ -138,7 +138,7 @@ export class HostSkillsService {
       const content = renderSkillFile(row);
       const sha = createHash('sha256').update(content).digest('hex');
       const have = digests[row.slug];
-      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have);
+      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
       out.push(
         unchanged
           ? { slug: row.slug, sha256: sha, status: 'unchanged' }
@@ -149,7 +149,7 @@ export class HostSkillsService {
       const content = managedCoco.manifest;
       const sha = createHash('sha256').update(content).digest('hex');
       const have = digests[managedCoco.slug];
-      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have);
+      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
       out.push(
         unchanged
           ? { slug: managedCoco.slug, sha256: sha, status: 'unchanged' }
@@ -191,7 +191,7 @@ export class HostSkillsService {
 
     const managedCoco = isManagedCocoSlug(normalized) ? await this.managedCocoSkill() : null;
     if (managedCoco) {
-      const status = providedSha && safeHashEquals(managedCoco.sha256, providedSha) ? 'unchanged' : 'updated';
+      const status = providedSha && safeHashEquals(managedCoco.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
       await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status, managed: true });
       return {
         status,
@@ -232,7 +232,7 @@ export class HostSkillsService {
     if (!canonicalSha && row.manifest) {
       canonicalSha = createHash('sha256').update(row.manifest).digest('hex');
     }
-    const status = providedSha && canonicalSha && safeHashEquals(canonicalSha, providedSha) ? 'unchanged' : 'updated';
+    const status = providedSha && canonicalSha && safeHashEquals(canonicalSha, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
     const result: Record<string, unknown> = {
       status,
       slug: normalized,
@@ -267,7 +267,7 @@ export class HostSkillsService {
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
     const sha = createHash('sha256').update(manifest).digest('hex');
-    if (typeof providedSha === 'string' && providedSha && !safeHashEquals(sha, providedSha)) {
+    if (typeof providedSha === 'string' && providedSha && !safeHashEquals(sha, providedSha.toLowerCase())) {
       throw new ValidationError('Validation failed', { extra: { errors: { sha256: ['sha256 does not match manifest contents'] } } });
     }
 

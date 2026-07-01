@@ -97,6 +97,10 @@ export class McpToolsRegistry {
       return wrapContent('Method not found: ' + name, true);
     }
     const argsObj = normalizeArgs(normalized, args);
+    const validationError = validateAgainstSchema(entry.definition.inputSchema, argsObj);
+    if (validationError) {
+      return wrapContent('Invalid params: ' + validationError, true);
+    }
     try {
       const result = await entry.handler(argsObj, host, engine);
       return wrapContent(result);
@@ -168,6 +172,41 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     default:
       return { value: scalar };
   }
+}
+
+/**
+ * Minimal validation of `args` against a tool's declared JSON-schema-like
+ * `inputSchema`: checks that every `required` property is present (and, for
+ * `integer`/`number` properties, coercible to a finite number). This is not a
+ * full JSON-schema implementation — just enough to turn missing/malformed
+ * required fields into a clear error instead of a NaN or undefined silently
+ * flowing into the handler. Returns a human-readable message, or null when
+ * `args` satisfies the schema.
+ */
+function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
+  const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
+  const properties =
+    schema['properties'] && typeof schema['properties'] === 'object'
+      ? (schema['properties'] as Record<string, { type?: unknown }>)
+      : {};
+  for (const key of required) {
+    if (typeof key !== 'string') continue;
+    const value = args[key];
+    if (value === undefined || value === null || value === '') {
+      return "'" + key + "' is required";
+    }
+    const propType = properties[key]?.type;
+    if ((propType === 'integer' || propType === 'number') && !isFiniteNumeric(value)) {
+      return "'" + key + "' must be a number";
+    }
+  }
+  return null;
+}
+
+function isFiniteNumeric(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'string' && value.trim() !== '') return Number.isFinite(Number(value));
+  return false;
 }
 
 interface RegistrationInput {

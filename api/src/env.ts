@@ -110,6 +110,12 @@ const schema = z
     PUBLIC_BASE_URL_REQUIRED: boolish.default(true),
     CODEX_SYNC_BASE_URL: z.string().optional(),
 
+    // Cross-site origins (comma-separated) allowed to make credentialed CORS
+    // requests against admin/host routes. Empty by default: those routes are
+    // same-origin only. Does not affect /v1 and /anthropic/v1, which stay
+    // open to any origin regardless of this setting.
+    CORS_ALLOWED_ORIGINS: z.string().default(''),
+
     // Proxy trust
     TRUST_X_FORWARDED: boolish.default(false),
     TRUSTED_PROXY_CIDRS: z.string().default(''),

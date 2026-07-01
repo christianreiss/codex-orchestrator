@@ -75,7 +75,8 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
     if (!baseUrl) return shellishError(reply, 'Installer base URL invalid', 500, row.expiresAt);
 
-    await installSvc.markInstallUsed(row.id);
+    const claimed = await installSvc.markInstallUsed(row.id);
+    if (!claimed) return shellishError(reply, 'Installer already used', 410, row.expiresAt);
     await ctx.db.insert(logsTable).values({
       hostId: row.hostId,
       action: 'install.v2.token.consume',
@@ -150,14 +151,17 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       throw new ApiError('Seed token expired', { status: 410, code: 'seed_expired' });
     }
 
+    // Claim the token atomically before doing any work: this is the only thing
+    // guarding against a concurrent/replayed request also being accepted.
+    const claimed = await installSvc.markSeedUsed(row.id);
+    if (!claimed) throw new ApiError('Seed token already used', { status: 410, code: 'seed_used' });
+
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      await installSvc.markSeedUsed(row.id);
       throw new ValidationError('auth payload must be valid JSON', { param: 'auth' });
     }
     const decoded = body as Record<string, unknown>;
     const candidate = decoded.auth ?? decoded;
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      await installSvc.markSeedUsed(row.id);
       throw new ValidationError('auth payload must be an object', { param: 'auth' });
     }
 
@@ -170,7 +174,6 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       logAction: 'auth.seed.v2.consume',
       logDetails: { token: token.slice(0, 8) + '…' },
     });
-    await installSvc.markSeedUsed(row.id);
 
     return {
       ...stored,

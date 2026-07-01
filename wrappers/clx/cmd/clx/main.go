@@ -54,6 +54,7 @@ type flags struct {
 	uninstallFlag   bool
 	cronArgs        []string
 	executePrompt   string
+	executeInvalid  bool
 	forceIPv4       bool
 	allowConc       bool
 	helpPassthrough bool
@@ -186,6 +187,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	if f.executeInvalid {
+		fmt.Fprintln(stderr, "clx: --execute requires a non-empty prompt argument")
+		return 2
+	}
+
 	logger := log.Setup(f.silent, f.debug)
 
 	if f.versionFlag {
@@ -199,7 +205,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if f.configPath == "" {
-		f.configPath = config.DefaultPath()
+		p, err := config.DefaultPath()
+		if err != nil {
+			fmt.Fprintln(stderr, "clx:", err)
+			return 2
+		}
+		f.configPath = p
 	}
 	pubkey, _ := signing.PublicKey()
 	cfg, err := config.Load(f.configPath, pubkey, false)
@@ -470,9 +481,14 @@ func parseFlags(args []string) (flags, []string, []string) {
 				}
 			}
 		case a == "--execute":
-			if i+1 < len(args) {
+			if i+1 < len(args) && strings.TrimSpace(args[i+1]) != "" {
 				f.executePrompt = args[i+1]
 				i++
+			} else {
+				f.executeInvalid = true
+				if i+1 < len(args) {
+					i++
+				}
 			}
 		case a == "--continue" || a == "-c":
 			// Forwarded straight to the upstream `claude` CLI through the

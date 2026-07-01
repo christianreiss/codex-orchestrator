@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { fetchArticle } from "$lib/api/manual";
   import { renderMarkdown, type TocEntry } from "./markdown";
@@ -65,13 +64,15 @@
   });
 
   // Track which heading is in view to highlight the TOC.
-  onMount(() => {
+  // Re-runs whenever the rendered article (html) or contentRef changes, so it
+  // re-arms for each article without polling forever.
+  $effect(() => {
+    if (!html || !contentRef) return;
     let observer: IntersectionObserver | null = null;
-    const setup = () => {
+    queueMicrotask(() => {
       if (!contentRef) return;
       const headings = contentRef.querySelectorAll<HTMLHeadingElement>("h2[id], h3[id]");
       if (!headings.length) return;
-      observer?.disconnect();
       observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -84,10 +85,8 @@
         { rootMargin: "-20% 0px -70% 0px", threshold: 0 },
       );
       headings.forEach((h) => observer!.observe(h));
-    };
-    const id = setInterval(setup, 250);
+    });
     return () => {
-      clearInterval(id);
       observer?.disconnect();
     };
   });

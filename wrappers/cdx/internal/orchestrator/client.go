@@ -102,6 +102,10 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 		req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
 	}
 
+	if retries < 0 {
+		retries = 0
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
 		// Clone the body for retries since net/http drains it.
@@ -122,6 +126,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 			return resp, nil
 		} else {
 			lastErr = fmt.Errorf("orchestrator %s %s -> %d", req.Method, req.URL.Path, resp.StatusCode)
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 2048))
 			resp.Body.Close()
 		}
 		if attempt < retries {
@@ -161,6 +166,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		io.Copy(io.Discard, resp.Body)
 		return &HTTPError{
 			StatusCode: resp.StatusCode,
 			Code:       parseErrorCode(raw),

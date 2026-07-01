@@ -120,6 +120,25 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
         };
       }
       const d = decoded as Record<string, unknown>;
+      // FastAPI's HTTPException (and 422 validation errors) serialize as
+      // {"detail": ...} with no `status` field. Surface that message as
+      // `reason` so callers don't lose the real failure detail.
+      if (d.status === undefined && d.reason === undefined && 'detail' in d) {
+        const detail = d.detail;
+        if (typeof detail === 'string' && detail.trim() !== '') {
+          d.reason = detail;
+        } else if (Array.isArray(detail)) {
+          const messages = detail
+            .map((item) => {
+              if (item && typeof item === 'object' && 'msg' in (item as Record<string, unknown>)) {
+                return String((item as Record<string, unknown>).msg);
+              }
+              return typeof item === 'string' ? item : JSON.stringify(item);
+            })
+            .filter((msg) => msg && msg.trim() !== '');
+          if (messages.length) d.reason = messages.join('; ');
+        }
+      }
       const isOk = (d.status ?? 'fail') === 'ok' && res.ok;
       return {
         ...d,

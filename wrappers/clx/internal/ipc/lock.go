@@ -28,6 +28,8 @@ func Acquire(name string) (*Lock, error) {
 		}
 		return nil, err
 	}
+	_ = f.Truncate(0)
+	_, _ = f.Seek(0, 0)
 	_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
 	return &Lock{f: f}, nil
 }

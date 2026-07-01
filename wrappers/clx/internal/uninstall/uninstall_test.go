@@ -127,7 +127,7 @@ func TestEnsureCanDestructivelyTouchOtherUsersRefusesWhenNonRootAndNoSudo(t *tes
 		t.Skip("passwordless sudo available — refusal path skipped")
 	}
 	var buf bytes.Buffer
-	err := ensureCanDestructivelyTouchOtherUsers(&buf, []string{"bob"})
+	err := ensureCanDestructivelyTouchOtherUsers(context.Background(), &buf, []string{"bob"})
 	if err == nil {
 		t.Fatal("expected refusal error, got nil")
 	}

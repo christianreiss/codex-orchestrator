@@ -88,8 +88,8 @@ type approvalBoxData struct {
 
 func drawApprovalBox(w io.Writer, caps Caps, d approvalBoxData) {
 	width := caps.Columns - 2
-	if width < 50 {
-		width = 50
+	if width < 20 {
+		width = 20
 	}
 	if width > 100 {
 		width = 100

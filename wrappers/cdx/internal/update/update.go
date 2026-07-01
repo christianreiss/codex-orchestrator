@@ -5,6 +5,7 @@ package update
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 )
@@ -47,7 +49,7 @@ func ReExecAfterUpdate(exe string, argv []string) error {
 func setEnvKV(env []string, key, val string) []string {
 	prefix := key + "="
 	for i, e := range env {
-		if len(e) > len(prefix) && e[:len(prefix)] == prefix {
+		if len(e) >= len(prefix) && e[:len(prefix)] == prefix {
 			env[i] = prefix + val
 			return env
 		}
@@ -92,7 +94,11 @@ func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySH
 	if cfg.Orchestrator.APIKey != "" {
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{
+		Timeout:   5 * time.Minute,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Orchestrator.AllowInsecure}},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download binary: %w", err)
 	}

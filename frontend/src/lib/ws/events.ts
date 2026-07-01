@@ -6,6 +6,7 @@
  */
 import type { QueryClient, QueryKey } from "@tanstack/svelte-query";
 import type { Readable } from "svelte/store";
+import { toast } from "svelte-sonner";
 import type { WsEvent } from "./client";
 
 export type WsInvalidationMap = Record<string, QueryKey[]>;
@@ -21,6 +22,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "host.updated": [["hosts"], ["overview"]],
   "host.created": [["hosts"], ["overview"]],
   "host.deleted": [["hosts"], ["overview"]],
+  "host.pruned": [["hosts"], ["overview"]],
 
   // Users
   "user.updated": [["users"]],
@@ -52,6 +54,11 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "memory.created": [["memories"], ["authoring", "memories"]],
   "memory.deleted": [["memories"], ["authoring", "memories"]],
 
+  // Claude artifacts (subagents / slash-commands / output-styles)
+  "claude_artifact.stored": [["subagents"], ["commands"], ["output-styles"]],
+  "claude_artifact.updated": [["subagents"], ["commands"], ["output-styles"]],
+  "claude_artifact.deleted": [["subagents"], ["commands"], ["output-styles"]],
+
   // API keys
   "api-key.changed": [["api-keys"]],
   "apikey.created": [
@@ -71,13 +78,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "settings.changed": [["settings"]],
 
   // Usage / dashboard
-  "usage.refreshed": [["usage"], ["dashboard"]],
-  "usage.refresh": [
-    ["usage", "chatgpt"],
-    ["usage", "claude"],
-  ],
+  // NB: the backend only ever publishes `chatgpt.usage.updated` (see
+  // api/src/services/chatgpt-usage.ts); there is no live push for Claude
+  // usage, so no invalidation entry is mapped for it here.
   "chatgpt.usage.updated": [["usage", "chatgpt"]],
-  "claude.usage.updated": [["usage", "claude"]],
   "insecure.approval.changed": [
     ["overview"],
     ["overview", "insecure-approvals"],
@@ -151,6 +155,41 @@ function extractProjectSlug(payload: unknown): string | null {
   return typeof slug === "string" && slug.length > 0 ? slug : null;
 }
 
+interface ToastPayload {
+  message: string;
+  title: string | null;
+  level: "info" | "success" | "warn" | "error";
+  timeoutMs: number | null;
+}
+
+function extractToastPayload(payload: unknown): ToastPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.message !== "string" || p.message.length === 0) return null;
+  const level = p.level === "success" || p.level === "warn" || p.level === "error" ? p.level : "info";
+  const title = typeof p.title === "string" && p.title.length > 0 ? p.title : null;
+  const timeoutMs = typeof p.timeout_ms === "number" ? p.timeout_ms : null;
+  return { message: p.message, title, level, timeoutMs };
+}
+
+/** Push a server-initiated `toast` WS event to the sonner Toaster. */
+function showServerToast(payload: unknown): void {
+  const parsed = extractToastPayload(payload);
+  if (!parsed) return;
+  // `title` (if present) is a short heading shown as the toast's primary
+  // line, with the longer `message` as the description underneath; when no
+  // title was sent, `message` alone is the primary line.
+  const primary = parsed.title ?? parsed.message;
+  const options = {
+    description: parsed.title ? parsed.message : undefined,
+    duration: parsed.timeoutMs ?? undefined,
+  };
+  if (parsed.level === "success") toast.success(primary, options);
+  else if (parsed.level === "warn") toast.warning(primary, options);
+  else if (parsed.level === "error") toast.error(primary, options);
+  else toast.info(primary, options);
+}
+
 /**
  * Subscribe the supplied WebSocket event stream to the query client.
  * Returns an unsubscribe function.
@@ -162,6 +201,10 @@ export function wireWsToQueryClient(
 ): () => void {
   return events.subscribe((event) => {
     if (!event || !event.type) return;
+    if (event.type === "toast") {
+      showServerToast((event as { payload?: unknown }).payload);
+      return;
+    }
     const keys = invalidations[event.type];
     if (keys && keys.length > 0) {
       for (const key of keys) {

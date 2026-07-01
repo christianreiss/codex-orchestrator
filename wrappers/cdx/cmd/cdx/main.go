@@ -134,13 +134,32 @@ func isHelpPassthrough(args []string) bool {
 	}
 	firstPositional := ""
 	helpBeforePositional := false
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			break
 		}
 		if a == "--help" || a == "-h" {
 			if firstPositional == "" {
 				helpBeforePositional = true
+			}
+			continue
+		}
+		// Flags that consume the following token as a value (mirrors
+		// parseFlags below) must not let that value be mistaken for the
+		// first positional argument.
+		switch a {
+		case "--resume", "--execute", "--config":
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		case "--cron":
+			if i+1 < len(args) {
+				next := args[i+1]
+				if next == "install" || next == "remove" || next == "run" {
+					i++
+				}
 			}
 			continue
 		}
@@ -433,7 +452,11 @@ func validateWrapperUpdateArtifact(artifact wrapperUpdateArtifact, current strin
 	if artifact.Version == "" || artifact.URL == "" || artifact.SHA256 == "" {
 		return wrapperUpdateArtifact{}, fmt.Errorf("wrapper update metadata incomplete")
 	}
-	if cmp, ok := compareSemver(artifact.Version, current); ok && cmp < 0 {
+	cmp, ok := compareSemver(artifact.Version, current)
+	if !ok {
+		return wrapperUpdateArtifact{}, fmt.Errorf("refusing wrapper update: cannot verify %s is not a downgrade from %s", artifact.Version, current)
+	}
+	if cmp < 0 {
 		return wrapperUpdateArtifact{}, fmt.Errorf("refusing to downgrade wrapper from %s to %s", current, artifact.Version)
 	}
 	return artifact, nil
@@ -500,6 +523,13 @@ func parseFlags(args []string) (flags, []string, []string) {
 		switch {
 		case a == "--":
 			consumedDash = true
+		case a == "--help" || a == "-h":
+			// Safety net: isHelpPassthrough should already have caught any
+			// bare --help/-h above, but if some combination slips through,
+			// don't let it fall into `positional` and get misdispatched as
+			// an unknown subcommand.
+			f.helpPassthrough = true
+			return f, nil, nil
 		case a == "--version" || a == "-V" || a == "--wrapper-version" || a == "-W":
 			f.versionFlag = true
 		case a == "--update" || a == "-U":
@@ -614,6 +644,10 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			clear = true
 		case "normal", "spark":
 			target = a
+		default:
+			fmt.Fprintln(stderr, "lane: unrecognized argument:", a)
+			fmt.Fprintln(stderr, "usage: cdx lane [normal|spark|clear] [--persist]")
+			return 2
 		}
 	}
 
@@ -717,7 +751,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 		fmt.Fprintln(stdout, "cron: removed")
 		return 0
-	default:
+	case "run":
 		// Non-interactive auto-update tick.
 		res, err := cron.Tick(ctx, cfg)
 		if err != nil {
@@ -726,6 +760,10 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 		fmt.Fprintln(stdout, formatCronResult(res))
 		return 0
+	default:
+		fmt.Fprintln(stderr, "cdx cron: unknown action:", action)
+		fmt.Fprintln(stderr, "usage: cdx cron [install|remove|run]")
+		return 2
 	}
 }
 

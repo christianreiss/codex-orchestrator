@@ -18,11 +18,12 @@ import (
 // non-zero. NeedsApprovalPoll asks the caller to render the insecure-approval
 // status box and re-bundle on resolution.
 type AuthDecision struct {
-	Allowed           bool
-	Status            string // echoed back, lower-cased
-	Reason            string // human-facing refusal text
-	NeedsApprovalPoll bool   // true if status == "insecure"
-	LocalUsable       bool   // true if we fell back to cached auth
+	Allowed            bool
+	Status             string // echoed back, lower-cased
+	Reason             string // human-facing refusal text
+	NeedsApprovalPoll  bool   // true if status == "insecure"
+	LocalUsable        bool   // true if we fell back to cached auth
+	VerificationFailed bool   // true if the server confirmed live provider verification failed (needs `codex login`)
 }
 
 // LocalAuthProbe is the callback shape the decision engine uses to consult
@@ -102,11 +103,13 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// instead of dropping the user into a raw "refresh token already used" /
 	// "Please log out and sign in again" error inside Codex. The server only
 	// emits "failed" when the runner reached the provider, so a local cached
-	// fallback would fail too — re-login is the only fix. The "live verification"
-	// phrasing is matched by lifecycle.needsInteractiveAuthRecovery to open the
-	// interactive `codex login` recovery.
+	// fallback would fail too — re-login is the only fix. VerificationFailed is
+	// the typed signal lifecycle.needsInteractiveAuthRecovery keys off of to
+	// open the interactive `codex login` recovery, rather than matching on
+	// this prose.
 	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
 		d.Reason = "Codex credentials failed live verification (login expired). Re-authenticate with `codex login`, then re-run cdx."
+		d.VerificationFailed = true
 		return d
 	}
 

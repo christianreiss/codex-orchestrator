@@ -13,9 +13,20 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 )
+
+// selfUpdateTimeout bounds the entire binary download (connection, headers,
+// and body read) so a stalled update host can't hang an ordinary clx launch
+// forever.
+const selfUpdateTimeout = 2 * time.Minute
+
+// maxBinarySize caps the amount of data written to disk while downloading a
+// replacement binary, so a bad or compromised binaryURL can't fill the disk
+// by streaming an arbitrarily large (or infinite) response body.
+const maxBinarySize = 500 * 1024 * 1024 // 500 MiB
 
 // ReExecAfterUpdate replaces the current process with a fresh exec of `exe`
 // using the snapshotted argv (captured at process start). Sets
@@ -69,7 +80,10 @@ func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySH
 
 	logger.Info("self-update starting", "target_version", targetVersion, "url", binaryURL, "platform", runtime.GOOS+"/"+runtime.GOARCH)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, binaryURL, nil)
+	dlCtx, cancel := context.WithTimeout(ctx, selfUpdateTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, binaryURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -95,9 +109,14 @@ func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySH
 		_ = tmp.Close()
 		return "", err
 	}
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBinarySize+1))
+	if err != nil {
 		_ = tmp.Close()
 		return "", err
+	}
+	if written > maxBinarySize {
+		_ = tmp.Close()
+		return "", fmt.Errorf("download binary: exceeds max allowed size of %d bytes", maxBinarySize)
 	}
 	if err := tmp.Close(); err != nil {
 		return "", err

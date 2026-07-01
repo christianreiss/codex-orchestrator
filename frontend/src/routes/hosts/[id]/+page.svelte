@@ -85,13 +85,18 @@
   const host = $derived($detail.data?.host);
   const overview = $derived($detail.data?.overview);
 
-  async function run<T>(label: string, p: Promise<T>): Promise<void> {
+  async function run<T>(
+    label: string,
+    p: Promise<T>,
+    opts?: { rethrow?: boolean },
+  ): Promise<void> {
     try {
       await p;
       toast.success(label);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Action failed";
       toast.error(msg);
+      if (opts?.rethrow) throw err;
     }
   }
 
@@ -121,11 +126,12 @@
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Delete failed";
       toast.error(msg);
+      throw err;
     }
   }
 
   async function doClear(): Promise<void> {
-    await run("Auth cleared", $clearAuth.mutateAsync({ id }));
+    await run("Auth cleared", $clearAuth.mutateAsync({ id }), { rethrow: true });
   }
 
   async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
@@ -544,7 +550,8 @@
     label="Version"
     placeholder={overview?.versions.client_version ?? "0.30.0"}
     initialValue={host.client_version_override ?? ""}
-    onSubmit={(v) => run("Version updated", $codexVersion.mutateAsync({ id, version: v }))}
+    onSubmit={(v) =>
+      run("Version updated", $codexVersion.mutateAsync({ id, version: v }), { rethrow: true })}
   />
   <InputDialog
     bind:open={claudeDialogOpen}
@@ -554,7 +561,8 @@
     label="Version"
     placeholder={overview?.versions.claude_version ?? "1.0.0"}
     initialValue={host.claude_client_version_override ?? ""}
-    onSubmit={(v) => run("Version updated", $claudeVersion.mutateAsync({ id, version: v }))}
+    onSubmit={(v) =>
+      run("Version updated", $claudeVersion.mutateAsync({ id, version: v }), { rethrow: true })}
   />
   <InputDialog
     bind:open={codexModelDialogOpen}
@@ -565,7 +573,10 @@
     placeholder="gpt-5.5"
     options={CODEX_MODELS}
     initialValue={host.model_override ?? ""}
-    onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }))}
+    onSubmit={(v) =>
+      run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }), {
+        rethrow: true,
+      })}
   />
   <InputDialog
     bind:open={claudeModelDialogOpen}
@@ -576,7 +587,10 @@
     placeholder="claude-sonnet-4-6"
     options={CLAUDE_MODEL_OPTIONS}
     initialValue={host.claude_model_override ?? ""}
-    onSubmit={(v) => run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }))}
+    onSubmit={(v) =>
+      run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }), {
+        rethrow: true,
+      })}
   />
   <InputDialog
     bind:open={agentsDialogOpen}
@@ -591,6 +605,7 @@
       return run(
         "Agents version updated",
         $agentsVersion.mutateAsync({ id, document_id: Number.isFinite(parsed) ? parsed : null }),
+        { rethrow: true },
       );
     }}
   />

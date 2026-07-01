@@ -98,7 +98,10 @@ func installCrontab() error {
 }
 
 func installUserCron(bin string, min, hr int) error {
-	cur, _ := readCrontab()
+	cur, err := readCrontab()
+	if err != nil {
+		return err
+	}
 	lines := stripManaged(cur)
 	home, _ := os.UserHomeDir()
 	logFile := filepath.Join(home, ".claude", "cron.log")
@@ -112,7 +115,10 @@ func installUserCron(bin string, min, hr int) error {
 // under $HOME/.claude/tmp/, and cron-as-root must not leak root-owned dirs
 // into the install user's home.
 func installSystemCron(bin string, min, hr int) error {
-	configPath := config.DefaultPath()
+	configPath, err := config.DefaultPath()
+	if err != nil {
+		return err
+	}
 	_, userHome := installUserContext()
 	logFile := filepath.Join(userHome, ".claude", "cron.log")
 	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
@@ -182,18 +188,16 @@ func needsQuoting(s string) bool {
 }
 
 func Remove() error {
-	if err := stripUserCronManaged(); err != nil {
-		return err
-	}
+	userErr := stripUserCronManaged()
+	var sysErr error
 	if _, err := os.Stat(systemCronPath); err == nil {
 		if !passwordlessSudo() {
-			return fmt.Errorf("%s exists but passwordless sudo is unavailable; remove it manually with `sudo rm %s`", systemCronPath, systemCronPath)
-		}
-		if err := sudoRemoveFile(systemCronPath); err != nil {
-			return fmt.Errorf("remove %s: %w", systemCronPath, err)
+			sysErr = fmt.Errorf("%s exists but passwordless sudo is unavailable; remove it manually with `sudo rm %s`", systemCronPath, systemCronPath)
+		} else if err := sudoRemoveFile(systemCronPath); err != nil {
+			sysErr = fmt.Errorf("remove %s: %w", systemCronPath, err)
 		}
 	}
-	return nil
+	return errors.Join(userErr, sysErr)
 }
 
 func stripUserCronManaged() error {
@@ -256,7 +260,9 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 
 	if check.Action == "disable" {
 		logger.Info("cron: auto-update disabled by server; removing cron job")
-		_ = Remove()
+		if err := Remove(); err != nil {
+			logger.Warn("cron: failed to fully remove cron job", "err", err)
+		}
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
 		return res, nil
@@ -441,8 +447,8 @@ func downloadAndSwap(ctx context.Context, cfg *config.Config, url, expectedSHA, 
 }
 
 func createWrapperTemp(dest string) (string, *os.File, error) {
-	tmp := dest + ".cron-new"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	tmp := fmt.Sprintf("%s.cron-new.%d-%d", dest, os.Getpid(), time.Now().UnixNano())
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o755)
 	if err == nil {
 		return tmp, f, nil
 	}

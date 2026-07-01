@@ -85,6 +85,8 @@
   function handleSheetKeydown(event: KeyboardEvent): void {
     if (!open || result || submitting || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
 
     const actions: Record<string, () => void> = {
       "1": () => toggleVibe("secure"),

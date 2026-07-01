@@ -56,7 +56,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         await db
           .update(hostsTable)
           .set({
-            apiKey,
+            apiKey: apiKeyHash,
             apiKeyHash,
             apiKeyEnc,
             secure: secure ? 1 : 0,
@@ -78,7 +78,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
 
       const ins = await db.insert(hostsTable).values({
         fqdn: trimmed,
-        apiKey,
+        apiKey: apiKeyHash,
         apiKeyHash,
         apiKeyEnc,
         status: 'active',

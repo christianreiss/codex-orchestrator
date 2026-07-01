@@ -31,6 +31,36 @@ func TestPrintBootDrawsArt(t *testing.T) {
 	}
 }
 
+func TestPrintBootSideBySideColorGapIsStable(t *testing.T) {
+	var buf bytes.Buffer
+	caps := DetectCaps("auto")
+	caps.Columns = 80 // force side-by-side layout
+	caps.Palette = Palette{
+		Bold:   "\033[1m",
+		Reset:  "\033[0m",
+		Orange: "\033[38;5;208m",
+		Dim:    "\033[2m",
+	}
+	PrintBoot(&buf, caps, BannerInfo{
+		Title:       "codex orchestrator",
+		Tagline:     "Codex to Brrr!",
+		CodexLine:   "codex    1.2.3",
+		WrapperLine: "wrapper  4.5.6",
+		ContextLine: "normal",
+	})
+	out := buf.String()
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+	idx := strings.Index(firstLine, caps.Palette.Reset)
+	if idx == -1 {
+		t.Fatalf("expected reset escape in first line; got: %q", firstLine)
+	}
+	gapAndBeyond := firstLine[idx+len(caps.Palette.Reset):]
+	gap := len(gapAndBeyond) - len(strings.TrimLeft(gapAndBeyond, " "))
+	if gap != 4 {
+		t.Errorf("expected 4-space gap between art and info column, got %d spaces: %q", gap, gapAndBeyond)
+	}
+}
+
 func TestPrintHealthRow(t *testing.T) {
 	var buf bytes.Buffer
 	caps := DetectCaps("")

@@ -134,12 +134,22 @@ export function claudeSettingsMutation(
 
 /* ─────────────────── 3b. Claude version (engine) ─────────────────── */
 
-export const claudeVersionsQueryKey = ["settings", "claude-versions"] as const;
+// `/admin/versions/check` is a side-effecting POST that force-probes GitHub
+// for BOTH engines' releases in a single call (bypassing the 1h settings
+// cache), so the Claude and Codex "read" queries below share one query key
+// and a long staleTime -- otherwise they'd each independently re-trigger the
+// same forced upstream lookup on every stale remount. Explicit re-checks go
+// through claudeVersionsCheckMutation / codexVersionsCheckMutation (mirrors
+// overview.ts's versionsCheckMutation, which exposes this same endpoint as
+// a mutation for the same reason).
+export const versionsCheckQueryKey = ["settings", "versions-check"] as const;
+export const claudeVersionsQueryKey = versionsCheckQueryKey;
 
 export function claudeVersionsQuery() {
   return createQuery<CodexVersionsCheckResult>({
     queryKey: claudeVersionsQueryKey,
     queryFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
+    staleTime: Infinity,
   });
 }
 
@@ -289,12 +299,18 @@ export function quotaModeMutation(opts: MutationOpts<QuotaModeValue, Partial<Quo
 
 /* ────────────────────────── 9. Codex version ─────────────────────── */
 
-export const codexVersionsQueryKey = ["settings", "codex-versions"] as const;
+// Shares versionsCheckQueryKey with claudeVersionsQuery above -- see the
+// comment there. Both engines' data comes back from the same forced POST,
+// so registering it under one key (instead of two) means mounting the
+// Claude section, Codex section, and OpenAI section together triggers a
+// single upstream check, not three.
+export const codexVersionsQueryKey = versionsCheckQueryKey;
 
 export function codexVersionsQuery() {
   return createQuery<CodexVersionsCheckResult>({
     queryKey: codexVersionsQueryKey,
     queryFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
+    staleTime: Infinity,
   });
 }
 

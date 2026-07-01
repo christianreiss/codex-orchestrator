@@ -18,6 +18,12 @@ import (
 	"time"
 )
 
+// idleTunnelTimeout bounds how long a CONNECT tunnel may sit with no data
+// flowing in either direction. It's refreshed on every successful read, so
+// active-but-slow tunnels are unaffected; only a peer that goes silent
+// without closing the socket gets reaped.
+const idleTunnelTimeout = 10 * time.Minute
+
 // Proxy is a started IPv4-forcing proxy.
 type Proxy struct {
 	URL    string
@@ -39,7 +45,11 @@ func Start(ctx context.Context) (*Proxy, error) {
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{}
-				return d.DialContext(ctx, "udp4", address)
+				n := "udp4"
+				if strings.HasPrefix(network, "tcp") {
+					n = "tcp4"
+				}
+				return d.DialContext(ctx, n, address)
 			},
 		},
 	}
@@ -65,7 +75,11 @@ func Start(ctx context.Context) (*Proxy, error) {
 		handleHTTP(w, r, transport)
 	})
 
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       idleTunnelTimeout,
+	}
 	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), server: srv}
 	p.wg.Add(1)
 	go func() {
@@ -115,8 +129,30 @@ func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context
 	defer src.Close()
 	_, _ = src.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	go io.Copy(dst, src) //nolint:errcheck
-	io.Copy(src, dst)    //nolint:errcheck
+	sc := &idleConn{Conn: src, timeout: idleTunnelTimeout}
+	dc := &idleConn{Conn: dst, timeout: idleTunnelTimeout}
+
+	go io.Copy(dc, sc) //nolint:errcheck
+	io.Copy(sc, dc)    //nolint:errcheck
+}
+
+// idleConn wraps a net.Conn and resets its read/write deadlines on every
+// successful I/O call, so a genuinely stalled peer eventually errors out of
+// io.Copy instead of pinning the goroutine/fd pair open for the process
+// lifetime, while active-but-slow tunnels are left alone.
+type idleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleConn) Read(b []byte) (int, error) {
+	_ = c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Read(b)
+}
+
+func (c *idleConn) Write(b []byte) (int, error) {
+	_ = c.Conn.SetWriteDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Write(b)
 }
 
 func handleHTTP(w http.ResponseWriter, r *http.Request, transport *http.Transport) {

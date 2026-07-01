@@ -160,6 +160,14 @@ function buildChain(method: string, args: unknown[], onResolve: (chain: CallNode
     tail = tail.next;
     return builder;
   };
+  builder.for = (...a: unknown[]) => {
+    // Row-locking hint (e.g. `.for('update')`) -- this in-memory store has
+    // no concurrent access, so it's a no-op chain link kept only so the
+    // real Drizzle chain shape resolves without throwing.
+    tail.next = { method: 'for', args: a };
+    tail = tail.next;
+    return builder;
+  };
   builder.then = (onFulfilled: unknown, onRejected?: unknown) =>
     Promise.resolve(onResolve(root)).then(
       onFulfilled as (v: unknown) => unknown,
@@ -557,8 +565,16 @@ function runDelete(store: AdminStore, chain: CallNode): unknown[] {
   return [{ affectedRows: affected }];
 }
 
-function makeFakeDb(store: AdminStore) {
-  return {
+interface FakeDb {
+  select: (selection?: Record<string, unknown>) => unknown;
+  insert: (table: unknown) => unknown;
+  update: (table: unknown) => unknown;
+  delete: (table: unknown) => unknown;
+  transaction: <T>(fn: (tx: FakeDb) => Promise<T>) => Promise<T>;
+}
+
+function makeFakeDb(store: AdminStore): FakeDb {
+  const db: FakeDb = {
     select(selection?: Record<string, unknown>) {
       return buildChain('select', [selection], (chain) => runSelect(store, chain));
     },
@@ -571,7 +587,14 @@ function makeFakeDb(store: AdminStore) {
     delete(table: unknown) {
       return buildChain('delete', [table], (chain) => runDelete(store, chain));
     },
+    // This in-memory store executes synchronously and isn't shared across
+    // concurrent callers, so there's nothing to isolate/roll back -- the
+    // callback just runs against the same fake handle.
+    async transaction<T>(fn: (tx: FakeDb) => Promise<T>): Promise<T> {
+      return fn(db);
+    },
   };
+  return db;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -619,6 +642,14 @@ export async function buildAdminTestApp(envPatch: Partial<Env> = {}): Promise<Ad
   // For routes that read off `app.db` / `app.env`.
   app.decorate('db', db as unknown as import('../../src/db/client.js').Database);
   app.decorate('env', env);
+  // Admin login/reset/passkey routes call AuthFailureTracker, which reads
+  // `app.rateLimiter` -- this harness doesn't exercise rate-limiting itself,
+  // so a fake that always reports "not exhausted" is sufficient.
+  app.decorate('rateLimiter', {
+    async hit() {
+      return { ok: true, resetAt: new Date(Date.now() + 600_000).toISOString(), count: 1 };
+    },
+  } as never);
 
   await registerAdminAuthAndUsersRoutes(app, {
     db: db as unknown as import('../../src/db/client.js').Database,

@@ -25,7 +25,7 @@ func Acquire(name string) (*Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open lock %s: %w", path, err)
 	}

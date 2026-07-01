@@ -57,7 +57,7 @@ func removeFleetCollections(home string, stdout, stderr io.Writer) {
 			continue
 		}
 		for _, rec := range man.Items {
-			if rec.Filename == "" {
+			if rec.Filename == "" || rec.Filename == "." || rec.Filename == ".." || rec.Filename != filepath.Base(rec.Filename) {
 				continue
 			}
 			removeReport(stdout, stderr, filepath.Join(home, ".claude", sub, rec.Filename))
@@ -129,7 +129,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		others = otherUsers(ctx, client, currentUsername)
 	}
 	if len(others) > 0 {
-		if err := ensureCanDestructivelyTouchOtherUsers(stderr, others); err != nil {
+		if err := ensureCanDestructivelyTouchOtherUsers(ctx, stderr, others); err != nil {
 			return err
 		}
 	}
@@ -143,9 +143,14 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 			resp.Body.Close()
 			fmt.Fprintf(stdout, "uninstall: server-side delete -> HTTP %d\n", resp.StatusCode)
 		}
+	} else {
+		fmt.Fprintln(stderr, "uninstall: server-side delete skipped (best-effort):", clientErr)
 	}
 
-	home, _ := os.UserHomeDir()
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		return fmt.Errorf("uninstall: cannot resolve home directory: %w", homeErr)
+	}
 	targets := []string{
 		filepath.Join(home, ".claude", "settings.json"),
 		filepath.Join(home, ".claude", "CLAUDE.md"),
@@ -216,7 +221,7 @@ func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsernam
 	return out
 }
 
-func ensureCanDestructivelyTouchOtherUsers(stderr io.Writer, others []string) error {
+func ensureCanDestructivelyTouchOtherUsers(ctx context.Context, stderr io.Writer, others []string) error {
 	if os.Geteuid() == 0 {
 		return nil
 	}

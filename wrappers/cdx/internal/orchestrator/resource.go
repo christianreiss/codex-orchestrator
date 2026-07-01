@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -19,15 +20,21 @@ func resourceContent(data json.RawMessage) (json.RawMessage, error) {
 	}
 
 	var payload struct {
-		Content string `json:"content"`
-		Body    string `json:"body"`
+		Content *string `json:"content"`
+		Body    *string `json:"body"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
-	content := payload.Content
-	if content == "" {
-		content = payload.Body
+	if payload.Content == nil && payload.Body == nil {
+		return nil, fmt.Errorf("resourceContent: unrecognized payload shape (missing content/body): %s", string(data))
+	}
+	var content string
+	if payload.Content != nil {
+		content = *payload.Content
+	}
+	if content == "" && payload.Body != nil {
+		content = *payload.Body
 	}
 	if content == "" {
 		return nil, nil

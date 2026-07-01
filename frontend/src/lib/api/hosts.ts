@@ -153,7 +153,8 @@ type BoolToggleField =
   | "auto_update"
   | "scaling_exempt"
   | "curl_insecure"
-  | "browseros_mcp";
+  | "browseros_mcp"
+  | "allow";
 
 type ToggleEndpointPath =
   | "secure"
@@ -238,7 +239,7 @@ export function createRoamingToggleMutation(qc: QueryClient) {
   return makeBoolToggle(qc, {
     endpoint: "roaming",
     detailField: "allow_roaming_ips",
-    bodyKey: "roaming",
+    bodyKey: "allow",
   });
 }
 
@@ -250,7 +251,7 @@ export function createAutoUpdateToggleMutation(qc: QueryClient) {
     { previous?: HostDetailResponse }
   >({
     mutationFn: ({ id, value }) =>
-      api.post(`/admin/hosts/${id}/auto-update`, { auto_update: value }),
+      api.post(`/admin/hosts/${id}/auto-update`, { override: value }),
     onMutate: async ({ id, value }) => {
       await qc.cancelQueries({ queryKey: hostsKeys.detail(id) });
       const previous = qc.getQueryData<HostDetailResponse>(
@@ -292,7 +293,7 @@ export function createCurlInsecureToggleMutation(qc: QueryClient) {
   return makeBoolToggle(qc, {
     endpoint: "curl-insecure",
     detailField: "curl_insecure",
-    bodyKey: "curl_insecure",
+    bodyKey: "allow",
   });
 }
 
@@ -313,7 +314,7 @@ export function createReverseDnsMutation(qc: QueryClient) {
     { id: number | string; mode: "global" | "enabled" | "disabled" }
   >({
     mutationFn: ({ id, mode }) =>
-      api.post(`/admin/hosts/${id}/reverse-dns`, { reverse_dns_mode: mode }),
+      api.post(`/admin/hosts/${id}/reverse-dns`, { mode }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
@@ -356,7 +357,7 @@ export function createCodexVersionMutation(qc: QueryClient) {
     { id: number | string; version: string | null }
   >({
     mutationFn: ({ id, version }) =>
-      api.post(`/admin/hosts/${id}/codex-version`, { client_version: version }),
+      api.post(`/admin/hosts/${id}/codex-version`, { selection: version }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
@@ -372,7 +373,7 @@ export function createClaudeVersionMutation(qc: QueryClient) {
   >({
     mutationFn: ({ id, version }) =>
       api.post(`/admin/hosts/${id}/claude-version`, {
-        client_version: version,
+        selection: version,
       }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
@@ -389,7 +390,7 @@ export function createAgentsVersionMutation(qc: QueryClient) {
   >({
     mutationFn: ({ id, document_id }) =>
       api.post(`/admin/hosts/${id}/agents-version`, {
-        agents_document_id: document_id,
+        selection: document_id,
       }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });

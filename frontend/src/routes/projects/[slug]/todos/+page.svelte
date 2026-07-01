@@ -120,9 +120,9 @@
       if (ctx?.previous !== undefined) qc.setQueryData(projectKeys.todos(slug), ctx.previous);
       toast.error(err instanceof ApiError ? err.message : "Could not update todo");
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       toast.success("Todo updated");
-      cancelEdit();
+      if (editingId === vars.id) cancelEdit();
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: projectKeys.todos(slug) });

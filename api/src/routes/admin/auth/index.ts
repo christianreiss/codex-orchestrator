@@ -7,6 +7,7 @@ import { createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminPasskeyService } from '../../../services/admin-passkey.js';
 import { createAdminPasswordService } from '../../../services/admin-password.js';
+import { createAuthFailureTracker } from '../../../services/auth-failure-tracker.js';
 import { createMailer } from '../../../services/mailer.js';
 
 /**
@@ -21,7 +22,8 @@ export async function registerAdminAuthRoutes(
 ): Promise<void> {
   const { db, env } = ctx;
   const events = createAdminEventsService(db);
-  const auth = createAdminAuthService(db, env);
+  const failures = createAuthFailureTracker(app);
+  const auth = createAdminAuthService(db, env, failures);
   const passkeys = createAdminPasskeyService(db, env, events);
   const mailer = createMailer(env, app.log);
   const passwords = createAdminPasswordService(db, env, auth, events, mailer);
@@ -148,8 +150,13 @@ export async function registerAdminAuthRoutes(
   });
   app.post('/admin/auth/password/reset', async (req: FastifyRequest) => {
     const body = passwordResetSchema.parse((req.body ?? {}) as Record<string, unknown>);
-    const user = await passwords.applyReset(body.token, body.new_password, body.confirm_password);
-    return ok({ user });
+    try {
+      const user = await passwords.applyReset(body.token, body.new_password, body.confirm_password);
+      return ok({ user });
+    } catch (err) {
+      await failures.recordFailure(clientIp(req), 'password_reset_failed');
+      throw err;
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -166,10 +173,16 @@ export async function registerAdminAuthRoutes(
   // -----------------------------------------------------------------------
   app.post('/admin/auth/passkey/login', async (req: FastifyRequest, reply: FastifyReply) => {
     const body = normalizePasskeyAuthenticationBody(req.body);
-    const user = await passkeys.completeAuthentication(
-      body as Parameters<typeof passkeys.completeAuthentication>[0],
-      req,
-    );
+    let user: Awaited<ReturnType<typeof passkeys.completeAuthentication>>;
+    try {
+      user = await passkeys.completeAuthentication(
+        body as Parameters<typeof passkeys.completeAuthentication>[0],
+        req,
+      );
+    } catch (err) {
+      await failures.recordFailure(clientIp(req), 'passkey_login_failed');
+      throw err;
+    }
     const session = await auth.createSession(user, clientIp(req), userAgent(req), 'admin.auth.passkey.login');
     auth.applySessionCookie(reply, session.token, session.expires_at);
     return ok({ user: session.user, expires_at: session.expires_at });

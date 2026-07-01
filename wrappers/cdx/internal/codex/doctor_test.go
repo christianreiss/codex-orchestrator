@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 func TestCheckCLIUsesRunningWrapperVersion(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
 
-	row := checkCLI(&config.Config{Wrapper: config.Wrapper{Version: "0.6.5"}}, "0.6.15")
+	row := checkCLI(context.Background(), &config.Config{Wrapper: config.Wrapper{Version: "0.6.5"}}, "0.6.15")
 
 	if !strings.Contains(row.Value, "wrapper=0.6.15") {
 		t.Fatalf("expected running wrapper version, got %q", row.Value)
@@ -24,7 +25,7 @@ func TestCheckCLIUsesRunningWrapperVersion(t *testing.T) {
 func TestCheckCLIFallsBackToConfigWrapperVersion(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
 
-	row := checkCLI(&config.Config{Wrapper: config.Wrapper{Version: "0.6.5"}}, "")
+	row := checkCLI(context.Background(), &config.Config{Wrapper: config.Wrapper{Version: "0.6.5"}}, "")
 
 	if !strings.Contains(row.Value, "wrapper=0.6.5") {
 		t.Fatalf("expected config fallback wrapper version, got %q", row.Value)

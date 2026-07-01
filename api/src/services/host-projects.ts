@@ -7,7 +7,7 @@
  * publishes a matching `project.*` WS event. The host (the authenticated
  * caller) is recorded in `source_host_id`.
  */
-import { eq, and, gt, asc, desc, sql, isNull } from 'drizzle-orm';
+import { eq, and, gt, asc, desc, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   coordProjects,
@@ -683,36 +683,38 @@ export class HostProjectsService {
     sourceHostId: number | null,
   ): Promise<void> {
     if (project.id <= 0) throw new ConflictError('Project event requires a stored project');
-    const seq = await this.nextEventSeq(project.id);
     const now = nowIso();
-    await this.db.insert(coordProjectEvents).values({
-      projectId: project.id,
-      seq,
-      eventType,
-      action,
-      entityType,
-      entityId,
-      payloadJson: payload,
-      sourceHostId,
-      createdAt: now,
+    // Lock the project row for the duration of the transaction so concurrent
+    // mutations on the same project can't allocate the same seq (mirrors
+    // ProjectsService#recordEvent in projects.ts).
+    const seq = await this.db.transaction(async (tx) => {
+      const lockedRows = await tx
+        .select({ seq: coordProjects.latestEventSeq })
+        .from(coordProjects)
+        .where(eq(coordProjects.id, project.id))
+        .for('update');
+      const nextSeq = (lockedRows[0]?.seq ?? 0) + 1;
+
+      await tx
+        .update(coordProjects)
+        .set({ latestEventSeq: nextSeq, updatedAt: now })
+        .where(eq(coordProjects.id, project.id));
+
+      await tx.insert(coordProjectEvents).values({
+        projectId: project.id,
+        seq: nextSeq,
+        eventType,
+        action,
+        entityType,
+        entityId,
+        payloadJson: payload,
+        sourceHostId,
+        createdAt: now,
+      });
+
+      return nextSeq;
     });
     wsPublisher.publish('project.changed', { slug: project.slug, seq, event_type: eventType, action, source_host_id: sourceHostId });
-  }
-
-  private async nextEventSeq(projectId: number): Promise<number> {
-    const now = nowIso();
-    await this.db.execute(
-      sql`UPDATE coord_projects SET latest_event_seq = LAST_INSERT_ID(latest_event_seq + 1), updated_at = ${now} WHERE id = ${projectId}`,
-    );
-    const result = await this.db.execute(sql`SELECT LAST_INSERT_ID() AS seq`);
-    const rows = Array.isArray(result) ? result[0] : result;
-    const first = Array.isArray(rows) ? rows[0] : (rows as { seq?: number });
-    const seq = first ? Number((first as { seq?: number }).seq ?? 0) : 0;
-    if (seq <= 0) {
-      const proj = await this.findById(projectId);
-      return proj ? proj.latest_event_seq : 0;
-    }
-    return seq;
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -153,21 +154,29 @@ func selectedAuthFile() (string, []byte, os.FileInfo, error) {
 		usable bool
 	}
 	var found []cand
+	var lastErr error
 	for _, path := range []string{claudePath, clxPath} {
 		raw, readErr := os.ReadFile(path)
 		if errors.Is(readErr, os.ErrNotExist) {
 			continue
 		}
 		if readErr != nil {
-			return "", nil, nil, readErr
+			// A transient/permission error on one candidate should not abort
+			// selection when the other candidate may still be usable; skip it.
+			lastErr = readErr
+			continue
 		}
 		info, statErr := os.Stat(path)
 		if statErr != nil {
-			return "", nil, nil, statErr
+			lastErr = statErr
+			continue
 		}
 		found = append(found, cand{path: path, raw: raw, info: info, usable: isUsableAuth(raw)})
 	}
 	if len(found) == 0 {
+		if lastErr != nil {
+			return "", nil, nil, lastErr
+		}
 		return claudePath, nil, nil, os.ErrNotExist
 	}
 	best := found[0]
@@ -210,13 +219,57 @@ func backfillLastRefresh(payload json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(out), nil
 }
 
+// atomicWrite writes body to path via a unique temp file in the same
+// directory, forced to 0600, then renames it into place. An advisory
+// exclusive file lock serializes concurrent writers (e.g. a refresh cron and
+// an interactive session) so they cannot race on the same temp inode or
+// interleave writes.
 func atomicWrite(path string, body []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+	unlock, err := lockAuthPath(path)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer unlock()
+
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.new")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once renamed into place
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// os.WriteFile/os.CreateTemp only apply the requested mode when creating
+	// the file; force 0600 explicitly regardless of umask or pre-existing state.
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+// lockAuthPath takes a blocking, exclusive advisory lock on a sibling lock
+// file so concurrent WriteAuth callers serialize instead of racing.
+func lockAuthPath(path string) (func(), error) {
+	lockPath := path + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
 }

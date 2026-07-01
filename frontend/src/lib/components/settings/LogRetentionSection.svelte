@@ -96,6 +96,14 @@
   </div>
 
   <div>
-    <Button size="sm" onclick={save} disabled={$mutation.isPending}>Save log retention</Button>
+    <Button size="sm" onclick={save} disabled={$mutation.isPending || !$query.isSuccess}
+      >Save log retention</Button
+    >
+    {#if $query.isError}
+      <p class="mt-1 text-xs text-destructive">
+        Failed to load current log retention settings: {$query.error?.message ?? "unknown error"}. Reload
+        the page before saving.
+      </p>
+    {/if}
   </div>
 </SectionCard>

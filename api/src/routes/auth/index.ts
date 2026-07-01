@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import {
   hostAuthDigests,
   hosts as hostsTable,
@@ -295,10 +295,11 @@ async function handleRetrieve(
   const canonicalLast = validated?.last_refresh ?? null;
   const canonicalAuth = validated?.auth ?? null;
 
-  // Bump api_calls.
+  // Bump api_calls. Atomic SQL increment — avoids lost updates from concurrent
+  // requests reading the same stale `host.apiCalls` snapshot.
   await ctx.db
     .update(hostsTable)
-    .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: nowIso() })
+    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
     .where(eq(hostsTable.id, host.id));
 
   const versions = withLegacyShellWrapperTransition(
@@ -399,9 +400,11 @@ async function buildRetrieveBaseResponse(
   engine: Engine,
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
 ): Promise<Record<string, unknown>> {
+  // Atomic SQL increment — avoids lost updates from concurrent requests
+  // reading the same stale `host.apiCalls` snapshot.
   await ctx.db
     .update(hostsTable)
-    .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: nowIso() })
+    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
     .where(eq(hostsTable.id, host.id));
 
   const versions = withLegacyShellWrapperTransition(
@@ -548,9 +551,11 @@ async function handleStore(
     throw err;
   }
   const now = nowIso();
+  // Atomic SQL increment — avoids lost updates from concurrent requests
+  // reading the same stale `host.apiCalls` snapshot.
   await ctx.db
     .update(hostsTable)
-    .set({ apiCalls: (Number(host.apiCalls ?? 0) + 1), updatedAt: now })
+    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: now })
     .where(eq(hostsTable.id, host.id));
 
   const summary = withLegacyShellWrapperTransition(

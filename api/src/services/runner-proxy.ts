@@ -141,9 +141,16 @@ export class RunnerProxyService {
     lastRefresh: string,
   ): RunnerRunResult {
     const reason = typeof verdict.reason === 'string' ? verdict.reason : undefined;
+    // Forward only the known-safe verdict fields. The runner's /verify
+    // contract allows an `updated_auth` field carrying freshly-refreshed
+    // live OAuth/API credentials when it refreshes tokens as a side effect
+    // of the check; that (and any other unlisted field) must never be
+    // echoed back verbatim to the admin API client.
     return {
-      ...verdict,
       status: verdict.status,
+      ok: verdict.ok,
+      reachable: verdict.reachable,
+      latency_ms: verdict.latency_ms,
       detail: verdict.ok ? 'Runner verification ok' : (reason ?? verdict.status),
       reason,
       canonical_digest: digest,

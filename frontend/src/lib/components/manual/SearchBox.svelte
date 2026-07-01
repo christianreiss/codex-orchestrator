@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import Search from "@lucide/svelte/icons/search";
   import X from "@lucide/svelte/icons/x";
   import { Input } from "$lib/components/ui/input";
@@ -27,6 +28,10 @@
     if (timer) clearTimeout(timer);
     onInput("");
   }
+
+  onDestroy(() => {
+    if (timer) clearTimeout(timer);
+  });
 </script>
 
 <div class="relative">

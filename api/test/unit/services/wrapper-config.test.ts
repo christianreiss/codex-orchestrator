@@ -163,6 +163,7 @@ function makeFakeDb(state: DbState): Database {
       from: (..._a: unknown[]) => typeof chain;
       where: (..._a: unknown[]) => typeof chain;
       orderBy: (..._a: unknown[]) => typeof chain;
+      for: (..._a: unknown[]) => typeof chain;
       limit: (n: number) => Promise<unknown[]>;
     } = {
       from(t: unknown) {
@@ -187,6 +188,9 @@ function makeFakeDb(state: DbState): Database {
       orderBy(..._args: unknown[]) {
         return chain;
       },
+      for(..._args: unknown[]) {
+        return chain;
+      },
       async limit(n: number) {
         return filtered.slice(0, n);
       },
@@ -194,7 +198,7 @@ function makeFakeDb(state: DbState): Database {
     return chain;
   }
 
-  return {
+  const db = {
     select: () => chainFor([]),
     update: (_table: unknown) => ({
       set: (patch: Record<string, unknown>) => ({
@@ -203,7 +207,12 @@ function makeFakeDb(state: DbState): Database {
         },
       }),
     }),
-  } as unknown as Database;
+    // Fake is single-threaded/in-memory, so a "transaction" is just running
+    // the callback against the same fake -- there's no real concurrency to
+    // isolate here, only the API shape (tx.select/.update) needs to match.
+    transaction: async (cb: (tx: Database) => Promise<unknown>) => cb(db as unknown as Database),
+  };
+  return db as unknown as Database;
 }
 
 function pickTable(state: DbState, _name: string): unknown[] {

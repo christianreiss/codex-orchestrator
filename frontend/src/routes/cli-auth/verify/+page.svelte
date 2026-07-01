@@ -79,6 +79,7 @@
         // Reset back to code entry so the user can try again with a fresh code.
         session = null;
         phase = "code";
+        code = "";
         lookupError = err.message;
         lookupFailureKind = err.status === 410 ? "expired" : "not_found";
       }

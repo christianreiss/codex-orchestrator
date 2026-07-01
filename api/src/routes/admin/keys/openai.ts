@@ -82,7 +82,14 @@ export async function registerAdminOpenAiKeyRoutes(
       const id = parseId(req.params);
       const parsed = toggleSchema.safeParse(req.body ?? {});
       const active = parsed.success ? Boolean(parsed.data.active) : false;
-      await keys.setActive(id, active);
+      const updated = await keys.setActive(id, active, ENGINE_CODEX);
+      if (!updated) {
+        throw new ApiError('Key not found', {
+          status: 404,
+          code: 'not_found',
+          type: 'not_found_error',
+        });
+      }
       wsPublisher.publish('apikey.toggled', { id, engine: ENGINE_CODEX, active });
       return { id, active, message: active ? 'Key enabled' : 'Key disabled' };
     },
@@ -92,7 +99,14 @@ export async function registerAdminOpenAiKeyRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const id = parseId(req.params);
-      await keys.delete(id);
+      const removed = await keys.delete(id, ENGINE_CODEX);
+      if (!removed) {
+        throw new ApiError('Key not found', {
+          status: 404,
+          code: 'not_found',
+          type: 'not_found_error',
+        });
+      }
       wsPublisher.publish('apikey.deleted', { id, engine: ENGINE_CODEX });
       return { id, message: 'Key deleted' };
     },

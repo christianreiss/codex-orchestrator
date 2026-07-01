@@ -63,6 +63,15 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "reverse DNS mismatch; refusing to sync."
 		return d
 	}
+	// Engine disabled for this host. The non-bundle /auth path maps this to
+	// status "disabled", but the /sync/bootstrap path folds the 403 body into
+	// the synthesized offline Message — without this branch an over-cache host
+	// would fall through to the offline path and launch a disabled engine from
+	// cached auth instead of refusing.
+	if strings.Contains(strings.ToLower(resp.Message), "engine_disabled") {
+		d.Reason = "Engine disabled for this host by administrator."
+		return d
+	}
 
 	// Live launch-gate proof: when the server reached Anthropic and the canonical
 	// credentials did NOT authenticate, refuse the managed launch instead of

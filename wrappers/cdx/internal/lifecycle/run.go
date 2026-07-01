@@ -308,8 +308,17 @@ func bootstrap(
 ) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool, *orchestrator.FleetSessions) {
 	digest, _ := codex.LocalDigest()
 
-	agentsDigest := fileDigest(agentsPath())
-	configDigest := fileDigest(configTomlPath())
+	agentsFile, agentsPathErr := agentsPath()
+	if agentsPathErr != nil {
+		logger.Warn("resolving agents path failed; skipping agents sync", "err", agentsPathErr)
+	}
+	configFile, configPathErr := configTomlPath()
+	if configPathErr != nil {
+		logger.Warn("resolving config path failed; skipping config sync", "err", configPathErr)
+	}
+
+	agentsDigest := fileDigest(agentsFile)
+	configDigest := fileDigest(configFile)
 
 	var candidate []byte
 	// On the offline-retry path we don't have an auth response yet; sending the
@@ -376,15 +385,15 @@ func bootstrap(
 	agentsUpdated := false
 	configUpdated := false
 	if !concurrent {
-		if len(resp.Agents) > 0 {
-			if err := atomicWrite(agentsPath(), resp.Agents, 0o644); err != nil {
+		if agentsPathErr == nil && len(resp.Agents) > 0 {
+			if err := atomicWrite(agentsFile, resp.Agents, 0o644); err != nil {
 				logger.Debug("bundle agents write failed", "err", err)
 			} else {
 				agentsUpdated = true
 			}
 		}
-		if len(resp.Config) > 0 {
-			if err := atomicWrite(configTomlPath(), resp.Config, 0o644); err != nil {
+		if configPathErr == nil && len(resp.Config) > 0 {
+			if err := atomicWrite(configFile, resp.Config, 0o644); err != nil {
 				logger.Debug("bundle config write failed", "err", err)
 			} else {
 				configUpdated = true
@@ -478,7 +487,7 @@ func decideAuthRecovery(concurrent, headless, recoveryNeeded bool) authRecoveryA
 }
 
 func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
-	if strings.Contains(strings.ToLower(dec.Reason), "live verification") {
+	if dec.VerificationFailed {
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
@@ -592,7 +601,10 @@ func shouldWriteServerAuth(status string, auth []byte) bool {
 }
 
 func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst := agentsPath()
+	dst, err := agentsPath()
+	if err != nil {
+		return false, err
+	}
 	digest := fileDigest(dst)
 	body, err := client.RetrieveAgents(ctx, digest)
 	if err != nil {
@@ -605,7 +617,10 @@ func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error)
 }
 
 func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst := configTomlPath()
+	dst, err := configTomlPath()
+	if err != nil {
+		return false, err
+	}
 	digest := fileDigest(dst)
 	body, err := client.RetrieveConfig(ctx, digest)
 	if err != nil {
@@ -617,14 +632,20 @@ func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, er
 	return true, atomicWrite(dst, body, 0o644)
 }
 
-func agentsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".codex", "AGENTS.md")
+func agentsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex", "AGENTS.md"), nil
 }
 
-func configTomlPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".codex", "config.toml")
+func configTomlPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex", "config.toml"), nil
 }
 
 func atomicWrite(path string, body []byte, mode os.FileMode) error {
@@ -793,10 +814,10 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	if target == "" || target == "latest" {
 		return ""
 	}
+	if current == target {
+		return ""
+	}
 	if !v.ClientVersionEnforceExact {
-		if current == target {
-			return ""
-		}
 		if current != "" && current != "unknown" && !semverGT(target, current) {
 			logger.Warn("skipping downgrade", "current", current, "target", target)
 			return ""

@@ -34,11 +34,17 @@ export function createClaudeKillSwitch(db: Database): ClaudeKillSwitch {
 
   async function read(): Promise<boolean> {
     if (cache && Date.now() - cache.ts < TTL_MS) return cache.value;
-    const rows = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);
-    const raw = rows[0]?.version?.trim().toLowerCase() ?? '';
-    const value = TRUE_VALUES.has(raw);
-    cache = { value, ts: Date.now() };
-    return value;
+    try {
+      const rows = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);
+      const raw = rows[0]?.version?.trim().toLowerCase() ?? '';
+      const value = TRUE_VALUES.has(raw);
+      cache = { value, ts: Date.now() };
+      return value;
+    } catch {
+      // If the versions table is unreachable we fail open — refusing every
+      // request because the metadata table glitched is worse than serving.
+      return false;
+    }
   }
 
   return {

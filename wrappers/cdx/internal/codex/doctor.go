@@ -59,7 +59,7 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	report.Rows = append(report.Rows, checkSSHEnv())
 
 	// CLI
-	report.Rows = append(report.Rows, checkCLI(cfg, wrapperVersion))
+	report.Rows = append(report.Rows, checkCLI(ctx, cfg, wrapperVersion))
 
 	// Result — tallied from EVERY appended row so no check is silently dropped
 	// from the verdict. (Sync/Disk/Cron/Paths were previously omitted from the
@@ -298,8 +298,10 @@ func checkSSHEnv() ui.DoctorRow {
 	return ui.DoctorRow{Label: "SSH env", Tone: ui.ToneOK, Value: strings.Join(parts, "; ")}
 }
 
-func checkCLI(cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {
-	codexVer := Version(context.Background())
+func checkCLI(ctx context.Context, cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {
+	verCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	codexVer := Version(verCtx)
 	wrapperVer := strings.TrimSpace(runningWrapperVersion)
 	if cfg != nil {
 		wrapperVer = strDef(wrapperVer, cfg.Wrapper.Version)

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ne, or } from 'drizzle-orm';
+import { and, asc, eq, ne, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { adminPasswordResets, adminSessions, adminUsers, type AdminUser } from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
@@ -41,6 +41,10 @@ export interface UpdateUserInput {
 
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,64}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Subset of Database used by guardLastAdmin/countActiveAdminsExcluding,
+// satisfied by both a plain Database handle and a transaction handle.
+type DbLike = Pick<Database, 'select'>;
 
 function normalizeUsername(raw: unknown): string {
   if (typeof raw !== 'string') throw new ValidationError('Username is required', { param: 'username' });
@@ -175,14 +179,22 @@ export class AdminUsersService {
       patch.passwordHash = await hashPassword(input.password);
     }
 
-    await this.guardLastAdmin(user, patch);
-
     if (Object.keys(patch).length === 0) {
+      await this.guardLastAdmin(this.db, user, patch);
       return this.auth.sanitizeUser(user);
     }
 
     patch.updatedAt = nowIso();
-    await this.db.update(adminUsers).set(patch).where(eq(adminUsers.id, id));
+    // Guard-and-write atomically: without this, two concurrent requests that
+    // each demote/deactivate a *different* admin can both see "one other
+    // admin still active" and both pass the check, leaving zero active
+    // admins. Running the guard's locking read and the patch write inside
+    // the same transaction serializes concurrent guard checks against the
+    // true post-write state.
+    await this.db.transaction(async (tx) => {
+      await this.guardLastAdmin(tx, user, patch);
+      await tx.update(adminUsers).set(patch).where(eq(adminUsers.id, id));
+    });
 
     if (patch.passwordHash !== undefined) {
       await this.auth.deleteAllSessionsForUser(id);
@@ -202,11 +214,13 @@ export class AdminUsersService {
     const user = await this.auth.findUserById(id);
     if (!user) throw new NotFoundError('User not found', 'user_not_found');
 
-    await this.guardLastAdmin(user, { active: 0 }, true);
+    await this.db.transaction(async (tx) => {
+      await this.guardLastAdmin(tx, user, { active: 0 }, true);
+      await tx.delete(adminUsers).where(eq(adminUsers.id, id));
+    });
 
     await this.auth.deleteAllSessionsForUser(id);
     await this.auth.expireResetTokensForUser(id);
-    await this.db.delete(adminUsers).where(eq(adminUsers.id, id));
 
     await this.events.record({
       type: 'user.deleted',
@@ -256,6 +270,7 @@ export class AdminUsersService {
   }
 
   private async guardLastAdmin(
+    tx: DbLike,
     user: AdminUser,
     patch: { accessLevel?: string; active?: number },
     deleting = false,
@@ -269,7 +284,7 @@ export class AdminUsersService {
     const stillAdmin = (nextRole === ROLE_OWNER || nextRole === ROLE_ADMIN) && nextActive;
     if (!deleting && stillAdmin) return;
 
-    const adminsActive = await this.countActiveAdminsExcluding(user.id);
+    const adminsActive = await this.countActiveAdminsExcluding(tx, user.id);
     if (adminsActive === 0) {
       throw new ValidationError('At least one active admin is required', {
         param: 'access_level',
@@ -277,18 +292,27 @@ export class AdminUsersService {
     }
   }
 
-  private async countActiveAdminsExcluding(excludeId: number): Promise<number> {
-    const rows = await this.db
-      .select({ c: count() })
+  private async countActiveAdminsExcluding(tx: DbLike, excludeId: number): Promise<number> {
+    // Lock every currently-active owner/admin row (not just the "other"
+    // ones) for the lifetime of the caller's transaction, then exclude
+    // `excludeId` in JS. Locking the full set (rather than just the rows
+    // that exclude `excludeId`) serializes concurrent guard checks against
+    // the true post-write state: a second transaction demoting/deactivating
+    // a *different* admin will block on this locking read until the first
+    // transaction commits, and will then observe the updated row set
+    // instead of a stale one -- preventing two concurrent demotions from
+    // both seeing "one other admin still active" and leaving zero admins.
+    const rows = await tx
+      .select({ id: adminUsers.id })
       .from(adminUsers)
       .where(
         and(
           eq(adminUsers.active, 1),
-          ne(adminUsers.id, excludeId),
           or(eq(adminUsers.accessLevel, ROLE_OWNER), eq(adminUsers.accessLevel, ROLE_ADMIN)),
         ),
-      );
-    return Number(rows[0]?.c ?? 0);
+      )
+      .for('update');
+    return rows.filter((r) => r.id !== excludeId).length;
   }
 }
 

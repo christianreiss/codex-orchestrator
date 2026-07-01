@@ -82,6 +82,7 @@ export const hosts = mysqlTable(
   (t) => ({
     fqdnUnique: uniqueIndex('fqdn').on(t.fqdn),
     apiKeyUnique: uniqueIndex('api_key').on(t.apiKey),
+    apiKeyHashUnique: uniqueIndex('api_key_hash').on(t.apiKeyHash),
     updatedAtIdx: index('idx_hosts_updated_at').on(t.updatedAt),
     expiresAtIdx: index('idx_hosts_expires_at').on(t.expiresAt),
     wrapperTrackIdx: index('idx_hosts_wrapper_track').on(t.wrapperTrack),

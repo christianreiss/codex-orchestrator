@@ -81,3 +81,25 @@ func TestRejectsTampered(t *testing.T) {
 		t.Fatal("expected signature failure")
 	}
 }
+
+func TestRejectsExpiredConfig(t *testing.T) {
+	dir := t.TempDir()
+	c := validCfg()
+	past := "2020-01-01T00:00:00Z"
+	c.ExpiresAt = &past
+	p, pub := writeSignedFixture(t, dir, c)
+	if _, err := Load(p, pub, false); err == nil {
+		t.Fatal("expected expired config to be rejected")
+	}
+}
+
+func TestAcceptsUnexpiredConfig(t *testing.T) {
+	dir := t.TempDir()
+	c := validCfg()
+	future := "2099-01-01T00:00:00Z"
+	c.ExpiresAt = &future
+	p, pub := writeSignedFixture(t, dir, c)
+	if _, err := Load(p, pub, false); err != nil {
+		t.Fatalf("expected unexpired config to load: %v", err)
+	}
+}

@@ -101,9 +101,23 @@ func WriteAuth(payload json.RawMessage) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	tmp := p + ".new"
-	if err := os.WriteFile(tmp, payload, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(payload); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, p); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }

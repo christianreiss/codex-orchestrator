@@ -51,7 +51,12 @@
 >
   <div class="grid gap-2">
     <Label for="insecure-approval-mode">Policy</Label>
-    <Select.Root type="single" value={currentMode} onValueChange={onValueChange}>
+    <Select.Root
+      type="single"
+      value={currentMode}
+      onValueChange={onValueChange}
+      disabled={$query.isPending || $query.isError || $mutation.isPending}
+    >
       <Select.Trigger id="insecure-approval-mode" class="w-full sm:max-w-sm">
         <Select.Value placeholder="Select policy">{labels[currentMode]}</Select.Value>
       </Select.Trigger>
@@ -61,9 +66,13 @@
       </Select.Content>
     </Select.Root>
     <p class="text-xs text-muted-foreground">
-      {currentMode === "manual"
-        ? "Each insecure window requires an admin to approve."
-        : "Insecure windows are rejected automatically."}
+      {$query.isPending
+        ? "Loading current policy…"
+        : $query.isError
+          ? "Failed to load: " + ($query.error?.message ?? "unknown")
+          : currentMode === "manual"
+            ? "Each insecure window requires an admin to approve."
+            : "Insecure windows are rejected automatically."}
     </p>
   </div>
 </SectionCard>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import { createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Save from "@lucide/svelte/icons/save";
   import Sparkles from "@lucide/svelte/icons/sparkles";
@@ -11,9 +11,13 @@
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import { Skeleton } from "$lib/components/ui/skeleton";
+  import * as Alert from "$lib/components/ui/alert";
+  import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import {
     assistProject,
+    fetchProject,
     projectKeys,
     updateAbout,
     updateRoster,
@@ -23,15 +27,17 @@
   const qc = useQueryClient();
   const slug = $derived(page.params.slug ?? "");
 
-  // Subscribe to the parent layout's project-detail cache.
-  let detail = $state<ProjectDetailResponse | undefined>(undefined);
-  $effect(() => {
-    detail = qc.getQueryData<ProjectDetailResponse>(projectKeys.detail(slug));
-    const unsub = qc.getQueryCache().subscribe(() => {
-      detail = qc.getQueryData<ProjectDetailResponse>(projectKeys.detail(slug));
-    });
-    return () => unsub();
-  });
+  // Shares the parent layout's project-detail query cache (same key), so this
+  // resolves to the already-fetched data without an extra request while still
+  // exposing loading/error state so the form can't be edited from a blank baseline.
+  const detailQuery = createQuery(
+    reactiveOptions(() => ({
+      queryKey: projectKeys.detail(slug),
+      queryFn: () => fetchProject(slug),
+      enabled: slug.length > 0,
+    })),
+  );
+  const detail = $derived<ProjectDetailResponse | undefined>($detailQuery.data);
 
   let aboutTitle = $state("");
   let aboutName = $state("");
@@ -120,103 +126,117 @@
   }
 </script>
 
-<div class="flex flex-col gap-6">
-  <Card.Root>
-    <Card.Header>
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Card.Title>About</Card.Title>
-          <Card.Description
-            >Title, name, and a short description for this workspace.</Card.Description
-          >
+{#if $detailQuery.isLoading}
+  <div class="flex flex-col gap-6">
+    <Skeleton class="h-48 w-full" />
+    <Skeleton class="h-64 w-full" />
+  </div>
+{:else if $detailQuery.isError}
+  <Alert.Root variant="destructive">
+    <Alert.Title>Could not load project</Alert.Title>
+    <Alert.Description>
+      {$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Unknown error"}
+    </Alert.Description>
+  </Alert.Root>
+{:else}
+  <div class="flex flex-col gap-6">
+    <Card.Root>
+      <Card.Header>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Card.Title>About</Card.Title>
+            <Card.Description
+              >Title, name, and a short description for this workspace.</Card.Description
+            >
+          </div>
+          {#if aboutChanged}
+            <Badge variant="warning">Unsaved changes</Badge>
+          {/if}
         </div>
-        {#if aboutChanged}
-          <Badge variant="warning">Unsaved changes</Badge>
-        {/if}
-      </div>
-    </Card.Header>
-    <Card.Content class="flex flex-col gap-3">
-      <div class="grid gap-1.5">
-        <Label for="about-title">Title</Label>
-        <Input id="about-title" bind:value={aboutTitle} placeholder={slug} />
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="about-name">Name</Label>
-        <Input id="about-name" bind:value={aboutName} placeholder="Short name" />
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="about-desc">Description</Label>
-        <Textarea
-          id="about-desc"
-          bind:value={aboutDesc}
-          rows={4}
-          placeholder="What is this workspace for?"
-        />
-      </div>
-    </Card.Content>
-    <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
-      <Button
-        variant="outline"
-        onclick={() => $assistMutation.mutate()}
-        disabled={$assistMutation.isPending}
-      >
-        <Sparkles class="h-4 w-4" />
-        {$assistMutation.isPending ? "Drafting…" : "AI-Assist"}
-      </Button>
-      <Button variant="ghost" onclick={resetAbout} disabled={!aboutChanged}>
-        <RotateCcw class="h-4 w-4" />
-        Reset
-      </Button>
-      <Button
-        onclick={() => $aboutMutation.mutate()}
-        disabled={!aboutChanged || $aboutMutation.isPending}
-      >
-        <Save class="h-4 w-4" />
-        {$aboutMutation.isPending ? "Saving…" : "Save"}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
+      </Card.Header>
+      <Card.Content class="flex flex-col gap-3">
+        <div class="grid gap-1.5">
+          <Label for="about-title">Title</Label>
+          <Input id="about-title" bind:value={aboutTitle} placeholder={slug} />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="about-name">Name</Label>
+          <Input id="about-name" bind:value={aboutName} placeholder="Short name" />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="about-desc">Description</Label>
+          <Textarea
+            id="about-desc"
+            bind:value={aboutDesc}
+            rows={4}
+            placeholder="What is this workspace for?"
+          />
+        </div>
+      </Card.Content>
+      <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
+        <Button
+          variant="outline"
+          onclick={() => $assistMutation.mutate()}
+          disabled={$assistMutation.isPending}
+        >
+          <Sparkles class="h-4 w-4" />
+          {$assistMutation.isPending ? "Drafting…" : "AI-Assist"}
+        </Button>
+        <Button variant="ghost" onclick={resetAbout} disabled={!aboutChanged}>
+          <RotateCcw class="h-4 w-4" />
+          Reset
+        </Button>
+        <Button
+          onclick={() => $aboutMutation.mutate()}
+          disabled={!aboutChanged || $aboutMutation.isPending}
+        >
+          <Save class="h-4 w-4" />
+          {$aboutMutation.isPending ? "Saving…" : "Save"}
+        </Button>
+      </Card.Footer>
+    </Card.Root>
 
-  <Card.Root>
-    <Card.Header>
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Card.Title>Roster</Card.Title>
-          <Card.Description>Markdown describing who is on this project.</Card.Description>
+    <Card.Root>
+      <Card.Header>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Card.Title>Roster</Card.Title>
+            <Card.Description>Markdown describing who is on this project.</Card.Description>
+          </div>
+          {#if rosterChanged}
+            <Badge variant="warning">Unsaved changes</Badge>
+          {/if}
         </div>
-        {#if rosterChanged}
-          <Badge variant="warning">Unsaved changes</Badge>
-        {/if}
-      </div>
-    </Card.Header>
-    <Card.Content>
-      <Textarea
-        bind:value={roster}
-        rows={12}
-        class="font-mono text-sm"
-        placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"}
-      />
-    </Card.Content>
-    <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
-      <Button
-        variant="outline"
-        onclick={() => $assistMutation.mutate()}
-        disabled={$assistMutation.isPending}
-      >
-        <Sparkles class="h-4 w-4" />
-        Draft Roster
-      </Button>
-      <Button variant="ghost" onclick={resetRoster} disabled={!rosterChanged}>
-        <RotateCcw class="h-4 w-4" />
-        Reset
-      </Button>
-      <Button
-        onclick={() => $rosterMutation.mutate()}
-        disabled={!rosterChanged || $rosterMutation.isPending}
-      >
-        <Save class="h-4 w-4" />
-        {$rosterMutation.isPending ? "Saving…" : "Save"}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
-</div>
+      </Card.Header>
+      <Card.Content>
+        <Textarea
+          bind:value={roster}
+          rows={12}
+          class="font-mono text-sm"
+          placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"}
+        />
+      </Card.Content>
+      <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
+        <Button
+          variant="outline"
+          onclick={() => $assistMutation.mutate()}
+          disabled={$assistMutation.isPending}
+        >
+          <Sparkles class="h-4 w-4" />
+          Draft Roster
+        </Button>
+        <Button variant="ghost" onclick={resetRoster} disabled={!rosterChanged}>
+          <RotateCcw class="h-4 w-4" />
+          Reset
+        </Button>
+        <Button
+          onclick={() => $rosterMutation.mutate()}
+          disabled={!rosterChanged || $rosterMutation.isPending}
+        >
+          <Save class="h-4 w-4" />
+          {$rosterMutation.isPending ? "Saving…" : "Save"}
+        </Button>
+      </Card.Footer>
+    </Card.Root>
+  </div>
+{/if}

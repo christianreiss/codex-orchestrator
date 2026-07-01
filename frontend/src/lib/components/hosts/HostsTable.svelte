@@ -59,6 +59,14 @@
       if (sortField === "last_refresh") {
         return ((hostLatestRefreshMs(a) ?? 0) - (hostLatestRefreshMs(b) ?? 0)) * dir;
       }
+      if (sortField === "client_version") {
+        const av2 = a.client_version_override ?? a.client_version;
+        const bv2 = b.client_version_override ?? b.client_version;
+        if (av2 === bv2) return 0;
+        if (av2 === null || av2 === undefined) return 1;
+        if (bv2 === null || bv2 === undefined) return -1;
+        return String(av2).localeCompare(String(bv2)) * dir;
+      }
       if (av === bv) return 0;
       if (av === null || av === undefined) return 1;
       if (bv === null || bv === undefined) return -1;

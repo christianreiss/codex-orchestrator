@@ -57,6 +57,12 @@ func sanitizeSlug(slug string) string {
 	if slug == "" || slug != filepath.Base(slug) || strings.Contains(slug, "..") {
 		return ""
 	}
+	if strings.Trim(slug, ".") == "" {
+		// Reject slugs composed entirely of dots (".", "...", etc.) — these
+		// normalize away under filepath.Join/Clean and would collapse a
+		// per-slug path onto its parent directory.
+		return ""
+	}
 	if strings.ContainsAny(slug, "/\\") {
 		return ""
 	}

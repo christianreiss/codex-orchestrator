@@ -56,7 +56,8 @@ function resolveClientIp(
 ): string {
   const direct = normaliseIp(req.socket.remoteAddress ?? '') || '0.0.0.0';
   if (!trustForwarded) return direct;
-  if (cidrs.length > 0 && !ipMatches(direct, cidrs)) return direct;
+  // Fail closed: with no trusted proxy CIDRs configured, never trust XFF.
+  if (cidrs.length === 0 || !ipMatches(direct, cidrs)) return direct;
 
   const xff = headerOne(req, 'x-forwarded-for');
   if (xff) {

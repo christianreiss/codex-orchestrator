@@ -1,11 +1,13 @@
 import base64
 import binascii
+import ipaddress
 import json
 import mimetypes
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -158,6 +160,32 @@ def _codex_version(env: dict) -> str:
     return parts[-1] if parts else "unknown"
 
 
+# Non-secret operational variables that agent subprocesses (codex/claude) may
+# legitimately need. The full runner process environment (which contains
+# RUNNER_SHARED_SECRET and other operational secrets) is never copied into
+# agent subprocesses -- only these allow-listed keys are passed through.
+_SUBPROCESS_ENV_ALLOWLIST = (
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "TZ",
+)
+
+
+def _minimal_subprocess_env() -> dict:
+    """Build a minimal env for codex/claude subprocesses (no inherited secrets)."""
+    env = {}
+    for key in _SUBPROCESS_ENV_ALLOWLIST:
+        value = os.environ.get(key)
+        if value is not None:
+            env[key] = value
+    return env
+
+
 def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
     if DEBUG_DUMP_ENABLED:
         # Debug helper: persist the incoming auth.json so it can be inspected from the container.
@@ -174,7 +202,7 @@ def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable token in auth_json")
 
-    env = os.environ.copy()
+    env = _minimal_subprocess_env()
     try:
         home_dir = tempfile.mkdtemp(prefix="codex-runner-", dir=RUNNER_HOME_PARENT)
     except Exception as exc:  # noqa: BLE001
@@ -286,7 +314,7 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
 
-    env = os.environ.copy()
+    env = _minimal_subprocess_env()
     try:
         home_dir = tempfile.mkdtemp(prefix="claude-runner-", dir=RUNNER_HOME_PARENT)
     except Exception as exc:  # noqa: BLE001
@@ -463,6 +491,8 @@ def _build_claude_exec_cmd(
     if image_paths:
         image_notes = "\n".join(f"[Attached image: {p}]" for p in image_paths)
         effective_prompt = f"{prompt}\n\n{image_notes}"
+    # "--" prevents a prompt that begins with "-" from being parsed as a CLI flag.
+    cmd.append("--")
     cmd.append(effective_prompt)
     return cmd
 
@@ -956,12 +986,18 @@ def _assist_project(payload: ProjectAssistRequest) -> dict:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
+def _require_runner_auth(request: Request) -> None:
+    """Fail closed: an unset RUNNER_SHARED_SECRET must reject requests, not skip auth."""
+    if not RUNNER_SHARED_SECRET:
+        raise HTTPException(status_code=500, detail="RUNNER_SHARED_SECRET is not configured")
+    provided = request.headers.get("x-runner-auth", "")
+    if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 @app.post("/verify")
 def verify(payload: VerifyRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _run_probe(payload)
@@ -975,10 +1011,7 @@ def verify(payload: VerifyRequest, request: Request):
 
 @app.post("/verify-claude")
 def verify_claude(payload: VerifyRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _run_claude_probe(payload)
@@ -1010,10 +1043,7 @@ def assist_project_health():
 
 @app.post("/skills/summarize")
 def summarize_skill(payload: SkillSummaryRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _summarize_skill(payload)
@@ -1027,10 +1057,7 @@ def summarize_skill(payload: SkillSummaryRequest, request: Request):
 
 @app.post("/skills/generate")
 def generate_skill(payload: SkillGenerateRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _generate_skill(payload)
@@ -1044,10 +1071,7 @@ def generate_skill(payload: SkillGenerateRequest, request: Request):
 
 @app.post("/skills/assist")
 def assist_skill(payload: SkillAssistRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _assist_skill(payload)
@@ -1061,10 +1085,7 @@ def assist_skill(payload: SkillAssistRequest, request: Request):
 
 @app.post("/projects/assist")
 def assist_project(payload: ProjectAssistRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _assist_project(payload)
@@ -1083,10 +1104,7 @@ def summarize_memory_health():
 
 @app.post("/memories/summarize")
 def summarize_memory(payload: MemorySummaryRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _summarize_memory(payload)
@@ -1151,19 +1169,76 @@ def _materialize_data_url_image(url: str, image_dir: str, index: int) -> str:
     return path
 
 
+MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+
+class _NoRedirectHandler(urllib_request.HTTPRedirectHandler):
+    """Never follow redirects: each hop would need its own SSRF revalidation."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib_request.build_opener(_NoRedirectHandler)
+
+
+def _assert_public_host(hostname: Optional[str]) -> None:
+    """Block SSRF targets: loopback/private/link-local/metadata/reserved ranges."""
+    if not hostname:
+        raise HTTPException(status_code=400, detail="image URL is missing a host")
+
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=400, detail=f"could not resolve image host: {exc}")
+    if not infos:
+        raise HTTPException(status_code=400, detail="could not resolve image host")
+
+    for info in infos:
+        raw_addr = info[4][0]
+        try:
+            addr = ipaddress.ip_address(raw_addr.split("%", 1)[0])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="image host resolved to an invalid address")
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        ):
+            raise HTTPException(status_code=400, detail="image host is not allowed")
+
+
 def _materialize_remote_image(url: str, image_dir: str, index: int) -> str:
     parsed = urllib_parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="image URLs must use http, https, or data")
+
+    _assert_public_host(parsed.hostname)
 
     try:
         req = urllib_request.Request(
             url,
             headers={"User-Agent": "codex-orchestrator-runner/1.0"},
         )
-        with urllib_request.urlopen(req, timeout=15.0) as response:
-            raw = response.read()
+        with _NO_REDIRECT_OPENER.open(req, timeout=15.0) as response:
+            status = getattr(response, "status", None) or response.getcode()
+            if status is not None and status >= 300:
+                raise HTTPException(status_code=400, detail="image download redirects are not allowed")
             mime_type = response.headers.get_content_type()
+            chunks = []
+            total = 0
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_REMOTE_IMAGE_BYTES:
+                    raise HTTPException(status_code=400, detail="downloaded image exceeds maximum allowed size")
+                chunks.append(chunk)
+            raw = b"".join(chunks)
     except urllib_error.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"image download failed with HTTP {exc.code}")
     except urllib_error.URLError as exc:
@@ -1210,6 +1285,8 @@ def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Option
         "-s",
         "read-only",
         "--skip-git-repo-check",
+        # "--" prevents a prompt that begins with "-" from being parsed as a CLI flag.
+        "--",
         prompt,
     ])
     return cmd
@@ -1282,10 +1359,7 @@ def exec_health():
 
 @app.post("/exec")
 def exec_prompt(payload: ExecRequest, request: Request):
-    if RUNNER_SHARED_SECRET:
-        provided = request.headers.get("x-runner-auth", "")
-        if not secrets.compare_digest(provided, RUNNER_SHARED_SECRET):
-            raise HTTPException(status_code=401, detail="unauthorized")
+    _require_runner_auth(request)
 
     try:
         return _exec_prompt(payload)

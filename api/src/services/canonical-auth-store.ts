@@ -20,6 +20,12 @@ import { ENGINE_CLAUDE } from '../util/engine.js';
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
 
+// Subset of Database used by the helpers below, satisfied by both a plain
+// Database handle and a transaction handle (MySqlTransaction extends
+// MySqlDatabase but lacks the `$client` property, so it isn't directly
+// assignable to Database).
+type DbLike = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
+
 export interface CanonicalAuthStoreDeps {
   db: Database;
   keyring: Keyring;
@@ -96,9 +102,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   // API runs single-instance, so collapsing concurrent probes here is enough.
   const verifyInflight = new Map<string, Promise<EnsureServedVerificationResult>>();
 
-  async function persistEntries(payloadId: number, entries: NormalizedAuthEntry[], now: string): Promise<void> {
+  async function persistEntries(
+    txDb: DbLike,
+    payloadId: number,
+    entries: NormalizedAuthEntry[],
+    now: string,
+  ): Promise<void> {
     for (const e of entries) {
-      await db.insert(authEntries).values({
+      await txDb.insert(authEntries).values({
         payloadId,
         target: e.target,
         token: encrypt(e.token, keyring),
@@ -163,46 +174,60 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 
       const now = nowIso();
       const lastRefreshToStore = String(canonicalToStore.last_refresh ?? lastRefresh);
-      const ins = await db.insert(authPayloads).values({
-        lastRefresh: lastRefreshToStore,
-        sha256: digestToStore,
-        sourceHostId: input.sourceHostId,
-        createdAt: now,
-        body: encrypt(encodedToStore, keyring),
-        verificationState,
-        verificationCheckedAt: verificationState === 'verified' ? now : null,
-        verificationReason: runnerSkippedReason ?? null,
-        engine,
-      });
-      const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
-      const payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
+      let payloadId = 0;
 
-      await persistEntries(payloadId, entriesToStore, now);
-
-      if (input.sourceHostId !== null) {
-        await db.insert(hostAuthDigests).values({
-          hostId: input.sourceHostId,
-          digest: digestToStore,
-          lastSeen: now,
+      // The payload/entries/digest/state/log writes must succeed or fail
+      // together: without a transaction, a retried upload of byte-identical
+      // auth content (same hostId+engine+digest) hits the unique_host_digest
+      // index on the hostAuthDigests insert *after* authPayloads/authEntries
+      // have already been committed, orphaning those rows. The digest insert
+      // is additionally made idempotent (upsert) so the retry is a no-op
+      // instead of an error.
+      await db.transaction(async (tx) => {
+        const ins = await tx.insert(authPayloads).values({
+          lastRefresh: lastRefreshToStore,
+          sha256: digestToStore,
+          sourceHostId: input.sourceHostId,
           createdAt: now,
+          body: encrypt(encodedToStore, keyring),
+          verificationState,
+          verificationCheckedAt: verificationState === 'verified' ? now : null,
+          verificationReason: runnerSkippedReason ?? null,
           engine,
         });
-        await touchHostAuthState(db, input.sourceHostId, payloadId, digestToStore, engine);
-        await touchHostAuthFields(db, input.sourceHostId, lastRefreshToStore, digestToStore, engine);
-      }
+        const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
+        payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
 
-      await db.insert(logsTable).values({
-        hostId: input.sourceHostId,
-        action: input.logAction,
-        details: JSON.stringify({
-          status: 'updated',
-          engine,
-          digest: digestToStore,
-          runner_applied: runnerApplied,
-          ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
-          ...(input.logDetails ?? {}),
-        }),
-        createdAt: now,
+        await persistEntries(tx, payloadId, entriesToStore, now);
+
+        if (input.sourceHostId !== null) {
+          await tx
+            .insert(hostAuthDigests)
+            .values({
+              hostId: input.sourceHostId,
+              digest: digestToStore,
+              lastSeen: now,
+              createdAt: now,
+              engine,
+            })
+            .onDuplicateKeyUpdate({ set: { lastSeen: now } });
+          await touchHostAuthState(tx, input.sourceHostId, payloadId, digestToStore, engine);
+          await touchHostAuthFields(tx, input.sourceHostId, lastRefreshToStore, digestToStore, engine);
+        }
+
+        await tx.insert(logsTable).values({
+          hostId: input.sourceHostId,
+          action: input.logAction,
+          details: JSON.stringify({
+            status: 'updated',
+            engine,
+            digest: digestToStore,
+            runner_applied: runnerApplied,
+            ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
+            ...(input.logDetails ?? {}),
+          }),
+          createdAt: now,
+        });
       });
 
       return {
@@ -353,7 +378,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 }
 
 export async function touchHostAuthFields(
-  db: Database,
+  db: DbLike,
   hostId: number,
   lastRefresh: string,
   digest: string,
@@ -371,7 +396,7 @@ export async function touchHostAuthFields(
 }
 
 export async function touchHostAuthState(
-  db: Database,
+  db: DbLike,
   hostId: number,
   payloadId: number,
   digest: string,

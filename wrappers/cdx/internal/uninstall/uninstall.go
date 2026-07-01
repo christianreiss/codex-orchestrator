@@ -26,11 +26,16 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 )
+
+// probeTimeout bounds the sudo/npm probe subprocesses so a hung PAM plugin or
+// stalled npm registry lookup can't wedge cdx --uninstall indefinitely.
+const probeTimeout = 5 * time.Second
 
 // hostUsersResponse models POST /host/users. The envelope plugin spreads the
 // `{users}` payload to both the root and a nested `data` block, so accept
@@ -63,16 +68,25 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 
-	// (1) Learn about other registered users on this host. Failure here is
-	// non-fatal — we just lose the safety net for multi-user hosts.
-	var others []string
+	// (1) Learn about other registered users on this host. If the safety-net
+	// query itself can't be answered (client construction failed, or the
+	// /host/users call errored), fail closed: require root/passwordless sudo
+	// rather than silently assuming there are no other users.
 	currentUsername := currentUser()
-	if clientErr == nil {
-		others = otherUsers(ctx, client, currentUsername)
-	}
-	if len(others) > 0 {
-		if err := ensureCanDestructivelyTouchOtherUsers(stderr, others); err != nil {
+	if clientErr != nil {
+		if err := requireRootOrSudo(ctx, stderr, "the multi-user safety check could not run (orchestrator client init failed)"); err != nil {
 			return err
+		}
+	} else {
+		others, err := otherUsersOrErr(ctx, client, currentUsername)
+		if err != nil {
+			if err := requireRootOrSudo(ctx, stderr, "the multi-user safety check could not run (host lookup failed)"); err != nil {
+				return err
+			}
+		} else if len(others) > 0 {
+			if err := ensureCanDestructivelyTouchOtherUsers(ctx, stderr, others); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -90,7 +104,14 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	}
 
 	// (3) Remove local state.
-	home, _ := os.UserHomeDir()
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil || home == "" {
+		if u, uerr := user.Current(); uerr == nil && u.HomeDir != "" {
+			home = u.HomeDir
+		} else {
+			return fmt.Errorf("uninstall: could not determine home directory: %w", homeErr)
+		}
+	}
 	targets := []string{
 		filepath.Join(home, ".codex", "auth.json"),
 		filepath.Join(home, ".codex", "AGENTS.md"),
@@ -113,7 +134,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	}
 
 	// npm-global codex-cli when detected.
-	if npmGlobalHas("codex-cli") {
+	if npmGlobalHas(ctx, "codex-cli") {
 		cmd := exec.CommandContext(ctx, "npm", "uninstall", "-g", "codex-cli")
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintln(stderr, "uninstall: npm uninstall -g codex-cli:", err)
@@ -133,10 +154,19 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 }
 
 // otherUsers calls POST /host/users with the current username/hostname and
-// returns every other registered username. Network failures collapse to an
-// empty slice so the safety stop only fires when the server actually reports
-// a multi-user host.
+// returns every other registered username. Network/JSON failures collapse to
+// an empty slice — kept for compatibility with callers that only need the
+// best-effort result. Run uses otherUsersOrErr instead so it can fail closed
+// on error rather than silently treating a failed lookup as "no other users".
 func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {
+	out, _ := otherUsersOrErr(ctx, client, currentUsername)
+	return out
+}
+
+// otherUsersOrErr is otherUsers but propagates the transport/JSON error
+// instead of swallowing it, so the safety-net check can distinguish "no other
+// users" from "couldn't ask".
+func otherUsersOrErr(ctx context.Context, client *orchestrator.Client, currentUsername string) ([]string, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]any{
 		"username": currentUsername,
@@ -144,7 +174,7 @@ func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsernam
 	}
 	var resp hostUsersResponse
 	if err := client.JSON(ctx, http.MethodPost, "/host/users", body, &resp, 0); err != nil {
-		return nil
+		return nil, err
 	}
 	seen := map[string]struct{}{}
 	out := []string{}
@@ -159,30 +189,38 @@ func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsernam
 		seen[name] = struct{}{}
 		out = append(out, name)
 	}
-	return out
+	return out, nil
 }
 
 // ensureCanDestructivelyTouchOtherUsers refuses the uninstall when other users
 // are registered and the current process has neither root privileges nor a
 // passwordless sudo path. Mirrors the legacy bash safety stop.
-func ensureCanDestructivelyTouchOtherUsers(stderr io.Writer, others []string) error {
+func ensureCanDestructivelyTouchOtherUsers(ctx context.Context, stderr io.Writer, others []string) error {
+	return requireRootOrSudo(ctx, stderr, fmt.Sprintf("host has registered users besides this one (%v)", others))
+}
+
+// requireRootOrSudo refuses the uninstall unless the current process is root
+// or has passwordless sudo, printing reason as the justification.
+func requireRootOrSudo(ctx context.Context, stderr io.Writer, reason string) error {
 	if os.Geteuid() == 0 {
 		return nil
 	}
-	if sudoWorksNonInteractively() {
+	if sudoWorksNonInteractively(ctx) {
 		return nil
 	}
 	fmt.Fprintf(stderr,
-		"cdx --uninstall refused: host has registered users besides this one (%v) "+
+		"cdx --uninstall refused: %s "+
 			"but the process is not root and `sudo -n true` is unavailable.\n"+
 			"Rerun as root or with passwordless sudo so the cleanup can touch every user's state.\n",
-		others)
+		reason)
 	return errors.New("uninstall refused: multi-user host without root/sudo")
 }
 
-func sudoWorksNonInteractively() bool {
+func sudoWorksNonInteractively(ctx context.Context) bool {
 	// `sudo -n true` exits 0 only when sudo can run without prompting.
-	cmd := exec.Command("sudo", "-n", "true")
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "true")
 	return cmd.Run() == nil
 }
 
@@ -212,11 +250,13 @@ func optWritable(p string) bool {
 	return true
 }
 
-func npmGlobalHas(pkg string) bool {
+func npmGlobalHas(ctx context.Context, pkg string) bool {
 	if _, err := exec.LookPath("npm"); err != nil {
 		return false
 	}
-	cmd := exec.Command("npm", "ls", "-g", "--depth=0", pkg)
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "npm", "ls", "-g", "--depth=0", pkg)
 	return cmd.Run() == nil
 }
 

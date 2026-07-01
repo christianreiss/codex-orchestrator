@@ -13,7 +13,8 @@ import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt as encryptSecret } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
-import { nowIso } from '../util/timestamp.js';
+import { nowIso, isRfc3339 } from '../util/timestamp.js';
+import { ApiError } from '../http/errors.js';
 
 export const CLAUDE_ENGINE = 'claude' as const;
 export const CLAUDE_KEY_PREFIX = 'sk-ant-' as const;
@@ -101,6 +102,14 @@ export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeK
       if (!cleanName) throw new Error('name is required');
       const rpm = rateLimitRpm && rateLimitRpm > 0 ? Math.floor(rateLimitRpm) : 60;
       const exp = expiresAt && expiresAt.trim() !== '' ? expiresAt.trim() : null;
+      if (exp && !isRfc3339(exp)) {
+        throw new ApiError('expires_at must be an RFC3339 timestamp', {
+          status: 400,
+          code: 'invalid_expires_at',
+          type: 'invalid_request_error',
+          param: 'expires_at',
+        });
+      }
       const keyPrefix = prefix ?? CLAUDE_KEY_PREFIX;
       const tail = randomBytes(32).toString('hex');
       const fullKey = `${keyPrefix}${tail}`;

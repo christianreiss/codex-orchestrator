@@ -37,7 +37,8 @@
 
   function addEvent() {
     const groups = toGroups(hooks);
-    const unused = HOOK_EVENTS.find((e) => !groups.some((g) => g.event === e)) ?? HOOK_EVENTS[0];
+    const unused = HOOK_EVENTS.find((e) => !groups.some((g) => g.event === e));
+    if (!unused) return;
     groups.push({ event: unused, rows: [{ matcher: "", commands: [] }] });
     commit(groups);
   }
@@ -90,7 +91,13 @@
           </Select.Trigger>
           <Select.Content>
             {#each HOOK_EVENTS as event (event)}
-              <Select.Item value={event} label={event}>{event}</Select.Item>
+              <Select.Item
+                value={event}
+                label={event}
+                disabled={event !== group.event && groups.some((g) => g.event === event)}
+              >
+                {event}
+              </Select.Item>
             {/each}
           </Select.Content>
         </Select.Root>
@@ -143,7 +150,13 @@
       </div>
     </div>
   {/each}
-  <Button type="button" variant="outline" size="sm" {disabled} onclick={addEvent}>
+  <Button
+    type="button"
+    variant="outline"
+    size="sm"
+    disabled={disabled || groups.length >= HOOK_EVENTS.length}
+    onclick={addEvent}
+  >
     <Plus class="h-4 w-4" />
     Add event
   </Button>

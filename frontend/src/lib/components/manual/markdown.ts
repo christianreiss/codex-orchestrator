@@ -55,17 +55,19 @@ export function renderMarkdown(source: string): RenderedArticle {
     if (depth >= 2 && depth <= 3) {
       toc.push({ id, text: plain, level: depth });
     }
-    return `<h${depth} id="${id}"><a class="anchor" href="#${id}" aria-label="Link to ${plain}"></a>${text}</h${depth}>\n`;
+    const safePlain = plain.replace(/"/g, "&quot;");
+    return `<h${depth} id="${id}"><a class="anchor" href="#${id}" aria-label="Link to ${safePlain}"></a>${text}</h${depth}>\n`;
   };
 
   // Open external links in a new tab; internal links navigate in-app.
   renderer.link = function ({ href, title, tokens }) {
     const text = this.parser.parseInline(tokens);
     const safe = href ?? "";
+    const safeHref = safe.replace(/"/g, "&quot;");
     const titleAttr = title ? ` title="${title.replace(/"/g, "&quot;")}"` : "";
     const external = /^https?:\/\//i.test(safe);
     const target = external ? ` target="_blank" rel="noopener noreferrer"` : "";
-    return `<a href="${safe}"${titleAttr}${target}>${text}</a>`;
+    return `<a href="${safeHref}"${titleAttr}${target}>${text}</a>`;
   };
 
   const rawHtml = marked.parse(source, {

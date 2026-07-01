@@ -61,11 +61,33 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();
 
   async function resolveHost(req: FastifyRequest): Promise<Host | null> {
-    const key = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    // When the Authorization bearer is the operator token, it identifies the
+    // caller as an operator, not a host — host identity must then come from
+    // X-Api-Key alone, since extractApiKey() would otherwise return the
+    // operator token itself (Authorization always wins over X-Api-Key there).
+    const bearer = parseBearer(headers['authorization']);
+    const isOperatorBearer =
+      operatorToken.length > 0 &&
+      bearer !== null &&
+      bearer.length === operatorToken.length &&
+      timingSafeEqual(Buffer.from(bearer), Buffer.from(operatorToken));
+    let key: string | null;
+    let hostLookupReq = req;
+    if (isOperatorBearer) {
+      const xk = headers['x-api-key'];
+      key = typeof xk === 'string' && xk.trim() ? xk.trim() : Array.isArray(xk) && xk[0] ? xk[0].trim() : null;
+      // app.resolveHostFromKey() re-derives the key from req.headers via
+      // extractApiKey(), which would pick the operator bearer again; strip
+      // Authorization so it falls through to X-Api-Key like we just did.
+      hostLookupReq = { headers: { ...headers, authorization: undefined } } as FastifyRequest;
+    } else {
+      key = extractApiKey(headers);
+    }
     if (!key) return null;
     const fromSession = await sessions.verify(key);
     if (fromSession) return fromSession;
-    return app.resolveHostFromKey(req);
+    return app.resolveHostFromKey(hostLookupReq);
   }
 
   function detectCapability(req: FastifyRequest): Capability {

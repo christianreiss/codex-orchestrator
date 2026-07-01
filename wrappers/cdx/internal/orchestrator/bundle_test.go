@@ -22,8 +22,7 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 			"status":"ok",
 			"auth":{"status":"valid","versions":{"client_version":"1.2.3"}},
 			"agents":"# AGENTS.md\n",
-			"config":"model=\"gpt-5.4\"\n",
-			"host":{"fqdn":"alpha.example","secure":true}
+			"config":"model=\"gpt-5.4\"\n"
 		}`))
 	})
 	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{
@@ -43,9 +42,6 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	}
 	if resp.Auth == nil || resp.Auth.Status != "valid" {
 		t.Errorf("auth: %+v", resp.Auth)
-	}
-	if resp.Host == nil || resp.Host.FQDN != "alpha.example" {
-		t.Errorf("host: %+v", resp.Host)
 	}
 	if string(resp.Agents) != "# AGENTS.md\n" {
 		t.Errorf("agents: %q", string(resp.Agents))

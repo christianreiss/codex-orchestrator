@@ -63,7 +63,7 @@ func PrintBoot(w io.Writer, caps Caps, info BannerInfo) {
 	artWidth := VisibleWidth(art[0])
 	gap := "    "
 	for i := 0; i < len(art); i++ {
-		left := PadRight(color+art[i]+reset, artWidth+len(color)+len(reset)) + gap
+		left := PadRight(color+art[i]+reset, artWidth) + gap
 		right := ""
 		if i+1 < len(infoLines) {
 			right = infoLines[i+1]

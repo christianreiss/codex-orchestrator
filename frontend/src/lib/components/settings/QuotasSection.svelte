@@ -116,6 +116,6 @@
   </div>
 
   <div class="pt-2">
-    <Button size="sm" onclick={save} disabled={$query.isPending || $mutation.isPending}>Save</Button>
+    <Button size="sm" onclick={save} disabled={$query.isPending || $query.isError || $mutation.isPending}>Save</Button>
   </div>
 </SectionCard>

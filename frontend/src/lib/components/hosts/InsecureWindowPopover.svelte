@@ -51,8 +51,11 @@
   const STEP = 5;
 
   let open = $state(false);
-  let value: number = $state(10);
+  let value: number | null = $state(10);
   let busy = $state(false);
+
+  // True when the field is empty/non-numeric — blocks submission until fixed.
+  let invalid = $derived(!Number.isFinite(value));
 
   // Reset the slider when the popover opens (read prop inside the effect so it
   // re-runs when the parent changes the default).
@@ -62,15 +65,16 @@
     }
   });
 
-  function clamp(n: number): number {
-    if (!Number.isFinite(n)) return value;
-    const truncated = Math.trunc(n);
+  function clamp(n: number | null): number {
+    if (!Number.isFinite(n)) return clamp(initial);
+    const truncated = Math.trunc(n as number);
     if (truncated < MIN) return MIN;
     if (truncated > MAX) return MAX;
     return truncated;
   }
 
   async function apply(): Promise<void> {
+    if (invalid) return;
     busy = true;
     try {
       await onConfirm(clamp(value));

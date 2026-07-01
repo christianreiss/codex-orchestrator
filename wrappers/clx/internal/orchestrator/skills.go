@@ -14,9 +14,17 @@ type Skill struct {
 	Body    json.RawMessage `json:"body,omitempty"`
 }
 
+// SkillsList decodes GET /skills?engine=claude. The handler returns
+// {engine, skills:[…]}, which the standard envelope exposes both at the root
+// and under `data` — so the skill array lives at `skills`/`data.skills`, NOT at
+// `data` itself (decoding the object into a []Skill was the bug that kept the
+// boot-screen "skills" dot from ever flipping to updated).
 type SkillsList struct {
 	Status string  `json:"status"`
-	Data   []Skill `json:"data,omitempty"`
+	Skills []Skill `json:"skills"`
+	Data   struct {
+		Skills []Skill `json:"skills"`
+	} `json:"data"`
 }
 
 // ListSkills calls GET /skills?engine=claude so the response is filtered to
@@ -27,7 +35,10 @@ func (c *Client) ListSkills(ctx context.Context) ([]Skill, error) {
 	if err := c.JSON(ctx, http.MethodGet, "/skills?engine=claude", nil, out, 1); err != nil {
 		return nil, err
 	}
-	return out.Data, nil
+	if len(out.Skills) > 0 {
+		return out.Skills, nil
+	}
+	return out.Data.Skills, nil
 }
 
 type SkillRetrieved struct {

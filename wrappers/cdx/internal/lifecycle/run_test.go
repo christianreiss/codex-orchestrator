@@ -17,8 +17,9 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 		{
 			name: "live verification failure",
 			decision: orchestrator.AuthDecision{
-				Status: "outdated",
-				Reason: "Codex credentials failed live verification (login expired).",
+				Status:             "outdated",
+				Reason:             "Codex credentials failed live verification (login expired).",
+				VerificationFailed: true,
 			},
 			want: true,
 		},

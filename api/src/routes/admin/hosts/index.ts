@@ -270,10 +270,6 @@ export async function registerAdminHostsRoutes(
     preHandler: [app.requireAdmin],
     handler: async (req) => {
       const body = parseZod(registerSchema, req.body);
-      const engines =
-        body.engines && body.engines.length
-          ? body.engines
-          : parseEnginesInput(ctx.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
       let mode: 'global' | 'enabled' | 'disabled' | null = null;
       if (body.reverse_dns_mode !== undefined && body.reverse_dns_mode !== null) {
         const m = parseReverseDnsModeInput(body.reverse_dns_mode);
@@ -284,15 +280,19 @@ export async function registerAdminHostsRoutes(
         }
         mode = m;
       }
+      // Leave secure/engines undefined when the caller omits them so
+      // HostManagementService.register() can preserve an existing host's
+      // current values instead of resetting to the global defaults (only
+      // applies to brand-new hosts).
       const { host, apiKeyPlain, installer } = await hostService.register({
         fqdn: body.fqdn,
-        secure: body.secure ?? true,
+        secure: body.secure,
         vip: body.vip,
         temporary: body.temporary,
         curl_insecure: body.curl_insecure,
         reverse_dns_mode: mode,
         duration_minutes: body.duration_minutes ?? null,
-        engines,
+        engines: body.engines,
       });
       return {
         host: { ...hostToWire(host), api_key: apiKeyPlain },

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Load reads a config from configPath, verifies the detached Ed25519 signature
@@ -106,6 +107,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Wrapper.BinaryURL == "" {
 		return errors.New("wrapper.binary_url required")
+	}
+	if c.ExpiresAt != nil && strings.TrimSpace(*c.ExpiresAt) != "" {
+		expiresAt, err := time.Parse(time.RFC3339, *c.ExpiresAt)
+		if err != nil {
+			return fmt.Errorf("expires_at invalid: %w", err)
+		}
+		if time.Now().After(expiresAt) {
+			return fmt.Errorf("config expired at %s", expiresAt.Format(time.RFC3339))
+		}
 	}
 	return nil
 }

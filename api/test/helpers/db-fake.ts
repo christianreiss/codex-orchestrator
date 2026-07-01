@@ -25,6 +25,7 @@ export interface DbFake {
   insert(table: unknown): unknown;
   update(table: unknown): unknown;
   delete(table: unknown): unknown;
+  transaction<T>(cb: (tx: DbFake) => Promise<T>): Promise<T>;
 }
 
 export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
@@ -34,6 +35,14 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
     inserts: [],
     updates: [],
     deletes: [],
+
+    // This fake is single-threaded/in-memory, so a "transaction" is just
+    // running the callback against the same fake -- there's no real
+    // concurrency to isolate, only the API shape (tx.select/.insert/.update)
+    // needs to match what the services under test call.
+    transaction<T>(cb: (tx: DbFake) => Promise<T>): Promise<T> {
+      return cb(fake);
+    },
 
     select(_fields?: unknown) {
       return {
@@ -73,7 +82,12 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
           for (const v of list) existing.push({ id: nextId, ...v });
           tables.set(table, existing);
           // Drizzle returns [{ insertId, affectedRows }, ...]
-          return Promise.resolve([{ insertId: nextId, affectedRows: list.length }]);
+          const result = Promise.resolve([{ insertId: nextId, affectedRows: list.length }]);
+          // This fake has no unique-index enforcement, so `ON DUPLICATE KEY
+          // UPDATE` just resolves like a plain insert -- good enough for
+          // tests that only care about the call succeeding/returning.
+          (result as any).onDuplicateKeyUpdate = (_opts: unknown) => result;
+          return result;
         },
       };
     },

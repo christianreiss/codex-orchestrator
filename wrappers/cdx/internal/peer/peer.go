@@ -20,6 +20,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/signing"
 )
 
 const peerEngine = "claude"
@@ -128,6 +129,19 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	if err != nil {
 		return err
 	}
+	// Verify the bundle's detached signature against the embedded fleet key
+	// BEFORE trusting any field in it. binary_url + binary_sha256 are read from
+	// this same payload and drive a download-and-execute of the peer binary, so
+	// the sha256 check downstream is only meaningful once the payload itself is
+	// proven authentic. This mirrors config.Load, which verifies the very bytes
+	// (rawPayload) this path later writes to clx.json.
+	pubkey, err := signing.PublicKey()
+	if err != nil {
+		return fmt.Errorf("peer config: no signing key: %w", err)
+	}
+	if err := config.VerifyDetached(rawPayload, []byte(b.Signature.Value), pubkey); err != nil {
+		return fmt.Errorf("peer config signature invalid: %w", err)
+	}
 	wrapper, ok := b.Payload["wrapper"].(map[string]any)
 	if !ok {
 		return errors.New("peer config missing wrapper block")
@@ -191,7 +205,18 @@ func runPeerCronTick(ctx context.Context) {
 	_ = cmd.Run()
 }
 
+// fetchBundleTimeout bounds the peer config GET so a stalled network path
+// cannot hang an interactive `cdx run` launch indefinitely (the cron path
+// already bounds its subprocess with a separate timeout in runPeerCronTick).
+const fetchBundleTimeout = 30 * time.Second
+
+// installPeerBinaryTimeout bounds the peer binary download for the same
+// reason as fetchBundleTimeout, sized larger since it transfers a full binary.
+const installPeerBinaryTimeout = 5 * time.Minute
+
 func fetchBundle(ctx context.Context, cfg *config.Config) (*bundle, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, fetchBundleTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Orchestrator.BaseURL+"/wrapper/v2/config?engine="+peerEngine, nil)
 	if err != nil {
 		return nil, nil, err
@@ -248,11 +273,19 @@ func peerConfigPath() string {
 	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
 		return filepath.Join(xdg, "codex-orchestrator", "clx.json")
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		// Without a resolvable home directory we must not fall back to a
+		// relative path: that would read/write ".config/..." under whatever
+		// directory the process happens to be launched from.
+		return filepath.Join(os.TempDir(), "codex-orchestrator-no-home", "clx.json")
+	}
 	return filepath.Join(home, ".config", "codex-orchestrator", "clx.json")
 }
 
 func installPeerBinary(ctx context.Context, cfg *config.Config, url, expected string) error {
+	ctx, cancel := context.WithTimeout(ctx, installPeerBinaryTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -325,16 +358,21 @@ func peerBinaryCandidates() []string {
 }
 
 func installFile(src, dest string) error {
-	tmp := dest + ".new"
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	// Use a unique temp name (not the fixed dest+".new") so two concurrent
+	// installers (e.g. an interactive `cdx run` racing a cron-spawned peer
+	// tick) can't write into the same path and interleave their copies before
+	// the atomic rename, which would defeat the sha256 verification already
+	// performed on each installer's own download.
+	out, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".*.new")
 	if err != nil {
 		return sudoInstall(src, dest, err)
 	}
+	tmp := out.Name()
 	if _, err := io.Copy(out, in); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmp)
@@ -387,18 +425,26 @@ func removePeer(ctx context.Context, logger *slog.Logger) error {
 	if p, err := exec.LookPath(peerName); err == nil {
 		_ = exec.CommandContext(ctx, p, "--cron", "remove").Run()
 	}
-	home, _ := os.UserHomeDir()
-	for _, p := range []string{
-		peerConfigPath(),
-		peerConfigPath() + ".sig",
-		filepath.Join(home, ".claude", "settings.json"),
-		filepath.Join(home, ".claude", "CLAUDE.md"),
-		filepath.Join(home, ".claude", ".credentials.json"),
-		filepath.Join(home, ".clx"),
-	} {
+	paths := []string{peerConfigPath(), peerConfigPath() + ".sig"}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		// Without a resolvable home directory, filepath.Join(home, ...) would
+		// silently produce relative paths (e.g. ".claude/settings.json") that
+		// os.RemoveAll would then delete relative to the process's current
+		// working directory instead of failing loudly.
+		logger.Warn("peer remove skipped home-relative paths: no home directory", "err", err)
+	} else {
+		paths = append(paths,
+			filepath.Join(home, ".claude", "settings.json"),
+			filepath.Join(home, ".claude", "CLAUDE.md"),
+			filepath.Join(home, ".claude", ".credentials.json"),
+			filepath.Join(home, ".clx"),
+		)
+	}
+	for _, p := range paths {
 		removePath(p, logger)
 	}
-	if npmGlobalHas("@anthropic-ai/claude-code") {
+	if npmGlobalHas(ctx, "@anthropic-ai/claude-code") {
 		_ = exec.CommandContext(ctx, "npm", "uninstall", "-g", "@anthropic-ai/claude-code").Run()
 	}
 	removePath("/etc/cron.d/clx-managed", logger)
@@ -427,9 +473,9 @@ func sudoRemove(path string) error {
 	return exec.Command("sudo", "-n", "rm", "-rf", path).Run()
 }
 
-func npmGlobalHas(pkg string) bool {
+func npmGlobalHas(ctx context.Context, pkg string) bool {
 	if _, err := exec.LookPath("npm"); err != nil {
 		return false
 	}
-	return exec.Command("npm", "ls", "-g", "--depth=0", pkg).Run() == nil
+	return exec.CommandContext(ctx, "npm", "ls", "-g", "--depth=0", pkg).Run() == nil
 }

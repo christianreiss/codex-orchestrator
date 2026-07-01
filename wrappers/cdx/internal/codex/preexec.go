@@ -113,11 +113,30 @@ func EnsureProjectTrust() error {
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
 		return err
 	}
-	tmp := cfgPath + ".new"
-	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(cfgPath), filepath.Base(cfgPath)+".*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, cfgPath)
+	tmpName := tmp.Name()
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if _, err := tmp.Write([]byte(body)); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, cfgPath); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // exportOTELFromConfig parses any [otel] block in ~/.codex/config.toml and
@@ -169,10 +188,37 @@ func exportOTELFromConfig() error {
 		case "resource_attributes":
 			_ = os.Setenv("OTEL_RESOURCE_ATTRIBUTES", val)
 		case "headers":
-			_ = os.Setenv("OTEL_EXPORTER_OTLP_HEADERS", val)
+			_ = os.Setenv("OTEL_EXPORTER_OTLP_HEADERS", parseOTELHeaders(val))
 		case "log_user_prompt":
 			_ = os.Setenv("CODEX_OTEL_LOG_USER_PROMPT", val)
 		}
 	}
 	return nil
+}
+
+// parseOTELHeaders converts a TOML inline table such as
+// `{ Authorization = "Bearer X", X-Api-Key = "Y" }` into the
+// comma-separated `key=value` form OTEL_EXPORTER_OTLP_HEADERS expects.
+// Plain `key=value` strings (no braces) pass through unchanged.
+func parseOTELHeaders(val string) string {
+	v := strings.TrimSpace(val)
+	v = strings.TrimPrefix(v, "{")
+	v = strings.TrimSuffix(v, "}")
+	parts := strings.Split(v, ",")
+	pairs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		eq := strings.Index(p, "=")
+		if eq < 0 {
+			continue
+		}
+		k := strings.TrimSpace(p[:eq])
+		hv := strings.TrimSpace(p[eq+1:])
+		hv = strings.Trim(hv, "\"")
+		pairs = append(pairs, k+"="+hv)
+	}
+	return strings.Join(pairs, ",")
 }

@@ -91,8 +91,8 @@
       const q = searchDebounced;
       list = list.filter((h) => {
         const fqdn = (h.fqdn ?? "").toLowerCase();
-        const ver = (h.client_version ?? "").toLowerCase();
-        const claudeVer = (h.claude_client_version ?? "").toLowerCase();
+        const ver = (h.client_version_override ?? h.client_version ?? "").toLowerCase();
+        const claudeVer = (h.claude_client_version_override ?? h.claude_client_version ?? "").toLowerCase();
         const status = (h.status ?? "").toLowerCase();
         const displayStatus = hostStatusLabel(h).toLowerCase();
         return (
@@ -217,7 +217,7 @@
     Failed to load hosts: {$hosts.error?.message ?? "unknown error"}
   </div>
 {:else}
-  <HostsTable rows={filtered} loading={$hosts.isFetching} />
+  <HostsTable rows={filtered} loading={$hosts.isLoading} />
 {/if}
 
 <NewHostSheet

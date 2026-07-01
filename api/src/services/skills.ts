@@ -16,6 +16,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { canonicalSkillUri, normalizeSlug } from './skill-manifest.js';
+import { isManagedCocoSlug } from './managed-coco-skill.js';
 
 export interface SkillView {
   id: number;
@@ -102,6 +103,9 @@ export class SkillsService {
 
   async store(input: StoreSkillInput, sourceHostId: number | null = null): Promise<StoreSkillResult> {
     const slug = normalizeSlug(input.slug ?? input.filename);
+    if (isManagedCocoSlug(slug)) {
+      throw new ConflictError('managed skill cannot be stored directly', 'managed_skill');
+    }
     const manifest = typeof input.manifest === 'string'
       ? input.manifest
       : typeof input.content === 'string'
@@ -219,6 +223,9 @@ export class SkillsService {
    */
   async softDelete(rawSlug: string): Promise<boolean> {
     const slug = normalizeSlug(rawSlug);
+    if (isManagedCocoSlug(slug)) {
+      throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
+    }
     if (slug.startsWith('codex-') || slug.startsWith('claude-')) {
       // The legacy ProjectModuleService reserved certain slugs as managed.
       // We don't manage anything here in admin-content, but we surface a

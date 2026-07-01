@@ -94,7 +94,7 @@ function fakeDb(host: Host): Database {
   // We return empty rows for everything except hosts where the service reads
   // configVersion to bump it.
   let hostSelectCount = 0;
-  return {
+  const db = {
     select: () => ({
       from: (t: unknown) => {
         const table = t as { _?: unknown } & Record<string, unknown>;
@@ -115,6 +115,15 @@ function fakeDb(host: Host): Database {
             orderBy: () => ({
               limit: async (_n: number) => [],
             }),
+            for: () => ({
+              limit: async (_n: number) => {
+                if (isHosts) {
+                  hostSelectCount++;
+                  return [host];
+                }
+                return [];
+              },
+            }),
           }),
           limit: async (_n: number) => [],
         };
@@ -128,7 +137,12 @@ function fakeDb(host: Host): Database {
         },
       }),
     }),
-  } as unknown as Database;
+    // bumpConfigVersion (wrapper-config.ts) wraps its SELECT ... FOR UPDATE +
+    // UPDATE in a transaction; this fake is single-threaded, so running the
+    // callback against the same fake is sufficient to match the API shape.
+    transaction: async (cb: (tx: Database) => Promise<unknown>) => cb(db as unknown as Database),
+  };
+  return db as unknown as Database;
 }
 
 function makeSigner(privateKey: import('node:crypto').KeyObject): WrapperSigner {

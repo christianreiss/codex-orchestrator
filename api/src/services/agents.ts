@@ -425,6 +425,14 @@ export class AgentsService {
       .orderBy(desc(agentsDocuments.id));
     const protectedIds = new Set<number>();
     if (protectId !== null) protectedIds.add(protectId);
+    // Never prune a version that is actively locked/pinned for any engine,
+    // regardless of which engine's store() triggered this prune.
+    const stateRows = await this.db.select().from(agentsDocumentState);
+    for (const s of stateRows) {
+      if (s.mode === AGENTS_MODE_LOCKED && s.activeDocumentId !== null) {
+        protectedIds.add(s.activeDocumentId);
+      }
+    }
     const eligible = all.filter((r) => !protectedIds.has(r.id));
     if (eligible.length <= limit) return 0;
     const toDelete = eligible.slice(limit).map((r) => r.id);

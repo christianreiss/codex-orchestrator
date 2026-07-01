@@ -288,6 +288,13 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	if err != nil {
 		return err
 	}
+	// NOTE: asset.Digest comes from the same GitHub release JSON as the
+	// download URL, so this only guards against transport corruption, not a
+	// compromised/malicious release (an attacker able to replace the binary
+	// could replace the digest field too). Genuine supply-chain protection
+	// would require an independently-signed checksum or attestation (e.g.
+	// cosign / `gh attestation verify` against a pinned key), which upstream
+	// does not currently publish and which is out of scope here.
 	expected := strings.TrimPrefix(asset.Digest, "sha256:")
 	if len(expected) != 64 {
 		return fmt.Errorf("codex release %s: asset %s has no sha256 digest", rel.TagName, asset.Name)
@@ -393,6 +400,7 @@ func installFromTarball(path, dest string) error {
 	tr := tar.NewReader(gz)
 
 	var extracted string
+	var fallback string
 	extractDir, err := os.MkdirTemp("", "cdx-extract-*")
 	if err != nil {
 		return err
@@ -411,9 +419,18 @@ func installFromTarball(path, dest string) error {
 			continue
 		}
 		base := filepath.Base(hdr.Name)
-		// Only extract files named codex or codex* (the bash wrapper uses the
-		// same heuristic).
-		if !strings.HasPrefix(base, "codex") {
+		isExact := base == "codex"
+		// Only extract files named exactly codex, or (as a fallback for
+		// archive layouts we haven't seen) codex* (the bash wrapper uses the
+		// same heuristic). An exact match always wins over a prefix match so
+		// that ancillary files like codex-LICENSE or codex.1 shipped ahead of
+		// the real binary in archive order can't be installed in its place.
+		if !isExact && !strings.HasPrefix(base, "codex") {
+			continue
+		}
+		if !isExact && fallback != "" {
+			// Already have a prefix-match fallback candidate; keep scanning
+			// for an exact "codex" entry without extracting more decoys.
 			continue
 		}
 		out := filepath.Join(extractDir, base)
@@ -426,9 +443,14 @@ func installFromTarball(path, dest string) error {
 			return err
 		}
 		fp.Close()
-		extracted = out
-		// First reasonable match wins (matches the bash `head -n1`).
-		break
+		if isExact {
+			extracted = out
+			break
+		}
+		fallback = out
+	}
+	if extracted == "" {
+		extracted = fallback
 	}
 	if extracted == "" {
 		return errors.New("installFromTarball: no codex binary in archive")
@@ -472,9 +494,14 @@ func copyExec(src, dest string) error {
 		return err
 	}
 	defer in.Close()
-	tmp := dest + ".new"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	out, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".*")
 	if err != nil {
+		return err
+	}
+	tmp := out.Name()
+	if err := out.Chmod(0o755); err != nil {
+		out.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
@@ -486,7 +513,11 @@ func copyExec(src, dest string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, dest)
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func chmodExec(p string) error { return os.Chmod(p, 0o755) }

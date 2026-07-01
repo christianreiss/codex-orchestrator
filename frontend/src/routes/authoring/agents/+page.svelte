@@ -55,7 +55,7 @@
 
   // ---- Save ----
   const saveMutation = createMutation({
-    mutationFn: () => agentsApi.store({ content, sha256: null }),
+    mutationFn: () => agentsApi.store({ content, sha256: serverSha }),
     onSuccess: (result) => {
       serverSha = result.sha256 ?? null;
       toast.success(
@@ -74,12 +74,14 @@
   // ---- Serve mode ----
   let serveMode = $state<"latest" | "locked">("latest");
   let serveLockedId = $state<number | null>(null);
+  let serveHydrated = $state(false);
 
   $effect(() => {
     const data = $query.data;
-    if (data?.mode === "latest" || data?.mode === "locked") {
+    if (!serveHydrated && (data?.mode === "latest" || data?.mode === "locked")) {
       serveMode = data.mode;
       serveLockedId = data.served_id ?? data.active_id ?? null;
+      serveHydrated = true;
     }
   });
 
@@ -109,9 +111,13 @@
 
   // ---- Retention ----
   let retentionInput = $state<number>(20);
+  let retentionHydrated = $state(false);
   $effect(() => {
     const lim = $query.data?.backup_limit;
-    if (typeof lim === "number") retentionInput = lim;
+    if (typeof lim === "number" && !retentionHydrated) {
+      retentionInput = lim;
+      retentionHydrated = true;
+    }
   });
 
   const retentionMutation = createMutation({

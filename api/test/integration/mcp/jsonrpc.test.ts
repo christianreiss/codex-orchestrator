@@ -174,7 +174,9 @@ describe('MCP capability split', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/mcp',
-      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      // Operator bearer only grants elevated capability -- host identity
+      // still comes from X-Api-Key (see mcp/index.ts resolveHost()).
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}`, 'x-api-key': 'sk-codex-' + 'a'.repeat(32) },
       payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
     });
     expect(r.statusCode).toBe(200);
@@ -212,7 +214,9 @@ describe('MCP capability split', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/mcp',
-      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      // Operator bearer only grants elevated capability -- host identity
+      // still comes from X-Api-Key (see mcp/index.ts resolveHost()).
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}`, 'x-api-key': 'sk-codex-' + 'a'.repeat(32) },
       payload: {
         jsonrpc: '2.0',
         id: 1,
@@ -233,7 +237,9 @@ describe('MCP capability split', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/mcp',
-      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      // Operator bearer only grants elevated capability -- host identity
+      // still comes from X-Api-Key (see mcp/index.ts resolveHost()).
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}`, 'x-api-key': 'sk-codex-' + 'a'.repeat(32) },
       payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
     });
     const body = JSON.parse(r.payload);
@@ -246,7 +252,7 @@ describe('MCP capability split', () => {
     const r2 = await app.inject({
       method: 'POST',
       url: '/mcp',
-      headers: { authorization: `Bearer ${OPERATOR_TOKEN}` },
+      headers: { authorization: `Bearer ${OPERATOR_TOKEN}`, 'x-api-key': 'sk-codex-' + 'a'.repeat(32) },
       payload: {
         jsonrpc: '2.0',
         id: 2,

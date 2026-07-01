@@ -24,6 +24,7 @@ class RunnerAppTest(unittest.TestCase):
                 "-s",
                 "read-only",
                 "--skip-git-repo-check",
+                "--",
                 "Describe the image.",
             ],
             cmd,
@@ -62,6 +63,7 @@ class RunnerAppTest(unittest.TestCase):
                 "-s",
                 "read-only",
                 "--skip-git-repo-check",
+                "--",
                 "Reply Banana if this works.",
             ],
             captured["cmd"],
@@ -70,7 +72,7 @@ class RunnerAppTest(unittest.TestCase):
     def test_build_claude_exec_cmd_uses_supported_print_flag(self):
         cmd = runner_app._build_claude_exec_cmd("Reply Banana.")
 
-        self.assertEqual([runner_app.CLAUDE_CLI_PATH, "--print", "Reply Banana."], cmd)
+        self.assertEqual([runner_app.CLAUDE_CLI_PATH, "--print", "--", "Reply Banana."], cmd)
         self.assertNotIn("--no-input", cmd)
 
     def test_prepare_codex_env_uses_non_tmp_home_and_sets_tmpdir(self):

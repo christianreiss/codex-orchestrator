@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { authSeedTokens, installTokens } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
@@ -38,9 +38,11 @@ export interface SeedTokenRow {
 
 export interface InstallTokenService {
   findInstall(token: string): Promise<InstallTokenRow | null>;
-  markInstallUsed(id: number): Promise<void>;
+  /** Atomically claims the token (WHERE usedAt IS NULL). Returns false if it was already used. */
+  markInstallUsed(id: number): Promise<boolean>;
   findSeed(token: string): Promise<SeedTokenRow | null>;
-  markSeedUsed(id: number): Promise<void>;
+  /** Atomically claims the token (WHERE usedAt IS NULL). Returns false if it was already used. */
+  markSeedUsed(id: number): Promise<boolean>;
 }
 
 export interface InstallTokenDeps {
@@ -82,7 +84,11 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       };
     },
     async markInstallUsed(id) {
-      await db.update(installTokens).set({ usedAt: nowIso() }).where(eq(installTokens.id, id));
+      const result = await db
+        .update(installTokens)
+        .set({ usedAt: nowIso() })
+        .where(and(eq(installTokens.id, id), isNull(installTokens.usedAt)));
+      return Number(result[0]?.affectedRows ?? 0) > 0;
     },
     async findSeed(token) {
       const tokenHash = sha256(token);
@@ -103,7 +109,11 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       };
     },
     async markSeedUsed(id) {
-      await db.update(authSeedTokens).set({ usedAt: nowIso() }).where(eq(authSeedTokens.id, id));
+      const result = await db
+        .update(authSeedTokens)
+        .set({ usedAt: nowIso() })
+        .where(and(eq(authSeedTokens.id, id), isNull(authSeedTokens.usedAt)));
+      return Number(result[0]?.affectedRows ?? 0) > 0;
     },
   };
 }

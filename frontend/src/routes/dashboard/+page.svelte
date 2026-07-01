@@ -4,10 +4,12 @@
   import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
   import DashboardAlerts from "./DashboardAlerts.svelte";
+  import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
   import { overviewQuery } from "$lib/api/overview";
   import Server from "@lucide/svelte/icons/server";
   import Package from "@lucide/svelte/icons/package";
   import Bot from "@lucide/svelte/icons/bot";
+  import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
 
   const overview = overviewQuery();
 

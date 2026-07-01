@@ -27,6 +27,13 @@
   }: Props = $props();
 
   function handleOpenChange(next: boolean) {
+    if (busy && !next) {
+      // Ignore dismiss attempts (Escape, overlay click, X button) while a
+      // mutation is in flight; re-assert open since bind:open may have
+      // already propagated the close.
+      open = true;
+      return;
+    }
     open = next;
     if (!next) onClose?.();
   }

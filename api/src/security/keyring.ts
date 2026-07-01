@@ -60,6 +60,12 @@ export class Keyring {
     if (entries.size === 0) {
       throw new SecretBoxError('no_active_key', 'No encryption keys configured');
     }
+    if (activeKidEnv && !entries.has(activeKidEnv)) {
+      throw new SecretBoxError(
+        'no_active_key',
+        `Active key kid '${activeKidEnv}' not found among configured keys`,
+      );
+    }
     if (!activeKid || !entries.has(activeKid)) {
       // Fall back to first inserted
       activeKid = entries.keys().next().value!;

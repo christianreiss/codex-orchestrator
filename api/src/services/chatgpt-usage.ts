@@ -10,7 +10,7 @@
  * until the host-runner pipeline owned by Phase 2.1 is wired.
  */
 
-import { and, desc, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { chatgptUsageSnapshots, dashboardGraphQuotaSnapshots } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -255,7 +255,7 @@ export class ChatGptUsageService {
     const rows = await this.db
       .select()
       .from(chatgptUsageSnapshots)
-      .orderBy(desc(chatgptUsageSnapshots.fetchedAt))
+      .orderBy(desc(chatgptUsageSnapshots.fetchedAt), desc(chatgptUsageSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
   }
@@ -502,7 +502,20 @@ export class ChatGptUsageService {
   }
 
   private async insertSnapshot(values: ChatGptSnapshotInsert): Promise<ChatGptSnapshotRow> {
-    await this.db.insert(chatgptUsageSnapshots).values(values);
+    const result = await this.db.insert(chatgptUsageSnapshots).values(values);
+    // mysql2 returns [{ insertId, affectedRows }, fields]; select the row we just
+    // inserted by id instead of "latest by fetchedAt" so concurrent refreshes
+    // (e.g. a manual refresh racing a scheduled one) can't hand this call back
+    // a different request's row.
+    const insertId = (result as unknown as [{ insertId?: number }])[0]?.insertId;
+    if (typeof insertId === 'number' && insertId > 0) {
+      const rows = await this.db
+        .select()
+        .from(chatgptUsageSnapshots)
+        .where(eq(chatgptUsageSnapshots.id, insertId))
+        .limit(1);
+      if (rows[0]) return rows[0];
+    }
     const row = await this.latest();
     if (!row) throw new Error('Failed to persist ChatGPT usage snapshot');
     return row;

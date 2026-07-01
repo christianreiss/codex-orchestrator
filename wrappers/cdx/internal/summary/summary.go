@@ -131,8 +131,13 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		resultTone = ui.ToneWarn
 	}
 	if blockText != "" {
-		result = "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."
-		resultTone = ui.ToneFail
+		if auth != nil && auth.QuotaHardFail {
+			result = "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."
+			resultTone = ui.ToneFail
+		} else {
+			result = "Quota limit reached (advisory only; launch not blocked)."
+			resultTone = ui.ToneWarn
+		}
 	}
 
 	theme := ""
@@ -211,7 +216,7 @@ func sessionRows(s *SessionCounts) []ui.SessionRow {
 
 func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDot {
 	apiTone := ui.ToneOK
-	if auth.Status == "" || auth.Status == "error" {
+	if auth.Status == "" || auth.Status == "error" || auth.Status == "offline" {
 		apiTone = ui.ToneFail
 	}
 
@@ -227,6 +232,11 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		authTone = ui.ToneFail
 	case "insecure":
 		authTone = ui.ToneWarn
+	default:
+		// Fail closed: "offline"/"error"/"" and any status this wrapper
+		// doesn't recognize yet must not render as a healthy green dot,
+		// mirroring the RunnerState default-fail handling below.
+		authTone = ui.ToneFail
 	}
 	// A live-verification failure overrides the digest-derived tone: the token
 	// the host would launch with does not authenticate, so the dot must read red
