@@ -11,6 +11,10 @@ on:
       - 'api/**'
       - '.github/workflows/api.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest

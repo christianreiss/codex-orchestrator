@@ -1,8 +1,6 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import Copy from "@lucide/svelte/icons/copy";
-  import Check from "@lucide/svelte/icons/check";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import * as Dialog from "$lib/components/ui/dialog";
@@ -12,6 +10,7 @@
   import { Label } from "$lib/components/ui/label";
   import { Switch } from "$lib/components/ui/switch";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { keysApi, keyQueryKeys, engineLabel } from "$lib/api/keys";
   import type {
     AdminApiKeyCreated,
@@ -44,7 +43,6 @@
 
   // Reveal state
   let issued = $state<AdminApiKeyCreated | null>(null);
-  let copied = $state(false);
 
   // Reset form whenever the dialog opens.
   $effect(() => {
@@ -55,7 +53,6 @@
       expiresEnabled = false;
       expiresAt = "";
       issued = null;
-      copied = false;
     }
   });
 
@@ -106,20 +103,6 @@
     $createMut.mutate({ engine, payload });
   }
 
-  async function copyKey() {
-    if (!issued) return;
-    try {
-      await navigator.clipboard.writeText(issued.key);
-      copied = true;
-      toast.success("Key copied to clipboard");
-      setTimeout(() => (copied = false), 2000);
-    } catch (err) {
-      toast.error("Copy failed", {
-        description: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
   function close() {
     if ($createMut.isPending) return;
     open = false;
@@ -165,13 +148,13 @@
           class="flex-1 overflow-x-auto rounded-md border bg-muted px-3 py-2 font-mono text-xs"
           >{issued.key}</code
         >
-        <Button variant="outline" size="icon" onclick={copyKey} aria-label="Copy key">
-          {#if copied}
-            <Check class="h-4 w-4 text-emerald-600" />
-          {:else}
-            <Copy class="h-4 w-4" />
-          {/if}
-        </Button>
+        <CopyButton
+          value={issued.key}
+          variant="outline"
+          size="icon"
+          aria-label="Copy key"
+          toastMessage="Key copied to clipboard"
+        />
       </div>
 
       <Dialog.Footer>

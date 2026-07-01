@@ -4,9 +4,9 @@
   import Cpu from "@lucide/svelte/icons/cpu";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Layers from "@lucide/svelte/icons/layers";
-  import Copy from "@lucide/svelte/icons/copy";
   import { toast } from "svelte-sonner";
   import { createQuickRegisterMutation } from "$lib/api/hosts";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -29,16 +29,6 @@
       toast.error(msg);
     } finally {
       pending = null;
-    }
-  }
-
-  async function copyCommand(): Promise<void> {
-    if (!result?.installer?.command) return;
-    try {
-      await navigator.clipboard.writeText(result.installer.command);
-      toast.success("Installer command copied");
-    } catch {
-      toast.error("Copy failed");
     }
   }
 
@@ -108,9 +98,11 @@
           value={result.installer.command}
         ></textarea>
         <div class="flex justify-between gap-2">
-          <Button variant="outline" onclick={copyCommand}>
-            <Copy class="h-4 w-4" /> Copy command
-          </Button>
+          <CopyButton
+            value={result.installer.command}
+            label="Copy command"
+            toastMessage="Installer command copied"
+          />
           <Button variant="secondary" onclick={() => (result = null)}>Spin another</Button>
         </div>
       </div>

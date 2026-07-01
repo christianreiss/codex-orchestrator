@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./Bb0E-YLt.js";import"./DYR6MKK2.js";import{t as n}from"./VXqiIsSU.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`rect`,{width:`14`,height:`14`,x:`8`,y:`8`,rx:`2`,ry:`2`}],[`path`,{d:`M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2`}]];n(r,t({name:`copy`},()=>a,{get iconNode(){return o}}))}export{r as t};

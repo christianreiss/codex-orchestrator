@@ -17,7 +17,7 @@
     hostStatusLabel,
     type HostFilterId,
   } from "$lib/api/hosts";
-  import HostsTable from "$lib/components/hosts/HostsTable.svelte";
+  import HostsTable, { type SortDir, type SortField } from "$lib/components/hosts/HostsTable.svelte";
   import FilterChips from "$lib/components/hosts/FilterChips.svelte";
   import NewHostSheet from "$lib/components/hosts/NewHostSheet.svelte";
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
@@ -53,9 +53,13 @@
     void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
-  // --- search (debounced) -------------------------------------------------
-  let searchInput = $state("");
-  let searchDebounced = $state("");
+  // --- search (debounced, URL-synced) -------------------------------------
+  let searchInput = $state(page.url.searchParams.get("q") ?? "");
+  // `searchDebounced` seeds from `searchInput`'s initial (URL-derived) value
+  // once; the `$effect` below re-syncs it on every subsequent change.
+  // eslint-disable-next-line svelte/no-unused-svelte-ignore
+  // svelte-ignore state_referenced_locally
+  let searchDebounced = $state(searchInput.trim().toLowerCase());
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   $effect(() => {
@@ -64,12 +68,44 @@
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
       searchDebounced = v.trim().toLowerCase();
+      const url = new URL(page.url);
+      if (searchDebounced) url.searchParams.set("q", searchDebounced);
+      else url.searchParams.delete("q");
+      void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
     }, 200);
   });
 
   onDestroy(() => {
     if (searchTimer) clearTimeout(searchTimer);
   });
+
+  // --- URL-synced sort ------------------------------------------------------
+  const VALID_SORT_FIELDS: SortField[] = [
+    "fqdn",
+    "status",
+    "last_refresh",
+    "client_version",
+    "insecure_enabled_until",
+  ];
+
+  const sortField = $derived.by<SortField>(() => {
+    const f = page.url.searchParams.get("sort") ?? "fqdn";
+    return (VALID_SORT_FIELDS as string[]).includes(f) ? (f as SortField) : "fqdn";
+  });
+
+  const sortDir = $derived.by<SortDir>(() => {
+    const d = page.url.searchParams.get("dir") ?? "asc";
+    return d === "desc" ? "desc" : "asc";
+  });
+
+  function setSort(field: SortField, dir: SortDir): void {
+    const url = new URL(page.url);
+    if (field === "fqdn") url.searchParams.delete("sort");
+    else url.searchParams.set("sort", field);
+    if (dir === "asc") url.searchParams.delete("dir");
+    else url.searchParams.set("dir", dir);
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+  }
 
   // --- derived data -------------------------------------------------------
   const allRows = $derived(($hosts.data?.hosts ?? []) as HostListItem[]);
@@ -217,7 +253,13 @@
     Failed to load hosts: {$hosts.error?.message ?? "unknown error"}
   </div>
 {:else}
-  <HostsTable rows={filtered} loading={$hosts.isLoading} />
+  <HostsTable
+    rows={filtered}
+    loading={$hosts.isLoading}
+    {sortField}
+    {sortDir}
+    onSortChange={setSort}
+  />
 {/if}
 
 <NewHostSheet

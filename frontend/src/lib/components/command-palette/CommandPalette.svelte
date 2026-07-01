@@ -4,9 +4,11 @@
   import * as Command from "$lib/components/ui/command";
   import ShortcutsModal from "$lib/components/shortcuts/ShortcutsModal.svelte";
   import { commandPalette } from "$lib/stores/command-palette";
+  import { getRecentCommandIds, recordRecentCommand } from "$lib/stores/recent-commands";
   import {
     STATIC_COMMANDS,
     buildDynamicSources,
+    buildRecentCommands,
     getExternalSources,
     groupOrder,
     type CommandGroup,
@@ -29,6 +31,7 @@
   let query = $state("");
   let dynamicCommands = $state<PaletteCommand[]>([]);
   let dynamicLoading = $state(false);
+  let recentIds = $state<string[]>([]);
 
   // Track the latest in-flight request so out-of-order resolutions don't
   // clobber the rendered list.
@@ -39,6 +42,7 @@
     if (s.open) {
       query = "";
       dynamicCommands = [];
+      recentIds = getRecentCommandIds();
     }
   });
 
@@ -91,9 +95,17 @@
   // results that matched on a field cmdk doesn't know about.
   const dynamicIds = $derived(new Set(dynamicCommands.map((c) => c.id)));
 
-  // Merge static + dynamic commands, group, and order.
+  // Static (and by extension "Recent", which only ever wraps static
+  // entries) command ids, used to decide what's eligible to be recorded
+  // into recent-command history below.
+  const staticIds = new Set(STATIC_COMMANDS.map((c) => c.id));
+
+  // Merge static + dynamic commands, group, and order. "Recent" only makes
+  // sense as a jump-back-in aid on the empty-query default view — it's
+  // dropped once the user is actively searching.
   const grouped = $derived.by(() => {
-    const all = [...STATIC_COMMANDS, ...dynamicCommands];
+    const recent = query === "" && recentIds.length > 0 ? buildRecentCommands(recentIds) : [];
+    const all = [...recent, ...STATIC_COMMANDS, ...dynamicCommands];
     const map = new Map<CommandGroup, PaletteCommand[]>();
     for (const cmd of all) {
       const list = map.get(cmd.group) ?? [];
@@ -102,6 +114,12 @@
     }
     return [...map.entries()].sort(([a], [b]) => groupOrder(a) - groupOrder(b));
   });
+
+  function selectCommand(cmd: PaletteCommand): void {
+    const originalId = cmd.id.startsWith("recent:") ? cmd.id.slice("recent:".length) : cmd.id;
+    if (staticIds.has(originalId)) recordRecentCommand(originalId);
+    void cmd.run();
+  }
 
   function onInput(event: Event): void {
     query = (event.currentTarget as HTMLInputElement).value;
@@ -126,10 +144,10 @@
             <Command.Group heading={group}>
               {#each items as cmd (cmd.id)}
                 <Command.Item
-                  value={`${cmd.label} ${(cmd.keywords ?? []).join(" ")}${
+                  value={`${cmd.id} ${cmd.label} ${(cmd.keywords ?? []).join(" ")}${
                     dynamicIds.has(cmd.id) ? ` ${query}` : ""
                   }`}
-                  onSelect={() => void cmd.run()}
+                  onSelect={() => selectCommand(cmd)}
                 >
                   {#if cmd.icon}
                     {@const Icon = cmd.icon}

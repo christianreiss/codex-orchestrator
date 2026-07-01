@@ -7,13 +7,13 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import Copy from "@lucide/svelte/icons/copy";
   import Upload from "@lucide/svelte/icons/upload";
   import {
     createSeedCommandMutation,
     createUploadAuthMutation,
     type AuthEngine,
   } from "$lib/api/auth";
+  import { CopyButton } from "$lib/components/ui/copy-button";
 
   type Props = {
     open: boolean;
@@ -112,15 +112,6 @@
     }
   }
 
-  async function copyCommand(): Promise<void> {
-    if (!command) return;
-    try {
-      await navigator.clipboard.writeText(command);
-      toast.success("Command copied");
-    } catch {
-      toast.error("Copy failed");
-    }
-  }
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
@@ -249,9 +240,7 @@
             Close
           </Button>
           {#if command}
-            <Button variant="outline" onclick={copyCommand}>
-              <Copy class="h-4 w-4" /> Copy command
-            </Button>
+            <CopyButton value={command} label="Copy command" toastMessage="Command copied" />
             <Button onclick={generateCommand} disabled={$seedCmd.isPending}>
               {$seedCmd.isPending ? "Generating…" : "Regenerate"}
             </Button>

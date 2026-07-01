@@ -1,6 +1,8 @@
 <script lang="ts">
   import { writable } from "svelte/store";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { mcpLogsQuery } from "$lib/api/logs";
@@ -21,8 +23,26 @@
   import StatusBadge from "$lib/components/logs/StatusBadge.svelte";
   import JsonExpando from "$lib/components/logs/JsonExpando.svelte";
 
-  let searchInput = $state("");
-  let statusFilter = $state<"all" | "ok" | "fail">("all");
+  // --- URL-synced filters --------------------------------------------------
+  function initStatusFilter(): "all" | "ok" | "fail" {
+    const v = page.url.searchParams.get("status");
+    return v === "ok" || v === "fail" ? v : "all";
+  }
+
+  let searchInput = $state(page.url.searchParams.get("q") ?? "");
+  let statusFilter = $state<"all" | "ok" | "fail">(initStatusFilter());
+
+  $effect(() => {
+    const url = new URL(page.url);
+    const sp = url.searchParams;
+    if (searchInput === "") sp.delete("q");
+    else sp.set("q", searchInput);
+    if (statusFilter === "all") sp.delete("status");
+    else sp.set("status", statusFilter);
+    if (url.search !== page.url.search) {
+      void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+    }
+  });
 
   const queryClient = useQueryClient();
   const mcpOptions = writable(mcpLogsQuery(200));

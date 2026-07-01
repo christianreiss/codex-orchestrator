@@ -18,11 +18,11 @@
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
   import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
   import InsecureWindowPopover from "$lib/components/hosts/InsecureWindowPopover.svelte";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import KeyRound from "@lucide/svelte/icons/key-round";
-  import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
@@ -153,32 +153,12 @@
     await doMintInstaller(installerEngines);
   }
 
-  async function copyInstallerCommand(): Promise<void> {
-    if (!installerResult?.command) return;
-    const copied = await writeInstallerCommandToClipboard(installerResult.command);
-    if (copied) {
-      toast.success("Installer command copied");
-    } else {
-      toast.error("Copy failed");
-    }
-  }
-
   async function writeInstallerCommandToClipboard(command: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(command);
       return true;
     } catch {
       return false;
-    }
-  }
-
-  async function copyInstallerUrl(): Promise<void> {
-    if (!installerResult?.url) return;
-    try {
-      await navigator.clipboard.writeText(installerResult.url);
-      toast.success("Installer URL copied");
-    } catch {
-      toast.error("Copy failed");
     }
   }
 
@@ -639,12 +619,18 @@
         <Button variant="secondary" onclick={recreateInstaller} disabled={$mintInstaller.isPending}>
           <RefreshCw class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Re-create"}
         </Button>
-        <Button variant="outline" onclick={copyInstallerUrl} disabled={!installerResult?.url}>
-          <Copy class="h-4 w-4" /> Copy URL
-        </Button>
-        <Button variant="outline" onclick={copyInstallerCommand} disabled={!installerResult?.command}>
-          <Copy class="h-4 w-4" /> Copy command
-        </Button>
+        <CopyButton
+          value={installerResult?.url ?? ""}
+          label="Copy URL"
+          toastMessage="Installer URL copied"
+          disabled={!installerResult?.url}
+        />
+        <CopyButton
+          value={installerResult?.command ?? ""}
+          label="Copy command"
+          toastMessage="Installer command copied"
+          disabled={!installerResult?.command}
+        />
         <Button variant="ghost" onclick={() => (installerDialogOpen = false)}>Close</Button>
       </Dialog.Footer>
     </Dialog.Content>

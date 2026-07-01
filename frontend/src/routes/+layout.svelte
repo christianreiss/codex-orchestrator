@@ -18,6 +18,7 @@
   import { hydratePalette } from "$lib/stores/theme";
   import { createWsClient, type WsClientHandle } from "$lib/ws/client";
   import { wireWsToQueryClient } from "$lib/ws/events";
+  import { setWsStatus } from "$lib/stores/ws-status";
   import InsecureApprovalsAutoPopup from "$lib/components/hosts/InsecureApprovalsAutoPopup.svelte";
 
   let { children } = $props();
@@ -38,6 +39,7 @@
   let wsHandle: WsClientHandle | null = $state(null);
   let unsubscribeShortcuts: (() => void) | null = null;
   let unsubscribeWs: (() => void) | null = null;
+  let unsubscribeWsStatus: (() => void) | null = null;
 
   function openNewHostSheet(): void {
     void goto(`${base}/hosts?dialog=new-host`);
@@ -74,11 +76,15 @@
       if (state.authenticated && !wsHandle) {
         wsHandle = createWsClient();
         unsubscribeWs = wireWsToQueryClient(queryClient, wsHandle.events);
+        unsubscribeWsStatus = wsHandle.status.subscribe((status) => setWsStatus(status));
       } else if (!state.authenticated && wsHandle) {
         unsubscribeWs?.();
         unsubscribeWs = null;
+        unsubscribeWsStatus?.();
+        unsubscribeWsStatus = null;
         wsHandle.stop();
         wsHandle = null;
+        setWsStatus("disabled");
       }
     });
 
@@ -100,6 +106,7 @@
   onDestroy(() => {
     unsubscribeShortcuts?.();
     unsubscribeWs?.();
+    unsubscribeWsStatus?.();
     wsHandle?.stop();
   });
 </script>

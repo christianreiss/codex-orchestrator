@@ -4,13 +4,13 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import Copy from "@lucide/svelte/icons/copy";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { onMount, tick } from "svelte";
   import { z } from "zod";
   import { toast } from "svelte-sonner";
   import { createRegisterHostMutation, createDeleteHostMutation } from "$lib/api/hosts";
   import { useQueryClient } from "@tanstack/svelte-query";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -144,16 +144,6 @@
       toast.error(msg);
     } finally {
       submitting = false;
-    }
-  }
-
-  async function copyCommand(): Promise<void> {
-    if (!result?.installer?.command) return;
-    try {
-      await navigator.clipboard.writeText(result.installer.command);
-      toast.success("Installer command copied");
-    } catch {
-      toast.error("Copy failed");
     }
   }
 
@@ -299,9 +289,11 @@
           ></textarea>
         </div>
         <div class="flex flex-wrap items-center gap-2 pt-2">
-          <Button variant="outline" onclick={copyCommand}>
-            <Copy class="h-4 w-4" /> Copy
-          </Button>
+          <CopyButton
+            value={result.installer.command}
+            label="Copy"
+            toastMessage="Installer command copied"
+          />
           <Button variant="secondary" onclick={mintAnother}>Mint another</Button>
           <Button variant="ghost" onclick={() => handleOpenChange(false)}>Close</Button>
           <div class="ml-auto">

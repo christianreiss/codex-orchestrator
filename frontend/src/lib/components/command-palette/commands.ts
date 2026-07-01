@@ -2,7 +2,8 @@
  * Cmd-K command registry.
  *
  * The palette renders commands organised into the following groups, in
- * order: Hosts, Navigation, Actions, Projects, Skills, Users, Theme & session.
+ * order: Recent, Hosts, Navigation, Actions, Projects, Skills, Users,
+ * Theme & session.
  *
  * Static commands (navigation, deep links, actions, theme, sign out) are
  * declared inline below. Dynamic command sources (host/project/skill/user
@@ -58,6 +59,7 @@ import {
 } from "$lib/api/quicksearch";
 
 export const COMMAND_GROUPS = [
+  "Recent",
   "Hosts",
   "Navigation",
   "Actions",
@@ -329,6 +331,25 @@ export const STATIC_COMMANDS: PaletteCommand[] = [
   ...buildActionCommands(),
   ...buildThemeSessionCommands(),
 ];
+
+/**
+ * Build "Recent" group entries from a list of previously-invoked static
+ * command ids (most recent first). Each entry is a shallow copy of the
+ * matching `STATIC_COMMANDS` entry with its group overridden to "Recent"
+ * and its id prefixed so cmdk doesn't see a duplicate id alongside the
+ * original entry in its own group. Ids with no matching static command
+ * (stale/renamed) are dropped.
+ */
+export function buildRecentCommands(ids: string[]): PaletteCommand[] {
+  const byId = new Map(STATIC_COMMANDS.map((cmd) => [cmd.id, cmd]));
+  const recents: PaletteCommand[] = [];
+  for (const id of ids) {
+    const cmd = byId.get(id);
+    if (!cmd) continue;
+    recents.push({ ...cmd, id: `recent:${cmd.id}`, group: "Recent" });
+  }
+  return recents;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Dynamic command sources                                                    */

@@ -20,30 +20,35 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import { cn } from "$lib/utils/cn";
 
-  type SortField =
+  export type SortField =
     | "fqdn"
     | "status"
     | "last_refresh"
     | "client_version"
     | "insecure_enabled_until";
-  type SortDir = "asc" | "desc";
+  export type SortDir = "asc" | "desc";
 
   type Props = {
     rows: HostListItem[];
     loading?: boolean;
+    sortField?: SortField;
+    sortDir?: SortDir;
+    onSortChange?: (field: SortField, dir: SortDir) => void;
   };
-  let { rows, loading = false }: Props = $props();
+  let {
+    rows,
+    loading = false,
+    sortField = "fqdn",
+    sortDir = "asc",
+    onSortChange,
+  }: Props = $props();
 
   // --- sorting ------------------------------------------------------------
-  let sortField = $state<SortField>("fqdn");
-  let sortDir = $state<SortDir>("asc");
-
   function setSort(f: SortField): void {
     if (sortField === f) {
-      sortDir = sortDir === "asc" ? "desc" : "asc";
+      onSortChange?.(f, sortDir === "asc" ? "desc" : "asc");
     } else {
-      sortField = f;
-      sortDir = "asc";
+      onSortChange?.(f, "asc");
     }
   }
 

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { writable } from "svelte/store";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Copy from "@lucide/svelte/icons/copy";
@@ -32,15 +34,54 @@
     { value: "7d", label: "Last 7 days", ms: 7 * 24 * 60 * 60_000 },
   ] as const;
 
-  let searchInput = $state("");
-  let actionPrefix = $state("");
-  let hostFilter = $state<string>("all");
-  let timeWindow = $state<(typeof WINDOWS)[number]["value"]>("all");
-  let limit = $state<number>(100);
+  // --- URL-synced filters --------------------------------------------------
+  function initHostFilter(): string {
+    const v = page.url.searchParams.get("host");
+    if (v === "all" || v === "system") return v;
+    return v !== null && /^\d+$/.test(v) ? v : "all";
+  }
+
+  function initTimeWindow(): (typeof WINDOWS)[number]["value"] {
+    const v = page.url.searchParams.get("window");
+    return WINDOWS.some((w) => w.value === v) ? (v as (typeof WINDOWS)[number]["value"]) : "all";
+  }
+
+  function initLimit(): number {
+    const v = Number(page.url.searchParams.get("limit"));
+    return (LIMITS as readonly number[]).includes(v) ? v : 100;
+  }
+
+  let searchInput = $state(page.url.searchParams.get("q") ?? "");
+  let actionPrefix = $state(page.url.searchParams.get("prefix") ?? "");
+  let hostFilter = $state<string>(initHostFilter());
+  let timeWindow = $state<(typeof WINDOWS)[number]["value"]>(initTimeWindow());
+  let limit = $state<number>(initLimit());
   let copiedKey = $state<string | null>(null);
 
+  $effect(() => {
+    const url = new URL(page.url);
+    const sp = url.searchParams;
+    const setOrDelete = (key: string, value: string, fallback: string) => {
+      if (value === fallback) sp.delete(key);
+      else sp.set(key, value);
+    };
+    setOrDelete("q", searchInput, "");
+    setOrDelete("prefix", actionPrefix, "");
+    setOrDelete("host", hostFilter, "all");
+    setOrDelete("window", timeWindow, "all");
+    setOrDelete("limit", String(limit), "100");
+    if (url.search !== page.url.search) {
+      void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+    }
+  });
+
   const queryClient = useQueryClient();
-  const eventsOptions = writable(eventLogsQuery(100));
+  // Seeds from `limit`'s initial (URL-derived) value once, avoiding a
+  // hardcoded-then-corrected first fetch; the `$effect` below re-syncs it
+  // reactively on every subsequent change.
+  // eslint-disable-next-line svelte/no-unused-svelte-ignore
+  // svelte-ignore state_referenced_locally
+  const eventsOptions = writable(eventLogsQuery(limit));
   $effect(() => {
     eventsOptions.set(eventLogsQuery(limit));
   });
