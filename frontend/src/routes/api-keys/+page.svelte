@@ -1,7 +1,9 @@
 <script lang="ts">
+  import ServerCog from "@lucide/svelte/icons/server-cog";
   import Plus from "@lucide/svelte/icons/plus";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import * as Tabs from "$lib/components/ui/tabs";
   import KillSwitchCard from "$lib/components/api-keys/KillSwitchCard.svelte";
   import KeysTable from "$lib/components/api-keys/KeysTable.svelte";
@@ -11,6 +13,21 @@
   let dialogOpen = $state(false);
   let dialogEngine = $state<ApiKeyEngine>("openai");
   let activeTab = $state<ApiKeyEngine>("openai");
+  const origin = $derived(typeof window === "undefined" ? "" : window.location.origin);
+  const proxyEndpoints = $derived([
+    {
+      engine: "OpenAI",
+      detail: "OpenAI-compatible base URL",
+      path: "/v1",
+      url: `${origin}/v1`,
+    },
+    {
+      engine: "Claude",
+      detail: "Anthropic-compatible base URL",
+      path: "/anthropic/v1",
+      url: `${origin}/anthropic/v1`,
+    },
+  ]);
 
   function openDialog(engine: ApiKeyEngine) {
     dialogEngine = engine;
@@ -26,6 +43,37 @@
     </Button>
   {/snippet}
 </PageHeader>
+
+<section class="rounded-lg border bg-card p-4">
+  <div class="flex items-start gap-3">
+    <ServerCog class="mt-0.5 h-5 w-5 text-muted-foreground" />
+    <div class="min-w-0 flex-1">
+      <h2 class="text-sm font-semibold tracking-tight">Proxy endpoints</h2>
+      <div class="mt-3 grid gap-3 lg:grid-cols-2">
+        {#each proxyEndpoints as endpoint}
+          <div class="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <p class="text-sm font-medium">{endpoint.engine}</p>
+                <p class="text-xs text-muted-foreground">{endpoint.detail}</p>
+              </div>
+              <code class="mt-1 block truncate font-mono text-xs text-muted-foreground">
+                {endpoint.url || endpoint.path}
+              </code>
+            </div>
+            <CopyButton
+              value={endpoint.url || endpoint.path}
+              label="Copy"
+              copiedLabel="Copied"
+              size="sm"
+              toastMessage={`${endpoint.engine} URL copied`}
+            />
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+</section>
 
 <Tabs.Root value={activeTab} onValueChange={(v) => (activeTab = v as ApiKeyEngine)}>
   <Tabs.List>

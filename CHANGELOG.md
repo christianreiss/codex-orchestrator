@@ -1,3 +1,12 @@
+# 2026-07-02
+
+## API Keys page exposes copyable proxy URLs
+
+- **Admin UI:** `/admin/api-keys` now shows copy buttons for the absolute
+  OpenAI-compatible `/v1` and Anthropic-compatible `/anthropic/v1` base URLs,
+  so operators can paste the right endpoint into SDK/CLI config while issuing
+  keys.
+
 # 2026-06-25
 
 ## Auth runner verification moved off the wrapper startup path
