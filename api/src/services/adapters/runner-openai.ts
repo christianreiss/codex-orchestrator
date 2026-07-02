@@ -112,12 +112,19 @@ export interface RunnerOpenAiConfig {
 export function makeRunnerConfig(env: Env): RunnerOpenAiConfig | null {
   const url = env.AUTH_RUNNER_URL ?? env.AUTH_RUNNER_CODEX_BASE_URL;
   if (!url || !env.AUTH_RUNNER_SHARED_SECRET) return null;
-  const execUrl = url.endsWith('/exec') ? url : `${url.replace(/\/$/, '')}/exec`;
+  const execUrl = runnerExecUrl(url);
   return {
     execUrl,
     sharedSecret: env.AUTH_RUNNER_SHARED_SECRET,
     timeoutSeconds: env.AUTH_RUNNER_TIMEOUT ?? 30,
   };
+}
+
+export function runnerExecUrl(url: string): string {
+  const trimmed = url.replace(/\/$/, '');
+  if (trimmed.endsWith('/exec')) return trimmed;
+  if (trimmed.endsWith('/verify')) return trimmed.replace(/\/verify$/, '/exec');
+  return `${trimmed}/exec`;
 }
 
 export class RunnerOpenAiAdapter {

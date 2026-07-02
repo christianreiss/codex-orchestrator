@@ -1,5 +1,12 @@
 # 2026-07-02
 
+## OpenAI-compatible runner exec URL fix
+
+- **API:** OpenAI-compatible `/v1/chat/completions` now derives the auth
+  runner execution endpoint from `AUTH_RUNNER_URL=/verify` as `/exec`, matching
+  the existing Claude adapter and the runner's actual FastAPI route. This fixes
+  `502 runner_failed` / `Not Found` after successful OpenAI API-key auth.
+
 ## API Keys page exposes copyable proxy URLs
 
 - **Admin UI:** `/admin/api-keys` now shows copy buttons for the absolute
