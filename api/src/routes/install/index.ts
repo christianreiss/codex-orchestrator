@@ -92,6 +92,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
         baseUrl,
         engine: row.engine,
         enginesList: hostEnginesList(host.engines),
+        allowInsecure: host.curlInsecure === 1,
       });
     } catch (err) {
       return shellishError(

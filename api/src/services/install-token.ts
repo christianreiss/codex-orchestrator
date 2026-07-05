@@ -135,9 +135,11 @@ export function buildInstallerScript(opts: {
   baseUrl: string;
   engine: Engine;
   enginesList?: Engine[];
+  allowInsecure?: boolean;
 }): string {
   return buildWrapperV2InstallerScript({
     ...opts,
+    allowInsecure: opts.allowInsecure ?? false,
     peerEngines: (opts.enginesList ?? []).filter((e) => e !== opts.engine),
   });
 }

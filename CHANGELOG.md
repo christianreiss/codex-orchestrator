@@ -1,5 +1,14 @@
 # 2026-07-05
 
+## Curl-insecure installer commands
+
+- **API/Installers:** Hosts with `curl_insecure=true` now receive installer
+  metadata commands in the form `curl -k ... | CODEX_INSTALL_CURL_INSECURE=1
+  sh`, and the emitted installer script reuses `curl -k` for wrapper config,
+  binary, and peer-wrapper downloads. This makes the host flag cover the initial
+  script fetch and the installer’s follow-up downloads; re-mint the installer
+  after toggling `curl_insecure` so the copied command reflects the flag.
+
 ## Insecure approval timeout
 
 - **API/Admin UI:** Pending insecure-host approval requests now auto-deny after

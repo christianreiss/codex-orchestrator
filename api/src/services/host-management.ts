@@ -86,6 +86,12 @@ export function installerModeLabel(mode: 'codex' | 'claude' | 'both'): string {
   return 'Codex';
 }
 
+export function installerCommand(url: string, curlInsecure: boolean): string {
+  return curlInsecure
+    ? `curl -k -fsSL ${url} | CODEX_INSTALL_CURL_INSECURE=1 sh`
+    : `curl -fsSL ${url} | sh`;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Semantic version validation (used by codex/claude version overrides)
 // ────────────────────────────────────────────────────────────────────────────
@@ -528,7 +534,7 @@ export class HostManagementService {
       mode,
       label: installerModeLabel(mode),
       url,
-      command: `curl -fsSL ${url} | sh`,
+      command: installerCommand(url, host.curlInsecure === 1),
       expires_at: expiresAt,
     };
   }

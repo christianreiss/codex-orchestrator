@@ -54,7 +54,7 @@ describe('GET /install/:token', () => {
         engines: 'codex',
         vip: 0,
         scalingExempt: 0,
-        curlInsecure: 0,
+        curlInsecure: 1,
         browserosMcpEnabled: 0,
         configVersion: 0,
         wrapperTrack: 'v2',
@@ -109,6 +109,7 @@ describe('GET /install/:token', () => {
     expect(r.payload).toContain('#!/bin/sh');
     expect(r.payload).toContain('install.example');
     expect(r.payload).toContain('sk-install-foo');
+    expect(r.payload).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-1}');
     // Token marked used
     const updated = db.tables.get(installTokens)![0]!;
     expect(updated.usedAt).toBeTruthy();

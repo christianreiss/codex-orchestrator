@@ -100,7 +100,7 @@ curl -k -fsSL "https://codex-auth.example.com/install/00000000-0000-0000-0000-00
 
 The `CODEX_INSTALL_CURL_INSECURE=1` part tells the installer to reuse `curl -k` for the wrapper + Codex downloads, matching the `-k` you used to fetch the script itself.
 
-If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” when issuing the host installer (or export `CODEX_SYNC_ALLOW_INSECURE=1` before running `cdx`). This is a last resort — trusting the correct CA is strongly preferred.
+If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” before issuing or re-minting the host installer. The generated installer command then includes the `curl -k` / `CODEX_INSTALL_CURL_INSECURE=1` form automatically, and the baked wrapper gets `CODEX_SYNC_ALLOW_INSECURE=1` for future sync. This is a last resort — trusting the correct CA is strongly preferred.
 
 What the installer does:
 - Downloads the engine-appropriate wrapper(s) from `/wrapper/download?engine=...`

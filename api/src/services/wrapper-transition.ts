@@ -30,6 +30,7 @@ export function buildWrapperV2InstallerScript(opts: {
   apiKey: string;
   baseUrl: string;
   engine: Engine;
+  allowInsecure?: boolean;
   peerEngines?: Engine[];
 }): string {
   if (!opts.apiKey) throw new Error('Installer host API key missing');
@@ -54,6 +55,7 @@ fi`
 
   const peers = (opts.peerEngines ?? []).filter((e) => e !== opts.engine);
   const peerBlock = peers.length > 0 ? peers.map(peerInstallBlock).join('\n') : undefined;
+  const defaultCurlInsecure = opts.allowInsecure ? '1' : '0';
 
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 installer for ${name}.
@@ -67,6 +69,7 @@ NAME=${shellQuote(name)}
 CONFIG_FILE=${shellQuote(`${name}.json`)}
 CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
 INSTALL_CONTEXT=installer
+CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecure}}
 
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 echo ">> Installing the ${name} wrapper into $BIN_DIR"
@@ -119,6 +122,11 @@ case "$CONFIG_ENV" in
     if [ -n "\${CLX_CONFIG_PATH:-}" ]; then CONFIG_PATH=$CLX_CONFIG_PATH; fi
     ;;
 esac
+
+CURL_INSECURE_FLAG=
+if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
+  CURL_INSECURE_FLAG=-k
+fi
 
 INSTALL_WITH_SUDO=0
 ensure_bin_root() {
@@ -186,7 +194,7 @@ case "$PLATFORM_ARCH" in
 esac
 WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
 
-curl -fsSL \\
+curl $CURL_INSECURE_FLAG -fsSL \\
   -H "X-API-Key: $HOST_API_KEY" \\
   -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
   "$BASE_URL/wrapper/v2/config?engine=$ENGINE" \\
@@ -329,7 +337,7 @@ if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
 fi
 
 if [ "$SKIP_DOWNLOAD" = "0" ]; then
-  curl -fsSL \\
+  curl $CURL_INSECURE_FLAG -fsSL \\
     -H "X-API-Key: $HOST_API_KEY" \\
     -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
     "$BINARY_URL" \\
@@ -394,7 +402,7 @@ set +e
   PEER_BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$PEER_NAME.bin.XXXXXX")
   peer_cleanup() { rm -f "$PEER_BUNDLE" "$PEER_BIN_TMP"; }
   trap peer_cleanup EXIT INT TERM
-  curl -fsSL \\
+  curl $CURL_INSECURE_FLAG -fsSL \\
     -H "X-API-Key: $HOST_API_KEY" \\
     -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
     "$BASE_URL/wrapper/v2/config?engine=$PEER_ENGINE" \\
@@ -466,7 +474,7 @@ PY
     fi
   fi
   if [ "$PEER_SKIP" = "0" ]; then
-    curl -fsSL \\
+    curl $CURL_INSECURE_FLAG -fsSL \\
       -H "X-API-Key: $HOST_API_KEY" \\
       -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
       "$PEER_BINARY_URL" \\

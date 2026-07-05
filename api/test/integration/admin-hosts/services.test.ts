@@ -239,6 +239,20 @@ describe('HostManagementService.register', () => {
     expect(h.insecure_window_minutes).toBeGreaterThan(0);
   });
 
+  it('returns a curl -k installer command for curl-insecure hosts', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const out = await svc.register({ fqdn: 'curl-insecure.example.com', curl_insecure: true });
+
+    expect(out.host.curlInsecure).toBe(1);
+    expect(out.installer.command).toContain('curl -k -fsSL https://orch.example.com/install/');
+    expect(out.installer.command).toContain('| CODEX_INSTALL_CURL_INSECURE=1 sh');
+  });
+
   it('publishes a host.created event with the correct payload', async () => {
     const mock = createMockDb();
     const env = buildEnv();

@@ -4,6 +4,7 @@ import {
   serializeEngines,
   installerModeForEngines,
   installerModeLabel,
+  installerCommand,
   isSemanticVersion,
   normalizeSemver,
   clampInsecureMinutes,
@@ -68,6 +69,13 @@ describe('host-management pure helpers', () => {
       expect(installerModeLabel('codex')).toBe('Codex');
       expect(installerModeLabel('claude')).toBe('Claude');
       expect(installerModeLabel('both')).toBe('Codex + Claude');
+    });
+    it('adds curl -k and installer env for curl-insecure hosts', () => {
+      const url = 'https://orch.example.com/install/tok';
+      expect(installerCommand(url, false)).toBe(`curl -fsSL ${url} | sh`);
+      expect(installerCommand(url, true)).toBe(
+        `curl -k -fsSL ${url} | CODEX_INSTALL_CURL_INSECURE=1 sh`,
+      );
     });
   });
 
