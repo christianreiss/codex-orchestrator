@@ -14,6 +14,7 @@
     type AuthEngine,
   } from "$lib/api/auth";
   import { CopyButton } from "$lib/components/ui/copy-button";
+  import { autoCopyText } from "$lib/utils/clipboard";
 
   type Props = {
     open: boolean;
@@ -104,7 +105,7 @@
         // Stub backend response — let the operator know the request was queued.
         toast.success("Seed request queued");
       } else {
-        toast.success("Seed command ready");
+        await autoCopyText(command, "Seed command copied", "Seed command ready");
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to mint command";

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { base } from "$app/paths";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -11,6 +10,7 @@
   import { createRegisterHostMutation, createDeleteHostMutation } from "$lib/api/hosts";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { CopyButton } from "$lib/components/ui/copy-button";
+  import { autoCopyText } from "$lib/utils/clipboard";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -134,11 +134,11 @@
       const data = await $register.mutateAsync(payload);
       result = data;
       void qc.invalidateQueries({ queryKey: ["hosts"] });
-      toast.success(`Registered ${data.host.fqdn ?? parsed.data.fqdn}`);
-      if (data.host.id) {
-        const hostUrl = `${window.location.origin}${base}/hosts/${data.host.id}`;
-        navigator.clipboard.writeText(hostUrl).catch(() => void 0);
-      }
+      await autoCopyText(
+        data.installer.command,
+        `Registered ${data.host.fqdn ?? parsed.data.fqdn}; installer command copied`,
+        `Registered ${data.host.fqdn ?? parsed.data.fqdn}`,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       toast.error(msg);

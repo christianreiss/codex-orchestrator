@@ -37,13 +37,13 @@ Use the admin dashboard:
 
 - **Hosts** → **New Host**
 - Set the host **FQDN** and toggles (secure/insecure, roaming IPs, VIP, IPv4-only).
-- Copy the installer command (it looks like `curl …/install/<token> | bash`). Depending on the selected host engines, that one command installs Codex, Claude, or both.
+- The installer command is copied to the clipboard automatically when minted (it looks like `curl …/install/<token> | bash`). Depending on the selected host engines, that one command installs Codex, Claude, or both.
 
 Operational reality:
 
 - Installer tokens are **single-use**, expire based on `INSTALL_TOKEN_TTL_SECONDS` (default 1800 seconds), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
 - Re-registering the same host rotates its API key; older wrappers/tokens keep the old key and then fail authenticated API calls.
-- Existing hosts can mint a fresh installer from the host detail page with **Mint installer**. That keeps the current API key and replaces any pending installer token for that host.
+- Existing hosts can mint a fresh installer from the host detail page with **Mint installer**. That keeps the current API key, replaces any pending installer token for that host, and copies the new command automatically.
 
 #### Optional: mint an installer token via the admin API (automation)
 

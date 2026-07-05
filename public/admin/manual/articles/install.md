@@ -133,7 +133,7 @@ Client certificates and CA material are configured via `$CADDY_MTLS_DIR`.
 Hosts cannot fetch auth until the orchestrator has its own copy. Two paths:
 
 - **Admin UI upload.** Sign in as the first admin, use *Admin → Upload auth*. The route is `POST /admin/auth/upload`. This is the normal path once you are running.
-- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The admin runs the printed `curl | bash` snippet on the machine that currently holds the canonical `~/.codex/auth.json`. The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).
+- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The generated `curl | bash` snippet is copied automatically; the admin runs it on the machine that currently holds the canonical `~/.codex/auth.json`. The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).
 
 The GET twin at `/seed/auth/{token}` returns an executable shell script that reads your local `auth.json` and POSTs it back.
 

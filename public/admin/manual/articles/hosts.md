@@ -31,9 +31,9 @@ A debounced search box (searches `fqdn`, Codex/Claude version including override
 The host list page header contains four action buttons:
 
 - **Insecure** — opens the insecure approvals panel. An amber badge shows the count of active insecure windows when any are open. The panel also opens automatically when the URL contains `?insecure=1`.
-- **Seed auth** — opens the *Seed Auth* dialog to pre-seed credentials across the fleet.
-- **Quick VM** — opens the *Quick VM* dialog for a minimal-input registration.
-- **New host** — opens the *New Host* slide-in sheet for full registration.
+- **Seed auth** — opens the *Seed Auth* dialog to pre-seed credentials across the fleet. One-time commands are copied automatically when generated.
+- **Quick VM** — opens the *Quick VM* dialog for a minimal-input registration. The installer command is copied automatically after provisioning.
+- **New host** — opens the *New Host* slide-in sheet for full registration. The installer command is copied automatically after registration.
 
 There are no chord keyboard shortcuts for host navigation. Keyboard access is through the Cmd-K command palette and single-key shortcuts (`?`, `/`, Escape) only.
 
@@ -113,7 +113,7 @@ Buttons depend on host state:
 - **Codex version** and **Codex model override** (when the Codex engine is configured) or **Add Codex** (when it is not).
 - **Claude version** and **Claude model override** (when the Claude engine is configured) or **Add Claude** (when it is not).
 - **Agents version** — pin the AGENTS.md version.
-- **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`; the current **Curl insecure** toggle value is included so the copied command reflects the visible setting.
+- **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`; the current **Curl insecure** toggle value is included so the auto-copied command reflects the visible setting.
 - **Delete host** — removes the host via `DELETE /admin/hosts/{id}`.
 
 All mutations require an authenticated admin session.

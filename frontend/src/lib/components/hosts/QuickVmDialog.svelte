@@ -7,6 +7,7 @@
   import { toast } from "svelte-sonner";
   import { createQuickRegisterMutation } from "$lib/api/hosts";
   import { CopyButton } from "$lib/components/ui/copy-button";
+  import { autoCopyText } from "$lib/utils/clipboard";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -24,6 +25,11 @@
     try {
       const data = await $mutation.mutateAsync({ engines });
       result = data;
+      await autoCopyText(
+        data.installer.command,
+        "Installer command copied",
+        "Quick VM provisioned",
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to provision";
       toast.error(msg);

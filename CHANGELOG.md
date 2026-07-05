@@ -1,5 +1,11 @@
 # 2026-07-05
 
+## Shell command auto-copy
+
+- **Admin UI:** Generated shell commands now auto-copy to the clipboard when
+  minted. This covers New Host installers, Quick VM installers, Host Detail
+  installer mints, and Seed auth one-time commands.
+
 ## Host detail curl-insecure minting
 
 - **Admin UI/API:** Host Detail installer mints now include the current

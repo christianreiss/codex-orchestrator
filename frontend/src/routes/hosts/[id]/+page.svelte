@@ -24,6 +24,7 @@
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
+  import { autoCopyText } from "$lib/utils/clipboard";
   import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS } from "$lib/constants/models";
   import {
     hostDetailQuery,
@@ -134,9 +135,11 @@
       });
       installerResult = result.installer;
       installerDialogOpen = true;
-      const copied = await writeInstallerCommandToClipboard(result.installer.command);
-      toast.success(copied ? "Installer minted and command copied" : "Installer minted");
-      if (!copied) toast.error("Auto-copy failed");
+      await autoCopyText(
+        result.installer.command,
+        "Installer minted and command copied",
+        "Installer minted",
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Installer mint failed";
       toast.error(msg);
@@ -145,15 +148,6 @@
 
   async function recreateInstaller(): Promise<void> {
     await doMintInstaller(installerEngines);
-  }
-
-  async function writeInstallerCommandToClipboard(command: string): Promise<boolean> {
-    try {
-      await navigator.clipboard.writeText(command);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   // Derived action items
