@@ -81,8 +81,8 @@
     <Dialog.Header>
       <Dialog.Title>Insecure access</Dialog.Title>
       <Dialog.Description>
-        Pending approval requests, open insecure windows on hosts, and active
-        domain allow-lists.
+        Pending approval requests auto-deny after 5 minutes. Open insecure
+        windows and active domain allow-lists keep their configured expiry.
       </Dialog.Description>
     </Dialog.Header>
 

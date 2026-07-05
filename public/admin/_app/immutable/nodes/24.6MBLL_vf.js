@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/DjrGI-Ij.js";export{e as component};

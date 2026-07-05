@@ -458,8 +458,8 @@ describe('InsecureWindowAdminService', () => {
     mock.insertRow('insecure_auth_requests', {
       host_id: 1,
       status: 'pending',
-      requested_at: '2024-01-01',
-      updated_at: '2024-01-01',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       engine: 'codex',
     });
 
@@ -469,6 +469,34 @@ describe('InsecureWindowAdminService', () => {
     expect(result.host.insecureWindowMinutes).toBe(30);
     expect(mock.rows('insecure_auth_requests')[0]!.status).toBe('approved');
     expect(mock.rows('admin_events').some((e) => e.type === 'insecure.approved')).toBe(true);
+  });
+
+  it('listPending auto-denies requests older than five minutes', async () => {
+    const { mock, svc } = await setup();
+    mock.insertRow('hosts', {
+      fqdn: 'old.example.com',
+      api_key: 'h',
+      api_key_hash: 'h',
+      status: 'active',
+      secure: 0,
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    });
+    mock.insertRow('insecure_auth_requests', {
+      host_id: 1,
+      status: 'pending',
+      requested_at: new Date(Date.now() - 6 * 60_000).toISOString(),
+      updated_at: '2024-01-01',
+      engine: 'codex',
+    });
+
+    const rows = await svc.listPending();
+    expect(rows).toHaveLength(0);
+    const request = mock.rows('insecure_auth_requests')[0]!;
+    expect(request.status).toBe('denied');
+    expect(request.resolved_at).toBeTruthy();
+    expect(mock.rows('logs').map((e) => e.action)).toContain('admin.insecure.auto_denied');
+    expect(mock.rows('admin_events').some((e) => e.type === 'insecure.denied')).toBe(true);
   });
 
   it('approve rejects an already-resolved request', async () => {
@@ -506,8 +534,8 @@ describe('InsecureWindowAdminService', () => {
     mock.insertRow('insecure_auth_requests', {
       host_id: 1,
       status: 'pending',
-      requested_at: '2024-01-01',
-      updated_at: '2024-01-01',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       engine: 'codex',
     });
     await svc.deny(1);
@@ -529,8 +557,8 @@ describe('InsecureWindowAdminService', () => {
     mock.insertRow('insecure_auth_requests', {
       host_id: 1,
       status: 'pending',
-      requested_at: '2024-01-01',
-      updated_at: '2024-01-01',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       engine: 'codex',
     });
     const out = await svc.allowDomain(1, 'example.com', 45);
@@ -556,8 +584,8 @@ describe('InsecureWindowAdminService', () => {
     mock.insertRow('insecure_auth_requests', {
       host_id: 1,
       status: 'pending',
-      requested_at: '2024-01-01',
-      updated_at: '2024-01-01',
+      requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       engine: 'codex',
     });
     await expect(svc.allowDomain(1, 'unrelated.com', 30)).rejects.toThrow(/parent/);

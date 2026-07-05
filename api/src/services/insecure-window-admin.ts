@@ -29,6 +29,8 @@ import {
   DEFAULT_INSECURE_WINDOW_MINUTES,
 } from './host-management.js';
 
+const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
+
 export interface InsecureWindowAdminOptions {
   db: Database;
   env: Env;
@@ -116,6 +118,55 @@ export class InsecureWindowAdminService {
     return rows[0];
   }
 
+  private isExpiredPendingRequest(req: { status: string; requestedAt: string }): boolean {
+    if (req.status !== 'pending') return false;
+    const requested = parseDate(req.requestedAt);
+    if (!requested) return false;
+    return Date.now() - requested.getTime() >= PENDING_APPROVAL_TTL_MS;
+  }
+
+  private async expirePendingRequest(req: {
+    id: number;
+    hostId: number;
+    status: string;
+    requestedAt: string;
+  }): Promise<boolean> {
+    if (!this.isExpiredPendingRequest(req)) return false;
+    const resolvedAt = nowIso();
+    await this.db
+      .update(insecureAuthRequests)
+      .set({ status: 'denied', resolvedAt, updatedAt: resolvedAt })
+      .where(eq(insecureAuthRequests.id, req.id));
+
+    const host = await this.findHost(req.hostId).catch(() => null);
+    await this.writeLog(host?.id ?? req.hostId, 'admin.insecure.auto_denied', {
+      fqdn: host?.fqdn ?? null,
+      request_id: req.id,
+      reason: 'timeout',
+      ttl_seconds: PENDING_APPROVAL_TTL_MS / 1000,
+    });
+    await this.events.appendAndPublish(
+      'insecure.denied',
+      { host_id: req.hostId, fqdn: host?.fqdn ?? null, request_id: req.id, reason: 'timeout' },
+      {
+        hostId: req.hostId,
+        wsType: 'insecure.denied',
+        wsPayload: { host_id: req.hostId, request_id: req.id, reason: 'timeout' },
+      },
+    );
+    return true;
+  }
+
+  private async expirePendingRequests(): Promise<void> {
+    const rows = await this.db
+      .select()
+      .from(insecureAuthRequests)
+      .where(eq(insecureAuthRequests.status, 'pending'));
+    for (const req of rows) {
+      await this.expirePendingRequest(req);
+    }
+  }
+
   // ────────── enable / disable ──────────
 
   async enable(hostId: number, durationMinutes: number | null): Promise<Host> {
@@ -193,6 +244,7 @@ export class InsecureWindowAdminService {
   // ────────── pending list ──────────
 
   async listPending(limit = 50): Promise<InsecureRequestRow[]> {
+    await this.expirePendingRequests();
     const cap = Math.min(Math.max(1, limit), 200);
     const rows = await this.db
       .select({
@@ -244,6 +296,7 @@ export class InsecureWindowAdminService {
   }> {
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
+    if (await this.expirePendingRequest(req)) throw new ConflictError('Request already resolved');
     if (req.status !== 'pending') throw new ConflictError('Request already resolved');
     const host = await this.findHost(req.hostId);
     if (host.secure === 1) {
@@ -311,6 +364,7 @@ export class InsecureWindowAdminService {
   async deny(requestId: number): Promise<{ requestId: number; host: Host }> {
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
+    if (await this.expirePendingRequest(req)) throw new ConflictError('Request already resolved');
     if (req.status !== 'pending') throw new ConflictError('Request already resolved');
     const host = await this.findHost(req.hostId);
 
@@ -350,6 +404,7 @@ export class InsecureWindowAdminService {
   }> {
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
+    if (await this.expirePendingRequest(req)) throw new ConflictError('Request already resolved');
     if (req.status !== 'pending') throw new ConflictError('Request already resolved');
     const host = await this.findHost(req.hostId);
     if (host.secure === 1) {

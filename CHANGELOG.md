@@ -1,3 +1,12 @@
+# 2026-07-05
+
+## Insecure approval timeout
+
+- **API/Admin UI:** Pending insecure-host approval requests now auto-deny after
+  five minutes. Expired requests are removed from the pending approval queue,
+  polling hosts receive `403 insecure_denied` instead of staying pending
+  forever, and the Insecure access dialog now calls out the timeout.
+
 # 2026-07-02
 
 ## OpenAI-compatible runner exec URL fix

@@ -31,6 +31,7 @@ const MAX_WINDOW = 480;
 const DEFAULT_WINDOW = 10;
 const PROVISIONING_WINDOW_MINUTES = 30;
 const APPROVAL_DENY_COOLDOWN_SECONDS = 60;
+const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
 
 export type InsecureCommand = 'auth' | 'store' | 'retrieve' | 'mcp' | 'host_lane_get' | 'host_lane_set' | string;
 
@@ -128,6 +129,21 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         )
         .limit(1);
       if (pending[0]) {
+        const requested = parseDate(pending[0].requestedAt);
+        if (requested && now.getTime() - requested.getTime() >= PENDING_APPROVAL_TTL_MS) {
+          const resolvedAt = nowIso();
+          await db
+            .update(insecureAuthRequests)
+            .set({ status: 'denied', resolvedAt, updatedAt: resolvedAt })
+            .where(eq(insecureAuthRequests.id, pending[0].id));
+          wsPublisher.publish('insecure.denied', {
+            host_id: hostId,
+            fqdn: host.fqdn,
+            request_id: pending[0].id,
+            reason: 'timeout',
+          });
+          throw new ForbiddenError('Insecure host approval denied', 'insecure_denied');
+        }
         throw new LockedError('Insecure host approval pending', 'insecure_pending');
       }
 
