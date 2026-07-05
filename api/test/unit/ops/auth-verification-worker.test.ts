@@ -52,9 +52,14 @@ describe('auth verification worker tick', () => {
       refreshed: false,
     }));
 
+    // codex must be fresh relative to the real Date.now() the code checks
+    // against (needsLiveVerification uses the wall clock, not deps.now), so
+    // capture "now" rather than hand-picking a fixed timestamp.
+    const codexCheckedAt = new Date().toISOString();
+
     await runAuthVerificationWorkerTick({
       runnerValidation: runnerValidation({
-        codex: canonicalRow('codex', 'verified', new Date().toISOString()),
+        codex: canonicalRow('codex', 'verified', codexCheckedAt),
         claude: canonicalRow('claude', 'verified', '2026-07-05T08:00:00Z'),
       }),
       authStore: { ensureServedVerification } as unknown as CanonicalAuthStoreService,
@@ -70,7 +75,40 @@ describe('auth verification worker tick', () => {
 
     expect(ensureServedVerification).toHaveBeenCalledTimes(1);
     expect(ensureServedVerification).toHaveBeenCalledWith(expect.objectContaining({ engine: 'claude' }));
-    expect(writes).toEqual([{ engine: 'claude', state: 'ok', checkedAt: '2026-07-05T10:00:00Z' }]);
+    // codex is still within its TTL, so it takes the probe-free fast path —
+    // but that path must still report telemetry matching the row's last
+    // known state, not silently skip it.
+    expect(writes).toEqual([
+      { engine: 'codex', state: 'ok', checkedAt: codexCheckedAt },
+      { engine: 'claude', state: 'ok', checkedAt: '2026-07-05T10:00:00Z' },
+    ]);
+  });
+
+  it('reports telemetry on the fast (still-fresh) path instead of leaving it stale', async () => {
+    const writes: Array<{ engine: Engine; state: 'ok' | 'fail'; checkedAt: string }> = [];
+    const ensureServedVerification = vi.fn();
+    const claudeCheckedAt = new Date().toISOString();
+
+    await runAuthVerificationWorkerTick({
+      runnerValidation: runnerValidation({
+        claude: canonicalRow('claude', 'failed', claudeCheckedAt),
+      }),
+      authStore: { ensureServedVerification } as unknown as CanonicalAuthStoreService,
+      telemetry: {
+        write: async (engine, state, checkedAt) => {
+          writes.push({ engine, state, checkedAt });
+        },
+      },
+      ttlSeconds: 900,
+      reason: 'interval',
+      now: () => '2026-07-05T10:00:00Z',
+    });
+
+    // Within TTL of a 'failed' row uploaded/verified outside this worker
+    // (e.g. a host's own auth-upload superseded it) — no live probe needed,
+    // but telemetry must reflect that resolved state, not skip silently.
+    expect(ensureServedVerification).not.toHaveBeenCalled();
+    expect(writes).toEqual([{ engine: 'claude', state: 'fail', checkedAt: claudeCheckedAt }]);
   });
 
   it('does not make unknown runner outages look like a fresh OK check', async () => {

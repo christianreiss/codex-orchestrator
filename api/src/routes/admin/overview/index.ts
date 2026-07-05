@@ -78,6 +78,15 @@ function hostDigestForEngine(
   return engine === ENGINE_CLAUDE ? h.claudeAuthDigest ?? null : h.authDigest ?? null;
 }
 
+// Resolves the "latest"/"auto" policy alias to the concrete cached upstream
+// version so callers never compare a literal alias string against a host's
+// real semver (which would always mismatch and read as false version drift).
+export function resolveAliasedVersion(raw: string | null, available: { version: string } | null): string | null {
+  const alias = raw?.trim().toLowerCase();
+  if (alias === 'latest' || alias === 'auto') return available?.version ?? raw;
+  return raw;
+}
+
 function hostAuthSummary(
   h: typeof hosts.$inferSelect,
   canonicalDigests: Record<Engine, string | null>,
@@ -388,6 +397,8 @@ export async function registerAdminOverviewRoutes(
     const [
       codexVersions,
       claudeVersions,
+      codexAvailable,
+      claudeAvailable,
       autoUpdateEnabled,
       reverseDnsEnabled,
       inactivityWindowDays,
@@ -397,6 +408,8 @@ export async function registerAdminOverviewRoutes(
       await Promise.all([
         clientVersions.versionSummary('codex'),
         clientVersions.versionSummary('claude'),
+        clientVersions.availableClientVersion(false, 'codex'),
+        clientVersions.availableClientVersion(false, 'claude'),
         settings.getFlag('auto_update_enabled', false),
         settings.getFlag('reverse_dns_enabled', false),
         settings.getInt('inactivity_window_days', 7),
@@ -452,10 +465,10 @@ export async function registerAdminOverviewRoutes(
       },
       overview: {
         versions: {
-          client_version: codexVersions.client_version,
+          client_version: resolveAliasedVersion(codexVersions.client_version, codexAvailable),
           wrapper_version: codexVersions.wrapper_version,
           client_version_checked_at: codexVersions.client_version_checked_at,
-          claude_version: claudeVersions.client_version,
+          claude_version: resolveAliasedVersion(claudeVersions.client_version, claudeAvailable),
         },
         reverse_dns_enabled: reverseDnsEnabled,
         auto_update_enabled: autoUpdateEnabled,

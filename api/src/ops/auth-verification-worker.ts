@@ -98,7 +98,14 @@ async function verifyEngine(
   const validated = runnerValidation.validateCanonicalPayload(row);
   if (!row || !validated) return;
   if (!needsLiveVerification(row, ttlSeconds)) {
+    // Still keep telemetry (runner_state_*, runner_last_check_*, ...) current
+    // even on this probe-free fast path — otherwise a payload that
+    // self-heals via a host upload (verified outside this worker) leaves the
+    // dashboard showing the last live-probe's stale verdict until the TTL
+    // happens to expire and trigger a fresh probe.
     log?.debug?.({ engine, reason, state: row.verificationState }, 'canonical auth verification still fresh');
+    const checkedAt = row.verificationCheckedAt ?? (deps.now ?? nowIso)();
+    await deps.telemetry.write(engine, row.verificationState === 'verified' ? 'ok' : 'fail', checkedAt);
     return;
   }
 
