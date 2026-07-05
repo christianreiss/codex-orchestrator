@@ -114,8 +114,6 @@ Buttons depend on host state:
 - **Claude version** and **Claude model override** (when the Claude engine is configured) or **Add Claude** (when it is not).
 - **Agents version** — pin the AGENTS.md version.
 - **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`.
-- **Seed auth** — opens the Seed Auth dialog scoped to this host.
-- **Clear auth** — clears baked auth via `POST /admin/hosts/{id}/clear`.
 - **Delete host** — removes the host via `DELETE /admin/hosts/{id}`.
 
 All mutations require an authenticated admin session.

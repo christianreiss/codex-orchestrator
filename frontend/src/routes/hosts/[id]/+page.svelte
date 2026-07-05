@@ -16,13 +16,11 @@
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
   import ConfirmDialog from "$lib/components/hosts/ConfirmDialog.svelte";
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
-  import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
   import InsecureWindowPopover from "$lib/components/hosts/InsecureWindowPopover.svelte";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import KeyRound from "@lucide/svelte/icons/key-round";
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { relativeTime } from "$lib/utils/format";
@@ -35,7 +33,6 @@
     hostStatusKind,
     isInsecureWindowActive,
     createDeleteHostMutation,
-    createClearHostAuthMutation,
     createMintInstallerMutation,
     createSecureToggleMutation,
     createVipToggleMutation,
@@ -64,7 +61,6 @@
 
   // Mutations
   const deleteMut = createDeleteHostMutation(qc);
-  const clearAuth = createClearHostAuthMutation(qc);
   const mintInstaller = createMintInstallerMutation(qc);
   const secure = createSecureToggleMutation(qc);
   const vip = createVipToggleMutation(qc);
@@ -107,7 +103,6 @@
 
   // Dialog state
   let confirmDeleteOpen = $state(false);
-  let confirmClearOpen = $state(false);
   let codexDialogOpen = $state(false);
   let claudeDialogOpen = $state(false);
   let codexModelDialogOpen = $state(false);
@@ -116,7 +111,6 @@
   let installerDialogOpen = $state(false);
   let installerResult = $state<InstallerInfo | null>(null);
   let installerEngines = $state<Array<"codex" | "claude"> | undefined>(undefined);
-  let seedAuthOpen = $state(false);
 
   async function doDelete(): Promise<void> {
     try {
@@ -128,10 +122,6 @@
       toast.error(msg);
       throw err;
     }
-  }
-
-  async function doClear(): Promise<void> {
-    await run("Auth cleared", $clearAuth.mutateAsync({ id }), { rethrow: true });
   }
 
   async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
@@ -193,15 +183,6 @@
   const engineList = $derived<HostEngine[]>(host ? (hostEngines(host) as HostEngine[]) : []);
   const codexSwitchDisabled = $derived($hostEnginesMutation.isPending || (codexEngine && !claudeEngine));
   const claudeSwitchDisabled = $derived($hostEnginesMutation.isPending || (claudeEngine && !codexEngine));
-  // Pre-select an engine on the Seed Auth dialog when the host has only one.
-  const seedDefaultEngine = $derived<"codex" | "claude">(
-    codexEngine && !claudeEngine
-      ? "codex"
-      : !codexEngine && claudeEngine
-        ? "claude"
-        : "codex",
-  );
-
   // Reverse-DNS tri-state segmented control.
   type ReverseDnsMode = "global" | "enabled" | "disabled";
   const reverseDnsValue = $derived.by<ReverseDnsMode>(() => {
@@ -489,12 +470,6 @@
           </Button>
 
           <div class="ml-auto flex gap-2">
-            <Button variant="outline" onclick={() => (seedAuthOpen = true)}>
-              <KeyRound class="h-4 w-4" /> Seed auth
-            </Button>
-            <Button variant="outline" onclick={() => (confirmClearOpen = true)}>
-              <KeyRound class="h-4 w-4" /> Clear auth
-            </Button>
             <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
               <Trash2 class="h-4 w-4" /> Delete host
             </Button>
@@ -512,15 +487,6 @@
     confirmLabel="Delete"
     destructive
     onConfirm={doDelete}
-  />
-  <ConfirmDialog
-    bind:open={confirmClearOpen}
-    onOpenChange={(v) => (confirmClearOpen = v)}
-    title="Clear auth?"
-    description={`Drop ${host.fqdn}'s API key and payload digest. The host will re-pair on next contact.`}
-    confirmLabel="Clear"
-    destructive
-    onConfirm={doClear}
   />
   <InputDialog
     bind:open={codexDialogOpen}
@@ -589,7 +555,6 @@
       );
     }}
   />
-  <SeedAuthDialog bind:open={seedAuthOpen} defaultEngine={seedDefaultEngine} />
   <Dialog.Root bind:open={installerDialogOpen}>
     <Dialog.Content class="sm:max-w-xl">
       <Dialog.Header>

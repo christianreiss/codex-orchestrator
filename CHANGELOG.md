@@ -1,5 +1,10 @@
 # 2026-07-05
 
+## Host detail auth actions
+
+- **Admin UI:** Removed the host-detail **Seed auth** and **Clear auth**
+  buttons. Fleet-wide Seed auth remains available from the Hosts page.
+
 ## MySQL 8.4 native-password compatibility
 
 - **Ops:** The Compose MySQL service now starts with
