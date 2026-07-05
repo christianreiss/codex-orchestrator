@@ -1,5 +1,12 @@
 # 2026-07-05
 
+## MySQL 8.4 native-password compatibility
+
+- **Ops:** The Compose MySQL service now starts with
+  `--mysql-native-password=ON` so existing deployments whose MySQL users were
+  created with `mysql_native_password` continue to boot after a MySQL 8.4 image
+  refresh.
+
 ## Curl-insecure installer commands
 
 - **API/Installers:** Hosts with `curl_insecure=true` now receive installer
