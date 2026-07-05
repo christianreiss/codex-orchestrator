@@ -92,8 +92,8 @@ function makeMocks() {
         installer,
       };
     },
-    mintInstaller: async (id: number, additionalEngines?: string[]) => {
-      calls.push({ method: 'mintInstaller', args: [id, additionalEngines] });
+    mintInstaller: async (id: number, additionalEngines?: string[], options?: { curlInsecure?: boolean }) => {
+      calls.push({ method: 'mintInstaller', args: [id, additionalEngines, options] });
       return {
         host: fakeHost({ id }),
         installer,
@@ -394,6 +394,7 @@ describe('admin hosts routes', () => {
       const args = calls.find((c) => c.method === 'mintInstaller')?.args;
       expect(args?.[0]).toBe(42);
       expect(args?.[1]).toBeUndefined();
+      expect(args?.[2]).toEqual({ curlInsecure: undefined });
       await app.close();
     });
 
@@ -408,6 +409,22 @@ describe('admin hosts routes', () => {
       const args = calls.find((c) => c.method === 'mintInstaller')?.args;
       expect(args?.[0]).toBe(42);
       expect(args?.[1]).toEqual(['claude']);
+      expect(args?.[2]).toEqual({ curlInsecure: undefined });
+      await app.close();
+    });
+
+    it('forwards the current curl-insecure value with installer mints', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/hosts/42/installer',
+        payload: { curl_insecure: true },
+      });
+      expect(r.statusCode).toBe(200);
+      const args = calls.find((c) => c.method === 'mintInstaller')?.args;
+      expect(args?.[0]).toBe(42);
+      expect(args?.[1]).toBeUndefined();
+      expect(args?.[2]).toEqual({ curlInsecure: true });
       await app.close();
     });
 
@@ -421,6 +438,7 @@ describe('admin hosts routes', () => {
       expect(r.statusCode).toBe(200);
       const args = calls.find((c) => c.method === 'mintInstaller')?.args;
       expect(args?.[1]).toEqual(['codex', 'claude']);
+      expect(args?.[2]).toEqual({ curlInsecure: undefined });
       await app.close();
     });
 
@@ -435,6 +453,7 @@ describe('admin hosts routes', () => {
       const args = calls.find((c) => c.method === 'mintInstaller')?.args;
       // empty array filters down → service receives undefined
       expect(args?.[1]).toBeUndefined();
+      expect(args?.[2]).toEqual({ curlInsecure: undefined });
       await app.close();
     });
 

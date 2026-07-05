@@ -113,7 +113,7 @@ Buttons depend on host state:
 - **Codex version** and **Codex model override** (when the Codex engine is configured) or **Add Codex** (when it is not).
 - **Claude version** and **Claude model override** (when the Claude engine is configured) or **Add Claude** (when it is not).
 - **Agents version** — pin the AGENTS.md version.
-- **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`.
+- **Mint installer** — generates a new installer via `POST /admin/hosts/{id}/installer`; the current **Curl insecure** toggle value is included so the copied command reflects the visible setting.
 - **Delete host** — removes the host via `DELETE /admin/hosts/{id}`.
 
 All mutations require an authenticated admin session.

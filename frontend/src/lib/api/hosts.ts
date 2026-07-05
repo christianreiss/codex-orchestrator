@@ -18,6 +18,7 @@ import type {
   HostDetailResponse,
   HostListItem,
   HostDetail,
+  HostInstallerPayload,
   HostRegisterPayload,
   HostQuickRegisterPayload,
   HostRegisterResponse,
@@ -94,13 +95,17 @@ export function createMintInstallerMutation(qc: QueryClient) {
   return createMutation<
     HostInstallerResponse,
     ApiError,
-    { id: number | string; engines?: ("codex" | "claude")[] }
+    { id: number | string } & HostInstallerPayload
   >({
-    mutationFn: ({ id, engines }) =>
-      api.post<HostInstallerResponse>(
+    mutationFn: ({ id, engines, curl_insecure }) => {
+      const payload: HostInstallerPayload = {};
+      if (engines && engines.length) payload.engines = engines;
+      if (typeof curl_insecure === "boolean") payload.curl_insecure = curl_insecure;
+      return api.post<HostInstallerResponse>(
         `/admin/hosts/${id}/installer`,
-        engines && engines.length ? { engines } : undefined,
-      ),
+        Object.keys(payload).length ? payload : undefined,
+      );
+    },
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });

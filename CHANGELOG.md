@@ -1,5 +1,12 @@
 # 2026-07-05
 
+## Host detail curl-insecure minting
+
+- **Admin UI/API:** Host Detail installer mints now include the current
+  **Curl insecure** toggle value in the mint request, and the API applies it
+  before issuing the token. This prevents stale copied installer commands after
+  toggling curl-insecure.
+
 ## Host detail auth actions
 
 - **Admin UI:** Removed the host-detail **Seed auth** and **Clear auth**

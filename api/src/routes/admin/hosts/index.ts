@@ -138,6 +138,7 @@ const approveSchema = z.object({
 
 const mintInstallerSchema = z.object({
   engines: enginesSchema,
+  curl_insecure: booleanish.optional(),
 });
 
 const setEnginesSchema = z.object({
@@ -361,7 +362,9 @@ export async function registerAdminHostsRoutes(
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(mintInstallerSchema, req.body ?? {});
       const requestedEngines = body.engines && body.engines.length ? body.engines : undefined;
-      const { host, installer } = await hostService.mintInstaller(id, requestedEngines);
+      const { host, installer } = await hostService.mintInstaller(id, requestedEngines, {
+        curlInsecure: body.curl_insecure,
+      });
       return {
         host: hostToWire(host),
         installer,

@@ -127,7 +127,11 @@
   async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
     try {
       installerEngines = engines ? [...engines] : undefined;
-      const result = await $mintInstaller.mutateAsync({ id, engines });
+      const result = await $mintInstaller.mutateAsync({
+        id,
+        engines,
+        curl_insecure: host?.curl_insecure,
+      });
       installerResult = result.installer;
       installerDialogOpen = true;
       const copied = await writeInstallerCommandToClipboard(result.installer.command);

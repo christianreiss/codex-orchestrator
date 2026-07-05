@@ -180,6 +180,10 @@ export interface QuickRegisterRequest {
   duration_minutes?: number | null;
 }
 
+export interface MintInstallerOptions {
+  curlInsecure?: boolean;
+}
+
 export class HostManagementService {
   constructor(private readonly opts: HostManagementOptions) {}
 
@@ -403,6 +407,7 @@ export class HostManagementService {
   async mintInstaller(
     id: number,
     additionalEngines?: Engine[],
+    options: MintInstallerOptions = {},
   ): Promise<{ host: Host; installer: InstallerInfo }> {
     let host = await this.requireById(id);
     const legacyPlainApiKey = host.apiKey && !/^[a-f0-9]{64}$/.test(host.apiKey) ? host.apiKey : null;
@@ -424,18 +429,32 @@ export class HostManagementService {
     }
     const engines = union.length ? union : [ENGINE_CODEX];
     const enginesChanged = serializeEngines(engines) !== serializeEngines(currentEngines);
+    const curlInsecureChanged =
+      typeof options.curlInsecure === 'boolean' && (host.curlInsecure === 1) !== options.curlInsecure;
 
-    if (enginesChanged) {
+    if (enginesChanged || curlInsecureChanged) {
+      const patch: Partial<Host> = { updatedAt: nowIso() };
+      if (enginesChanged) patch.engines = serializeEngines(engines);
+      if (curlInsecureChanged) patch.curlInsecure = options.curlInsecure ? 1 : 0;
       await this.db
         .update(hosts)
-        .set({ engines: serializeEngines(engines), updatedAt: nowIso() })
+        .set(patch)
         .where(eq(hosts.id, host.id));
       host = (await this.findById(host.id))!;
-      await this.writeLog(host.id, 'admin.host.engines_added', {
-        fqdn: host.fqdn,
-        previous: serializeEngines(currentEngines),
-        engines: serializeEngines(engines),
-      });
+      if (enginesChanged) {
+        await this.writeLog(host.id, 'admin.host.engines_added', {
+          fqdn: host.fqdn,
+          previous: serializeEngines(currentEngines),
+          engines: serializeEngines(engines),
+        });
+      }
+      if (curlInsecureChanged) {
+        await this.writeLog(host.id, 'admin.host.curl_insecure', {
+          fqdn: host.fqdn,
+          curl_insecure: options.curlInsecure,
+          source: 'installer_mint',
+        });
+      }
     }
 
     const installer = await this.issueInstallerToken(host, apiKeyPlain, engines, additionalEngines);
@@ -449,6 +468,7 @@ export class HostManagementService {
         installer_mode: installer.mode,
         expires_at: installer.expires_at,
         engines_changed: enginesChanged,
+        curl_insecure: host.curlInsecure === 1,
       },
       {
         hostId: host.id,

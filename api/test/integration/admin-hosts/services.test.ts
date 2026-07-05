@@ -253,6 +253,23 @@ describe('HostManagementService.register', () => {
     expect(out.installer.command).toContain('| CODEX_INSTALL_CURL_INSECURE=1 sh');
   });
 
+  it('applies curl-insecure overrides before minting an existing-host installer', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+
+    const registered = await svc.register({ fqdn: 'mint-curl-insecure.example.com' });
+
+    const minted = await svc.mintInstaller(registered.host.id, undefined, { curlInsecure: true });
+
+    expect(minted.host.curlInsecure).toBe(1);
+    expect(mock.rows('hosts')[0]!.curl_insecure).toBe(1);
+    expect(minted.installer.command).toContain('curl -k -fsSL https://orch.example.com/install/');
+    expect(minted.installer.command).toContain('| CODEX_INSTALL_CURL_INSECURE=1 sh');
+  });
+
   it('publishes a host.created event with the correct payload', async () => {
     const mock = createMockDb();
     const env = buildEnv();

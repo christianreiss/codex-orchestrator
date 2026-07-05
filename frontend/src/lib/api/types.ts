@@ -672,6 +672,11 @@ export interface HostInstallerResponse {
   installer: InstallerInfo;
 }
 
+export interface HostInstallerPayload {
+  engines?: HostEngine[] | string[];
+  curl_insecure?: boolean;
+}
+
 export interface HostRegisterPayload {
   fqdn: string;
   secure?: boolean;
