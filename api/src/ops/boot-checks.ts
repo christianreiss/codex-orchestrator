@@ -6,6 +6,7 @@ import type { Database } from '../db/client.js';
 import { Keyring } from '../security/keyring.js';
 import { sql } from 'drizzle-orm';
 import { nowIso } from '../util/timestamp.js';
+import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
 
 export async function runBootChecks(env: Env, db: Database): Promise<void> {
   Keyring.fromEnv(env);
@@ -109,10 +110,7 @@ async function writeRunnerState(
   state: 'ok' | 'fail',
   checkedAt: string,
 ): Promise<void> {
-  const suffix = engine === 'claude' ? '_claude' : '';
-  await upsertVersion(db, `runner_state${suffix}`, state, checkedAt);
-  await upsertVersion(db, `runner_last_check${suffix}`, checkedAt, checkedAt);
-  await upsertVersion(db, state === 'ok' ? `runner_last_ok${suffix}` : `runner_last_fail${suffix}`, checkedAt, checkedAt);
+  await writeRunnerTelemetry(db, engine, state, checkedAt);
 }
 
 async function upsertVersion(

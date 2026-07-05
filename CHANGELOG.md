@@ -1,5 +1,12 @@
 # 2026-07-05
 
+## Runner telemetry refresh
+
+- **API:** The background auth-verification worker now refreshes per-engine
+  runner telemetry after stale Codex/Claude canonical auth is actually probed.
+  Claude runner status no longer stays days old when the worker is keeping auth
+  verified and cache-ready for `clx` startup.
+
 ## Shell command auto-copy
 
 - **Admin UI:** Generated shell commands now auto-copy to the clipboard when

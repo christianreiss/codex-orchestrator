@@ -107,7 +107,11 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   in-process (keyed by engine + payload id) so a fleet of checks cannot race the
   refresh-token rotation into spurious `failed` verdicts. When the runner
   refreshes the token during a worker probe, the refreshed blob is persisted as a
-  fresh canonical (rotation-safe) and picked up by the next retrieve.
+  fresh canonical (rotation-safe) and picked up by the next retrieve. After a
+  stale live probe reaches the runner, the worker also updates the engine-scoped
+  runner telemetry (`runner_last_ok[_claude]` or `runner_last_fail[_claude]`),
+  so the admin runner card reflects the background auth-readiness check rather
+  than only boot-time or manual checks.
 - `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
 - The auth-verification worker is timer-driven, not request-driven; wrapper
   startup does not wait for stale canonical auth to be re-probed.
@@ -118,7 +122,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   through `/verify-claude`; Claude Code OAuth/account-login payloads are checked
   with a native Claude CLI probe instead of treating the OAuth access token as a
   public Anthropic API key.
-- Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable), Claude-suffixed equivalents, `runner_boot_id`, and `daily_preflight`.
+- Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable or a background auth probe produced a final provider verdict), Claude-suffixed equivalents, `runner_boot_id`, and `daily_preflight`.
 
 ## Network and IP notes
 
