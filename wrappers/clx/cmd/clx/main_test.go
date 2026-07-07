@@ -86,6 +86,32 @@ func TestParseFlagsContinueIsForwarded(t *testing.T) {
 	}
 }
 
+func TestParseFlagsDangerouslySkipPermissionsIsForwarded(t *testing.T) {
+	f, pos, pass := parseFlags([]string{"--dangerously-skip-permissions"})
+	if !f.dangerouslySkipPermissions {
+		t.Fatalf("dangerouslySkipPermissions not set")
+	}
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 1 || pass[0] != "--dangerously-skip-permissions" {
+		t.Errorf("passthrough = %v", pass)
+	}
+}
+
+func TestParseFlagsDangerouslySkipPermissionsCombinesWithOtherFlags(t *testing.T) {
+	f, pos, pass := parseFlags([]string{"--dangerously-skip-permissions", "--continue"})
+	if !f.dangerouslySkipPermissions || !f.continueSession {
+		t.Fatalf("expected both flags set, got %+v", f)
+	}
+	if len(pos) != 0 {
+		t.Errorf("positional = %v", pos)
+	}
+	if len(pass) != 2 || pass[0] != "--dangerously-skip-permissions" || pass[1] != "--continue" {
+		t.Errorf("passthrough = %v", pass)
+	}
+}
+
 func TestParseFlagsResumeIsForwarded(t *testing.T) {
 	f, pos, pass := parseFlags([]string{"--resume", "d9647178-2855-42b5-afaf-07caef131f73"})
 	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {

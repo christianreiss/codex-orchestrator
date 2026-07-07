@@ -27,6 +27,9 @@ type Inputs struct {
 	// path actually swapped the binary this run, empty otherwise. Surfaced as
 	// a `● claude X.Y.Z` badge in the exit footer's Sync row.
 	ClaudeUpdated string
+	// BypassPermissions mirrors --dangerously-skip-permissions for this run;
+	// lights the boot-screen warning badge only, never persisted.
+	BypassPermissions bool
 }
 
 func Build(ctx context.Context, in Inputs) ui.ScreenInput {
@@ -113,22 +116,23 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	}
 
 	return ui.ScreenInput{
-		WrapperVersion: wrapperVer,
-		WrapperTone:    wrapperTone,
-		WrapperTarget:  wrapperTarget,
-		ClaudeVersion:  claudeVer,
-		ClaudeTone:     claudeTone,
-		ClaudeTarget:   claudeTarget,
-		HostFQDN:       fqdn,
-		Insecure:       insecure,
-		Model:          model,
-		APICalls:       apiCalls,
-		Concurrent:     in.Concurrent,
-		ConcurrentNote: in.ConcurrentNote,
-		Dots:           dots,
-		ResultLabel:    result,
-		ResultTone:     resultTone,
-		Theme:          theme,
+		WrapperVersion:    wrapperVer,
+		WrapperTone:       wrapperTone,
+		WrapperTarget:     wrapperTarget,
+		ClaudeVersion:     claudeVer,
+		ClaudeTone:        claudeTone,
+		ClaudeTarget:      claudeTarget,
+		HostFQDN:          fqdn,
+		Insecure:          insecure,
+		Model:             model,
+		APICalls:          apiCalls,
+		Concurrent:        in.Concurrent,
+		ConcurrentNote:    in.ConcurrentNote,
+		Dots:              dots,
+		ResultLabel:       result,
+		ResultTone:        resultTone,
+		Theme:             theme,
+		BypassPermissions: in.BypassPermissions,
 	}
 }
 

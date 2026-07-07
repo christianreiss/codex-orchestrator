@@ -81,6 +81,7 @@ subcommand switch is checked first.
 |---|---|
 | `--continue` / `-c` | Forwarded to the upstream `claude` binary |
 | `--resume <session>` | Forwarded to the upstream `claude` binary (no `-r` short form) |
+| `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
 | `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips all wrapper side effects (no lock, no sync, no boot screen) |
 | `--cron [install\|remove\|run]` | Manage host auto-update crontab entry |
 | `--version` / `-V` (also `--wrapper-version`) | Print version, commit, build date, OS/arch, pubkey status |

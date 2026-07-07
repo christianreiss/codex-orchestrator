@@ -29,6 +29,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `--resume <session>` / `--resume=<session>` | Passed straight through to the upstream `claude` binary |
+| `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help |
 | `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too |
 | `--version` | Print version + commit + embedded pubkey status |

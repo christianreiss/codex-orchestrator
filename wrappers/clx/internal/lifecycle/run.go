@@ -39,6 +39,11 @@ type Options struct {
 	Minimal        bool
 	WrapperVersion string
 	Logger         *slog.Logger
+	// DangerouslySkipPermissions mirrors --dangerously-skip-permissions for
+	// this run only: it lights the boot-screen warning badge. The flag itself
+	// already rides ExtraArgs straight through to the upstream `claude`
+	// binary; this field exists purely for the UX warning.
+	DangerouslySkipPermissions bool
 }
 
 // localProbe binds the claude package freshness/validity helpers to the
@@ -170,17 +175,18 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// rendered screen we still want the derived QuotaWarn text so headless
 	// callers (cron, --execute) see the warning on stderr.
 	state := summary.Build(ctx, summary.Inputs{
-		Config:         cfg,
-		WrapperVersion: currentWrapperVersion(opts, cfg),
-		Auth:           authResp,
-		AuthErr:        authErr,
-		Concurrent:     concurrent,
-		ConcurrentNote: concurrentNote(concurrent, dec),
-		SkillsUpdated:  skillsUpdated,
-		AgentsUpdated:  agentsUpdated,
-		ConfigUpdated:  configUpdated,
-		AuthSynced:     authSynced,
-		ClaudeUpdated:  claudeUpdated,
+		Config:            cfg,
+		WrapperVersion:    currentWrapperVersion(opts, cfg),
+		Auth:              authResp,
+		AuthErr:           authErr,
+		Concurrent:        concurrent,
+		ConcurrentNote:    concurrentNote(concurrent, dec),
+		SkillsUpdated:     skillsUpdated,
+		AgentsUpdated:     agentsUpdated,
+		ConfigUpdated:     configUpdated,
+		AuthSynced:        authSynced,
+		ClaudeUpdated:     claudeUpdated,
+		BypassPermissions: opts.DangerouslySkipPermissions,
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason

@@ -1,7 +1,9 @@
 // clx — Codex Orchestrator wrapper, engine=claude.
 //
 // Subcommands: run (default), status, doctor, exec, auth-upload, --version,
-// --update, --uninstall, --cron [install|remove|run], --execute, --resume.
+// --update, --uninstall, --cron [install|remove|run], --execute, --resume,
+// --dangerously-skip-permissions (per-run only; forwarded to `claude`, never
+// persisted to the fleet-managed permissions.defaultMode).
 package main
 
 import (
@@ -62,6 +64,11 @@ type flags struct {
 	// lifecycle. Recognised so parseFlags doesn't reject them.
 	continueSession bool
 	resumeSession   string
+	// dangerouslySkipPermissions forwards --dangerously-skip-permissions to the
+	// upstream claude binary (bypasses all tool-permission prompts for this run
+	// only) and lights a boot-screen warning badge; it is never persisted, so
+	// the fleet-managed permissions.defaultMode is unaffected.
+	dangerouslySkipPermissions bool
 }
 
 // reservedClaudeSubcommands lists Claude CLI subcommands whose `--help`
@@ -249,12 +256,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:         cfg,
-			ExtraArgs:      append(subArgs, passthrough...),
-			SkipBoot:       f.skipBoot,
-			Minimal:        f.minimal,
-			WrapperVersion: Version,
-			Logger:         logger,
+			Config:                     cfg,
+			ExtraArgs:                  append(subArgs, passthrough...),
+			SkipBoot:                   f.skipBoot,
+			Minimal:                    f.minimal,
+			WrapperVersion:             Version,
+			Logger:                     logger,
+			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "clx run:", err)
@@ -269,11 +277,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "execute":
 		argv := append([]string{"-p", f.executePrompt}, append(subArgs, passthrough...)...)
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:         cfg,
-			ExtraArgs:      argv,
-			SkipBoot:       true,
-			WrapperVersion: Version,
-			Logger:         logger,
+			Config:                     cfg,
+			ExtraArgs:                  argv,
+			SkipBoot:                   true,
+			WrapperVersion:             Version,
+			Logger:                     logger,
+			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "clx execute:", err)
@@ -326,7 +335,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot")
+		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
 }
@@ -495,6 +504,9 @@ func parseFlags(args []string) (flags, []string, []string) {
 			// normal lifecycle.
 			f.continueSession = true
 			passthrough = append(passthrough, "--continue")
+		case a == "--dangerously-skip-permissions":
+			f.dangerouslySkipPermissions = true
+			passthrough = append(passthrough, a)
 		case a == "--resume":
 			f.resumeSession = ""
 			if i+1 < len(args) {

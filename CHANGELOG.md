@@ -1,3 +1,15 @@
+# 2026-07-07
+
+## clx per-run permission bypass
+
+- **Wrapper:** `clx` now accepts `--dangerously-skip-permissions`, forwarded
+  straight through to the upstream `claude` binary for that run only. The
+  boot screen lights a red `⚠ bypass permissions` badge (a `Warn` row in
+  `--minimal`) so the mode is never silent. Per-run only — it does not touch
+  the fleet-managed `permissions.defaultMode` in `settings.json`; a durable
+  fleet-wide default is still set via `permissions.defaultMode:
+  bypassPermissions` on the admin Claude settings page.
+
 # 2026-07-05
 
 ## Runner telemetry refresh

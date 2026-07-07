@@ -26,6 +26,11 @@ type ScreenInput struct {
 	Concurrent     bool
 	ConcurrentNote string
 
+	// BypassPermissions is true when this run was launched with
+	// --dangerously-skip-permissions: all Claude tool-permission prompts are
+	// disabled for the run. Per-invocation only, never persisted.
+	BypassPermissions bool
+
 	Dots []HealthDot
 
 	ResultLabel string
@@ -57,6 +62,9 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 	}
 	if in.Concurrent {
 		ctxParts = append(ctxParts, caps.Palette.Yellow+"concurrent run"+caps.Palette.Reset)
+	}
+	if in.BypassPermissions {
+		ctxParts = append(ctxParts, caps.Palette.Red+caps.Palette.Bold+"⚠ bypass permissions"+caps.Palette.Reset)
 	}
 	if in.Model != "" {
 		ctxParts = append(ctxParts, in.Model)
@@ -101,6 +109,9 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 		parts = append(parts, fmt.Sprintf("%s=%s", d.Name, t))
 	}
 	fmt.Fprintln(w, "Health  | "+strings.Join(parts, " "))
+	if in.BypassPermissions {
+		fmt.Fprintln(w, "Warn    | bypass permissions active (--dangerously-skip-permissions)")
+	}
 	if in.ResultLabel != "" {
 		fmt.Fprintln(w, "Result  | "+in.ResultLabel)
 	}

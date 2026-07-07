@@ -92,6 +92,20 @@ func TestBuildShowsOlderClaudeTargetWhenExactIsTrue(t *testing.T) {
 	}
 }
 
+func TestBuildForwardsBypassPermissions(t *testing.T) {
+	got := Build(context.Background(), Inputs{BypassPermissions: true})
+	if !got.BypassPermissions {
+		t.Fatalf("BypassPermissions = false, want true")
+	}
+}
+
+func TestBuildDefaultsBypassPermissionsFalse(t *testing.T) {
+	got := Build(context.Background(), Inputs{})
+	if got.BypassPermissions {
+		t.Fatalf("BypassPermissions = true, want false")
+	}
+}
+
 func withClaudeVersion(t *testing.T, version string) {
 	t.Helper()
 	dir := t.TempDir()
