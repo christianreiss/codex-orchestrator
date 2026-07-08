@@ -1,3 +1,14 @@
+# 2026-07-08
+
+## clx Claude CLI update shadow fix
+
+- **Wrapper:** `clx` now resolves the npm-managed Claude Code binary via
+  `npm prefix -g` / `npm root -g` after installs and only accepts an exact
+  target update once that binary reports the target version. This prevents a
+  stale earlier `claude` on `PATH` (for example `~/.local/bin/claude`) from
+  being re-cached after npm successfully updates `/usr/local/bin/claude`,
+  which previously made `clx` reinstall the same target every launch.
+
 # 2026-07-07
 
 ## clx per-run permission bypass

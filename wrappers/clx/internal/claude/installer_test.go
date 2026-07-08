@@ -58,6 +58,63 @@ exit 42
 	}
 }
 
+func TestEnsureClaudeCachesNpmPrefixWhenPathHasStaleShadow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	staleBin := filepath.Join(dir, "stale-bin")
+	npmBin := filepath.Join(dir, "npm-bin")
+	prefix := filepath.Join(dir, "prefix")
+	root := filepath.Join(prefix, "lib", "node_modules")
+	for _, path := range []string{home, staleBin, npmBin, filepath.Join(prefix, "bin"), filepath.Join(root, "@anthropic-ai", "claude-code", "bin")} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+
+	writeScript(t, filepath.Join(staleBin, "claude"), `#!/bin/sh
+echo "2.1.179 (Claude Code)"
+`)
+	writeScript(t, filepath.Join(prefix, "bin", "claude"), `#!/bin/sh
+echo "2.1.204 (Claude Code)"
+`)
+	writeScript(t, filepath.Join(npmBin, "npm"), `#!/bin/sh
+if [ "$1" = "prefix" ] && [ "$2" = "-g" ]; then
+  echo "`+prefix+`"
+  exit 0
+fi
+if [ "$1" = "root" ] && [ "$2" = "-g" ]; then
+  echo "`+root+`"
+  exit 0
+fi
+if [ "$1" = "install" ] && [ "$2" = "-g" ]; then
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 2
+`)
+	t.Setenv("PATH", staleBin+string(os.PathListSeparator)+npmBin)
+	if err := cacheClaude(filepath.Join(staleBin, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureClaude(context.Background(), "2.1.204", true, logger); err != nil {
+		t.Fatalf("EnsureClaude: %v", err)
+	}
+	cached := cachedClaudeBin()
+	want := filepath.Join(prefix, "bin", "claude")
+	if cached != want {
+		t.Fatalf("cachedClaudeBin() = %q, want %q", cached, want)
+	}
+	if got := Version(context.Background()); got != "2.1.204" {
+		t.Fatalf("Version() = %q, want 2.1.204", got)
+	}
+}
+
 func TestIsPermErr(t *testing.T) {
 	cases := []struct {
 		name string

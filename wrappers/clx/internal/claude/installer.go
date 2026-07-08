@@ -52,7 +52,12 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	cmd := exec.CommandContext(ctx, "npm", args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		cacheInstalledClaude(ctx)
+		if cacheInstalledClaude(ctx, target) {
+			return nil
+		}
+		if target != "" && target != "latest" {
+			return fmt.Errorf("npm install %s completed but claude %s was not found on npm's global path", spec, target)
+		}
 		return nil
 	}
 	if isPermErr(out, err) {
@@ -62,7 +67,12 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 			cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
 			out2, serr := cmd.CombinedOutput()
 			if serr == nil {
-				cacheInstalledClaude(ctx)
+				if cacheInstalledClaude(ctx, target) {
+					return nil
+				}
+				if target != "" && target != "latest" {
+					return fmt.Errorf("npm install %s completed under sudo but claude %s was not found on npm's global path", spec, target)
+				}
 				return nil
 			}
 			return fmt.Errorf("npm install %s failed under sudo: %w: %s", spec, serr, strings.TrimSpace(string(out2)))
@@ -74,25 +84,68 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 // cacheInstalledClaude resolves the claude binary location via npm's global
 // bin dir and writes it to the cache so future runs (including cron) can find
 // it without a full PATH lookup.
-func cacheInstalledClaude(ctx context.Context) {
-	out, err := exec.CommandContext(ctx, "npm", "bin", "-g").Output()
-	if err == nil {
-		dir := strings.TrimSpace(string(out))
-		for _, name := range []string{"claude", "claude-code"} {
-			p := filepath.Join(dir, name)
-			if _, serr := os.Stat(p); serr == nil {
-				_ = cacheClaude(p)
-				return
-			}
+func cacheInstalledClaude(ctx context.Context, target string) bool {
+	for _, p := range npmClaudeCandidates(ctx) {
+		if cacheClaudeIfMatches(ctx, p, target) {
+			return true
 		}
 	}
 	// Fallback: standard PATH lookup.
 	for _, name := range []string{"claude", "claude-code"} {
 		if p, lerr := exec.LookPath(name); lerr == nil {
-			_ = cacheClaude(p)
-			return
+			if cacheClaudeIfMatches(ctx, p, target) {
+				return true
+			}
 		}
 	}
+	return false
+}
+
+func npmClaudeCandidates(ctx context.Context) []string {
+	var out []string
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == p {
+				return
+			}
+		}
+		out = append(out, p)
+	}
+	if raw, err := exec.CommandContext(ctx, "npm", "prefix", "-g").Output(); err == nil {
+		prefix := strings.TrimSpace(string(raw))
+		for _, name := range []string{"claude", "claude-code"} {
+			add(filepath.Join(prefix, "bin", name))
+			add(filepath.Join(prefix, name))
+		}
+	}
+	if raw, err := exec.CommandContext(ctx, "npm", "root", "-g").Output(); err == nil {
+		root := strings.TrimSpace(string(raw))
+		for _, name := range []string{"claude", "claude-code"} {
+			add(filepath.Join(root, ".bin", name))
+		}
+		for _, name := range []string{"claude.exe", "claude", "claude-code"} {
+			add(filepath.Join(root, "@anthropic-ai", "claude-code", "bin", name))
+		}
+	}
+	return out
+}
+
+func cacheClaudeIfMatches(ctx context.Context, path, target string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	if target != "" && target != "latest" {
+		version := strings.TrimSpace(versionFromCLI(ctx, path))
+		if version != target {
+			return false
+		}
+	}
+	_ = cacheClaude(path)
+	return true
 }
 
 func isPermErr(out []byte, err error) bool {

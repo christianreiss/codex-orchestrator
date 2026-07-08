@@ -15,6 +15,10 @@ func Version(ctx context.Context) string {
 	if err != nil {
 		return "unknown"
 	}
+	return versionFromCLI(ctx, cli)
+}
+
+func versionFromCLI(ctx context.Context, cli string) string {
 	for _, flag := range []string{"--version", "-V"} {
 		cmd := exec.CommandContext(ctx, cli, flag)
 		var out bytes.Buffer
