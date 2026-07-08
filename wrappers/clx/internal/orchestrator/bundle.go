@@ -77,12 +77,40 @@ func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleR
 	if req.Engine == "" {
 		req.Engine = "claude"
 	}
-	out := &BundleResponse{}
-	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, out, 2); err != nil {
+	var raw json.RawMessage
+	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, &raw, 2); err != nil {
+		return nil, err
+	}
+	out, err := decodeBundleResponse(raw)
+	if err != nil {
 		return nil, err
 	}
 	if err := out.unwrapResources(); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+func decodeBundleResponse(raw json.RawMessage) (*BundleResponse, error) {
+	var env struct {
+		Status string          `json:"status"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, err
+	}
+
+	body := raw
+	if len(env.Data) > 0 && string(env.Data) != "null" {
+		body = env.Data
+	}
+
+	out := &BundleResponse{}
+	if err := json.Unmarshal(body, out); err != nil {
+		return nil, err
+	}
+	if out.Status == "" {
+		out.Status = env.Status
 	}
 	return out, nil
 }

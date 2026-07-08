@@ -77,6 +77,65 @@ func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 	}
 }
 
+func TestSyncBootstrap_AllowsUnchangedResourcesWithoutContent(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"data":{
+				"status":"ok",
+				"auth":{"status":"valid"},
+				"agents":{"status":"unchanged","version_id":1,"sha256":"abc"},
+				"config":{"status":"unchanged","version_id":2,"sha256":"def"}
+			}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "codex", IncludeAuth: true})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if resp.Auth == nil || resp.Auth.Status != "valid" {
+		t.Fatalf("auth from envelope: %+v", resp.Auth)
+	}
+	if resp.Agents != nil {
+		t.Errorf("unchanged agents should have no content to write: %q", string(resp.Agents))
+	}
+	if resp.Config != nil {
+		t.Errorf("unchanged config should have no content to write: %q", string(resp.Config))
+	}
+}
+
+func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"data":{
+				"status":"ok",
+				"auth":{"status":"valid","canonical_last_refresh":"2026-07-08T08:00:00Z"},
+				"agents":{"status":"updated","content":"# AGENTS.md\n"},
+				"config":{"status":"updated","content":"model=\"gpt-5.4\"\n"}
+			}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "codex", IncludeAuth: true})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if resp.Auth == nil || resp.Auth.Status != "valid" {
+		t.Fatalf("auth from envelope: %+v", resp.Auth)
+	}
+	if resp.Auth.CanonicalLastRefresh != "2026-07-08T08:00:00Z" {
+		t.Errorf("canonical last refresh: %q", resp.Auth.CanonicalLastRefresh)
+	}
+	if string(resp.Agents) != "# AGENTS.md\n" {
+		t.Errorf("agents: %q", string(resp.Agents))
+	}
+	if string(resp.Config) != "model=\"gpt-5.4\"\n" {
+		t.Errorf("config: %q", string(resp.Config))
+	}
+}
+
 func TestSyncBootstrap_404SurfacesAsError(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)

@@ -1,5 +1,14 @@
 # 2026-07-08
 
+## Wrapper bootstrap envelope fix
+
+- **Wrappers:** `cdx` and `clx` now unwrap the standard `/sync/bootstrap`
+  `{status,data}` envelope before reading bundled auth/config/resources, and
+  `cdx` now accepts unchanged resource metadata without a `content` body. This
+  prevents a healthy bootstrap response from being misread as missing auth,
+  which made `cdx` report the API as offline and refuse launch when cached
+  `auth.json` was older than the offline fallback window.
+
 ## clx Claude CLI update shadow fix
 
 - **Wrapper:** `clx` now resolves the npm-managed Claude Code binary via

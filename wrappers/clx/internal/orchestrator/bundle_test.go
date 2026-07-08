@@ -60,6 +60,38 @@ func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 	}
 }
 
+func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status":"ok",
+			"data":{
+				"status":"ok",
+				"auth":{"status":"valid","canonical_last_refresh":"2026-07-08T08:00:00Z"},
+				"host":{"fqdn":"alpha.example","secure":true},
+				"agents":{"status":"updated","content":"# CLAUDE.md\n"},
+				"config":{"status":"updated","content":"{\n  \"model\": \"sonnet\"\n}\n"}
+			}
+		}`))
+	})
+	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: "claude", IncludeAuth: true})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if resp.Auth == nil || resp.Auth.Status != "valid" {
+		t.Fatalf("auth from envelope: %+v", resp.Auth)
+	}
+	if resp.Host == nil || resp.Host.FQDN != "alpha.example" {
+		t.Fatalf("host from envelope: %+v", resp.Host)
+	}
+	if string(resp.Agents) != "# CLAUDE.md\n" {
+		t.Errorf("agents: %q", string(resp.Agents))
+	}
+	if string(resp.Config) != "{\n  \"model\": \"sonnet\"\n}\n" {
+		t.Errorf("config: %q", string(resp.Config))
+	}
+}
+
 func TestSyncBootstrap_DecodesClaudeArtifactsAndSendsDigests(t *testing.T) {
 	var got BundleRequest
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

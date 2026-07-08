@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 )
 
@@ -27,7 +26,7 @@ func resourceContent(data json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	if payload.Content == nil && payload.Body == nil {
-		return nil, fmt.Errorf("resourceContent: unrecognized payload shape (missing content/body): %s", string(data))
+		return nil, nil
 	}
 	var content string
 	if payload.Content != nil {
