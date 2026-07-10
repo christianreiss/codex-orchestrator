@@ -21,7 +21,7 @@ Single-key shortcuts pause while typing in an editable target (`input`, `textare
 | `?` | Show the keyboard-shortcuts help modal |
 | `Esc` | Close the command palette (dialog-based overlays also close on `Esc` via their own handling) |
 
-The command palette (`frontend/src/lib/components/command-palette/`) groups its results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It fuzzy-matches every top-level nav destination (Dashboard, Hosts, Projects, API Keys, Authoring, Logs, Settings) plus deep links (Logs/MCP, Logs/Events, Authoring/Agents, Account/Password, Account/Passkeys, Settings/Users, Manual), and exposes quick actions (New host, Quick VM, New project, New API key, Open shortcuts, Sign out) and theme switching — this is what replaced the old per-section chord shortcuts.
+The command palette (`frontend/src/lib/components/command-palette/`) groups its results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It fuzzy-matches every top-level nav destination (Dashboard, Hosts, Projects, API Keys, Authoring, Logs, Settings) plus deep links (Logs/MCP, Logs/Events, Authoring/Agents, Account/Password, Account/Passkeys, Settings/General, Settings/Codex, Settings/Claude, Settings/Users, Manual), and exposes quick actions (New host, Quick VM, New project, New API key, Open shortcuts, Sign out) and theme switching — this is what replaced the old per-section chord shortcuts.
 
 ## API Keys
 

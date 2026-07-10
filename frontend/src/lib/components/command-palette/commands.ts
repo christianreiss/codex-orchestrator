@@ -160,10 +160,22 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     keywords: ["passkeys", "webauthn", "account"],
   },
   {
-    href: "/settings",
-    label: "Settings",
+    href: "/settings?tab=general",
+    label: "Settings / General",
     icon: Settings,
-    keywords: ["settings", "config", "configuration"],
+    keywords: ["settings", "general", "config", "configuration"],
+  },
+  {
+    href: "/settings?tab=codex",
+    label: "Settings / Codex",
+    icon: Settings,
+    keywords: ["settings", "codex", "openai", "config", "configuration"],
+  },
+  {
+    href: "/settings?tab=claude",
+    label: "Settings / Claude",
+    icon: Settings,
+    keywords: ["settings", "claude", "anthropic", "config", "configuration"],
   },
   {
     href: "/settings/users",

@@ -1,5 +1,14 @@
 # 2026-07-10
 
+## Settings navigation by engine
+
+- **Admin UI:** Reorganized Settings into URL-addressable **General**, **Codex**,
+  and **Claude** tabs. General now holds fleet-wide controls; Codex contains its
+  engine, version, silent-mode, quota, and scaling controls; Claude contains its
+  engine, API defaults, version, and fleet `settings.json` editor. Existing
+  section hashes keep working, the old `/authoring/settings` path redirects to
+  the Claude editor, and the command palette links directly to each tab.
+
 ## Dashboard runner-state cleanup
 
 - **Admin UI:** The Runner state card now shows only each engine's current

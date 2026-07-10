@@ -17,7 +17,6 @@
     { href: "/authoring/subagents", label: "Subagents", match: (p: string) => p.startsWith("/authoring/subagents") },
     { href: "/authoring/commands", label: "Commands", match: (p: string) => p.startsWith("/authoring/commands") },
     { href: "/authoring/output-styles", label: "Output styles", match: (p: string) => p.startsWith("/authoring/output-styles") },
-    { href: "/authoring/settings", label: "Settings", match: (p: string) => p.startsWith("/authoring/settings") },
   ] as const;
 
   const activeHref = $derived(TABS.find((t) => t.match(path))?.href ?? "/authoring");

@@ -127,7 +127,7 @@ Each entry supports the following fields:
 | `startup_timeout_sec` | int | Seconds to wait for the server process to become ready. |
 | `tool_timeout_sec` | int | Per-tool-call timeout in seconds. |
 
-There is no dedicated MCP server editor anywhere in the admin frontend today: `mcp_servers` appears nowhere in `frontend/src` (it's absent from the `ClaudeConfigSettings` TypeScript interface and from the `/settings` and `/authoring/settings` Svelte forms). In practice, adding or editing an entry means `POST`ing the full `settings` object — including the existing `mcp_servers` array — to `/admin/config/store` (Codex engine) or `/admin/claude/config/store` (Claude engine) directly. The per-host detail page exposes only a single **BrowserOS MCP** toggle (`browseros_mcp_enabled`), not a server list.
+There is no dedicated MCP server editor anywhere in the admin frontend today: `mcp_servers` appears nowhere in `frontend/src` (it is absent from the `ClaudeConfigSettings` TypeScript interface and from all three `/settings` tab forms). In practice, adding or editing an entry means `POST`ing the full `settings` object — including the existing `mcp_servers` array — to `/admin/config/store` (Codex engine) or `/admin/claude/config/store` (Claude engine) directly. The per-host detail page exposes only a single **BrowserOS MCP** toggle (`browseros_mcp_enabled`), not a server list.
 
 ### Managed server injection
 

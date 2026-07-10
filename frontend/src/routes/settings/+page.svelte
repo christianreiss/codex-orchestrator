@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { tick } from "svelte";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
+  import { base } from "$app/paths";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import SettingsTocNav from "$lib/components/settings/SettingsTocNav.svelte";
+  import * as Tabs from "$lib/components/ui/tabs";
   import ApiStateSection from "$lib/components/settings/ApiStateSection.svelte";
   import OpenAIEngineSection from "$lib/components/settings/OpenAIEngineSection.svelte";
   import ClaudeEngineSection from "$lib/components/settings/ClaudeEngineSection.svelte";
@@ -14,42 +18,109 @@
   import ScalingSection from "$lib/components/settings/ScalingSection.svelte";
   import PrunePolicySection from "$lib/components/settings/PrunePolicySection.svelte";
   import LogRetentionSection from "$lib/components/settings/LogRetentionSection.svelte";
+  import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
 
-  const tocItems = [
-    { id: "api-state", label: "API state" },
-    { id: "openai-engine", label: "OpenAI engine" },
-    { id: "claude-engine", label: "Claude engine" },
-    { id: "reverse-dns", label: "Reverse DNS" },
-    { id: "auto-update", label: "Auto-update" },
-    { id: "cdx-silent", label: "Codex silent mode" },
-    { id: "insecure-approval", label: "Insecure approval" },
-    { id: "quotas", label: "Quotas" },
-    { id: "codex-version", label: "Codex version" },
-    { id: "claude-version", label: "Claude version" },
-    { id: "scaling", label: "Scaling" },
-    { id: "prune-policy", label: "Prune policy" },
-    { id: "log-retention", label: "Log retention" },
-  ];
+  type SettingsTab = "general" | "codex" | "claude";
+
+  const TABS = [
+    { value: "general", label: "General" },
+    { value: "codex", label: "Codex" },
+    { value: "claude", label: "Claude" },
+  ] as const;
+
+  const SECTION_TABS: Record<string, SettingsTab> = {
+    "api-state": "general",
+    "auto-update": "general",
+    "reverse-dns": "general",
+    "insecure-approval": "general",
+    "prune-policy": "general",
+    "log-retention": "general",
+    "openai-engine": "codex",
+    "codex-version": "codex",
+    "cdx-silent": "codex",
+    quotas: "codex",
+    scaling: "codex",
+    "claude-engine": "claude",
+    "claude-version": "claude",
+    "claude-fleet-settings": "claude",
+  };
+
+  function isSettingsTab(value: string | null): value is SettingsTab {
+    return value === "general" || value === "codex" || value === "claude";
+  }
+
+  function hashSection(url: URL): string {
+    if (!url.hash) return "";
+    try {
+      return decodeURIComponent(url.hash.slice(1));
+    } catch {
+      return url.hash.slice(1);
+    }
+  }
+
+  function tabFromUrl(url: URL): SettingsTab {
+    const requested = url.searchParams.get("tab");
+    if (requested !== null) return isSettingsTab(requested) ? requested : "general";
+    return SECTION_TABS[hashSection(url)] ?? "general";
+  }
+
+  const activeTab = $derived(tabFromUrl(page.url));
+  let lastScrolledTarget = "";
+
+  function handleTabChange(value: unknown) {
+    if (typeof value !== "string" || !isSettingsTab(value) || value === activeTab) return;
+    void goto(`${base}/settings?tab=${value}`, {
+      keepFocus: true,
+      noScroll: true,
+    });
+  }
+
+  $effect(() => {
+    const section = hashSection(page.url);
+    const tab = activeTab;
+    if (!section || (SECTION_TABS[section] && SECTION_TABS[section] !== tab)) {
+      lastScrolledTarget = "";
+      return;
+    }
+
+    const targetKey = `${tab}:${section}`;
+    if (targetKey === lastScrolledTarget) return;
+    lastScrolledTarget = targetKey;
+    void tick().then(() => {
+      document.getElementById(section)?.scrollIntoView({ block: "start" });
+    });
+  });
 </script>
 
-<PageHeader title="Settings" subtitle="System configuration" />
+<PageHeader title="Settings" subtitle="System and engine configuration" />
 
-<div class="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8">
-  <SettingsTocNav items={tocItems} />
+<Tabs.Root value={activeTab} onValueChange={handleTabChange} class="w-full">
+  <Tabs.List class="grid w-full grid-cols-3 sm:inline-grid sm:w-auto">
+    {#each TABS as tab (tab.value)}
+      <Tabs.Trigger value={tab.value}>{tab.label}</Tabs.Trigger>
+    {/each}
+  </Tabs.List>
 
-  <div class="space-y-6">
+  <Tabs.Content value="general" class="space-y-6 pt-4">
     <ApiStateSection />
-    <OpenAIEngineSection />
-    <ClaudeEngineSection />
-    <ReverseDnsSection />
     <AutoUpdateSection />
-    <CdxSilentSection />
+    <ReverseDnsSection />
     <InsecureApprovalSection />
-    <QuotasSection />
-    <CodexVersionSection />
-    <ClaudeVersionSection />
-    <ScalingSection />
     <PrunePolicySection />
     <LogRetentionSection />
-  </div>
-</div>
+  </Tabs.Content>
+
+  <Tabs.Content value="codex" class="space-y-6 pt-4">
+    <OpenAIEngineSection />
+    <CodexVersionSection />
+    <CdxSilentSection />
+    <QuotasSection />
+    <ScalingSection />
+  </Tabs.Content>
+
+  <Tabs.Content value="claude" class="space-y-6 pt-4">
+    <ClaudeEngineSection />
+    <ClaudeVersionSection />
+    <ClaudeFleetSettings />
+  </Tabs.Content>
+</Tabs.Root>

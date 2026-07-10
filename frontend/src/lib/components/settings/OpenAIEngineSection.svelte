@@ -28,7 +28,7 @@
 
 <SectionCard
   id="openai-engine"
-  title="OpenAI engine"
+  title="Codex engine"
   description="Toggle OpenAI/Codex traffic independent of the master API kill-switch."
   {status}
   savedAt={lastSavedAt}
