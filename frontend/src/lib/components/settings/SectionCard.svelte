@@ -29,11 +29,11 @@
 
 <section {id} class="scroll-mt-24">
   <Card.Root>
-    <Card.Header class="flex flex-row items-start justify-between gap-4 space-y-0">
+    <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0 p-4 pb-3">
       <div class="min-w-0">
         <Card.Title class="text-base font-semibold tracking-tight">{title}</Card.Title>
         {#if description}
-          <Card.Description class="mt-1 text-sm leading-relaxed">
+          <Card.Description class="mt-0.5 text-sm leading-normal">
             {description}
           </Card.Description>
         {/if}
@@ -42,11 +42,13 @@
         <div class="flex shrink-0 items-center gap-2">{@render headerAction()}</div>
       {/if}
     </Card.Header>
-    <Card.Content class="space-y-4">
+    <Card.Content class="space-y-3 px-4 pb-4 pt-0">
       {@render children?.()}
     </Card.Content>
-    <Card.Footer class="flex items-center justify-between gap-2 pt-0">
-      <SaveIndicator {status} {savedAt} {error} />
-    </Card.Footer>
+    {#if status !== "idle" || savedAt || error}
+      <Card.Footer class="flex items-center justify-between gap-2 px-4 pb-3 pt-0">
+        <SaveIndicator {status} {savedAt} {error} />
+      </Card.Footer>
+    {/if}
   </Card.Root>
 </section>

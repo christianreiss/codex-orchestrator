@@ -178,8 +178,8 @@
     {$query.error instanceof Error ? $query.error.message : "Failed to load settings"}
   </p>
 {:else}
-  <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
-    <div class="flex flex-col gap-6">
+  <div class="grid gap-4 lg:grid-cols-[1fr_360px]">
+    <div class="flex flex-col gap-4">
       <!-- Model -->
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-3 text-sm font-semibold">Model</h3>
@@ -224,7 +224,7 @@
       <!-- Permissions -->
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-3 text-sm font-semibold">Permissions</h3>
-        <div class="space-y-4">
+        <div class="space-y-3">
           <div class="space-y-1.5">
             <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Allow</span>
             <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />

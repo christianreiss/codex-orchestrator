@@ -1,5 +1,12 @@
 # 2026-07-10
 
+## Denser Settings layout
+
+- **Admin UI:** Settings cards now use compact spacing, omit the empty save
+  status row while idle, and form two-column grids on wide screens. Mobile
+  remains single-column, while the Claude fleet editor uses tighter section
+  spacing so more controls remain visible without scrolling.
+
 ## Settings navigation by engine
 
 - **Admin UI:** Reorganized Settings into URL-addressable **General**, **Codex**,

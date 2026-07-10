@@ -23,6 +23,8 @@ The Settings page is split into three URL-addressable tabs:
 
 A missing or invalid `tab` value opens **General**. The active tab follows browser history, and the panes remain mounted during tab changes so unsaved form input is preserved. Existing section hashes such as `#codex-version` select the matching tab before scrolling. The command palette exposes direct entries for Settings / General, Codex, and Claude.
 
+On wide screens, related settings cards are arranged in two columns; narrow screens keep a single-column flow. Save status appears only while saving or after a save, so idle cards do not reserve an empty status row.
+
 The former `/authoring/settings` route permanently redirects to `/settings?tab=claude#claude-fleet-settings`; it is retained only as a compatibility path for old bookmarks.
 
 ### General

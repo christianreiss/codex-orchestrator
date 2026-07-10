@@ -14,11 +14,11 @@
   let { id, label, description, checked, disabled = false, onCheckedChange }: Props = $props();
 </script>
 
-<div class="flex items-center justify-between gap-4 rounded-md border bg-muted/30 px-4 py-3">
+<div class="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
   <div class="min-w-0">
     <Label for={id} class="text-sm font-medium">{label}</Label>
     {#if description}
-      <p class="mt-1 text-xs text-muted-foreground">{description}</p>
+      <p class="mt-0.5 text-xs text-muted-foreground">{description}</p>
     {/if}
   </div>
   <Switch {id} {checked} {onCheckedChange} {disabled} aria-label={label} />

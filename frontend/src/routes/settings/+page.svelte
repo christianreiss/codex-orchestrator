@@ -92,7 +92,7 @@
   });
 </script>
 
-<PageHeader title="Settings" subtitle="System and engine configuration" />
+<PageHeader title="Settings" subtitle="System and engine configuration" class="mb-4" />
 
 <Tabs.Root value={activeTab} onValueChange={handleTabChange} class="w-full">
   <Tabs.List class="grid w-full grid-cols-3 sm:inline-grid sm:w-auto">
@@ -101,26 +101,36 @@
     {/each}
   </Tabs.List>
 
-  <Tabs.Content value="general" class="space-y-6 pt-4">
-    <ApiStateSection />
-    <AutoUpdateSection />
-    <ReverseDnsSection />
-    <InsecureApprovalSection />
-    <PrunePolicySection />
-    <LogRetentionSection />
+  <Tabs.Content value="general" class="pt-3">
+    <div class="grid items-start gap-3 xl:grid-cols-2">
+      <ApiStateSection />
+      <AutoUpdateSection />
+      <ReverseDnsSection />
+      <InsecureApprovalSection />
+      <PrunePolicySection />
+      <LogRetentionSection />
+    </div>
   </Tabs.Content>
 
-  <Tabs.Content value="codex" class="space-y-6 pt-4">
-    <OpenAIEngineSection />
-    <CodexVersionSection />
-    <CdxSilentSection />
-    <QuotasSection />
-    <ScalingSection />
+  <Tabs.Content value="codex" class="pt-3">
+    <div class="grid items-start gap-3 xl:grid-cols-2">
+      <OpenAIEngineSection />
+      <CdxSilentSection />
+      <CodexVersionSection />
+      <QuotasSection />
+      <div class="xl:col-span-2">
+        <ScalingSection />
+      </div>
+    </div>
   </Tabs.Content>
 
-  <Tabs.Content value="claude" class="space-y-6 pt-4">
-    <ClaudeEngineSection />
-    <ClaudeVersionSection />
-    <ClaudeFleetSettings />
+  <Tabs.Content value="claude" class="space-y-3 pt-3">
+    <div class="grid items-start gap-3 xl:grid-cols-2">
+      <ClaudeEngineSection />
+      <ClaudeVersionSection />
+    </div>
+    <div class="space-y-4">
+      <ClaudeFleetSettings />
+    </div>
   </Tabs.Content>
 </Tabs.Root>
