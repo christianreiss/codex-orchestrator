@@ -1,15 +1,33 @@
 # 2026-07-10
 
+## Claude Code 2.1.206 model catalog
+
+- **Claude CLI/proxy defaults:** Added `claude-fable-5`, `claude-opus-4-8`,
+  and `claude-sonnet-5` while retaining Opus 4.7, Sonnet 4.6, and Haiku 4.5.
+  Sonnet 5 is now the fleet and Anthropic-compatible proxy default. Fable 5,
+  Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` effort with `high` as
+  their default; Opus 4.7 retains its `xhigh` default, Sonnet 4.6 retains
+  `low|medium|high`, and Haiku remains effort-less. Claude Code's `max` effort
+  stays session-only and is not stored fleet-wide. The proxy default picker
+  now enforces the same shared model catalog instead of accepting a value the
+  inference gate would later reject.
+
 ## Fleet model and effort defaults
 
 - **Admin UI/API:** Settings → Codex and Settings → Claude now expose the
   fleet-wide model together with a model-dependent persistent effort selector,
   backed by `GET/POST /admin/model-defaults/:engine`. Codex stores the native
   `config.toml` keys `model` / `model_reasoning_effort`; Claude stores the
-  native `settings.json` keys `model` / `effortLevel`. Claude Opus 4.7 defaults
-  to `xhigh`, Sonnet 4.6 defaults to `high`, and Haiku 4.5 omits effort because
-  that model does not support it. The existing Claude API proxy default remains
-  a separate setting.
+  native `settings.json` keys `model` / `effortLevel`. Each engine returns its
+  model-specific capabilities and default; unsupported pairs are rejected.
+  The existing Claude API proxy default remains a separate setting.
+- **Codex model matrix:** Corrected the selector and server validation against
+  the Codex 0.144.1 model catalog. Sol and Terra offer
+  `low|medium|high|xhigh|max|ultra`; Luna stops at `max`; GPT-5.5, GPT-5.4,
+  GPT-5.4 mini, and GPT-5.3 Codex Spark offer `low|medium|high|xhigh`. Native
+  defaults are Sol `low`, Terra/Luna/GPT-5.5/GPT-5.4/GPT-5.4 mini `medium`, and
+  Spark `high`. Model and profile overrides now fall back to the selected
+  model's own default instead of emitting an incompatible inherited effort.
 
 ## Denser Settings layout
 
@@ -60,13 +78,13 @@
 - **API, wrappers, runner, and admin UI:** Added `gpt-5.6-sol`,
   `gpt-5.6-terra`, and `gpt-5.6-luna` across the strict OpenAI-compatible
   gateway, config rendering, host overrides, signed wrapper schema, quota
-  scaling, and the committed admin build. `gpt-5.6-terra` with `high`
+  scaling, and the committed admin build. `gpt-5.6-terra` with `medium`
   reasoning effort is now the fleet and gateway default; retired model IDs
-  upgrade to that pair.
-- **Reasoning effort:** The new GPT-5.6 models accept
-  `low|medium|high|xhigh|max|ultra`; older supported models retain their
-  established `minimal|low|medium|high` capability set. The runner probe now
-  defaults to Terra as well.
+  upgrade to Terra with the intentionally retained `high` migration effort.
+- **Reasoning effort:** Sol and Terra accept
+  `low|medium|high|xhigh|max|ultra`; Luna accepts
+  `low|medium|high|xhigh|max`; older supported models accept
+  `low|medium|high|xhigh`. The runner probe now defaults to Terra as well.
 
 # 2026-07-08
 

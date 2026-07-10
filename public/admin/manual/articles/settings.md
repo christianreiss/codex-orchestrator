@@ -69,7 +69,15 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 #### Fleet model and effort
 
-`GET /admin/model-defaults/codex`, `POST /admin/model-defaults/codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `high`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
+`GET /admin/model-defaults/codex`, `POST /admin/model-defaults/codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `medium`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
+
+| Model | Persistent effort choices | Default |
+|---|---|---|
+| GPT-5.6 Sol | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| GPT-5.6 Terra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| GPT-5.6 Luna | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| GPT-5.5, GPT-5.4, GPT-5.4 mini | `low`, `medium`, `high`, `xhigh` | `medium` |
+| GPT-5.3 Codex Spark | `low`, `medium`, `high`, `xhigh` | `high` |
 
 #### Codex version
 
@@ -107,13 +115,16 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 | Model | Persistent effort choices | Default |
 |---|---|---|
+| Fable 5 | `low`, `medium`, `high`, `xhigh` | `high` |
+| Opus 4.8 | `low`, `medium`, `high`, `xhigh` | `high` |
+| Sonnet 5 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Opus 4.7 | `low`, `medium`, `high`, `xhigh` | `xhigh` |
 | Sonnet 4.6 | `low`, `medium`, `high` | `high` |
 | Haiku 4.5 | none | none; `effortLevel` is omitted |
 
 Claude Code documents `low`, `medium`, `high`, and `xhigh` as persistent `settings.json` values; `max` is session-only and is therefore not offered by this fleet control. Unsupported model/effort combinations are rejected rather than silently stored.
 
-On a new installation, GET displays the effective Sonnet 4.6 / `high` default without writing a config row. The first Save persists the pair; until then Claude hosts inherit Claude Code's own defaults.
+On a new installation, GET displays the effective Sonnet 5 / `high` default without writing a config row. The first Save persists the pair; until then Claude hosts inherit Claude Code's own defaults.
 
 #### Claude API defaults
 
@@ -121,8 +132,10 @@ Claude API proxy defaults (default model and max tokens used when proxying Claud
 
 | Field | Type | Constraints |
 |---|---|---|
-| `default_model` | string | Must match the `claude-*` regex. |
+| `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. |
 | `max_tokens` | integer | 256–200 000, default 8 192. |
+
+Supported proxy models are `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
 
 This endpoint controls only API proxy behaviour. It is independent from the fleet Claude Code `model` / `effortLevel` directly above and does not change managed CLI sessions.
 

@@ -20,6 +20,9 @@ export const INHERIT_MODEL = "inherit";
 // (resolveRequestedModel 400s anything not in that list). Offering an id the
 // gate rejects pins a host to a model that fails at inference time.
 export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
+  { label: "Fable 5", value: "claude-fable-5" },
+  { label: "Opus 4.8", value: "claude-opus-4-8" },
+  { label: "Sonnet 5", value: "claude-sonnet-5" },
   { label: "Opus 4.7", value: "claude-opus-4-7" },
   { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
   { label: "Haiku 4.5", value: "claude-haiku-4-5-20251001" },

@@ -54,7 +54,7 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
   "engine": "claude",
   "engine_options": {
     "silent": false,
-    "claude_model_override": "claude-sonnet-4-6",
+    "claude_model_override": "claude-sonnet-5",
     "admin_theme_hint": "auto"
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
@@ -201,8 +201,9 @@ this run.
 - Settings → Claude and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
-  to Claude Code's native `effortLevel` key on disk. Opus 4.7 persists
-  `low|medium|high|xhigh` and defaults to `xhigh`; Sonnet 4.6 persists
+  to Claude Code's native `effortLevel` key on disk. Fable 5, Opus 4.8, and
+  Sonnet 5 persist `low|medium|high|xhigh` and default to `high`; Opus 4.7
+  persists the same set and defaults to `xhigh`; Sonnet 4.6 persists
   `low|medium|high` and defaults to `high`; Haiku 4.5 has no effort control, so
   selecting it removes `effortLevel`. This follows Claude Code's documented
   persistence model: `low`, `medium`, `high`, and `xhigh` can live in
@@ -227,7 +228,7 @@ this run.
 
 - The server renders the partial **only** from the Claude-engine `client_config`
   (or per-host `claude_model_override`) — it never falls back to the Codex config.
-  On a greenfield database, the model-defaults GET reports Sonnet 4.6 at `high`
+  On a greenfield database, the model-defaults GET reports Sonnet 5 at `high`
   but remains read-only; until an operator saves, a host receives neither key and
   inherits Claude Code's own defaults. The first POST creates the canonical row
   and subsequent syncs explicitly bake both keys. The Codex `model` (for example

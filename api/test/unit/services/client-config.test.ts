@@ -168,7 +168,7 @@ describe('client-config: renderToml', () => {
       apiKey: null,
     });
     expect(switched.content).toContain('model = "gpt-5.4"');
-    expect(switched.content).toContain('model_reasoning_effort = "high"');
+    expect(switched.content).toContain('model_reasoning_effort = "medium"');
     expect(switched.content).not.toContain('model_reasoning_effort = "ultra"');
     expect(switched.content).toContain('[profiles.workhorse]');
 
@@ -186,6 +186,23 @@ describe('client-config: renderToml', () => {
     });
     expect(inherited.content).toContain('model = "gpt-5.6-terra"');
     expect(inherited.content).toContain('model_reasoning_effort = "ultra"');
+
+    const inheritedProfileModel = renderTomlForHost({
+      settings: {
+        model: 'gpt-5.4',
+        model_reasoning_effort: 'high',
+        profile: 'work',
+        profiles: [{ name: 'work' }],
+      },
+      host: {
+        modelOverride: null,
+        reasoningEffortOverride: 'ultra',
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+    });
+    expect(inheritedProfileModel.content).toContain('model_reasoning_effort = "high"');
+    expect(inheritedProfileModel.content).not.toContain('model_reasoning_effort = "ultra"');
   });
 });
 

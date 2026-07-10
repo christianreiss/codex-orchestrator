@@ -528,7 +528,7 @@
     title="Claude model override"
     description="Pin a specific Claude model. Empty clears the override."
     label="Model"
-    placeholder="claude-sonnet-4-6"
+    placeholder="claude-sonnet-5"
     options={CLAUDE_MODEL_OPTIONS}
     initialValue={host.claude_model_override ?? ""}
     onSubmit={(v) =>

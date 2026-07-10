@@ -24,6 +24,10 @@ import { ok } from '../../../http/reply.js';
 import { logs } from '../../../db/schema.js';
 import { nowIso } from '../../../util/timestamp.js';
 import { isEngine, type Engine } from '../../../util/engine.js';
+import {
+  CLAUDE_DEFAULT_MODEL,
+  CLAUDE_SUPPORTED_MODELS,
+} from '../../../services/claude-models.js';
 
 const ADMIN_THEMES = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'] as const;
 type AdminTheme = (typeof ADMIN_THEMES)[number];
@@ -437,7 +441,7 @@ export async function registerAdminSettingsRoutes(
   // ── claude/settings ───────────────────────────────────────────────────────
   app.get('/admin/claude/settings', { preHandler: app.requireAdmin }, async () => {
     const [model, maxTokens, disabled] = await Promise.all([
-      settings.getString('claude_default_model', 'claude-sonnet-4-6'),
+      settings.getString('claude_default_model', CLAUDE_DEFAULT_MODEL),
       settings.getInt('claude_max_tokens', 8192),
       settings.getFlag('claude_api_disabled', false),
     ]);
@@ -447,9 +451,9 @@ export async function registerAdminSettingsRoutes(
     const body = (req.body ?? {}) as { default_model?: unknown; max_tokens?: unknown };
     const writes: Record<string, unknown> = {};
     if (typeof body.default_model === 'string' && body.default_model.trim() !== '') {
-      const model = body.default_model.trim();
-      if (!/^claude[-a-z0-9.]+$/i.test(model)) {
-        throw new ValidationError('default_model must be a claude-* model id', {
+      const model = body.default_model.trim().toLowerCase();
+      if (!(CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(model)) {
+        throw new ValidationError(`default_model must be one of: ${CLAUDE_SUPPORTED_MODELS.join(', ')}`, {
           param: 'default_model',
         });
       }
@@ -467,7 +471,7 @@ export async function registerAdminSettingsRoutes(
     await recordLog(ctx, 'admin.claude_settings', writes);
 
     const [model, maxTokens, disabled] = await Promise.all([
-      settings.getString('claude_default_model', 'claude-sonnet-4-6'),
+      settings.getString('claude_default_model', CLAUDE_DEFAULT_MODEL),
       settings.getInt('claude_max_tokens', 8192),
       settings.getFlag('claude_api_disabled', false),
     ]);

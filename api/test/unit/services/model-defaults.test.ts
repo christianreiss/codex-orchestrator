@@ -26,26 +26,68 @@ describe('ModelDefaultsService', () => {
     expect(codex).toMatchObject({
       engine: 'codex',
       model: 'gpt-5.6-terra',
-      reasoning_effort: 'high',
+      reasoning_effort: 'medium',
     });
-    expect(codex.catalog.find((entry) => entry.model === 'gpt-5.6-sol')).toEqual({
-      model: 'gpt-5.6-sol',
-      persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-      default_effort: 'high',
-    });
-    expect(codex.catalog.find((entry) => entry.model === 'gpt-5.4')).toEqual({
-      model: 'gpt-5.4',
-      persistent_efforts: ['minimal', 'low', 'medium', 'high'],
-      default_effort: 'high',
-    });
+    expect(codex.catalog).toEqual([
+      {
+        model: 'gpt-5.6-sol',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'low',
+      },
+      {
+        model: 'gpt-5.6-terra',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-5.6-luna',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-5.5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-5.4',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-5.4-mini',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
+      },
+      {
+        model: 'gpt-5.3-codex-spark',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'high',
+      },
+    ]);
 
     const claude = await service.get(ENGINE_CLAUDE);
     expect(claude).toMatchObject({
       engine: 'claude',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       reasoning_effort: 'high',
     });
     expect(claude.catalog).toEqual([
+      {
+        model: 'claude-fable-5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'high',
+      },
+      {
+        model: 'claude-opus-4-8',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'high',
+      },
+      {
+        model: 'claude-sonnet-5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'high',
+      },
       {
         model: 'claude-opus-4-7',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
@@ -135,6 +177,18 @@ describe('ModelDefaultsService', () => {
       service.set(ENGINE_CODEX, {
         model: 'gpt-5.4',
         reasoning_effort: 'ultra',
+      }),
+    ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
+    await expect(
+      service.set(ENGINE_CODEX, {
+        model: 'gpt-5.6-luna',
+        reasoning_effort: 'ultra',
+      }),
+    ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
+    await expect(
+      service.set(ENGINE_CODEX, {
+        model: 'gpt-5.5',
+        reasoning_effort: 'minimal',
       }),
     ).rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
     await expect(

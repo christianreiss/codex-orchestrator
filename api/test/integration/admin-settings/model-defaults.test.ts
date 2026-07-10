@@ -29,12 +29,12 @@ describe('/admin/model-defaults/:engine', () => {
       status: 'ok',
       engine: 'codex',
       model: 'gpt-5.6-terra',
-      reasoning_effort: 'high',
+      reasoning_effort: 'medium',
       catalog: expect.arrayContaining([
         {
           model: 'gpt-5.6-terra',
           persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-          default_effort: 'high',
+          default_effort: 'medium',
         },
       ]),
     });
@@ -109,6 +109,32 @@ describe('/admin/model-defaults/:engine', () => {
     });
     expect(badEffort.statusCode).toBe(422);
     expect(JSON.parse(badEffort.payload)).toMatchObject({
+      status: 'error',
+      code: 'validation_failed',
+    });
+    await app.close();
+  });
+
+  it('uses the current Claude proxy default and rejects models outside the shared catalog', async () => {
+    const { app } = await buildApp();
+    const current = await app.inject({
+      method: 'GET',
+      url: '/admin/claude/settings',
+    });
+    expect(current.statusCode).toBe(200);
+    expect(JSON.parse(current.payload)).toMatchObject({
+      status: 'ok',
+      default_model: 'claude-sonnet-5',
+    });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/admin/claude/settings',
+      headers: { 'content-type': 'application/json' },
+      payload: { default_model: 'claude-made-up-9' },
+    });
+    expect(invalid.statusCode).toBe(422);
+    expect(JSON.parse(invalid.payload)).toMatchObject({
       status: 'error',
       code: 'validation_failed',
     });

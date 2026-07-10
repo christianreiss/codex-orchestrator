@@ -5,13 +5,16 @@ import {
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   CLAUDE_MODEL_REASONING_EFFORTS,
   CLAUDE_PERMISSION_MODES,
+  CODEX_MODEL_DEFAULT_REASONING_EFFORTS,
   DEFAULT_CLAUDE_PERMISSION_MODE,
   FORCE_UPGRADE_MODEL,
   FORCE_UPGRADE_REASONING_EFFORT,
   LEGACY_MODEL_UPGRADES,
+  MODEL_REASONING_EFFORTS,
   PERSONALITIES,
   REASONING_EFFORTS,
   SUPPORTED_MODELS,
+  defaultCodexReasoningEffortForModel,
   isLegacyModelUpgrade,
   normalizeApprovalPolicy,
   normalizeClaudeAdvisorModel,
@@ -43,6 +46,27 @@ describe('config-normalizer constants', () => {
     expect(REASONING_EFFORTS).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
   });
 
+  it('matches the current Codex CLI model effort catalog and defaults', () => {
+    expect(MODEL_REASONING_EFFORTS).toEqual({
+      'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+      'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
+    });
+    expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'gpt-5.6-sol': 'low',
+      'gpt-5.6-terra': 'medium',
+      'gpt-5.6-luna': 'medium',
+      'gpt-5.5': 'medium',
+      'gpt-5.4': 'medium',
+      'gpt-5.4-mini': 'medium',
+      'gpt-5.3-codex-spark': 'high',
+    });
+  });
+
   it('lists personalities', () => {
     expect(PERSONALITIES).toEqual(['friendly', 'pragmatic', 'none']);
   });
@@ -55,18 +79,25 @@ describe('config-normalizer constants', () => {
   });
 
   it('maps legacy Claude models onto current gate ids', () => {
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-7');
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-8');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-8');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-5-sonnet-20241022']).toBe('claude-sonnet-5');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-haiku-20240307']).toBe('claude-haiku-4-5-20251001');
   });
 
   it('exposes Claude persistent effort capabilities and defaults', () => {
     expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
+      'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+      'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
+      'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-4-6': ['low', 'medium', 'high'],
       'claude-haiku-4-5-20251001': [],
     });
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'claude-fable-5': 'high',
+      'claude-opus-4-8': 'high',
+      'claude-sonnet-5': 'high',
       'claude-opus-4-7': 'xhigh',
       'claude-sonnet-4-6': 'high',
       'claude-haiku-4-5-20251001': null,
@@ -106,10 +137,10 @@ describe('normalizeSupportedModel', () => {
 
 describe('normalizeClaudeModel', () => {
   it('upgrades legacy claude models', () => {
-    expect(normalizeClaudeModel('claude-3-opus-20240229')).toBe('claude-opus-4-7');
+    expect(normalizeClaudeModel('claude-3-opus-20240229')).toBe('claude-opus-4-8');
   });
   it('passes through current claude models', () => {
-    expect(normalizeClaudeModel('claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
+    expect(normalizeClaudeModel('claude-sonnet-5')).toBe('claude-sonnet-5');
   });
 });
 
@@ -132,6 +163,9 @@ describe('normalizeClaudeAdvisorModel', () => {
 
 describe('normalizeClaudeEffortLevel', () => {
   it('accepts only efforts supported by the selected Claude model', () => {
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-fable-5')).toBe('xhigh');
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-4-8')).toBe('xhigh');
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-sonnet-5')).toBe('xhigh');
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-4-7')).toBe('xhigh');
     expect(normalizeClaudeEffortLevel('HIGH', 'claude-sonnet-4-6')).toBe('high');
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-sonnet-4-6')).toBeNull();
@@ -180,9 +214,18 @@ describe('normalizeReasoningEffort', () => {
   });
   it('restricts effort to those supported by model', () => {
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
-    expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.3-codex-spark')).toBe('minimal');
+    expect(normalizeReasoningEffortForModel('xhigh', 'gpt-5.3-codex-spark')).toBe('xhigh');
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-luna')).toBeNull();
+    expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.5')).toBeNull();
     expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.5')).toBeNull();
+  });
+
+  it('returns each model native Codex default effort', () => {
+    expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('low');
+    expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
+    expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
+    expect(defaultCodexReasoningEffortForModel('unknown')).toBeNull();
   });
 });
 
@@ -201,12 +244,25 @@ describe('normalizeSettings()', () => {
     const s = normalizeSettings({});
     expect(s.personality).toBe('friendly');
     expect(s.model).toBe('gpt-5.6-terra');
-    expect(s.model_reasoning_effort).toBe('high');
+    expect(s.model_reasoning_effort).toBe('medium');
     expect(s.notify).toEqual([]);
     expect(s.orchestrator_mcp_enabled).toBe(true);
     expect(s.features).toEqual({});
     expect(s.profiles).toEqual([]);
     expect(s.mcp_servers).toEqual([]);
+  });
+
+  it('uses the selected Codex model default when effort is absent or incompatible', () => {
+    expect(normalizeSettings({ model: 'gpt-5.6-sol' }).model_reasoning_effort).toBe('low');
+    expect(normalizeSettings({
+      model: 'gpt-5.5',
+      model_reasoning_effort: 'minimal',
+    }).model_reasoning_effort).toBe('medium');
+    expect(normalizeSettings({
+      profiles: [{ name: 'luna', model: 'gpt-5.6-luna', model_reasoning_effort: 'ultra' }],
+    }).profiles).toEqual([
+      { name: 'luna', model: 'gpt-5.6-luna', model_reasoning_effort: 'medium' },
+    ]);
   });
 
   it('force-upgrades legacy models with high reasoning', () => {
@@ -273,12 +329,12 @@ describe('normalizeSettings()', () => {
     const s = normalizeSettings({
       profiles: [
         { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
-        { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
+        { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'xhigh' },
       ],
     });
     expect(s.profiles).toEqual([
       { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
-      { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
+      { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'xhigh' },
     ]);
   });
 });

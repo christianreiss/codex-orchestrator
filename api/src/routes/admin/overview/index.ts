@@ -28,6 +28,7 @@ import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../uti
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
+import { CLAUDE_DEFAULT_MODEL } from '../../../services/claude-models.js';
 
 function intQuery(value: unknown, fallback: number): number {
   const n = Number(value);
@@ -236,7 +237,7 @@ export async function registerAdminOverviewRoutes(
       settings.getInt('log_retention_days_graph_stats', 180),
       settings.getWithMeta('client_version_lock'),
       settings.getFlag('claude_api_disabled', false),
-      settings.getString('claude_default_model', 'claude-sonnet-4-6'),
+      settings.getString('claude_default_model', CLAUDE_DEFAULT_MODEL),
       scaling.currentStatus(),
     ]);
 

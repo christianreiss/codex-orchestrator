@@ -19,10 +19,10 @@ import { createHash } from 'node:crypto';
 
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-terra';
-export const DEFAULT_CODEX_REASONING_EFFORT = 'high';
+export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
 
 export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
-export const FORCE_UPGRADE_REASONING_EFFORT = DEFAULT_CODEX_REASONING_EFFORT;
+export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-5.6-sol',
@@ -48,14 +48,14 @@ export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
 // agree — never downgrade to a gate-rejected id. This map is the stored-override
 // input domain and is deliberately separate from the gate's request-side map.
 export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
-  'claude-3-opus-20240229': 'claude-opus-4-7',
-  'claude-3-sonnet-20240229': 'claude-sonnet-4-6',
+  'claude-3-opus-20240229': 'claude-opus-4-8',
+  'claude-3-sonnet-20240229': 'claude-sonnet-5',
   'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-5',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
   'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
-  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
-  'claude-opus-4-20250514': 'claude-opus-4-7',
+  'claude-sonnet-4-20250514': 'claude-sonnet-5',
+  'claude-opus-4-20250514': 'claude-opus-4-8',
 };
 
 export const REASONING_EFFORTS: readonly string[] = [
@@ -71,15 +71,29 @@ export const REASONING_EFFORTS: readonly string[] = [
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-5.5': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5.4': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5.4-mini': ['minimal', 'low', 'medium', 'high'],
-  'gpt-5.3-codex-spark': ['minimal', 'low', 'medium', 'high'],
+  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'gpt-5.5': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.4-mini': ['low', 'medium', 'high', 'xhigh'],
+  'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
+};
+
+/** Defaults reported by the current Codex CLI model catalog. */
+export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
+  'gpt-5.6-sol': 'low',
+  'gpt-5.6-terra': 'medium',
+  'gpt-5.6-luna': 'medium',
+  'gpt-5.5': 'medium',
+  'gpt-5.4': 'medium',
+  'gpt-5.4-mini': 'medium',
+  'gpt-5.3-codex-spark': 'high',
 };
 
 /** Claude Code effort levels that may be persisted in settings.json per model. */
 export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
   'claude-sonnet-4-6': ['low', 'medium', 'high'],
   'claude-haiku-4-5-20251001': [],
@@ -87,6 +101,9 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
 
 /** Fleet defaults used when an operator selects a Claude model without an effort. */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
+  'claude-fable-5': 'high',
+  'claude-opus-4-8': 'high',
+  'claude-sonnet-5': 'high',
   'claude-opus-4-7': 'xhigh',
   'claude-sonnet-4-6': 'high',
   'claude-haiku-4-5-20251001': null,
@@ -225,6 +242,11 @@ export function normalizeReasoningEffortForModel(value: unknown, model: string |
   return supported.includes(effort) ? effort : null;
 }
 
+export function defaultCodexReasoningEffortForModel(model: string | null): string | null {
+  if (model === null) return null;
+  return CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model] ?? null;
+}
+
 /** Claude settings.json `effortLevel`, constrained by the selected Claude model. */
 export function normalizeClaudeEffortLevel(value: unknown, model: string | null): string | null {
   const effort = normalizeString(value)?.toLowerCase() ?? null;
@@ -284,7 +306,8 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
       const forceUpgraded = isLegacyModelUpgrade(rawModel);
       const reasoning = forceUpgraded && model !== null
         ? FORCE_UPGRADE_REASONING_EFFORT
-        : normalizeReasoningEffortForModel(profile.model_reasoning_effort, model);
+        : normalizeReasoningEffortForModel(profile.model_reasoning_effort, model)
+          ?? (profile.model !== undefined ? defaultCodexReasoningEffortForModel(model) : null);
       if (model !== null) profile.model = model;
       else delete profile.model;
       if (reasoning !== null) profile.model_reasoning_effort = reasoning;
@@ -323,9 +346,11 @@ export function normalizeSettings(
   const reasoning = forceUpgraded && model !== null
     ? FORCE_UPGRADE_REASONING_EFFORT
     : normalizeReasoningEffortForModel(
-      settings.model_reasoning_effort ?? (applyCodexDefaults ? DEFAULT_CODEX_REASONING_EFFORT : undefined),
+      settings.model_reasoning_effort,
       model,
-    );
+    ) ?? (applyCodexDefaults
+      ? defaultCodexReasoningEffortForModel(model) ?? DEFAULT_CODEX_REASONING_EFFORT
+      : null);
 
   const security = asRecord(settings.security);
   const securityBypass = normalizeBool(security.dangerously_bypass_approvals_and_sandbox);

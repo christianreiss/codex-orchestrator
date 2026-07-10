@@ -11,10 +11,13 @@ import { versions } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
 
-export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
-/** Order matters: first entry is the canonical default. */
+/** Current models first, followed by supported pinned predecessors. */
 export const CLAUDE_SUPPORTED_MODELS = [
+  'claude-fable-5',
+  'claude-opus-4-8',
+  'claude-sonnet-5',
   'claude-opus-4-7',
   'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001',
@@ -27,19 +30,19 @@ export type ClaudeModel = (typeof CLAUDE_SUPPORTED_MODELS)[number];
  * Anthropic SDK's "current generation" model names working out of the box.
  */
 export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
-  'claude-3-opus-20240229': 'claude-opus-4-7',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
-  'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
+  'claude-3-opus-20240229': 'claude-opus-4-8',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-5',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
+  'claude-3-5-sonnet-latest': 'claude-sonnet-5',
   'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
   'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
-  'claude-opus-4-20250514': 'claude-opus-4-7',
-  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
-  'claude-sonnet-4-5': 'claude-sonnet-4-6',
+  'claude-opus-4-20250514': 'claude-opus-4-8',
+  'claude-sonnet-4-20250514': 'claude-sonnet-5',
+  'claude-sonnet-4-5': 'claude-sonnet-5',
   // Heal ids issued by the pre-2026-06-15 admin picker, which offered the short
   // `claude-opus-4-6` / `claude-haiku-4-5` ids that this gate never accepted.
   // Upgrade already-stored overrides/requests instead of 400-ing them.
-  'claude-opus-4-6': 'claude-opus-4-7',
+  'claude-opus-4-6': 'claude-opus-4-8',
   'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 };
 

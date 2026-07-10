@@ -19,6 +19,7 @@
  */
 import type { FastifyReply } from 'fastify';
 import type { ClaudeMessageResponse } from '../../services/adapters/runner-claude.js';
+import { CLAUDE_DEFAULT_MODEL } from '../../services/claude-models.js';
 
 export interface AnthropicSseEvent {
   event: string;
@@ -30,7 +31,7 @@ export interface AnthropicSseEvent {
  */
 export function messageStreamEvents(message: ClaudeMessageResponse): AnthropicSseEvent[] {
   const id = message.id || `msg_${randomHex(12)}`;
-  const model = message.model || 'claude-sonnet-4-6';
+  const model = message.model || CLAUDE_DEFAULT_MODEL;
   const usage =
     message.usage ?? {
       input_tokens: 0,

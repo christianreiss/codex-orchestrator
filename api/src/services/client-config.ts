@@ -42,10 +42,10 @@ import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
-  DEFAULT_CODEX_REASONING_EFFORT,
   FORCE_UPGRADE_REASONING_EFFORT,
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   type NormalizedSettings,
+  defaultCodexReasoningEffortForModel,
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
   normalizeSettings,
@@ -323,7 +323,7 @@ function applyHostModelOverrides(
     ? forceUpgradedOverride
       ? FORCE_UPGRADE_REASONING_EFFORT
       : normalizeReasoningEffortForModel(effortOverrideRaw, modelOverride)
-        ?? normalizeReasoningEffortForModel(DEFAULT_CODEX_REASONING_EFFORT, modelOverride)
+        ?? defaultCodexReasoningEffortForModel(modelOverride)
     : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
 
   if (modelOverride !== null) out['model'] = modelOverride;
@@ -337,7 +337,7 @@ function applyHostModelOverrides(
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
       const profile = { ...(entry as Record<string, unknown>) };
       if (normalizeName(profile['name']) !== activeProfile) return profile;
-      const profileModel = modelOverride ?? normalizeStoredModel(profile['model']);
+      const profileModel = modelOverride ?? normalizeStoredModel(profile['model']) ?? effectiveModel;
       const profileEffort = modelOverride !== null
         ? effortOverride
         : normalizeReasoningEffortForModel(effortOverrideRaw, profileModel);

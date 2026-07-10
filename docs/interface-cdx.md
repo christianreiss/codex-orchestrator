@@ -72,12 +72,15 @@ Codex CLI model and its model-dependent persistent effort. The endpoint writes
 Codex's native top-level `config.toml` keys, `model` and
 `model_reasoning_effort`, into the canonical Codex config document; this matches
 the official Codex config schema rather than introducing wrapper-only names.
-The fleet starts on `gpt-5.6-terra` at `high` effort.
+The fleet starts on `gpt-5.6-terra` at its native `medium` effort.
 
 | Models | Persistent efforts | Default effort |
 |---|---|---|
-| `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `high` |
-| `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark` | `minimal`, `low`, `medium`, `high` | `high` |
+| `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| `gpt-5.6-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` | `low`, `medium`, `high`, `xhigh` | `medium` |
+| `gpt-5.3-codex-spark` | `low`, `medium`, `high`, `xhigh` | `high` |
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict

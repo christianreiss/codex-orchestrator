@@ -98,11 +98,10 @@
         <Label for="claude-model">Proxy default model</Label>
         <ModelSelect
           id="claude-model"
-          allowCustom
           bind:value={modelInput}
           options={CLAUDE_MODEL_OPTIONS}
           label="Proxy default model"
-          placeholder="claude-sonnet-4-6"
+          placeholder="claude-sonnet-5"
           class="w-full"
         />
       </div>

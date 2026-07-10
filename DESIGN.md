@@ -461,9 +461,11 @@ CORS headers include `x-api-key` and `anthropic-version` in
 
 `src/Services/ClaudeModelService.php` manages the Claude model allowlist.
 
-- **Supported models:** `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`.
+- **Supported models:** `claude-fable-5`, `claude-opus-4-8`,
+  `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`,
+  `claude-haiku-4-5-20251001`.
 - **Default model:** resolved from admin config (`claude_model` setting),
-  then `claude_default_model` version key, falling back to `claude-sonnet-4-6`.
+  then `claude_default_model` version key, falling back to `claude-sonnet-5`.
 - **Legacy model upgrades:** 9 legacy model names (e.g. `claude-3-opus-20240229`,
   `claude-sonnet-4-20250514`) are silently mapped to current equivalents.
 - **`resolveRequestedModel()`:** validates the requested model against the

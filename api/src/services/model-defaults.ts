@@ -3,9 +3,10 @@ import { ValidationError } from '../http/errors.js';
 import {
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   CLAUDE_MODEL_REASONING_EFFORTS,
+  CODEX_MODEL_DEFAULT_REASONING_EFFORTS,
   DEFAULT_CODEX_MODEL,
-  DEFAULT_CODEX_REASONING_EFFORT,
   MODEL_REASONING_EFFORTS,
+  SUPPORTED_MODELS,
 } from './config-normalizer.js';
 import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
@@ -29,21 +30,34 @@ export interface ModelDefaultsUpdate {
   reasoning_effort?: string | null;
 }
 
-const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = Object.entries(MODEL_REASONING_EFFORTS).map(
-  ([model, efforts]) => ({
-    model,
-    persistent_efforts: [...efforts],
-    default_effort: efforts.includes(DEFAULT_CODEX_REASONING_EFFORT)
-      ? DEFAULT_CODEX_REASONING_EFFORT
-      : (efforts[0] ?? null),
-  }),
+const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = SUPPORTED_MODELS.map(
+  (model) => {
+    const efforts = MODEL_REASONING_EFFORTS[model];
+    const defaultEffort = CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    if (!efforts || !defaultEffort || !efforts.includes(defaultEffort)) {
+      throw new Error(`Codex model catalog is incomplete for ${model}`);
+    }
+    return {
+      model,
+      persistent_efforts: [...efforts],
+      default_effort: defaultEffort,
+    };
+  },
 );
 
-const CLAUDE_CATALOG: readonly ModelDefaultsCatalogEntry[] = CLAUDE_SUPPORTED_MODELS.map((model) => ({
-  model,
-  persistent_efforts: [...(CLAUDE_MODEL_REASONING_EFFORTS[model] ?? [])],
-  default_effort: CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS[model] ?? null,
-}));
+const CLAUDE_CATALOG: readonly ModelDefaultsCatalogEntry[] = CLAUDE_SUPPORTED_MODELS.map((model) => {
+  const efforts = CLAUDE_MODEL_REASONING_EFFORTS[model];
+  const hasDefault = Object.hasOwn(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, model);
+  const defaultEffort = CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS[model] ?? null;
+  if (!efforts || !hasDefault || (defaultEffort !== null && !efforts.includes(defaultEffort))) {
+    throw new Error(`Claude model catalog is incomplete for ${model}`);
+  }
+  return {
+    model,
+    persistent_efforts: [...efforts],
+    default_effort: defaultEffort,
+  };
+});
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)

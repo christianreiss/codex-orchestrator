@@ -32,7 +32,7 @@ Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error enve
 
 **Rate limiting**: per-key RPM using the `anthropic:{key_id}` bucket (default 60 RPM, configurable per key). Exceeding the limit returns HTTP 429 with a `Retry-After: 60` header.
 
-**Supported models**: `claude-opus-4-7`, `claude-sonnet-4-6` (default), `claude-haiku-4-5-20251001`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to the current equivalents.
+**Supported models**: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to current catalog equivalents.
 
 #### `POST /anthropic/v1/messages`
 
@@ -43,7 +43,7 @@ Anthropic-compatible Messages API.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `messages` | array | yes | Array of `{role, content}` objects. Roles: `user`, `assistant`, `system`. |
-| `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-4-6`). |
+| `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-5`). |
 | `max_tokens` | integer | no | Maximum tokens to generate. |
 | `temperature` | float | no | Sampling temperature (0-1). |
 | `top_p` | float | no | Nucleus sampling (0-1). |
@@ -65,7 +65,7 @@ OpenAI-format image parts (`image_url`, `input_image`) are automatically convert
   "type": "message",
   "role": "assistant",
   "content": [{"type": "text", "text": "..."}],
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "stop_reason": "end_turn",
   "stop_sequence": null,
   "usage": {
@@ -107,7 +107,7 @@ Legacy text completion endpoint.
   "id": "msg_<hex>",
   "type": "completion",
   "completion": "...",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "stop_reason": "end_turn",
   "usage": {"input_tokens": 10, "output_tokens": 50}
 }
@@ -133,7 +133,7 @@ Responses API compatibility adapter (non-streaming only).
   "object": "response",
   "created_at": 1234567890,
   "status": "completed",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "output": [{
     "id": "msg_<hex>",
     "type": "message",
@@ -154,6 +154,9 @@ List available Claude models.
 {
   "object": "list",
   "data": [
+    {"id": "claude-fable-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"id": "claude-opus-4-8", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"id": "claude-sonnet-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
     {"id": "claude-opus-4-7", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
     {"id": "claude-sonnet-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
     {"id": "claude-haiku-4-5-20251001", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
@@ -323,7 +326,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/vip` — toggle VIP (VIP hosts always behave warn-only for quota hard-fail).
 - `POST /admin/hosts/{id}/curl-insecure` — toggle sync TLS verification bypass (`allow` boolean).
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`).
-- `POST /admin/hosts/{id}/model` — set per-host Codex `model_override` / `reasoning_effort_override` and Claude `claude_model_override` (null/empty clears). Codex supports `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`; effort must be valid for the selected model. Terra is the fleet default at `high`; Sol/Terra/Luna support `low|medium|high|xhigh|max|ultra`, while legacy models keep `minimal|low|medium|high`. Claude supported models: `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Stored retired Codex overrides are backfilled to Terra with `high` effort.
+- `POST /admin/hosts/{id}/model` — set per-host Codex `model_override` / `reasoning_effort_override` and Claude `claude_model_override` (null/empty clears). Codex supports `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.3-codex-spark`; effort must be valid for the selected model. Terra is the fleet default at `medium`; Sol/Terra support `low|medium|high|xhigh|max|ultra`, Luna stops at `max`, and GPT-5.5/GPT-5.4/GPT-5.4 mini/Spark support `low|medium|high|xhigh`. Stored retired Codex overrides are backfilled to Terra with the intentionally retained `high` migration effort.
 - `POST /admin/hosts/{id}/codex-version` — set per-host Codex version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`).
 - `POST /admin/hosts/{id}/claude-version` — set per-host Claude Code version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`, or `claude_client_version_override`).
 - `POST /admin/hosts/{id}/agents-version` — set per-host AGENTS document override (`selection: "global"|"fleet"|"default"|<version_id>`).
@@ -346,7 +349,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - `GET /admin/model-defaults/{engine}` — read the `codex` or `claude` fleet CLI default. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`. It is read-only: when no engine config row exists it reports the catalog default without persisting it.
-- `POST /admin/model-defaults/{engine}` — strict body `{model, reasoning_effort?: string|null}`. Omitted/null effort selects the model default; invalid engine/model/effort or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; Claude persists `model` / `effortLevel`. Claude capabilities: Opus 4.7 `low|medium|high|xhigh` (default `xhigh`), Sonnet 4.6 `low|medium|high` (default `high`), Haiku 4.5 no persistent effort (`null`). Claude Code documents `max` as session-only, so it is deliberately excluded from this fleet-persistent API.
+- `POST /admin/model-defaults/{engine}` — strict body `{model, reasoning_effort?: string|null}`. Omitted/null effort selects the model default; invalid engine/model/effort or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; its model-specific effort sets/defaults match the per-host contract above. Claude persists `model` / `effortLevel`. Claude capabilities: Fable 5, Opus 4.8, and Sonnet 5 support persistent `low|medium|high|xhigh` (default `high`); Opus 4.7 supports the same set with default `xhigh`; Sonnet 4.6 supports `low|medium|high` (default `high`); Haiku 4.5 has no persistent effort (`null`). Claude Code documents `max` as session-only, so it is deliberately excluded from this fleet-persistent API.
 - Claude admin endpoints:
   - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, rate_limit_rpm, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
   - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, rate_limit_rpm? (default 60), expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
@@ -354,7 +357,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability.
   - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
-  - `POST /admin/claude/settings` — update the separate Anthropic-compatible API proxy defaults. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-opus-4-7`, `claude-sonnet-4-6` (default), `claude-haiku-4-5-20251001`.
+  - `POST /admin/claude/settings` — update the separate Anthropic-compatible API proxy defaults. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).

@@ -31,16 +31,20 @@ function fakeDb(): Database {
 
 describe('claude-models', () => {
   it('exposes a non-empty static catalog and a sane default', () => {
-    expect(CLAUDE_SUPPORTED_MODELS.length).toBeGreaterThan(0);
-    expect((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(CLAUDE_DEFAULT_MODEL)).toBe(true);
-    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-opus-4-7');
-    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-sonnet-4-6');
-    expect(CLAUDE_SUPPORTED_MODELS).toContain('claude-haiku-4-5-20251001');
+    expect(CLAUDE_DEFAULT_MODEL).toBe('claude-sonnet-5');
+    expect(CLAUDE_SUPPORTED_MODELS).toEqual([
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+      'claude-opus-4-7',
+      'claude-sonnet-4-6',
+      'claude-haiku-4-5-20251001',
+    ]);
   });
 
   it('maps legacy model ids onto the current generation', () => {
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-sonnet-4-5']).toBe('claude-sonnet-4-6');
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-sonnet-4-5']).toBe('claude-sonnet-5');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-8');
   });
 
   it('resolves missing/blank model strings to the default', async () => {
@@ -52,16 +56,19 @@ describe('claude-models', () => {
 
   it('resolves canonical and legacy model strings', async () => {
     const svc = createClaudeModelsService(fakeDb());
+    expect(await svc.resolveRequestedModel('claude-fable-5')).toBe('claude-fable-5');
+    expect(await svc.resolveRequestedModel('claude-opus-4-8')).toBe('claude-opus-4-8');
+    expect(await svc.resolveRequestedModel('CLAUDE-SONNET-5')).toBe('claude-sonnet-5');
     expect(await svc.resolveRequestedModel('claude-opus-4-7')).toBe('claude-opus-4-7');
     expect(await svc.resolveRequestedModel('CLAUDE-SONNET-4-6')).toBe('claude-sonnet-4-6');
-    expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-4-6');
+    expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-5');
   });
 
   it('upgrades pre-reconciliation picker ids to the gate canon', async () => {
     const svc = createClaudeModelsService(fakeDb());
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-6']).toBe('claude-opus-4-7');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-6']).toBe('claude-opus-4-8');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-haiku-4-5']).toBe('claude-haiku-4-5-20251001');
-    expect(await svc.resolveRequestedModel('claude-opus-4-6')).toBe('claude-opus-4-7');
+    expect(await svc.resolveRequestedModel('claude-opus-4-6')).toBe('claude-opus-4-8');
     expect(await svc.resolveRequestedModel('claude-haiku-4-5')).toBe('claude-haiku-4-5-20251001');
   });
 
