@@ -5,7 +5,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Codex CLI (multi-arch) ---
-ARG CODEX_TAG=rust-v0.125.0
+# Keep in step with the fleet's codex target: the probe must run the same
+# model catalog as real hosts. 0.125.0 predated the GPT-5.6 default probe
+# model (gpt-5.6-terra) and rejected every VALID fresh login as
+# "failed live verification", pinning the fleet canonical on a dead token.
+ARG CODEX_TAG=rust-v0.144.1
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
 ARG TARGETARCH
