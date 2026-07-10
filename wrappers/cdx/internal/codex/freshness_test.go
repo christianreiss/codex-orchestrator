@@ -134,9 +134,13 @@ func TestIsValidLocalAuth_WithOpenAIKey(t *testing.T) {
 }
 
 func TestIsValidLocalAuth_MissingLastRefresh(t *testing.T) {
+	// Vanilla `codex login` files carry no last_refresh — they must still count
+	// as structurally valid (upstream codex only needs the tokens). Requiring
+	// the stamp made a freshly-minted login "invalid" for concurrent runs and
+	// failed-verification fallback.
 	p := writeAuth(t, `{"auths":{"x":{"token":"t"}}}`)
-	if IsValidLocalAuth(p) {
-		t.Fatalf("want invalid (no last_refresh)")
+	if !IsValidLocalAuth(p) {
+		t.Fatalf("want valid (vanilla login file without last_refresh)")
 	}
 }
 
@@ -167,5 +171,51 @@ func TestIsValidLocalAuth_BadJSON(t *testing.T) {
 	p := writeAuth(t, `not-json`)
 	if IsValidLocalAuth(p) {
 		t.Fatalf("want invalid")
+	}
+}
+
+func TestLastRefreshOfFile_UsesStamp(t *testing.T) {
+	stamp := time.Now().Add(-30 * 24 * time.Hour) // stamp far older than mtime
+	p := writeAuth(t, `{"last_refresh":"`+tsZ(stamp)+`","auths":{"x":{"token":"t"}}}`)
+	got, err := LastRefreshOfFile(p)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got.Sub(stamp.UTC()).Abs() > time.Second {
+		t.Fatalf("want stamp time %v, got %v (must not fall back to mtime)", stamp.UTC(), got)
+	}
+}
+
+func TestLastRefreshOfFile_MtimeFallbackForVanillaLogin(t *testing.T) {
+	// Vanilla `codex login` files have no last_refresh; the file mtime is the
+	// only freshness signal — without it a fresh login compares older than any
+	// stale canonical and gets clobbered.
+	p := writeAuth(t, `{"auths":{"x":{"token":"t"}}}`)
+	got, err := LastRefreshOfFile(p)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if time.Since(got) > time.Minute {
+		t.Fatalf("want ~now via mtime, got %v", got)
+	}
+}
+
+func TestLastRefreshOfFile_Missing(t *testing.T) {
+	if _, err := LastRefreshOfFile(filepath.Join(t.TempDir(), "auth.json")); err == nil {
+		t.Fatalf("want error for missing file")
+	}
+}
+
+func TestLastRefreshFromRaw(t *testing.T) {
+	stamp := time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC)
+	got, err := LastRefreshFromRaw([]byte(`{"last_refresh":"2026-06-08T15:26:33Z"}`))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !got.Equal(stamp) {
+		t.Fatalf("want %v, got %v", stamp, got)
+	}
+	if _, err := LastRefreshFromRaw([]byte(`{}`)); err == nil {
+		t.Fatalf("want error when stamp absent")
 	}
 }

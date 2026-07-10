@@ -202,3 +202,29 @@ func TestValidateWrapperUpdateArtifactAllowsUpgrade(t *testing.T) {
 		t.Fatalf("version = %q", got.Version)
 	}
 }
+
+// TestLoginRotatedAuth pins when a completed `cdx login` triggers the
+// post-login credential upload: only a zero exit AND a changed, non-empty
+// auth.json digest. `codex login status` (digest unchanged) and failed logins
+// must not upload.
+func TestLoginRotatedAuth(t *testing.T) {
+	cases := []struct {
+		name          string
+		exit          int
+		before, after string
+		want          bool
+	}{
+		{"fresh login rotates", 0, "aaa", "bbb", true},
+		{"first-ever login (no prior file)", 0, "", "bbb", true},
+		{"login status leaves digest untouched", 0, "aaa", "aaa", false},
+		{"failed login never uploads", 1, "aaa", "bbb", false},
+		{"login removed the file", 0, "aaa", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loginRotatedAuth(tc.exit, tc.before, tc.after); got != tc.want {
+				t.Fatalf("loginRotatedAuth(%d, %q, %q) = %v, want %v", tc.exit, tc.before, tc.after, got, tc.want)
+			}
+		})
+	}
+}

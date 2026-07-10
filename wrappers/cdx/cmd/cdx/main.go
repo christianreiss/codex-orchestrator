@@ -384,10 +384,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// wrapper-owned subcommands above win first; isHelpPassthrough has
 		// already caught `--help` variants.
 		if reservedCodexSubcommands[sub] {
+			// A successful `cdx login` mints the fleet's most precious
+			// credential — snapshot the local auth digest so we can detect the
+			// rotation and push it to the orchestrator afterwards. Without
+			// this the fresh token only ever existed on this disk, and the
+			// next sync clobbered it with the stale fleet canonical.
+			beforeDigest := ""
+			if sub == "login" {
+				beforeDigest, _ = codex.LocalDigest()
+			}
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := codex.Run(ctx, cfg, execArgs)
 			if err != nil {
 				fmt.Fprintln(stderr, "cdx "+sub+":", err)
+			}
+			if sub == "login" {
+				afterDigest, _ := codex.LocalDigest()
+				if loginRotatedAuth(exit, beforeDigest, afterDigest) {
+					if code := cmdAuthUpload(ctx, cfg, stdout, stderr); code != 0 {
+						fmt.Fprintln(stderr, "cdx login: WARNING — the new credentials were NOT synced to the orchestrator; the fleet still holds the previous token. Retry with `cdx auth-upload`.")
+					}
+				}
 			}
 			return exit
 		}
@@ -692,6 +709,14 @@ func cmdProfile(ctx context.Context, cfg *config.Config, args []string, stderr i
 		fmt.Fprintln(stderr, "profile:", err)
 	}
 	return exit
+}
+
+// loginRotatedAuth reports whether a completed `cdx login` actually minted new
+// local credentials worth uploading: the upstream CLI exited 0 and the
+// auth.json digest changed to a non-empty value. `codex login status` and
+// aborted logins leave the digest untouched and must not trigger an upload.
+func loginRotatedAuth(exit int, beforeDigest, afterDigest string) bool {
+	return exit == 0 && afterDigest != "" && afterDigest != beforeDigest
 }
 
 // cmdAuthUpload pushes a locally-edited auth.json to the orchestrator.

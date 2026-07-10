@@ -49,8 +49,9 @@ type Options struct {
 // localProbe is the cached LocalAuthProbe binding to the codex package
 // helpers; lets orchestrator.Decide work without importing codex.
 var localProbe = orchestrator.LocalAuthProbe{
-	IsValid: codex.IsValidLocalAuth,
-	IsFresh: codex.IsFresh,
+	IsValid:     codex.IsValidLocalAuth,
+	IsFresh:     codex.IsFresh,
+	LastRefresh: codex.LastRefreshOfFile,
 }
 
 var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
@@ -372,13 +373,19 @@ func bootstrap(
 	if authResp == nil {
 		authResp = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: "bundle missing auth block"}
 	}
-	authSynced := false
-	if shouldWriteServerAuth(authResp.Status, authResp.Auth) {
-		if err := codex.WriteAuth(authResp.Auth); err != nil {
-			logger.Warn("auth write from bundle failed", "err", err)
-		} else {
-			authSynced = true
-			logger.Debug("auth.json updated from /sync/bootstrap", "concurrent", concurrent)
+	authSynced, keptFresherLocal := applyServerAuth(logger, authPath, authResp, concurrent)
+	if keptFresherLocal && !concurrent {
+		// The fleet canonical is behind this host's credential (typically a
+		// fresh `codex login` the server-side store gated — runner outage or
+		// an old server). Push it explicitly so the fleet converges as soon
+		// as the store accepts again; never block launch on the outcome.
+		if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
+			if perr := pushAuthCandidate(ctx, client, raw); perr != nil {
+				logger.Warn("fresher local auth upload rejected", "err", perr)
+				fmt.Fprintln(os.Stderr, "cdx: orchestrator did not accept the newer local credentials: "+perr.Error())
+			} else {
+				fmt.Fprintln(os.Stderr, "cdx: newer local credentials uploaded to the orchestrator")
+			}
 		}
 	}
 
@@ -450,11 +457,18 @@ func isBundleUnsupported(err error) bool {
 // pushAuthCandidate uploads the local file via the standalone /auth store
 // endpoint. (The bundle endpoint also accepts auth_candidate inline, but on
 // the upload-required path we want a direct round-trip so we get a stable
-// store-side error if it rejects.)
+// store-side error if it rejects.) The store endpoint REQUIRES last_refresh;
+// vanilla `codex login` files carry none, so backfill it in-memory the same
+// way `cdx auth-upload` does — without this the post-login recovery upload
+// always bounced on the server's RFC3339 validation.
 func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, raw []byte) error {
+	payload, _, err := codex.BackfillLastRefresh(raw)
+	if err != nil {
+		payload = raw
+	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return client.AuthStore(cctx, raw)
+	return client.AuthStore(cctx, payload)
 }
 
 // needsInteractiveAuthRecovery reports whether the launch gate has reached a
@@ -492,7 +506,26 @@ func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error
 	}
 	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
 	case "missing", "upload_required":
-		return uploadErr != nil || !localAuthUsable()
+		if uploadErr != nil {
+			// Only a definitive server-side rejection (4xx) means the local
+			// credentials are actually bad and a re-login can fix things. An
+			// infrastructure failure (runner outage 503, transport error)
+			// would reject the freshly-minted token exactly the same way —
+			// prompting a login loop that cannot succeed. Launch with the
+			// local file instead; the next run re-attempts the upload.
+			return authUploadRejected(uploadErr)
+		}
+		return !localAuthUsable()
+	}
+	return false
+}
+
+// authUploadRejected reports whether the /auth store error is a definitive
+// 4xx rejection of the credentials (as opposed to a gated/unavailable store).
+func authUploadRejected(err error) bool {
+	var he *orchestrator.HTTPError
+	if errors.As(err, &he) {
+		return he.StatusCode >= 400 && he.StatusCode < 500
 	}
 	return false
 }
@@ -573,14 +606,9 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 	case "current", "ok", "valid", "unchanged", "":
 		return resp, nil, false
 	case "outdated", "updated", "missing":
-		if len(resp.Auth) == 0 {
-			return resp, nil, false
-		}
-		if err := codex.WriteAuth(resp.Auth); err != nil {
-			return resp, err, false
-		}
-		logger.Debug("auth.json updated from orchestrator", "concurrent", concurrent)
-		return resp, nil, true
+		authPath, _ := codex.AuthPath()
+		wrote, _ := applyServerAuth(logger, authPath, resp, concurrent)
+		return resp, nil, wrote
 	default:
 		// Unknown / refused / insecure — return the response as-is and let
 		// Decide() classify; do not synthesise an error here.
@@ -598,6 +626,61 @@ func shouldWriteServerAuth(status string, auth []byte) bool {
 	default:
 		return false
 	}
+}
+
+// applyServerAuth decides whether the server's canonical payload may replace
+// ~/.codex/auth.json and writes it when allowed. Two refusal gates in front of
+// the legacy status check:
+//
+//  1. verification_state=failed — the server itself says this blob does not
+//     authenticate; materializing a known-bad credential is never right.
+//  2. the local file is FRESHER than the payload — a login the orchestrator
+//     has not adopted yet (runner outage gating the store, old server, …).
+//     Overwriting would destroy the only copy of the newer credential; this
+//     is exactly the `codex login` → relaunch → clobbered-by-stale-canonical
+//     failure.
+//
+// Returns (wrote, keptFresherLocal).
+func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.AuthRetrieveResponse, concurrent bool) (bool, bool) {
+	if resp == nil || !shouldWriteServerAuth(resp.Status, resp.Auth) {
+		return false, false
+	}
+	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		logger.Warn("server canonical auth failed live verification; keeping local auth.json")
+		return false, false
+	}
+	if localAuthFresherThan(authPath, resp.Auth) {
+		logger.Warn("local auth.json is newer than server canonical; refusing to overwrite",
+			"canonical_last_refresh", resp.CanonicalLastRefresh)
+		fmt.Fprintln(os.Stderr, "cdx: local auth.json is newer than the fleet canonical — keeping the local copy")
+		return false, true
+	}
+	if err := codex.WriteAuth(resp.Auth); err != nil {
+		logger.Warn("auth write from server failed", "err", err)
+		return false, false
+	}
+	logger.Debug("auth.json updated from orchestrator", "concurrent", concurrent, "status", resp.Status)
+	return true, false
+}
+
+// localAuthFresherThan reports whether the on-disk auth.json is strictly newer
+// than the server payload. Freshness of the local file is its last_refresh
+// stamp, falling back to file mtime for vanilla `codex login` files that carry
+// none. A server payload without a parseable last_refresh never wins over an
+// existing local file.
+func localAuthFresherThan(localPath string, serverAuth []byte) bool {
+	if localPath == "" {
+		return false
+	}
+	localT, err := codex.LastRefreshOfFile(localPath)
+	if err != nil {
+		return false
+	}
+	serverT, err := codex.LastRefreshFromRaw(serverAuth)
+	if err != nil {
+		return true
+	}
+	return localT.After(serverT)
 }
 
 func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error) {

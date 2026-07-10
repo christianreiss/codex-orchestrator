@@ -52,6 +52,64 @@ func TestDecide_TableDriven(t *testing.T) {
 			want: wantD{reason: "failed live verification"},
 		},
 		{
+			name: "verification failed but newer local login launches locally",
+			resp: &AuthRetrieveResponse{
+				Status:               "outdated",
+				VerificationState:    "failed",
+				CanonicalLastRefresh: time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+			},
+			path: "/dev/null",
+			probe: LocalAuthProbe{
+				IsValid:     func(string) bool { return true },
+				LastRefresh: func(string) (time.Time, error) { return time.Now().UTC().Add(-time.Hour), nil },
+			},
+			want: wantD{allowed: true, local: true, reason: "newer local auth.json"},
+		},
+		{
+			name: "verification failed with older local still refuses",
+			resp: &AuthRetrieveResponse{
+				Status:               "outdated",
+				VerificationState:    "failed",
+				CanonicalLastRefresh: time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+			},
+			path: "/dev/null",
+			probe: LocalAuthProbe{
+				IsValid:     func(string) bool { return true },
+				LastRefresh: func(string) (time.Time, error) { return time.Now().UTC().Add(-30 * 24 * time.Hour), nil },
+			},
+			want: wantD{reason: "failed live verification"},
+		},
+		{
+			name: "verification failed with equal stamps refuses (local IS the canonical)",
+			resp: &AuthRetrieveResponse{
+				Status:               "outdated",
+				VerificationState:    "failed",
+				CanonicalLastRefresh: "2026-06-08T15:26:33Z",
+			},
+			path: "/dev/null",
+			probe: LocalAuthProbe{
+				IsValid: func(string) bool { return true },
+				LastRefresh: func(string) (time.Time, error) {
+					return time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC), nil
+				},
+			},
+			want: wantD{reason: "failed live verification"},
+		},
+		{
+			name: "verification failed with invalid local refuses",
+			resp: &AuthRetrieveResponse{
+				Status:               "outdated",
+				VerificationState:    "failed",
+				CanonicalLastRefresh: time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+			},
+			path: "/dev/null",
+			probe: LocalAuthProbe{
+				IsValid:     func(string) bool { return false },
+				LastRefresh: func(string) (time.Time, error) { return time.Now().UTC(), nil },
+			},
+			want: wantD{reason: "failed live verification"},
+		},
+		{
 			name: "verification verified allows",
 			resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "verified"},
 			want: wantD{allowed: true},

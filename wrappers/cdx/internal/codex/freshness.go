@@ -55,11 +55,16 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 }
 
 // IsValidLocalAuth reports whether the file at path looks structurally usable
-// to upstream codex. Matches legacy bash `validate_auth_json_file`:
+// to upstream codex. Descends from legacy bash `validate_auth_json_file`, with
+// one deliberate relaxation: `last_refresh` is NOT required. Upstream codex
+// only needs tokens — the stamp is an orchestrator-ism that vanilla
+// `codex login` files never carry, and requiring it made a freshly-minted
+// login count as "invalid" (blocking concurrent runs and failed-verification
+// fallback right after the user re-authenticated).
 //
 //   - Parseable JSON object.
-//   - Either a non-empty `auths` map plus `last_refresh`, OR a fallback token
-//     under `tokens.access_token`/`OPENAI_API_KEY` plus `last_refresh`.
+//   - Either a non-empty `auths` map with per-entry tokens, OR a fallback
+//     token under `tokens.access_token`/`OPENAI_API_KEY`.
 func IsValidLocalAuth(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -67,10 +72,6 @@ func IsValidLocalAuth(path string) bool {
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return false
-	}
-	lr, _ := doc["last_refresh"].(string)
-	if strings.TrimSpace(lr) == "" {
 		return false
 	}
 	if auths, ok := doc["auths"].(map[string]any); ok && len(auths) > 0 {
@@ -96,6 +97,35 @@ func IsValidLocalAuth(path string) bool {
 		return true
 	}
 	return false
+}
+
+// LastRefreshFromRaw parses the last_refresh stamp out of raw auth.json
+// bytes. Errors when the field is absent, empty, or unparseable.
+func LastRefreshFromRaw(raw []byte) (time.Time, error) {
+	return lastRefreshFrom(raw)
+}
+
+// LastRefreshOfFile returns the effective freshness time of the auth file at
+// path: its last_refresh stamp when present, else the file's mtime. The mtime
+// fallback matters because a vanilla `codex login` writes auth.json WITHOUT
+// last_refresh — only orchestrator-written canonical blobs carry the stamp —
+// and a fresh login must still compare newer than a stale fleet canonical.
+func LastRefreshOfFile(path string) (time.Time, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return time.Time{}, ErrNoAuthFile
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if ts, perr := lastRefreshFrom(raw); perr == nil {
+		return ts, nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return st.ModTime().UTC(), nil
 }
 
 // lastRefreshFrom parses a value from arbitrary auth JSON. Tolerates the `Z`

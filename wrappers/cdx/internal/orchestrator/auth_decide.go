@@ -33,12 +33,15 @@ type AuthDecision struct {
 //
 //   - IsValid: structural check (matches legacy validate_auth_json_file).
 //   - IsFresh: returns true if last_refresh is within `window`.
+//   - LastRefresh: effective freshness time of the local file (last_refresh
+//     stamp, or mtime for vanilla `codex login` files that carry none).
 //
-// Either may be nil — callers that don't care about offline fallback can
+// Any may be nil — callers that don't care about offline fallback can
 // pass an empty LocalAuthProbe.
 type LocalAuthProbe struct {
-	IsValid func(path string) bool
-	IsFresh func(path string, window time.Duration) (bool, error)
+	IsValid     func(path string) bool
+	IsFresh     func(path string, window time.Duration) (bool, error)
+	LastRefresh func(path string) (time.Time, error)
 }
 
 // MaxLocalAuthAge mirrors legacy MAX_LOCAL_AUTH_AGE_SECONDS (general).
@@ -108,6 +111,19 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// open the interactive `codex login` recovery, rather than matching on
 	// this prose.
 	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		// The failed verdict is about the SERVER's canonical blob. When the
+		// local auth.json is strictly newer (a fresh `codex login` the
+		// orchestrator has not adopted yet — e.g. the runner outage gated the
+		// store), the verdict does not apply to it: launch with the local file
+		// instead of bricking the very host that just re-authenticated. The
+		// stale-local case is unaffected — an orchestrator-written file carries
+		// the canonical's own last_refresh, which is never newer than itself.
+		if localNewerThanCanonical(resp, localAuthPath, probe) {
+			d.Allowed = true
+			d.LocalUsable = true
+			d.Reason = "Fleet credentials failed verification; using newer local auth.json."
+			return d
+		}
 		d.Reason = "Codex credentials failed live verification (login expired). Re-authenticate with `codex login`, then re-run cdx."
 		d.VerificationFailed = true
 		return d
@@ -206,6 +222,42 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// wrapper update, not a silent launch).
 	d.Reason = "Unknown auth status " + status + "; refusing to start Codex."
 	return d
+}
+
+// localNewerThanCanonical reports whether the on-disk auth.json is structurally
+// usable AND strictly fresher than the server's canonical last_refresh. When
+// the server did not advertise a parseable canonical stamp, a valid local file
+// wins (there is nothing proving the canonical is newer).
+func localNewerThanCanonical(resp *AuthRetrieveResponse, localAuthPath string, probe LocalAuthProbe) bool {
+	if localAuthPath == "" || probe.IsValid == nil || probe.LastRefresh == nil {
+		return false
+	}
+	if !probe.IsValid(localAuthPath) {
+		return false
+	}
+	localT, err := probe.LastRefresh(localAuthPath)
+	if err != nil {
+		return false
+	}
+	canonicalT, ok := parseCanonicalRefresh(resp.CanonicalLastRefresh)
+	if !ok {
+		return true
+	}
+	return localT.After(canonicalT)
+}
+
+// parseCanonicalRefresh parses the server's canonical_last_refresh stamp.
+func parseCanonicalRefresh(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 // ApplyConcurrent adjusts a base decision for a read-only secondary run — one
