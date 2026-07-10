@@ -78,6 +78,20 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
   'gpt-5.3-codex-spark': ['minimal', 'low', 'medium', 'high'],
 };
 
+/** Claude Code effort levels that may be persisted in settings.json per model. */
+export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
+  'claude-sonnet-4-6': ['low', 'medium', 'high'],
+  'claude-haiku-4-5-20251001': [],
+};
+
+/** Fleet defaults used when an operator selects a Claude model without an effort. */
+export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
+  'claude-opus-4-7': 'xhigh',
+  'claude-sonnet-4-6': 'high',
+  'claude-haiku-4-5-20251001': null,
+};
+
 export const PERSONALITIES: readonly string[] = ['friendly', 'pragmatic', 'none'];
 
 export const APPROVAL_POLICIES: readonly string[] = ['untrusted', 'on-request', 'on-failure', 'never'];
@@ -132,6 +146,7 @@ export interface NormalizedSettings {
   permissionMode?: string;
   env?: Record<string, string>;
   advisorModel?: string;
+  effortLevel?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -208,6 +223,14 @@ export function normalizeReasoningEffortForModel(value: unknown, model: string |
   const supported = MODEL_REASONING_EFFORTS[model];
   if (!supported) return effort;
   return supported.includes(effort) ? effort : null;
+}
+
+/** Claude settings.json `effortLevel`, constrained by the selected Claude model. */
+export function normalizeClaudeEffortLevel(value: unknown, model: string | null): string | null {
+  const effort = normalizeString(value)?.toLowerCase() ?? null;
+  if (effort === null || model === null) return null;
+  const supported = CLAUDE_MODEL_REASONING_EFFORTS[model];
+  return supported?.includes(effort) ? effort : null;
 }
 
 export function normalizePersonality(value: unknown): string | null {
@@ -347,6 +370,8 @@ export function normalizeSettings(
   if (env) out.env = env;
   const advisorModel = normalizeClaudeAdvisorModel(settings.advisorModel);
   if (advisorModel) out.advisorModel = advisorModel;
+  const effortLevel = normalizeClaudeEffortLevel(settings.effortLevel, model);
+  if (effortLevel) out.effortLevel = effortLevel;
 
   return out;
 }

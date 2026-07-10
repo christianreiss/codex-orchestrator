@@ -15,23 +15,23 @@
     claudeStateQuery,
   } from "$lib/api/settings";
 
-  /* ---------------- engine toggle ---------------- */
+  /* ---------------- API proxy toggle ---------------- */
   const stateQ = claudeStateQuery();
   let lastSavedAt = $state<Date | null>(null);
   const stateM = claudeStateMutation({
     onSuccess: () => {
       lastSavedAt = new Date();
-      toast.success("Claude engine updated");
+      toast.success("Claude API proxy updated");
     },
     onError: (err) => toast.error(err.message),
   });
 
-  /* ---------------- settings (model + max tokens) ---------------- */
+  /* ---------------- API proxy inference settings ---------------- */
   const settingsQ = claudeSettingsQuery();
   const settingsM = claudeSettingsMutation({
     onSuccess: () => {
       lastSavedAt = new Date();
-      toast.success("Claude settings saved");
+      toast.success("Claude API proxy defaults saved");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -70,20 +70,20 @@
 
 <SectionCard
   id="claude-engine"
-  title="Claude engine"
-  description="Claude API state, default model, and max tokens."
+  title="Claude API proxy"
+  description="Anthropic-compatible API proxy state and inference defaults. These do not control Claude Code fleet settings."
   {status}
   savedAt={lastSavedAt}
   error={errorMsg}
 >
   <SwitchRow
     id="claude-state-toggle"
-    label="Disable Claude engine"
+    label="Disable Claude API proxy"
     description={$stateQ.isPending
       ? "Loading…"
       : $stateQ.data?.disabled
-        ? "Claude routes are disabled."
-        : "Claude routes are enabled."}
+        ? "Claude API proxy routes are disabled."
+        : "Claude API proxy routes are enabled."}
     checked={$stateQ.data?.disabled ?? false}
     disabled={$stateQ.isPending || $stateM.isPending}
     onCheckedChange={(v) => $stateM.mutate(v)}
@@ -92,16 +92,16 @@
   <Separator />
 
   <div class="grid gap-3">
-    <p class="text-sm font-medium">Claude model defaults</p>
+    <p class="text-sm font-medium">API proxy inference defaults</p>
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
-        <Label for="claude-model">Default model</Label>
+        <Label for="claude-model">Proxy default model</Label>
         <ModelSelect
           id="claude-model"
           allowCustom
           bind:value={modelInput}
           options={CLAUDE_MODEL_OPTIONS}
-          label="Default model"
+          label="Proxy default model"
           placeholder="claude-sonnet-4-6"
           class="w-full"
         />
@@ -112,7 +112,7 @@
       </div>
     </div>
     <div>
-      <Button size="sm" disabled={$settingsM.isPending} onclick={saveSettings}>Save model defaults</Button>
+      <Button size="sm" disabled={$settingsM.isPending} onclick={saveSettings}>Save proxy defaults</Button>
     </div>
   </div>
 </SectionCard>

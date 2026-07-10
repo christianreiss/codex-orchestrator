@@ -442,6 +442,8 @@ export type ClaudeHooks = Record<string, ClaudeHookEntry[]>;
 
 export interface ClaudeConfigSettings {
   model?: string;
+  /** Fleet-wide Claude reasoning level, managed by the model-defaults endpoint. */
+  effortLevel?: string;
   env?: Record<string, string>;
   permissions?: ClaudePermissions;
   /** Fleet default permission mode → rendered as `permissions.defaultMode`. */
@@ -790,6 +792,26 @@ export interface ClaudeSettingsValue {
   default_model: string;
   max_tokens: number;
   disabled: boolean;
+}
+
+export type ModelDefaultsEngine = "codex" | "claude";
+
+export interface ModelDefaultsCatalogEntry {
+  model: string;
+  persistent_efforts: string[];
+  default_effort: string | null;
+}
+
+export interface ModelDefaultsValue {
+  engine: ModelDefaultsEngine;
+  model: string;
+  reasoning_effort: string | null;
+  catalog: ModelDefaultsCatalogEntry[];
+}
+
+export interface ModelDefaultsUpdate {
+  model: string;
+  reasoning_effort?: string | null;
 }
 
 export interface ClaudeVersionLockValue {

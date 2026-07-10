@@ -193,10 +193,22 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
 
 `~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
 `claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
-the fleet-managed keys (`model`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
+the fleet-managed keys (`model`, `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
 this run.
+
+- Settings → Claude and `GET/POST /admin/model-defaults/claude` own the fleet
+  `model` / `effortLevel` pair. POST accepts strict
+  `{model, reasoning_effort?: string|null}` but translates that common API field
+  to Claude Code's native `effortLevel` key on disk. Opus 4.7 persists
+  `low|medium|high|xhigh` and defaults to `xhigh`; Sonnet 4.6 persists
+  `low|medium|high` and defaults to `high`; Haiku 4.5 has no effort control, so
+  selecting it removes `effortLevel`. This follows Claude Code's documented
+  persistence model: `low`, `medium`, `high`, and `xhigh` can live in
+  `settings.json`, while `max` is session-only and is deliberately excluded.
+  These are Claude Code CLI defaults. The Anthropic-compatible proxy's
+  `/admin/claude/settings` `default_model` / `max_tokens` are separate.
 
 - `permissions.defaultMode` is the startup permission mode every managed Claude
   host runs in. It is **always** emitted: when the fleet settings pin no value it
@@ -215,9 +227,12 @@ this run.
 
 - The server renders the partial **only** from the Claude-engine `client_config`
   (or per-host `claude_model_override`) — it never falls back to the Codex config.
-  A greenfield Claude host with no authored Claude settings therefore receives an
-  empty partial **plus** the managed `mcpServers.clx` block, and no `model` key:
-  the Codex `model` (e.g. `gpt-5.6-terra`) must never leak into `settings.json`.
+  On a greenfield database, the model-defaults GET reports Sonnet 4.6 at `high`
+  but remains read-only; until an operator saves, a host receives neither key and
+  inherits Claude Code's own defaults. The first POST creates the canonical row
+  and subsequent syncs explicitly bake both keys. The Codex `model` (for example
+  `gpt-5.6-terra`) and `model_reasoning_effort` must never leak into
+  `settings.json`.
 - **`mcpServers.<name>` is the one exception to the settings.json destination:**
   Claude Code reads user-scope MCP servers from the **top level of
   `~/.claude.json`**, not from `settings.json`. The wrapper splits the

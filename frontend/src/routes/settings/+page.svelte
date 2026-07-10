@@ -19,6 +19,7 @@
   import PrunePolicySection from "$lib/components/settings/PrunePolicySection.svelte";
   import LogRetentionSection from "$lib/components/settings/LogRetentionSection.svelte";
   import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
+  import ModelDefaultsSection from "$lib/components/settings/ModelDefaultsSection.svelte";
 
   type SettingsTab = "general" | "codex" | "claude";
 
@@ -36,11 +37,13 @@
     "prune-policy": "general",
     "log-retention": "general",
     "openai-engine": "codex",
+    "codex-model-defaults": "codex",
     "codex-version": "codex",
     "cdx-silent": "codex",
     quotas: "codex",
     scaling: "codex",
     "claude-engine": "claude",
+    "claude-model-defaults": "claude",
     "claude-version": "claude",
     "claude-fleet-settings": "claude",
   };
@@ -114,6 +117,9 @@
 
   <Tabs.Content value="codex" class="pt-3">
     <div class="grid items-start gap-3 xl:grid-cols-2">
+      <div class="xl:col-span-2">
+        <ModelDefaultsSection engine="codex" />
+      </div>
       <OpenAIEngineSection />
       <CdxSilentSection />
       <CodexVersionSection />
@@ -126,6 +132,9 @@
 
   <Tabs.Content value="claude" class="space-y-3 pt-3">
     <div class="grid items-start gap-3 xl:grid-cols-2">
+      <div class="xl:col-span-2">
+        <ModelDefaultsSection engine="claude" />
+      </div>
       <ClaudeEngineSection />
       <ClaudeVersionSection />
     </div>

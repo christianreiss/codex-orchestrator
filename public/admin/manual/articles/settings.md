@@ -2,7 +2,7 @@
 title: Settings reference
 section: Admin workspace
 verified: 2026-07-10
-sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts
+sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts
 ---
 
 Configuration in Codex Orchestrator is spread across several distinct routes. This article covers the **Settings page** (`/settings`) and distinguishes it from the separate admin routes that handle users, agents, skills, memories, and projects. A final section documents environment variables that can only be set at deployment time and are not accessible through the admin UI.
@@ -18,8 +18,8 @@ The Settings page is split into three URL-addressable tabs:
 | Tab | URL | Contents |
 |---|---|---|
 | **General** | `/settings?tab=general` | API state, auto-update, reverse DNS, insecure approval, prune policy, and log retention. |
-| **Codex** | `/settings?tab=codex` | Codex engine, Codex version, silent mode, quotas, and usage scaling. |
-| **Claude** | `/settings?tab=claude` | Claude engine, API proxy defaults, Claude Code version, and the fleet `settings.json` editor. |
+| **Codex** | `/settings?tab=codex` | Codex engine, fleet model and effort, Codex version, silent mode, quotas, and usage scaling. |
+| **Claude** | `/settings?tab=claude` | Claude engine, fleet model and effort, API proxy defaults, Claude Code version, and the fleet `settings.json` editor. |
 
 A missing or invalid `tab` value opens **General**. The active tab follows browser history, and the panes remain mounted during tab changes so unsaved form input is preserved. Existing section hashes such as `#codex-version` select the matching tab before scrolling. The command palette exposes direct entries for Settings / General, Codex, and Claude.
 
@@ -67,6 +67,10 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 `GET /admin/openai/state`, `POST /admin/openai/state` — enable or disable the Codex/OpenAI engine fleet-wide. The API retains its historical `openai` path; the dashboard label is **Codex engine**.
 
+#### Fleet model and effort
+
+`GET /admin/model-defaults/codex`, `POST /admin/model-defaults/codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `high`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
+
 #### Codex version
 
 `POST /admin/codex-version` — pin the fleet-wide Codex CLI version to a semver string or `'latest'`. There is no paired GET for this endpoint.
@@ -97,6 +101,20 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 `GET /admin/claude/state`, `POST /admin/claude/state` — enable or disable the Claude engine fleet-wide.
 
+#### Fleet model and effort
+
+`GET /admin/model-defaults/claude`, `POST /admin/model-defaults/claude` — read or set the fleet-wide Claude Code model and persistent effort. The shared request field is named `reasoning_effort`, but the canonical Claude `settings.json` partial uses the native `model` and `effortLevel` keys.
+
+| Model | Persistent effort choices | Default |
+|---|---|---|
+| Opus 4.7 | `low`, `medium`, `high`, `xhigh` | `xhigh` |
+| Sonnet 4.6 | `low`, `medium`, `high` | `high` |
+| Haiku 4.5 | none | none; `effortLevel` is omitted |
+
+Claude Code documents `low`, `medium`, `high`, and `xhigh` as persistent `settings.json` values; `max` is session-only and is therefore not offered by this fleet control. Unsupported model/effort combinations are rejected rather than silently stored.
+
+On a new installation, GET displays the effective Sonnet 4.6 / `high` default without writing a config row. The first Save persists the pair; until then Claude hosts inherit Claude Code's own defaults.
+
 #### Claude API defaults
 
 Claude API proxy defaults (default model and max tokens used when proxying Claude API calls) are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
@@ -106,7 +124,7 @@ Claude API proxy defaults (default model and max tokens used when proxying Claud
 | `default_model` | string | Must match the `claude-*` regex. |
 | `max_tokens` | integer | 256–200 000, default 8 192. |
 
-This endpoint controls only API proxy behaviour. It does not change the fleet-managed Claude Code `settings.json`.
+This endpoint controls only API proxy behaviour. It is independent from the fleet Claude Code `model` / `effortLevel` directly above and does not change managed CLI sessions.
 
 #### Claude version
 
@@ -122,7 +140,6 @@ The editor at `/settings?tab=claude#claude-fleet-settings` builds and publishes 
 
 | Field | Notes |
 |---|---|
-| `model` | Dropdown from `CLAUDE_MODELS`; select `inherit` to leave unset. |
 | `advisorModel` | Dropdown; marked experimental. Sets `advisorModel` in the delivered settings.json. |
 | `env` | Key-value pairs written to the `env` block. |
 | `permissionMode` | Dropdown of `CLAUDE_PERMISSION_MODES`; writes `permissions.defaultMode` in the delivered settings.json. Fleet default is `'auto'` (`DEFAULT_CLAUDE_PERMISSION_MODE`) — every managed host auto-approves tool calls unless pinned to `'default'` or another mode. |
@@ -130,7 +147,7 @@ The editor at `/settings?tab=claude#claude-fleet-settings` builds and publishes 
 | `statusLine.command` | String; type is fixed to `'command'`. |
 | `hooks` | Event → `[{matcher, commands[]}]` map, edited via `HooksEditor`. |
 
-A live read-only preview of the rendered `settings.json` is shown alongside the editor.
+A live read-only preview of the rendered `settings.json` is shown alongside the editor. Saving this editor re-reads and preserves the canonical fleet `model` / `effortLevel`, so an older open form cannot overwrite a model-default change.
 
 ---
 
@@ -225,6 +242,7 @@ The following variables are read from the process environment at startup. They c
 - `frontend/src/lib/components/settings/ClaudeFleetSettings.svelte` — fleet `settings.json` editor
 - `frontend/src/lib/components/command-palette/commands.ts` — direct Settings tab commands
 - `api/src/routes/admin/settings/index.ts` — all /settings page endpoints
+- `api/src/services/model-defaults.ts` — engine catalogs and model/effort persistence
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
 - `api/src/routes/admin/users/index.ts`
 - `api/src/routes/admin/projects/index.ts`

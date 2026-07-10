@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   renderClaudeSettingsPartial,
+  renderClaudeSettingsPartialForHost,
   renderToml,
   renderTomlForHost,
 } from '../../../src/services/client-config.js';
 import { normalizeSettings } from '../../../src/services/config-normalizer.js';
+import { ENGINE_CLAUDE } from '../../../src/util/engine.js';
 
 describe('client-config: renderToml', () => {
   it('renders root scalars in the legacy order', () => {
@@ -147,6 +149,44 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).not.toContain('http://old.example/mcp');
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
   });
+
+  it('revalidates effort when a Codex host overrides the fleet model', () => {
+    const switched = renderTomlForHost({
+      settings: {
+        model: 'gpt-5.6-terra',
+        model_reasoning_effort: 'ultra',
+        profile: 'workhorse',
+        profiles: [
+          { name: 'workhorse', model: 'gpt-5.6-terra', model_reasoning_effort: 'ultra' },
+        ],
+      },
+      host: {
+        modelOverride: 'gpt-5.4',
+        reasoningEffortOverride: null,
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+    });
+    expect(switched.content).toContain('model = "gpt-5.4"');
+    expect(switched.content).toContain('model_reasoning_effort = "high"');
+    expect(switched.content).not.toContain('model_reasoning_effort = "ultra"');
+    expect(switched.content).toContain('[profiles.workhorse]');
+
+    const inherited = renderTomlForHost({
+      settings: {
+        model: 'gpt-5.6-terra',
+        model_reasoning_effort: 'ultra',
+      },
+      host: {
+        modelOverride: null,
+        reasoningEffortOverride: null,
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+    });
+    expect(inherited.content).toContain('model = "gpt-5.6-terra"');
+    expect(inherited.content).toContain('model_reasoning_effort = "ultra"');
+  });
 });
 
 describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
@@ -164,6 +204,59 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
     );
     expect(partial).not.toHaveProperty('advisorModel');
     expect(owned_paths).not.toContain('advisorModel');
+  });
+});
+
+describe('client-config: Claude effortLevel rendering', () => {
+  it('renders effortLevel in both the full file and deep-merge ownership contract', () => {
+    const settings = normalizeSettings({
+      model: 'claude-opus-4-7',
+      effortLevel: 'xhigh',
+    }, { applyCodexDefaults: false });
+    const { partial, owned_paths } = renderClaudeSettingsPartial(settings);
+    expect(partial.effortLevel).toBe('xhigh');
+    expect(owned_paths).toContain('effortLevel');
+
+    const rendered = renderTomlForHost({
+      settings,
+      host: null,
+      baseUrl: null,
+      apiKey: null,
+      engine: ENGINE_CLAUDE,
+    });
+    expect(JSON.parse(rendered.content)).toMatchObject({
+      model: 'claude-opus-4-7',
+      effortLevel: 'xhigh',
+    });
+  });
+
+  it('uses the overridden Claude model default and omits unsupported host effort', () => {
+    const opus = renderClaudeSettingsPartialForHost({
+      settings: { model: 'claude-sonnet-4-6', effortLevel: 'high' },
+      host: {
+        claudeModelOverride: 'claude-opus-4-7',
+        claudeReasoningEffortOverride: null,
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+      engine: ENGINE_CLAUDE,
+    });
+    expect(opus.partial).toMatchObject({ model: 'claude-opus-4-7', effortLevel: 'xhigh' });
+    expect(opus.owned_paths).toContain('effortLevel');
+
+    const haiku = renderClaudeSettingsPartialForHost({
+      settings: { model: 'claude-sonnet-4-6', effortLevel: 'high' },
+      host: {
+        claudeModelOverride: 'claude-haiku-4-5-20251001',
+        claudeReasoningEffortOverride: 'high',
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+      engine: ENGINE_CLAUDE,
+    });
+    expect(haiku.partial.model).toBe('claude-haiku-4-5-20251001');
+    expect(haiku.partial).not.toHaveProperty('effortLevel');
+    expect(haiku.owned_paths).not.toContain('effortLevel');
   });
 });
 

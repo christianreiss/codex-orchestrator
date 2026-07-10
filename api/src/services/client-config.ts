@@ -42,13 +42,16 @@ import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
+  DEFAULT_CODEX_REASONING_EFFORT,
   FORCE_UPGRADE_REASONING_EFFORT,
+  CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
   type NormalizedSettings,
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
   normalizeSettings,
   normalizeStoredModel,
   normalizeClaudeModel,
+  normalizeClaudeEffortLevel,
   isLegacyModelUpgrade,
   settingsHash,
   DEFAULT_CLAUDE_PERMISSION_MODE,
@@ -288,13 +291,27 @@ function applyHostModelOverrides(
   engine: Engine = ENGINE_CODEX,
 ): Record<string, unknown> {
   if (!host) return settings;
-  // Claude reads per-host overrides from the claude_* columns and has no
-  // reasoning-effort / profiles concept in this orchestrator (see AGENTS.md
-  // intentional deltas), so only the model flows through.
+  // Claude reads model/effort overrides from the claude_* columns. Unlike
+  // Codex, Claude has no profile layer, so the overrides apply at the root.
   if (engine === ENGINE_CLAUDE) {
+    const out = { ...settings };
     const claudeModel = normalizeClaudeModel(host.claudeModelOverride ?? null);
-    if (claudeModel === null) return settings;
-    return { ...settings, model: claudeModel };
+    const effectiveModel = claudeModel ?? normalizeClaudeModel(out['model']);
+    const explicitEffort = normalizeClaudeEffortLevel(
+      host.claudeReasoningEffortOverride ?? null,
+      effectiveModel,
+    );
+    if (claudeModel !== null) {
+      out['model'] = claudeModel;
+      const effortLevel = explicitEffort
+        ?? CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS[claudeModel]
+        ?? null;
+      if (effortLevel === null) delete out['effortLevel'];
+      else out['effortLevel'] = effortLevel;
+    } else if (explicitEffort !== null) {
+      out['effortLevel'] = explicitEffort;
+    }
+    return out;
   }
   const out = { ...settings };
   const rawModelOverride = host.modelOverride ?? null;
@@ -302,12 +319,16 @@ function applyHostModelOverrides(
   const forceUpgradedOverride = isLegacyModelUpgrade(rawModelOverride);
   const effectiveModel = modelOverride ?? normalizeStoredModel(out['model']);
   const effortOverrideRaw = normalizeReasoningEffort(host.reasoningEffortOverride ?? null);
-  const effortOverride = forceUpgradedOverride && modelOverride !== null
-    ? FORCE_UPGRADE_REASONING_EFFORT
+  const effortOverride = modelOverride !== null
+    ? forceUpgradedOverride
+      ? FORCE_UPGRADE_REASONING_EFFORT
+      : normalizeReasoningEffortForModel(effortOverrideRaw, modelOverride)
+        ?? normalizeReasoningEffortForModel(DEFAULT_CODEX_REASONING_EFFORT, modelOverride)
     : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
 
   if (modelOverride !== null) out['model'] = modelOverride;
   if (effortOverride !== null) out['model_reasoning_effort'] = effortOverride;
+  else if (modelOverride !== null) delete out['model_reasoning_effort'];
 
   const activeProfile = normalizeName(out['profile']);
   const profiles = Array.isArray(out['profiles']) ? out['profiles'] : null;
@@ -317,11 +338,12 @@ function applyHostModelOverrides(
       const profile = { ...(entry as Record<string, unknown>) };
       if (normalizeName(profile['name']) !== activeProfile) return profile;
       const profileModel = modelOverride ?? normalizeStoredModel(profile['model']);
-      const profileEffort = forceUpgradedOverride && modelOverride !== null
-        ? FORCE_UPGRADE_REASONING_EFFORT
+      const profileEffort = modelOverride !== null
+        ? effortOverride
         : normalizeReasoningEffortForModel(effortOverrideRaw, profileModel);
       if (modelOverride !== null) profile['model'] = modelOverride;
       if (profileEffort !== null) profile['model_reasoning_effort'] = profileEffort;
+      else if (modelOverride !== null) delete profile['model_reasoning_effort'];
       return profile;
     });
   }
@@ -400,6 +422,7 @@ function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unk
 function renderClaudeSettings(settings: NormalizedSettings): string {
   const result: Record<string, unknown> = {};
   if (settings.model) result['model'] = settings.model;
+  if (settings.effortLevel) result['effortLevel'] = settings.effortLevel;
   const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
   if (settings.env) result['env'] = settings.env;
@@ -435,6 +458,10 @@ export function renderClaudeSettingsPartial(
   if (settings.model) {
     partial['model'] = settings.model;
     owned.push('model');
+  }
+  if (settings.effortLevel) {
+    partial['effortLevel'] = settings.effortLevel;
+    owned.push('effortLevel');
   }
   // NOTE: Claude Code does NOT read mcpServers from settings.json — the wrapper
   // (clx >= 0.6.21) splits the mcpServers.* owned paths out of this partial and

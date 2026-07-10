@@ -65,6 +65,27 @@ at build time, then loads the config:
 }
 ```
 
+## Fleet model defaults
+
+Settings → Codex and `GET/POST /admin/model-defaults/codex` manage the default
+Codex CLI model and its model-dependent persistent effort. The endpoint writes
+Codex's native top-level `config.toml` keys, `model` and
+`model_reasoning_effort`, into the canonical Codex config document; this matches
+the official Codex config schema rather than introducing wrapper-only names.
+The fleet starts on `gpt-5.6-terra` at `high` effort.
+
+| Models | Persistent efforts | Default effort |
+|---|---|---|
+| `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `high` |
+| `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark` | `minimal`, `low`, `medium`, `high` | `high` |
+
+The GET response's `catalog` is the machine-readable source of truth for these
+model/effort pairs. POST accepts strict
+`{model, reasoning_effort?: string|null}`; omitted/null effort selects the
+model's default and unsupported combinations return 422. Per-host
+`model_override` / `reasoning_effort_override` still take precedence when the
+server bakes `~/.codex/config.toml`.
+
 ## CLI surface
 
 | Subcommand | Purpose |

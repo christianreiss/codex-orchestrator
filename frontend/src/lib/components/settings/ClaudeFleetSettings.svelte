@@ -7,10 +7,8 @@
   import {
     ADVISOR_MODELS,
     ADVISOR_OFF,
-    CLAUDE_MODELS,
     CLAUDE_PERMISSION_MODES,
     DEFAULT_CLAUDE_PERMISSION_MODE,
-    INHERIT_MODEL,
   } from "$lib/constants/models";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -33,7 +31,6 @@
   });
 
   // ---- Local editor state ----
-  let model = $state(INHERIT_MODEL);
   let env = $state<KeyValueRow[]>([]);
   let allow = $state<string[]>([]);
   let ask = $state<string[]>([]);
@@ -64,27 +61,26 @@
 
   $effect(() => {
     const data = $query.data;
-    if (data && !hydrated) {
-      const s = data.settings ?? {};
-      model = s.model || INHERIT_MODEL;
-      env = envFromRecord(s.env);
-      allow = [...(s.permissions?.allow ?? [])];
-      ask = [...(s.permissions?.ask ?? [])];
-      deny = [...(s.permissions?.deny ?? [])];
-      permissionMode = s.permissionMode || DEFAULT_CLAUDE_PERMISSION_MODE;
-      statusLineCommand = typeof s.statusLine?.command === "string" ? s.statusLine.command : "";
-      advisorModel = s.advisorModel || ADVISOR_OFF;
-      hooks = hooksFromConfig(s.hooks);
-      serverSha = data.sha256 ?? null;
-      hydrated = true;
-    }
+    if (!data) return;
+    serverSha = data.sha256 ?? null;
+    if (hydrated) return;
+
+    const s = data.settings ?? {};
+    env = envFromRecord(s.env);
+    allow = [...(s.permissions?.allow ?? [])];
+    ask = [...(s.permissions?.ask ?? [])];
+    deny = [...(s.permissions?.deny ?? [])];
+    permissionMode = s.permissionMode || DEFAULT_CLAUDE_PERMISSION_MODE;
+    statusLineCommand = typeof s.statusLine?.command === "string" ? s.statusLine.command : "";
+    advisorModel = s.advisorModel || ADVISOR_OFF;
+    hooks = hooksFromConfig(s.hooks);
+    hydrated = true;
   });
 
 
   // Build the canonical settings object from local state (omit empty blocks).
   const builtSettings = $derived.by<ClaudeConfigSettings>(() => {
     const out: ClaudeConfigSettings = {};
-    if (model && model !== INHERIT_MODEL) out.model = model;
 
     const envObj: Record<string, string> = {};
     for (const row of env) {
@@ -128,7 +124,20 @@
 
   // ---- Save ----
   const saveMutation = createMutation({
-    mutationFn: () => claudeSettingsApi.store({ settings: builtSettings, sha256: serverSha }),
+    mutationFn: async () => {
+      const remainingSettings = { ...builtSettings };
+      const latest = await claudeSettingsApi.get();
+      const latestSettings = latest.settings ?? {};
+      const settings: ClaudeConfigSettings = { ...remainingSettings };
+
+      // Fleet model defaults are edited separately. Re-read them immediately
+      // before this store and use the matching SHA so a stale editor cannot
+      // overwrite a newer model or reasoning-effort selection.
+      if ("model" in latestSettings) settings.model = latestSettings.model;
+      if ("effortLevel" in latestSettings) settings.effortLevel = latestSettings.effortLevel;
+
+      return claudeSettingsApi.store({ settings, sha256: latest.sha256 ?? null });
+    },
     onSuccess: (result) => {
       serverSha = result.sha256 ?? serverSha;
       toast.success(result.status === "unchanged" ? "No changes to save" : "Settings saved");
@@ -180,12 +189,6 @@
 {:else}
   <div class="grid gap-4 lg:grid-cols-[1fr_360px]">
     <div class="flex flex-col gap-4">
-      <!-- Model -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Model</h3>
-        <ModelSelect bind:value={model} options={CLAUDE_MODELS} label="Model" placeholder="Inherit" fallback={INHERIT_MODEL} />
-      </div>
-
       <!-- Advisor model (experimental) -->
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-1 text-sm font-semibold">

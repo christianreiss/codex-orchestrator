@@ -18,10 +18,12 @@ import {
   normalizeVersion,
 } from '../../../services/client-versions.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
+import { ModelDefaultsService } from '../../../services/model-defaults.js';
 import { ValidationError } from '../../../http/errors.js';
 import { ok } from '../../../http/reply.js';
 import { logs } from '../../../db/schema.js';
 import { nowIso } from '../../../util/timestamp.js';
+import { isEngine, type Engine } from '../../../util/engine.js';
 
 const ADMIN_THEMES = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'] as const;
 type AdminTheme = (typeof ADMIN_THEMES)[number];
@@ -50,6 +52,13 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
+function requireEngine(value: unknown): Engine {
+  if (!isEngine(value)) {
+    throw new ValidationError('engine must be one of: codex, claude', { param: 'engine' });
+  }
+  return value;
+}
+
 async function recordLog(
   ctx: RouteContext,
   action: string,
@@ -74,6 +83,7 @@ export async function registerAdminSettingsRoutes(
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
   const scaling = new UsageScalingService(settings);
+  const modelDefaults = new ModelDefaultsService(ctx.db);
 
   // ── api/state — kill switch (GET allowed even when killed) ────────────────
   app.get('/admin/api/state', { preHandler: app.requireAdmin }, async () => {
@@ -155,6 +165,27 @@ export async function registerAdminSettingsRoutes(
     await recordLog(ctx, 'admin.insecure_approval', { enabled });
     return ok({ enabled });
   });
+
+  // ── model-defaults ────────────────────────────────────────────────────────
+  app.get<{ Params: { engine: string } }>(
+    '/admin/model-defaults/:engine',
+    { preHandler: app.requireAdmin },
+    async (req) => ok(await modelDefaults.get(requireEngine(req.params.engine))),
+  );
+  app.post<{ Params: { engine: string }; Body: unknown }>(
+    '/admin/model-defaults/:engine',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const engine = requireEngine(req.params.engine);
+      const result = await modelDefaults.set(engine, req.body);
+      await recordLog(ctx, 'admin.model_defaults', {
+        engine: result.engine,
+        model: result.model,
+        reasoning_effort: result.reasoning_effort,
+      });
+      return ok(result);
+    },
+  );
 
   // ── codex-version ─────────────────────────────────────────────────────────
   app.post('/admin/codex-version', { preHandler: app.requireAdmin }, async (req) => {

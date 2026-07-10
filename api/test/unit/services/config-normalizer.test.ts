@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_LEGACY_MODEL_UPGRADES,
+  CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
+  CLAUDE_MODEL_REASONING_EFFORTS,
   CLAUDE_PERMISSION_MODES,
   DEFAULT_CLAUDE_PERMISSION_MODE,
   FORCE_UPGRADE_MODEL,
@@ -13,6 +15,7 @@ import {
   isLegacyModelUpgrade,
   normalizeApprovalPolicy,
   normalizeClaudeAdvisorModel,
+  normalizeClaudeEffortLevel,
   normalizeClaudeModel,
   normalizeClaudePermissionMode,
   normalizeReasoningEffort,
@@ -55,6 +58,19 @@ describe('config-normalizer constants', () => {
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-7');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-7');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-haiku-20240307']).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('exposes Claude persistent effort capabilities and defaults', () => {
+    expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
+      'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
+      'claude-sonnet-4-6': ['low', 'medium', 'high'],
+      'claude-haiku-4-5-20251001': [],
+    });
+    expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'claude-opus-4-7': 'xhigh',
+      'claude-sonnet-4-6': 'high',
+      'claude-haiku-4-5-20251001': null,
+    });
   });
 });
 
@@ -111,6 +127,15 @@ describe('normalizeClaudeAdvisorModel', () => {
     expect(normalizeClaudeAdvisorModel('gpt-5')).toBeNull();
     expect(normalizeClaudeAdvisorModel('')).toBeNull();
     expect(normalizeClaudeAdvisorModel(undefined)).toBeNull();
+  });
+});
+
+describe('normalizeClaudeEffortLevel', () => {
+  it('accepts only efforts supported by the selected Claude model', () => {
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-4-7')).toBe('xhigh');
+    expect(normalizeClaudeEffortLevel('HIGH', 'claude-sonnet-4-6')).toBe('high');
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-sonnet-4-6')).toBeNull();
+    expect(normalizeClaudeEffortLevel('high', 'claude-haiku-4-5-20251001')).toBeNull();
   });
 });
 
@@ -227,6 +252,21 @@ describe('normalizeSettings()', () => {
     expect(normalizeSettings({ advisorModel: 'OPUS' }).advisorModel).toBe('opus');
     expect(normalizeSettings({}).advisorModel).toBeUndefined();
     expect(normalizeSettings({ advisorModel: 'gpt-5' }).advisorModel).toBeUndefined();
+  });
+
+  it('attaches a compatible Claude effortLevel and omits incompatible values', () => {
+    expect(normalizeSettings({
+      model: 'claude-opus-4-7',
+      effortLevel: 'xhigh',
+    }, { applyCodexDefaults: false }).effortLevel).toBe('xhigh');
+    expect(normalizeSettings({
+      model: 'claude-sonnet-4-6',
+      effortLevel: 'xhigh',
+    }, { applyCodexDefaults: false }).effortLevel).toBeUndefined();
+    expect(normalizeSettings({
+      model: 'claude-haiku-4-5-20251001',
+      effortLevel: 'high',
+    }, { applyCodexDefaults: false }).effortLevel).toBeUndefined();
   });
 
   it('normalizes profile reasoning efforts', () => {

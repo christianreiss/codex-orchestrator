@@ -28,7 +28,7 @@ The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthro
 
 Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before landing any engine-agnostic feature, add both paths. Intentional deltas (documented, not implemented for Claude) are:
 - ChatGPT quota lanes / Spark lane / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept.
-- `reasoning_effort` override — no such parameter in Anthropic's API.
+- Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`, while Claude Code writes `effortLevel` to `settings.json`. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
 - Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
 - GitHub-release CLI download — Claude CLI is npm-only; `clx --update` uses `npm install -g @anthropic-ai/claude-code` (with a sudo fallback).
 - SSH alt-screen suppression — Claude CLI handles its own terminal state.
@@ -36,7 +36,7 @@ Treat Codex (`cdx`) as canonical and Claude (`clx`) as parity target. Before lan
 
 Conversely, some features are **Claude-only** (`clx`) because Codex has no on-disk analogue — do not force a cdx path for these:
 - Claude-native collections — subagents (`~/.claude/agents/*.md`), slash-commands (`~/.claude/commands/*.md`), output-styles (`~/.claude/output-styles/*.md`). Stored in the `claude_artifacts` table (one row per item, discriminated by `kind`), bundled to claude hosts only via `/sync/bootstrap`, written + manifest-pruned by the wrapper. See `docs/interface-clx.md`.
-- `settings.json` sub-blocks (hooks / statusLine / permissions / env) baked into the rendered Claude settings **partial** and **deep-merged** into the user's `~/.claude/settings.json` (never wholesale-overwritten). The fleet owns only `owned_paths`; user-authored keys are preserved. Codex `config.toml` keeps its wholesale write.
+- `settings.json` sub-blocks (`model` / `effortLevel` / hooks / statusLine / permissions / env) baked into the rendered Claude settings **partial** and **deep-merged** into the user's `~/.claude/settings.json` (never wholesale-overwritten). The fleet owns only `owned_paths`; user-authored keys are preserved. Codex `config.toml` keeps its wholesale write.
 
 ## Voice & Contact Rules
 

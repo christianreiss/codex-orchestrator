@@ -24,11 +24,15 @@ import type {
   CodexVersionsCheckResult,
   InsecureApprovalValue,
   LogRetentionValue,
+  ModelDefaultsEngine,
+  ModelDefaultsUpdate,
+  ModelDefaultsValue,
   PrunePolicyValue,
   QuotaModeValue,
   ReverseDnsValue,
   ScalingStatus,
 } from "./types";
+import { claudeSettingsKeys } from "./claudeSettings";
 
 /* ─────────────────────────────── helpers ─────────────────────────────── */
 
@@ -132,7 +136,38 @@ export function claudeSettingsMutation(
   });
 }
 
-/* ─────────────────── 3b. Claude version (engine) ─────────────────── */
+/* ─────────────────────── 3b. Fleet model defaults ─────────────────────── */
+
+export const modelDefaultsQueryKey = (engine: ModelDefaultsEngine) =>
+  ["settings", "model-defaults", engine] as const;
+
+export function modelDefaultsQuery(engine: ModelDefaultsEngine) {
+  return createQuery<ModelDefaultsValue>({
+    queryKey: modelDefaultsQueryKey(engine),
+    queryFn: () => api.get<ModelDefaultsValue>(`/admin/model-defaults/${engine}`),
+  });
+}
+
+export function modelDefaultsMutation(
+  engine: ModelDefaultsEngine,
+  opts: MutationOpts<ModelDefaultsValue, ModelDefaultsUpdate> = {},
+) {
+  const qc = useQueryClient();
+  return createMutation<ModelDefaultsValue, Error, ModelDefaultsUpdate>({
+    mutationFn: (payload) =>
+      api.post<ModelDefaultsValue>(`/admin/model-defaults/${engine}`, payload),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: modelDefaultsQueryKey(engine) });
+      if (engine === "claude") {
+        void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() });
+      }
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+/* ─────────────────── 3c. Claude version (engine) ─────────────────── */
 
 // `/admin/versions/check` is a side-effecting POST that force-probes GitHub
 // for BOTH engines' releases in a single call (bypassing the 1h settings

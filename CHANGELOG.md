@@ -1,5 +1,16 @@
 # 2026-07-10
 
+## Fleet model and effort defaults
+
+- **Admin UI/API:** Settings → Codex and Settings → Claude now expose the
+  fleet-wide model together with a model-dependent persistent effort selector,
+  backed by `GET/POST /admin/model-defaults/:engine`. Codex stores the native
+  `config.toml` keys `model` / `model_reasoning_effort`; Claude stores the
+  native `settings.json` keys `model` / `effortLevel`. Claude Opus 4.7 defaults
+  to `xhigh`, Sonnet 4.6 defaults to `high`, and Haiku 4.5 omits effort because
+  that model does not support it. The existing Claude API proxy default remains
+  a separate setting.
+
 ## Denser Settings layout
 
 - **Admin UI:** Settings cards now use compact spacing, omit the empty save
