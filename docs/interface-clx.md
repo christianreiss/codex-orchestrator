@@ -217,7 +217,7 @@ this run.
   (or per-host `claude_model_override`) — it never falls back to the Codex config.
   A greenfield Claude host with no authored Claude settings therefore receives an
   empty partial **plus** the managed `mcpServers.clx` block, and no `model` key:
-  the Codex `model` (e.g. `gpt-5.5`) must never leak into `settings.json`.
+  the Codex `model` (e.g. `gpt-5.6-terra`) must never leak into `settings.json`.
 - **`mcpServers.<name>` is the one exception to the settings.json destination:**
   Claude Code reads user-scope MCP servers from the **top level of
   `~/.claude.json`**, not from `settings.json`. The wrapper splits the

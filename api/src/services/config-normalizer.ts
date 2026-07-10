@@ -17,10 +17,17 @@
 
 import { createHash } from 'node:crypto';
 
-export const FORCE_UPGRADE_MODEL = 'gpt-5.5';
-export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
+/** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
+export const DEFAULT_CODEX_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_CODEX_REASONING_EFFORT = 'high';
+
+export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
+export const FORCE_UPGRADE_REASONING_EFFORT = DEFAULT_CODEX_REASONING_EFFORT;
 
 export const SUPPORTED_MODELS: readonly string[] = [
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.4',
   'gpt-5.4-mini',
@@ -51,9 +58,20 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   'claude-opus-4-20250514': 'claude-opus-4-7',
 };
 
-export const REASONING_EFFORTS: readonly string[] = ['minimal', 'low', 'medium', 'high'];
+export const REASONING_EFFORTS: readonly string[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+];
 
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-5.5': ['minimal', 'low', 'medium', 'high'],
   'gpt-5.4': ['minimal', 'low', 'medium', 'high'],
   'gpt-5.4-mini': ['minimal', 'low', 'medium', 'high'],
@@ -180,7 +198,6 @@ export function normalizeReasoningEffort(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
   const lower = s.toLowerCase();
-  if (lower === 'xhigh') return 'high';
   return REASONING_EFFORTS.includes(lower) ? lower : null;
 }
 
@@ -269,16 +286,23 @@ function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
 /**
  * Produce a fully normalized settings object matching the legacy PHP shape.
  */
-export function normalizeSettings(raw: unknown): NormalizedSettings {
+export function normalizeSettings(
+  raw: unknown,
+  opts: { applyCodexDefaults?: boolean } = {},
+): NormalizedSettings {
   const settings = asRecord(raw);
-  const rawModel = settings.model;
+  const applyCodexDefaults = opts.applyCodexDefaults ?? true;
+  const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
   const model = normalizeStoredModel(rawModel);
   const forceUpgraded = isLegacyModelUpgrade(rawModel);
 
   const personality = normalizePersonality(settings.personality) ?? 'friendly';
   const reasoning = forceUpgraded && model !== null
     ? FORCE_UPGRADE_REASONING_EFFORT
-    : normalizeReasoningEffortForModel(settings.model_reasoning_effort, model);
+    : normalizeReasoningEffortForModel(
+      settings.model_reasoning_effort ?? (applyCodexDefaults ? DEFAULT_CODEX_REASONING_EFFORT : undefined),
+      model,
+    );
 
   const security = asRecord(settings.security);
   const securityBypass = normalizeBool(security.dangerously_bypass_approvals_and_sandbox);
@@ -432,4 +456,3 @@ function sortKeysDeep(value: unknown): unknown {
   }
   return value;
 }
-

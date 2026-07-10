@@ -39,7 +39,7 @@
       "properties": {
         "silent": { "type": "boolean", "default": false },
         "model_override": { "type": ["string", "null"] },
-        "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high"] },
+        "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] },
         "admin_theme_hint": { "type": ["string", "null"], "enum": [null, "auto", "light", "dark"] },
         "claude_model_override": { "type": ["string", "null"] },
         "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false }

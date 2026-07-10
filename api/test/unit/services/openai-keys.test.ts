@@ -115,6 +115,9 @@ describe('openai-models', () => {
   });
 
   it('passes supported models through verbatim', () => {
+    expect(resolveRequestedModel('gpt-5.6-sol')).toBe('gpt-5.6-sol');
+    expect(resolveRequestedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
+    expect(resolveRequestedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna');
     expect(resolveRequestedModel('gpt-5.5')).toBe('gpt-5.5');
     expect(resolveRequestedModel('gpt-5.4-mini')).toBe('gpt-5.4-mini');
     expect(resolveRequestedModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
@@ -125,9 +128,12 @@ describe('openai-models', () => {
   });
 
   it('builds an OpenAI-shape model list', () => {
-    const list = buildModelList(['gpt-5.5']); // duplicate should dedupe
+    const list = buildModelList(['gpt-5.6-terra']); // duplicate should dedupe
     expect(list.object).toBe('list');
     expect(list.data.map((m) => m.id)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.4',
       'gpt-5.4-mini',

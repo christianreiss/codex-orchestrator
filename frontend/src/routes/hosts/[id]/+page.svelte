@@ -514,7 +514,7 @@
     title="Codex model override"
     description="Pin a specific Codex model. Empty clears the override."
     label="Model"
-    placeholder="gpt-5.5"
+    placeholder="gpt-5.6-terra"
     options={CODEX_MODELS}
     initialValue={host.model_override ?? ""}
     onSubmit={(v) =>

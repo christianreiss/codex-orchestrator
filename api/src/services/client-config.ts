@@ -260,7 +260,7 @@ export interface HostRenderOptions {
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const engine = opts.engine ?? ENGINE_CODEX;
   const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, engine);
-  const normalized = normalizeSettings(settingsWithOverrides);
+  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -487,7 +487,7 @@ export function renderClaudeSettingsPartialForHost(
   opts: HostRenderOptions,
 ): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string } {
   const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE);
-  const normalized = normalizeSettings(settingsWithOverrides);
+  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -559,7 +559,7 @@ export class ClientConfigService {
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
     const settings = row.settings && typeof row.settings === 'object'
-      ? normalizeSettings(row.settings)
+      ? normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX })
       : null;
     return {
       status: 'ok',
@@ -572,7 +572,7 @@ export class ClientConfigService {
   }
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
-    const normalized = normalizeSettings(settingsInput);
+    const normalized = normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX });
     const content = engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
     return {
       content,

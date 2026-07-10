@@ -26,6 +26,9 @@ import {
 describe('config-normalizer constants', () => {
   it('exposes the supported model list', () => {
     expect(SUPPORTED_MODELS).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.4',
       'gpt-5.4-mini',
@@ -34,7 +37,7 @@ describe('config-normalizer constants', () => {
   });
 
   it('lists every reasoning effort tier', () => {
-    expect(REASONING_EFFORTS).toEqual(['minimal', 'low', 'medium', 'high']);
+    expect(REASONING_EFFORTS).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
   });
 
   it('lists personalities', () => {
@@ -57,7 +60,7 @@ describe('config-normalizer constants', () => {
 
 describe('normalizeStoredModel', () => {
   it('passes through supported models', () => {
-    expect(normalizeStoredModel('gpt-5.5')).toBe('gpt-5.5');
+    expect(normalizeStoredModel('gpt-5.6-terra')).toBe('gpt-5.6-terra');
     expect(normalizeStoredModel('gpt-5.3-codex-spark')).toBe('gpt-5.3-codex-spark');
   });
 
@@ -143,9 +146,9 @@ describe('normalizeReasoningEffort', () => {
     expect(normalizeReasoningEffort('minimal')).toBe('minimal');
     expect(normalizeReasoningEffort('LOW')).toBe('low');
     expect(normalizeReasoningEffort('high')).toBe('high');
-  });
-  it('maps legacy xhigh to high', () => {
-    expect(normalizeReasoningEffort('xhigh')).toBe('high');
+    expect(normalizeReasoningEffort('xhigh')).toBe('xhigh');
+    expect(normalizeReasoningEffort('MAX')).toBe('max');
+    expect(normalizeReasoningEffort('ultra')).toBe('ultra');
   });
   it('rejects unknown values', () => {
     expect(normalizeReasoningEffort('extreme')).toBeNull();
@@ -153,6 +156,8 @@ describe('normalizeReasoningEffort', () => {
   it('restricts effort to those supported by model', () => {
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');
     expect(normalizeReasoningEffortForModel('minimal', 'gpt-5.3-codex-spark')).toBe('minimal');
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.6-terra')).toBe('ultra');
+    expect(normalizeReasoningEffortForModel('ultra', 'gpt-5.5')).toBeNull();
   });
 });
 
@@ -170,6 +175,8 @@ describe('normalizeSettings()', () => {
   it('produces the legacy default structure', () => {
     const s = normalizeSettings({});
     expect(s.personality).toBe('friendly');
+    expect(s.model).toBe('gpt-5.6-terra');
+    expect(s.model_reasoning_effort).toBe('high');
     expect(s.notify).toEqual([]);
     expect(s.orchestrator_mcp_enabled).toBe(true);
     expect(s.features).toEqual({});
@@ -225,12 +232,12 @@ describe('normalizeSettings()', () => {
   it('normalizes profile reasoning efforts', () => {
     const s = normalizeSettings({
       profiles: [
-        { name: 'max', model: 'gpt-5.5', model_reasoning_effort: 'xhigh' },
+        { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
         { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
       ],
     });
     expect(s.profiles).toEqual([
-      { name: 'max', model: 'gpt-5.5', model_reasoning_effort: 'high' },
+      { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
       { name: 'tiny', model: 'gpt-5.4-mini', model_reasoning_effort: 'minimal' },
     ]);
   });

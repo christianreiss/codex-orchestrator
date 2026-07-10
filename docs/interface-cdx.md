@@ -51,7 +51,7 @@ at build time, then loads the config:
   },
   "engine_options": {
     "silent": false,
-    "model_override": "gpt-5.5",
+    "model_override": "gpt-5.6-terra",
     "reasoning_effort_override": "high",
     "admin_theme_hint": "auto"
   },

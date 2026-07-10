@@ -699,15 +699,15 @@ describe('admin hosts routes', () => {
       const r = await app.inject({
         method: 'POST',
         url: '/admin/hosts/42/model',
-        payload: { model_override: 'gpt-5.5', reasoning_effort_override: 'high' },
+        payload: { model_override: 'gpt-5.6-terra', reasoning_effort_override: 'ultra' },
       });
       expect(r.statusCode).toBe(200);
       const call = calls.find((c) => c.method === 'setModelOverrides');
       expect(call?.args).toEqual([
         42,
         {
-          model_override: 'gpt-5.5',
-          reasoning_effort_override: 'high',
+          model_override: 'gpt-5.6-terra',
+          reasoning_effort_override: 'ultra',
           claude_model_override: undefined,
           includeClaudeOverride: false,
         },

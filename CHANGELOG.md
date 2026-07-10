@@ -1,3 +1,18 @@
+# 2026-07-10
+
+## Codex GPT-5.6 model catalog
+
+- **API, wrappers, runner, and admin UI:** Added `gpt-5.6-sol`,
+  `gpt-5.6-terra`, and `gpt-5.6-luna` across the strict OpenAI-compatible
+  gateway, config rendering, host overrides, signed wrapper schema, quota
+  scaling, and the committed admin build. `gpt-5.6-terra` with `high`
+  reasoning effort is now the fleet and gateway default; retired model IDs
+  upgrade to that pair.
+- **Reasoning effort:** The new GPT-5.6 models accept
+  `low|medium|high|xhigh|max|ultra`; older supported models retain their
+  established `minimal|low|medium|high` capability set. The runner probe now
+  defaults to Terra as well.
+
 # 2026-07-08
 
 ## Wrapper bootstrap envelope fix

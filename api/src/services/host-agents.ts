@@ -137,7 +137,7 @@ export class HostAgentsService {
       .orderBy(desc(clientConfigDocuments.id))
       .limit(1);
     // Claude-only lookup. There is deliberately NO codex fallback here: a codex
-    // client_config carries a codex `model` (e.g. gpt-5.5) that would otherwise
+    // client_config carries a codex `model` (e.g. gpt-5.6-terra) that would otherwise
     // leak into Claude's settings.json. When no claude config exists we still
     // render from an EMPTY base so the managed clx MCP block is injected, but no
     // model (or any other key) is borrowed from codex. (The db-fake test harness

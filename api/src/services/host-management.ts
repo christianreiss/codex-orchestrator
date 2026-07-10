@@ -27,6 +27,8 @@ import {
   isLegacyModelUpgrade,
   normalizeReasoningEffortForModel,
   normalizeSupportedModel,
+  REASONING_EFFORTS,
+  SUPPORTED_MODELS,
 } from './config-normalizer.js';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -773,7 +775,7 @@ export class HostManagementService {
         const normalizedModel = normalizeSupportedModel(rawModelOverride);
         if (normalizedModel === null) {
           throw new ValidationError(
-            'model_override must be one of: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark',
+            `model_override must be one of: ${SUPPORTED_MODELS.join(', ')}`,
             { param: 'model_override' },
           );
         }
@@ -788,7 +790,7 @@ export class HostManagementService {
         const effectiveModel = patch.modelOverride ?? host.modelOverride ?? null;
         const normalizedEffort = normalizeReasoningEffortForModel(rawEffort, effectiveModel);
         if (normalizedEffort === null) {
-          throw new ValidationError('reasoning_effort_override must be one of: minimal, low, medium, high', {
+          throw new ValidationError(`reasoning_effort_override must be one of: ${REASONING_EFFORTS.join(', ')}`, {
             param: 'reasoning_effort_override',
           });
         }

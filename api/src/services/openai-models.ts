@@ -1,29 +1,21 @@
 /**
  * Catalog of OpenAI-compatible model identifiers exposed via `/v1/models`.
  *
- * Mirrors `App\Services\ConfigNormalizer::SUPPORTED_MODELS` plus the
- * legacy-upgrade alias table the PHP `OpenAiModelService::resolveRequestedModel`
- * consulted when the client passed an older codex-prefixed name. Keeping the
- * list co-located with the OpenAI worktree avoids cross-worktree edits to the
- * config-normalizer service (which is owned by the admin-content worktree).
+ * Mirrors the shared Codex config catalog and legacy-upgrade map, so API keys,
+ * baked config, and the admin picker cannot drift.
  */
-export const OPENAI_MODELS: readonly string[] = [
-  'gpt-5.5',
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.3-codex-spark',
-] as const;
+import {
+  DEFAULT_CODEX_MODEL,
+  LEGACY_MODEL_UPGRADES,
+  SUPPORTED_MODELS,
+} from './config-normalizer.js';
 
-export const OPENAI_DEFAULT_MODEL = 'gpt-5.5';
+export const OPENAI_MODELS = SUPPORTED_MODELS;
+
+export const OPENAI_DEFAULT_MODEL = DEFAULT_CODEX_MODEL;
 
 /** Older model IDs we silently upgrade to the current default. */
-export const OPENAI_LEGACY_MODEL_UPGRADES: Record<string, string> = {
-  'gpt-5.3-codex': OPENAI_DEFAULT_MODEL,
-  'gpt-5.2': OPENAI_DEFAULT_MODEL,
-  'gpt-5.2-codex': OPENAI_DEFAULT_MODEL,
-  'gpt-5.1-codex-max': OPENAI_DEFAULT_MODEL,
-  'gpt-5.1-codex-mini': OPENAI_DEFAULT_MODEL,
-};
+export const OPENAI_LEGACY_MODEL_UPGRADES = LEGACY_MODEL_UPGRADES;
 
 export function isSupportedModel(value: string): boolean {
   return (OPENAI_MODELS as readonly string[]).includes(value);

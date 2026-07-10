@@ -65,15 +65,14 @@ describe('client-config: renderToml', () => {
     expect(fastIdx).toBeLessThan(workhorseIdx);
   });
 
-  it('renders legacy xhigh profile effort as high', () => {
+  it('renders the Terra xhigh profile effort verbatim', () => {
     const toml = renderToml(normalizeSettings({
       profiles: [
-        { name: 'max', model: 'gpt-5.4', model_reasoning_effort: 'xhigh' },
+        { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
       ],
     }));
     expect(toml).toContain('[profiles.max]');
-    expect(toml).toContain('model_reasoning_effort = "high"');
-    expect(toml).not.toContain('xhigh');
+    expect(toml).toContain('model_reasoning_effort = "xhigh"');
   });
 
   it('renders notify lists when present', () => {
@@ -153,7 +152,7 @@ describe('client-config: renderToml', () => {
 describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
   it('renders advisorModel into the partial and owned_paths when set', () => {
     const { partial, owned_paths } = renderClaudeSettingsPartial(
-      normalizeSettings({ advisorModel: 'opus' }),
+      normalizeSettings({ advisorModel: 'opus' }, { applyCodexDefaults: false }),
     );
     expect(partial.advisorModel).toBe('opus');
     expect(owned_paths).toContain('advisorModel');
@@ -161,7 +160,7 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
 
   it('omits advisorModel from partial and owned_paths when off/invalid', () => {
     const { partial, owned_paths } = renderClaudeSettingsPartial(
-      normalizeSettings({ advisorModel: 'gpt-5' }),
+      normalizeSettings({ advisorModel: 'gpt-5' }, { applyCodexDefaults: false }),
     );
     expect(partial).not.toHaveProperty('advisorModel');
     expect(owned_paths).not.toContain('advisorModel');
@@ -170,7 +169,7 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
 
 describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', () => {
   it('defaults to `auto` and renders it under permissions.defaultMode (never top-level)', () => {
-    const { partial, owned_paths } = renderClaudeSettingsPartial(normalizeSettings({}));
+    const { partial, owned_paths } = renderClaudeSettingsPartial(normalizeSettings({}, { applyCodexDefaults: false }));
     expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('auto');
     expect(owned_paths).toContain('permissions.defaultMode');
     // The top-level key Claude Code ignores must NOT be emitted.
@@ -180,7 +179,7 @@ describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', (
 
   it('honors an operator-pinned mode', () => {
     const { partial, owned_paths } = renderClaudeSettingsPartial(
-      normalizeSettings({ permissionMode: 'default' }),
+      normalizeSettings({ permissionMode: 'default' }, { applyCodexDefaults: false }),
     );
     expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('default');
     expect(owned_paths).toContain('permissions.defaultMode');
@@ -188,7 +187,7 @@ describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', (
 
   it('falls back to the default when the pinned mode is invalid', () => {
     const { partial } = renderClaudeSettingsPartial(
-      normalizeSettings({ permissionMode: 'autoEdit' }),
+      normalizeSettings({ permissionMode: 'autoEdit' }, { applyCodexDefaults: false }),
     );
     expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('auto');
   });
@@ -198,7 +197,7 @@ describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', (
       normalizeSettings({
         permissionMode: 'acceptEdits',
         permissions: { allow: ['Bash(npm run *)'], deny: ['Read(./secrets/**)'] },
-      }),
+      }, { applyCodexDefaults: false }),
     );
     const perms = partial.permissions as Record<string, unknown>;
     expect(perms.defaultMode).toBe('acceptEdits');
