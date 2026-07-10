@@ -23,6 +23,13 @@ export interface RunnerVerifyInput {
 export interface RunnerVerifyResult {
   ok: boolean;
   status: 'ok' | 'fail' | 'unconfigured';
+  /**
+   * True only when the runner produced a well-formed ok/fail verdict on
+   * HTTP 200 — i.e. the probe genuinely ran against the provider. False for
+   * transport failures, empty/garbage bodies, and runner-side HTTP errors,
+   * none of which prove anything about the credentials.
+   */
+  definitive?: boolean;
   reason?: string;
   updated_auth?: Record<string, unknown>;
   reachable: boolean;
@@ -140,11 +147,19 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
         }
       }
       const isOk = (d.status ?? 'fail') === 'ok' && res.ok;
+      // A verdict is only DEFINITIVE when the runner itself produced a
+      // well-formed ok/fail on HTTP 200 — the probe actually ran against the
+      // provider. Proxy error pages, empty bodies, runner-side HTTP errors
+      // (400/500/504 {detail:...}) are infrastructure noise: they say nothing
+      // about whether the credentials work and must never be treated as a
+      // provider-side rejection.
+      const definitive = res.status === 200 && (d.status === 'ok' || d.status === 'fail');
       return {
         ...d,
         ok: isOk,
         status: isOk ? 'ok' : 'fail',
         reachable: true,
+        definitive,
         latency_ms: typeof d.latency_ms === 'number' ? d.latency_ms : latencyMs,
       };
     } catch (err) {

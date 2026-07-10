@@ -123,7 +123,7 @@ describe('POST /auth command=store', () => {
     await app.close();
   });
 
-  it('returns 503 when runner validation rejects Claude credentials', async () => {
+  it('returns 422 when the runner definitively rejects Claude credentials', async () => {
     const apiKey = 'sk-store-runner-fail';
     const db = seedDb(apiKey);
     const env = {
@@ -151,11 +151,51 @@ describe('POST /auth command=store', () => {
       }),
     });
 
+    expect(r.statusCode).toBe(422);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      status: 'error',
+      code: 'validation_failed',
+      message: 'auth candidate failed live verification: bad credentials',
+    });
+    expect(db.tables.get(authPayloads)!).toHaveLength(0);
+    await app.close();
+  });
+
+  it('returns 503 when the runner is unreachable (no credential verdict)', async () => {
+    const apiKey = 'sk-store-runner-down';
+    const db = seedDb(apiKey);
+    const env = {
+      ...baseEnv,
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof baseEnv;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      }),
+    );
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        command: 'store',
+        engine: 'claude',
+        auth: {
+          last_refresh: '2026-06-13T06:00:00Z',
+          claudeAiOauth: { accessToken: 'sk-ant-oat01-fresh-token', refreshToken: 'r' },
+        },
+      }),
+    });
+
     expect(r.statusCode).toBe(503);
     expect(JSON.parse(r.payload)).toMatchObject({
       status: 'error',
       code: 'runner_unreachable',
-      message: 'Runner verification failed; store is gated',
+      message: 'Auth runner unavailable; canonical store is gated',
     });
     expect(db.tables.get(authPayloads)!).toHaveLength(0);
     await app.close();

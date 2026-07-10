@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
@@ -227,6 +227,87 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(body.auth.auth).toBeUndefined();
     expect(db.tables.get(authPayloads)!).toHaveLength(1);
     await app.close();
+  });
+
+  it('never serves a stale canonical to a host presenting fresher credentials when the store is gated', async () => {
+    // Regression for the login-clobber chain: `codex login` → /sync/bootstrap
+    // with a FRESHER auth_candidate → runner outage gates storeCandidate →
+    // the catch-fallback used to retrieve WITHOUT the candidate's freshness,
+    // answer `outdated`, and hand back the OLDER canonical blob — which the
+    // wrapper then wrote over the fresh local login.
+    const apiKey = 'sk-bootstrap-anti-clobber';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+
+    const runnerValidation = createRunnerValidationService({ db: db as never, keyring });
+    const staleStamp = '2026-06-08T15:26:33Z';
+    const staleAuths = { 'api.openai.com': { token: 'stale-token', token_type: 'bearer' } };
+    const canonical = runnerValidation.canonicalizeAuthPayload(
+      { auths: staleAuths },
+      runnerValidation.normalizeAuthEntries({ auths: staleAuths }, 'codex'),
+      staleStamp,
+    );
+    const encoded = JSON.stringify(canonical);
+    db.tables.set(authPayloads, [
+      {
+        id: 7,
+        lastRefresh: staleStamp,
+        sha256: createHash('sha256').update(encoded).digest('hex'),
+        sourceHostId: null,
+        createdAt: staleStamp,
+        body: encrypt(encoded, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: staleStamp,
+        verificationReason: null,
+        engine: 'codex',
+      },
+    ]);
+
+    // Runner configured but down: the fresher candidate cannot be stored.
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      }),
+    );
+
+    const freshStamp = new Date(Date.now() - 60_000).toISOString();
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: true,
+        auth_digest: '1'.repeat(64),
+        auth_candidate: {
+          last_refresh: freshStamp,
+          tokens: { access_token: 'fresh-token', refresh_token: 'r' },
+          auths: { 'api.openai.com': { token: 'fresh-token', token_type: 'bearer' } },
+        },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('upload_required');
+    // The stale blob must NOT ride along — that is the clobber payload.
+    expect(body.auth.auth).toBeUndefined();
+    // Nothing was stored either (runner gated).
+    expect(db.tables.get(authPayloads)!).toHaveLength(1);
+    await app.close();
+    vi.unstubAllGlobals();
   });
 
   it('omits content when digests match', async () => {

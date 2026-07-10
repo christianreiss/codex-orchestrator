@@ -141,7 +141,7 @@ describe('CanonicalAuthStoreService', () => {
     expect(decoded.claudeAiOauth.accessToken).toBe('sk-ant-oat01-upload');
   });
 
-  it('blocks persistence when configured runner verification fails', async () => {
+  it('answers 503 (retry later) when the runner is unreachable — never a credential verdict', async () => {
     const db = createDbFake();
     db.tables.set(authPayloads, []);
     db.tables.set(authEntries, []);
@@ -164,7 +164,61 @@ describe('CanonicalAuthStoreService', () => {
         requireLastRefresh: true,
         logAction: 'auth.store',
       }),
-    ).rejects.toThrow(/Runner verification failed/);
+    ).rejects.toThrow(/Auth runner unavailable/);
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+  });
+
+  it('answers 503 on a reachable-but-garbled runner response (non-definitive)', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: runner({ ok: false, status: 'fail', reachable: true, definitive: false, reason: 'invalid runner response (status 502)' }),
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: {
+          last_refresh: '2026-05-20T09:00:00Z',
+          claudeAiOauth: { accessToken: 'sk-ant-oat01-upload' },
+        },
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toThrow(/Auth runner unavailable/);
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+  });
+
+  it('rejects with a validation error when the runner definitively refutes the candidate', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: runner({ ok: false, status: 'fail', reachable: true, definitive: true, reason: 'provider rejected token' }),
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: {
+          last_refresh: '2026-05-20T09:00:00Z',
+          claudeAiOauth: { accessToken: 'sk-ant-oat01-upload' },
+        },
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toThrow(/failed live verification: provider rejected token/);
     expect(db.tables.get(authPayloads)).toHaveLength(0);
   });
 });
@@ -242,7 +296,7 @@ describe('ensureServedVerification (launch-gate proof)', () => {
   });
 
   it('marks the payload failed when the runner reaches the provider and rejects', async () => {
-    const r = countingRunner({ ok: false, status: 'fail', reachable: true, reason: 'token expired' });
+    const r = countingRunner({ ok: false, status: 'fail', reachable: true, definitive: true, reason: 'token expired' });
     const { db, svc } = makeStore(r.client);
     const out = await svc.ensureServedVerification({
       ...base,
@@ -285,6 +339,26 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
   });
 
+  it('returns unknown without downgrading on a reachable-but-garbled runner response', async () => {
+    // Proxy error pages / empty bodies reach the runner URL but prove nothing
+    // about the credentials — they must not withhold working auth fleet-wide.
+    const r = countingRunner({
+      ok: false,
+      status: 'fail',
+      reachable: true,
+      definitive: false,
+      reason: 'invalid runner response (status 502)',
+    });
+    const { db, svc } = makeStore(r.client, 'verified');
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+    });
+    expect(out.state).toBe('unknown');
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
   it('persists and serves a runner-refreshed blob (rotation-safe)', async () => {
     const r = countingRunner({
       ok: true,
@@ -309,7 +383,7 @@ describe('ensureServedVerification (launch-gate proof)', () => {
   });
 
   it('verifies the codex engine via runner.verify and marks a dead token failed', async () => {
-    const r = countingRunner({ ok: false, status: 'fail', reachable: true, reason: 'refresh token already used' });
+    const r = countingRunner({ ok: false, status: 'fail', reachable: true, definitive: true, reason: 'refresh token already used' });
     const { db, svc } = makeStore(r.client);
     const out = await svc.ensureServedVerification({
       engine: 'codex',

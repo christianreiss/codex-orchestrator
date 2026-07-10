@@ -486,7 +486,7 @@ async function handleBootstrapAuth(
       return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'valid' };
     }
     if (candidateLast && Date.parse(candidateLast) < Date.parse(canonicalLast)) {
-      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+      return handleRetrieve(app, ctx, host, retrievePayloadWithCandidateFreshness(payload, candidateLast), engine, runnerValidation, versionSvc, authStore);
     }
   }
 
@@ -503,8 +503,38 @@ async function handleBootstrapAuth(
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+    // CRITICAL: carry the candidate's freshness into the fallback. The bundle
+    // payload has no top-level last_refresh, so without this the retrieve
+    // compares incoming=0 against the canonical stamp, reports the host
+    // "outdated", and serves the OLDER canonical blob — which the wrapper then
+    // writes over the fresher local login the store just failed to accept
+    // (e.g. runner outage). With the stamp threaded through, retrieve answers
+    // `upload_required` (no blob) and the host keeps its newer credentials.
+    return handleRetrieve(
+      app,
+      ctx,
+      host,
+      retrievePayloadWithCandidateFreshness(payload, candidateLast),
+      engine,
+      runnerValidation,
+      versionSvc,
+      authStore,
+    );
   }
+}
+
+/**
+ * Returns a retrieve payload whose `last_refresh` reflects the freshness of
+ * the auth_candidate the host presented. Candidates from vanilla `codex login`
+ * carry no last_refresh; "now" is the honest stand-in — the host just minted
+ * or presented the file in this very request.
+ */
+function retrievePayloadWithCandidateFreshness(
+  payload: Record<string, unknown>,
+  candidateLast: string,
+): Record<string, unknown> {
+  const stamp = candidateLast || nowIso();
+  return { ...payload, last_refresh: stamp };
 }
 
 function readAuthCandidate(payload: Record<string, unknown>): Record<string, unknown> | null {

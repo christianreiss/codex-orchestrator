@@ -151,8 +151,21 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           engine === ENGINE_CLAUDE
             ? await runner.verifyClaude({ authJson: canonical })
             : await runner.verify({ authJson: canonical });
+        if (!verdict.ok && verdict.definitive) {
+          // The runner probe genuinely ran and the candidate did NOT
+          // authenticate. This is a definitive rejection (422) — labelling it
+          // "unreachable" (as before) sent wrappers into retry loops instead
+          // of the re-login recovery that actually fixes it.
+          throw new ValidationError(
+            `auth candidate failed live verification${verdict.reason ? `: ${verdict.reason}` : ''}`,
+            { param: 'auth' },
+          );
+        }
         if (!verdict.ok) {
-          throw new ServiceUnavailableError('Runner verification failed; store is gated', 'runner_unreachable');
+          // Infrastructure failure (transport, garbage body, runner-side HTTP
+          // error) — says nothing about the credentials. 503 tells the
+          // wrapper "retry later, do not re-login".
+          throw new ServiceUnavailableError('Auth runner unavailable; canonical store is gated', 'runner_unreachable');
         }
         verificationState = 'verified';
         const applied = prepareRunnerUpdatedAuth(
@@ -320,6 +333,10 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       // 'unknown' so the gate falls back to its offline/cached-credentials logic
       // instead of refusing launch during an infrastructure blip.
       if (!verdict.reachable) return unchanged;
+      // Reachable but non-definitive (empty/garbage body, runner-side HTTP
+      // error): equally infrastructure noise — marking the canonical `failed`
+      // here would withhold working credentials from the whole fleet.
+      if (!verdict.ok && !verdict.definitive) return unchanged;
 
       const now = nowIso();
       if (!verdict.ok) {
