@@ -2,7 +2,7 @@
 title: Dashboard
 summary: KPIs, ChatGPT quota windows, runner state, and how the charts are fed.
 section: Admin workspace
-verified: 2026-07-01
+verified: 2026-07-10
 sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
@@ -55,7 +55,7 @@ There are no separate "normal lane" vs "Spark lane" meters in the rendered card 
 
 ## Runner
 
-The Runner state card polls `GET /admin/runner` every 15 seconds — there are no WebSocket events for runner state changes today, so polling is the only refresh trigger. It reads `runner.engines.codex` and `runner.engines.claude` and renders one row per engine showing a per-engine status badge (`idle` / `ok` / `fail` / `unconfigured`; `running` is a defined-but-unused state because `POST /admin/runner/run(-claude)` are synchronous calls that only resolve once the sidecar verification finishes), last-run / last-ok / last-fail timestamps, and a "Run verification" button. A separate overall badge in the card header (`idle` / `ready` / `fail` / `not configured`) summarizes `runner.configured` / `runner.ready`. The Codex row triggers `POST /admin/runner/run`; the Claude row triggers `POST /admin/runner/run-claude`. Triggering one engine also disables the other engine's button while that mutation is in flight. After a trigger the query is explicitly invalidated to reflect the updated state.
+The Runner state card polls `GET /admin/runner` every 15 seconds — there are no WebSocket events for runner state changes today, so polling is the only refresh trigger. It reads `runner.engines.codex` and `runner.engines.claude` and renders one row per engine showing only the current per-engine status badge (`idle` / `OK` / `fail` / `not configured`; `running` is a defined-but-unused state because `POST /admin/runner/run(-claude)` are synchronous calls that only resolve once the sidecar verification finishes) and a "Run verification" button. A separate overall badge in the card header (`idle` / `ready` / `fail` / `not configured`) summarizes `runner.configured` / `runner.ready`. The Codex row triggers `POST /admin/runner/run`; the Claude row triggers `POST /admin/runner/run-claude`. Triggering one engine also disables the other engine's button while that mutation is in flight. After a trigger the query is explicitly invalidated to reflect the updated state.
 
 ## Refresh
 

@@ -1,5 +1,11 @@
 # 2026-07-10
 
+## Dashboard runner-state cleanup
+
+- **Admin UI:** The Runner state card now shows only each engine's current
+  status badge instead of also listing the last-run, last-success, and
+  last-failure timestamps.
+
 ## Auth clobber fix — fresh logins survive stale fleet canonicals (0.6.41)
 
 - **cdx:** `cdx login` now uploads freshly minted credentials to the

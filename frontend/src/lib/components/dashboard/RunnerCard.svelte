@@ -32,7 +32,6 @@
     type RunnerStatus,
   } from "$lib/api/runner";
   import { toast } from "svelte-sonner";
-  import { relativeTime } from "$lib/utils/format";
 
   const state = createRunnerStateQuery();
   const runCodex = createRunCodexRunnerMutation();
@@ -47,13 +46,8 @@
     engine: EngineKey;
     label: string;
     actionLabel: string;
-    status: RunnerEngineStatus | null;
     token: string;
     variant: BadgeVariant;
-    lastRun: string | null;
-    lastOk: string | null;
-    lastFail: string | null;
-    lastError: string | null;
   }
 
   const sharedToken = $derived.by<string>(() => {
@@ -88,13 +82,8 @@
       engine,
       label,
       actionLabel: "Run verification",
-      status,
       token,
       variant: badgeVariant(token),
-      lastRun: status?.last_run ?? status?.last_check ?? null,
-      lastOk: status?.last_ok ?? null,
-      lastFail: status?.last_fail ?? null,
-      lastError: status?.last_error ?? null,
     };
   }
 
@@ -130,15 +119,6 @@
     return engine === "codex" ? $runCodex.isPending : $runClaude.isPending;
   }
 
-  function lastLine(row: EngineRow): string {
-    if (row.lastRun) return relativeTime(row.lastRun);
-    return "never";
-  }
-
-  function titleTime(value: string | null): string | undefined {
-    return value ?? undefined;
-  }
-
   function actionFor(engine: EngineKey) {
     return engine === "codex" ? handleRunCodex : handleRunClaude;
   }
@@ -147,22 +127,9 @@
     return pending(row.engine) || anyEngineRunning || !runner?.ready;
   }
 
-  function successLine(row: EngineRow): string | null {
-    if (!row.lastOk) return null;
-    return `OK ${relativeTime(row.lastOk)}`;
-  }
-
-  function failureLine(row: EngineRow): string | null {
-    if (!row.lastFail) return null;
-    return `Fail ${relativeTime(row.lastFail)}`;
-  }
-
   function tokenLabel(token: string): string {
-    return token === "unconfigured" ? "not configured" : token;
-  }
-
-  function truncate(value: string, max = 180): string {
-    return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    if (token === "unconfigured") return "not configured";
+    return token === "ok" ? "OK" : token;
   }
 
   function resultIsOk(data: { status?: string }): boolean {
@@ -251,17 +218,6 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="text-sm font-medium">{row.label}</div>
-                <div class="mt-1 text-xs text-muted-foreground">
-                  <span title={titleTime(row.lastRun)}>{lastLine(row)}</span>
-                  {#if successLine(row)}
-                    <span class="mx-1">·</span>
-                    <span title={titleTime(row.lastOk)}>{successLine(row)}</span>
-                  {/if}
-                  {#if failureLine(row)}
-                    <span class="mx-1">·</span>
-                    <span title={titleTime(row.lastFail)}>{failureLine(row)}</span>
-                  {/if}
-                </div>
               </div>
               <Badge variant={row.variant} class="shrink-0">
                 {#if row.token === "running"}
@@ -270,12 +226,6 @@
                 {tokenLabel(row.token)}
               </Badge>
             </div>
-
-            {#if row.lastError}
-              <div class="mt-3 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
-                {truncate(row.lastError)}
-              </div>
-            {/if}
 
             <Button
               class="mt-3 w-full justify-center"
