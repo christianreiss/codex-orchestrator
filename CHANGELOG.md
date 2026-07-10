@@ -1,5 +1,27 @@
 # 2026-07-10
 
+## Auth clobber fix — fresh logins survive stale fleet canonicals (0.6.41)
+
+- **cdx:** `cdx login` now uploads freshly minted credentials to the
+  orchestrator (previously the token only existed on local disk and the next
+  sync overwrote it with the stale fleet canonical). Every server-auth write
+  is now gated: payloads flagged `verification_state=failed` are never
+  materialized, and a local `auth.json` that is fresher than the server
+  payload is kept and pushed back instead of being clobbered (vanilla login
+  files without `last_refresh` compare by mtime). A failed canonical verdict
+  no longer bricks a host whose local login is newer than the canonical.
+- **cdx:** Interactive login recovery only opens on a definitive 4xx
+  rejection of the uploaded candidate; runner outages (5xx/transport) launch
+  with local credentials instead of prompting a login loop.
+- **API:** `/sync/bootstrap`'s store-failure fallback now carries the
+  candidate's freshness — a host presenting newer credentials gets
+  `upload_required` instead of the older canonical blob. Runner verdicts are
+  split into definitive provider rejections (422 `validation_failed`) versus
+  infrastructure failures (503 `runner_unreachable`); garbled runner
+  responses can no longer mark a canonical `failed` fleet-wide.
+
+# 2026-07-10
+
 ## Codex GPT-5.6 model catalog
 
 - **API, wrappers, runner, and admin UI:** Added `gpt-5.6-sol`,
