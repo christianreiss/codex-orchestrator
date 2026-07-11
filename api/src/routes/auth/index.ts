@@ -503,13 +503,26 @@ async function handleBootstrapAuth(
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
-    // CRITICAL: carry the candidate's freshness into the fallback. The bundle
-    // payload has no top-level last_refresh, so without this the retrieve
-    // compares incoming=0 against the canonical stamp, reports the host
-    // "outdated", and serves the OLDER canonical blob — which the wrapper then
-    // writes over the fresher local login the store just failed to accept
-    // (e.g. runner outage). With the stamp threaded through, retrieve answers
-    // `upload_required` (no blob) and the host keeps its newer credentials.
+    // Definitive live-probe rejection (422): the candidate credentials are
+    // proven dead — do NOT carry their freshness into the fallback. Stamping
+    // a dead candidate "fresh as now" out-ranks the verified canonical, the
+    // retrieve answers `upload_required`, and the wrapper re-uploads the same
+    // dead blob into another 422 → interactive re-login prompt, while a
+    // working canonical sits on the server the whole time. Falling back
+    // without the stamp lets retrieve report the host `outdated` and serve
+    // the canonical blob, so the host overwrites its dead credentials and
+    // heals unattended.
+    if (err instanceof ValidationError) {
+      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+    }
+    // CRITICAL (infrastructure failures only, e.g. runner outage): carry the
+    // candidate's freshness into the fallback. The bundle payload has no
+    // top-level last_refresh, so without this the retrieve compares
+    // incoming=0 against the canonical stamp, reports the host "outdated",
+    // and serves the OLDER canonical blob — which the wrapper then writes
+    // over the fresher local login the store just failed to accept. With the
+    // stamp threaded through, retrieve answers `upload_required` (no blob)
+    // and the host keeps its newer credentials.
     return handleRetrieve(
       app,
       ctx,

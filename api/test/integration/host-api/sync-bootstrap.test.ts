@@ -310,6 +310,99 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     vi.unstubAllGlobals();
   });
 
+  it('serves the verified canonical when the runner definitively rejects the candidate', async () => {
+    // Regression for the dead-credentials loop: a host whose local
+    // .credentials.json is CLI-native (claudeAiOauth only, no last_refresh)
+    // and whose token lineage was rotated away presents that dead candidate
+    // on bootstrap. The runner probe definitively rejects it (401). The
+    // catch-fallback used to stamp the dead candidate "fresh as now", answer
+    // `upload_required`, and send the wrapper into a doomed re-upload → 422 →
+    // interactive re-login prompt — while a verified canonical sat on the
+    // server. The definitive rejection must instead serve the canonical blob
+    // so the host overwrites its dead credentials and heals unattended.
+    const apiKey = 'sk-bootstrap-dead-candidate';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+
+    const runnerValidation = createRunnerValidationService({ db: db as never, keyring });
+    const canonicalStamp = '2026-07-10T09:00:00Z';
+    const canonicalOauth = { accessToken: 'sk-ant-oat01-live', refreshToken: 'live-refresh' };
+    const withFallback = runnerValidation.ensureAuthsFallback({ claudeAiOauth: canonicalOauth }, 'claude');
+    const canonical = runnerValidation.canonicalizeAuthPayload(
+      withFallback,
+      runnerValidation.normalizeAuthEntries(withFallback, 'claude'),
+      canonicalStamp,
+    );
+    const encoded = JSON.stringify(canonical);
+    db.tables.set(authPayloads, [
+      {
+        id: 11,
+        lastRefresh: canonicalStamp,
+        sha256: createHash('sha256').update(encoded).digest('hex'),
+        sourceHostId: null,
+        createdAt: canonicalStamp,
+        body: encrypt(encoded, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: canonicalStamp,
+        verificationReason: null,
+        engine: 'claude',
+      },
+    ]);
+
+    // Runner reachable and definitive: HTTP 200 {status:'fail'} — the probe
+    // genuinely ran against the provider and the candidate did not work.
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            status: 'fail',
+            reachable: true,
+            reason:
+              'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+          }),
+      })),
+    );
+
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        include_auth: true,
+        auth_digest: '2'.repeat(64),
+        auth_candidate: {
+          claudeAiOauth: { accessToken: 'sk-ant-oat01-dead', refreshToken: 'dead-refresh' },
+        },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('outdated');
+    // The verified canonical blob rides along so the host can heal.
+    expect(body.auth.auth).toBeDefined();
+    expect(body.auth.auth.claudeAiOauth.accessToken).toBe('sk-ant-oat01-live');
+    // The dead candidate was not stored.
+    expect(db.tables.get(authPayloads)!).toHaveLength(1);
+    await app.close();
+    vi.unstubAllGlobals();
+  });
+
   it('omits content when digests match', async () => {
     const apiKey = 'sk-bootstrap-unchanged';
     const agentsBody = '# AGENTS.md\n';
