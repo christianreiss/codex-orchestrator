@@ -1,5 +1,6 @@
 # 2026-07-13
 
+- **cdx/clx 0.6.43:** Wrapper, engine CLI, and peer-wrapper updates now use one compact, colour-aware progress format. Interactive terminals show `↻` / `✓` / `✗` status lines; `NO_COLOR` and redirected stderr are escape-free, while `TERM=dumb` uses ASCII.
 - **cdx/clx 0.6.42:** A static-IP policy denial (`ip_mismatch`) is no longer misreported as an API outage with stale cached auth. Both wrappers now identify the current IP as unbound, refuse cached-auth fallback, and direct operators to **Admin → Host Detail → Release IP binding** for the controlled change.
 - **Host Detail:** Added a confirmed **Release IP binding** action for controlled network moves. It clears the host’s stored IPv4 and IPv6 addresses, preserves its secure/roaming policy, records the old addresses in the audit trail, and lets the next valid host request claim the replacement address.
 

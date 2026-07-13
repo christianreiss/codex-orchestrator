@@ -66,7 +66,7 @@ exit 42
 
 	stderr := captureStderr(t, func() {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		if got := maybeEnsureClaude(context.Background(), auth, false, logger); got != "" {
+		if got := maybeEnsureClaude(context.Background(), nil, auth, false, logger); got != "" {
 			t.Fatalf("maybeEnsureClaude() = %q, want no update", got)
 		}
 	})

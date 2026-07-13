@@ -145,7 +145,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
 			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
-			claudeUpdated = maybeEnsureClaude(ctx, authResp, concurrent, logger)
+			claudeUpdated = maybeEnsureClaude(ctx, cfg, authResp, concurrent, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, logger)
 				// Fresh hosts: minted credentials alone don't stop Claude's
@@ -707,7 +707,7 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 //
 // Returns the post-install claude version when an install actually ran,
 // empty otherwise. See the cdx-side counterpart for the rationale.
-func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
+func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -735,20 +735,18 @@ func maybeEnsureClaude(ctx context.Context, auth *orchestrator.AuthRetrieveRespo
 		logger.Debug("skipping downgrade", "current", current, "target", target)
 		return ""
 	}
-	if current == "" || current == "unknown" {
-		fmt.Fprintf(os.Stderr, "clx: installing claude CLI %s…\n", target)
-	} else {
-		fmt.Fprintf(os.Stderr, "clx: installing claude CLI %s → %s…\n", current, target)
-	}
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "claude", current, target))
 	if err := claude.EnsureClaude(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
 		logger.Warn("claude auto-update skipped", "err", err, "target", target, "current", current)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "claude", target, err))
 		return ""
 	}
 	post := strings.TrimSpace(claude.Version(ctx))
 	if post == "" || post == "unknown" {
 		post = target
 	}
-	fmt.Fprintf(os.Stderr, "clx: claude CLI updated to %s\n", post)
+	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "clx", "claude", post, false))
 	return post
 }
 
@@ -776,21 +774,18 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
 		return
 	}
-	if current == "" || current == "unknown" {
-		fmt.Fprintf(os.Stderr, "clx: installing wrapper %s...\n", target)
-	} else {
-		fmt.Fprintf(os.Stderr, "clx: installing wrapper %s -> %s...\n", current, target)
-	}
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "wrapper", current, target))
 	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
 	if err != nil {
 		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintf(os.Stderr, "clx: wrapper auto-update skipped: %v\n", err)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "wrapper", target, err))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "clx: wrapper updated to %s; restarting...\n", target)
+	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "clx", "wrapper", target, true))
 	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
 		logger.Warn("wrapper restart after update failed", "err", err)
-		fmt.Fprintf(os.Stderr, "clx: wrapper restart after update failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "wrapper", target, err))
 	}
 }
 

@@ -178,7 +178,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
 			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
-			codexUpdated = maybeEnsureCodex(ctx, authResp, concurrent, logger)
+			codexUpdated = maybeEnsureCodex(ctx, cfg, authResp, concurrent, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, logger)
 			}
@@ -877,7 +877,7 @@ func themeFromConfig(cfg *config.Config) string {
 //
 // This is a no-op in concurrent (read-only) mode, when auth retrieval
 // failed, or when AutoUpdateEnabled is false.
-func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
+func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -910,20 +910,18 @@ func maybeEnsureCodex(ctx context.Context, auth *orchestrator.AuthRetrieveRespon
 	// downloads from GitHub. Surface a single human-readable progress line
 	// on stderr so the user knows what's happening — the structured-log
 	// emissions inside the installer are at Debug now.
-	if current == "" || current == "unknown" {
-		fmt.Fprintf(os.Stderr, "cdx: installing codex CLI %s…\n", target)
-	} else {
-		fmt.Fprintf(os.Stderr, "cdx: installing codex CLI %s → %s…\n", current, target)
-	}
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "codex", current, target))
 	if err := codex.EnsureCodex(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
 		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "codex", target, err))
 		return ""
 	}
 	post := strings.TrimSpace(codex.Version(ctx))
 	if post == "" || post == "unknown" {
 		post = target
 	}
-	fmt.Fprintf(os.Stderr, "cdx: codex CLI updated to %s\n", post)
+	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "cdx", "codex", post, false))
 	return post
 }
 
@@ -951,21 +949,18 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
 		return
 	}
-	if current == "" || current == "unknown" {
-		fmt.Fprintf(os.Stderr, "cdx: installing wrapper %s...\n", target)
-	} else {
-		fmt.Fprintf(os.Stderr, "cdx: installing wrapper %s -> %s...\n", current, target)
-	}
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "wrapper", current, target))
 	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
 	if err != nil {
 		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
-		fmt.Fprintf(os.Stderr, "cdx: wrapper auto-update skipped: %v\n", err)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "cdx: wrapper updated to %s; restarting...\n", target)
+	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "cdx", "wrapper", target, true))
 	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
 		logger.Warn("wrapper restart after update failed", "err", err)
-		fmt.Fprintf(os.Stderr, "cdx: wrapper restart after update failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
 	}
 }
 

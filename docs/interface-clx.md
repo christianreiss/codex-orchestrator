@@ -42,6 +42,10 @@ artifact first, re-exec the original argv after a successful swap, then repair a
 stale Claude Code CLI; an already matching Claude Code version is a no-op even
 when the fleet policy is an exact pin. Root-owned wrapper installs use the same verified
 temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
+Update activity for the wrapper, Claude CLI, and peer `cdx` install uses the
+compact `↻` / `✓` / `✗` status line; it is coloured only on interactive
+terminals, is escape-free with `NO_COLOR` or redirected stderr, and switches
+to ASCII on `TERM=dumb`.
 
 ## Per-host config (typed, signed)
 

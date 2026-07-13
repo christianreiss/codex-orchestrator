@@ -21,6 +21,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/signing"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
 
 const peerEngine = "codex"
@@ -160,10 +161,13 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	}
 	installed := false
 	if !peerBinaryCurrent(sum) {
-		fmt.Fprintf(os.Stderr, "clx: installing cdx…\n")
+		caps := updateCaps(cfg)
+		fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", peerName, "", ""))
 		if err := installPeerBinary(ctx, cfg, url, sum); err != nil {
+			fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", peerName, "", err))
 			return err
 		}
+		fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "clx", peerName, "", false))
 		installed = true
 	}
 	// Interactive launches keep this lightweight and only run the peer tick when
@@ -174,6 +178,14 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 		runPeerCronTick(ctx)
 	}
 	return nil
+}
+
+func updateCaps(cfg *config.Config) ui.Caps {
+	theme := ""
+	if cfg != nil && cfg.EngineOptions.AdminThemeHint != nil {
+		theme = *cfg.EngineOptions.AdminThemeHint
+	}
+	return ui.DetectCaps(theme)
 }
 
 func shouldRunPeerCronTick(installed, enginePresent, force bool) bool {
