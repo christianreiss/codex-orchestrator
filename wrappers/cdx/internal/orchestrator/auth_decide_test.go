@@ -266,6 +266,28 @@ func TestDecideEngineDisabled(t *testing.T) {
 	}
 }
 
+// TestDecideIPMismatch pins the static-IP denial from /sync/bootstrap. The
+// client exposes that 401 as an offline response, but the API is reachable and
+// cached auth must not mask an IP-binding policy violation.
+func TestDecideIPMismatch(t *testing.T) {
+	resp := &AuthRetrieveResponse{
+		Status:  "offline",
+		Message: `POST /sync/bootstrap -> 401: {"status":"error","message":"API key not allowed from this IP","code":"ip_mismatch"}`,
+	}
+	got := Decide(resp, "/dev/null", true, LocalAuthProbe{
+		IsValid: func(string) bool { return true },
+		IsFresh: func(string, time.Duration) (bool, error) { return true, nil },
+	})
+	if got.Allowed {
+		t.Fatalf("ip_mismatch must refuse launch, got Allowed=true (reason=%q)", got.Reason)
+	}
+	for _, want := range []string{"ip binding mismatch", "ip_mismatch", "release ip binding"} {
+		if !strings.Contains(strings.ToLower(got.Reason), want) {
+			t.Fatalf("reason = %q, want %q", got.Reason, want)
+		}
+	}
+}
+
 // TestApplyConcurrent pins the read-only secondary-run gate: only downgrades an
 // allow to a refusal when local auth is unusable; never upgrades a refusal.
 func TestApplyConcurrent(t *testing.T) {

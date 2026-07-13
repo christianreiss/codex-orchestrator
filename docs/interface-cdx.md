@@ -148,6 +148,7 @@ both engine CLIs current on dual-engine hosts.
 - API kill-switch (`versions.api_disabled=true`) blocks startup before auth/config writes.
 - `installation_id` mismatch → "Installation ID mismatch; refusing to sync."; exit 1.
 - Reverse DNS mismatches are reported from `/auth` as a host/IP policy denial so operators can fix DNS instead of rotating credentials.
+- Static IP-binding mismatch (`ip_mismatch`) from `/sync/bootstrap` is a hard policy denial, not an API outage. `cdx` says the current IP is not bound and directs operators to **Admin → Host Detail → Release IP binding** for the controlled IP move; it never launches from cached auth for this condition.
 - Auth status `invalid` → "Invalid API key; download a fresh wrapper or rotate the key."; exit 1.
 - Auth status `insecure` → approval pending; the wrapper keeps the in-place polling box open until approved or denied.
 - Auth status `insecure-denied` → "Insecure host approval denied; re-run or open the host window."; exit 1.

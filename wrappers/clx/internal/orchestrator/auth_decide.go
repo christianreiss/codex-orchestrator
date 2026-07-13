@@ -63,6 +63,13 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "reverse DNS mismatch; refusing to sync."
 		return d
 	}
+	// Static IP-binding mismatch: /sync/bootstrap represents the 401 body as an
+	// offline sentinel. This is a reachable API policy denial, not an outage;
+	// never fall back to cached credentials, even when they are still fresh.
+	if strings.Contains(strings.ToLower(resp.Message), "ip_mismatch") {
+		d.Reason = "IP binding mismatch (ip_mismatch; API is reachable): this host's current IP is not bound. In Admin → Host Detail, use Release IP binding for a controlled IP change, then retry."
+		return d
+	}
 	// Engine disabled for this host. The non-bundle /auth path maps this to
 	// status "disabled", but the /sync/bootstrap path folds the 403 body into
 	// the synthesized offline Message — without this branch an over-cache host

@@ -119,6 +119,16 @@ func TestDecide_TableDriven(t *testing.T) {
 			want:  wantD{reason: "reverse DNS mismatch"},
 		},
 		{
+			name: "ip mismatch refuses with release guidance (offline-wrapped server error)",
+			resp: &AuthRetrieveResponse{
+				Status:  "offline",
+				Message: `POST /sync/bootstrap -> 401: {"status":"error","message":"API key not allowed from this IP","code":"ip_mismatch"}`,
+			},
+			path:  "/dev/null",
+			probe: probeFresh24Only,
+			want:  wantD{reason: "Release IP binding"},
+		},
+		{
 			name:  "offline no path",
 			resp:  &AuthRetrieveResponse{Status: "offline"},
 			probe: probeFresh24Only,

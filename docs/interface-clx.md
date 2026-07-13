@@ -104,6 +104,11 @@ Startup does not wait on live runner verification; `/auth` and
 `/sync/bootstrap` return the latest stored background-worker verdict, and a
 stored `verification_state=failed` still refuses launch with the interactive
 Claude login recovery path.
+An IP-binding denial (`ip_mismatch`) wrapped by `/sync/bootstrap` as an offline
+response is instead treated as a reachable hard policy denial: `clx` states
+that the current IP is not bound and directs the operator to **Admin → Host
+Detail → Release IP binding** for the controlled IP move. Cached credentials
+are never used for this condition.
 When the `clx` lock is already held, the secondary run remains read-only for
 managed `CLAUDE.md`, settings, collections, and skills, but it still performs
 the startup auth digest check and atomically writes server-returned canonical
