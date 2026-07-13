@@ -91,6 +91,21 @@ export function createClearHostAuthMutation(qc: QueryClient) {
   });
 }
 
+export function createReleaseIpBindingMutation(qc: QueryClient) {
+  return createMutation<
+    { host: HostDetail },
+    ApiError,
+    { id: number | string }
+  >({
+    mutationFn: ({ id }) =>
+      api.post<{ host: HostDetail }>(`/admin/hosts/${id}/release-ip-binding`),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+    },
+  });
+}
+
 export function createMintInstallerMutation(qc: QueryClient) {
   return createMutation<
     HostInstallerResponse,

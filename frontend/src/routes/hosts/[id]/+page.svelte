@@ -34,6 +34,7 @@
     hostStatusKind,
     isInsecureWindowActive,
     createDeleteHostMutation,
+    createReleaseIpBindingMutation,
     createMintInstallerMutation,
     createSecureToggleMutation,
     createVipToggleMutation,
@@ -62,6 +63,7 @@
 
   // Mutations
   const deleteMut = createDeleteHostMutation(qc);
+  const releaseIpBinding = createReleaseIpBindingMutation(qc);
   const mintInstaller = createMintInstallerMutation(qc);
   const secure = createSecureToggleMutation(qc);
   const vip = createVipToggleMutation(qc);
@@ -104,6 +106,7 @@
 
   // Dialog state
   let confirmDeleteOpen = $state(false);
+  let confirmReleaseIpBindingOpen = $state(false);
   let codexDialogOpen = $state(false);
   let claudeDialogOpen = $state(false);
   let codexModelDialogOpen = $state(false);
@@ -123,6 +126,14 @@
       toast.error(msg);
       throw err;
     }
+  }
+
+  async function doReleaseIpBinding(): Promise<void> {
+    await run(
+      "IP binding released",
+      $releaseIpBinding.mutateAsync({ id }),
+      { rethrow: true },
+    );
   }
 
   async function doMintInstaller(engines?: Array<"codex" | "claude">): Promise<void> {
@@ -467,6 +478,12 @@
             <Download class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
           </Button>
 
+          {#if host.ip4 || host.ip6}
+            <Button variant="outline" onclick={() => (confirmReleaseIpBindingOpen = true)}>
+              Release IP binding
+            </Button>
+          {/if}
+
           <div class="ml-auto flex gap-2">
             <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
               <Trash2 class="h-4 w-4" /> Delete host
@@ -477,6 +494,15 @@
     </Card.Root>
   </div>
 
+  <ConfirmDialog
+    bind:open={confirmReleaseIpBindingOpen}
+    onOpenChange={(v) => (confirmReleaseIpBindingOpen = v)}
+    title="Release IP binding?"
+    description="Clear the stored IPv4 and IPv6 bindings for this host. Its next valid authenticated request will establish the new binding; security and roaming settings stay unchanged."
+    confirmLabel="Release binding"
+    destructive
+    onConfirm={doReleaseIpBinding}
+  />
   <ConfirmDialog
     bind:open={confirmDeleteOpen}
     onOpenChange={(v) => (confirmDeleteOpen = v)}

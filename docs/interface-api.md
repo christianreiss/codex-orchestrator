@@ -130,6 +130,7 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 - `POST /admin/insecure-approvals/{id}/deny` — deny a pending insecure-host request (client remains blocked).
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke a domain auto-allow rule (future subdomain connections will require approval again).
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips`.
+- `POST /admin/hosts/{id}/release-ip-binding` — clear the stored `ip4` and `ip6` bindings for a controlled network move while retaining the host's secure and roaming settings. The next valid host-authenticated request establishes the replacement binding. The release records the prior addresses in the admin audit trail.
 - `POST /admin/hosts/{id}/reverse-dns` — set per-host reverse DNS enforcement (`mode`: `global` | `enabled` | `disabled`).
 - `POST /admin/hosts/{id}/ipv4` — toggle IPv4-only mode (`force` boolean). Clears the stored IP and bakes future installers/wrappers with `curl -4`.
 - `POST /admin/hosts/{id}/curl-insecure` — toggle TLS verification bypass for host sync (`allow` boolean). Bakes future wrappers with `CODEX_SYNC_ALLOW_INSECURE=1`.

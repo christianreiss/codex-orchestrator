@@ -356,6 +356,43 @@ describe('HostManagementService.setSecure', () => {
   });
 });
 
+describe('HostManagementService.releaseIpBinding', () => {
+  it('clears both address families, preserves host policy, and records the released addresses', async () => {
+    const mock = createMockDb();
+    const env = buildEnv();
+    const keyring = await buildKeyring();
+    const events = makeAdminEventsWriter(mock.db);
+    const svc = new HostManagementService({ db: mock.db, env, keyring, events });
+    mock.insertRow('hosts', {
+      fqdn: 'move.example.com',
+      api_key: 'h',
+      api_key_hash: 'h',
+      status: 'active',
+      secure: 1,
+      allow_roaming_ips: 0,
+      ip4: '198.51.100.10',
+      ip6: '2001:db8::10',
+      created_at: '2024-01-01',
+      updated_at: '2024-01-01',
+    });
+
+    const host = await svc.releaseIpBinding(1);
+
+    expect(host.ip4).toBeNull();
+    expect(host.ip6).toBeNull();
+    expect(host.secure).toBe(1);
+    expect(host.allowRoamingIps).toBe(0);
+    expect(mock.rows('logs').find((row) => row.action === 'admin.host.ip_binding_released')?.details).toContain(
+      '198.51.100.10',
+    );
+    expect(mock.rows('admin_events').find((row) => row.type === 'host.updated')?.payload).toMatchObject({
+      action: 'release_ip_binding',
+      previous_ip4: '198.51.100.10',
+      previous_ip6: '2001:db8::10',
+    });
+  });
+});
+
 describe('HostManagementService version overrides', () => {
   it('rejects non-semver codex selections', async () => {
     const mock = createMockDb();

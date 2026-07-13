@@ -111,6 +111,10 @@ function makeMocks() {
       calls.push({ method: 'clear', args: [id] });
       return { host: fakeHost({ id }) };
     },
+    releaseIpBinding: async (id: number) => {
+      calls.push({ method: 'releaseIpBinding', args: [id] });
+      return fakeHost({ id, ip4: null, ip6: null });
+    },
     setRoaming: async (id: number, allow: boolean) => {
       calls.push({ method: 'setRoaming', args: [id, allow] });
       return fakeHost({ id, allowRoamingIps: allow ? 1 : 0 });
@@ -499,6 +503,24 @@ describe('admin hosts routes', () => {
       expect(r.statusCode).toBe(200);
       expect(JSON.parse(r.payload).deleted).toBe(42);
       expect(calls.find((c) => c.method === 'delete')).toBeTruthy();
+      await app.close();
+    });
+  });
+
+  describe('POST /admin/hosts/:id/release-ip-binding', () => {
+    it('releases both static IP bindings without requiring a request body', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/42/release-ip-binding' });
+      expect(r.statusCode).toBe(200);
+      expect(JSON.parse(r.payload).host.id).toBe(42);
+      expect(calls.find((c) => c.method === 'releaseIpBinding')?.args).toEqual([42]);
+      await app.close();
+    });
+
+    it('rejects a non-numeric host id', async () => {
+      const { app } = await build({ authenticated: true });
+      const r = await app.inject({ method: 'POST', url: '/admin/hosts/not-a-host/release-ip-binding' });
+      expect(r.statusCode).toBe(422);
       await app.close();
     });
   });

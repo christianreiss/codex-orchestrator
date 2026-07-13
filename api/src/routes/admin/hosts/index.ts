@@ -414,6 +414,18 @@ export async function registerAdminHostsRoutes(
     },
   });
 
+  // ─── #6b POST /admin/hosts/:id/release-ip-binding ───
+  app.route({
+    method: 'POST',
+    url: '/admin/hosts/:id/release-ip-binding',
+    preHandler: [app.requireAdmin],
+    handler: async (req) => {
+      const id = parseId((req.params as { id: string }).id);
+      const host = await hostService.releaseIpBinding(id);
+      return { host: hostToWire(host) };
+    },
+  });
+
   // ─── #7 POST /admin/hosts/:id/roaming ───
   app.route({
     method: 'POST',

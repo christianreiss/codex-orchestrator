@@ -1,3 +1,7 @@
+# 2026-07-13
+
+- **Host Detail:** Added a confirmed **Release IP binding** action for controlled network moves. It clears the host’s stored IPv4 and IPv6 addresses, preserves its secure/roaming policy, records the old addresses in the audit trail, and lets the next valid host request claim the replacement address.
+
 # 2026-07-10
 
 ## Claude Code 2.1.206 model catalog

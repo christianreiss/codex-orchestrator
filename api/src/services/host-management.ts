@@ -615,6 +615,31 @@ export class HostManagementService {
     return { host: fresh };
   }
 
+  /**
+   * Clear static IPv4/IPv6 bindings before a planned network move. The next
+   * authenticated host request establishes a fresh binding under the existing
+   * secure/roaming policy.
+   */
+  async releaseIpBinding(id: number): Promise<Host> {
+    const host = await this.requireById(id);
+    const previousIp4 = host.ip4 ?? null;
+    const previousIp6 = host.ip6 ?? null;
+    await this.db
+      .update(hosts)
+      .set({ ip4: null, ip6: null, updatedAt: nowIso() })
+      .where(eq(hosts.id, id));
+    await this.writeLog(id, 'admin.host.ip_binding_released', {
+      fqdn: host.fqdn,
+      previous_ip4: previousIp4,
+      previous_ip6: previousIp6,
+    });
+    return await this.publishUpdate(id, host.fqdn, {
+      action: 'release_ip_binding',
+      previous_ip4: previousIp4,
+      previous_ip6: previousIp6,
+    });
+  }
+
   // ────────── Toggles ──────────
 
   async setRoaming(id: number, allow: boolean): Promise<Host> {
