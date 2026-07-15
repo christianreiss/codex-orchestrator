@@ -515,6 +515,42 @@ export const coordProjectFeedback = mysqlTable(
   }),
 );
 
+/**
+ * Durable memories bound to a project (cross-host), as opposed to `mcp_memories`
+ * which is keyed on (host_id, memory_key) and therefore host-local.
+ *
+ * The FULLTEXT index `idx_coord_project_memories_search (content, tags_text)` is
+ * NOT declared here: drizzle-orm's mysql-core exposes only index()/uniqueIndex()
+ * and cannot express FULLTEXT. Nor are the FKs, which this mirror omits for every
+ * coord_project_* table. Both live in
+ * `migrations/0003_add_coord_project_memories.sql`, the source of truth for this
+ * table's DDL — it also back-fills the index onto a table created from this
+ * mirror by `drizzle-kit push`, which would otherwise leave `searchMemories`
+ * permanently degraded to a LIKE scan.
+ * (`mcp_memories.idx_memories_search` has no such record — it was declared inline
+ * in the PHP migration deleted in d06f88b3 and now exists only in deployed DBs.)
+ */
+export const coordProjectMemories = mysqlTable(
+  'coord_project_memories',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    memoryKey: varchar('memory_key', { length: 128 }).notNull(),
+    content: longtext('content').notNull(),
+    metadata: json('metadata'),
+    tags: json('tags'),
+    tagsText: text('tags_text'),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    uniqKey: uniqueIndex('uniq_coord_project_memory_key').on(t.projectId, t.memoryKey),
+    projectIdx: index('idx_coord_project_memories_project').on(t.projectId),
+    updatedAtIdx: index('idx_coord_project_memories_updated_at').on(t.updatedAt),
+  }),
+);
+
 export const coordProjectEvents = mysqlTable(
   'coord_project_events',
   {

@@ -163,6 +163,12 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_bootstrap':
     case 'project_changes':
     case 'project_file_list':
+    case 'project_memory_list':
+      return { slug: scalar };
+    case 'project_memory_search':
+      // Unlike memory_search, the scalar is the slug, not the query: query is
+      // optional here, so `project_memory_search("myproject")` usefully lists
+      // that project's memories.
       return { slug: scalar };
     case 'project_file_read':
       // Scalar form is ambiguous between slug-only and stored-name; default to slug.
@@ -538,6 +544,96 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
     handler: async (args, host) =>
       deps.projects.deleteFile(String(args['slug'] ?? ''), Number(args['id'] ?? 0), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_memory_list',
+      description:
+        'List all durable memories bound to a project (visible from every host, across sessions). Returns keys, tags, and truncated previews; set include_content=true for full content. Use this to enumerate project memory without guessing search terms.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          include_content: { type: 'boolean' },
+          limit: { type: 'integer' },
+        },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.listMemories(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_memory_get',
+      description: 'Read one project memory by key (returns full content, tags, and metadata)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          key: { type: 'string' },
+        },
+        required: ['slug', 'key'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.getMemory(String(args['slug'] ?? ''), String(args['key'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_memory_upsert',
+      description:
+        'Create or update a durable project memory by key (add + update). Idempotent: returns status created, updated, or unchanged.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          key: { type: 'string' },
+          content: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          metadata: { type: 'object' },
+        },
+        required: ['slug', 'key', 'content'],
+      },
+    },
+    handler: async (args, host) => deps.projects.upsertMemory(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_memory_delete',
+      description: 'Delete a project memory by key',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          key: { type: 'string' },
+        },
+        required: ['slug', 'key'],
+      },
+    },
+    handler: async (args, host) =>
+      deps.projects.deleteMemory(String(args['slug'] ?? ''), String(args['key'] ?? ''), host),
+  });
+  inputs.push({
+    definition: {
+      name: 'project_memory_search',
+      description:
+        "Search a project's memories by full-text query and optional tags. Omit query to list the most recently updated memories.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          query: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          limit: { type: 'integer' },
+        },
+        // `query` is deliberately NOT required: validateAgainstSchema rejects '',
+        // which is exactly what makes memory_search unable to enumerate and forces
+        // callers to guess search terms. Omitting query here degrades to a
+        // recency-ordered listing instead.
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.projects.searchMemories(String(args['slug'] ?? ''), args, host),
   });
   inputs.push({
     definition: {

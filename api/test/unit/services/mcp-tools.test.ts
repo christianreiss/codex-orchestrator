@@ -32,9 +32,16 @@ interface TodoDoneCall {
   done: boolean;
 }
 
+interface MemoryCall {
+  slug: string;
+  payload: Record<string, unknown>;
+}
+
 const upsertNoteCalls: UpsertNoteCall[] = [];
 const todoUpdateCalls: TodoUpdateCall[] = [];
 const todoDoneCalls: TodoDoneCall[] = [];
+const memoryListCalls: MemoryCall[] = [];
+const memorySearchCalls: MemoryCall[] = [];
 
 const stubProjects = {
   listProjects: async () => ({ projects: [] }),
@@ -78,6 +85,22 @@ const stubProjects = {
     file: { id: 1, stored_name: payload['stored_name'] ?? 'a.txt', content: payload['content'] ?? '' },
   }),
   deleteFile: async (slug: string, id: number) => ({ project: slug, deleted: id }),
+  listMemories: async (slug: string, payload: Record<string, unknown>) => {
+    memoryListCalls.push({ slug, payload });
+    return { project: slug, count: 0, truncated: false, memories: [] };
+  },
+  getMemory: async (slug: string, key: string) => ({ project: slug, status: 'found', id: key, memory: null }),
+  upsertMemory: async (slug: string, payload: Record<string, unknown>) => ({
+    project: slug,
+    status: 'created',
+    id: payload['key'],
+    memory: null,
+  }),
+  deleteMemory: async (slug: string, key: string) => ({ project: slug, status: 'deleted', id: key }),
+  searchMemories: async (slug: string, payload: Record<string, unknown>) => {
+    memorySearchCalls.push({ slug, payload });
+    return { project: slug, query: payload['query'] ?? '', count: 0, degraded: false, matches: [] };
+  },
 } as unknown as HostProjectsService;
 
 const stubSkills = {
@@ -114,6 +137,58 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_file_read');
     expect(list).toContain('project_file_upsert');
     expect(list).toContain('project_file_delete');
+  });
+
+  it('registers the project_memory_* CRUD tools', () => {
+    const list = registry.list().map((t) => t.name);
+    expect(list).toContain('project_memory_list');
+    expect(list).toContain('project_memory_get');
+    expect(list).toContain('project_memory_upsert');
+    expect(list).toContain('project_memory_delete');
+    expect(list).toContain('project_memory_search');
+  });
+
+  // The reason project_memory_* exists at all. memory_search marks `query`
+  // required, and validateAgainstSchema rejects '', so host memories cannot be
+  // enumerated over MCP -- a fresh agent can only guess search terms. Project
+  // memory must never inherit that.
+  it('lets project_memory_search run without a query so memories stay enumerable', async () => {
+    const search = registry.list().find((t) => t.name === 'project_memory_search');
+    expect(search?.inputSchema['required']).toEqual(['slug']);
+    expect(search?.inputSchema['required']).not.toContain('query');
+
+    const res = await registry.dispatch('project_memory_search', { slug: 'demo' }, host);
+    expect(res).toMatchObject({ isError: false });
+  });
+
+  it('dispatches project_memory_list without requiring anything but a slug', async () => {
+    const res = await registry.dispatch('project_memory_list', { slug: 'demo' }, host);
+    expect(res).toMatchObject({ isError: false });
+    expect(memoryListCalls.at(-1)).toMatchObject({ slug: 'demo' });
+  });
+
+  it('resolves a bare scalar to the slug for the memory listing tools', async () => {
+    await registry.dispatch('project_memory_list', 'demo' as unknown as Record<string, unknown>, host);
+    expect(memoryListCalls.at(-1)).toMatchObject({ slug: 'demo' });
+
+    await registry.dispatch('project_memory_search', 'demo' as unknown as Record<string, unknown>, host);
+    expect(memorySearchCalls.at(-1)).toMatchObject({ slug: 'demo' });
+  });
+
+  it('rejects a bare scalar for project_memory_get, which needs two args', async () => {
+    const res = await registry.dispatch('project_memory_get', 'demo' as unknown as Record<string, unknown>, host);
+    expect(res).toMatchObject({ isError: true });
+    expect((res as { content: Array<{ text: string }> }).content[0]!.text).toContain('slug');
+  });
+
+  it('resolves dot aliases for the memory tools', async () => {
+    const res = await registry.dispatch('project.memory.upsert', { slug: 'demo', key: 'k', content: 'c' }, host);
+    expect(res).toMatchObject({ isError: false });
+  });
+
+  it('requires key and content on project_memory_upsert', async () => {
+    const res = await registry.dispatch('project_memory_upsert', { slug: 'demo' }, host);
+    expect(res).toMatchObject({ isError: true });
   });
 
   it('advertises all accepted project feedback types', () => {

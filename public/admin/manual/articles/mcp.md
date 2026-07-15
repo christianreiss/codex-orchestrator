@@ -1,8 +1,8 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-07-01
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
+verified: 2026-07-15
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
@@ -36,13 +36,13 @@ Tools tagged `operator` are filtered out of `tools/list` for `host` callers (and
 Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on capability and, for `fs_*`, on server config (`MCP_FS_ROOT`):
 
 **Memory** (both capabilities)
-- `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete`
+- `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete` — host-scoped (see *Memory tools* below)
 
 **Filesystem (operator only)**
 - `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files` — only registered when `MCP_FS_ROOT` points at an existing directory; every path argument is resolved beneath that root after symlink follow.
 
 **Resources** (both capabilities)
-- `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete` — `list`/`read` work across every URI scheme; `create`/`update`/`delete` are restricted to `memory://` (see *Resources* below).
+- `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete` — `list`/`read` work across every URI scheme; `create`/`update`/`delete` are restricted to the two memory schemes, `memory://` and `project://{slug}/memory/{key}` (see *Resources* below).
 
 **Skills** (both capabilities)
 - `skill_list`, `skill_retrieve` — canonical skill manifest entries.
@@ -52,6 +52,7 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `project_note_create`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
 - `project_feedback_create`
 - `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`
+- `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
 
 These tools are unconditional: `McpToolsRegistry` (`mcp-tools.ts`) registers them the same way it registers `memory_*`/`skill_*`, with no dependency on the Projects module toggle (`projects_module_enabled`). What *is* gated by that toggle is the managed `coco` skill (`api/src/services/managed-coco-skill.ts`, `skill://coco`) — see [Projects](/admin/manual/projects) — which onboards agents onto the `project_*` workflow. Disabling the module removes the skill, not the tools.
 
@@ -59,14 +60,15 @@ Use `tools/list` at runtime for the authoritative set; what you see depends on w
 
 ## Resources
 
-`McpResourcesService` (`api/src/services/mcp-resources.ts`) registers four URI schemes, all listed by `resources/templates/list`:
+`McpResourcesService` (`api/src/services/mcp-resources.ts`) registers five URI schemes, all listed by `resources/templates/list`:
 
-- `memory://{key}` — a single host-scoped memory. This is the **only** scheme `resource_create`/`resource_update`/`resource_delete` accept; each other scheme rejects create/update/delete with an explicit error. `resource_update` is a plain alias for `resource_create` (both call the same upsert path).
+- `memory://{key}` — a single host-scoped memory. Together with `project://{slug}/memory/{key}` these are the only schemes `resource_create`/`resource_update`/`resource_delete` accept; every other scheme rejects create/update/delete with an explicit error. `resource_update` is a plain alias for `resource_create` (both call the same upsert path).
 - `project://{slug}` — the same shape as `project_bootstrap` but consumed as a resource. Always available (see the Projects note above).
 - `project://{slug}/files/{stored_name}` — a single project file's raw content.
+- `project://{slug}/memory/{key}` — a single project-scoped memory. Writable, but this path only carries `text`: tags and metadata are unreachable here, so `project_memory_upsert` remains the full-fidelity surface.
 - `skill://{slug}` — the canonical skill manifest, materialised at read time by `HostSkillsService.retrieve()` (`api/src/services/host-skills.ts`). `skill-manifest.ts` is a separate helper used by the admin skill-authoring routes (slug/manifest validation for drafts) — it is not on this read path. This is how both `cdx` and `clx` bring in slash-command skills without keeping per-host copies on disk.
 
-`resource_list` enumerates every project (plus up to 50 files each) and every skill as browsable entries. Reading a resource is preferred over the more specific tools when the agent only needs to read; it skips the tool schema-validation step.
+`resource_list` enumerates every project (plus up to 50 files and up to 50 memories each) and every skill as browsable entries. It does **not** enumerate host-scoped `memory://` entries — those have no listing path at all (see below). Reading a resource is preferred over the more specific tools when the agent only needs to read; it skips the tool schema-validation step.
 
 ## Memory tools
 
@@ -77,6 +79,30 @@ Limits enforced at the service layer:
 - `id` (the memory key): letters, digits, `.`, `_`, `:`, `-` only, 128 characters max. A key equal to `coco` or starting with `coco` followed by a separator (`coco.`, `coco_`, `coco:`, `coco-`) is rejected — that namespace is reserved for CoCo shared-project handoffs (use `project_*` tools instead of host-scoped memory).
 - `content`: required, 32,000 characters max.
 - `tags`: up to 32 tags, 64 characters each, case-insensitively deduplicated.
+
+Two limitations are worth knowing before you build on this surface. Host memories **cannot be enumerated over MCP**: there is no `memory_list` tool, `memory_search` marks `query` required (the tool layer rejects an empty string, so the service's own match-all branch is unreachable), and `resource_list` never lists `memory://`. A caller that does not already know a key can only guess search terms. And `memory_search` is lexical, not semantic — a query sharing no tokens with the stored text returns nothing, and the InnoDB full-text minimum token length silently drops very short terms. If you need memory a fresh agent can discover, or memory visible from more than one host, use the project-scoped store below.
+
+## Project memory tools
+
+`HostProjectsService` (`api/src/services/host-projects.ts`) backs `project_memory_*`, stored in `coord_project_memories` with a unique `(project_id, memory_key)`. The contrast with `memory_*` is the whole point:
+
+| | `memory_*` | `project_memory_*` |
+| --- | --- | --- |
+| Scope | one host | one project, visible from every host |
+| Enumerable | no | yes — `project_memory_list`, `project_memory_search` with no query, and `resource_list` |
+| Deletes | soft (`deleted_at`); re-storing resurrects | hard; `coord_project_events` is the audit trail |
+| Audit log | none | every mutation records a `memory` event and bumps `latest_event_seq` |
+| Attribution | implicit (`host_id`) | `source_host_id` records the writing host |
+
+Validation matches `memory_*` (key charset and 128-char cap, 32,000-char content, 32 tags of 64 chars) with three deliberate differences:
+
+- **No reserved prefix.** `mcp_memories` rejects `coco*` keys precisely to redirect callers to project-scoped state; reserving it here too would reject the agent that complied.
+- **`key` is required** and never auto-generated. `memory_store` falls back to a random UUID; in a shared namespace a UUID key is unaddressable, so "just dump text" belongs in project notes instead.
+- **`query` is optional on `project_memory_search`**, degrading to a recency-ordered listing rather than an error.
+
+`project_memory_upsert` is idempotent and reports `created`, `updated`, or `unchanged`. An `unchanged` re-store writes nothing and records **no** event — otherwise a no-op would bump `latest_event_seq` and make every other host re-sync for nothing. `project_memory_list` returns 280-character previews plus `content_length` by default (pass `include_content: true` for full rows), and `project_bootstrap` surfaces at most 8 previews under `recent_memories` plus a `counts.memories` total.
+
+Search is a project-scoped `MATCH() AGAINST() IN NATURAL LANGUAGE MODE` over `content`/`tags_text` with tag filters applied in application code. If the full-text index is missing — it ships in `api/src/db/migrations/0003_add_coord_project_memories.sql`, and nothing applies migrations automatically — search falls back to a substring scan and sets `degraded: true` in the response rather than failing.
 
 ## Access logging
 
@@ -177,10 +203,12 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 
 - api/src/services/mcp-server.ts (JSON-RPC dispatch, capability constants)
 - api/src/services/mcp-tools.ts (tool registry, capability filter, full project_*/memory_*/skill_*/fs_* tool list)
-- api/src/services/mcp-resources.ts (URI-scheme routing, resource_* CRUD restricted to memory://)
+- api/src/services/mcp-resources.ts (URI-scheme routing, resource_* CRUD restricted to the memory:// and project://{slug}/memory/{key} schemes)
 - api/src/services/mcp-fs.ts (fs_* tools, root sandboxing)
 - api/src/services/mcp-session.ts (mcp_session_tokens)
-- api/src/services/mcp-memories.ts (memory backing, mcp_memories table, key/content/tag limits)
+- api/src/services/mcp-memories.ts (host-scoped memory backing, mcp_memories table, key/content/tag limits)
+- api/src/services/memory-tags.ts (tag/metadata normalization shared by both memory stores)
+- api/src/db/migrations/0003_add_coord_project_memories.sql (coord_project_memories DDL incl. the full-text index)
 - api/src/services/host-skills.ts (skill:// resource + skill_list/skill_retrieve — the actual read-time materialiser)
 - api/src/services/host-projects.ts (project_* tool implementations, unconditional on the Projects module)
 - api/src/services/managed-coco-skill.ts (coco skill gated by projects_module_enabled)

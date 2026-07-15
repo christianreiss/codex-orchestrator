@@ -11,6 +11,7 @@ import type { Engine } from '../util/engine.js';
 import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
 
 const MAX_CONTENT = 32000;
 const MAX_TAGS = 32;
@@ -305,14 +306,11 @@ export class McpMemoriesService {
   }
 
   private normalizedArray(items: string[]): string[] {
-    const out = Array.from(new Set(items.map((t) => String(t).toLowerCase())));
-    out.sort();
-    return out;
+    return sortedLowercase(items);
   }
 
   private normalizedAssoc(value: Record<string, unknown> | null): Record<string, unknown> | null {
-    if (value === null) return null;
-    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    return sortedAssoc(value);
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
@@ -328,21 +326,4 @@ export class McpMemoriesService {
   private generateKey(): string {
     return randomUUID();
   }
-}
-
-function parseTags(raw: unknown): string[] {
-  if (Array.isArray(raw)) {
-    return raw.filter((t) => typeof t === 'string' && t !== '') as string[];
-  }
-  if (typeof raw === 'string' && raw.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter((t) => typeof t === 'string' && t !== '');
-      }
-    } catch {
-      return [];
-    }
-  }
-  return [];
 }

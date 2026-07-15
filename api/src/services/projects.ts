@@ -20,6 +20,7 @@ import {
   coordProjectEvents,
   coordProjectFeedback,
   coordProjectFiles,
+  coordProjectMemories,
   coordProjectNotes,
   coordProjectTodos,
   coordProjects,
@@ -261,13 +262,14 @@ export class ProjectsService {
 
   async deleteBySlug(rawSlug: string, _sourceHostId: number | null = null): Promise<{ deleted: string }> {
     const project = await this.requireProject(rawSlug);
-    // Cascades: notes, todos, files, feedback, events are FK-attached;
+    // Cascades: notes, todos, files, feedback, memories, events are FK-attached;
     // delete in dependency order, all-or-nothing.
     await this.db.transaction(async (tx) => {
       await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId, project.id));
       await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId, project.id));
       await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id));
       await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId, project.id));
+      await tx.delete(coordProjectMemories).where(eq(coordProjectMemories.projectId, project.id));
       await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId, project.id));
       await tx.delete(coordProjects).where(eq(coordProjects.id, project.id));
     });

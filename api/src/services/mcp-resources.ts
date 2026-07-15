@@ -5,6 +5,7 @@
  *   - `memory://<key>`                          — host-scoped MCP memory
  *   - `project://<slug>`                        — shared project bootstrap payload
  *   - `project://<slug>/files/<stored_name>`    — single project file (raw content)
+ *   - `project://<slug>/memory/<key>`           — single project-scoped memory
  *   - `skill://<slug>`                          — skill manifest
  */
 import type { Host } from '../db/schema.js';
@@ -39,10 +40,16 @@ export interface ResourceReadResponse {
 
 const URI_RE = /^([a-z]+):\/\/(.+)$/;
 const FILES_INFIX = '/files/';
+const MEMORY_INFIX = '/memory/';
 const PROJECT_FILES_LIST_CAP = 50;
+const PROJECT_MEMORIES_LIST_CAP = 50;
 
 interface ProjectFileSubResource {
   storedName: string;
+}
+
+interface ProjectMemorySubResource {
+  key: string;
 }
 
 interface ParsedUri {
@@ -50,6 +57,7 @@ interface ParsedUri {
   id: string;
   subPath: string | null;
   projectFile: ProjectFileSubResource | null;
+  projectMemory: ProjectMemorySubResource | null;
 }
 
 function parseUri(uri: string): ParsedUri {
@@ -66,18 +74,27 @@ function parseUri(uri: string): ParsedUri {
       id: decodeURIComponent(rest),
       subPath: null,
       projectFile: null,
+      projectMemory: null,
     };
   }
   const id = decodeURIComponent(rest.slice(0, slashIdx));
   const subPath = rest.slice(slashIdx); // includes the leading '/'
   let projectFile: ProjectFileSubResource | null = null;
+  let projectMemory: ProjectMemorySubResource | null = null;
   if (scheme === 'project' && subPath.startsWith(FILES_INFIX)) {
     const storedNameRaw = subPath.slice(FILES_INFIX.length);
     if (storedNameRaw.length > 0) {
       projectFile = { storedName: decodeURIComponent(storedNameRaw) };
     }
+  } else if (scheme === 'project' && subPath.startsWith(MEMORY_INFIX)) {
+    // Memory keys cannot contain '/' (see MEMORY_KEY_RE in host-projects.ts), so
+    // unlike stored_name the remainder is a single decodable segment.
+    const keyRaw = subPath.slice(MEMORY_INFIX.length);
+    if (keyRaw.length > 0) {
+      projectMemory = { key: decodeURIComponent(keyRaw) };
+    }
   }
-  return { scheme, id, subPath, projectFile };
+  return { scheme, id, subPath, projectFile, projectMemory };
 }
 
 function isBinaryMime(mime: string | null | undefined): boolean {
@@ -96,6 +113,10 @@ function buildProjectFileUri(slug: string, storedName: string): string {
   return `project://${encodeURIComponent(slug)}/files/${segments.join('/')}`;
 }
 
+function buildProjectMemoryUri(slug: string, key: string): string {
+  return `project://${encodeURIComponent(slug)}/memory/${encodeURIComponent(key)}`;
+}
+
 export class McpResourcesService {
   constructor(private readonly deps: ResourceDeps) {}
 
@@ -108,6 +129,12 @@ export class McpResourcesService {
         name: 'project_file',
         description: 'Single project file (raw content)',
         mimeType: 'text/plain',
+      },
+      {
+        uriTemplate: 'project://{slug}/memory/{key}',
+        name: 'project_memory',
+        description: 'Single project-scoped memory by key',
+        mimeType: 'application/json',
       },
       { uriTemplate: 'skill://{slug}', name: 'skill', description: 'Skill manifest by slug', mimeType: 'text/markdown' },
     ];
@@ -155,6 +182,27 @@ export class McpResourcesService {
       } catch {
         // Skip projects whose file listing fails — keep the top-level entry.
       }
+      // Enumerate per-project memories (capped, previews only) so a client that
+      // speaks resources rather than tools can still discover what a project
+      // remembers without guessing keys.
+      try {
+        const memResp = (await this.deps.projects.listMemories(p.slug, { include_content: false }, host)) as {
+          memories?: Array<{ key?: string; preview?: string }>;
+        };
+        const memories = memResp?.memories ?? [];
+        for (const m of memories.slice(0, PROJECT_MEMORIES_LIST_CAP)) {
+          const key = typeof m.key === 'string' ? m.key : '';
+          if (!key) continue;
+          resources.push({
+            uri: buildProjectMemoryUri(p.slug, key),
+            name: key,
+            description: typeof m.preview === 'string' ? m.preview : '',
+            mimeType: 'application/json',
+          });
+        }
+      } catch {
+        // Skip projects whose memory listing fails — keep the top-level entry.
+      }
     }
     for (const s of skills.skills as Array<Record<string, unknown>>) {
       const slug = String(s['slug'] ?? '');
@@ -186,6 +234,19 @@ export class McpResourcesService {
       };
     }
     if (scheme === 'project') {
+      if (parsed.projectMemory) {
+        const result = await this.deps.projects.getMemory(id, parsed.projectMemory.key, host);
+        return {
+          contents: [
+            {
+              uri,
+              name: parsed.projectMemory.key,
+              mimeType: 'application/json',
+              text: JSON.stringify(result),
+            },
+          ],
+        };
+      }
       if (parsed.projectFile) {
         const { file } = await this.deps.projects.readFile(
           id,
@@ -220,11 +281,24 @@ export class McpResourcesService {
     throw new Error('Unsupported resource scheme: ' + scheme);
   }
 
+  /**
+   * Note the fidelity limit: this path only carries `text`, so tags and metadata
+   * are unreachable here. project_memory_upsert remains the full-fidelity surface.
+   */
   async create(uri: string, params: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
-    const { scheme, id } = parseUri(uri);
-    if (scheme !== 'memory') throw new Error('Only memory:// resources can be created');
+    const parsed = parseUri(uri);
     const text = typeof params['text'] === 'string' ? (params['text'] as string) : '';
-    return (await this.deps.memories.store({ id, content: text }, host)) as Record<string, unknown>;
+    if (parsed.scheme === 'project' && parsed.projectMemory) {
+      return (await this.deps.projects.upsertMemory(
+        parsed.id,
+        { key: parsed.projectMemory.key, content: text },
+        host,
+      )) as Record<string, unknown>;
+    }
+    if (parsed.scheme !== 'memory') {
+      throw new Error('Only memory:// and project://{slug}/memory/{key} resources can be created');
+    }
+    return (await this.deps.memories.store({ id: parsed.id, content: text }, host)) as Record<string, unknown>;
   }
 
   async update(uri: string, params: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
@@ -232,8 +306,13 @@ export class McpResourcesService {
   }
 
   async delete(uri: string, host: Host): Promise<Record<string, unknown>> {
-    const { scheme, id } = parseUri(uri);
-    if (scheme !== 'memory') throw new Error('Only memory:// resources can be deleted');
-    return (await this.deps.memories.delete({ id }, host)) as Record<string, unknown>;
+    const parsed = parseUri(uri);
+    if (parsed.scheme === 'project' && parsed.projectMemory) {
+      return (await this.deps.projects.deleteMemory(parsed.id, parsed.projectMemory.key, host)) as Record<string, unknown>;
+    }
+    if (parsed.scheme !== 'memory') {
+      throw new Error('Only memory:// and project://{slug}/memory/{key} resources can be deleted');
+    }
+    return (await this.deps.memories.delete({ id: parsed.id }, host)) as Record<string, unknown>;
   }
 }

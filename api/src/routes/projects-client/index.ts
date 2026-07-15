@@ -1,6 +1,8 @@
 /**
  * Host-facing routes:
  *   /projects, /projects/:slug, /projects/:slug/{about,roster,changes,…}
+ *   /projects/:slug/memories, /projects/:slug/memories/search,
+ *     /projects/:slug/memories/:key
  *   /skills, /skills/retrieve, /skills/store
  *   /agents/retrieve, /config/retrieve
  *   /mcp/memories/{store,delete,retrieve,search}, /mcp/memories/:id
@@ -187,6 +189,30 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   app.post('/projects/:slug/feedback', { preHandler: auth }, async (req) => {
     const slug = parseSlug((req.params as { slug: string }).slug);
     return ok(await projects.createFeedback(slug, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+
+  // Memories
+  // No route collision: /memories/search is POST-only while /memories/:key is
+  // GET/DELETE-only, so the static and param segments never compete on a verb.
+  app.get('/projects/:slug/memories', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.listMemories(slug, (req.query as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+  app.post('/projects/:slug/memories', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.upsertMemory(slug, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+  app.post('/projects/:slug/memories/search', { preHandler: auth }, async (req) => {
+    const slug = parseSlug((req.params as { slug: string }).slug);
+    return ok(await projects.searchMemories(slug, (req.body as Record<string, unknown>) ?? {}, requireHost(req)));
+  });
+  app.get('/projects/:slug/memories/:key', { preHandler: auth }, async (req) => {
+    const { slug, key } = req.params as { slug: string; key: string };
+    return ok(await projects.getMemory(parseSlug(slug), parseSlug(key), requireHost(req)));
+  });
+  app.delete('/projects/:slug/memories/:key', { preHandler: auth }, async (req) => {
+    const { slug, key } = req.params as { slug: string; key: string };
+    return ok(await projects.deleteMemory(parseSlug(slug), parseSlug(key), requireHost(req)));
   });
 
   // ─── Skills ───────────────────────────────────────────────────────────

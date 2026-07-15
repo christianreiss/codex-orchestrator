@@ -7,7 +7,7 @@
  * publishes a matching `project.*` WS event. The host (the authenticated
  * caller) is recorded in `source_host_id`.
  */
-import { eq, and, gt, asc, desc, isNull } from 'drizzle-orm';
+import { eq, and, gt, asc, desc, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   coordProjects,
@@ -15,6 +15,7 @@ import {
   coordProjectTodos,
   coordProjectFiles,
   coordProjectFeedback,
+  coordProjectMemories,
   coordProjectEvents,
   logs,
 } from '../db/schema.js';
@@ -25,9 +26,23 @@ import type { Host } from '../db/schema.js';
 import { createHash } from 'node:crypto';
 import { isProjectFeedbackType, projectFeedbackTypeList } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
+import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
 
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
+
+// Memory validation mirrors mcp-memories.ts so the two stores stay interchangeable
+// from a caller's point of view. Deliberately NOT mirrored: that file's
+// `^coco(?:$|[._:-])` reservation, whose whole purpose is to redirect callers to
+// project-scoped state — i.e. to here. Reserving it again would reject the agent
+// that followed the advice.
+const MEMORY_KEY_RE = /^[A-Za-z0-9._:-]+$/;
+const MEMORY_MAX_CONTENT = 32000;
+const MEMORY_MAX_TAGS = 32;
+const MEMORY_MAX_TAG_LENGTH = 64;
+const MEMORY_PREVIEW_CHARS = 280;
+const MEMORY_BOOTSTRAP_LIMIT = 8;
+const MEMORY_LIST_MAX = 500;
 
 export interface ProjectSummary {
   slug: string;
@@ -98,6 +113,25 @@ interface FeedbackRow {
   created_at: string | null;
   updated_at: string | null;
 }
+
+interface MemoryRow {
+  id: number;
+  project_id: number;
+  key: string;
+  content: string;
+  metadata: Record<string, unknown> | null;
+  tags: string[];
+  source_host_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  score?: number | null;
+}
+
+/** A memory with `content` swapped for a bounded preview. What listings return. */
+type MemoryPreviewRow = Omit<MemoryRow, 'content'> & {
+  content_length: number;
+  preview: string;
+};
 
 interface EventRow {
   seq: number;
@@ -174,6 +208,10 @@ export class HostProjectsService {
       recent_notes: detail.notes.slice(0, 3),
       recent_todos: detail.todos.slice(0, 6),
       recent_files: detail.files.slice(0, 5),
+      // Previews only, unlike recent_files (which inlines full content). Bootstrap
+      // is called on every entry, so it stays bounded at ~8 x 400 bytes; full
+      // content is one project_memory_get away.
+      recent_memories: detail.memories.slice(0, MEMORY_BOOTSTRAP_LIMIT).map((m) => this.toMemoryPreview(m)),
       recent_changes: detail.recent_changes.slice(-10),
       skill: guidance.skill,
       instructions: guidance.instructions,
@@ -185,6 +223,7 @@ export class HostProjectsService {
         todos: `${detailRoute}/todos`,
         files: `${detailRoute}/files`,
         feedback: `${detailRoute}/feedback`,
+        memories: `${detailRoute}/memories`,
         changes: `${detailRoute}/changes`,
       },
     };
@@ -204,6 +243,7 @@ export class HostProjectsService {
     todos: TodoRow[];
     files: FileRow[];
     feedback: FeedbackRow[];
+    memories: MemoryRow[];
     recent_changes: EventRow[];
   }> {
     const project = await this.requireProject(slug);
@@ -546,6 +586,226 @@ export class HostProjectsService {
     return { project: project.slug, feedback: row };
   }
 
+  /**
+   * Enumerate a project's memories. Previews by default: this is the entry point
+   * a zero-knowledge agent uses to discover what exists, so it must stay cheap
+   * enough to always call. Full content is one `getMemory` away.
+   */
+  async listMemories(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const includeContent = this.normalizeBoolFlag(payload['include_content']);
+    const limit = this.normalizeMemoryLimit(payload['limit'], MEMORY_LIST_MAX);
+    const all = await this.fetchMemories(project.id);
+    const page = all.slice(0, limit);
+    await this.recordLog(host.id, 'project.memories.list', {
+      slug: project.slug,
+      count: page.length,
+      include_content: includeContent,
+    });
+    return {
+      project: project.slug,
+      count: page.length,
+      truncated: all.length > page.length,
+      memories: includeContent ? page : page.map((m) => this.toMemoryPreview(m)),
+    };
+  }
+
+  async getMemory(slug: string, key: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const memoryKey = this.normalizeMemoryKey(key);
+    const memory = await this.fetchMemoryByKey(project.id, memoryKey);
+    const status = memory ? 'found' : 'missing';
+    await this.recordLog(host.id, 'project.memory.get', { slug: project.slug, key: memoryKey, status });
+    return { project: project.slug, status, id: memoryKey, memory };
+  }
+
+  /**
+   * Create or update a memory by key. Idempotent: an identical re-store reports
+   * `unchanged` and writes nothing.
+   *
+   * That short-circuit is load-bearing and is a deliberate divergence from
+   * McpMemoriesService#store, which reports `unchanged` but still bumps
+   * updated_at. Harmless for a host-local store; not here. Every write goes
+   * through recordEvent, which bumps latest_event_seq and publishes over WS, so
+   * a no-op re-store would spam project_changes and make every other host on
+   * every other session re-sync for nothing.
+   */
+  async upsertMemory(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const { key, content, metadata, tags } = this.normalizeMemoryPayload(payload);
+    const existing = await this.fetchMemoryByKey(project.id, key);
+
+    if (existing) {
+      const sameContent = existing.content === content;
+      const sameTags = JSON.stringify(sortedLowercase(existing.tags)) === JSON.stringify(sortedLowercase(tags));
+      const sameMeta = JSON.stringify(sortedAssoc(existing.metadata)) === JSON.stringify(sortedAssoc(metadata));
+      if (sameContent && sameTags && sameMeta) {
+        await this.recordLog(host.id, 'project.memory.unchanged', { slug: project.slug, key });
+        return { project: project.slug, status: 'unchanged', id: key, memory: existing };
+      }
+    }
+
+    const now = nowIso();
+    const tagsText = tags.length > 0 ? tags.join(' ') : null;
+    const status: 'created' | 'updated' = existing ? 'updated' : 'created';
+    if (existing) {
+      await this.db
+        .update(coordProjectMemories)
+        .set({
+          content,
+          metadata: metadata ?? null,
+          tags: tags.length > 0 ? tags : null,
+          tagsText,
+          sourceHostId: host.id,
+          updatedAt: now,
+        })
+        .where(eq(coordProjectMemories.id, existing.id));
+    } else {
+      await this.db.insert(coordProjectMemories).values({
+        projectId: project.id,
+        memoryKey: key,
+        content,
+        metadata: metadata ?? null,
+        tags: tags.length > 0 ? tags : null,
+        tagsText,
+        sourceHostId: host.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const saved = await this.fetchMemoryByKey(project.id, key);
+    if (saved) {
+      // entity_id is VARCHAR(64) but memory_key is VARCHAR(128): pass the numeric
+      // row id (as every sibling does) and carry the key in the payload. Payload
+      // holds a preview, never full content -- listChanges returns up to 200
+      // events, and 200 x 32KB would be a 6MB response.
+      await this.recordEvent(
+        project,
+        'memory',
+        status === 'created' ? 'create' : 'update',
+        'memory',
+        String(saved.id),
+        {
+          id: saved.id,
+          key: saved.key,
+          tags: saved.tags,
+          content_length: saved.content.length,
+          preview: saved.content.slice(0, MEMORY_PREVIEW_CHARS),
+          updated_at: saved.updated_at,
+        },
+        host.id,
+      );
+    }
+    await this.recordLog(host.id, `project.memory.${status}`, {
+      slug: project.slug,
+      key,
+      content_length: content.length,
+      tags: tags.length,
+    });
+    wsPublisher.publish(status === 'created' ? 'project.memory.created' : 'project.memory.updated', {
+      slug: project.slug,
+      key,
+      source_host_id: host.id,
+    });
+    return { project: project.slug, status, id: key, memory: saved };
+  }
+
+  async deleteMemory(slug: string, key: string, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const memoryKey = this.normalizeMemoryKey(key);
+    const existing = await this.fetchMemoryByKey(project.id, memoryKey);
+    if (!existing) {
+      await this.recordLog(host.id, 'project.memory.delete', { slug: project.slug, key: memoryKey, status: 'missing' });
+      return { project: project.slug, status: 'missing', id: memoryKey };
+    }
+    await this.db
+      .delete(coordProjectMemories)
+      .where(and(eq(coordProjectMemories.projectId, project.id), eq(coordProjectMemories.id, existing.id)));
+    await this.recordEvent(project, 'memory', 'delete', 'memory', String(existing.id), {
+      id: existing.id,
+      key: memoryKey,
+    }, host.id);
+    await this.recordLog(host.id, 'project.memory.delete', { slug: project.slug, key: memoryKey, status: 'deleted' });
+    wsPublisher.publish('project.memory.deleted', { slug: project.slug, key: memoryKey, source_host_id: host.id });
+    return { project: project.slug, status: 'deleted', id: memoryKey };
+  }
+
+  /**
+   * Full-text search within one project, with optional AND tag filtering.
+   *
+   * An empty query is valid and degrades to a recency-ordered listing -- the
+   * tool schema deliberately does not mark `query` required, unlike memory_search.
+   */
+  async searchMemories(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
+    const project = await this.requireProject(slug);
+    const query = String(payload['query'] ?? payload['q'] ?? '').trim();
+    const limit = this.normalizeMemoryLimit(payload['limit'], 100, 20);
+    const tags = this.normalizeMemoryTags(payload['tags']);
+    const searchTags = sortedLowercase(tags);
+    let degraded = false;
+
+    const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
+
+    const fetchBatch = async (offset: number): Promise<MemoryRow[]> => {
+      if (!query) return (await this.fetchMemories(project.id)).slice(offset, offset + batchSize);
+      try {
+        const res = await this.db.execute(
+          sql`SELECT id, project_id, memory_key, content, metadata, tags, source_host_id, created_at, updated_at,
+                     MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
+              FROM coord_project_memories
+              WHERE project_id = ${project.id}
+                AND MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE)
+              ORDER BY score DESC, updated_at DESC, id DESC
+              LIMIT ${batchSize} OFFSET ${offset}`,
+        );
+        const rows = Array.isArray(res) ? (res[0] as unknown) : (res as unknown);
+        return Array.isArray(rows) ? rows.map((r) => this.hydrateMemoryRaw(r as Record<string, unknown>)) : [];
+      } catch (err) {
+        // MySQL 1191 "Can't find FULLTEXT index matching the column list". The
+        // index ships in 0003_add_coord_project_memories.sql, but nothing applies
+        // migrations automatically, so a DB that missed the DDL would otherwise
+        // hard-fail every search. Fall back to a substring scan (project-scoped,
+        // so the row count is naturally bounded) and tell the caller.
+        if (!this.isMissingFulltextIndex(err)) throw err;
+        degraded = true;
+        const needle = query.toLowerCase();
+        const all = await this.fetchMemories(project.id);
+        return all
+          .filter((m) => m.content.toLowerCase().includes(needle) || m.tags.some((t) => t.toLowerCase().includes(needle)))
+          .slice(offset, offset + batchSize);
+      }
+    };
+
+    // Tag filtering runs in JS (tags is a JSON column with no containment index),
+    // so page until we have `limit` matches or the result set is exhausted. A
+    // single fixed-size fetch silently drops matches whenever a tag filter is
+    // applied -- same reasoning as McpMemoriesService#search.
+    const matches: MemoryRow[] = [];
+    let offset = 0;
+    for (;;) {
+      const batch = await fetchBatch(offset);
+      for (const row of batch) {
+        const rowTags = sortedLowercase(row.tags);
+        if (!searchTags.every((t) => rowTags.includes(t))) continue;
+        matches.push(row);
+        if (matches.length >= limit) break;
+      }
+      if (matches.length >= limit || batch.length < batchSize) break;
+      offset += batchSize;
+    }
+
+    await this.recordLog(host.id, 'project.memories.search', {
+      slug: project.slug,
+      query_length: query.length,
+      limit,
+      returned: matches.length,
+      tags: tags.length,
+      degraded,
+    });
+    return { project: project.slug, query, limit, count: matches.length, degraded, matches };
+  }
+
   async findBySlug(slug: string, includeArchived = false): Promise<ProjectRow | null> {
     const rows = await this.db
       .select()
@@ -568,11 +828,12 @@ export class HostProjectsService {
   }
 
   private async buildDetail(project: ProjectRow, host: Host, log: boolean) {
-    const [notes, todos, files, feedback, recent] = await Promise.all([
+    const [notes, todos, files, feedback, memories, recent] = await Promise.all([
       this.fetchNotes(project.id),
       this.fetchTodos(project.id),
       this.fetchFiles(project.id),
       this.fetchFeedback(project.id),
+      this.fetchMemories(project.id),
       this.fetchRecentEvents(project.id, 20),
     ]);
     if (log) await this.recordLog(host.id, 'project.detail', { slug: project.slug });
@@ -590,12 +851,14 @@ export class HostProjectsService {
           done_todos: todos.filter((t) => t.done).length,
           files: files.length,
           feedback: feedback.length,
+          memories: memories.length,
         },
       },
       notes,
       todos,
       files,
       feedback,
+      memories,
       recent_changes: recent,
     };
   }
@@ -661,6 +924,24 @@ export class HostProjectsService {
       .where(and(eq(coordProjectFeedback.projectId, projectId), eq(coordProjectFeedback.id, id)))
       .limit(1);
     return rows[0] ? this.hydrateFeedback(rows[0]) : null;
+  }
+
+  private async fetchMemories(projectId: number): Promise<MemoryRow[]> {
+    const rows = await this.db
+      .select()
+      .from(coordProjectMemories)
+      .where(eq(coordProjectMemories.projectId, projectId))
+      .orderBy(desc(coordProjectMemories.updatedAt), desc(coordProjectMemories.id));
+    return rows.map((r) => this.hydrateMemory(r));
+  }
+
+  private async fetchMemoryByKey(projectId: number, key: string): Promise<MemoryRow | null> {
+    const rows = await this.db
+      .select()
+      .from(coordProjectMemories)
+      .where(and(eq(coordProjectMemories.projectId, projectId), eq(coordProjectMemories.memoryKey, key)))
+      .limit(1);
+    return rows[0] ? this.hydrateMemory(rows[0]) : null;
   }
 
   private async fetchRecentEvents(projectId: number, limit: number): Promise<EventRow[]> {
@@ -798,6 +1079,60 @@ export class HostProjectsService {
     };
   }
 
+  private hydrateMemory(row: typeof coordProjectMemories.$inferSelect): MemoryRow {
+    return {
+      id: Number(row.id),
+      project_id: Number(row.projectId),
+      key: row.memoryKey,
+      content: row.content ?? '',
+      metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+      tags: parseTags(row.tags),
+      source_host_id: row.sourceHostId ?? null,
+      created_at: row.createdAt,
+      updated_at: row.updatedAt,
+    };
+  }
+
+  /** Same as hydrateMemory, but for raw driver rows (snake_case) from db.execute. */
+  private hydrateMemoryRaw(row: Record<string, unknown>): MemoryRow {
+    return {
+      id: Number(row['id']),
+      project_id: Number(row['project_id']),
+      key: String(row['memory_key'] ?? ''),
+      content: String(row['content'] ?? ''),
+      metadata: (row['metadata'] as Record<string, unknown> | null) ?? null,
+      tags: parseTags(row['tags']),
+      source_host_id: row['source_host_id'] === null || row['source_host_id'] === undefined ? null : Number(row['source_host_id']),
+      created_at: (row['created_at'] as string | null) ?? null,
+      updated_at: (row['updated_at'] as string | null) ?? null,
+      score: typeof row['score'] === 'number' ? row['score'] : null,
+    };
+  }
+
+  private toMemoryPreview(row: MemoryRow): MemoryPreviewRow {
+    const { content, ...rest } = row;
+    return { ...rest, content_length: content.length, preview: content.slice(0, MEMORY_PREVIEW_CHARS) };
+  }
+
+  /**
+   * MySQL 1191 / ER_FT_MATCHING_KEY_NOT_FOUND — "Can't find FULLTEXT index
+   * matching the column list".
+   *
+   * Walk the cause chain: Drizzle wraps driver errors in a DrizzleQueryError
+   * whose own message is the failed SQL, and carries the real errno on `.cause`.
+   * Only inspecting the top-level error silently misses it and the LIKE fallback
+   * never fires — which defeats the entire point of having one.
+   */
+  private isMissingFulltextIndex(err: unknown): boolean {
+    for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
+      const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
+      if (e.errno === 1191 || e.code === 'ER_FT_MATCHING_KEY_NOT_FOUND') return true;
+      if (/can't find fulltext index/i.test(String(e.message ?? ''))) return true;
+      cur = e.cause;
+    }
+    return false;
+  }
+
   private hydrateEvent(row: typeof coordProjectEvents.$inferSelect): EventRow {
     return {
       seq: Number(row.seq),
@@ -913,6 +1248,105 @@ export class HostProjectsService {
       }
     }
     return segments.join('/');
+  }
+
+  normalizeMemoryPayload(payload: Record<string, unknown>): {
+    key: string;
+    content: string;
+    metadata: Record<string, unknown> | null;
+    tags: string[];
+  } {
+    // `key` is required and never auto-generated, unlike memory_store's UUID
+    // fallback: a project memory is a named slot other agents address
+    // deliberately, and a UUID key is unaddressable garbage in a shared
+    // namespace. "Just dump text somewhere" is what project notes are for.
+    const key = this.normalizeMemoryKey(payload['key'] ?? payload['id'] ?? payload['memory_id']);
+    const content = String(payload['content'] ?? payload['text'] ?? '').trim();
+    if (!content) {
+      throw new ValidationError('Validation failed', { extra: { errors: { content: ['content is required'] } } });
+    }
+    if (content.length > MEMORY_MAX_CONTENT) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { content: [`content must be ${MEMORY_MAX_CONTENT} characters or fewer`] } },
+      });
+    }
+    return {
+      key,
+      content,
+      metadata: this.normalizeMemoryMetadata(payload['metadata']),
+      tags: this.normalizeMemoryTags(payload['tags']),
+    };
+  }
+
+  normalizeMemoryKey(value: unknown): string {
+    const key = String(value ?? '').trim();
+    if (!key) throw new ValidationError('Validation failed', { extra: { errors: { key: ['key is required'] } } });
+    if (key.length > 128) {
+      throw new ValidationError('Validation failed', { extra: { errors: { key: ['key must be 128 characters or fewer'] } } });
+    }
+    if (!MEMORY_KEY_RE.test(key)) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { key: ['key may only contain letters, numbers, dots, underscores, hyphens, and colons'] } },
+      });
+    }
+    return key;
+  }
+
+  normalizeMemoryMetadata(value: unknown): Record<string, unknown> | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new ValidationError('Validation failed', { extra: { errors: { metadata: ['metadata must be an object'] } } });
+    }
+    return value as Record<string, unknown>;
+  }
+
+  normalizeMemoryTags(value: unknown): string[] {
+    if (value === null || value === undefined) return [];
+    if (!Array.isArray(value)) {
+      throw new ValidationError('Validation failed', { extra: { errors: { tags: ['tags must be an array of strings'] } } });
+    }
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const tag of value) {
+      if (typeof tag !== 'string') {
+        throw new ValidationError('Validation failed', { extra: { errors: { tags: ['tags must be strings'] } } });
+      }
+      const t = tag.trim();
+      if (!t) continue;
+      if (t.length > MEMORY_MAX_TAG_LENGTH) {
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { tags: [`tag "${t}" is longer than ${MEMORY_MAX_TAG_LENGTH} characters`] } },
+        });
+      }
+      const k = t.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(t);
+    }
+    if (out.length > MEMORY_MAX_TAGS) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { tags: [`no more than ${MEMORY_MAX_TAGS} tags allowed`] } },
+      });
+    }
+    return out;
+  }
+
+  /** REST GETs deliver flags as query strings; MCP tools deliver real booleans. */
+  private normalizeBoolFlag(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value !== 'string') return false;
+    const v = value.trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
+  }
+
+  private normalizeMemoryLimit(value: unknown, max: number, fallback = max): number {
+    let limit = fallback;
+    if (typeof value === 'number' && Number.isFinite(value)) limit = Math.trunc(value);
+    else if (typeof value === 'string' && /^\d+$/.test(value.trim())) limit = Number.parseInt(value.trim(), 10);
+    if (limit < 1) limit = 1;
+    if (limit > max) limit = max;
+    return limit;
   }
 
   normalizeFeedbackPayload(payload: Record<string, unknown>): { type: string; title: string; body: string } {

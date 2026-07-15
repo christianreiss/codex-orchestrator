@@ -24,12 +24,34 @@ interface SeededFile {
   updated_at: string | null;
 }
 
+interface SeededMemory {
+  id: number;
+  key: string;
+  content: string;
+  tags: string[];
+}
+
 function makeStubProjects(): {
   service: HostProjectsService;
   seedFile: (slug: string, file: Partial<SeededFile> & { stored_name: string }) => void;
+  seedMemory: (slug: string, memory: Partial<SeededMemory> & { key: string }) => void;
 } {
   const byProject = new Map<string, SeededFile[]>();
+  const memsByProject = new Map<string, SeededMemory[]>();
   let nextId = 1;
+  let nextMemId = 1;
+
+  const seedMemory = (slug: string, memory: Partial<SeededMemory> & { key: string }) => {
+    const list = memsByProject.get(slug) ?? [];
+    list.push({
+      id: memory.id ?? nextMemId++,
+      key: memory.key,
+      content: memory.content ?? '',
+      tags: memory.tags ?? [],
+    });
+    memsByProject.set(slug, list);
+    if (!byProject.has(slug)) byProject.set(slug, []);
+  };
 
   const seedFile = (slug: string, file: Partial<SeededFile> & { stored_name: string }) => {
     const list = byProject.get(slug) ?? [];
@@ -120,9 +142,48 @@ function makeStubProjects(): {
       if (idx >= 0) list.splice(idx, 1);
       return { project: slug, deleted: id };
     },
+    listMemories: async (slug: string, payload: Record<string, unknown>) => {
+      const list = memsByProject.get(slug) ?? [];
+      const includeContent = payload['include_content'] === true;
+      return {
+        project: slug,
+        count: list.length,
+        truncated: false,
+        memories: list.map((m) =>
+          includeContent
+            ? { id: m.id, key: m.key, content: m.content, tags: m.tags }
+            : { id: m.id, key: m.key, tags: m.tags, content_length: m.content.length, preview: m.content.slice(0, 280) },
+        ),
+      };
+    },
+    getMemory: async (slug: string, key: string) => {
+      const found = (memsByProject.get(slug) ?? []).find((m) => m.key === key) ?? null;
+      return { project: slug, status: found ? 'found' : 'missing', id: key, memory: found };
+    },
+    upsertMemory: async (slug: string, payload: Record<string, unknown>) => {
+      const key = String(payload['key'] ?? '');
+      const list = memsByProject.get(slug) ?? [];
+      const existing = list.find((m) => m.key === key);
+      if (existing) {
+        existing.content = String(payload['content'] ?? '');
+        memsByProject.set(slug, list);
+        return { project: slug, status: 'updated', id: key, memory: existing };
+      }
+      const row: SeededMemory = { id: nextMemId++, key, content: String(payload['content'] ?? ''), tags: [] };
+      list.push(row);
+      memsByProject.set(slug, list);
+      return { project: slug, status: 'created', id: key, memory: row };
+    },
+    deleteMemory: async (slug: string, key: string) => {
+      const list = memsByProject.get(slug) ?? [];
+      const idx = list.findIndex((m) => m.key === key);
+      if (idx >= 0) list.splice(idx, 1);
+      return { project: slug, status: idx >= 0 ? 'deleted' : 'missing', id: key };
+    },
+    searchMemories: async (slug: string) => ({ project: slug, query: '', count: 0, degraded: false, matches: [] }),
   } as unknown as HostProjectsService;
 
-  return { service, seedFile };
+  return { service, seedFile, seedMemory };
 }
 
 const stubMemories = {
@@ -171,6 +232,75 @@ describe('McpResourcesService project:// scheme', () => {
     const readme = list.find((r) => r.uri === 'project://demo/files/README.md');
     expect(readme?.mimeType).toBe('text/markdown');
     expect(readme?.name).toBe('README.md');
+  });
+
+  it('templates list includes the project memory template', () => {
+    const { service } = makeStubProjects();
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+    const templates = res.listTemplates();
+    expect(templates.some((t) => t['uriTemplate'] === 'project://{slug}/memory/{key}')).toBe(true);
+  });
+
+  it('list() enumerates per-project memories with previews as descriptions', async () => {
+    const { service, seedMemory } = makeStubProjects();
+    seedMemory('demo', { key: 'deploy.crane', content: 'ship via FQDN' });
+    seedMemory('demo', { key: 'auth.bootstrap', content: 'serve canonical' });
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+
+    const list = await res.list(host);
+    const uris = list.map((r) => r.uri);
+    expect(uris).toContain('project://demo/memory/deploy.crane');
+    expect(uris).toContain('project://demo/memory/auth.bootstrap');
+    const deploy = list.find((r) => r.uri === 'project://demo/memory/deploy.crane');
+    expect(deploy?.description).toBe('ship via FQDN');
+    expect(deploy?.mimeType).toBe('application/json');
+  });
+
+  it('list() keeps the project entry when memory listing throws', async () => {
+    const { service, seedMemory } = makeStubProjects();
+    seedMemory('demo', { key: 'k', content: 'v' });
+    (service as unknown as { listMemories: () => Promise<never> }).listMemories = async () => {
+      throw new Error('boom');
+    };
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+
+    const list = await res.list(host);
+    expect(list.map((r) => r.uri)).toContain('project://demo');
+  });
+
+  it('read() resolves a single memory by key', async () => {
+    const { service, seedMemory } = makeStubProjects();
+    seedMemory('demo', { key: 'deploy.crane', content: 'ship via FQDN' });
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+
+    const out = await res.read('project://demo/memory/deploy.crane', host);
+    expect(out.contents[0]!.name).toBe('deploy.crane');
+    expect(out.contents[0]!.mimeType).toBe('application/json');
+    expect(out.contents[0]!.text).toContain('ship via FQDN');
+  });
+
+  it('read() round-trips a url-encoded memory key', async () => {
+    const { service, seedMemory } = makeStubProjects();
+    seedMemory('demo', { key: 'a:b', content: 'colon key' });
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+
+    const out = await res.read('project://demo/memory/a%3Ab', host);
+    expect(out.contents[0]!.name).toBe('a:b');
+    expect(out.contents[0]!.text).toContain('colon key');
+  });
+
+  it('create() and delete() operate on project memories', async () => {
+    const { service } = makeStubProjects();
+    const res = new McpResourcesService({ memories: stubMemories, projects: service, skills: stubSkills });
+
+    const created = await res.create('project://demo/memory/new.key', { text: 'body' }, host);
+    expect(created).toMatchObject({ status: 'created', id: 'new.key' });
+
+    const read = await res.read('project://demo/memory/new.key', host);
+    expect(read.contents[0]!.text).toContain('body');
+
+    const deleted = await res.delete('project://demo/memory/new.key', host);
+    expect(deleted).toMatchObject({ status: 'deleted' });
   });
 
   it('read() returns project bootstrap when no sub-path is given', async () => {

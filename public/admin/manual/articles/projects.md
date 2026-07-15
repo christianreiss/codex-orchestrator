@@ -1,11 +1,11 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-07-01
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts
+verified: 2026-07-15
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql
 ---
 
-Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
+Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
 
 ## Turning it on
 
@@ -103,6 +103,14 @@ A low-friction queue where agents can drop observations or flagged issues. Valid
 
 The Feedback tab shows a create form with a Type selector (Feature / Bug / Issue / Test / Note), Title, and Body. The feedback list is read-only in the UI (no edit or delete). Items are sorted newest-first. The `coord_project_feedback` table also has a `status` column (default `'open'`).
 
+## Memories
+
+Durable facts bound to the project rather than to a host (`coord_project_memories` table), addressed by a `memory_key` unique per project. This is the surface for context that must survive across sessions and be readable from any host — decisions and their reasons, constraints, gotchas, environment facts. It is host-facing only: there are no `/admin/projects/{slug}/memories` routes and no UI tab, so memories are reached over MCP (`project_memory_*`) or the host REST mirror (`/projects/{slug}/memories`).
+
+The contrast with host-scoped `mcp_memories` is the reason this exists: project memories are visible fleet-wide, can be enumerated without knowing a key (`project_memory_list`), hard-delete rather than soft-delete, and record every mutation in the activity log with `source_host_id` attribution. Host memories can do none of those. See [MCP server and tools](/admin/manual/mcp) for the full comparison and the validation rules.
+
+`project_memory_upsert` is idempotent: an identical re-store reports `unchanged`, writes nothing, and deliberately records **no** event, so a no-op cannot bump `latest_event_seq` and force other hosts to re-sync.
+
 ## Activity
 
 Every mutation above appends to `coord_project_events`. `GET /admin/projects/{slug}/changes` returns a paginated event log (querystring: `since` sequence number).
@@ -121,17 +129,19 @@ Beyond the `project_*` tools, projects are also exposed as MCP resources (`resou
 
 - `project://{slug}` — the same compact bootstrap payload as `project_bootstrap`, JSON-encoded.
 - `project://{slug}/files/{stored_name}` — a single project file's raw content; `mimeType` is taken from the file's `mime_type`, with binary-looking types downgraded to `application/octet-stream` for transport.
+- `project://{slug}/memory/{key}` — a single project memory, JSON-encoded. Unlike the other `project://` paths this one is writable via `resource_create`/`resource_update`/`resource_delete`, though only `text` survives the trip — use `project_memory_upsert` when tags or metadata matter.
 
-`resources/list` enumerates every project as a `project://` entry plus up to 50 of its files each (`PROJECT_FILES_LIST_CAP`); reading a file by exact stored name works even if it wasn't included in that cap. These templates are advertised via `listTemplates()` alongside `memory://{key}` and `skill://{slug}`.
+`resources/list` enumerates every project as a `project://` entry plus up to 50 of its files (`PROJECT_FILES_LIST_CAP`) and up to 50 of its memories (`PROJECT_MEMORIES_LIST_CAP`) each; reading a file or memory by exact name works even if it wasn't included in that cap. These templates are advertised via `listTemplates()` alongside `memory://{key}` and `skill://{slug}`.
 
 ## Bootstrapping an agent into a project
 
 Minimal workflow a Codex or Claude agent will run:
 
 1. Call `project_list` to find the slug it cares about.
-2. Call `project_bootstrap` with that slug to receive the compact context.
-3. Call `project_changes` with `since` set to its last seen sequence to catch up on activity.
-4. Use `project_note_upsert` / `project_todo_*` / `project_file_upsert` / `project_feedback_create` to record its work.
+2. Call `project_bootstrap` with that slug to receive the compact context — including `counts.memories` and up to 8 memory previews under `recent_memories`.
+3. Call `project_memory_list` to enumerate durable memory in full. A zero-knowledge agent should never guess search terms; listing is the entry point.
+4. Call `project_changes` with `since` set to its last seen sequence to catch up on activity.
+5. Use `project_note_upsert` / `project_todo_*` / `project_file_upsert` / `project_memory_upsert` / `project_feedback_create` to record its work.
 
 The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 
@@ -147,4 +157,5 @@ The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 - api/src/services/mcp-resources.ts (project:// resource exposure)
 - api/src/services/managed-coco-skill.ts (synthesized coco skill manifest, gated on projects_module_enabled)
 - api/src/services/host-skills.ts (merges the managed coco skill into host-facing skill list/retrieve/bundle)
-- api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_todos, coord_project_files, coord_project_feedback, coord_project_events)
+- api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_todos, coord_project_files, coord_project_feedback, coord_project_memories, coord_project_events)
+- api/src/db/migrations/0003_add_coord_project_memories.sql (coord_project_memories DDL — source of truth incl. the full-text index Drizzle cannot express)

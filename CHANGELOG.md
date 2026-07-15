@@ -1,3 +1,54 @@
+# 2026-07-15
+
+## Project-scoped memories (`project_memory_*`)
+
+- **New MCP tools:** `project_memory_list`, `project_memory_get`,
+  `project_memory_upsert`, `project_memory_delete`, and `project_memory_search`
+  give agents durable memory bound to a *project* rather than a host, so context
+  for long-running work survives sessions and is readable from every host.
+  Backed by the new `coord_project_memories` table (unique `(project_id,
+  memory_key)`), with `source_host_id` attribution and full participation in the
+  project event log — memory mutations show up in `project_changes`.
+- **Enumerable by design.** Host-scoped `memory_*` cannot be listed over MCP
+  (no `memory_list`, and `memory_search` requires a non-empty `query`), so a
+  fresh agent can only guess search terms. Project memory fixes that on three
+  independent paths: `project_memory_list`, `project_memory_search` with no
+  query, and `resource_list`. `project_bootstrap` also gained `counts.memories`
+  and up to 8 `recent_memories` previews.
+- **Idempotent writes.** `project_memory_upsert` returns `created`, `updated`,
+  or `unchanged`; an `unchanged` re-store writes nothing **and emits no event**,
+  so a no-op cannot bump `latest_event_seq` and force every other host to
+  re-sync. Deletes are hard — the event log is the audit trail.
+- **No `coco*` reservation.** `mcp_memories` rejects `coco*` keys specifically to
+  redirect callers to project-scoped state; reserving the prefix here too would
+  reject the agent that complied.
+- **Also exposed as:** `project://{slug}/memory/{key}` (readable *and* writable,
+  though only `text` survives that path — tools remain full-fidelity), and the
+  host REST mirror `/projects/{slug}/memories[/{key}|/search]`.
+- **Migration — apply by hand before deploying the code.** There is no migration
+  runner (`RUN_MIGRATIONS_ON_BOOT` is parsed in `api/src/env.ts` and read by
+  nothing), so run the reviewable
+  `api/src/db/migrations/0003_add_coord_project_memories.sql` directly against
+  the DB, exactly as `0001` prescribes:
+  `docker compose exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < api/src/db/migrations/0003_add_coord_project_memories.sql`.
+  The change is purely additive with no backfill, so deploy order is forgiving
+  in both directions; rollback is `DROP TABLE coord_project_memories;`.
+  Do **not** reach for `drizzle:push`: besides reconciling the whole `schema.ts`
+  mirror against prod, it cannot express FULLTEXT and would propose dropping the
+  search indexes. That is also why the full-text index lives in the `.sql` rather
+  than `schema.ts` — `mcp_memories.idx_memories_search` was declared inline in
+  the PHP migration deleted in `d06f88b3` and now survives only in deployed DBs;
+  this table does not repeat that. The migration is idempotent and re-runnable,
+  and deliberately does more than `CREATE TABLE IF NOT EXISTS`: if the table
+  already exists *without* the index (exactly what `drizzle-kit push` produces),
+  it adds the index rather than silently no-op'ing and leaving search degraded
+  forever. Belt and braces: if the index is missing anyway,
+  `project_memory_search` falls back to a substring scan and sets
+  `degraded: true` rather than failing.
+- **`coco` skill manifest updated** to point durable shared memory at
+  `project_memory_*`. Its sha256 changes, so every host re-fetches the skill on
+  deploy — that is the designed cache-invalidation path, but expect the churn.
+
 # 2026-07-13
 
 - **cdx/clx 0.6.43:** Wrapper, engine CLI, and peer-wrapper updates now use one compact, colour-aware progress format. Interactive terminals show `↻` / `✓` / `✗` status lines; `NO_COLOR` and redirected stderr are escape-free, while `TERM=dumb` uses ASCII.

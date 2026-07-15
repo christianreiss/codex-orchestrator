@@ -59,6 +59,11 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
               o.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
               return o;
             };
+            // Row locking is a no-op here: the fake is single-threaded, so
+            // `.for('update')` just resolves to the same filtered rows. Without
+            // this, any service path going through recordEvent's SELECT ... FOR
+            // UPDATE is untestable.
+            inner.for = (_strength?: unknown) => inner;
             return inner;
           };
           builder.orderBy = (..._args: unknown[]) => {

@@ -22,10 +22,10 @@ CoCo state is project-only:
 - Start by reading project_bootstrap for the active slug.
 - Use project_list or project_create to find or create shared workspaces.
 - Use project_detail and project_changes to refresh context before acting.
-- Write durable handoffs with project_note_upsert, project_todo_create, project_todo_update, project_todo_done, project_todo_undone, project_file_upsert, and project_feedback_create.
-- Read shared artifacts with project_file_list, project_file_read, project://{slug}, and project://{slug}/files/{stored_name}.
+- Write durable handoffs with project_note_upsert, project_todo_create, project_todo_update, project_todo_done, project_todo_undone, project_file_upsert, project_memory_upsert, and project_feedback_create.
+- Read shared artifacts with project_file_list, project_file_read, project_memory_list, project_memory_get, project://{slug}, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
 
-Do not use memory:// resources or mcp_memories for cross-host CoCo handoffs; those are host-scoped.
+Use project_memory_* for durable shared memory: those rows are project-scoped and visible from every host. Do not use memory:// resources or mcp_memories for cross-host CoCo handoffs; those remain host-scoped.
 `;
 
 export interface ManagedCocoSkill {
@@ -95,11 +95,12 @@ export function managedCocoBootstrapGuidance(): {
       managed: true,
     },
     instructions:
-      'Use #coco with project_* MCP tools and project:// resources only. Keep shared handoffs in project notes, todos, files, feedback, and changes; host-scoped memory:// entries are not shared CoCo state.',
+      'Use #coco with project_* MCP tools and project:// resources only. Keep shared handoffs in project notes, todos, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state — use project_memory_* for durable memory that every host can see.',
     quickstart: [
       'Read project_bootstrap for the slug before acting.',
       'Use project_changes since the last known seq to catch up.',
-      'Write durable results with project_note_upsert, project_todo_* tools, project_file_upsert, or project_feedback_create.',
+      'Use project_memory_list to enumerate durable project memory without guessing search terms.',
+      'Write durable results with project_note_upsert, project_todo_* tools, project_file_upsert, project_memory_upsert, or project_feedback_create.',
     ],
   };
 }
