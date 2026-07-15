@@ -20,6 +20,7 @@
   import { wireWsToQueryClient } from "$lib/ws/events";
   import { setWsStatus } from "$lib/stores/ws-status";
   import InsecureApprovalsAutoPopup from "$lib/components/hosts/InsecureApprovalsAutoPopup.svelte";
+  import { getDocumentTitle } from "$lib/nav";
 
   let { children } = $props();
 
@@ -29,6 +30,10 @@
   // Routes that render outside the AppShell (login, device-code approval).
   const STANDALONE = ["/login", "/cli-auth/verify"];
   const standalone = $derived(STANDALONE.some((p) => path === p || path.startsWith(p + "/")));
+
+  $effect(() => {
+    if (browser) document.title = getDocumentTitle(path);
+  });
 
   const queryClient = new QueryClient({
     defaultOptions: {

@@ -23,6 +23,23 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving it from the trusted request scheme/host.
 
+## Navigation & Presentation
+- The primary workspace is task-grouped in one shared route registry:
+  - **Operate**: Overview, Hosts, Projects.
+  - **Create**: Authoring.
+  - **Observe**: Activity, with Audit trail and MCP requests.
+  - **Manage**: API access and Settings.
+- Authoring separates shared fleet content (Skills, Agents, Memories) from
+  Claude-native content (Subagents, Commands, Output styles). Settings exposes
+  Fleet configuration and Users & access as sibling views.
+- Desktop uses grouped sidebar navigation. Mobile keeps Overview, Hosts,
+  Projects, and Authoring in the persistent bottom bar; its Menu sheet contains
+  all remaining workspace, help, appearance, password, passkey, and sign-out
+  actions, so no capability depends on a desktop-only control.
+- Route-aware breadcrumbs and browser titles come from `frontend/src/lib/nav.ts`.
+  Shared components use the theme tokens in `frontend/src/app.css`, including
+  keyboard focus, reduced-motion, increased-contrast, and light/dark behavior.
+
 ## Roles & Capabilities
 - Roles: `admin`, `fleet_operator`, `trusted_user`, `user`.
 - Capability matrix:
@@ -51,7 +68,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
 
 ## Page-by-Page (Code-Backed)
-- **Theme**: Auto/Auto Pink/Light/Dark/Bright Pink/Dark Pink cycle stored in `localStorage.adminTheme` and mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
+- **Theme**: Auto/Light/Dark plus optional Auto Pink/Bright Pink/Dark Pink choices. The client stores mode in `localStorage["codex.theme"]` and an optional palette in `localStorage["codex.theme.palette"]`; the selected account theme is mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
 - **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
 - **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota and usage history store rather than raw verbose logs.
 - **Hosts**:

@@ -69,7 +69,7 @@
 
 <div
   class={cn(
-    "flex items-start justify-between gap-4 rounded-lg border p-4",
+    "flex items-start justify-between gap-4 rounded-xl border p-4 shadow-sm",
     disabled
       ? "border-amber-500/60 bg-amber-50 dark:bg-amber-950/30"
       : "border-border bg-card",

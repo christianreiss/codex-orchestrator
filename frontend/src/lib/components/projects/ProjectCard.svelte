@@ -18,10 +18,10 @@
   const counts = $derived(project.counts);
 </script>
 
-<Card.Root class="group flex h-full flex-col transition-colors hover:border-foreground/20 hover:bg-accent/40">
+<Card.Root class="group flex h-full flex-col transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-lg">
   <a
     {href}
-    class="block flex-1 rounded-t-lg outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    class="block flex-1 rounded-t-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
   >
     <Card.Header class="h-full">
       <Card.Title class="truncate text-base">{title}</Card.Title>

@@ -9,8 +9,8 @@
   let { children }: { children?: Snippet } = $props();
 
   const TABS = [
-    { value: "mcp", label: "MCP", path: "/logs/mcp" },
-    { value: "events", label: "Events", path: "/logs/events" },
+    { value: "events", label: "Audit trail", path: "/logs/events" },
+    { value: "mcp", label: "MCP requests", path: "/logs/mcp" },
   ] as const;
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
@@ -18,7 +18,7 @@
     for (const tab of TABS) {
       if (path === tab.path || path.startsWith(tab.path + "/")) return tab.value;
     }
-    return "mcp";
+    return "events";
   });
 
   function onValueChange(value: unknown) {
@@ -31,10 +31,13 @@
   }
 </script>
 
-<PageHeader title="Logs" subtitle="API traffic, MCP invocations, and admin audit trail." />
+<PageHeader
+  title="Activity"
+  subtitle="Investigate administrative changes and MCP requests with persistent, shareable filters."
+/>
 
 <Tabs value={active} {onValueChange} class="w-full">
-  <TabsList class="mb-4">
+  <TabsList class="mb-5">
     {#each TABS as tab (tab.value)}
       <TabsTrigger value={tab.value}>{tab.label}</TabsTrigger>
     {/each}

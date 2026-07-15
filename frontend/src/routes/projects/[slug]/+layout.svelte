@@ -78,7 +78,7 @@
     </Alert.Description>
   </Alert.Root>
 {:else}
-  <div class="mb-4 grid grid-cols-2 gap-3 rounded-lg border bg-card p-3 sm:grid-cols-4">
+  <div class="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-border/75 bg-card p-4 shadow-sm sm:grid-cols-4">
     <div class="flex flex-col">
       <span class="text-xs uppercase tracking-wide text-muted-foreground">Notes</span>
       <span class="text-xl font-semibold tabular-nums">{counts?.notes ?? 0}</span>

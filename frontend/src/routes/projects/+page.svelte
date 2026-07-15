@@ -89,7 +89,7 @@
   {/snippet}
 </PageHeader>
 
-<div class="mb-6 flex items-center justify-between gap-3 rounded-lg border bg-card p-4">
+<div class="mb-6 flex items-center justify-between gap-3 rounded-xl border border-border/75 bg-card p-4 shadow-sm">
   <div class="flex flex-col">
     <Label for="projects-enabled" class="text-sm font-medium">Project coordination</Label>
     <span class="text-xs text-muted-foreground">
@@ -129,7 +129,7 @@
     </Alert.Description>
   </Alert.Root>
 {:else if projects.length === 0}
-  <div class="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+  <div class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed bg-card/40 py-16 text-center">
     <p class="text-sm text-muted-foreground">No projects yet.</p>
     <Button variant="outline" disabled={!enabled} onclick={() => (dialogOpen = true)}>
       <Plus class="h-4 w-4" />

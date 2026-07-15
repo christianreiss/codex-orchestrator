@@ -3,7 +3,6 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { base } from "$app/paths";
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import * as Tabs from "$lib/components/ui/tabs";
   import ApiStateSection from "$lib/components/settings/ApiStateSection.svelte";
   import OpenAIEngineSection from "$lib/components/settings/OpenAIEngineSection.svelte";
@@ -94,8 +93,6 @@
     });
   });
 </script>
-
-<PageHeader title="Settings" subtitle="System and engine configuration" class="mb-4" />
 
 <Tabs.Root value={activeTab} onValueChange={handleTabChange} class="w-full">
   <Tabs.List class="grid w-full grid-cols-3 sm:inline-grid sm:w-auto">

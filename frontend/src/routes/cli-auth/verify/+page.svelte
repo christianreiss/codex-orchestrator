@@ -122,13 +122,13 @@
   the AppShell, so this is the only thing on screen.
 -->
 <div
-  class="fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-y-auto bg-gradient-to-br from-gray-100 via-gray-50 to-white px-4 py-12 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950"
+  class="standalone-surface fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-y-auto px-4 py-12"
 >
   <div class="w-full max-w-lg">
     <!-- Brand mark -->
     <div class="mb-8 flex flex-col items-center gap-3">
       <div
-        class="flex h-12 w-12 items-center justify-center rounded-xl bg-red-600 text-white shadow-sm"
+        class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-lg shadow-primary/20"
         aria-hidden="true"
       >
         <Terminal class="h-6 w-6" />
@@ -149,7 +149,7 @@
       </div>
     </div>
 
-    <div class="rounded-xl border bg-card p-6 shadow-sm sm:p-8">
+    <div class="rounded-2xl border border-border/75 bg-card p-6 shadow-[0_20px_60px_rgba(15,23,42,0.09)] sm:p-8">
       {#if phase === "code" || phase === "confirm"}
         <!-- Code input — always visible while looking up / confirming -->
         <form

@@ -84,7 +84,7 @@
 
   // --- virtualization -----------------------------------------------------
   let scrollEl: HTMLDivElement | undefined = $state();
-  const rowHeight = 56;
+  const rowHeight = 68;
 
   const virtualizer = $derived.by(() => {
     if (!scrollEl) return null;
@@ -104,16 +104,16 @@
   }
 </script>
 
-<div class="rounded-lg border bg-card text-card-foreground">
+<div class="overflow-hidden rounded-xl border border-border/75 bg-card text-card-foreground shadow-sm">
   <div
-    class="grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px] items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-medium text-muted-foreground"
+    class="grid grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]"
   >
     {@render headerCell("Host", "fqdn")}
-    <div>Engines</div>
+    <div class="hidden lg:block">Engines</div>
     {@render headerCell("Status", "status")}
-    {@render headerCell("Last seen", "last_refresh")}
-    {@render headerCell("Codex ver.", "client_version")}
-    {@render headerCell("Insecure", "insecure_enabled_until")}
+    <div class="hidden lg:block">{@render headerCell("Last seen", "last_refresh")}</div>
+    <div class="hidden lg:block">{@render headerCell("Codex ver.", "client_version")}</div>
+    <div class="hidden lg:block">{@render headerCell("Insecure", "insecure_enabled_until")}</div>
   </div>
 
   <div
@@ -137,18 +137,34 @@
             <button
               type="button"
               class={cn(
-                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px] items-center gap-3 border-b px-4 text-left text-sm transition-colors hover:bg-accent/40 focus:bg-accent/60 focus:outline-none",
+                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b border-border/60 px-4 text-left text-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]",
               )}
               style="transform: translateY({virtual.start}px); height: {rowHeight}px;"
               onclick={() => openHost(row)}
             >
               <div class="min-w-0">
                 <div class="truncate font-medium">{row.fqdn}</div>
-                <div class="truncate text-[11px] text-muted-foreground">
-                  {row.ip4 ?? row.ip6 ?? "—"} · #{row.id}
+                <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+                  <span class="truncate">{row.ip4 ?? row.ip6 ?? "—"} · #{row.id}</span>
+                  <span class="lg:hidden">· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
+                </div>
+                <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
+                  {#each engines as engine}
+                    <EngineBadge
+                      {engine}
+                      dim={engine === "codex"
+                        ? !row.canonical_digest
+                        : engine === "claude"
+                          ? !row.claude_canonical_digest
+                          : false}
+                    />
+                  {/each}
+                  {#if row.vip}
+                    <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">VIP</span>
+                  {/if}
                 </div>
               </div>
-              <div class="flex flex-wrap items-center gap-1">
+              <div class="hidden flex-wrap items-center gap-1 lg:flex">
                 {#each engines as engine}
                   <EngineBadge
                     {engine}
@@ -169,13 +185,13 @@
               <div>
                 {@render statusCell(row, insecureActive)}
               </div>
-              <div class="truncate text-xs text-muted-foreground">
+              <div class="hidden truncate text-xs text-muted-foreground lg:block">
                 {relativeTime(hostLatestRefresh(row)) || "—"}
               </div>
-              <div class="truncate font-mono text-[11px] text-muted-foreground">
+              <div class="hidden truncate font-mono text-[11px] text-muted-foreground lg:block">
                 {row.client_version_override ?? row.client_version ?? "—"}
               </div>
-              <div>
+              <div class="hidden lg:block">
                 <InsecureCountdown until={row.insecure_enabled_until} />
               </div>
             </button>

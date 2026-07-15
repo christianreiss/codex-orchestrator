@@ -1,5 +1,26 @@
 # 2026-07-15
 
+## Admin WebUI information architecture and presentation polish
+
+- Reorganized the admin workspace around operator tasks: Operate, Create,
+  Observe, and Manage. The refreshed navigation consistently names Overview,
+  Activity, and API access; groups shared and Claude-native authoring content;
+  and makes user administration discoverable alongside fleet settings.
+- Completed the responsive navigation surface. Mobile now keeps the four core
+  workflows one tap away and exposes every remaining workspace, help, account,
+  appearance, and sign-out action through a polished bottom sheet. Desktop and
+  mobile share route-aware breadcrumbs and descriptive browser titles.
+- Introduced a cohesive light/dark visual system with corrected theme color
+  tokens, responsive density, clearer hierarchy, accessible focus states,
+  larger touch targets, reduced-motion and increased-contrast handling, and
+  modernized cards, forms, tables, dialogs, menus, sheets, and standalone auth
+  surfaces. Pink remains an intentional optional palette rather than leaking
+  into the default semantic colors.
+- Improved workflow semantics across the dashboard: host inventory is useful
+  on narrow screens, dangerous API-key revocation uses an in-app confirmation
+  dialog, usage colors now communicate actual thresholds, and primary actions
+  are consistently separated from secondary and destructive operations.
+
 ## cdx/clx 0.6.45 terminal truthfulness polish
 
 - Finished the shared responsive terminal surface across both wrappers. Rich

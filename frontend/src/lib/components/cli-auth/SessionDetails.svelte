@@ -34,7 +34,7 @@
 
 <dl
   class={cn(
-    "grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 rounded-lg border bg-muted/40 px-5 py-4 text-sm",
+    "grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 rounded-xl border border-border/70 bg-muted/40 px-5 py-4 text-sm",
     className,
   )}
 >

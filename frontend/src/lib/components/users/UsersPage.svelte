@@ -1,5 +1,4 @@
 <script lang="ts">
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { toast } from "svelte-sonner";
@@ -199,23 +198,6 @@
   const visibleCount = $derived(filteredSorted.length);
 </script>
 
-<PageHeader title="Users" subtitle="Admin accounts and roles">
-  {#snippet actions()}
-    <Button variant="outline" onclick={openAdd}>
-      <Plus class="h-4 w-4" />
-      Add user
-    </Button>
-    <Button
-      variant="destructive"
-      onclick={() => (wipeOpen = true)}
-      disabled={totalCount === 0}
-    >
-      <Trash class="h-4 w-4" />
-      Wipe all
-    </Button>
-  {/snippet}
-</PageHeader>
-
 <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
   <div class="relative w-full sm:max-w-sm">
     <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -226,16 +208,31 @@
       aria-label="Filter users"
     />
   </div>
-  <p class="text-xs text-muted-foreground">
-    {#if debouncedFilter}
-      Showing {visibleCount} of {totalCount}
-    {:else}
-      <span class="inline-flex items-center gap-1">
-        <UsersIcon class="h-3 w-3" />
-        {totalCount} {totalCount === 1 ? "user" : "users"}
-      </span>
-    {/if}
-  </p>
+  <div class="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+    <p class="mr-1 text-xs text-muted-foreground">
+      {#if debouncedFilter}
+        Showing {visibleCount} of {totalCount}
+      {:else}
+        <span class="inline-flex items-center gap-1">
+          <UsersIcon class="h-3 w-3" />
+          {totalCount} {totalCount === 1 ? "user" : "users"}
+        </span>
+      {/if}
+    </p>
+    <Button
+      variant="outline"
+      class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      onclick={() => (wipeOpen = true)}
+      disabled={totalCount === 0}
+    >
+      <Trash class="h-4 w-4" />
+      Wipe all
+    </Button>
+    <Button onclick={openAdd}>
+      <Plus class="h-4 w-4" />
+      Add user
+    </Button>
+  </div>
 </div>
 
 {#if $usersQuery.isError}

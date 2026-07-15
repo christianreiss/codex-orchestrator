@@ -164,7 +164,7 @@
   const currentVersionId = $derived($query.data?.served_id ?? $query.data?.active_id ?? null);
 </script>
 
-<section class="mb-4 flex flex-wrap items-center gap-4 rounded-lg border bg-card p-4 text-sm">
+<section class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-border/75 bg-card p-4 text-sm shadow-sm">
   <div class="flex flex-col">
     <span class="text-xs uppercase tracking-wide text-muted-foreground">Current version</span>
     <span class="font-mono text-sm">#{currentVersionId ?? "—"}</span>

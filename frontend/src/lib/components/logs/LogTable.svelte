@@ -106,10 +106,10 @@
   }
 </script>
 
-<div class={cn("overflow-hidden rounded-lg border bg-card", className)}>
+<div class={cn("overflow-x-auto rounded-xl border border-border/70 bg-card shadow-sm", className)}>
   <!-- Header -->
   <div class="border-b bg-muted/40 px-2">
-    <div class="flex w-full items-center text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <div class="flex min-w-[680px] w-full items-center text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       {#each columns as col (col.id)}
         {#if col.sortable && onSort}
           <button
@@ -149,7 +149,7 @@
   {#if loading}
     <div class="divide-y">
       {#each Array.from({ length: skeletonRows }) as _, i}
-        <div class="flex w-full items-center" style="height: {rowHeight}px;">
+        <div class="flex min-w-[680px] w-full items-center" style="height: {rowHeight}px;">
           {#each columns as col (col.id)}
             <div class={cn("px-3 py-2", col.class)}>
               <div class="h-3 w-3/4 animate-pulse rounded bg-muted"></div>
@@ -168,7 +168,7 @@
       class="overflow-y-auto"
       style="max-height: {maxHeight};">
       {#if liveVirtualizer}
-        <div style="height: {liveVirtualizer.getTotalSize()}px; position: relative; width: 100%;">
+        <div style="height: {liveVirtualizer.getTotalSize()}px; position: relative; width: 100%; min-width: 680px;">
           {#each liveVirtualizer.getVirtualItems() as v (v.key)}
             {@const row = rows[v.index]}
             {@const key = keyOf(row, v.index)}
@@ -188,7 +188,7 @@
                     }
                   }}
                   class={cn(
-                    "flex w-full cursor-pointer items-center border-b text-sm transition-colors hover:bg-muted/40",
+                    "flex min-w-[680px] w-full cursor-pointer items-center border-b text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     isExpanded && "bg-muted/40",
                   )}
                   style="min-height: {rowHeight}px;">
@@ -202,7 +202,7 @@
                 </div>
               {:else}
                 <div
-                  class="flex w-full items-center border-b text-sm transition-colors"
+                  class="flex min-w-[680px] w-full items-center border-b text-sm transition-colors"
                   style="min-height: {rowHeight}px;">
                   {#each columns as col (col.id)}
                     <div class={cn("flex items-center px-3 py-2", col.class)}>
@@ -240,7 +240,7 @@
               }
             }}
             class={cn(
-              "flex w-full cursor-pointer items-center border-b text-sm transition-colors hover:bg-muted/40",
+              "flex min-w-[680px] w-full cursor-pointer items-center border-b text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               isExpanded && "bg-muted/40",
             )}
             style="min-height: {rowHeight}px;">
@@ -259,7 +259,7 @@
           {/if}
         {:else}
           <div
-            class="flex w-full items-center border-b text-sm transition-colors"
+            class="flex min-w-[680px] w-full items-center border-b text-sm transition-colors"
             style="min-height: {rowHeight}px;">
             {#each columns as col (col.id)}
               <div class={cn("flex items-center px-3 py-2", col.class)}>

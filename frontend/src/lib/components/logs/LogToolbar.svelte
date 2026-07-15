@@ -11,7 +11,7 @@
 
 <div
   class={cn(
-    "flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:flex-wrap sm:items-center",
+    "flex flex-col gap-3 rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center",
     className,
   )}>
   {@render children?.()}

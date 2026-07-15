@@ -89,7 +89,7 @@
   });
 </script>
 
-<section class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 text-sm">
+<section class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-border/75 bg-card p-4 text-sm shadow-sm">
   <div class="flex flex-col">
     <span class="text-xs uppercase tracking-wide text-muted-foreground">Output styles</span>
     <span class="text-lg font-semibold">{items.length}</span>
@@ -115,7 +115,7 @@
   </div>
 </section>
 
-<div class="rounded-lg border bg-card">
+<div class="overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm">
   <Table.Root>
     <Table.Header>
       <Table.Row>

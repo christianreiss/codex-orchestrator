@@ -10,6 +10,10 @@
   import Package from "@lucide/svelte/icons/package";
   import Bot from "@lucide/svelte/icons/bot";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
+  import Activity from "@lucide/svelte/icons/activity";
+  import Plus from "@lucide/svelte/icons/plus";
+  import { Button } from "$lib/components/ui/button";
+  import { base } from "$app/paths";
 
   const overview = overviewQuery();
 
@@ -67,11 +71,23 @@
   });
 </script>
 
-<PageHeader title="Dashboard" subtitle="Fleet overview" />
+<PageHeader
+  title="Overview"
+  subtitle="Fleet health, upstream releases, provider usage, and runner readiness at a glance."
+>
+  {#snippet actions()}
+    <Button variant="outline" href={`${base}/logs/events`}>
+      <Activity class="h-4 w-4" /> Activity
+    </Button>
+    <Button href={`${base}/hosts?dialog=new-host`}>
+      <Plus class="h-4 w-4" /> Register host
+    </Button>
+  {/snippet}
+</PageHeader>
 
 <div class="flex flex-col gap-6">
   <!-- Fleet + latest-version stat cards -->
-  <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
     <StatCard
       label="Hosts"
       value={stats?.hosts ?? 0}

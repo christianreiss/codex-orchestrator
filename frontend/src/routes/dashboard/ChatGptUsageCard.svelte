@@ -168,7 +168,7 @@
             No fetch recorded
           {/if}
         </div>
-        <div class="text-red-600 dark:text-red-500">
+        <div class="text-primary">
           <Sparkline
             points={sparkPoints}
             width={140}

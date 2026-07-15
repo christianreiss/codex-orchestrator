@@ -32,6 +32,9 @@
   );
   const live = $derived(Math.max(0, clamped - cached));
   const overLimit = $derived(clamped > 100);
+  const meterTone = $derived(
+    overLimit || clamped >= 90 ? "bg-destructive" : clamped >= 70 ? "bg-amber-500" : "bg-primary",
+  );
 </script>
 
 <div class={cn("flex flex-col gap-1.5", className)}>
@@ -66,7 +69,7 @@
       <div
         class={cn(
           "absolute inset-y-0 transition-[width] duration-300",
-          overLimit ? "bg-destructive" : "bg-red-600 dark:bg-red-500",
+          meterTone,
         )}
         style="left: {Math.min(100, cached)}%; width: {Math.min(100 - Math.min(100, cached), live)}%"
         title="Live"

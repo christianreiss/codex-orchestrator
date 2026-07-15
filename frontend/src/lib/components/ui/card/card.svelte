@@ -6,6 +6,12 @@
   let { class: className, children, ...rest }: Props = $props();
 </script>
 
-<div class={cn("rounded-lg border bg-card text-card-foreground shadow-sm", className)} {...rest}>
+<div
+  class={cn(
+    "rounded-xl border border-border/75 bg-card text-card-foreground shadow-[0_1px_2px_rgba(15,23,42,0.035),0_10px_32px_rgba(15,23,42,0.035)]",
+    className,
+  )}
+  {...rest}
+>
   {@render children?.()}
 </div>

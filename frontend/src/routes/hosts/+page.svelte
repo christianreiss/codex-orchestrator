@@ -23,6 +23,8 @@
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
   import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
   import KeyRound from "@lucide/svelte/icons/key-round";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { isInsecureWindowActive } from "$lib/api/hosts";
   import type { HostListItem } from "$lib/api/types";
@@ -209,18 +211,35 @@
 
 <PageHeader title="Hosts" subtitle="All connected machines and their installer state.">
   {#snippet actions()}
-    <Button variant="outline" onclick={openInsecureApprovals}>
-      <ShieldAlert class="h-4 w-4" /> Insecure
-      {#if ($hostsSummary.activeInsecureWindows ?? 0) > 0}
-        <span class="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+    {#if ($hostsSummary.activeInsecureWindows ?? 0) > 0}
+      <Button
+        variant="outline"
+        class="border-amber-500/35 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+        onclick={openInsecureApprovals}
+      >
+        <ShieldAlert class="h-4 w-4" />
+        <span class="hidden sm:inline">Insecure access</span>
+        <span class="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold">
           {$hostsSummary.activeInsecureWindows}
         </span>
-      {/if}
-    </Button>
-    <Button variant="outline" onclick={() => (seedOpen = true)}>
-      <KeyRound class="h-4 w-4" /> Seed auth
-    </Button>
-    <Button variant="secondary" onclick={openQuickVm}>
+      </Button>
+    {/if}
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+      >
+        <Ellipsis class="h-4 w-4" /> More
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="end" class="w-56">
+        <DropdownMenu.Item onclick={() => (seedOpen = true)}>
+          <KeyRound class="h-4 w-4" /> Seed canonical auth
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onclick={openInsecureApprovals}>
+          <ShieldAlert class="h-4 w-4" /> Review insecure access
+        </DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
+    <Button variant="outline" onclick={openQuickVm}>
       <Rocket class="h-4 w-4" /> Quick VM
     </Button>
     <Button onclick={openNewHost}>

@@ -27,6 +27,23 @@
   type Preset = "auto-pink" | "bright-pink" | "dark-pink";
   type BaseTheme = "auto" | "light" | "dark";
   const PRESETS: ReadonlyArray<Preset> = ["auto-pink", "bright-pink", "dark-pink"];
+  const PRESET_META: Record<Preset, { label: string; description: string; swatch: string }> = {
+    "auto-pink": {
+      label: "Auto Pink",
+      description: "Pink accents that follow the system mode.",
+      swatch: "from-pink-400 to-fuchsia-600",
+    },
+    "bright-pink": {
+      label: "Bright Pink",
+      description: "A bright canvas with vivid pink controls.",
+      swatch: "from-rose-300 to-pink-500",
+    },
+    "dark-pink": {
+      label: "Dark Pink",
+      description: "A deep berry canvas with soft pink accents.",
+      swatch: "from-fuchsia-700 to-pink-400",
+    },
+  };
   const isPreset = (v: string | undefined): v is Preset =>
     v === "auto-pink" || v === "bright-pink" || v === "dark-pink";
   const isBase = (v: string | undefined): v is BaseTheme =>
@@ -163,10 +180,6 @@
     $presetMutation.mutate(value);
   }
 
-  function presetLabel(p: Preset): string {
-    return p === "auto-pink" ? "Auto Pink" : p === "bright-pink" ? "Bright Pink" : "Dark Pink";
-  }
-
   const options: Array<{
     value: BaseTheme;
     label: string;
@@ -225,7 +238,7 @@
             {@const id = `theme-${opt.value}`}
             <Label
               for={id}
-              class="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3 transition-colors hover:bg-accent/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-accent/60"
+              class="flex cursor-pointer items-start gap-3 rounded-xl border bg-background p-4 transition-all hover:border-foreground/20 hover:bg-accent/35 has-[[data-state=checked]]:border-primary/50 has-[[data-state=checked]]:bg-accent/70 has-[[data-state=checked]]:shadow-sm"
             >
               <RadioGroupItem {id} value={opt.value} class="mt-1" />
               <Icon class="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -248,27 +261,33 @@
 
   <Card.Root>
     <Card.Header>
-      <Card.Title>Colour presets</Card.Title>
+      <Card.Title>Pink palettes</Card.Title>
       <Card.Description>
-        Apply a colour accent on top of your light/dark preference.
+        Optional branded palettes with a pink accent and a coordinated canvas.
       </Card.Description>
     </Card.Header>
-    <Card.Content class="flex flex-wrap gap-2">
+    <Card.Content class="grid gap-3 sm:grid-cols-3">
       {#each PRESETS as preset (preset)}
         <button
           type="button"
           data-theme-option={preset}
           aria-pressed={activePreset === preset}
           class={cn(
-            "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-accent/40",
-            activePreset === preset && "border-primary bg-accent/60 text-foreground",
+            "group flex min-h-24 flex-col items-start rounded-xl border bg-background p-3 text-left transition-all hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md",
+            activePreset === preset && "border-primary/50 bg-accent/60 text-foreground shadow-sm",
           )}
           disabled={$themeQuery.isLoading ||
             $themeQuery.isError ||
             $presetMutation.isPending ||
             $themeMutation.isPending}
           onclick={() => onChoosePreset(preset)}
-        >{presetLabel(preset)}</button>
+        >
+          <span class="mb-3 h-7 w-12 rounded-lg bg-gradient-to-br {PRESET_META[preset].swatch} shadow-inner ring-1 ring-black/5"></span>
+          <span class="text-sm font-semibold">{PRESET_META[preset].label}</span>
+          <span class="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {PRESET_META[preset].description}
+          </span>
+        </button>
       {/each}
     </Card.Content>
   </Card.Root>

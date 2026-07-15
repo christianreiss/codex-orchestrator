@@ -1,46 +1,101 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { page } from "$app/state";
-  import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { cn } from "$lib/utils/cn";
+  import Bot from "@lucide/svelte/icons/bot";
+  import Brain from "@lucide/svelte/icons/brain";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import Layers from "@lucide/svelte/icons/layers";
+  import Palette from "@lucide/svelte/icons/palette";
+  import Terminal from "@lucide/svelte/icons/terminal";
 
   let { children }: { children?: Snippet } = $props();
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
 
-  const TABS = [
-    { href: "/authoring", label: "Skills", match: (p: string) => p === "/authoring" || p.startsWith("/authoring/skills") },
-    { href: "/authoring/agents", label: "Agents", match: (p: string) => p.startsWith("/authoring/agents") },
-    { href: "/authoring/memories", label: "Memories", match: (p: string) => p.startsWith("/authoring/memories") },
-    { href: "/authoring/subagents", label: "Subagents", match: (p: string) => p.startsWith("/authoring/subagents") },
-    { href: "/authoring/commands", label: "Commands", match: (p: string) => p.startsWith("/authoring/commands") },
-    { href: "/authoring/output-styles", label: "Output styles", match: (p: string) => p.startsWith("/authoring/output-styles") },
+  const SHARED_TABS = [
+    {
+      href: "/authoring",
+      label: "Skills",
+      icon: Layers,
+      match: (value: string) => value === "/authoring" || value.startsWith("/authoring/skills"),
+    },
+    {
+      href: "/authoring/agents",
+      label: "Agents",
+      icon: FileText,
+      match: (value: string) => value.startsWith("/authoring/agents"),
+    },
+    {
+      href: "/authoring/memories",
+      label: "Memories",
+      icon: Brain,
+      match: (value: string) => value.startsWith("/authoring/memories"),
+    },
   ] as const;
 
-  const activeHref = $derived(TABS.find((t) => t.match(path))?.href ?? "/authoring");
+  const CLAUDE_TABS = [
+    {
+      href: "/authoring/subagents",
+      label: "Subagents",
+      icon: Bot,
+      match: (value: string) => value.startsWith("/authoring/subagents"),
+    },
+    {
+      href: "/authoring/commands",
+      label: "Commands",
+      icon: Terminal,
+      match: (value: string) => value.startsWith("/authoring/commands"),
+    },
+    {
+      href: "/authoring/output-styles",
+      label: "Output styles",
+      icon: Palette,
+      match: (value: string) => value.startsWith("/authoring/output-styles"),
+    },
+  ] as const;
 </script>
 
-<PageHeader title="Authoring" subtitle="Skills, agents, memories" />
-
-<nav class="mb-6" aria-label="Authoring sections">
-  <div class="inline-flex min-h-10 flex-wrap items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-    {#each TABS as tab (tab.href)}
-      {@const active = tab.match(path)}
-      <button
-        type="button"
-        class={cn(
-          "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          active ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
-        )}
-        aria-current={active ? "page" : undefined}
-        onclick={() => goto(`${base}${tab.href}`)}
-      >
-        {tab.label}
-      </button>
-    {/each}
+{#snippet tabGroup(label: string, tabs: typeof SHARED_TABS | typeof CLAUDE_TABS)}
+  <div class="min-w-0 flex-1">
+    <p class="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+      {label}
+    </p>
+    <div class="flex min-w-0 gap-1 overflow-x-auto rounded-xl bg-muted/65 p-1">
+      {#each tabs as tab (tab.href)}
+        {@const Icon = tab.icon}
+        {@const active = tab.match(path)}
+        <a
+          href={`${base}${tab.href}`}
+          class={cn(
+            "inline-flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            active
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-card/50 hover:text-foreground",
+          )}
+          aria-current={active ? "page" : undefined}
+        >
+          <Icon class="h-4 w-4" />
+          {tab.label}
+        </a>
+      {/each}
+    </div>
   </div>
+{/snippet}
+
+<PageHeader
+  title="Authoring"
+  subtitle="Manage shared fleet context and Claude-native extensions from one clearly scoped workspace."
+/>
+
+<nav
+  class="mb-7 grid gap-3 rounded-2xl border border-border/70 bg-card/70 p-3 shadow-sm xl:grid-cols-2"
+  aria-label="Authoring sections"
+>
+  {@render tabGroup("Shared across engines", SHARED_TABS)}
+  {@render tabGroup("Claude-native", CLAUDE_TABS)}
 </nav>
 
 {@render children?.()}

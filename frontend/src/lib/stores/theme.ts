@@ -21,9 +21,9 @@ function isPalette(v: string | null | undefined): v is ThemePalette {
 function applyPaletteAttr(value: ThemePalette | null): void {
   if (typeof document === "undefined") return;
   if (value) {
-    document.body.setAttribute("data-theme", value);
+    document.documentElement.setAttribute("data-theme", value);
   } else {
-    document.body.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-theme");
   }
 }
 
@@ -100,4 +100,3 @@ export function setTheme(value: ThemeChoice): void {
     root.classList.toggle("dark", isDark);
   }
 }
-

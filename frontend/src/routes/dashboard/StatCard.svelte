@@ -15,7 +15,12 @@
   let { label, value, hint, icon, class: className, loading = false }: Props = $props();
 </script>
 
-<div class={cn("rounded-lg border bg-card p-4 shadow-sm", className)}>
+<div
+  class={cn(
+    "rounded-xl border border-border/75 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.035),0_10px_28px_rgba(15,23,42,0.035)]",
+    className,
+  )}
+>
   <div class="flex items-start justify-between gap-2">
     <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
     {#if icon}

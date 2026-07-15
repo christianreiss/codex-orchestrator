@@ -121,12 +121,12 @@
 </script>
 
 <div
-  class="flex min-h-full items-center justify-center bg-gradient-to-br from-gray-100 via-gray-50 to-white px-4 py-12 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950"
+  class="standalone-surface flex min-h-full items-center justify-center px-4 py-12"
 >
   <div class="w-full max-w-md">
     <div class="mb-6 flex items-center justify-center gap-3">
       <div
-        class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500 text-lg font-bold text-white"
+        class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-bold text-white shadow-lg shadow-primary/20"
         aria-hidden="true"
       >
         C

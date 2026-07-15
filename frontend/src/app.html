@@ -15,6 +15,10 @@
           (stored === "system" &&
             window.matchMedia("(prefers-color-scheme: dark)").matches);
         if (isDark) document.documentElement.classList.add("dark");
+        const palette = localStorage.getItem("codex.theme.palette");
+        if (["auto-pink", "bright-pink", "dark-pink"].includes(palette || "")) {
+          document.documentElement.setAttribute("data-theme", palette);
+        }
       } catch (_e) {}
     </script>
     %sveltekit.head%

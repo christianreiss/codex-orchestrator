@@ -109,12 +109,12 @@ function navigateCommand(
 }
 
 const NAV_ICON_MAP: Record<string, Component> = {
-  Dashboard: LayoutDashboard,
+  Overview: LayoutDashboard,
   Hosts: Server,
   Projects: FolderKanban,
-  "API Keys": KeyRound,
+  "API access": KeyRound,
   Authoring: BookOpen,
-  Logs: ScrollText,
+  Activity: Activity,
   Users: Users,
   Integrations: Plug,
   Settings: Settings,
@@ -122,12 +122,17 @@ const NAV_ICON_MAP: Record<string, Component> = {
 
 /** Deep-link navigation entries (in addition to top-level NAV). */
 const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?: string[] }> = [
-  { href: "/logs/mcp", label: "Logs / MCP", icon: ScrollText, keywords: ["mcp"] },
+  {
+    href: "/logs/mcp",
+    label: "Activity / MCP requests",
+    icon: ScrollText,
+    keywords: ["logs", "mcp"],
+  },
   {
     href: "/logs/events",
-    label: "Logs / Events",
+    label: "Activity / Audit trail",
     icon: ScrollText,
-    keywords: ["events", "audit", "trail"],
+    keywords: ["logs", "events", "audit", "trail"],
   },
   {
     href: "/authoring",
@@ -142,7 +147,7 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     keywords: ["agents", "agents.md"],
   },
   {
-    href: "/authoring",
+    href: "/authoring/memories",
     label: "Authoring / Memories",
     icon: Brain,
     keywords: ["memories", "memory"],

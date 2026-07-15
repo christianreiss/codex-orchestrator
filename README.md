@@ -137,7 +137,7 @@ cdx --uninstall     # remove everything and decommission
 
 The orchestrator exposes an OpenAI-compatible REST API at `/v1/`. Any tool that speaks the OpenAI protocol (SDKs, CLI clients, IDE plugins) can use it.
 
-1. **Create a key** in Admin > Settings > API Keys.
+1. **Create a key** in Admin > API access.
 2. **Point your client** at the orchestrator:
    ```python
    import openai

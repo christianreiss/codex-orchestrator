@@ -35,7 +35,10 @@
   }
 </script>
 
-<PageHeader title="API Keys" subtitle="Issue and revoke programmatic access">
+<PageHeader
+  title="API access"
+  subtitle="Manage compatible endpoints, credentials, rate limits, and per-engine availability."
+>
   {#snippet actions()}
     <Button onclick={() => openDialog(activeTab)}>
       <Plus class="h-4 w-4" />
@@ -44,14 +47,14 @@
   {/snippet}
 </PageHeader>
 
-<section class="rounded-lg border bg-card p-4">
+<section class="rounded-xl border border-border/75 bg-card p-4 shadow-sm sm:p-5">
   <div class="flex items-start gap-3">
     <ServerCog class="mt-0.5 h-5 w-5 text-muted-foreground" />
     <div class="min-w-0 flex-1">
       <h2 class="text-sm font-semibold tracking-tight">Proxy endpoints</h2>
       <div class="mt-3 grid gap-3 lg:grid-cols-2">
         {#each proxyEndpoints as endpoint}
-          <div class="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2">
+          <div class="flex min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <p class="text-sm font-medium">{endpoint.engine}</p>
@@ -75,10 +78,10 @@
   </div>
 </section>
 
-<Tabs.Root value={activeTab} onValueChange={(v) => (activeTab = v as ApiKeyEngine)}>
+<Tabs.Root class="mt-6" value={activeTab} onValueChange={(v) => (activeTab = v as ApiKeyEngine)}>
   <Tabs.List>
     <Tabs.Trigger value="openai">OpenAI</Tabs.Trigger>
-    <Tabs.Trigger value="claude">Claude</Tabs.Trigger>
+    <Tabs.Trigger value="claude">Anthropic</Tabs.Trigger>
   </Tabs.List>
 
   <Tabs.Content value="openai" class="space-y-4">

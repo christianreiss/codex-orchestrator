@@ -6,6 +6,7 @@
   import PowerOff from "@lucide/svelte/icons/power-off";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import * as Table from "$lib/components/ui/table";
+  import * as Dialog from "$lib/components/ui/dialog";
   import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
@@ -23,6 +24,7 @@
 
   const qc = useQueryClient();
   const listKey = keyQueryKeys.list(engineKey);
+  let revokeTarget = $state<AdminApiKey | null>(null);
 
   const keysQuery = createQuery<AdminApiKey[]>({
     queryKey: listKey,
@@ -107,6 +109,7 @@
     },
     onSuccess: () => {
       toast.success("Key revoked");
+      revokeTarget = null;
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: listKey });
@@ -114,12 +117,7 @@
   });
 
   function confirmRevoke(record: AdminApiKey) {
-    const name = record.name || record.key_prefix;
-    const ok = window.confirm(
-      `Revoke ${engineLabel(engine)} key "${name}"?\n\nThis cannot be undone. Existing clients using this key will fail immediately.`,
-    );
-    if (!ok) return;
-    $deleteMutation.mutate(Number(record.id));
+    revokeTarget = record;
   }
 
   function onToggle(record: AdminApiKey, next: boolean) {
@@ -142,7 +140,7 @@
   const error = $derived($keysQuery.error);
 </script>
 
-<div class="rounded-lg border bg-card">
+<div class="overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm">
   {#if error}
     <div class="p-6 text-sm text-destructive">
       Failed to load keys: {error.message}
@@ -265,3 +263,27 @@
     </Table.Root>
   {/if}
 </div>
+
+<Dialog.Root open={revokeTarget !== null} onOpenChange={(open) => open || (revokeTarget = null)}>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Revoke API key?</Dialog.Title>
+      <Dialog.Description>
+        <span class="font-medium text-foreground">{revokeTarget?.name || revokeTarget?.key_prefix}</span>
+        will stop working immediately for every client that uses it. This cannot be undone.
+      </Dialog.Description>
+    </Dialog.Header>
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => (revokeTarget = null)} disabled={$deleteMutation.isPending}>
+        Cancel
+      </Button>
+      <Button
+        variant="destructive"
+        onclick={() => revokeTarget && $deleteMutation.mutate(Number(revokeTarget.id))}
+        disabled={$deleteMutation.isPending}
+      >
+        {$deleteMutation.isPending ? "Revoking…" : "Revoke key"}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
