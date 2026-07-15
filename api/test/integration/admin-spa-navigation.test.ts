@@ -7,6 +7,7 @@ import { envelopePlugin } from '../../src/http/plugins/envelope.js';
 import { UnauthorizedError } from '../../src/http/errors.js';
 import type { RouteContext } from '../../src/routes/index.js';
 import { adminSpaHtmlPreHandler } from '../../src/routes/admin/pages/static.js';
+import { registerAdminProjectsRoutes } from '../../src/routes/admin/projects/index.js';
 
 describe('admin SPA navigation collisions', () => {
   let app: FastifyInstance;
@@ -23,6 +24,11 @@ describe('admin SPA navigation collisions', () => {
     const ctx = { env: { STATIC_ROOT: root } } as RouteContext;
     const adminSpa = adminSpaHtmlPreHandler(ctx);
     app.get('/admin/hosts', { preHandler: [adminSpa, app.requireAdmin] }, async () => ({ hosts: [] }));
+    await registerAdminProjectsRoutes(app, {
+      ...ctx,
+      db: {} as RouteContext['db'],
+      keyring: {} as RouteContext['keyring'],
+    });
     await app.ready();
   });
 
@@ -55,5 +61,22 @@ describe('admin SPA navigation collisions', () => {
       status: 'error',
       code: 'admin_required',
     });
+  });
+
+  it.each([
+    '/admin/projects/example/notes',
+    '/admin/projects/example/todos',
+    '/admin/projects/example/files',
+    '/admin/projects/example/feedback',
+  ])('serves the SPA shell for project sub-route navigation to %s', async (url) => {
+    const res = await app.inject({
+      method: 'GET',
+      url,
+      headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.payload).toContain('Codex Admin');
   });
 });

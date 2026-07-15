@@ -121,7 +121,7 @@
   Standalone page: the root +layout.svelte already opts /cli-auth/verify out of
   the AppShell, so this is the only thing on screen.
 -->
-<div
+<main
   class="standalone-surface fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-y-auto px-4 py-12"
 >
   <div class="w-full max-w-lg">
@@ -302,4 +302,4 @@
       You are approving a CLI device-code login. Only continue if you started this flow yourself.
     </p>
   </div>
-</div>
+</main>

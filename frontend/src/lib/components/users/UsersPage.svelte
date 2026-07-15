@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { toast } from "svelte-sonner";
@@ -81,6 +83,33 @@
 
   const rawUsers = $derived(($usersQuery.data ?? []) as AdminUser[]);
 
+  function clearUserParam(): void {
+    if (!page.url.searchParams.has("user")) return;
+    const url = new URL(page.url);
+    url.searchParams.delete("user");
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+  }
+
+  let handledUserParam = $state<string | null>(null);
+  $effect(() => {
+    const requestedId = page.url.searchParams.get("user");
+    const loading = $usersQuery.isLoading;
+    const users = rawUsers;
+    if (!requestedId) {
+      handledUserParam = null;
+      return;
+    }
+    if (loading || handledUserParam === requestedId) return;
+    handledUserParam = requestedId;
+    const target = users.find((user) => String(user.id) === requestedId);
+    if (target) {
+      openEdit(target);
+      return;
+    }
+    toast.error("User not found");
+    clearUserParam();
+  });
+
   function roleRank(role: string | undefined): number {
     switch ((role ?? "").toLowerCase()) {
       case "admin":
@@ -152,6 +181,7 @@
         toast.success("User updated");
       }
       formOpen = false;
+      clearUserParam();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save user");
     }
@@ -258,7 +288,10 @@
 
 <UserFormDialog
   open={formOpen}
-  onOpenChange={(o) => (formOpen = o)}
+  onOpenChange={(o) => {
+    formOpen = o;
+    if (!o) clearUserParam();
+  }}
   mode={formMode}
   initial={editTarget}
   submitting={$createMut.isPending || $updateMut.isPending}

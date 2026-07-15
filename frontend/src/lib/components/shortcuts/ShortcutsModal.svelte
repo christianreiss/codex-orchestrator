@@ -22,21 +22,21 @@
     {
       title: "Navigation",
       entries: [
-        { keys: [modKey, "K"], description: "Command palette öffnen" },
-        { keys: ["/"], description: "Command palette fokussieren" },
-        { keys: ["Esc"], description: "Overlay schließen" },
+        { keys: [modKey, "K"], description: "Open command palette" },
+        { keys: ["/"], description: "Open global search" },
+        { keys: ["Esc"], description: "Close the active overlay" },
       ],
     },
     {
-      title: "Aktionen",
+      title: "Actions",
       entries: [
-        { keys: ["N"], description: "Neuen Host anlegen" },
+        { keys: ["N"], description: "Register a new host" },
       ],
     },
     {
-      title: "Hilfe",
+      title: "Help",
       entries: [
-        { keys: ["?"], description: "Diese Übersicht anzeigen" },
+        { keys: ["?"], description: "Show this shortcut guide" },
       ],
     },
   ];
@@ -65,9 +65,9 @@
 <Dialog.Root bind:open>
   <Dialog.Content class="sm:max-w-md">
     <Dialog.Header>
-      <Dialog.Title>Tastenkürzel</Dialog.Title>
+      <Dialog.Title>Keyboard shortcuts</Dialog.Title>
       <Dialog.Description>
-        Alle verfügbaren Shortcuts im WebUI.
+        Every shortcut available in the admin workspace.
       </Dialog.Description>
     </Dialog.Header>
 

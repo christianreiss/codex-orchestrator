@@ -160,7 +160,7 @@
   }
 </script>
 
-<PageHeader title={displayName || slug} subtitle={`Skill · ${slug}`}>
+<PageHeader title={displayName || slug} subtitle={`Skill · ${slug}`} headingLevel="h2">
   {#snippet actions()}
     <Button variant="outline" href={`${base}/authoring`}>
       <ArrowLeft class="h-4 w-4" />
@@ -188,6 +188,7 @@
         {/if}
       </div>
       <Textarea
+        aria-label="Skill manifest"
         class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
         spellcheck="false"
         autocomplete="off"
@@ -200,7 +201,7 @@
     </div>
 
     <!-- Side panel -->
-    <aside class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Skill controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
       {#if isManaged}
         <div class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
           This skill is managed by the system and cannot be edited or deleted.

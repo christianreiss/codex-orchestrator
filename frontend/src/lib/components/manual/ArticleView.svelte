@@ -162,7 +162,7 @@
   </article>
 
   {#if !loading && !error && toc.length}
-    <aside class="hidden lg:block">
+    <aside aria-label="Article contents" class="hidden lg:block">
       <div class="sticky top-6">
         <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           On this page

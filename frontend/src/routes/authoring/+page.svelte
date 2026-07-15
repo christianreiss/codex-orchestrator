@@ -211,6 +211,7 @@
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label={`Delete skill ${row.display_name || row.slug}`}
                   disabled={!!row.managed}
                   onclick={() => (deleteTarget = row)}
                 >

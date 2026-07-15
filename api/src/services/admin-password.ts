@@ -1,6 +1,6 @@
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, gt, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { adminPasswordResets, adminUsers } from '../db/schema.js';
+import { adminPasskeys, adminPasswordResets, adminUsers } from '../db/schema.js';
 import type { Env } from '../env.js';
 import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from '../http/errors.js';
 import { randomHex, sha256 } from '../security/hash.js';
@@ -76,10 +76,18 @@ export class AdminPasswordService {
 
   /**
    * Issue a single-use reset token + email it to the address on file.
-   * For privacy we always return success even when the username is unknown.
+   * For privacy we always return success even when the username/email is unknown.
    */
-  async requestReset(username: string): Promise<{ delivered: boolean }> {
-    const user = await this.auth.findUserByUsername(username);
+  async requestReset(identifier: string): Promise<{ delivered: boolean }> {
+    const normalized = identifier.trim().toLowerCase();
+    const userRows = normalized
+      ? await this.db
+          .select()
+          .from(adminUsers)
+          .where(or(eq(adminUsers.username, normalized), eq(adminUsers.email, normalized)))
+          .limit(1)
+      : [];
+    const user = userRows[0] ?? null;
     if (!user || user.active !== 1) {
       // Do equivalent-cost dummy work (token generation + a side-effect-free
       // DB round trip) so an unknown username produces neither a latency nor
@@ -108,7 +116,7 @@ export class AdminPasswordService {
     });
 
     const base = this.env.PUBLIC_BASE_URL ?? '';
-    const link = base ? `${base.replace(/\/$/, '')}/admin/auth/password/reset?token=${token}` : `token=${token}`;
+    const link = base ? `${base.replace(/\/$/, '')}/admin/password/reset?token=${token}` : `token=${token}`;
     const result = await this.mailer.send({
       to: user.email,
       subject: 'Codex Orchestrator: password reset',
@@ -180,6 +188,7 @@ export class AdminPasswordService {
 
     await this.auth.deleteAllSessionsForUser(user.id);
     await this.auth.expireResetTokensForUser(user.id);
+    await this.db.delete(adminPasskeys).where(eq(adminPasskeys.userId, user.id));
 
     await this.events.record(
       { type: 'admin.auth.password.reset', payload: { user_id: user.id } },

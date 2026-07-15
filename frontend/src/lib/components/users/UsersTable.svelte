@@ -168,7 +168,7 @@
                 <span
                   class={cn(
                     "text-xs",
-                    user.active ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+                    user.active ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
                   )}
                 >
                   {user.active ? "Active" : "Inactive"}

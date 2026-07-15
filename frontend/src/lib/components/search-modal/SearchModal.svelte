@@ -40,6 +40,13 @@
 
   function refreshResults(q: string): void {
     if (debounceTimer) clearTimeout(debounceTimer);
+    const normalized = q.trim();
+    if (!normalized) {
+      ++inflightToken;
+      results = [];
+      loading = false;
+      return;
+    }
     debounceTimer = setTimeout(() => {
       const token = ++inflightToken;
       if (sources.length === 0) {
@@ -50,7 +57,7 @@
       const pending: PaletteCommand[] = [];
       Promise.allSettled(
         sources.map(async (src) => {
-          const r = await src(q);
+          const r = await src(normalized);
           if (token !== inflightToken) return;
           pending.push(...r);
           results = [...pending];
@@ -86,6 +93,8 @@
     return [...map.entries()].sort(([a], [b]) => groupOrder(a) - groupOrder(b));
   });
 
+  const hasQuery = $derived(query.trim().length > 0);
+
   function onInput(event: Event): void {
     query = (event.currentTarget as HTMLInputElement).value;
   }
@@ -103,11 +112,18 @@
         placeholder="Search hosts, projects, skills, users…"
       />
       <Command.List class="max-h-[420px]">
-        {#if query && !loading && results.length === 0}
-          <Command.Empty>No results for "{query}"</Command.Empty>
-        {/if}
-        {#if !query}
-          <div class="px-3 py-8 text-center text-sm text-muted-foreground">Type to search…</div>
+        {#if !hasQuery}
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+            Type to search…
+          </div>
+        {:else if loading && results.length === 0}
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+            Searching…
+          </div>
+        {:else if !loading && results.length === 0}
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+            No results for "{query}"
+          </div>
         {/if}
         {#each grouped as [group, items] (group)}
           {#if items.length > 0}
@@ -130,8 +146,8 @@
             </Command.Group>
           {/if}
         {/each}
-        {#if loading}
-          <div class="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+        {#if loading && results.length > 0}
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
         {/if}
       </Command.List>
     </Command.Root>

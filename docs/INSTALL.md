@@ -98,7 +98,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
     - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
-    - Password-reset endpoints are intentionally disabled (`410 Gone`).
+    - Password recovery uses `PUBLIC_BASE_URL` for the emailed reset link and SMTP settings for delivery; reset tokens are single-use and expire after one hour.
    - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_MEMORY_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.

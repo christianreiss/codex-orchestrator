@@ -157,6 +157,7 @@ export function getPageContext(pathname: string): string {
     return segments[1] ? `Manual / ${humanize(segments[1])}` : "Manual";
   }
   if (segments[0] === "login") return "Sign in";
+  if (segments[0] === "password" && segments[1] === "reset") return "Reset password";
   if (segments[0] === "cli-auth") return "CLI authorization";
   return segments.map(humanize).join(" / ");
 }

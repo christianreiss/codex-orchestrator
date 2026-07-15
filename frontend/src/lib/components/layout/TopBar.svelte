@@ -48,7 +48,7 @@
   class="sticky top-0 z-30 flex h-[4.25rem] shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-background/72 sm:px-6"
 >
   <div class="flex min-w-0 items-center gap-2 text-sm" aria-label="Current location">
-    <span class="hidden font-medium text-muted-foreground/60 lg:inline">Workspace</span>
+    <span class="hidden font-medium text-muted-foreground lg:inline">Workspace</span>
     <span class="hidden text-border lg:inline">/</span>
     <span class="truncate font-medium text-foreground">{pageContext}</span>
   </div>

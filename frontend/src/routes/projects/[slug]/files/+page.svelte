@@ -209,6 +209,7 @@
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label={`Delete file ${file.stored_name}`}
                       onclick={() => $deleteMut.mutate(file.id)}
                       disabled={$deleteMut.isPending}
                     >

@@ -17,7 +17,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
   - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).
   - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
-- Password reset endpoints are hard-disabled: `POST /admin/auth/password/request` and `POST /admin/auth/password/reset` always return `410`.
+- Password recovery is available from `/admin/login`: the request endpoint accepts a username or email without disclosing whether it matched, sends a one-hour single-use link to `/admin/password/reset`, and the reset endpoint rotates the password while expiring existing sessions and outstanding reset tokens.
 - WebAuthn settings:
   - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
@@ -109,10 +109,10 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Wipe all users: `POST /admin/users/wipe` with `{"confirm":"WIPE"}`.
   - `users.manage` required once any users exist.
 - **Passkeys**:
-  - Username-bound login endpoints: `POST /admin/auth/passkey/login/options` with `{username}` and `POST /admin/auth/passkey/login`.
+  - Passkey login endpoints: `POST /admin/auth/passkey/login/options` with `{username}` (or `{}` for the unambiguous single-user shortcut) and `POST /admin/auth/passkey/login`.
   - Registration endpoints (session required): `POST /admin/auth/passkey/register/options` and `POST /admin/auth/passkey/register`.
   - Management endpoints (session required): `GET /admin/passkeys`, `POST /admin/passkeys/{id}/name`, `DELETE /admin/passkeys/{id}`.
-  - Login requires WebAuthn user verification and uses the entered username to scope `allowCredentials`; it is not username-less.
+  - Login requires WebAuthn user verification. Normal login uses the entered username to scope `allowCredentials`; when exactly one active user exists and has passkeys, the login page can open that user's passkey prompt directly.
 - **Auth Upload & Seed**:
   - Upload canonical auth (runner-validated when enabled): `POST /admin/auth/upload` (`settings.manage`).
   - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.

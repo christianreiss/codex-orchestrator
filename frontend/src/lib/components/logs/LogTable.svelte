@@ -106,7 +106,13 @@
   }
 </script>
 
-<div class={cn("overflow-x-auto rounded-xl border border-border/70 bg-card shadow-sm", className)}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div
+  class={cn("overflow-x-auto rounded-xl border border-border/70 bg-card shadow-sm", className)}
+  role="region"
+  aria-label="Log entries"
+  tabindex="0"
+>
   <!-- Header -->
   <div class="border-b bg-muted/40 px-2">
     <div class="flex min-w-[680px] w-full items-center text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">

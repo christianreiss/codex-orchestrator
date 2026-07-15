@@ -310,8 +310,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/auth/passkey/login` — completes passkey login and sets the admin session cookie.
   - `POST /admin/auth/passkey/register/options` / `POST /admin/auth/passkey/register` — register a passkey for the authenticated admin user.
   - `GET /admin/login` — admin login HTML.
-  - `POST /admin/auth/password/request` — disabled (`410 Gone`).
-  - `POST /admin/auth/password/reset` — disabled (`410 Gone`).
+  - `POST /admin/auth/password/request` — request a one-hour reset link by username or email; response does not disclose whether an account matched.
+  - `POST /admin/auth/password/reset` — consume a reset token with `{token, new_password, confirm_password}`.
   - `GET /admin/passkeys` / `POST /admin/passkeys/{id}/name` / `DELETE /admin/passkeys/{id}` — list, rename, and delete the authenticated admin user’s passkeys.
   - `GET /admin/users` — list admin users.
   - `POST /admin/users` — create admin user (first user must be admin).

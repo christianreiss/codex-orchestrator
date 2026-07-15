@@ -256,9 +256,6 @@ function buildActionCommands(): PaletteCommand[] {
       keywords: ["project", "create", "new"],
       run() {
         void goto(`${base}/projects?dialog=new`);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("codex:open-new-project"));
-        }
         commandPalette.close();
       },
     },
@@ -270,9 +267,6 @@ function buildActionCommands(): PaletteCommand[] {
       keywords: ["api", "key", "openai", "claude", "create"],
       run() {
         void goto(`${base}/api-keys?dialog=new`);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("codex:open-new-api-key"));
-        }
         commandPalette.close();
       },
     },

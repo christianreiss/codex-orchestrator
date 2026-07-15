@@ -119,7 +119,6 @@
   <div
     bind:this={scrollEl}
     class="relative h-[60vh] min-h-[400px] overflow-auto"
-    role="rowgroup"
   >
     {#if loading}
       <div class="px-4 py-6 text-sm text-muted-foreground">Loading hosts…</div>
@@ -160,7 +159,7 @@
                     />
                   {/each}
                   {#if row.vip}
-                    <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">VIP</span>
+                    <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">VIP</span>
                   {/if}
                 </div>
               </div>
@@ -176,7 +175,7 @@
                   />
                 {/each}
                 {#if row.vip}
-                  <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">VIP</span>
+                  <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">VIP</span>
                 {/if}
                 {#if row.allow_roaming_ips}
                   <span class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Roam</span>
@@ -206,7 +205,7 @@
   <button
     type="button"
     class={cn(
-      "inline-flex items-center gap-1 text-left transition-colors hover:text-foreground",
+      "inline-flex min-h-8 items-center gap-1 text-left transition-colors hover:text-foreground",
       sortField === field ? "text-foreground" : "",
     )}
     onclick={() => setSort(field)}

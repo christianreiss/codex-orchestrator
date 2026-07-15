@@ -209,7 +209,7 @@
                     >{relativeTime(record.last_used_at)}</span
                   >
                 {:else}
-                  <span class="text-muted-foreground/60">Never</span>
+                  <span class="text-muted-foreground">Never</span>
                 {/if}
               </Table.Cell>
               <Table.Cell>

@@ -177,7 +177,12 @@
                   <ExternalLink class="h-4 w-4" />
                   Open
                 </Button>
-                <Button variant="ghost" size="sm" onclick={() => (deleteTarget = row)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Delete output style ${row.display_name || row.slug}`}
+                  onclick={() => (deleteTarget = row)}
+                >
                   <Trash2 class="h-4 w-4 text-destructive" />
                 </Button>
               </div>

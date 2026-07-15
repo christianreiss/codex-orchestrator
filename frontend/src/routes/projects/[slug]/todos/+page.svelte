@@ -228,12 +228,18 @@
             {/if}
           </div>
           <div class="flex gap-1">
-            <Button variant="ghost" size="sm" onclick={() => startEdit(todo)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Edit todo ${todo.title}`}
+              onclick={() => startEdit(todo)}
+            >
               <Pencil class="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
+              aria-label={`Delete todo ${todo.title}`}
               onclick={() => $deleteMut.mutate(todo.id)}
               disabled={$deleteMut.isPending}
             >

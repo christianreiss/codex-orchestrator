@@ -104,6 +104,7 @@
       </Select.Content>
     </Select.Root>
     <Input
+      aria-label="Search memories"
       placeholder="Search keys, content, summary, tags…"
       bind:value={search}
       class="max-w-md"
@@ -183,6 +184,7 @@
               <Button
                 variant="ghost"
                 size="sm"
+                aria-label={`Delete memory ${row.summary ?? row.record_id ?? row.id ?? "record"}`}
                 disabled={row.record_id == null && row.id == null}
                 onclick={() => (deleteTarget = row)}
               >

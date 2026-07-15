@@ -52,6 +52,15 @@ export function requestPasswordReset(input: { username?: string; email?: string 
   return api.post<unknown>("/admin/auth/password/request", input);
 }
 
+/** POST /admin/auth/password/reset — consumes a one-time reset token. */
+export function resetPassword(input: {
+  token: string;
+  new_password: string;
+  confirm_password: string;
+}) {
+  return api.post<unknown>("/admin/auth/password/reset", input);
+}
+
 // ---- Passkeys ----
 
 /** GET /admin/passkeys → list of registered passkeys for the current user. */

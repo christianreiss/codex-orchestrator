@@ -206,10 +206,9 @@
           />
           <button
             type="button"
-            class="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+            class="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onclick={() => (showPassword = !showPassword)}
             aria-label={showPassword ? "Hide password" : "Show password"}
-            tabindex="-1"
           >
             {#if showPassword}
               <EyeOff class="h-4 w-4" />
@@ -240,7 +239,7 @@
         {#if errors.password_confirm}
           <p class={cn("text-xs", "text-destructive")}>{errors.password_confirm}</p>
         {:else if passwordsMatch}
-          <p class="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+          <p class="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
             <Check class="h-3 w-3" /> Passwords match
           </p>
         {:else if passwordsMismatch}

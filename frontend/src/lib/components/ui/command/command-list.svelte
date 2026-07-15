@@ -9,6 +9,7 @@
 
 <CommandPrimitive.List
   class={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+  tabindex={0}
   {...rest}
 >
   <CommandPrimitive.Viewport class="p-1">

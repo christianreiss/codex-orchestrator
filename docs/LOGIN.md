@@ -5,9 +5,9 @@
 - Login/session enforcement starts when at least one **active** admin user exists (`access_level=admin`, `active=1`).
 - When no active admins exist, admin routes run in bootstrap mode (no login/session enforcement).
 - Login uses an HTTP-only session cookie with a configurable TTL.
-- Admin login is username-first: the login page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry.
+- Admin login is normally username-first: the page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry. When exactly one active user exists and has passkeys, it can open that user's passkey prompt directly.
 - With `ADMIN_ACCESS_MODE=mtls` (default), passkey login still sits inside the mTLS gate; it does not replace the outer client-cert boundary.
-- Password reset is disabled (UI and API).
+- Password recovery is available from the login screen and completes on the standalone `/admin/password/reset` page.
 - Roles control which admin features each user can access.
 
 ## Bootstrap & Enforcement
@@ -36,20 +36,20 @@
   - `POST /admin/auth/logout` — clears the current session and expires the cookie.
   - `POST /admin/auth/passkey/login/options` — `{username}`; returns WebAuthn request options for that user’s registered passkeys only.
   - `POST /admin/auth/passkey/login` — completes passkey login and issues the same admin session cookie as password login.
-  - `POST /admin/auth/password/request` — disabled (`410 Gone`).
-  - `POST /admin/auth/password/reset` — disabled (`410 Gone`).
+  - `POST /admin/auth/password/request` — `{username}` or `{email}`; always returns the same success shape and sends a one-hour, single-use reset link when an active account matches.
+  - `POST /admin/auth/password/reset` — `{token, new_password, confirm_password}`; consumes the token, applies password policy, expires existing sessions, and invalidates outstanding reset tokens.
 
 ## Passkeys
 - Registration is available to authenticated admins through the dashboard and stores multiple passkeys per user.
 - Registration requires WebAuthn user verification (`UV`) and does not force platform-only authenticators.
-- Login also requires WebAuthn user verification and is not username-less: the entered username determines the `allowCredentials` list returned by the server. If that user has a registered passkey, passkey becomes the only allowed login method.
+- Login also requires WebAuthn user verification. The entered username normally determines the `allowCredentials` list; the single-active-user shortcut may omit it. If that user has a registered passkey, passkey becomes the only allowed login method until password recovery revokes the lost passkeys.
 - Passkey management endpoints:
   - `POST /admin/auth/passkey/register/options`
   - `POST /admin/auth/passkey/register`
   - `GET /admin/passkeys`
   - `POST /admin/passkeys/{id}/name`
   - `DELETE /admin/passkeys/{id}`
-- Recovery for lost passkeys has no equivalent CLI currently shipped; operators must delete rows from `admin_passkeys` for the locked-out user directly in the database.
+- Recovery for lost passkeys uses the same email password-recovery flow; a successful password reset also removes the user's registered passkeys so password login is available again.
 
 ## Sessions
 - Cookie name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).

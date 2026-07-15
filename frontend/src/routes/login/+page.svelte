@@ -11,15 +11,17 @@
   import { api, ApiError } from "$lib/api/client";
   import { authenticatePasskey, type PublicKeyAuthenticationOptionsJSON } from "$lib/components/account/webauthn";
   import { authActions, authStore } from "$lib/stores/auth";
+  import { requestPasswordReset } from "$lib/api/account";
 
   let username = $state("");
   let password = $state("");
-  let phase = $state<"username" | "password" | "passkey">("username");
+  let phase = $state<"username" | "password" | "passkey" | "reset">("username");
   let probing = $state(false);
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let passkeySupported = $state(false);
   let autoPasskeyActive = $state(false);
+  let resetRequested = $state(false);
 
   type LoginMethodResponse = {
     method?: "password" | "passkey" | "none";
@@ -118,9 +120,26 @@
       autoPasskeyActive = false;
     }
   }
+
+  async function submitResetRequest() {
+    if (!username.trim()) {
+      error = "Enter your username or email.";
+      return;
+    }
+    error = null;
+    submitting = true;
+    try {
+      await requestPasswordReset({ username: username.trim() });
+      resetRequested = true;
+    } catch (err) {
+      error = err instanceof ApiError ? err.message : "Could not request a reset link.";
+    } finally {
+      submitting = false;
+    }
+  }
 </script>
 
-<div
+<main
   class="standalone-surface flex min-h-full items-center justify-center px-4 py-12"
 >
   <div class="w-full max-w-md">
@@ -136,8 +155,14 @@
 
     <Card.Root>
       <Card.Header>
-        <Card.Title>Sign in</Card.Title>
-        <Card.Description>Authenticate to access the admin console.</Card.Description>
+        <h1 class="text-lg font-semibold leading-tight tracking-[-0.02em]">
+          {phase === "reset" ? "Reset password" : "Sign in"}
+        </h1>
+        <Card.Description>
+          {phase === "reset"
+            ? "Request a one-time reset link for your admin account."
+            : "Authenticate to access the admin console."}
+        </Card.Description>
       </Card.Header>
       <Card.Content class="space-y-4">
         {#if error}
@@ -152,21 +177,31 @@
             e.preventDefault();
             if (phase === "username") void probeMethod();
             else if (phase === "password") void submitPassword();
-            else void submitPasskey();
+            else if (phase === "passkey") void submitPasskey();
+            else void submitResetRequest();
           }}
         >
           {#if phase !== "passkey" || username.trim()}
             <div class="space-y-2">
-            <Label for="username">Username</Label>
-            <Input
-              id="username"
-              type="text"
-              autocomplete="username"
-              required
-              bind:value={username}
-              disabled={phase !== "username"}
-            />
+              <Label for="username">{phase === "reset" ? "Username or email" : "Username"}</Label>
+              <Input
+                id="username"
+                type="text"
+                autocomplete="username"
+                required
+                bind:value={username}
+                disabled={phase !== "username" && phase !== "reset"}
+              />
             </div>
+          {/if}
+
+          {#if phase === "reset" && resetRequested}
+            <Alert>
+              <AlertDescription>
+                If an active account matches that username or email, a reset link has been sent to its
+                registered email address.
+              </AlertDescription>
+            </Alert>
           {/if}
 
           {#if phase === "password"}
@@ -198,10 +233,27 @@
                 Continue
               {:else if phase === "password"}
                 Sign in
+              {:else if phase === "reset"}
+                {resetRequested ? "Send another link" : "Send reset link"}
               {:else}
                 <Fingerprint class="h-4 w-4" /> Authenticate with passkey
               {/if}
             </Button>
+          {/if}
+
+          {#if phase === "password" || phase === "passkey"}
+            <button
+              type="button"
+              class="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onclick={() => {
+                phase = "reset";
+                password = "";
+                error = null;
+                resetRequested = false;
+              }}
+            >
+              {phase === "passkey" ? "Lost your passkey?" : "Forgot password?"}
+            </button>
           {/if}
 
           {#if phase !== "username"}
@@ -212,9 +264,10 @@
                 phase = "username";
                 password = "";
                 error = null;
+                resetRequested = false;
               }}
             >
-              Use a different username
+              {phase === "reset" ? "Back to sign in" : "Use a different username"}
             </button>
           {/if}
 
@@ -235,8 +288,7 @@
     </Card.Root>
 
     <p class="mt-6 text-center text-xs text-muted-foreground">
-      Need help? Visit the
-      <a class="underline-offset-2 hover:underline" href={`${base}/manual`}>manual</a>.
+      Need help? Contact your fleet administrator.
     </p>
   </div>
-</div>
+</main>

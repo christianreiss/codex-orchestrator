@@ -92,7 +92,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   // ── cross-project feedback (must come before /:slug) ─────────────────────
 
-  app.get('/admin/projects/feedback', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/projects/feedback', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     return await content.listFeedback(null);
   });
 
@@ -165,7 +165,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   app.get<{ Params: { slug: string } }>(
     '/admin/projects/:slug/notes',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => content.listNotes(decodeURIComponent(req.params.slug)),
   );
 
@@ -203,7 +203,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   app.get<{ Params: { slug: string } }>(
     '/admin/projects/:slug/todos',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => content.listTodos(decodeURIComponent(req.params.slug)),
   );
 
@@ -265,7 +265,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   app.get<{ Params: { slug: string } }>(
     '/admin/projects/:slug/files',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => content.listFiles(decodeURIComponent(req.params.slug)),
   );
 
@@ -291,7 +291,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   app.get<{ Params: { slug: string } }>(
     '/admin/projects/:slug/feedback',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => content.listFeedback(decodeURIComponent(req.params.slug)),
   );
 

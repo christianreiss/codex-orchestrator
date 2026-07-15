@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { buildAdminTestApp } from '../../helpers/build-admin-app.js';
-import { hash as argonHash } from '../../../src/security/password.js';
+import { hash as argonHash, verify as verifyPassword } from '../../../src/security/password.js';
 import { sha256 } from '../../../src/security/hash.js';
 
 describe('POST /admin/auth/login', () => {
@@ -238,6 +238,92 @@ describe('POST /admin/auth/logout', () => {
     });
     expect(r.statusCode).toBe(200);
     expect(store.sessions.length).toBe(0);
+    await app.close();
+  });
+});
+
+describe('admin password recovery', () => {
+  it('issues a reset token for a matching email address', async () => {
+    const { app, store } = await buildAdminTestApp();
+    store.users.push({
+      id: 1,
+      name: 'Owner',
+      username: 'owner',
+      email: 'owner@example.test',
+      passwordHash: 'h',
+      accessLevel: 'owner',
+      active: 1,
+      lastLoginAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/password/request',
+      payload: { email: 'owner@example.test' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(store.passwordResets).toHaveLength(1);
+    expect(store.passwordResets[0]?.userId).toBe(1);
+    await app.close();
+  });
+
+  it('consumes a reset token, updates the password, and expires existing sessions', async () => {
+    const { app, store, sessionToken } = await buildAdminTestApp();
+    const token = 'single-use-reset-token';
+    store.users.push({
+      id: 1,
+      name: 'Owner',
+      username: 'owner',
+      email: 'owner@example.test',
+      passwordHash: await argonHash('old-password-long-enough'),
+      accessLevel: 'owner',
+      active: 1,
+      lastLoginAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.passwordResets.push({
+      id: store.nextId++,
+      userId: 1,
+      tokenHash: sha256(token),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      usedAt: null,
+      createdAt: new Date().toISOString(),
+    });
+    store.passkeys.push({
+      id: store.nextId++,
+      userId: 1,
+      credentialId: 'cmVjb3ZlcnktY3JlZGVudGlhbA',
+      credentialIdHash: sha256(Buffer.from('cmVjb3ZlcnktY3JlZGVudGlhbA', 'base64url')),
+      publicKeyPem: 'cose:test',
+      coseAlg: -7,
+      signCount: 0,
+      name: 'Lost passkey',
+      transports: 'internal',
+      aaguid: null,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: null,
+    });
+    sessionToken(1);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/auth/password/reset',
+      payload: {
+        token,
+        new_password: 'new-password-long-enough',
+        confirm_password: 'new-password-long-enough',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(store.passwordResets[0]?.usedAt).toBeTruthy();
+    expect(store.sessions).toHaveLength(0);
+    expect(store.passkeys).toHaveLength(0);
+    await expect(verifyPassword(store.users[0]!.passwordHash, 'new-password-long-enough')).resolves.toMatchObject({ ok: true });
     await app.close();
   });
 });

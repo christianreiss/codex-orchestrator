@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import ServerCog from "@lucide/svelte/icons/server-cog";
   import Plus from "@lucide/svelte/icons/plus";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
@@ -33,6 +35,20 @@
     dialogEngine = engine;
     dialogOpen = true;
   }
+
+  function clearDialogParam(): void {
+    if (page.url.searchParams.get("dialog") !== "new") return;
+    const url = new URL(page.url);
+    url.searchParams.delete("dialog");
+    url.searchParams.delete("engine");
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+  }
+
+  $effect(() => {
+    if (page.url.searchParams.get("dialog") !== "new") return;
+    const requestedEngine = page.url.searchParams.get("engine");
+    openDialog(requestedEngine === "claude" ? "claude" : "openai");
+  });
 </script>
 
 <PageHeader
@@ -95,4 +111,11 @@
   </Tabs.Content>
 </Tabs.Root>
 
-<NewKeyDialog bind:open={dialogOpen} defaultEngine={dialogEngine} />
+<NewKeyDialog
+  bind:open={dialogOpen}
+  defaultEngine={dialogEngine}
+  onOpenChange={(next) => {
+    dialogOpen = next;
+    if (!next) clearDialogParam();
+  }}
+/>

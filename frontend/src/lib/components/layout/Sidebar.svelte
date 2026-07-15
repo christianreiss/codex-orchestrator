@@ -29,6 +29,7 @@
 </script>
 
 <aside
+  aria-label="Fleet workspace"
   class="sidebar-surface hidden h-full w-64 shrink-0 flex-col border-r border-white/[0.07] text-[hsl(var(--sidebar-fg))] md:flex"
 >
   <a

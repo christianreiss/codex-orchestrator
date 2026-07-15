@@ -21,8 +21,13 @@
   type Props = {
     open: boolean;
     defaultEngine?: ApiKeyEngine;
+    onOpenChange?: (open: boolean) => void;
   };
-  let { open = $bindable(false), defaultEngine = "openai" }: Props = $props();
+  let {
+    open = $bindable(false),
+    defaultEngine = "openai",
+    onOpenChange,
+  }: Props = $props();
 
   const qc = useQueryClient();
 
@@ -106,21 +111,23 @@
   function close() {
     if ($createMut.isPending) return;
     open = false;
+    onOpenChange?.(false);
   }
 
   // Guard against Escape/overlay-click/close-button dismissal while a create
   // request is still in flight, so a stale onSuccess can't hijack the
   // one-time key reveal screen out from under a second, unrelated submission.
-  function handleOpenChange(next: boolean) {
+  function handleDialogOpenChange(next: boolean) {
     if (!next && $createMut.isPending) {
       open = true;
       return;
     }
     open = next;
+    onOpenChange?.(next);
   }
 </script>
 
-<Dialog.Root bind:open onOpenChange={handleOpenChange}>
+<Dialog.Root bind:open onOpenChange={handleDialogOpenChange}>
   <Dialog.Content class="sm:max-w-md">
     {#if issued}
       <Dialog.Header>
@@ -214,12 +221,14 @@
 
           <div class="flex items-center justify-between rounded-md border p-3">
             <div>
-              <Label class="text-sm">Expires</Label>
+              <Label for="key-expires-toggle" class="text-sm">Expires</Label>
               <p class="text-xs text-muted-foreground">
                 Off = never expires.
               </p>
             </div>
             <Switch
+              id="key-expires-toggle"
+              aria-label="Set an expiration date"
               checked={expiresEnabled}
               onCheckedChange={(v) => (expiresEnabled = v)}
             />

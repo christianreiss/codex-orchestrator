@@ -261,7 +261,7 @@
     </div>
 
     <!-- Preview -->
-    <aside class="flex flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Claude settings summary" class="flex flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
       <div class="flex items-center justify-between text-sm">
         <span class="font-medium">settings.json preview</span>
         <Badge variant="secondary">read-only</Badge>

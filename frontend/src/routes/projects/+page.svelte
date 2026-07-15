@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
@@ -78,6 +80,33 @@
   const enabled = $derived(($stateQuery.data?.enabled ?? false) === true);
   const projects = $derived($listQuery.data?.projects ?? []);
   const deleteTitle = $derived(projectToDelete?.title || projectToDelete?.slug || "this project");
+
+  function clearDialogParam(): void {
+    if (page.url.searchParams.get("dialog") !== "new") return;
+    const url = new URL(page.url);
+    url.searchParams.delete("dialog");
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+  }
+
+  let handledDisabledRequest = $state(false);
+  $effect(() => {
+    const requested = page.url.searchParams.get("dialog") === "new";
+    const loading = $stateQuery.isLoading;
+    if (!requested) {
+      handledDisabledRequest = false;
+      return;
+    }
+    if (loading) return;
+    if (enabled) {
+      dialogOpen = true;
+      return;
+    }
+    if (!handledDisabledRequest) {
+      handledDisabledRequest = true;
+      toast.info("Enable Project coordination before creating a project.");
+      clearDialogParam();
+    }
+  });
 </script>
 
 <PageHeader title="Projects" subtitle="Coordination workspaces">
@@ -100,6 +129,7 @@
   </div>
   <Switch
     id="projects-enabled"
+    aria-label="Enable Project coordination"
     checked={enabled}
     disabled={$stateQuery.isLoading || $stateMutation.isPending}
     onCheckedChange={(next) => $stateMutation.mutate(next)}
@@ -153,7 +183,13 @@
   </div>
 {/if}
 
-<NewProjectDialog bind:open={dialogOpen} />
+<NewProjectDialog
+  bind:open={dialogOpen}
+  onOpenChange={(next) => {
+    dialogOpen = next;
+    if (!next) clearDialogParam();
+  }}
+/>
 
 <ConfirmDialog
   bind:open={confirmOpen}

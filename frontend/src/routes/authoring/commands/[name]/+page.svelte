@@ -103,7 +103,7 @@
   });
 </script>
 
-<PageHeader title={$query.data?.display_name || slug} subtitle={`Command · ${slug}`}>
+<PageHeader title={$query.data?.display_name || slug} subtitle={`Command · ${slug}`} headingLevel="h2">
   {#snippet actions()}
     <Button variant="outline" href={`${base}/authoring/commands`}>
       <ArrowLeft class="h-4 w-4" />
@@ -132,6 +132,7 @@
           {/if}
         </div>
         <Textarea
+          aria-label="Command body"
           class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
           spellcheck="false"
           autocomplete="off"
@@ -145,7 +146,7 @@
     </div>
 
     <!-- Side panel -->
-    <aside class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Command controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
       <div class="rounded-lg border bg-card p-4">
         <h3 class="mb-3 text-sm font-semibold">Frontmatter</h3>
         <div class="space-y-3">

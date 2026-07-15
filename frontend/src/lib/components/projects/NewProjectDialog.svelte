@@ -12,8 +12,11 @@
   import { ApiError } from "$lib/api/client";
   import { createProject, projectKeys } from "$lib/api/projects";
 
-  type Props = { open: boolean };
-  let { open = $bindable() }: Props = $props();
+  type Props = {
+    open: boolean;
+    onOpenChange?: (open: boolean) => void;
+  };
+  let { open = $bindable(), onOpenChange }: Props = $props();
 
   const qc = useQueryClient();
 
@@ -47,6 +50,11 @@
     slugError = null;
   }
 
+  function setOpen(next: boolean): void {
+    open = next;
+    onOpenChange?.(next);
+  }
+
   const mutation = createMutation({
     mutationFn: async () => {
       const parsed = slugSchema.parse(slug);
@@ -64,7 +72,7 @@
       const createdSlug = data.project?.slug ?? slug;
       toast.success(`Project ${createdSlug} created`);
       void qc.invalidateQueries({ queryKey: projectKeys.list });
-      open = false;
+      setOpen(false);
       reset();
       void goto(`${base}/projects/${encodeURIComponent(createdSlug)}`);
     },
@@ -89,7 +97,7 @@
   });
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root bind:open onOpenChange={setOpen}>
   <Dialog.Content class="sm:max-w-lg">
     <form onsubmit={submit} class="flex flex-col gap-4">
       <Dialog.Header>
@@ -149,7 +157,7 @@
         <Button
           type="button"
           variant="outline"
-          onclick={() => (open = false)}
+          onclick={() => setOpen(false)}
           disabled={$mutation.isPending}
         >
           Cancel

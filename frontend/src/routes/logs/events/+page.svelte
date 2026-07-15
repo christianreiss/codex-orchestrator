@@ -275,12 +275,14 @@
     <div class="relative min-w-0 flex-1 sm:max-w-md">
       <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input
+        aria-label="Search audit trail"
         type="search"
         placeholder="Free-text search (action, host, details)…"
         bind:value={searchInput}
         class="pl-9" />
     </div>
     <Input
+      aria-label="Filter by action prefix"
       type="text"
       placeholder="Action prefix"
       bind:value={actionPrefix}
@@ -292,7 +294,7 @@
       onValueChange={(v: unknown) => {
         if (typeof v === "string") hostFilter = v;
       }}>
-      <SelectTrigger class="h-9 w-[180px]">
+      <SelectTrigger class="h-9 w-[180px]" aria-label="Filter by host">
         <SelectValue placeholder="Host" />
       </SelectTrigger>
       <SelectContent class="max-h-[320px]">

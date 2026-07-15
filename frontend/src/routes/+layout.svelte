@@ -27,8 +27,8 @@
   const auth = $derived($authStore);
   const path = $derived(page.url.pathname.replace(base, "") || "/");
 
-  // Routes that render outside the AppShell (login, device-code approval).
-  const STANDALONE = ["/login", "/cli-auth/verify"];
+  // Routes that render outside the AppShell (login, password reset, device-code approval).
+  const STANDALONE = ["/login", "/password/reset", "/cli-auth/verify"];
   const standalone = $derived(STANDALONE.some((p) => path === p || path.startsWith(p + "/")));
 
   $effect(() => {

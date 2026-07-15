@@ -20,6 +20,20 @@
   on narrow screens, dangerous API-key revocation uses an in-app confirmation
   dialog, usage colors now communicate actual thresholds, and primary actions
   are consistently separated from secondary and destructive operations.
+- Completed the workspace action layer: command-palette shortcuts now open the
+  requested API-key and project dialogs, user results open the matching editor,
+  URL state is removed when a deep-linked dialog closes, global search avoids
+  empty background queries, and the keyboard guide is accurate and consistent.
+- Finished the accessibility and navigation pass across shared and detail
+  views: corrected heading order and duplicate H1s, accessible names and form
+  labels, landmark identities, contrast, keyboard-focusable password controls,
+  sortable-header targets, and invalid virtual-list ARIA. Browser refreshes on
+  project Notes, Todos, Files, and Feedback now receive the SPA shell while
+  JSON clients retain the same API contracts.
+- Completed the admin recovery journey: sign-in now offers a privacy-preserving
+  username/email reset request, recovery emails link to a standalone responsive
+  reset screen, and successful resets rotate the password while expiring the
+  user's sessions, outstanding reset tokens, and passkeys.
 
 ## cdx/clx 0.6.45 terminal truthfulness polish
 

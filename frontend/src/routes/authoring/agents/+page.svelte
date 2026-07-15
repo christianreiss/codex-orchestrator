@@ -194,7 +194,7 @@
     <!-- Editor -->
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between text-sm">
-        <span class="font-medium">AGENTS.md (Markdown)</span>
+        <label for="agents-document" class="font-medium">AGENTS.md (Markdown)</label>
         {#if serverSha}
           <span class="font-mono text-xs text-muted-foreground" title={serverSha}>
             sha256: {serverSha.slice(0, 12)}…
@@ -202,6 +202,7 @@
         {/if}
       </div>
       <Textarea
+        id="agents-document"
         class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
         spellcheck="false"
         autocomplete="off"
@@ -216,12 +217,12 @@
     </div>
 
     <!-- Side panel -->
-    <aside class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Agent document controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
       <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Serve mode</h3>
+        <h2 class="mb-3 text-sm font-semibold">Serve mode</h2>
         <div class="space-y-2">
           <Select.Root type="single" bind:value={serveMode as string}>
-            <Select.Trigger>
+            <Select.Trigger aria-label="Serve mode">
               <span>{serveMode === "locked" ? "Locked at version" : "Latest"}</span>
             </Select.Trigger>
             <Select.Content>
@@ -231,6 +232,7 @@
           </Select.Root>
           {#if serveMode === "locked"}
             <Input
+              aria-label="Locked version ID"
               type="number"
               placeholder="Version ID"
               bind:value={serveLockedId}
@@ -244,7 +246,7 @@
       </div>
 
       <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Retention</h3>
+        <h2 class="mb-3 text-sm font-semibold">Retention</h2>
         <div class="flex items-end gap-2">
           <div class="flex-1 space-y-1.5">
             <label for="retention-days" class="text-xs font-medium">Backups to keep</label>
@@ -262,10 +264,10 @@
       </div>
 
       <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold">
           <History class="h-4 w-4" />
           Version history
-        </h3>
+        </h2>
         {#if versions.length === 0}
           <p class="text-xs text-muted-foreground">No versions yet.</p>
         {:else}
@@ -291,6 +293,7 @@
                   <Button
                     size="sm"
                     variant="ghost"
+                    aria-label={`Restore version ${v.id}`}
                     onclick={() => $revertMutation.mutate(v.id)}
                     disabled={$revertMutation.isPending}
                   >
@@ -326,6 +329,7 @@
         <span>{formatBytes(viewingVersion?.size_bytes ?? 0)}</span>
       </div>
       <Textarea
+        aria-label="Version preview"
         class="min-h-[50vh] font-mono text-xs"
         readonly
         value={viewingVersion?.content ?? ""}
