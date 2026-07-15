@@ -3,15 +3,18 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
-// ScreenInput is everything the renderer needs to draw the boot/status screen.
-// All fields are optional — missing data degrades gracefully.
+const minRichColumns = 40
+
+// ScreenInput is the complete, presentation-neutral state of one cdx startup
+// or status request. Missing values degrade cleanly.
 type ScreenInput struct {
 	WrapperVersion string
-	WrapperTone    Tone   // green=current, yellow=update available, red=missing
-	WrapperTarget  string // shown next to wrapper line when not green
+	WrapperTone    Tone
+	WrapperTarget  string
 
 	CodexVersion string
 	CodexTone    Tone
@@ -20,182 +23,297 @@ type ScreenInput struct {
 	HostFQDN  string
 	Insecure  bool
 	BrowserOS bool
-
-	Lane     string // "normal" | "spark" | ""
-	APICalls int64  // request count — shown in compact format
+	Model     string
+	Effort    string
+	Lane      string
+	APICalls  int64
 
 	Concurrent     bool
 	ConcurrentNote string
+	Dots           []HealthDot
 
-	Dots []HealthDot
-
-	QuotaRows  []QuotaRow
-	QuotaWarn  string // ⚠ row text (empty to skip)
-	QuotaBlock string // ⛔ row text (empty to skip)
-
-	// SessionRows renders a label/count block under the quota bars (see
-	// PrintSessionsBlock). Empty/nil → block is skipped entirely.
+	QuotaRows   []QuotaRow
+	QuotaWarn   string
+	QuotaBlock  string
 	SessionRows []SessionRow
 
 	ResultLabel string
 	ResultTone  Tone
-
-	Theme string
+	Theme       string
 }
 
-// SessionRow is one entry in the "sessions" block. Label is shown left-padded
-// to align with siblings; Count is rendered with thousands separators via
-// GroupedInt.
 type SessionRow struct {
 	Label string
 	Count int64
 }
 
-// PrintBootScreen draws the entire boot/status screen on stderr.
+// PrintBootScreen chooses rich TTY or compact log-safe output once, based on
+// the destination stream rather than process stderr.
 func PrintBootScreen(w io.Writer, in ScreenInput) {
-	caps := DetectCaps(in.Theme)
-	tone := in.WrapperTone
-	if tone == "" {
-		tone = ToneOK
+	caps := DetectCapsFor(w, in.Theme)
+	printBootScreen(w, in, caps)
+}
+
+func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
+	if !caps.IsTTY || caps.Dumb || caps.Columns < minRichColumns || os.Getenv("CDX_SKIP_BANNER") == "1" {
+		PrintMinimalScreen(w, in)
+		return
 	}
 
-	codexLine := fmt.Sprintf("codex    %s", strOr(in.CodexVersion, "—"))
-	if in.CodexTarget != "" && in.CodexTone != ToneOK {
-		codexLine += "  " + caps.Palette.Yellow + "→ " + in.CodexTarget + caps.Palette.Reset
+	resultTone := in.ResultTone
+	if resultTone == "" {
+		resultTone = ToneOK
 	}
-	wrapperLine := fmt.Sprintf("wrapper  %s", strOr(in.WrapperVersion, "—"))
-	if in.WrapperTarget != "" && in.WrapperTone != ToneOK {
-		wrapperLine += "  " + caps.Palette.Yellow + "→ " + in.WrapperTarget + caps.Palette.Reset
+	if in.Concurrent && resultTone != ToneFail {
+		resultTone = ToneWarn
 	}
 
-	// Context line: insecure · lane · calls
-	ctxParts := []string{}
-	if in.Insecure {
-		ctxParts = append(ctxParts, caps.Palette.Yellow+"🔓 insecure"+caps.Palette.Reset)
+	c := newCard(w, caps)
+	accent := caps.BannerColor()
+	reset := caps.Palette.Reset
+	brand := accent + "CDX" + reset + "  " + caps.Palette.Bold + "CODEX ORCHESTRATOR" + reset
+	outcome := strings.ToUpper(toneWord(resultTone))
+	if in.Concurrent && resultTone != ToneFail {
+		outcome = "READ ONLY"
+	}
+	outcome = styleTone(caps, resultTone, outcome)
+
+	c.top()
+	c.line(joinSides(brand, outcome, c.inner, caps))
+	meta := renderContext(in)
+	if len(meta) == 0 {
+		meta = []string{"managed Codex session"}
+	}
+	for _, line := range packSeparatedPieces(meta, c.inner, richSeparator(caps)) {
+		c.line(caps.Palette.Dim + line + reset)
+	}
+
+	c.divider("system")
+	versions := []string{
+		versionPiece(caps, "codex", in.CodexVersion, in.CodexTarget, in.CodexTone),
+		versionPiece(caps, "wrapper", in.WrapperVersion, in.WrapperTarget, in.WrapperTone),
+	}
+	for _, line := range packPieces(versions, c.inner, 4) {
+		c.line(line)
 	}
 	if in.Concurrent {
-		ctxParts = append(ctxParts, caps.Palette.Yellow+"concurrent run"+caps.Palette.Reset)
-	}
-	if in.BrowserOS {
-		ctxParts = append(ctxParts, "BrowserOS")
-	}
-	if in.Lane != "" {
-		laneTxt := in.Lane
-		if in.Lane == "spark" {
-			laneTxt = caps.BannerSym.IconSpark + " spark"
+		renderToneText(c, ToneWarn, strOr(in.ConcurrentNote, "Using local state; sync writes are paused."))
+	} else {
+		health := make([]string, 0, len(in.Dots))
+		for _, dot := range in.Dots {
+			if dot.Name != "" {
+				health = append(health, buildDot(caps, dot))
+			}
 		}
-		ctxParts = append(ctxParts, laneTxt)
-	}
-	if in.APICalls > 0 {
-		ctxParts = append(ctxParts, fmt.Sprintf("%s calls", CompactNumber(in.APICalls)))
-	}
-	contextLine := strings.Join(ctxParts, "  ·  ")
-
-	PrintBoot(w, caps, BannerInfo{
-		Title:       "codex orchestrator",
-		Tagline:     "Codex to Brrr!",
-		CodexLine:   codexLine,
-		WrapperLine: wrapperLine,
-		ContextLine: contextLine,
-		Tone:        string(tone),
-	})
-
-	fmt.Fprintln(w)
-
-	if in.Concurrent {
-		PrintConcurrentRow(w, caps, in.ConcurrentNote)
-	} else if len(in.Dots) > 0 {
-		PrintHealthRow(w, caps, in.Dots)
-	}
-
-	if len(in.QuotaRows) > 0 {
-		fmt.Fprintln(w)
-		for _, q := range in.QuotaRows {
-			PrintQuotaRow(w, caps, q)
+		for _, line := range packPieces(health, c.inner, 3) {
+			c.line(line)
 		}
 	}
-	if in.QuotaWarn != "" {
-		PrintQuotaReason(w, caps, "", in.QuotaWarn, ToneWarn)
-	}
-	if in.QuotaBlock != "" {
-		PrintQuotaReason(w, caps, "", in.QuotaBlock, ToneFail)
+
+	if len(in.QuotaRows) > 0 || in.QuotaWarn != "" || in.QuotaBlock != "" {
+		c.divider("quota")
+		for _, row := range in.QuotaRows {
+			c.line(formatQuotaLine(caps, row, c.inner))
+		}
+		if in.QuotaWarn != "" {
+			renderToneText(c, ToneWarn, in.QuotaWarn)
+		}
+		if in.QuotaBlock != "" {
+			renderToneText(c, ToneFail, in.QuotaBlock)
+		}
 	}
 
 	if len(in.SessionRows) > 0 {
-		PrintSessionsBlock(w, caps, in.SessionRows)
+		c.divider("sessions")
+		pieces := make([]string, 0, len(in.SessionRows))
+		for _, row := range in.SessionRows {
+			pieces = append(pieces,
+				caps.Palette.Dim+CleanInline(row.Label)+reset+" "+caps.Palette.Bold+GroupedInt(row.Count)+reset,
+			)
+		}
+		for _, line := range packPieces(pieces, c.inner, 4) {
+			c.line(line)
+		}
 	}
 
-	if in.ResultLabel != "" {
-		fmt.Fprintln(w)
-		PrintResult(w, caps, in.ResultLabel, in.ResultTone)
-	}
+	c.divider("")
+	renderToneText(c, resultTone, in.ResultLabel)
+	c.bottom()
 }
 
-// PrintSessionsBlock renders the labeled session counts in a 2-column grid
-// under the quota bars. The four canonical rows pair naturally:
-//
-//	local now  N      fleet now  N
-//	today      N      month      N
-//
-// — "now" indicators left, totals right. Cell widths are computed across all
-// entries so both columns line up. When fewer than four rows are supplied
-// the trailing cell is left blank; the function still renders something
-// usable. Counts use thousands separators (1,234) for legibility.
-func PrintSessionsBlock(w io.Writer, caps Caps, rows []SessionRow) {
-	if len(rows) == 0 {
+func renderContext(in ScreenInput) []string {
+	parts := []string{}
+	if in.HostFQDN != "" {
+		parts = append(parts, CleanInline(in.HostFQDN))
+	}
+	if in.Insecure {
+		parts = append(parts, "insecure host")
+	} else if in.HostFQDN != "" {
+		parts = append(parts, "secure")
+	}
+	if in.Lane != "" {
+		parts = append(parts, CleanInline(in.Lane)+" lane")
+	}
+	model := CleanInline(in.Model)
+	if effort := CleanInline(in.Effort); model != "" && effort != "" {
+		model += "/" + effort
+	}
+	if model != "" {
+		parts = append(parts, model)
+	}
+	if in.BrowserOS {
+		parts = append(parts, "BrowserOS")
+	}
+	if in.APICalls > 0 {
+		parts = append(parts, CompactNumber(in.APICalls)+" calls")
+	}
+	return parts
+}
+
+func versionPiece(caps Caps, label, current, target string, tone Tone) string {
+	if tone == "" {
+		tone = ToneOK
+	}
+	current = strOr(CleanInline(current), "—")
+	value := current
+	if target = CleanInline(target); target != "" && tone != ToneOK {
+		arrow := "→"
+		if caps.Dumb || !caps.UTF8 {
+			arrow = "->"
+		}
+		value += " " + arrow + " " + target
+	}
+	return styleTone(caps, tone, toneSymbol(caps, tone, false)) + " " +
+		caps.Palette.Dim + label + caps.Palette.Reset + " " + value
+}
+
+func renderToneText(c card, tone Tone, text string) {
+	text = CleanInline(text)
+	if text == "" {
 		return
 	}
-	maxLabel := 0
-	formatted := make([]string, len(rows))
-	maxCount := 0
-	for i, r := range rows {
-		if l := len(r.Label); l > maxLabel {
-			maxLabel = l
-		}
-		formatted[i] = GroupedInt(r.Count)
-		if l := len(formatted[i]); l > maxCount {
-			maxCount = l
-		}
+	symbol := toneSymbol(c.caps, tone, false)
+	prefix := symbol + " "
+	available := c.inner - VisibleWidth(prefix)
+	if available < 1 {
+		available = 1
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "  %ssessions%s\n", caps.Palette.Dim, caps.Palette.Reset)
-	const gridGap = "      " // visual separator between the two columns
-	for i := 0; i < len(rows); i += 2 {
-		left := sessionCell(caps, rows[i].Label, formatted[i], maxLabel, maxCount)
-		right := ""
-		if i+1 < len(rows) {
-			right = sessionCell(caps, rows[i+1].Label, formatted[i+1], maxLabel, maxCount)
+	lines := WrapText(text, available)
+	for i, line := range lines {
+		if i == 0 {
+			c.line(styleTone(c.caps, tone, prefix+line))
+		} else {
+			c.line(strings.Repeat(" ", VisibleWidth(prefix)) + styleTone(c.caps, tone, line))
 		}
-		fmt.Fprintf(w, "    %s%s%s\n", left, gridGap, right)
 	}
 }
 
-func sessionCell(caps Caps, label, value string, labelW, valueW int) string {
-	return fmt.Sprintf("%s%-*s%s  %*s",
-		caps.Palette.Dim, labelW, label, caps.Palette.Reset,
-		valueW, value,
-	)
+func richSeparator(caps Caps) string {
+	if caps.Dumb || !caps.UTF8 {
+		return " | "
+	}
+	return "  ·  "
 }
 
-// MinimalScreen renders the dumb-terminal two-line summary.
+// PrintMinimalScreen is deterministic, ANSI-free, and suitable for pipes,
+// cron logs, dumb terminals, and the explicit --minimal mode.
 func PrintMinimalScreen(w io.Writer, in ScreenInput) {
-	caps := DetectCaps(in.Theme)
-	parts := []string{}
-	for _, d := range in.Dots {
-		t := "green"
-		switch d.Tone {
-		case ToneWarn:
-			t = "yellow"
-		case ToneFail:
-			t = "red"
+	tone := in.ResultTone
+	if tone == "" {
+		tone = ToneOK
+	}
+	if in.Concurrent && tone != ToneFail {
+		tone = ToneWarn
+	}
+	fields := []string{"status=" + toneWord(tone)}
+	if in.HostFQDN != "" {
+		fields = append(fields, "host="+PlainInline(in.HostFQDN))
+	}
+	fields = append(fields,
+		"codex="+minimalVersion(in.CodexVersion, in.CodexTarget),
+		"wrapper="+minimalVersion(in.WrapperVersion, in.WrapperTarget),
+	)
+	if in.Lane != "" {
+		fields = append(fields, "lane="+PlainInline(in.Lane))
+	}
+	if in.Model != "" {
+		model := PlainInline(in.Model)
+		if in.Effort != "" {
+			model += "/" + PlainInline(in.Effort)
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", d.Name, t))
+		fields = append(fields, "model="+model)
 	}
-	fmt.Fprintln(w, "Health  | "+strings.Join(parts, " "))
+	if in.BrowserOS {
+		fields = append(fields, "browseros=enabled")
+	}
+	if in.Insecure {
+		fields = append(fields, "security=insecure")
+	}
+	if in.APICalls > 0 {
+		fields = append(fields, "calls="+GroupedInt(in.APICalls))
+	}
+	fmt.Fprintln(w, "cdx | "+strings.Join(fields, " | "))
+
+	if len(in.Dots) > 0 {
+		health := make([]string, 0, len(in.Dots))
+		for _, dot := range in.Dots {
+			if dot.Name != "" {
+				health = append(health, PlainInline(dot.Name)+"="+healthWord(dot))
+			}
+		}
+		fmt.Fprintln(w, "health | "+strings.Join(health, " | "))
+	}
+	for _, row := range in.QuotaRows {
+		reset := ""
+		if row.ResetAfter > 0 {
+			reset = " | reset=" + DurationShort(row.ResetAfter)
+		}
+		fmt.Fprintf(w, "quota | %s=%d%%%s\n", PlainInline(row.Label), clampPct(row.Used), reset)
+	}
+	if len(in.SessionRows) > 0 {
+		parts := make([]string, 0, len(in.SessionRows))
+		for _, row := range in.SessionRows {
+			parts = append(parts, PlainInline(row.Label)+"="+GroupedInt(row.Count))
+		}
+		fmt.Fprintln(w, "sessions | "+strings.Join(parts, " | "))
+	}
+	if in.ConcurrentNote != "" && in.Concurrent {
+		fmt.Fprintln(w, "warning | "+PlainInline(in.ConcurrentNote))
+	}
+	if in.QuotaWarn != "" {
+		fmt.Fprintln(w, "warning | "+PlainInline(in.QuotaWarn))
+	}
+	if in.QuotaBlock != "" {
+		fmt.Fprintln(w, "blocked | "+PlainInline(in.QuotaBlock))
+	}
 	if in.ResultLabel != "" {
-		fmt.Fprintln(w, "Result  | "+in.ResultLabel)
+		fmt.Fprintln(w, "result | "+PlainInline(in.ResultLabel))
 	}
-	_ = caps
+}
+
+func minimalVersion(current, target string) string {
+	current = strOr(PlainInline(current), "unknown")
+	target = PlainInline(target)
+	if target != "" && target != current {
+		return current + "->" + target
+	}
+	return current
+}
+
+func healthWord(dot HealthDot) string {
+	if dot.Updated && dot.Tone == ToneOK {
+		return "updated"
+	}
+	switch dot.Tone {
+	case ToneWarn:
+		return "warn"
+	case ToneFail:
+		return "fail"
+	case ToneDim:
+		return "unknown"
+	default:
+		return "ok"
+	}
 }
 
 func strOr(s, def string) string {

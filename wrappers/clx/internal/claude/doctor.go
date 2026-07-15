@@ -19,11 +19,12 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
 
-// Doctor runs the 14-row diagnostic for clx. Returns nil on no failures.
+// Doctor runs the full diagnostic for clx. Returns nil on no failures.
 func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string) error {
-	caps := ui.DetectCaps(themeFromConfig(cfg))
+	caps := ui.DetectCapsFor(w, themeFromConfig(cfg))
 	report := ui.DoctorReport{
-		WhenLine: fmt.Sprintf("clx %s  ·  Doctor report", time.Now().Format("2006-01-02 15:04")),
+		Engine: "clx",
+		When:   time.Now(),
 	}
 	hints := []string{}
 
@@ -55,9 +56,9 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 
 	switch {
 	case failures > 0:
-		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneFail, Value: fmt.Sprintf("%d failure(s) — see hints ↓", failures)}
+		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneFail, Value: doctorFailureSummary(failures)}
 	case worst == ui.ToneWarn:
-		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneWarn, Value: "passed with warnings"}
+		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneWarn, Value: "checks passed with warnings"}
 	default:
 		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneOK, Value: "all checks passed"}
 	}
@@ -65,7 +66,7 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 
 	ui.PrintDoctor(w, caps, report)
 	if failures > 0 {
-		return errors.New("doctor checks failed")
+		return fmt.Errorf("%d doctor checks failed", failures)
 	}
 	return nil
 }
@@ -91,7 +92,8 @@ func tallyRows(rows []ui.DoctorRow) (failures int, worst ui.Tone) {
 }
 
 func checkDeps(hints *[]string) ui.DoctorRow {
-	parts := []string{}
+	available := []string{}
+	missing := []string{}
 	tone := ui.ToneOK
 	required := []string{"curl", "node"}
 	for _, dep := range required {
@@ -104,23 +106,35 @@ func checkDeps(hints *[]string) ui.DoctorRow {
 			}
 		}
 		if _, err := exec.LookPath(bin); err != nil {
-			parts = append(parts, dep+" ⛔")
+			missing = append(missing, dep)
 			tone = ui.ToneFail
 			*hints = append(*hints, fmt.Sprintf("Install %s; Claude Code requires it.", dep))
 		} else {
-			parts = append(parts, dep+" ✅")
+			available = append(available, dep)
 		}
 	}
-	return ui.DoctorRow{Label: "Deps", Tone: tone, Value: strings.Join(parts, " | ")}
+	return ui.DoctorRow{Label: "Deps", Tone: tone, Value: dependencySummary(available, missing)}
 }
 
 func checkPaths() ui.DoctorRow {
-	exe, _ := os.Executable()
-	claudeBin, _ := FindCLI()
+	tone := ui.ToneOK
+	parts := make([]string, 0, 2)
+	if claudeBin, err := FindCLI(); err != nil {
+		tone = ui.ToneFail
+		parts = append(parts, "claude unavailable: "+err.Error())
+	} else {
+		parts = append(parts, "claude="+claudeBin)
+	}
+	if exe, err := os.Executable(); err != nil {
+		tone = ui.ToneFail
+		parts = append(parts, "wrapper unavailable: "+err.Error())
+	} else {
+		parts = append(parts, "wrapper="+exe)
+	}
 	return ui.DoctorRow{
 		Label: "Paths",
-		Tone:  ui.ToneOK,
-		Value: fmt.Sprintf("claude=%s; wrapper=%s", claudeBin, exe),
+		Tone:  tone,
+		Value: strings.Join(parts, "; "),
 	}
 }
 
@@ -282,18 +296,51 @@ func checkSSHEnv() ui.DoctorRow {
 }
 
 func checkCLI(ctx context.Context, cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {
-	cliVer := Version(ctx)
+	verCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tone := ui.ToneOK
+	claudeDetail := ""
+	if _, err := FindCLI(); err != nil {
+		tone = ui.ToneFail
+		claudeDetail = "claude unavailable: " + err.Error()
+	} else if cliVer := strings.TrimSpace(Version(verCtx)); cliVer == "" || strings.EqualFold(cliVer, "unknown") {
+		tone = ui.ToneWarn
+		claudeDetail = "claude=unknown (version probe failed)"
+	} else {
+		claudeDetail = "claude=" + cliVer
+	}
 	wrapperVer := strings.TrimSpace(runningWrapperVersion)
 	if cfg != nil {
 		wrapperVer = strDef(wrapperVer, cfg.Wrapper.Version)
 	}
+	if strings.TrimSpace(wrapperVer) == "" && tone == ui.ToneOK {
+		tone = ui.ToneWarn
+	}
 	return ui.DoctorRow{
 		Label: "CLI",
-		Tone:  ui.ToneOK,
-		Value: fmt.Sprintf("claude=%s; wrapper=%s; %s/%s",
-			strDef(cliVer, "—"), strDef(wrapperVer, "—"),
+		Tone:  tone,
+		Value: fmt.Sprintf("%s; wrapper=%s; %s/%s",
+			claudeDetail, strDef(wrapperVer, "unknown"),
 			runtime.GOOS, runtime.GOARCH),
 	}
+}
+
+func dependencySummary(available, missing []string) string {
+	parts := make([]string, 0, 2)
+	if len(available) > 0 {
+		parts = append(parts, "available: "+strings.Join(available, ", "))
+	}
+	if len(missing) > 0 {
+		parts = append(parts, "missing: "+strings.Join(missing, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func doctorFailureSummary(failures int) string {
+	if failures == 1 {
+		return "1 check failed"
+	}
+	return fmt.Sprintf("%d checks failed", failures)
 }
 
 func strDef(s, d string) string {

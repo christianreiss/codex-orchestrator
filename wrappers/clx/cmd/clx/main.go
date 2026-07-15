@@ -55,6 +55,9 @@ type flags struct {
 	versionFlag     bool
 	updateFlag      bool
 	uninstallFlag   bool
+	statusFlag      bool
+	doctorFlag      bool
+	wrapperHelp     bool
 	cronArgs        []string
 	executePrompt   string
 	executeInvalid  bool
@@ -97,6 +100,12 @@ var reservedClaudeSubcommands = map[string]bool{
 	"help":   true,
 }
 
+var wrapperOwnedSubcommands = map[string]bool{
+	"run": true, "resume": true, "status": true, "doctor": true,
+	"auth-upload": true, "update": true, "uninstall": true,
+	"cron": true, "execute": true, "exec": true,
+}
+
 // resumeArgs builds the upstream argv for a resume request. Claude spells
 // resume as a flag with an optional value (`claude -r/--resume [value]`), not a
 // subcommand — `claude resume` is swallowed as a prompt and opens a brand-new
@@ -121,13 +130,26 @@ func isHelpPassthrough(args []string) bool {
 	}
 	firstPositional := ""
 	helpBeforePositional := false
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			break
 		}
 		if a == "--help" || a == "-h" {
 			if firstPositional == "" {
 				helpBeforePositional = true
+			}
+			continue
+		}
+		switch a {
+		case "--execute", "--config":
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		case "--resume", "-r", "--cron":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
 			}
 			continue
 		}
@@ -199,6 +221,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	f, positional, passthrough := parseFlags(args)
+	if actions := conflictingActions(f, positional); len(actions) > 1 {
+		fmt.Fprintln(stderr, "clx: conflicting wrapper actions:", strings.Join(actions, ", "))
+		return 2
+	}
+
+	if f.wrapperHelp {
+		ui.PrintWrapperHelp(stdout, ui.DetectCapsFor(stdout, ""))
+		return 0
+	}
 
 	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
 	// no update check, no boot screen, no footer. argv is forwarded as-is except
@@ -224,8 +255,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	logger := log.Setup(f.silent, f.debug)
-
 	if f.versionFlag {
 		fmt.Fprintf(stdout, "clx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)
 		if signing.HasKey() {
@@ -247,9 +276,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	pubkey, _ := signing.PublicKey()
 	cfg, err := config.Load(f.configPath, pubkey, false)
 	if err != nil {
-		if len(positional) > 0 && positional[0] == "status" {
-			fmt.Fprintf(stdout, "clx %s (config not loadable: %v)\n", Version, err)
-			return 0
+		sub, _ := resolveCommand(f, positional)
+		if sub == "status" {
+			fmt.Fprintf(stdout, "clx | status=blocked | wrapper=%s | config=unreadable\n", ui.CleanInline(Version))
+			fmt.Fprintln(stdout, "result | "+ui.CleanInline(err.Error()))
+			return 1
 		}
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -259,43 +290,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		f.silent = true
 	}
 
-	sub := "run"
-	subArgs := positional
-	if len(positional) > 0 {
-		sub = positional[0]
-		subArgs = positional[1:]
-	}
-
-	switch {
-	case f.updateFlag:
-		sub = "update"
-	case f.uninstallFlag:
-		sub = "uninstall"
-	case f.cronArgs != nil:
-		sub = "cron"
-		subArgs = f.cronArgs
-	case f.executePrompt != "":
-		sub = "execute"
-	case f.resumeFlag:
-		// `clx --resume <id> [prompt]` — resume intent came from a flag, so
-		// positional[0] is a real argument (an optional trailing prompt), not a
-		// subcommand. Rebind to the *unsliced* positional; the sub/subArgs
-		// preamble above already consumed positional[0] on the assumption that
-		// it named a subcommand, which would silently drop the prompt.
-		sub = "resume"
-		subArgs = positional
-		if f.resumeSession != "" {
-			subArgs = append([]string{f.resumeSession}, subArgs...)
-		}
-	}
+	logger := log.Setup(f.silent, f.debug)
+	sub, subArgs := resolveCommand(f, positional)
 
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
 			Config:                     cfg,
 			ExtraArgs:                  append(subArgs, passthrough...),
-			SkipBoot:                   f.skipBoot,
+			SkipBoot:                   f.skipBoot || f.silent,
 			Minimal:                    f.minimal,
+			AllowConcurrentSync:        f.allowConc,
 			WrapperVersion:             Version,
 			Logger:                     logger,
 			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
@@ -309,8 +314,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
 			Config:                     cfg,
 			ExtraArgs:                  resumeArgs(subArgs, passthrough),
-			SkipBoot:                   f.skipBoot,
+			SkipBoot:                   f.skipBoot || f.silent,
 			Minimal:                    f.minimal,
+			AllowConcurrentSync:        f.allowConc,
 			WrapperVersion:             Version,
 			Logger:                     logger,
 			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
@@ -331,6 +337,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Config:                     cfg,
 			ExtraArgs:                  argv,
 			SkipBoot:                   true,
+			Headless:                   true,
+			AllowConcurrentSync:        f.allowConc,
 			WrapperVersion:             Version,
 			Logger:                     logger,
 			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
@@ -340,28 +348,34 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return exit
 	case "status":
-		return cmdStatus(ctx, cfg, Version, stderr, f.minimal)
+		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
-		if err := claude.Doctor(ctx, cfg, stderr, Version); err != nil {
+		if err := claude.Doctor(ctx, cfg, stdout, Version); err != nil {
 			return 1
 		}
 		return 0
 	case "auth-upload":
 		return cmdAuthUpload(ctx, cfg, stdout, stderr)
 	case "update":
+		theme := ""
+		if cfg.EngineOptions.AdminThemeHint != nil {
+			theme = *cfg.EngineOptions.AdminThemeHint
+		}
+		errCaps := ui.DetectCapsFor(stderr, theme)
 		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx update:", err)
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", Version, err))
 			return 1
 		}
+		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "clx", "wrapper", Version, artifact.Version))
 		cfg.Wrapper.Version = artifact.Version
 		cfg.Wrapper.BinaryURL = artifact.URL
 		cfg.Wrapper.BinarySHA256 = artifact.SHA256
 		if err := update.SelfUpdate(ctx, cfg, logger); err != nil {
-			fmt.Fprintln(stderr, "clx update:", err)
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
 			return 1
 		}
-		fmt.Fprintln(stdout, "clx update: ok")
+		fmt.Fprintln(stdout, ui.UpdateComplete(ui.DetectCapsFor(stdout, theme), "clx", "wrapper", artifact.Version, false))
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -387,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | -r/--resume [<session>] | --continue | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
+		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
 }
@@ -497,7 +511,8 @@ func parseSemverTriple(v string) ([3]int, bool) {
 // rejecting any unknown flags.
 func parseFlags(args []string) (flags, []string, []string) {
 	var f flags
-	if isHelpPassthrough(args) {
+	wrapperHelp := wrapperHelpRequested(args)
+	if !wrapperHelp && isHelpPassthrough(args) {
 		f.helpPassthrough = true
 		return f, nil, nil
 	}
@@ -512,12 +527,24 @@ func parseFlags(args []string) (flags, []string, []string) {
 		switch {
 		case a == "--":
 			consumedDash = true
-		case a == "--version" || a == "-V" || a == "--wrapper-version":
+		case a == "--help" || a == "-h":
+			if wrapperHelp {
+				continue
+			}
+			f.helpPassthrough = true
+			return f, nil, nil
+		case a == "--version" || a == "-V" || a == "--wrapper-version" || a == "-W":
 			f.versionFlag = true
+		case a == "--wrapper-help":
+			f.wrapperHelp = true
 		case a == "--update" || a == "-U":
 			f.updateFlag = true
 		case a == "--uninstall":
 			f.uninstallFlag = true
+		case a == "--status":
+			f.statusFlag = true
+		case a == "--doctor":
+			f.doctorFlag = true
 		case a == "--silent":
 			f.silent = true
 		case a == "--debug" || a == "--verbose":
@@ -536,7 +563,7 @@ func parseFlags(args []string) (flags, []string, []string) {
 			f.cronArgs = []string{}
 			if i+1 < len(args) {
 				next := args[i+1]
-				if next == "install" || next == "remove" || next == "run" {
+				if !strings.HasPrefix(next, "-") {
 					f.cronArgs = []string{next}
 					i++
 				}
@@ -565,7 +592,7 @@ func parseFlags(args []string) (flags, []string, []string) {
 		case a == "--resume" || a == "-r":
 			f.resumeFlag = true
 			f.resumeSession = ""
-			if i+1 < len(args) {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				f.resumeSession = args[i+1]
 				i++
 			}
@@ -584,27 +611,131 @@ func parseFlags(args []string) (flags, []string, []string) {
 	return f, positional, passthrough
 }
 
-func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, w io.Writer, minimal bool) int {
+func wrapperHelpRequested(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return false
+		}
+		if a == "--wrapper-help" {
+			return true
+		}
+		switch a {
+		case "--execute", "--config":
+			if i+1 < len(args) {
+				i++
+			}
+		case "--resume", "-r", "--cron":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+		}
+	}
+	return false
+}
+
+// resolveCommand normalises wrapper flags and positional subcommands onto one
+// dispatch shape. Keeping this pure makes aliases testable without loading a
+// signed config or invoking the networked lifecycle.
+func resolveCommand(f flags, positional []string) (string, []string) {
+	sub := "run"
+	subArgs := positional
+	if len(positional) > 0 {
+		sub = positional[0]
+		subArgs = positional[1:]
+	}
+
+	switch {
+	case f.updateFlag:
+		sub = "update"
+	case f.uninstallFlag:
+		sub = "uninstall"
+	case f.statusFlag:
+		sub = "status"
+	case f.doctorFlag:
+		sub = "doctor"
+	case f.cronArgs != nil:
+		sub = "cron"
+		subArgs = f.cronArgs
+	case f.executePrompt != "":
+		sub = "execute"
+		subArgs = positional
+	case f.resumeFlag:
+		// Resume intent came from a flag, so positional contains only real
+		// resume arguments and must not lose its first element as a subcommand.
+		sub = "resume"
+		subArgs = positional
+		if f.resumeSession != "" {
+			subArgs = append([]string{f.resumeSession}, subArgs...)
+		}
+	}
+
+	return sub, subArgs
+}
+
+func conflictingActions(f flags, positional []string) []string {
+	actions := []string{}
+	seen := map[string]bool{}
+	add := func(enabled bool, key, label string) {
+		if enabled && !seen[key] {
+			seen[key] = true
+			actions = append(actions, label)
+		}
+	}
+	add(f.wrapperHelp, "help", "--wrapper-help")
+	add(f.versionFlag, "version", "--version")
+	add(f.updateFlag, "update", "--update")
+	add(f.uninstallFlag, "uninstall", "--uninstall")
+	add(f.statusFlag, "status", "--status")
+	add(f.doctorFlag, "doctor", "--doctor")
+	add(f.cronArgs != nil, "cron", "--cron")
+	add(f.executePrompt != "" || f.executeInvalid, "execute", "--execute")
+	add(f.resumeFlag, "resume", "--resume")
+	add(f.continueSession, "run", "--continue")
+	if !f.resumeFlag && f.executePrompt == "" && !f.executeInvalid && len(positional) > 0 && wrapperOwnedSubcommands[positional[0]] {
+		add(true, positional[0], positional[0])
+	}
+	return actions
+}
+
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) int {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
-		fmt.Fprintln(w, "error:", err)
+		fmt.Fprintln(stderr, "clx status:", err)
 		return 1
 	}
 	digest, _ := claude.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
+	authSynced := false
 
 	// Seed credentials on a fresh install: if the server returns auth and the
 	// local status is outdated/missing/updated, write it now so the first
 	// `clx run` doesn't hit Claude's interactive login screen.
-	if resp != nil && len(resp.Auth) > 0 {
+	if authErr == nil && resp != nil && len(resp.Auth) > 0 {
 		switch strings.ToLower(strings.TrimSpace(resp.Status)) {
 		case "outdated", "updated", "missing":
-			if err := claude.WriteAuth(resp.Auth); err == nil {
-				digest, _ = claude.LocalDigest()
+			if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+				break
+			}
+			authPath, _ := claude.AuthPath()
+			if claude.AuthMatchesCanonical(authPath, resp.Auth) {
+				// The server compares the fleet envelope digest, while Claude's
+				// native file omits last_refresh. Treat equivalent credentials as
+				// current without rewriting or claiming an update.
+				resp.Status = "valid"
+				break
+			}
+			if !statusCanonicalAuthMayReplace(authPath, resp.Auth) {
+				break
+			}
+			if err := claude.WriteAuth(resp.Auth); err != nil {
+				authErr = fmt.Errorf("apply canonical auth: %w", err)
+			} else {
+				authSynced = true
 			}
 		}
 	}
@@ -614,16 +745,32 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, w
 		WrapperVersion: wrapperVersion,
 		Auth:           resp,
 		AuthErr:        authErr,
+		AuthSynced:     authSynced,
+		StatusOnly:     true,
 	})
 	if minimal {
-		ui.PrintMinimalScreen(w, state)
+		ui.PrintMinimalScreen(stdout, state)
 	} else {
-		ui.PrintBootScreen(w, state)
+		ui.PrintBootScreen(stdout, state)
 	}
 	if state.ResultTone == ui.ToneFail {
 		return 1
 	}
 	return 0
+}
+
+// statusCanonicalAuthMayReplace prevents status from clobbering a newer local
+// Claude login before the orchestrator has accepted it.
+func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
+	localTime, err := claude.LastRefreshOfFile(localPath)
+	if err != nil {
+		return true
+	}
+	canonicalTime, err := claude.LastRefreshFromRaw(canonical)
+	if err != nil {
+		return false
+	}
+	return !localTime.After(canonicalTime)
 }
 
 func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) int {
@@ -676,7 +823,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 		fmt.Fprintln(stdout, "cron: removed")
 		return 0
-	default:
+	case "run":
 		res, err := cron.Tick(ctx, cfg)
 		if err != nil {
 			fmt.Fprintln(stderr, "clx --cron:", err)
@@ -684,6 +831,10 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 		fmt.Fprintln(stdout, formatCronResult(res))
 		return 0
+	default:
+		fmt.Fprintln(stderr, "clx cron: unknown action:", action)
+		fmt.Fprintln(stderr, "usage: clx cron [install|remove|run]")
+		return 2
 	}
 }
 

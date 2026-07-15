@@ -152,12 +152,15 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    changed. On the first run of a new wrapper version, performs a one-shot
    purge of legacy on-disk skill directories (`~/.agents/skills`,
    `~/.codex/skills`, `~/.codex/prompts`).
-10. **Boot screen** — render the boot screen (or minimal screen) to stderr.
+10. **Boot screen** — render the responsive outcome/context/version/health card
+    to stderr. Redirects, dumb/narrow terminals, and `--minimal` use stable
+    ANSI-free ASCII.
 11. **Exec** — `exec` the upstream `codex` (or `claude`) CLI with the prepared
     env, forwarding stdio and signals. Stdout is captured for token extraction.
 12. **Post-exec** — `maybePostRunAuthUpload` pushes a rotated `auth.json` back
     to the orchestrator if the SHA or `last_refresh` changed during the run.
-    Render exit footer.
+    Render a measured exit footer from the real process exit, duration, engine
+    version, and auth-upload outcome.
 
 ## Peer engine reconciliation
 
@@ -193,10 +196,10 @@ Subcommands: `run` (default), `resume [<session>] [<prompt>]`, `status`,
 `lane [normal|spark|clear] [--persist]`, `profile <name>`, `ls`
 (legacy alias for `lane spark`).
 
-Flags: `--version` (`-V`, `-W`, `--wrapper-version`), `--update` (`-U`),
+Flags: `--wrapper-help`, `--version` (`-V`, `-W`, `--wrapper-version`), `--update` (`-U`),
 `--uninstall`, `--status`, `--doctor`, `--silent`, `--debug` (`--verbose`),
 `--minimal` (`--minimal-output`), `--skip-boot` (`--no-banner`), `-4`/`--ipv4`,
-`--allow-concurrent-sync`, `--cron [install|remove]`, `--execute <prompt>`,
+`--allow-concurrent-sync`, `--cron [install|remove|run]`, `--execute <prompt>`,
 `--resume [<session>]` (alias for the `resume` subcommand — upstream `codex` has
 no `--resume` flag), `--config <path>`.
 
@@ -207,11 +210,13 @@ Subcommands: `run` (default), `resume [<session>] [<prompt>]`, `status`,
 `cron [install|remove|run]`, `execute` (headless one-shot).
 **`clx` has no `lane`, `profile`, or `ls` subcommands.**
 
-Flags: same set as cdx minus the `-W`/`--wrapper-version` alias and the
-lane/profile-specific ones; adds `--continue`/`-c` and `--resume [<session>]`
-(short form `-r`), which are forwarded to the Claude CLI.
-`--allow-concurrent-sync` is parsed on both wrappers but currently has no
-effect (dead flag).
+Flags: same set as cdx minus the lane/profile-specific ones; adds
+`--continue`/`-c` and `--resume [<session>]`
+(short form `-r`), which are forwarded to the Claude CLI, plus
+`--dangerously-skip-permissions` for an explicit per-run permission bypass.
+`--allow-concurrent-sync` is an explicit escape hatch on both wrappers: when
+the run lock is held, it allows normal managed writes instead of read-only
+fallback and prints that decision before startup.
 
 ### auth-upload
 

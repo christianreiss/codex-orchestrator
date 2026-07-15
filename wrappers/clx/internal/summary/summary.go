@@ -23,10 +23,9 @@ type Inputs struct {
 	AgentsUpdated  bool
 	ConfigUpdated  bool
 	AuthSynced     bool
-	// ClaudeUpdated holds the post-install claude version when the auto-update
-	// path actually swapped the binary this run, empty otherwise. Surfaced as
-	// a `● claude X.Y.Z` badge in the exit footer's Sync row.
-	ClaudeUpdated string
+	// StatusOnly suppresses resource-sync markers because `clx status` probes
+	// /auth only and must not present unprobed skills/config as healthy.
+	StatusOnly bool
 	// BypassPermissions mirrors --dangerously-skip-permissions for this run;
 	// lights the boot-screen warning badge only, never persisted.
 	BypassPermissions bool
@@ -38,6 +37,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 
 	claudeVer := claude.Version(ctx)
 	claudeTone := ui.ToneOK
+	if unknownVersion(claudeVer) {
+		claudeTone = ui.ToneWarn
+	}
 	claudeTarget := ""
 
 	wrapperVer := ""
@@ -47,6 +49,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		wrapperVer = cfg.Wrapper.Version
 	}
 	wrapperTone := ui.ToneOK
+	if unknownVersion(wrapperVer) {
+		wrapperTone = ui.ToneWarn
+	}
 	wrapperTarget := ""
 
 	insecure := false
@@ -55,6 +60,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	}
 	fqdn := ""
 	model := ""
+	effort := ""
 	if cfg != nil {
 		fqdn = cfg.Host.FQDN
 		if cfg.EngineOptions.ClaudeModelOverride != nil {
@@ -64,7 +70,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 
 	var apiCalls int64
 	var dots []ui.HealthDot
-	result := "Ready (Claude go brrrr)."
+	result := "Ready — all systems operational."
 	resultTone := ui.ToneOK
 
 	if auth != nil {
@@ -73,6 +79,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			apiCalls = auth.Host.APICalls
 			if model == "" {
 				model = auth.Host.ClaudeModelOverride
+			}
+			if strings.TrimSpace(auth.Host.ReasoningEffort) != "" {
+				effort = strings.TrimSpace(auth.Host.ReasoningEffort)
 			}
 		}
 		if auth.APICalls > 0 {
@@ -94,7 +103,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			{Name: "api", Tone: ui.ToneFail},
 			{Name: "auth", Tone: ui.ToneFail},
 		}
-		result = "API unreachable; see `clx doctor`."
+		result = "API unreachable; run `clx doctor`."
 		resultTone = ui.ToneFail
 	}
 
@@ -107,6 +116,23 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		} else {
 			result = "Ready on insecure host."
 		}
+		resultTone = ui.ToneWarn
+	}
+	worst := worstTone(dots, claudeTone, wrapperTone)
+	switch worst {
+	case ui.ToneFail:
+		if resultTone != ui.ToneFail {
+			result = "Attention required; run `clx doctor`."
+			resultTone = ui.ToneFail
+		}
+	case ui.ToneWarn:
+		if resultTone == ui.ToneOK {
+			result = "Ready with warnings; run `clx doctor` for details."
+			resultTone = ui.ToneWarn
+		}
+	}
+	if in.BypassPermissions && resultTone != ui.ToneFail {
+		result = "Ready with permission prompts bypassed for this run."
 		resultTone = ui.ToneWarn
 	}
 
@@ -125,6 +151,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		HostFQDN:          fqdn,
 		Insecure:          insecure,
 		Model:             model,
+		Effort:            effort,
 		APICalls:          apiCalls,
 		Concurrent:        in.Concurrent,
 		ConcurrentNote:    in.ConcurrentNote,
@@ -164,16 +191,27 @@ func shouldShowClientTarget(current, target string, enforceExact bool) bool {
 	return claude.SemverGT(target, current)
 }
 
+func unknownVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	return version == "" || strings.EqualFold(version, "unknown")
+}
+
 func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDot {
 	apiTone := ui.ToneOK
-	if auth.Status == "" || auth.Status == "error" {
+	if auth.Status == "" || auth.Status == "error" || auth.Status == "offline" {
 		apiTone = ui.ToneFail
 	}
 
 	authTone := ui.ToneOK
 	switch strings.ToLower(auth.Status) {
-	case "valid", "ok", "current", "unchanged", "updated", "outdated":
+	case "valid", "ok", "current", "unchanged":
 		authTone = ui.ToneOK
+	case "outdated", "updated":
+		if in.AuthSynced {
+			authTone = ui.ToneOK
+		} else {
+			authTone = ui.ToneWarn
+		}
 	case "missing", "upload_required":
 		authTone = ui.ToneWarn
 	case "disabled", "invalid", "insecure-denied":
@@ -181,7 +219,7 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 	case "insecure":
 		authTone = ui.ToneWarn
 	default:
-		authTone = ui.ToneWarn
+		authTone = ui.ToneFail
 	}
 	// A live-verification failure overrides the digest-derived tone: the token
 	// the host would launch with does not authenticate, so the dot must read red
@@ -192,9 +230,13 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 
 	dots := []ui.HealthDot{
 		{Name: "api", Tone: apiTone},
-		{Name: "auth", Tone: authTone, Updated: in.AuthSynced || strings.EqualFold(auth.Status, "outdated") || strings.EqualFold(auth.Status, "updated")},
-		{Name: "skills", Tone: ui.ToneOK, Updated: in.SkillsUpdated},
-		{Name: "config", Tone: ui.ToneOK, Updated: in.ConfigUpdated || in.AgentsUpdated},
+		{Name: "auth", Tone: authTone, Updated: in.AuthSynced},
+	}
+	if !in.StatusOnly {
+		dots = append(dots,
+			ui.HealthDot{Name: "skills", Tone: ui.ToneOK, Updated: in.SkillsUpdated},
+			ui.HealthDot{Name: "config", Tone: ui.ToneOK, Updated: in.ConfigUpdated || in.AgentsUpdated},
+		)
 	}
 	// Runner health dot: the server reports the credential-runner state for this
 	// host (the background job that refreshes/verifies fleet credentials). Mirror
@@ -214,4 +256,25 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		dots = append(dots, ui.HealthDot{Name: "runner", Tone: rt})
 	}
 	return dots
+}
+
+func worstTone(dots []ui.HealthDot, extra ...ui.Tone) ui.Tone {
+	worst := ui.ToneOK
+	visit := func(t ui.Tone) {
+		switch t {
+		case ui.ToneFail:
+			worst = ui.ToneFail
+		case ui.ToneWarn:
+			if worst != ui.ToneFail {
+				worst = ui.ToneWarn
+			}
+		}
+	}
+	for _, dot := range dots {
+		visit(dot.Tone)
+	}
+	for _, tone := range extra {
+		visit(tone)
+	}
+	return worst
 }

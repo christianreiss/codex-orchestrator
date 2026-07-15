@@ -28,10 +28,9 @@ type Inputs struct {
 	AgentsUpdated bool
 	ConfigUpdated bool
 	AuthSynced    bool
-	// CodexUpdated holds the post-install codex version when the auto-update
-	// path actually swapped the binary this run, empty otherwise. Surfaced as
-	// a `● codex X.Y.Z` badge in the exit footer's Sync row.
-	CodexUpdated string
+	// StatusOnly suppresses resource-sync markers because `cdx status` probes
+	// /auth only and must not present unprobed skills/config as healthy.
+	StatusOnly bool
 	// Sessions carries the fleet-wide session counts the boot-screen
 	// "sessions" block renders. Nil when the server didn't supply them
 	// (older /sync/bootstrap response, offline mode, etc.) — the block is
@@ -56,6 +55,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 
 	codexVer := codex.Version(ctx)
 	codexTone := ui.ToneOK
+	if unknownVersion(codexVer) {
+		codexTone = ui.ToneWarn
+	}
 	codexTarget := ""
 
 	wrapperVer := ""
@@ -65,6 +67,9 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		wrapperVer = cfg.Wrapper.Version
 	}
 	wrapperTone := ui.ToneOK
+	if unknownVersion(wrapperVer) {
+		wrapperTone = ui.ToneWarn
+	}
 	wrapperTarget := ""
 
 	insecure := false
@@ -74,8 +79,16 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		browserOS = cfg.Host.BrowserOSMCPEnabled
 	}
 	fqdn := ""
+	model := ""
+	effort := ""
 	if cfg != nil {
 		fqdn = cfg.Host.FQDN
+		if cfg.EngineOptions.ModelOverride != nil {
+			model = strings.TrimSpace(*cfg.EngineOptions.ModelOverride)
+		}
+		if cfg.EngineOptions.ReasoningEffortOverride != nil {
+			effort = strings.TrimSpace(*cfg.EngineOptions.ReasoningEffortOverride)
+		}
 	}
 
 	var laneStr string
@@ -83,7 +96,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	var dots []ui.HealthDot
 	var quotaRows []ui.QuotaRow
 	var warnText, blockText string
-	result := "Ready (Codex go brrrr)."
+	result := "Ready — all systems operational."
 	resultTone := ui.ToneOK
 
 	if auth != nil {
@@ -92,6 +105,12 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			browserOS = auth.Host.BrowserOSMCPEnabled
 			laneStr = auth.Host.LanePreference
 			apiCalls = auth.Host.APICalls
+			if strings.TrimSpace(auth.Host.ModelOverride) != "" {
+				model = strings.TrimSpace(auth.Host.ModelOverride)
+			}
+			if strings.TrimSpace(auth.Host.ReasoningEffort) != "" {
+				effort = strings.TrimSpace(auth.Host.ReasoningEffort)
+			}
 		}
 		if auth.APICalls > 0 {
 			apiCalls = auth.APICalls
@@ -115,7 +134,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			{Name: "api", Tone: ui.ToneFail},
 			{Name: "auth", Tone: ui.ToneFail},
 		}
-		result = "API unreachable; see `cdx doctor`."
+		result = "API unreachable; run `cdx doctor`."
 		resultTone = ui.ToneFail
 	}
 
@@ -135,7 +154,27 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			result = "Quota blocked; refusing to launch unless QUOTA_HARD_FAIL=0."
 			resultTone = ui.ToneFail
 		} else {
-			result = "Quota limit reached (advisory only; launch not blocked)."
+			warnText = blockText
+			blockText = ""
+			if resultTone != ui.ToneFail {
+				result = "Quota limit reached (advisory only; launch not blocked)."
+				resultTone = ui.ToneWarn
+			}
+		}
+	} else if warnText != "" && resultTone == ui.ToneOK {
+		result = "Quota is approaching the configured limit."
+		resultTone = ui.ToneWarn
+	}
+	worst := worstTone(dots, codexTone, wrapperTone)
+	switch worst {
+	case ui.ToneFail:
+		if resultTone != ui.ToneFail {
+			result = "Attention required; run `cdx doctor`."
+			resultTone = ui.ToneFail
+		}
+	case ui.ToneWarn:
+		if resultTone == ui.ToneOK {
+			result = "Ready with warnings; run `cdx doctor` for details."
 			resultTone = ui.ToneWarn
 		}
 	}
@@ -155,6 +194,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		HostFQDN:       fqdn,
 		Insecure:       insecure,
 		BrowserOS:      browserOS,
+		Model:          model,
+		Effort:         effort,
 		Lane:           laneStr,
 		APICalls:       apiCalls,
 		Concurrent:     in.Concurrent,
@@ -198,6 +239,11 @@ func shouldShowClientTarget(current, target string, enforceExact bool) bool {
 	return codex.SemverGT(target, current)
 }
 
+func unknownVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	return version == "" || strings.EqualFold(version, "unknown")
+}
+
 // sessionRows turns the per-run SessionCounts struct into the labeled rows
 // the boot-screen renderer expects. Returns nil when the server omitted the
 // fleet block (legacy server / offline / etc.) so the screen renderer skips
@@ -222,10 +268,14 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 
 	authTone := ui.ToneOK
 	switch strings.ToLower(auth.Status) {
-	case "valid", "ok", "current", "unchanged", "updated":
+	case "valid", "ok", "current", "unchanged":
 		authTone = ui.ToneOK
-	case "outdated":
-		authTone = ui.ToneOK
+	case "outdated", "updated":
+		if in.AuthSynced {
+			authTone = ui.ToneOK
+		} else {
+			authTone = ui.ToneWarn
+		}
 	case "missing", "upload_required":
 		authTone = ui.ToneWarn
 	case "disabled", "invalid", "insecure-denied":
@@ -250,23 +300,50 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 
 	dots := []ui.HealthDot{
 		{Name: "api", Tone: apiTone},
-		{Name: "auth", Tone: authTone, Updated: in.AuthSynced || strings.EqualFold(auth.Status, "outdated") || strings.EqualFold(auth.Status, "updated")},
-		{Name: "skills", Tone: skillsTone, Updated: in.SkillsUpdated},
-		{Name: "mcp", Tone: mcpTone, Updated: in.ConfigUpdated || in.AgentsUpdated},
+		{Name: "auth", Tone: authTone, Updated: in.AuthSynced},
+	}
+	if !in.StatusOnly {
+		dots = append(dots,
+			ui.HealthDot{Name: "skills", Tone: skillsTone, Updated: in.SkillsUpdated},
+			ui.HealthDot{Name: "config", Tone: mcpTone, Updated: in.ConfigUpdated || in.AgentsUpdated},
+		)
 	}
 	if auth.Versions != nil && auth.Versions.RunnerState != nil {
 		rt := ui.ToneOK
-		switch *auth.Versions.RunnerState {
+		switch strings.ToLower(strings.TrimSpace(*auth.Versions.RunnerState)) {
 		case "ok", "fresh", "verified":
 			rt = ui.ToneOK
 		case "stale":
 			rt = ui.ToneWarn
 		case "fail", "broken", "":
 			rt = ui.ToneFail
+		default:
+			rt = ui.ToneWarn
 		}
 		dots = append(dots, ui.HealthDot{Name: "runner", Tone: rt})
 	}
 	return dots
+}
+
+func worstTone(dots []ui.HealthDot, extra ...ui.Tone) ui.Tone {
+	worst := ui.ToneOK
+	visit := func(t ui.Tone) {
+		switch t {
+		case ui.ToneFail:
+			worst = ui.ToneFail
+		case ui.ToneWarn:
+			if worst != ui.ToneFail {
+				worst = ui.ToneWarn
+			}
+		}
+	}
+	for _, dot := range dots {
+		visit(dot.Tone)
+	}
+	for _, tone := range extra {
+		visit(tone)
+	}
+	return worst
 }
 
 func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string, string) {
@@ -308,6 +385,15 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 			limSec = *lim
 		}
 		row.Projection = quotaProjectionNote(*used, limSec, resetSec)
+		if row.Projection != "" {
+			row.ProjectionTone = ui.ToneDim
+			projected := ui.ProjectUsage(*used, limSec, resetSec)
+			if projected >= limitPct {
+				row.ProjectionTone = ui.ToneFail
+			} else if projected >= warnAt {
+				row.ProjectionTone = ui.ToneWarn
+			}
+		}
 		rows = append(rows, row)
 
 		if *used >= limitPct && blockText == "" {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -113,6 +114,29 @@ func WriteAuth(payload json.RawMessage) error {
 		}
 	}
 	return nil
+}
+
+// AuthMatchesCanonical compares the on-disk Claude credential shape with the
+// shape WriteAuth would materialize from a fleet payload. Fleet OAuth payloads
+// carry last_refresh, while Claude Code's native file must not; comparing raw
+// digests would therefore report a permanent false mismatch after every sync.
+func AuthMatchesCanonical(path string, payload json.RawMessage) bool {
+	local, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	normalized, err := extractClaudeFormat(payload)
+	if err != nil {
+		return false
+	}
+	var localDoc, canonicalDoc any
+	if err := json.Unmarshal(local, &localDoc); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(normalized, &canonicalDoc); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(localDoc, canonicalDoc)
 }
 
 // extractClaudeFormat returns a credentials JSON that Claude Code accepts.

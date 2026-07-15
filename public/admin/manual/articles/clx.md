@@ -43,7 +43,7 @@ The config is typed, Ed25519-signed JSON with the following top-level fields:
 | `host.engines` / `host.engines_list` | Comma string / array of enabled engine tokens (`codex`, `claude`) used for peer-wrapper reconciliation — see [wrappers](/admin/manual/wrappers) |
 | `engine_options.silent` | Suppress wrapper output |
 | `engine_options.claude_model_override` | Force a specific Claude model |
-| `engine_options.admin_theme_hint` | UI theme hint for boot screen |
+| `engine_options.admin_theme_hint` | Retained fleet theme hint; clx terminal cards use a fixed violet engine identity |
 | `wrapper.version` | Current wrapper version |
 | `wrapper.track` | Update track (`stable`, etc.) |
 | `wrapper.auto_update` | Enable automatic self-update |
@@ -64,8 +64,8 @@ the JSON Schema file as stale reference, not an enforced contract.
 |---|---|
 | `run` (default) | Full startup sequence, then launch a Claude session |
 | `resume [<session>] [<prompt>]` | Full startup sequence, then reopen a previous Claude session. With no session id the upstream picker is shown. Equivalent to `clx --resume`/`-r` |
-| `status` | Local config summary + a `POST /auth` round-trip (not `/sync/status`); works even when config is unloadable (prints version + error); on a fresh install it also seeds credentials if the server returns auth while local status is `outdated`/`updated`/`missing` |
-| `doctor` | Self-diagnostic: config, CLI presence, credentials, reachability |
+| `status` | Responsive local config + `POST /auth` summary on stdout; unloadable config and failed health return non-zero. Redirected output is compact ASCII. Returned canonical credentials can seed/repair the local file but never replace a fresher local login. |
+| `doctor` | Responsive self-diagnostic: config, paths, Claude CLI, credentials, API reachability/latency, disk, and cron |
 | `auth-upload` | POST `~/.claude/.credentials.json` to the orchestrator |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command directly |
 
@@ -90,8 +90,9 @@ fails fast as an unknown subcommand.
 | `--resume [<session>]` / `-r` | Alias for the `resume` subcommand. Upstream `claude` spells resume as a flag, so the wrapper re-spells `clx resume …` to `claude --resume …`; a bare `resume` positional would otherwise be swallowed as a prompt and open a *new* session. With no session id the upstream picker is shown |
 | `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
 | `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips all wrapper side effects (no lock, no sync, no boot screen) |
+| `--wrapper-help` | Wrapper-owned command/flag reference; does not need a loadable config |
 | `--cron [install\|remove\|run]` | Manage host auto-update crontab entry |
-| `--version` / `-V` (also `--wrapper-version`) | Print version, commit, build date, OS/arch, pubkey status |
+| `--version` / `-V` / `--wrapper-version` / `-W` | Print version, commit, build date, OS/arch, pubkey status |
 | `--update` / `-U` | Self-update (SHA256-verified) |
 | `--uninstall` | Remove credentials, local state, and cron entry |
 | `--execute <prompt>` | Run a one-shot headless prompt (skips boot screen) |
@@ -100,7 +101,7 @@ fails fast as an unknown subcommand.
 | `--minimal` / `--minimal-output` | Minimal boot screen |
 | `--skip-boot` / `--no-banner` | Skip boot screen entirely |
 | `-4` / `--ipv4` | Force IPv4 |
-| `--allow-concurrent-sync` | Parsed but currently has no effect (dead flag) |
+| `--allow-concurrent-sync` | Explicitly allow managed writes while another clx session holds the run lock; visibly announced |
 
 ## Startup sequence
 
@@ -171,7 +172,8 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    shared peer-reconciliation mechanics (Ed25519-verified peer config bundle,
    guarded `--cron run` peer tick, etc.).
 
-7. **Print boot screen** (or minimal screen with `--minimal`) to stderr, then
+7. **Print the responsive outcome-first boot card** (or stable ASCII with
+   `--minimal`, redirects, dumb/narrow terminals) to stderr, then
    `exec claude`. Immediately before the exec, `PreExec` re-checks the runtime
    hostname against the FQDN baked into the config and refuses unless
    `CLAUDE_ALLOW_FQDN_MISMATCH=1` — clx runs this guard at exec time, later in
@@ -179,7 +181,8 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    [wrappers](/admin/manual/wrappers)).
 
 8. **Post-run**: if `~/.claude/.credentials.json` hash changed, upload to
-   orchestrator (`AuthStore`). Print exit footer.
+   orchestrator (`AuthStore`). Print a measured exit footer whose overall tone
+   includes both the Claude exit and canonical auth-upload result.
 
 ## Authentication model
 

@@ -12,7 +12,33 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
 )
+
+func TestApplyQuotaHardFailOverrideReclassifiesScreen(t *testing.T) {
+	state := ui.ScreenInput{
+		QuotaBlock:  "weekly quota reached (100% used)",
+		ResultLabel: "Quota blocked.", ResultTone: ui.ToneFail,
+	}
+	original := applyQuotaHardFailOverride(&state)
+	if original == "" || state.QuotaBlock != "" || state.QuotaWarn == "" {
+		t.Fatalf("quota override did not reclassify block: original=%q state=%+v", original, state)
+	}
+	if state.ResultTone != ui.ToneWarn || !strings.Contains(state.ResultLabel, "launching") {
+		t.Fatalf("quota override still looks blocked: %+v", state)
+	}
+}
+
+func TestFooterCapsKeepsMinimalRunsCompact(t *testing.T) {
+	caps := ui.Caps{IsTTY: true, Palette: ui.Palette{Reset: "ansi"}}
+	got := footerCaps(caps, true)
+	if got.IsTTY || got.Palette.Reset != "" {
+		t.Fatalf("minimal footer retained rich capabilities: %+v", got)
+	}
+	if got := footerCaps(caps, false); !got.IsTTY || got.Palette.Reset != "ansi" {
+		t.Fatalf("normal footer lost rich capabilities: %+v", got)
+	}
+}
 
 func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 	cases := []struct {

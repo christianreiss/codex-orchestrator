@@ -32,13 +32,15 @@ import (
 )
 
 type Options struct {
-	Config         *config.Config
-	ExtraArgs      []string
-	SkipAuthSync   bool
-	SkipBoot       bool
-	Minimal        bool
-	WrapperVersion string
-	Logger         *slog.Logger
+	Config              *config.Config
+	ExtraArgs           []string
+	SkipAuthSync        bool
+	SkipBoot            bool
+	Minimal             bool
+	Headless            bool
+	AllowConcurrentSync bool
+	WrapperVersion      string
+	Logger              *slog.Logger
 	// DangerouslySkipPermissions mirrors --dangerously-skip-permissions for
 	// this run only: it lights the boot-screen warning badge. The flag itself
 	// already rides ExtraArgs straight through to the upstream `claude`
@@ -69,8 +71,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if !errors.Is(err, ipc.ErrHeld) {
 			return 1, err
 		}
-		concurrent = true
-		fmt.Fprintln(os.Stderr, "clx: another instance is already running — entering read-only mode")
+		if opts.AllowConcurrentSync {
+			fmt.Fprintln(os.Stderr, "clx: another session is active — concurrent sync explicitly enabled")
+		} else {
+			concurrent = true
+			fmt.Fprintln(os.Stderr, "clx: another session is active — using read-only mode")
+		}
 	} else {
 		defer lock.Release()
 	}
@@ -103,14 +109,19 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 
 		if dec.NeedsApprovalPoll {
-			logger.Warn("auth status insecure; opening approval-pending box")
-			resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
-			if perr != nil && !errors.Is(perr, context.Canceled) {
-				logger.Warn("approval poll failed", "err", perr)
-			}
-			if resolved {
-				authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
-				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+			if opts.Headless {
+				dec.Allowed = false
+				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
+			} else {
+				logger.Warn("auth status insecure; opening approval-pending box")
+				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
+				if perr != nil && !errors.Is(perr, context.Canceled) {
+					logger.Warn("approval poll failed", "err", perr)
+				}
+				if resolved {
+					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+				}
 			}
 		}
 
@@ -131,7 +142,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 
 		if needsInteractiveAuthRecovery(dec, authCandidateErr) && !concurrent {
 			reason := recoveryReason(dec, authCandidateErr)
-			if err := recoverClaudeAuth(ctx, cfg, client, logger, reason); err != nil {
+			if opts.Headless {
+				dec.Allowed = false
+				dec.Reason = reason
+			} else if err := recoverClaudeAuth(ctx, cfg, client, logger, reason); err != nil {
 				logger.Warn("interactive Claude auth recovery failed", "err", err)
 				dec.Allowed = false
 				dec.Reason = err.Error()
@@ -185,12 +199,22 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		AgentsUpdated:     agentsUpdated,
 		ConfigUpdated:     configUpdated,
 		AuthSynced:        authSynced,
-		ClaudeUpdated:     claudeUpdated,
 		BypassPermissions: opts.DangerouslySkipPermissions,
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
 		state.ResultTone = ui.ToneFail
+	}
+	if dec.Allowed && strings.EqualFold(dec.Status, "offline") {
+		state.ResultLabel = dec.Reason
+		if strings.TrimSpace(state.ResultLabel) == "" {
+			state.ResultLabel = "API offline; using cached credentials."
+		}
+		state.ResultTone = ui.ToneWarn
+		markOfflineHealth(state.Dots)
+	} else if dec.Allowed && concurrent {
+		state.ResultLabel = "Ready in read-only mode; local credentials are valid."
+		state.ResultTone = ui.ToneWarn
 	}
 	if !opts.SkipBoot {
 		if opts.Minimal {
@@ -224,22 +248,34 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	exitCode, _, runErr := claude.RunCapture(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
 
-	maybePostRunAuthUpload(client, logger, before)
+	authStatus, authTone := maybePostRunAuthUpload(client, logger, before)
 
 	if !opts.SkipBoot {
-		caps := ui.DetectCaps(themeFromConfig(cfg))
+		caps := footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal)
 		fmt.Fprintln(os.Stderr)
+		footerExit := exitCode
+		if runErr != nil && footerExit == 0 {
+			footerExit = 1
+		}
 		ui.PrintExitFooter(os.Stderr, caps, "clx", ui.ExitFooter{
-			When:         time.Now(),
-			HeaderText:   "Run summary",
-			RunDuration:  duration,
-			AuthStatus:   "not-needed",
-			AuthTone:     ui.ToneOK,
-			CodexVersion: claudeUpdated,
+			RunDuration:   duration,
+			ExitCode:      footerExit,
+			AuthStatus:    authStatus,
+			AuthTone:      authTone,
+			EngineName:    "claude",
+			EngineVersion: claudeUpdated,
 		})
 	}
 
 	return exitCode, runErr
+}
+
+func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		caps.IsTTY = false
+		caps.Palette = ui.Palette{}
+	}
+	return caps
 }
 
 func bootstrap(
@@ -437,7 +473,7 @@ func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
 }
 
 func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, logger *slog.Logger, reason string) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
@@ -630,17 +666,17 @@ func extractLastRefresh(raw []byte) string {
 	return tail[:end]
 }
 
-func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, before map[string]authSnapshot) {
+func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, before map[string]authSnapshot) (string, ui.Tone) {
 	raw, path, err := claude.ReadAuthForUpload()
 	if err != nil || len(raw) == 0 || path == "" {
-		return
+		return "not found", ui.ToneWarn
 	}
 	afterHash, afterRefresh := snapshotAuth(path)
 	if afterHash == "" {
-		return
+		return "not found", ui.ToneWarn
 	}
 	if prev, ok := before[path]; ok && prev.Hash == afterHash && prev.Refresh == afterRefresh {
-		return
+		return "unchanged", ui.ToneOK
 	}
 	// 15s budget: a login during the session is the one credential mint the
 	// fleet must not lose — give the upload room and make failure visible.
@@ -649,15 +685,25 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 	resp, err := client.AuthStore(ctx, raw)
 	if err != nil {
 		logger.Warn("post-run auth upload failed", "err", err)
-		return
+		return "upload failed", ui.ToneFail
 	}
 	if resp != nil && len(resp.Auth) > 0 {
 		if werr := claude.WriteAuth(resp.Auth); werr != nil {
 			logger.Warn("post-run auth write-back failed", "err", werr)
+			return "write-back failed", ui.ToneFail
 		}
 	}
 	prev := before[path]
 	logger.Debug("post-run auth uploaded", "path", path, "hash_changed", prev.Hash != afterHash, "refresh_changed", prev.Refresh != afterRefresh)
+	return "uploaded", ui.ToneOK
+}
+
+func markOfflineHealth(dots []ui.HealthDot) {
+	for i := range dots {
+		if dots[i].Name == "api" || dots[i].Name == "auth" {
+			dots[i].Tone = ui.ToneWarn
+		}
+	}
 }
 
 func themeFromConfig(cfg *config.Config) string {

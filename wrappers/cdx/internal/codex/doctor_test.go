@@ -2,6 +2,8 @@ package codex
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,11 +16,48 @@ func TestCheckCLIUsesRunningWrapperVersion(t *testing.T) {
 
 	row := checkCLI(context.Background(), &config.Config{Wrapper: config.Wrapper{Version: "0.6.5"}}, "0.6.15")
 
+	if row.Tone != ui.ToneFail {
+		t.Fatalf("missing upstream CLI should fail, got tone %q", row.Tone)
+	}
 	if !strings.Contains(row.Value, "wrapper=0.6.15") {
 		t.Fatalf("expected running wrapper version, got %q", row.Value)
 	}
 	if strings.Contains(row.Value, "wrapper=0.6.5") {
 		t.Fatalf("doctor leaked stale config wrapper version: %q", row.Value)
+	}
+}
+
+func TestCheckPathsFailsWhenUpstreamCLIIsMissing(t *testing.T) {
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+
+	row := checkPaths()
+
+	if row.Tone != ui.ToneFail || !strings.Contains(row.Value, "codex unavailable") {
+		t.Fatalf("missing upstream CLI was not reported truthfully: %#v", row)
+	}
+}
+
+func TestCheckCLIWarnsWhenVersionProbeFails(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(bin, []byte("not executable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CDX_CODEX_BIN", bin)
+
+	row := checkCLI(context.Background(), nil, "0.6.15")
+
+	if row.Tone != ui.ToneWarn || !strings.Contains(row.Value, "version probe failed") {
+		t.Fatalf("failed version probe was not reported as a warning: %#v", row)
+	}
+}
+
+func TestDependencySummaryDoesNotDuplicateStatusIcons(t *testing.T) {
+	got := dependencySummary([]string{"curl"}, []string{"node"})
+	if strings.ContainsAny(got, "✅⚠⛔") {
+		t.Fatalf("dependency value contains a second status icon: %q", got)
+	}
+	if got != "available: curl; missing: node" {
+		t.Fatalf("dependencySummary = %q", got)
 	}
 }
 

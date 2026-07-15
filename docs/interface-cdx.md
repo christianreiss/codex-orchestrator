@@ -94,22 +94,37 @@ server bakes `~/.codex/config.toml`.
 | Subcommand | Purpose |
 |---|---|
 | `run` (default) | One Codex session; the full startup sequence runs first |
-| `status` | Local config summary + remote `/sync/status` ping |
-| `doctor` | Self-diagnostic (config, CLI present, auth, reachability) |
+| `status` / `--status` | Responsive local + remote `/auth` status summary on stdout. Returned canonical auth can seed/repair the local file but never replaces a fresher local login; unreadable config and failed health return non-zero, and redirects automatically use compact ASCII. |
+| `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, auth, reachability, latency, disk, cron) on stdout |
 | `auth-upload` | POST the local `~/.codex/auth.json` to canonical store. `last_refresh` is backfilled with the current UTC RFC3339 stamp if the file lacks one (legacy `normalize_auth_json_file` parity). |
-| `lane <normal\|spark\|clear>` | Set this host's quota lane (`/host/lane`) |
+| `lane [normal\|spark\|clear] [--persist]` | Inspect the effective lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. |
 | `ls` | Shorthand for `cdx lane spark` |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help` |
+| `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
-| `--resume <session>` / `--resume=<session>` | Alias for the `resume` subcommand above — upstream `codex` has no `--resume` flag, so the wrapper re-spells it as `codex resume <session>` |
+| `--resume[=<session>]` | Alias for the `resume` subcommand above — upstream `codex` has no `--resume` flag, so the wrapper re-spells it as `codex resume [session]`; a following option is not consumed as a session id |
 | `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
 | `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too |
-| `--version` | Print version + commit + embedded pubkey status |
+| `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
+
+### Terminal presentation
+
+Interactive terminals at least 40 columns wide receive the responsive CDX card:
+outcome and context first, versions and health next, then quota/sessions and the
+result. Status is never colour-only (`✓`, `!`, `×`, and update arrows remain
+meaningful with `NO_COLOR`). Redirects, dumb/narrow terminals, and `--minimal`
+use deterministic ASCII and include local-to-target versions. Dynamic API and
+error text is control-sequence stripped and width-bounded.
+
+The post-run footer is measured rather than optimistic: real engine exit code,
+duration, engine version, and auth-upload outcome drive its overall tone. A
+successful engine process with a failed canonical credential upload is shown as
+`EXIT 0 · AUTH FAILED`, not green. `--minimal` keeps this footer compact.
 
 ## Peer engine reconciliation
 
@@ -128,14 +143,14 @@ both engine CLIs current on dual-engine hosts.
 
 ## Startup sequence
 
-1. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host. If held, the wrapper enters read-only mode for managed AGENTS/config/skills writes and surfaces "Concurrent" on the boot screen with text picked from the auth-decision state. Auth is the exception: every run still submits the local auth digest and atomically writes server-returned canonical auth when the response is `outdated`/`updated`/`missing`, so a secondary run does not launch with stale local credentials. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not force each other into read-only mode.
+1. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host. If held, the wrapper enters read-only mode for managed AGENTS/config/skills writes and surfaces `READ ONLY` on the boot screen. Auth is the exception: every run still submits the local auth digest and atomically writes server-returned canonical auth when the response is `outdated`/`updated`/`missing`, so a secondary run does not launch with stale local credentials. The explicit `--allow-concurrent-sync` escape hatch allows normal writes without the lock and is visibly announced. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not force each other into read-only mode.
 2. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
 3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. Resource envelopes are unwrapped before local writes, so `~/.codex/AGENTS.md` and `~/.codex/config.toml` contain only the served `content` bodies. On 404/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`).
-4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. A server `verification_state=failed` (the background runner worker reached ChatGPT and the canonical token did not authenticate) overrides any green digest status: the launch is refused with a re-login message and the boot-screen `● auth` dot turns red. Startup does not wait on live runner verification; `/auth` and `/sync/bootstrap` report the latest stored worker verdict. When ChatGPT quota metadata is available, the boot screen shows current percent, reset time, and a burn-rate projection for the percent expected at reset.
+4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Approval polling only repaints an interactive, non-dumb stderr with a measured width of at least 40 columns; other contexts fail immediately with Admin → Host Detail guidance instead of hanging or emitting cursor controls. Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. A server `verification_state=failed` (the background runner worker reached ChatGPT and the canonical token did not authenticate) overrides any green digest status: the launch is refused with a re-login message and the boot-screen auth marker turns red. Startup does not wait on live runner verification; `/auth` and `/sync/bootstrap` report the latest stored worker verdict. When ChatGPT quota metadata is available, the boot screen shows current percent, reset time, and a burn-rate projection for the percent expected at reset.
 4a. Interactive recovery: when the credentials failed live verification, or are missing/upload-required with no usable local file (or the server rejected the candidate), interactive `cdx run` prompts before launch, runs `codex login` on acceptance, uploads the resulting `~/.codex/auth.json` through `/auth command=store`, and re-runs the startup auth check. Launch proceeds only after the server accepts and verifies the new credentials. Non-interactive runs (cron, `--execute`) fail closed instead of opening a login flow.
 5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response, lights the boot-screen "skills" dot on change. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`) are pruned so they don't shadow MCP.
 6. Runtime FQDN guard: compares `os.Hostname` against the baked FQDN; refuses unless `CODEX_ALLOW_FQDN_MISMATCH=1`.
-7. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, is escape-free with `NO_COLOR` or redirected stderr, and switches to ASCII on `TERM=dumb`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
+7. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when redirected or on `TERM=dumb`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
 8. Snapshot `auth.json` sha256 + `last_refresh`; `exec` the upstream `codex` CLI; forward stdio + signals.
 9. Post-exit auth re-upload: if either the sha or `last_refresh` changed during the run (token rotation, `codex login`), POST the new payload to `/auth` store.
 

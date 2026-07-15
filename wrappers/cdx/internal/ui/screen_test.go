@@ -9,24 +9,28 @@ import (
 
 func TestPrintBootScreenRichIsAtAGlanceAndResponsive(t *testing.T) {
 	caps := screenCaps(72)
-	var buf bytes.Buffer
-	printBootScreen(&buf, ScreenInput{
+	in := ScreenInput{
 		WrapperVersion: "0.6.44", WrapperTarget: "0.6.45", WrapperTone: ToneWarn,
-		ClaudeVersion: "2.1.206", ClaudeTone: ToneOK,
-		HostFQDN: "workstation.example", Model: "claude-sonnet-5", Effort: "high", APICalls: 12345,
+		CodexVersion: "0.144.1", CodexTone: ToneOK,
+		HostFQDN: "workstation.example", Model: "gpt-5.6-terra", Effort: "ultra",
+		Lane: "normal", BrowserOS: true, APICalls: 12345,
 		Dots: []HealthDot{
 			{Name: "api", Tone: ToneOK},
 			{Name: "auth", Tone: ToneWarn},
 			{Name: "runner", Tone: ToneFail},
 		},
-		BypassPermissions: true,
-		ResultLabel:       "Ready with warnings; run `clx doctor` for details.", ResultTone: ToneWarn,
-	}, caps)
+		QuotaRows:   []QuotaRow{{Label: "5h", Used: 73, ResetAfter: 42 * time.Minute}},
+		SessionRows: []SessionRow{{Label: "month", Count: 1234}},
+		ResultLabel: "Ready with warnings; run `cdx doctor` for details.", ResultTone: ToneWarn,
+	}
+
+	var buf bytes.Buffer
+	printBootScreen(&buf, in, caps)
 	out := buf.String()
 	for _, want := range []string{
-		"CLX", "CODEX ORCHESTRATOR", "ATTENTION", "workstation.example",
-		"claude-sonnet-5/high", "claude 2.1.206", "wrapper 0.6.44", "→ 0.6.45",
-		"api", "auth", "runner", "SECURITY", "Bypass permissions active",
+		"CDX", "CODEX ORCHESTRATOR", "ATTENTION", "workstation.example",
+		"gpt-5.6-terra/ultra", "BrowserOS", "codex 0.144.1", "wrapper 0.6.44",
+		"→ 0.6.45", "api", "auth", "runner", "QUOTA", "73%", "SESSIONS", "1,234",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rich screen missing %q:\n%s", want, out)
@@ -45,7 +49,7 @@ func TestPrintBootScreenSanitizesDynamicValues(t *testing.T) {
 	var buf bytes.Buffer
 	printBootScreen(&buf, ScreenInput{
 		HostFQDN:       "node\x1b]2;FORGED\a.example\nsecond-row",
-		ClaudeVersion:  "2.1.206\x1b[2J",
+		CodexVersion:   "1.2.3\x1b[2J",
 		WrapperVersion: "0.6.44",
 		ResultLabel:    strings.Repeat("long result ", 20),
 	}, caps)
@@ -59,14 +63,14 @@ func TestPrintBootScreenSanitizesDynamicValues(t *testing.T) {
 func TestPrintMinimalScreenIsStableAndLogSafe(t *testing.T) {
 	var buf bytes.Buffer
 	PrintBootScreen(&buf, ScreenInput{
-		WrapperVersion: "0.6.44", ClaudeVersion: "2.1.206", HostFQDN: "host.example",
-		Dots: []HealthDot{{Name: "api", Tone: ToneOK}}, BypassPermissions: true,
+		WrapperVersion: "0.6.44", CodexVersion: "0.144.1", BrowserOS: true,
+		HostFQDN: "host.example", Dots: []HealthDot{{Name: "api", Tone: ToneOK}},
 		ResultLabel: "Ready.",
 	})
 	out := buf.String()
 	for _, want := range []string{
-		"clx | status=attention | host=host.example | claude=2.1.206 | wrapper=0.6.44",
-		"health | api=ok", "warning | bypass permissions active (--dangerously-skip-permissions)", "result | Ready.",
+		"cdx | status=ready | host=host.example | codex=0.144.1 | wrapper=0.6.44 | browseros=enabled",
+		"health | api=ok", "result | Ready.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("minimal screen missing %q:\n%s", want, out)
@@ -80,17 +84,18 @@ func TestPrintMinimalScreenIsStableAndLogSafe(t *testing.T) {
 func TestPrintMinimalScreenShowsTargetsAndUsesPortableASCII(t *testing.T) {
 	var buf bytes.Buffer
 	PrintMinimalScreen(&buf, ScreenInput{
-		ClaudeVersion: "2.1.206", ClaudeTarget: "2.1.207",
+		CodexVersion: "0.144.1", CodexTarget: "0.145.0",
 		WrapperVersion: "0.6.44", WrapperTarget: "0.6.45",
+		QuotaRows:   []QuotaRow{{Label: "⚡ 5h", Used: 80}},
 		ResultLabel: "Ready — update available…", ResultTone: ToneWarn,
 	})
 	out := buf.String()
-	for _, want := range []string{"claude=2.1.206->2.1.207", "wrapper=0.6.44->0.6.45", "Ready - update available..."} {
+	for _, want := range []string{"codex=0.144.1->0.145.0", "wrapper=0.6.44->0.6.45", "quota | spark 5h=80%", "Ready - update available..."} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("compact output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.ContainsAny(out, "—…→") {
+	if strings.ContainsAny(out, "⚡—…→") {
 		t.Fatalf("compact output contains non-portable glyphs: %q", out)
 	}
 }
@@ -98,12 +103,12 @@ func TestPrintMinimalScreenShowsTargetsAndUsesPortableASCII(t *testing.T) {
 func TestExitFooterReportsMeasuredFailure(t *testing.T) {
 	caps := screenCaps(64)
 	var rich bytes.Buffer
-	PrintExitFooter(&rich, caps, "clx", ExitFooter{
+	PrintExitFooter(&rich, caps, "cdx", ExitFooter{
 		RunDuration: 2*time.Minute + 7*time.Second,
 		ExitCode:    7, AuthStatus: "upload failed", AuthTone: ToneFail,
-		EngineName: "claude", EngineVersion: "2.1.206",
+		EngineName: "codex", EngineVersion: "0.144.1",
 	})
-	for _, want := range []string{"CLX", "EXIT 7", "2m 7s", "upload failed", "claude", "2.1.206", "×"} {
+	for _, want := range []string{"CDX", "EXIT 7", "2m 7s", "upload failed", "codex", "0.144.1", "×"} {
 		if !strings.Contains(rich.String(), want) {
 			t.Fatalf("rich footer missing %q:\n%s", want, rich.String())
 		}
@@ -113,8 +118,8 @@ func TestExitFooterReportsMeasuredFailure(t *testing.T) {
 	plainCaps := caps
 	plainCaps.IsTTY = false
 	var plain bytes.Buffer
-	PrintExitFooter(&plain, plainCaps, "clx", ExitFooter{ExitCode: 7, AuthStatus: "upload failed"})
-	if got := plain.String(); got != "clx | exit=7 | duration=<1s | auth=upload failed\n" {
+	PrintExitFooter(&plain, plainCaps, "cdx", ExitFooter{ExitCode: 7, AuthStatus: "upload failed"})
+	if got := plain.String(); got != "cdx | exit=7 | duration=<1s | auth=upload failed\n" {
 		t.Fatalf("plain footer = %q", got)
 	}
 }
@@ -122,7 +127,7 @@ func TestExitFooterReportsMeasuredFailure(t *testing.T) {
 func TestExitFooterEscalatesAuthFailureWithSuccessfulProcess(t *testing.T) {
 	caps := screenCaps(64)
 	var buf bytes.Buffer
-	PrintExitFooter(&buf, caps, "clx", ExitFooter{ExitCode: 0, AuthStatus: "upload failed", AuthTone: ToneFail})
+	PrintExitFooter(&buf, caps, "cdx", ExitFooter{ExitCode: 0, AuthStatus: "upload failed", AuthTone: ToneFail})
 	if !strings.Contains(buf.String(), "EXIT 0") || !strings.Contains(buf.String(), "AUTH FAILED") {
 		t.Fatalf("auth failure was hidden by exit zero:\n%s", buf.String())
 	}
@@ -159,7 +164,7 @@ func TestHealthAndQuotaPrimitives(t *testing.T) {
 
 func screenCaps(columns int) Caps {
 	return Caps{
-		IsTTY: true, NoColor: true, UTF8: true, Columns: columns, Theme: ThemeViolet,
+		IsTTY: true, NoColor: true, UTF8: true, Columns: columns, Theme: ThemeOrange,
 		BannerSym: BannerGlyphs{
 			BoxTL: "╭", BoxTR: "╮", BoxBL: "╰", BoxBR: "╯", BoxH: "─", BoxV: "│",
 			BarFill: "█", BarEmpty: "░",

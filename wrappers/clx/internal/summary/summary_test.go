@@ -92,6 +92,77 @@ func TestBuildShowsOlderClaudeTargetWhenExactIsTrue(t *testing.T) {
 	}
 }
 
+func TestBuildMarksUnknownVersionsAsWarnings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLX_CLAUDE_BIN", filepath.Join(t.TempDir(), "missing-claude"))
+	got := Build(context.Background(), Inputs{
+		Auth: &orchestrator.AuthRetrieveResponse{Status: "valid"},
+	})
+	if got.ClaudeTone != ui.ToneWarn || got.WrapperTone != ui.ToneWarn || got.ResultTone != ui.ToneWarn {
+		t.Fatalf("unknown versions rendered healthy: claude=%q wrapper=%q result=%q", got.ClaudeTone, got.WrapperTone, got.ResultTone)
+	}
+}
+
+func TestBuildAuthToneReflectsWhetherCanonicalAuthWasApplied(t *testing.T) {
+	withClaudeVersion(t, "2.1.175")
+	for _, tc := range []struct {
+		name       string
+		authSynced bool
+		wantTone   ui.Tone
+		wantResult ui.Tone
+	}{
+		{name: "pending local write", wantTone: ui.ToneWarn, wantResult: ui.ToneWarn},
+		{name: "written this run", authSynced: true, wantTone: ui.ToneOK, wantResult: ui.ToneOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Build(context.Background(), Inputs{
+				WrapperVersion: "0.6.44",
+				Auth:           &orchestrator.AuthRetrieveResponse{Status: "outdated"},
+				AuthSynced:     tc.authSynced,
+			})
+			var authDot *ui.HealthDot
+			for i := range got.Dots {
+				if got.Dots[i].Name == "auth" {
+					authDot = &got.Dots[i]
+				}
+			}
+			if authDot == nil || authDot.Tone != tc.wantTone || authDot.Updated != tc.authSynced || got.ResultTone != tc.wantResult {
+				t.Fatalf("auth/result state = dot=%+v result=%q, want tone=%q updated=%t result=%q", authDot, got.ResultTone, tc.wantTone, tc.authSynced, tc.wantResult)
+			}
+		})
+	}
+}
+
+func TestBuildStatusOnlyHidesUnprobedResourceHealth(t *testing.T) {
+	withClaudeVersion(t, "2.1.175")
+	runner := "ok"
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth:           &orchestrator.AuthRetrieveResponse{Status: "valid", Versions: &orchestrator.VersionSummary{RunnerState: &runner}},
+		StatusOnly:     true,
+	})
+	for _, dot := range got.Dots {
+		if dot.Name == "skills" || dot.Name == "config" {
+			t.Fatalf("status presented unprobed resource as healthy: %+v", got.Dots)
+		}
+	}
+	if len(got.Dots) != 3 {
+		t.Fatalf("status health dots = %+v, want api/auth/runner", got.Dots)
+	}
+}
+
+func TestBuildHealthFailureOutranksInsecureWarning(t *testing.T) {
+	withClaudeVersion(t, "2.1.175")
+	got := Build(context.Background(), Inputs{
+		Config:         &config.Config{Host: config.Host{Secure: false}},
+		WrapperVersion: "0.6.44",
+		Auth:           &orchestrator.AuthRetrieveResponse{Status: "invalid", Host: &orchestrator.HostInfo{Secure: false}},
+	})
+	if got.ResultTone != ui.ToneFail {
+		t.Fatalf("insecure warning hid auth failure: tone=%q label=%q dots=%+v", got.ResultTone, got.ResultLabel, got.Dots)
+	}
+}
+
 func TestBuildForwardsBypassPermissions(t *testing.T) {
 	got := Build(context.Background(), Inputs{BypassPermissions: true})
 	if !got.BypassPermissions {

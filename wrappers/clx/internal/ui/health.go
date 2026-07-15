@@ -23,7 +23,9 @@ type HealthDot struct {
 	Updated bool // true => render an "updated this run" marker (⬆)
 }
 
-// PrintHealthRow renders "● api  ● auth  ⬆️ skills  ● mcp  ● runner".
+// PrintHealthRow renders a shape-and-colour encoded health summary. Colour is
+// never the only signal: OK, warning, and failure use different glyphs, while
+// an update is a separate suffix that cannot hide a failure.
 // Dots whose Name is empty are skipped (so callers can elide e.g. "runner"
 // when there is no runner data).
 func PrintHealthRow(w io.Writer, caps Caps, dots []HealthDot) {
@@ -50,11 +52,12 @@ func buildDot(caps Caps, d HealthDot) string {
 	case ToneDim:
 		col = caps.Palette.Dim
 	}
-	glyph := caps.BannerSym.DotOK
+	glyph := toneSymbol(caps, d.Tone, false)
+	result := col + glyph + caps.Palette.Reset + " " + CleanInline(d.Name)
 	if d.Updated {
-		glyph = caps.BannerSym.DotUp
+		result += caps.Palette.Dim + " " + toneSymbol(caps, ToneOK, true) + caps.Palette.Reset
 	}
-	return col + glyph + caps.Palette.Reset + " " + d.Name
+	return result
 }
 
 // ConcurrentRow is the alternate single-row health display shown when the
@@ -64,7 +67,7 @@ func PrintConcurrentRow(w io.Writer, caps Caps, note string) {
 	if note == "" {
 		note = "Using local auth.json."
 	}
-	fmt.Fprintln(w, "  "+col+caps.BannerSym.DotOK+caps.Palette.Reset+" concurrent  "+note)
+	fmt.Fprintln(w, "  "+col+toneSymbol(caps, ToneWarn, false)+caps.Palette.Reset+" concurrent  "+CleanInline(note))
 }
 
 // Result tagline drawn under the boot screen.
@@ -79,5 +82,5 @@ func PrintResult(w io.Writer, caps Caps, label string, tone Tone) {
 	case ToneFail:
 		col = caps.Palette.Red + caps.Palette.Bold
 	}
-	fmt.Fprintln(w, "  "+col+label+caps.Palette.Reset)
+	fmt.Fprintln(w, "  "+col+toneSymbol(caps, tone, false)+" "+CleanInline(label)+caps.Palette.Reset)
 }

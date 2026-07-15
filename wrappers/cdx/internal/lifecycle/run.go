@@ -41,9 +41,12 @@ type Options struct {
 	// runs must never open the interactive `codex login` recovery flow — they
 	// fail closed instead. Distinct from SkipBoot, which only suppresses the
 	// boot banner on an otherwise-interactive `cdx run`.
-	Headless       bool
-	Logger         *slog.Logger
-	WrapperVersion string
+	Headless bool
+	// AllowConcurrentSync honors the explicit escape hatch: when the run lock
+	// is held, continue with normal sync writes instead of read-only fallback.
+	AllowConcurrentSync bool
+	Logger              *slog.Logger
+	WrapperVersion      string
 }
 
 // localProbe is the cached LocalAuthProbe binding to the codex package
@@ -73,8 +76,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if !errors.Is(err, ipc.ErrHeld) {
 			return 1, err
 		}
-		concurrent = true
-		fmt.Fprintln(os.Stderr, "cdx: another instance is already running — entering read-only mode")
+		if opts.AllowConcurrentSync {
+			fmt.Fprintln(os.Stderr, "cdx: another session is active — concurrent sync explicitly enabled")
+		} else {
+			concurrent = true
+			fmt.Fprintln(os.Stderr, "cdx: another session is active — using read-only mode")
+		}
 	} else {
 		defer lock.Release()
 	}
@@ -120,14 +127,19 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// Insecure-host approval polling — block here until status flips or
 		// the operator aborts. Re-bundle once on resolution.
 		if dec.NeedsApprovalPoll {
-			logger.Warn("auth status insecure; opening approval-pending box")
-			resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
-			if perr != nil && !errors.Is(perr, context.Canceled) {
-				logger.Warn("approval poll failed", "err", perr)
-			}
-			if resolved {
-				authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
-				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+			if opts.Headless {
+				dec.Allowed = false
+				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
+			} else {
+				logger.Warn("auth status insecure; opening approval-pending box")
+				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
+				if perr != nil && !errors.Is(perr, context.Canceled) {
+					logger.Warn("approval poll failed", "err", perr)
+				}
+				if resolved {
+					authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
+				}
 			}
 		}
 
@@ -216,12 +228,22 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		AgentsUpdated:  agentsUpdated,
 		ConfigUpdated:  configUpdated,
 		AuthSynced:     authSynced,
-		CodexUpdated:   codexUpdated,
 		Sessions:       buildSessionCounts(fleetSessions),
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
 		state.ResultTone = ui.ToneFail
+	}
+	if dec.Allowed && strings.EqualFold(dec.Status, "offline") {
+		state.ResultLabel = dec.Reason
+		if strings.TrimSpace(state.ResultLabel) == "" {
+			state.ResultLabel = "API offline; using cached credentials."
+		}
+		state.ResultTone = ui.ToneWarn
+		markOfflineHealth(state.Dots)
+	} else if dec.Allowed && concurrent {
+		state.ResultLabel = "Ready in read-only mode; local credentials are valid."
+		state.ResultTone = ui.ToneWarn
 	}
 	printBoot := func() {
 		if !opts.SkipBoot {
@@ -250,8 +272,8 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// over-quota host could otherwise never launch.
 	if authResp != nil && authResp.QuotaHardFail && authResp.ChatGPT != nil && state.QuotaBlock != "" {
 		if os.Getenv("QUOTA_HARD_FAIL") == "0" {
-			logger.Warn("quota over hard-fail limit; launching anyway because QUOTA_HARD_FAIL=0", "quota", state.QuotaBlock)
-			fmt.Fprintln(os.Stderr, "cdx: "+state.QuotaBlock+" — overridden by QUOTA_HARD_FAIL=0")
+			quotaMessage := applyQuotaHardFailOverride(&state)
+			logger.Warn("quota over hard-fail limit; launching anyway because QUOTA_HARD_FAIL=0", "quota", quotaMessage)
 		} else {
 			state.ResultLabel = state.QuotaBlock
 			state.ResultTone = ui.ToneFail
@@ -280,23 +302,35 @@ func Run(ctx context.Context, opts Options) (int, error) {
 
 	// Post-exec auth upload (best-effort, 5s budget). A `codex login` mid-run
 	// rotates tokens; we want to push the rotated payload to canonical store.
-	maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
+	authStatus, authTone := maybePostRunAuthUpload(client, logger, authPath, beforeHash, beforeRefresh)
 
 	// Exit footer.
 	if !opts.SkipBoot {
-		caps := ui.DetectCaps(themeFromConfig(cfg))
+		caps := footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal)
 		fmt.Fprintln(os.Stderr)
+		footerExit := exitCode
+		if runErr != nil && footerExit == 0 {
+			footerExit = 1
+		}
 		ui.PrintExitFooter(os.Stderr, caps, "cdx", ui.ExitFooter{
-			When:         time.Now(),
-			HeaderText:   "Run summary",
-			RunDuration:  duration,
-			AuthStatus:   "not-needed",
-			AuthTone:     ui.ToneOK,
-			CodexVersion: codexUpdated,
+			RunDuration:   duration,
+			ExitCode:      footerExit,
+			AuthStatus:    authStatus,
+			AuthTone:      authTone,
+			EngineName:    "codex",
+			EngineVersion: codexUpdated,
 		})
 	}
 
 	return exitCode, runErr
+}
+
+func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		caps.IsTTY = false
+		caps.Palette = ui.Palette{}
+	}
+	return caps
 }
 
 // bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
@@ -555,7 +589,7 @@ func localAuthUsable() bool {
 // server has accepted them. Refuses outside an interactive terminal so cron and
 // --execute fail closed rather than hanging on a prompt.
 func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, reason string) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
@@ -591,6 +625,18 @@ func recoverCodexAuth(ctx context.Context, cfg *config.Config, client *orchestra
 	}
 	fmt.Fprintln(os.Stderr, "cdx: Codex credentials uploaded and accepted by the server.")
 	return nil
+}
+
+func applyQuotaHardFailOverride(state *ui.ScreenInput) string {
+	if state == nil {
+		return ""
+	}
+	quotaMessage := state.QuotaBlock
+	state.QuotaBlock = ""
+	state.QuotaWarn = quotaMessage + "; hard-fail overridden by QUOTA_HARD_FAIL=0"
+	state.ResultLabel = "Quota limit overridden; launching with QUOTA_HARD_FAIL=0."
+	state.ResultTone = ui.ToneWarn
+	return quotaMessage
 }
 
 func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
@@ -796,21 +842,21 @@ func extractLastRefresh(raw []byte) string {
 // maybePostRunAuthUpload pushes the local file back when either the SHA or
 // last_refresh changed during the run (codex login mid-session, token rotation).
 // Best-effort: any failure is logged at debug and never aborts the run.
-func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) {
+func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, path, beforeHash, beforeRefresh string) (string, ui.Tone) {
 	if path == "" {
-		return
+		return "not checked", ui.ToneDim
 	}
 	afterHash, afterRefresh := snapshotAuth(path)
 	if afterHash == "" {
-		return
+		return "not found", ui.ToneWarn
 	}
 	if afterHash == beforeHash && afterRefresh == beforeRefresh {
-		return
+		return "unchanged", ui.ToneOK
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		logger.Warn("post-run auth read failed", "err", err)
-		return
+		return "read failed", ui.ToneFail
 	}
 	// 15s budget: a login during the session is the one credential mint the
 	// fleet must not lose — give the upload room and make failure visible.
@@ -818,9 +864,18 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	defer cancel()
 	if err := client.AuthStore(ctx, raw); err != nil {
 		logger.Warn("post-run auth upload failed", "err", err)
-		return
+		return "upload failed", ui.ToneFail
 	}
 	logger.Debug("post-run auth uploaded", "hash_changed", beforeHash != afterHash, "refresh_changed", beforeRefresh != afterRefresh)
+	return "uploaded", ui.ToneOK
+}
+
+func markOfflineHealth(dots []ui.HealthDot) {
+	for i := range dots {
+		if dots[i].Name == "api" || dots[i].Name == "auth" {
+			dots[i].Tone = ui.ToneWarn
+		}
+	}
 }
 
 // concurrentNote picks the right "Concurrent" row text for the boot screen.
@@ -871,9 +926,8 @@ func themeFromConfig(cfg *config.Config) string {
 // not prevent the user from running Codex.
 //
 // Returns the post-install version when an install actually ran successfully,
-// empty string otherwise (no-op cases + failures). The caller plumbs this
-// into summary.Inputs so the exit footer's Sync row can show a `● codex X.Y.Z`
-// badge.
+// empty string otherwise (no-op cases + failures). The caller includes it in
+// the measured exit footer.
 //
 // This is a no-op in concurrent (read-only) mode, when auth retrieval
 // failed, or when AutoUpdateEnabled is false.

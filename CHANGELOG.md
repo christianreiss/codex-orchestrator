@@ -1,5 +1,39 @@
 # 2026-07-15
 
+## cdx/clx 0.6.44 terminal UX
+
+- Replaced the legacy logo-heavy startup output with one responsive,
+  width-aware dashboard shared by both wrappers. The header and system section
+  now show engine identity, launch outcome, host/security context,
+  model/effort, and local-to-target versions; health, quota, sessions, and
+  security warnings use shape plus colour so `NO_COLOR` remains readable.
+- Redirected output, `TERM=dumb`, terminals below 40 columns, and explicit
+  `--minimal` now use a stable ANSI-free ASCII summary. Compact version fields
+  include update targets, and minimal mode stays compact through the exit
+  footer instead of switching back to a rich card after the engine exits.
+- `status`, `doctor`, approval polling, update progress, and the measured exit
+  footer now share the same safe rendering rules. Dynamic values are stripped
+  of CSI/OSC terminal controls, long content wraps within the detected width,
+  non-interactive approvals fail fast with admin guidance, and auth-upload
+  failure can no longer hide under a green `EXIT 0` headline.
+- Added `--wrapper-help` for a wrapper-native command overview while keeping
+  `--help` as a side-effect-free pass-through to the upstream Codex/Claude
+  help. `clx` also gained `--status`, `--doctor`, `-W`, and
+  `--wrapper-version` parity.
+- Tightened command truthfulness: conflicting wrapper actions fail before a
+  destructive dispatch, optional resume flags no longer consume the next
+  option, trailing `--execute` arguments survive, missing prompts fail with
+  exit 2, invalid cron actions are rejected, and unreadable-config status exits
+  non-zero. Explicit cdx lane selections (including `cdx ls`) now actually
+  persist; `--persist` remains an accepted compatibility no-op.
+- Health outcomes now escalate unknown versions/runner states and quota
+  warnings instead of showing green. Offline and concurrent launches are
+  visibly advisory, `QUOTA_HARD_FAIL=0` reclassifies the quota block as an
+  override warning without hiding harder failures, and post-run footers report
+  the real exit code, duration, engine version, and credential-upload result.
+  `status` can seed canonical credentials but will not overwrite a fresher
+  local login with an older or unstamped fleet copy.
+
 ## `cdx resume` / `clx resume` actually resume
 
 - **Both wrappers now own `resume`** and route it through the full startup

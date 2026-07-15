@@ -76,4 +76,3 @@ func DurationShort(d time.Duration) string {
 		return fmt.Sprintf("%dm", mins)
 	}
 }
-

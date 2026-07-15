@@ -51,3 +51,10 @@ func (c *Client) SetLane(ctx context.Context, lane string) error {
 	out := &LaneInfo{}
 	return c.JSON(ctx, http.MethodPost, "/host/lane", map[string]string{"lane": lane}, out, 1)
 }
+
+// ClearLane removes the per-host preference so fleet/default lane selection
+// applies again. The API distinguishes this from explicitly choosing normal.
+func (c *Client) ClearLane(ctx context.Context) error {
+	out := &LaneInfo{}
+	return c.JSON(ctx, http.MethodPost, "/host/lane", map[string]any{"lane": nil}, out, 1)
+}

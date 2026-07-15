@@ -12,7 +12,19 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
+
+func TestFooterCapsKeepsMinimalRunsCompact(t *testing.T) {
+	caps := ui.Caps{IsTTY: true, Palette: ui.Palette{Reset: "ansi"}}
+	got := footerCaps(caps, true)
+	if got.IsTTY || got.Palette.Reset != "" {
+		t.Fatalf("minimal footer retained rich capabilities: %+v", got)
+	}
+	if got := footerCaps(caps, false); !got.IsTTY || got.Palette.Reset != "ansi" {
+		t.Fatalf("normal footer lost rich capabilities: %+v", got)
+	}
+}
 
 func TestCurrentWrapperVersionPrefersRunningVersion(t *testing.T) {
 	cfg := &config.Config{Wrapper: config.Wrapper{Version: "0.6.18"}}

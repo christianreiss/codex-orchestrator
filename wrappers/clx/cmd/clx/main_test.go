@@ -2,9 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 )
 
 func TestIsHelpPassthrough(t *testing.T) {
@@ -86,6 +93,223 @@ func TestParseFlagsContinueIsForwarded(t *testing.T) {
 	}
 	if len(pass) != 1 || pass[0] != "--continue" {
 		t.Errorf("passthrough = %v", pass)
+	}
+}
+
+func TestWrapperHelpIsLocalAndNeedsNoConfig(t *testing.T) {
+	t.Setenv("CLAUDE_WRAPPER_RESTART_DEPTH", "")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--wrapper-help", "--config", filepath.Join(t.TempDir(), "missing.json")}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("wrapper help exit = %d, stderr=%q", code, stderr.String())
+	}
+	for _, want := range []string{"CLX WRAPPER HELP", "clx status", "--help opens Claude help"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("wrapper help missing %q:\n%s", want, stdout.String())
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("wrapper help stderr = %q", stderr.String())
+	}
+}
+
+func TestWrapperHelpAfterSentinelIsPassedThrough(t *testing.T) {
+	f, positional, passthrough := parseFlags([]string{"exec", "--", "--wrapper-help"})
+	if f.wrapperHelp || !reflect.DeepEqual(positional, []string{"exec"}) || !reflect.DeepEqual(passthrough, []string{"--wrapper-help"}) {
+		t.Fatalf("sentinel passthrough was hijacked: f=%+v positional=%v passthrough=%v", f, positional, passthrough)
+	}
+}
+
+func TestWrapperHelpTokenCanBeExecutePrompt(t *testing.T) {
+	f, positional, passthrough := parseFlags([]string{"--execute", "--wrapper-help"})
+	if f.wrapperHelp || f.executePrompt != "--wrapper-help" || len(positional) != 0 || len(passthrough) != 0 {
+		t.Fatalf("execute prompt was hijacked by help: f=%+v positional=%v passthrough=%v", f, positional, passthrough)
+	}
+}
+
+func TestConflictingWrapperActionsFailBeforeMutation(t *testing.T) {
+	t.Setenv("CLAUDE_WRAPPER_RESTART_DEPTH", "")
+	for _, args := range [][]string{
+		{"--uninstall", "--status"},
+		{"status", "--uninstall"},
+		{"--continue", "--status"},
+		{"--continue", "--resume"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Fatalf("conflicting actions %v exit = %d, want 2", args, code)
+		}
+		if !strings.Contains(stderr.String(), "conflicting wrapper actions") {
+			t.Fatalf("missing conflict error for %v: %q", args, stderr.String())
+		}
+	}
+}
+
+func TestStatusAppliesReturnedCanonicalAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 2.1.175\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","auth":{"last_refresh":"2026-07-15T12:00:00Z","claudeAiOauth":{"accessToken":"fresh"}},"host":{"fqdn":"status.test","secure":true},"versions":{"client_version":"2.1.175","wrapper_version":"0.6.44","runner_state":"ok"}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{
+		Host:         config.Host{Secure: true},
+		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"},
+	}
+	var stdout, stderr bytes.Buffer
+	if code := cmdStatus(context.Background(), cfg, "0.6.44", &stdout, &stderr, false); code != 0 {
+		t.Fatalf("status exit = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	if err != nil || !strings.Contains(string(raw), `"accessToken":"fresh"`) {
+		t.Fatalf("canonical auth not written: raw=%q err=%v", raw, err)
+	}
+	if !strings.Contains(stdout.String(), "auth=updated") {
+		t.Fatalf("status did not report applied auth: %q", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := cmdStatus(context.Background(), cfg, "0.6.44", &stdout, &stderr, false); code != 0 {
+		t.Fatalf("second status exit = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "auth=ok") || strings.Contains(stdout.String(), "auth=updated") || strings.Contains(stdout.String(), "auth=warn") {
+		t.Fatalf("equivalent OAuth credentials did not settle to current: %q", stdout.String())
+	}
+}
+
+func TestStatusCanonicalAuthNeverClobbersFresherLocal(t *testing.T) {
+	local := filepath.Join(t.TempDir(), ".credentials.json")
+	if err := os.WriteFile(local, []byte(`{"last_refresh":"2026-07-15T12:00:00Z","claudeAiOauth":{"accessToken":"local"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	older := []byte(`{"last_refresh":"2026-07-15T11:00:00Z","claudeAiOauth":{"accessToken":"fleet"}}`)
+	newer := []byte(`{"last_refresh":"2026-07-15T13:00:00Z","claudeAiOauth":{"accessToken":"fleet"}}`)
+	if statusCanonicalAuthMayReplace(local, older) {
+		t.Fatal("older canonical auth was allowed to replace the fresher local login")
+	}
+	if !statusCanonicalAuthMayReplace(local, newer) {
+		t.Fatal("newer canonical auth was not allowed to repair the local file")
+	}
+	if statusCanonicalAuthMayReplace(local, []byte(`{"claudeAiOauth":{"accessToken":"unknown-age"}}`)) {
+		t.Fatal("unstamped canonical auth was allowed to replace an existing local login")
+	}
+	if !statusCanonicalAuthMayReplace(filepath.Join(t.TempDir(), "missing.json"), older) {
+		t.Fatal("canonical auth was not allowed to seed a missing local file")
+	}
+}
+
+func TestStatusWithUnreadableConfigIsBlocked(t *testing.T) {
+	t.Setenv("CLAUDE_WRAPPER_RESTART_DEPTH", "")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--status", "--config", filepath.Join(t.TempDir(), "missing.json")}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("status exit = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "status=blocked") || !strings.Contains(stdout.String(), "config=unreadable") {
+		t.Fatalf("status output is not actionable: %q", stdout.String())
+	}
+}
+
+func TestExecuteDispatchPreservesTrailingArguments(t *testing.T) {
+	f, positional, passthrough := parseFlags([]string{"--execute", "hello", "tail", "--", "--json"})
+	sub, subArgs := resolveCommand(f, positional)
+	if sub != "execute" || !reflect.DeepEqual(subArgs, []string{"tail"}) || !reflect.DeepEqual(passthrough, []string{"--json"}) {
+		t.Fatalf("execute dispatch = %q args=%v passthrough=%v", sub, subArgs, passthrough)
+	}
+}
+
+func TestBareResumeDoesNotConsumeFollowingFlags(t *testing.T) {
+	f, positional, passthrough := parseFlags([]string{"-r", "-c"})
+	if !f.resumeFlag || f.resumeSession != "" || !f.continueSession || len(positional) != 0 || !reflect.DeepEqual(passthrough, []string{"--continue"}) {
+		t.Fatalf("bare resume parsing lost a flag: f=%+v positional=%v passthrough=%v", f, positional, passthrough)
+	}
+}
+
+func TestRunRejectsMissingOrBlankExecutePrompt(t *testing.T) {
+	t.Setenv("CLAUDE_WRAPPER_RESTART_DEPTH", "")
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing", args: []string{"--execute"}},
+		{name: "blank", args: []string{"--execute", " \t "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(tc.args, &stdout, &stderr); code != 2 {
+				t.Fatalf("run(%v) exit = %d, want 2", tc.args, code)
+			}
+			if got, want := stderr.String(), "clx: --execute requires a non-empty prompt argument\n"; got != want {
+				t.Errorf("stderr = %q, want %q", got, want)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+		})
+	}
+}
+
+func TestTopLevelParityAliasesDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		wantSub string
+	}{
+		{name: "status", args: []string{"--status"}, wantSub: "status"},
+		{name: "doctor", args: []string{"--doctor"}, wantSub: "doctor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, positional, passthrough := parseFlags(tc.args)
+			sub, subArgs := resolveCommand(f, positional)
+			if sub != tc.wantSub || len(subArgs) != 0 || len(passthrough) != 0 {
+				t.Errorf("dispatch = %q args=%v passthrough=%v, want %q with no args", sub, subArgs, passthrough, tc.wantSub)
+			}
+		})
+	}
+
+	for _, arg := range []string{"-W", "--wrapper-version"} {
+		f, positional, passthrough := parseFlags([]string{arg})
+		if !f.versionFlag || len(positional) != 0 || len(passthrough) != 0 {
+			t.Errorf("parseFlags(%q) = version=%t positional=%v passthrough=%v", arg, f.versionFlag, positional, passthrough)
+		}
+	}
+}
+
+func TestInvalidCronActionsReachStrictDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "flag form", args: []string{"--cron", "bogus"}},
+		{name: "subcommand form", args: []string{"cron", "bogus"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, positional, passthrough := parseFlags(tc.args)
+			if len(passthrough) != 0 {
+				t.Fatalf("passthrough = %v, want empty", passthrough)
+			}
+			sub, subArgs := resolveCommand(f, positional)
+			if sub != "cron" || !reflect.DeepEqual(subArgs, []string{"bogus"}) {
+				t.Fatalf("dispatch = %q %v, want cron [bogus]", sub, subArgs)
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := cmdCron(context.Background(), nil, subArgs, &stdout, &stderr); code != 2 {
+				t.Fatalf("cmdCron exit = %d, want 2", code)
+			}
+			if got, want := stderr.String(), "clx cron: unknown action: bogus\nusage: clx cron [install|remove|run]\n"; got != want {
+				t.Errorf("stderr = %q, want %q", got, want)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+		})
 	}
 }
 
@@ -232,9 +456,9 @@ func TestResumeDispatchPreservesTrailingPrompt(t *testing.T) {
 	if !f.resumeFlag {
 		t.Fatalf("resumeFlag = false, want true")
 	}
-	subArgs := positional
-	if f.resumeSession != "" {
-		subArgs = append([]string{f.resumeSession}, subArgs...)
+	sub, subArgs := resolveCommand(f, positional)
+	if sub != "resume" {
+		t.Fatalf("subcommand = %q, want resume", sub)
 	}
 	got := resumeArgs(subArgs, passthrough)
 	want := []string{"--resume", testSession, "keep going"}

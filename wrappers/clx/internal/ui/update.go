@@ -35,18 +35,47 @@ func UpdateFailure(caps Caps, engine, component, version string, err error) stri
 }
 
 func formatUpdate(caps Caps, color, glyph, engine, component, version, status string) string {
+	engine = CleanInline(engine)
+	component = CleanInline(component)
+	status = CleanInline(status)
 	reset := caps.Palette.Reset
 	dim := caps.Palette.Dim
+	bold := caps.Palette.Bold
+	if !caps.IsTTY || caps.NoColor || caps.Dumb {
+		color = ""
+		reset = ""
+		dim = ""
+		bold = ""
+		version = StripANSI(version)
+	}
 	parts := []string{
 		color + glyph + reset,
-		caps.Palette.Bold + engine + reset,
+		bold + engine + reset,
 		dim + component + reset,
 	}
 	if version != "" {
-		parts = append(parts, caps.Palette.Bold+version+reset)
+		parts = append(parts, bold+version+reset)
 	}
 	parts = append(parts, color+status+reset)
-	return strings.Join(parts, dim+" · "+reset)
+	separator := dim + " · " + reset
+	if updateASCII(caps) {
+		separator = " | "
+	}
+	line := strings.Join(parts, separator)
+	columns := caps.Columns
+	if columns <= 0 {
+		columns = 80
+	}
+	if VisibleWidth(line) <= columns {
+		return line
+	}
+	truncateCaps := caps
+	truncateCaps.Dumb = updateASCII(caps)
+	plain := TruncateText(StripANSI(line), columns, truncateCaps)
+	if color != "" {
+		return color + plain + reset
+	}
+	return plain
 }
 
 func updateVersion(caps Caps, current, target string) string {
@@ -60,28 +89,32 @@ func updateVersion(caps Caps, current, target string) string {
 }
 
 func dimmedArrow(caps Caps) string {
-	if caps.Dumb || !caps.UTF8 {
-		return caps.Palette.Dim + " -> " + caps.Palette.Reset
+	if updateASCII(caps) {
+		return " -> "
 	}
 	return caps.Palette.Dim + " → " + caps.Palette.Reset
 }
 
 func updateGlyph(caps Caps, utf8, ascii string) string {
-	if caps.Dumb || !caps.UTF8 {
+	if updateASCII(caps) {
 		return ascii
 	}
 	return utf8
 }
 
 func updateText(caps Caps, utf8, ascii string) string {
-	if caps.Dumb || !caps.UTF8 {
+	if updateASCII(caps) {
 		return ascii
 	}
 	return utf8
 }
 
+func updateASCII(caps Caps) bool {
+	return !caps.IsTTY || caps.Dumb || !caps.UTF8
+}
+
 func normalizedVersion(version string) string {
-	version = strings.TrimSpace(version)
+	version = CleanInline(strings.TrimSpace(version))
 	if version == "unknown" {
 		return ""
 	}

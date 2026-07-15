@@ -12,19 +12,36 @@ const BarWidth = 24
 
 // QuotaRow describes one quota bar (5h, weekly, daily allowance, …).
 type QuotaRow struct {
-	Label      string // "5h", "weekly", "⚡ 5h", …
-	Used       int    // 0..100
-	ResetAfter time.Duration
-	Lane       string // "normal" | "spark"  (informational)
-	Note       string // free-form trailing dim text
-	Projection string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
-	WarnAtPct  int    // default 80
-	BlockAtPct int    // default 95
+	Label          string // "5h", "weekly", "⚡ 5h", …
+	Used           int    // 0..100
+	ResetAfter     time.Duration
+	Lane           string // "normal" | "spark"  (informational)
+	Note           string // free-form trailing dim text
+	Projection     string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
+	ProjectionTone Tone   // dim for benign projections, warn/fail when thresholds are crossed
+	WarnAtPct      int    // default 80
+	BlockAtPct     int    // default 95
 }
 
 // PrintQuotaRow renders "  label   pct% [bar]  resetLabel  note".
 func PrintQuotaRow(w io.Writer, caps Caps, row QuotaRow) {
-	bar := BuildBar(caps, row.Used)
+	fmt.Fprintln(w, formatQuotaLine(caps, row, 80))
+}
+
+// formatQuotaLine adapts the graph to the available card width. Notes are
+// useful on wide terminals but yield to the actual usage/reset values first.
+func formatQuotaLine(caps Caps, row QuotaRow, width int) string {
+	label := CleanInline(row.Label)
+	if caps.Dumb || !caps.UTF8 {
+		label = strings.ReplaceAll(label, "⚡", "spark")
+	}
+	labelWidth := 8
+	if width < 54 {
+		labelWidth = 6
+	}
+	label = TruncateText(label, labelWidth, caps)
+	label = PadRight(label, labelWidth)
+
 	pct := fmt.Sprintf("%3d%%", clampPct(row.Used))
 	tone := classifyPct(row.Used, row.WarnAtPct, row.BlockAtPct)
 	pctCol := tonePalette(caps, tone)
@@ -32,34 +49,55 @@ func PrintQuotaRow(w io.Writer, caps Caps, row QuotaRow) {
 	if row.ResetAfter > 0 {
 		resetTxt = "  " + DurationShort(row.ResetAfter)
 	}
-	note := row.Note
-	if row.Projection != "" {
-		note = row.Projection
+	barWidth := width - labelWidth - VisibleWidth(pct) - VisibleWidth(resetTxt) - 5
+	if barWidth > BarWidth {
+		barWidth = BarWidth
 	}
-	pad := PadRight(row.Label, 8)
-	fmt.Fprintf(w, "  %s %s%s%s [%s]%s",
-		pad,
+	if barWidth < 6 {
+		barWidth = 6
+	}
+	bar := buildBar(caps, row.Used, barWidth, row.WarnAtPct, row.BlockAtPct)
+	line := fmt.Sprintf("%s  %s%s%s  %s%s",
+		label,
 		pctCol, pct, caps.Palette.Reset,
 		bar,
 		resetTxt,
 	)
-	if note != "" {
-		fmt.Fprintf(w, "  %s%s%s", caps.Palette.Dim, note, caps.Palette.Reset)
+
+	note := row.Note
+	if row.Projection != "" {
+		note = row.Projection
 	}
-	fmt.Fprintln(w)
+	remaining := width - VisibleWidth(line) - 2
+	if note != "" && remaining >= 12 {
+		note = TruncateText(note, remaining, caps)
+		noteTone := ToneDim
+		if row.Projection != "" && row.ProjectionTone != "" {
+			noteTone = row.ProjectionTone
+		}
+		line += "  " + styleTone(caps, noteTone, note)
+	}
+	return line
 }
 
 // BuildBar renders the fill string with appropriate colour by saturation.
 func BuildBar(caps Caps, pct int) string {
+	return buildBar(caps, pct, BarWidth, 80, 95)
+}
+
+func buildBar(caps Caps, pct, width, warnAt, blockAt int) string {
 	pct = clampPct(pct)
-	filled := (pct*BarWidth + 50) / 100
-	if filled > BarWidth {
-		filled = BarWidth
+	if width < 1 {
+		width = 1
 	}
-	tone := classifyPct(pct, 80, 95)
+	filled := (pct*width + 50) / 100
+	if filled > width {
+		filled = width
+	}
+	tone := classifyPct(pct, warnAt, blockAt)
 	col := tonePalette(caps, tone)
 	return col + strings.Repeat(caps.BannerSym.BarFill, filled) + caps.Palette.Reset +
-		caps.Palette.Dim + strings.Repeat(caps.BannerSym.BarEmpty, BarWidth-filled) + caps.Palette.Reset
+		caps.Palette.Dim + strings.Repeat(caps.BannerSym.BarEmpty, width-filled) + caps.Palette.Reset
 }
 
 // QuotaReasonRow prints a ⚠ or ⛔ note line in yellow/red.

@@ -2,6 +2,7 @@ package summary
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,6 +68,183 @@ func TestBuildShowsOlderCodexTargetWhenExactIsTrue(t *testing.T) {
 	}
 	if got.CodexTone != ui.ToneWarn {
 		t.Fatalf("CodexTone = %q, want warn", got.CodexTone)
+	}
+}
+
+func TestBuildMarksUnknownVersionsAsWarnings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CDX_CODEX_BIN", filepath.Join(t.TempDir(), "missing-codex"))
+	got := Build(context.Background(), Inputs{
+		Auth: &orchestrator.AuthRetrieveResponse{Status: "valid"},
+	})
+	if got.CodexTone != ui.ToneWarn || got.WrapperTone != ui.ToneWarn || got.ResultTone != ui.ToneWarn {
+		t.Fatalf("unknown versions rendered healthy: codex=%q wrapper=%q result=%q", got.CodexTone, got.WrapperTone, got.ResultTone)
+	}
+}
+
+func TestBuildEscalatesHighQuotaToWarningOutcome(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	used, limit := 95, 100
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth: &orchestrator.AuthRetrieveResponse{
+			Status: "valid", QuotaLimitPercent: &limit,
+			ChatGPT: &orchestrator.ChatGPTQuota{PrimaryUsed: &used},
+		},
+	})
+	if got.QuotaWarn == "" || got.ResultTone != ui.ToneWarn {
+		t.Fatalf("high quota did not drive the outcome: warn=%q result=%q", got.QuotaWarn, got.ResultTone)
+	}
+}
+
+func TestBuildKeepsAdvisoryQuotaOverageLaunchable(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	used, limit := 100, 95
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth: &orchestrator.AuthRetrieveResponse{
+			Status: "valid", QuotaLimitPercent: &limit,
+			ChatGPT: &orchestrator.ChatGPTQuota{PrimaryUsed: &used},
+		},
+	})
+	if got.QuotaBlock != "" || got.QuotaWarn == "" || got.ResultTone != ui.ToneWarn {
+		t.Fatalf("advisory overage was not reclassified: block=%q warn=%q result=%q", got.QuotaBlock, got.QuotaWarn, got.ResultTone)
+	}
+}
+
+func TestBuildAdvisoryQuotaNeverDowngradesFailure(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	used, limit := 100, 95
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		AuthErr:        errors.New("sync exploded"),
+		Auth: &orchestrator.AuthRetrieveResponse{
+			Status: "valid", QuotaLimitPercent: &limit,
+			ChatGPT: &orchestrator.ChatGPTQuota{PrimaryUsed: &used},
+		},
+	})
+	if got.QuotaBlock != "" || got.QuotaWarn == "" || got.ResultTone != ui.ToneFail || got.ResultLabel != "Sync failed: sync exploded." {
+		t.Fatalf("advisory quota hid failure: block=%q warn=%q result=%q label=%q", got.QuotaBlock, got.QuotaWarn, got.ResultTone, got.ResultLabel)
+	}
+}
+
+func TestBuildHealthFailureOutranksQuotaWarning(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	used, limit := 90, 95
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth: &orchestrator.AuthRetrieveResponse{
+			Status: "invalid", QuotaLimitPercent: &limit,
+			ChatGPT: &orchestrator.ChatGPTQuota{PrimaryUsed: &used},
+		},
+	})
+	if got.QuotaWarn == "" || got.ResultTone != ui.ToneFail {
+		t.Fatalf("health failure did not outrank quota warning: warn=%q result=%q", got.QuotaWarn, got.ResultTone)
+	}
+}
+
+func TestBuildRetainsHardQuotaBlock(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	used, limit := 100, 95
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth: &orchestrator.AuthRetrieveResponse{
+			Status: "valid", QuotaHardFail: true, QuotaLimitPercent: &limit,
+			ChatGPT: &orchestrator.ChatGPTQuota{PrimaryUsed: &used},
+		},
+	})
+	if got.QuotaBlock == "" || got.ResultTone != ui.ToneFail {
+		t.Fatalf("hard overage was not retained: block=%q result=%q", got.QuotaBlock, got.ResultTone)
+	}
+}
+
+func TestBuildAuthToneReflectsWhetherCanonicalAuthWasApplied(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	for _, tc := range []struct {
+		name       string
+		authSynced bool
+		wantTone   ui.Tone
+		wantResult ui.Tone
+	}{
+		{name: "pending local write", wantTone: ui.ToneWarn, wantResult: ui.ToneWarn},
+		{name: "written this run", authSynced: true, wantTone: ui.ToneOK, wantResult: ui.ToneOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Build(context.Background(), Inputs{
+				WrapperVersion: "0.6.44",
+				Auth:           &orchestrator.AuthRetrieveResponse{Status: "outdated"},
+				AuthSynced:     tc.authSynced,
+			})
+			var authDot *ui.HealthDot
+			for i := range got.Dots {
+				if got.Dots[i].Name == "auth" {
+					authDot = &got.Dots[i]
+				}
+			}
+			if authDot == nil || authDot.Tone != tc.wantTone || authDot.Updated != tc.authSynced || got.ResultTone != tc.wantResult {
+				t.Fatalf("auth/result state = dot=%+v result=%q, want tone=%q updated=%t result=%q", authDot, got.ResultTone, tc.wantTone, tc.authSynced, tc.wantResult)
+			}
+		})
+	}
+}
+
+func TestBuildStatusOnlyHidesUnprobedResourceHealth(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	runner := "ok"
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth:           &orchestrator.AuthRetrieveResponse{Status: "valid", Versions: &orchestrator.VersionSummary{RunnerState: &runner}},
+		StatusOnly:     true,
+	})
+	for _, dot := range got.Dots {
+		if dot.Name == "skills" || dot.Name == "config" {
+			t.Fatalf("status presented unprobed resource as healthy: %+v", got.Dots)
+		}
+	}
+	if len(got.Dots) != 3 {
+		t.Fatalf("status health dots = %+v, want api/auth/runner", got.Dots)
+	}
+}
+
+func TestBuildClassifiesQuotaProjectionTone(t *testing.T) {
+	limit := 95
+	for _, tc := range []struct {
+		name       string
+		used       int
+		limitSec   int64
+		resetAfter int64
+		want       ui.Tone
+	}{
+		{name: "benign", used: 20, limitSec: 18_000, resetAfter: 9_000, want: ui.ToneDim},
+		{name: "crosses limit", used: 50, limitSec: 18_000, resetAfter: 14_400, want: ui.ToneFail},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, _, _ := buildQuota(&orchestrator.AuthRetrieveResponse{
+				QuotaLimitPercent: &limit,
+				ChatGPT: &orchestrator.ChatGPTQuota{
+					PrimaryUsed:       &tc.used,
+					PrimaryLimitSec:   &tc.limitSec,
+					PrimaryResetAfter: &tc.resetAfter,
+				},
+			})
+			if len(rows) != 1 || rows[0].Projection == "" || rows[0].ProjectionTone != tc.want {
+				t.Fatalf("projection row = %+v, want one row with tone %q", rows, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildTreatsUnknownRunnerStateAsWarning(t *testing.T) {
+	withCodexVersion(t, "0.144.1")
+	runner := "future-state"
+	got := Build(context.Background(), Inputs{
+		WrapperVersion: "0.6.44",
+		Auth:           &orchestrator.AuthRetrieveResponse{Status: "valid", Versions: &orchestrator.VersionSummary{RunnerState: &runner}},
+	})
+	for _, dot := range got.Dots {
+		if dot.Name == "runner" && dot.Tone != ui.ToneWarn {
+			t.Fatalf("unknown runner tone = %q, want warn", dot.Tone)
+		}
 	}
 }
 

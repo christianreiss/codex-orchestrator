@@ -150,16 +150,16 @@ cdx
 # Run with a named profile (shorthand for `--profile <name>`)
 cdx ultra
 
-# Show current lane steering state (effective + persisted)
+# Show the effective lane
 cdx lane
 
-# One-shot lane switch for this run (maps to profile/model automatically)
+# Select and persist the Spark lane for this host
 cdx lane spark
 
 # Shortcut for spark lane
 cdx ls
 
-# Persist lane preference on this host for future runs
+# Select and persist the normal lane (`--persist` is accepted but redundant)
 cdx lane normal --persist
 
 # Clear persisted lane preference (host follows inherited/default lane)
@@ -168,8 +168,8 @@ cdx lane clear --persist
 # Upload a freshly renewed local auth.json after running codex login
 cdx auth-upload
 
-# One-shot, script-friendly execution (prints only the final assistant reply;
-# direct codex exec fast path, not the full wrapper sync lifecycle)
+# One-shot, script-friendly execution (managed auth/resource sync still runs;
+# Codex itself runs headless with a read-only sandbox)
 cdx --execute "explain what this repo does in 5 bullets"
 
 # Force IPv4 for wrapper network calls (sync/update/download)
@@ -178,6 +178,12 @@ cdx -4
 # Wrapper diagnostics
 cdx status
 cdx doctor
+
+# Wrapper-owned command reference (`--help` remains upstream Codex help)
+cdx --wrapper-help
+
+# Stable ANSI-free status for logs and narrow terminals
+cdx status --minimal
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.

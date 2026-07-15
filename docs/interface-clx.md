@@ -22,22 +22,31 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | Subcommand | Purpose |
 |---|---|
 | `run` (default) | One Claude session; runs the full startup sequence first |
-| `status` | Local config summary + `/auth` round-trip (api/auth/skills/config health). On a fresh install it also seeds credentials: if the server returns auth while local status is `outdated`/`updated`/`missing`, it writes them so the first `clx run` skips Claude's interactive login |
-| `doctor` | Self-diagnostic (config, CLI present, credentials, reachability) |
+| `status` / `--status` | Responsive local config + `/auth` round-trip (API, auth, and reported runner health) on stdout. Returned canonical credentials can seed/repair the local file but never replace a fresher local login; unreadable config and failed health return non-zero. |
+| `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, credentials, reachability, latency, disk, cron) on stdout |
 | `auth-upload` | POST the local credentials file to canonical store |
 | `auth ...` | Passed straight through to the upstream `claude auth` command |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
-| `--resume <session>` / `--resume=<session>` / `-r` | Alias for the `resume` subcommand above — the wrapper re-spells it as `claude --resume <session>` |
+| `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
 | `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help |
+| `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too |
-| `--version` | Print version + commit + embedded pubkey status |
+| `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
 | `--uninstall` | Remove credentials + local state + cron entry; refuses on multi-user hosts without sudo |
 
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
+
+Interactive terminals at least 40 columns wide use the same responsive outcome,
+context, version, and semantic-health card as cdx, with a violet CLX identity.
+Redirects, dumb/narrow terminals, and `--minimal` use deterministic ANSI-free
+ASCII with local-to-target versions. The measured exit footer uses the real
+process exit, duration, Claude version, and auth-upload result; an auth failure
+cannot hide under a green exit-zero headline. Dynamic values are terminal-
+control stripped and width-bounded.
 On normal startup, managed hosts install the server-advertised `clx` wrapper
 artifact first, re-exec the original argv after a successful swap, then repair a
 stale Claude Code CLI; an already matching Claude Code version is a no-op even
@@ -45,8 +54,8 @@ when the fleet policy is an exact pin. Root-owned wrapper installs use the same 
 temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
 Update activity for the wrapper, Claude CLI, and peer `cdx` install uses the
 compact `↻` / `✓` / `✗` status line; it is coloured only on interactive
-terminals, is escape-free with `NO_COLOR` or redirected stderr, and switches
-to ASCII on `TERM=dumb`.
+terminals, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when
+redirected or on `TERM=dumb`.
 
 ## Per-host config (typed, signed)
 
@@ -118,7 +127,11 @@ When the `clx` lock is already held, the secondary run remains read-only for
 managed `CLAUDE.md`, settings, collections, and skills, but it still performs
 the startup auth digest check and atomically writes server-returned canonical
 credentials on `outdated`/`updated`/`missing` so it cannot launch Claude with a
-stale local `.credentials.json`.
+stale local `.credentials.json`. `--allow-concurrent-sync` is the explicit
+escape hatch: it allows normal managed writes without the lock and announces
+that choice before startup. Approval polling only repaints an interactive,
+non-dumb stderr at least 40 columns wide; other contexts fail immediately with
+Admin → Host Detail guidance instead of hanging or writing cursor controls.
 The boot summary uses the same client-version policy as the updater:
 non-exact latest/current targets only show an arrow when the resolved target is
 newer than the local Claude CLI.

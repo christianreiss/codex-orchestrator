@@ -47,18 +47,20 @@ func main() {
 
 // Parsed flags shared across subcommands.
 type flags struct {
-	configPath    string
-	silent        bool
-	debug         bool
-	minimal       bool
-	skipBoot      bool
-	versionFlag   bool
-	updateFlag    bool
-	uninstallFlag bool
-	statusFlag    bool
-	doctorFlag    bool
-	cronArgs      []string
-	executePrompt string
+	configPath     string
+	silent         bool
+	debug          bool
+	minimal        bool
+	skipBoot       bool
+	versionFlag    bool
+	updateFlag     bool
+	uninstallFlag  bool
+	statusFlag     bool
+	doctorFlag     bool
+	wrapperHelp    bool
+	cronArgs       []string
+	executePrompt  string
+	executeInvalid bool
 	// resumeFlag records that --resume was given at all; resumeSession holds
 	// its optional value. The two are distinct because a bare --resume is a
 	// valid request for the upstream session picker, which resumeSession ==
@@ -235,6 +237,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	f, positional, passthrough := parseFlags(args)
+	if actions := conflictingActions(f, positional); len(actions) > 1 {
+		fmt.Fprintln(stderr, "cdx: conflicting wrapper actions:", strings.Join(actions, ", "))
+		return 2
+	}
+
+	if f.wrapperHelp {
+		ui.PrintWrapperHelp(stdout, ui.DetectCapsFor(stdout, ""))
+		return 0
+	}
 
 	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
 	// no update check, no boot screen, no footer. argv is unmodified.
@@ -253,7 +264,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	logger := log.Setup(f.silent, f.debug)
+	if f.executeInvalid {
+		fmt.Fprintln(stderr, "cdx: --execute requires a non-empty prompt argument")
+		return 2
+	}
 
 	if f.versionFlag {
 		fmt.Fprintf(stdout, "cdx %s (commit %s, built %s, %s/%s)\n", Version, Commit, BuildDate, runtime.GOOS, runtime.GOARCH)
@@ -271,9 +285,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	pubkey, _ := signing.PublicKey()
 	cfg, err := config.Load(f.configPath, pubkey, false)
 	if err != nil {
-		if len(positional) > 0 && positional[0] == "status" {
-			fmt.Fprintf(stdout, "cdx %s (config not loadable: %v)\n", Version, err)
-			return 0
+		sub, _ := resolveCommand(f, positional)
+		if sub == "status" {
+			fmt.Fprintf(stdout, "cdx | status=blocked | wrapper=%s | config=unreadable\n", ui.CleanInline(Version))
+			fmt.Fprintln(stdout, "result | "+ui.CleanInline(err.Error()))
+			return 1
 		}
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -284,39 +300,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		f.silent = true
 	}
 
-	sub := "run"
-	subArgs := positional
-	if len(positional) > 0 {
-		sub = positional[0]
-		subArgs = positional[1:]
-	}
-
-	switch {
-	case f.updateFlag:
-		sub = "update"
-	case f.uninstallFlag:
-		sub = "uninstall"
-	case f.statusFlag:
-		sub = "status"
-	case f.doctorFlag:
-		sub = "doctor"
-	case f.cronArgs != nil:
-		sub = "cron"
-		subArgs = f.cronArgs
-	case f.executePrompt != "":
-		sub = "execute"
-	case f.resumeFlag:
-		// `cdx --resume <id> [prompt]` — resume intent came from a flag, so
-		// positional[0] is a real argument (an optional trailing prompt), not a
-		// subcommand. Rebind to the *unsliced* positional; the sub/subArgs
-		// preamble above already consumed positional[0] on the assumption that
-		// it named a subcommand, which would silently drop the prompt.
-		sub = "resume"
-		subArgs = positional
-		if f.resumeSession != "" {
-			subArgs = append([]string{f.resumeSession}, subArgs...)
-		}
-	}
+	logger := log.Setup(f.silent, f.debug)
+	sub, subArgs := resolveCommand(f, positional)
 
 	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
 	// spark-switchers a one-keystroke path.
@@ -337,12 +322,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:         cfg,
-			ExtraArgs:      append(subArgs, passthrough...),
-			SkipBoot:       f.skipBoot,
-			Minimal:        f.minimal,
-			Logger:         logger,
-			WrapperVersion: Version,
+			Config:              cfg,
+			ExtraArgs:           append(subArgs, passthrough...),
+			SkipBoot:            f.skipBoot || f.silent,
+			Minimal:             f.minimal,
+			AllowConcurrentSync: f.allowConc,
+			Logger:              logger,
+			WrapperVersion:      Version,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx run:", err)
@@ -352,12 +338,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// Interactive like `run`, never Headless like `execute` — resume opens
 		// a TTY session picker and a headless run would fail it closed.
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:         cfg,
-			ExtraArgs:      resumeArgs(subArgs, passthrough),
-			SkipBoot:       f.skipBoot,
-			Minimal:        f.minimal,
-			Logger:         logger,
-			WrapperVersion: Version,
+			Config:              cfg,
+			ExtraArgs:           resumeArgs(subArgs, passthrough),
+			SkipBoot:            f.skipBoot || f.silent,
+			Minimal:             f.minimal,
+			AllowConcurrentSync: f.allowConc,
+			Logger:              logger,
+			WrapperVersion:      Version,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx resume:", err)
@@ -374,21 +361,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		argv := []string{"--sandbox", "read-only", "-a", "untrusted", "exec", "--skip-git-repo-check", f.executePrompt}
 		argv = append(argv, append(subArgs, passthrough...)...)
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:         cfg,
-			ExtraArgs:      argv,
-			SkipBoot:       true,
-			Headless:       true,
-			Logger:         logger,
-			WrapperVersion: Version,
+			Config:              cfg,
+			ExtraArgs:           argv,
+			SkipBoot:            true,
+			Headless:            true,
+			AllowConcurrentSync: f.allowConc,
+			Logger:              logger,
+			WrapperVersion:      Version,
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx execute:", err)
 		}
 		return exit
 	case "status":
-		return cmdStatus(ctx, cfg, Version, stderr, f.minimal)
+		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
-		if err := codex.Doctor(ctx, cfg, stderr, Version); err != nil {
+		if err := codex.Doctor(ctx, cfg, stdout, Version); err != nil {
 			return 1
 		}
 		return 0
@@ -399,19 +387,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "profile":
 		return cmdProfile(ctx, cfg, append(subArgs, passthrough...), stderr)
 	case "update":
+		theme := ""
+		if cfg.EngineOptions.AdminThemeHint != nil {
+			theme = *cfg.EngineOptions.AdminThemeHint
+		}
+		errCaps := ui.DetectCapsFor(stderr, theme)
 		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
 		if err != nil {
-			fmt.Fprintln(stderr, "cdx update:", err)
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", Version, err))
 			return 1
 		}
+		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "cdx", "wrapper", Version, artifact.Version))
 		cfg.Wrapper.Version = artifact.Version
 		cfg.Wrapper.BinaryURL = artifact.URL
 		cfg.Wrapper.BinarySHA256 = artifact.SHA256
 		if err := update.SelfUpdate(ctx, cfg, logger); err != nil {
-			fmt.Fprintln(stderr, "cdx update:", err)
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
 			return 1
 		}
-		fmt.Fprintln(stdout, "cdx update: ok")
+		fmt.Fprintln(stdout, ui.UpdateComplete(ui.DetectCapsFor(stdout, theme), "cdx", "wrapper", artifact.Version, false))
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -454,7 +448,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
+		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
 }
@@ -568,7 +562,8 @@ func parseSemverTriple(v string) ([3]int, bool) {
 // rejecting any unknown flags.
 func parseFlags(args []string) (flags, []string, []string) {
 	var f flags
-	if isHelpPassthrough(args) {
+	wrapperHelp := wrapperHelpRequested(args)
+	if !wrapperHelp && isHelpPassthrough(args) {
 		f.helpPassthrough = true
 		return f, nil, nil
 	}
@@ -585,6 +580,9 @@ func parseFlags(args []string) (flags, []string, []string) {
 		case a == "--":
 			consumedDash = true
 		case a == "--help" || a == "-h":
+			if wrapperHelp {
+				continue
+			}
 			// Safety net: isHelpPassthrough should already have caught any
 			// bare --help/-h above, but if some combination slips through,
 			// don't let it fall into `positional` and get misdispatched as
@@ -593,6 +591,8 @@ func parseFlags(args []string) (flags, []string, []string) {
 			return f, nil, nil
 		case a == "--version" || a == "-V" || a == "--wrapper-version" || a == "-W":
 			f.versionFlag = true
+		case a == "--wrapper-help":
+			f.wrapperHelp = true
 		case a == "--update" || a == "-U":
 			f.updateFlag = true
 		case a == "--uninstall":
@@ -619,15 +619,20 @@ func parseFlags(args []string) (flags, []string, []string) {
 			f.cronArgs = []string{}
 			if i+1 < len(args) {
 				next := args[i+1]
-				if next == "install" || next == "remove" || next == "run" {
+				if !strings.HasPrefix(next, "-") {
 					f.cronArgs = []string{next}
 					i++
 				}
 			}
 		case a == "--execute":
-			if i+1 < len(args) {
+			if i+1 < len(args) && strings.TrimSpace(args[i+1]) != "" {
 				f.executePrompt = args[i+1]
 				i++
+			} else {
+				f.executeInvalid = true
+				if i+1 < len(args) {
+					i++
+				}
 			}
 		// --resume is a wrapper-level alias for the upstream `codex resume`
 		// subcommand; upstream has no --resume flag and rejects it outright, so
@@ -635,7 +640,7 @@ func parseFlags(args []string) (flags, []string, []string) {
 		case a == "--resume":
 			f.resumeFlag = true
 			f.resumeSession = ""
-			if i+1 < len(args) {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				f.resumeSession = args[i+1]
 				i++
 			}
@@ -654,34 +659,153 @@ func parseFlags(args []string) (flags, []string, []string) {
 	return f, positional, passthrough
 }
 
+func wrapperHelpRequested(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return false
+		}
+		if a == "--wrapper-help" {
+			return true
+		}
+		switch a {
+		case "--execute", "--config":
+			if i+1 < len(args) {
+				i++
+			}
+		case "--resume", "--cron":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+		}
+	}
+	return false
+}
+
+// resolveCommand normalises wrapper flags and positional subcommands onto one
+// dispatch shape. Keeping this pure makes aliases testable without loading a
+// signed config or invoking the networked lifecycle.
+func resolveCommand(f flags, positional []string) (string, []string) {
+	sub := "run"
+	subArgs := positional
+	if len(positional) > 0 {
+		sub = positional[0]
+		subArgs = positional[1:]
+	}
+
+	switch {
+	case f.updateFlag:
+		sub = "update"
+	case f.uninstallFlag:
+		sub = "uninstall"
+	case f.statusFlag:
+		sub = "status"
+	case f.doctorFlag:
+		sub = "doctor"
+	case f.cronArgs != nil:
+		sub = "cron"
+		subArgs = f.cronArgs
+	case f.executePrompt != "":
+		sub = "execute"
+		subArgs = positional
+	case f.resumeFlag:
+		// Resume intent came from a flag, so positional contains only real
+		// resume arguments and must not lose its first element as a subcommand.
+		sub = "resume"
+		subArgs = positional
+		if f.resumeSession != "" {
+			subArgs = append([]string{f.resumeSession}, subArgs...)
+		}
+	}
+
+	return sub, subArgs
+}
+
+func conflictingActions(f flags, positional []string) []string {
+	actions := []string{}
+	seen := map[string]bool{}
+	add := func(enabled bool, key, label string) {
+		if enabled && !seen[key] {
+			seen[key] = true
+			actions = append(actions, label)
+		}
+	}
+	add(f.wrapperHelp, "help", "--wrapper-help")
+	add(f.versionFlag, "version", "--version")
+	add(f.updateFlag, "update", "--update")
+	add(f.uninstallFlag, "uninstall", "--uninstall")
+	add(f.statusFlag, "status", "--status")
+	add(f.doctorFlag, "doctor", "--doctor")
+	add(f.cronArgs != nil, "cron", "--cron")
+	add(f.executePrompt != "" || f.executeInvalid, "execute", "--execute")
+	add(f.resumeFlag, "resume", "--resume")
+	if !f.resumeFlag && f.executePrompt == "" && !f.executeInvalid && len(positional) > 0 && wrapperOwnedSubcommands[positional[0]] {
+		add(true, positional[0], positional[0])
+	}
+	return actions
+}
+
 // cmdStatus runs auth-retrieve + renders the boot screen.
-func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, w io.Writer, minimal bool) int {
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) int {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
-		fmt.Fprintln(w, "error:", err)
+		fmt.Fprintln(stderr, "cdx status:", err)
 		return 1
 	}
 	digest, _ := codex.LocalDigest()
 	resp, authErr := client.AuthRetrieve(ctx, digest)
+	authSynced := false
+	if authErr == nil && resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		switch strings.ToLower(strings.TrimSpace(resp.Status)) {
+		case "outdated", "updated", "missing":
+			authPath, _ := codex.AuthPath()
+			if !statusCanonicalAuthMayReplace(authPath, resp.Auth) {
+				break
+			}
+			if err := codex.WriteAuth(resp.Auth); err != nil {
+				authErr = fmt.Errorf("apply canonical auth: %w", err)
+			} else {
+				authSynced = true
+			}
+		}
+	}
 	state := summary.Build(ctx, summary.Inputs{
 		Config:         cfg,
 		WrapperVersion: wrapperVersion,
 		Auth:           resp,
 		AuthErr:        authErr,
+		AuthSynced:     authSynced,
+		StatusOnly:     true,
 	})
 	if minimal {
-		ui.PrintMinimalScreen(w, state)
+		ui.PrintMinimalScreen(stdout, state)
 	} else {
-		ui.PrintBootScreen(w, state)
+		ui.PrintBootScreen(stdout, state)
 	}
 	if state.ResultTone == ui.ToneFail {
 		return 1
 	}
 	return 0
+}
+
+// statusCanonicalAuthMayReplace prevents a read-only-looking status check from
+// destroying a newer local login when the fleet has not adopted it yet. An
+// absent/unreadable local file may be repaired; an existing local file wins
+// over a canonical payload with no usable freshness stamp.
+func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
+	localTime, err := codex.LastRefreshOfFile(localPath)
+	if err != nil {
+		return true
+	}
+	canonicalTime, err := codex.LastRefreshFromRaw(canonical)
+	if err != nil {
+		return false
+	}
+	return !localTime.After(canonicalTime)
 }
 
 func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) int {
@@ -695,16 +819,20 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		return 1
 	}
 
-	persist := false
 	clear := false
 	target := ""
 	for _, a := range args {
 		switch a {
 		case "--persist":
-			persist = true
+			// Kept as a compatibility no-op: explicit lane selections are
+			// server-side preferences and therefore always persist.
 		case "clear":
 			clear = true
 		case "normal", "spark":
+			if target != "" && target != a {
+				fmt.Fprintln(stderr, "lane: choose exactly one of normal, spark, or clear")
+				return 2
+			}
 			target = a
 		default:
 			fmt.Fprintln(stderr, "lane: unrecognized argument:", a)
@@ -712,13 +840,17 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			return 2
 		}
 	}
+	if clear && target != "" {
+		fmt.Fprintln(stderr, "lane: clear cannot be combined with "+target)
+		return 2
+	}
 
 	if clear {
-		if err := client.SetLane(ctx, "normal"); err != nil {
+		if err := client.ClearLane(ctx); err != nil {
 			fmt.Fprintln(stderr, "lane clear:", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "lane: cleared (server-side preference reset to normal)")
+		fmt.Fprintln(stdout, "lane: cleared (inherited default; effective normal)")
 		return 0
 	}
 
@@ -728,19 +860,15 @@ func cmdLane(ctx context.Context, cfg *config.Config, args []string, stdout, std
 			fmt.Fprintln(stderr, "lane:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "» Lane state | effective=%s\n", lane)
+		fmt.Fprintf(stdout, "lane: %s (effective)\n", lane)
 		return 0
 	}
 
-	if persist {
-		if err := client.SetLane(ctx, target); err != nil {
-			fmt.Fprintln(stderr, "lane:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "lane: %s (persisted)\n", target)
-	} else {
-		fmt.Fprintf(stdout, "lane: %s (one-shot — not persisted)\n", target)
+	if err := client.SetLane(ctx, target); err != nil {
+		fmt.Fprintln(stderr, "lane:", err)
+		return 1
 	}
+	fmt.Fprintf(stdout, "lane: %s (persisted)\n", target)
 	return 0
 }
 

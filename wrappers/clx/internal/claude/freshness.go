@@ -103,6 +103,34 @@ func IsValidLocalAuth(path string) bool {
 	return false
 }
 
+// LastRefreshFromRaw parses the fleet freshness stamp from canonical
+// credentials. It intentionally does not fall back to OAuth expiry: this is a
+// replacement-order comparison, not a launch-validity check.
+func LastRefreshFromRaw(raw []byte) (time.Time, error) {
+	return lastRefreshFrom(raw)
+}
+
+// LastRefreshOfFile returns last_refresh when present and otherwise the file's
+// mtime. Native Claude logins omit last_refresh, so mtime protects a fresh local
+// login from being overwritten by an older fleet copy.
+func LastRefreshOfFile(path string) (time.Time, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return time.Time{}, ErrNoAuthFile
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if ts, parseErr := lastRefreshFrom(raw); parseErr == nil {
+		return ts, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime().UTC(), nil
+}
+
 func hasAnyClaudeToken(doc map[string]any) bool {
 	if k, _ := doc["api_key"].(string); strings.TrimSpace(k) != "" {
 		return true

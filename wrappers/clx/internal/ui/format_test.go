@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,11 +75,34 @@ func TestVisibleWidth(t *testing.T) {
 		{"", 0},
 		{"\033[31mred\033[0m", 3},
 		{"⚡", 2},
+		{"✓", 1},
+		{"⚠", 1},
+		{"⚠️", 2},
+		{"e\u0301", 1},
+		{"👨‍👩‍👧‍👦", 2},
 	}
 	for _, c := range cases {
 		if got := VisibleWidth(c.in); got != c.want {
 			t.Errorf("VisibleWidth(%q) = %d want %d", c.in, got, c.want)
 		}
+	}
+}
+
+func TestLocalePrecedenceAndBidiSanitization(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "en_US.UTF-8")
+	if looksUTF8() {
+		t.Fatal("LC_ALL=C must override a UTF-8 LANG")
+	}
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "C.UTF-8")
+	t.Setenv("LANG", "C")
+	if !looksUTF8() {
+		t.Fatal("LC_CTYPE=C.UTF-8 must override LANG=C")
+	}
+	if got := CleanInline("safe\u202eforged"); got != "safeforged" {
+		t.Fatalf("bidi control survived sanitization: %q", got)
 	}
 }
 
@@ -102,5 +126,25 @@ func TestProjectETA(t *testing.T) {
 	// If projection < 100 returns 0.
 	if got := ProjectETA(10, int64(5*3600), int64(4*3600)); got != 0 {
 		t.Errorf("ProjectETA(10,…) = %v want 0", got)
+	}
+}
+
+func TestFormatQuotaLineHonorsProjectionTone(t *testing.T) {
+	caps := Caps{
+		Palette:   Palette{Bold: "\x1b[1m", Dim: "\x1b[2m", Reset: "\x1b[0m", Green: "\x1b[32m", Orange: "\x1b[33m", Red: "\x1b[31m"},
+		BannerSym: BannerGlyphs{BarFill: "#", BarEmpty: "-"},
+	}
+	for _, tc := range []struct {
+		tone Tone
+		want string
+	}{
+		{tone: ToneDim, want: "\x1b[2mforecast\x1b[0m"},
+		{tone: ToneWarn, want: "\x1b[33m\x1b[1mforecast\x1b[0m"},
+		{tone: ToneFail, want: "\x1b[31m\x1b[1mforecast\x1b[0m"},
+	} {
+		line := formatQuotaLine(caps, QuotaRow{Label: "5h", Used: 20, Projection: "forecast", ProjectionTone: tc.tone}, 80)
+		if !strings.Contains(line, tc.want) {
+			t.Fatalf("projection tone %q not rendered: %q", tc.tone, line)
+		}
 	}
 }

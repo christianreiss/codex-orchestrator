@@ -6,9 +6,10 @@
 package ui
 
 import (
+	"io"
 	"os"
-	"regexp"
 	"strings"
+	"unicode"
 
 	"golang.org/x/term"
 )
@@ -79,19 +80,38 @@ type BannerGlyphs struct {
 // adminTheme is the hint baked into config (auto, auto-pink, light, dark,
 // bright-pink, dark-pink — anything else falls back to auto).
 func DetectCaps(adminTheme string) Caps {
+	return detectCaps(int(os.Stderr.Fd()), adminTheme)
+}
+
+// DetectCapsFor resolves capabilities for the stream that will actually be
+// rendered. This keeps `status >file` and tests from inheriting stderr's TTY
+// state while preserving DetectCaps for stderr-only progress paths.
+func DetectCapsFor(w io.Writer, adminTheme string) Caps {
+	if f, ok := w.(*os.File); ok {
+		return detectCaps(int(f.Fd()), adminTheme)
+	}
+	// A generic writer has no terminal descriptor. Treat it as redirected
+	// output instead of accidentally inheriting stderr's TTY state.
+	return detectCaps(-1, adminTheme)
+}
+
+func detectCaps(fd int, adminTheme string) Caps {
 	noColor := os.Getenv("NO_COLOR") != ""
 	termEnv := strings.ToLower(os.Getenv("TERM"))
 	dumb := termEnv == "dumb" || termEnv == ""
-	isTTY := term.IsTerminal(int(os.Stderr.Fd()))
+	isTTY := term.IsTerminal(fd)
 	utf8 := looksUTF8()
 	cols := 80
+	measuredWidth := false
 	if isTTY {
-		if w, _, err := term.GetSize(int(os.Stderr.Fd())); err == nil && w > 0 {
+		if w, _, err := term.GetSize(fd); err == nil && w > 0 {
 			cols = w
+			measuredWidth = true
 		}
 	}
-	if v := os.Getenv("COLUMNS"); v != "" {
-		// $COLUMNS overrides only when explicit.
+	if v := os.Getenv("COLUMNS"); v != "" && !measuredWidth {
+		// COLUMNS is a fallback for redirected/test writers. A measured PTY
+		// width always wins because shell metadata can be stale after resize.
 		if n := atoiSafe(v); n > 0 {
 			cols = n
 		}
@@ -155,12 +175,16 @@ func resolveTheme(hint string) Theme {
 func looksUTF8() bool {
 	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
 		v := strings.ToLower(os.Getenv(k))
-		if strings.Contains(v, "utf-8") || strings.Contains(v, "utf8") {
-			return true
+		if v != "" {
+			return strings.Contains(v, "utf-8") || strings.Contains(v, "utf8")
 		}
 	}
 	return false
 }
+
+// maxAtoiSafe bounds terminal-width overrides. Larger values are almost
+// certainly corrupt input and could otherwise drive huge allocations.
+const maxAtoiSafe = 1000
 
 func atoiSafe(s string) int {
 	n := 0
@@ -169,34 +193,76 @@ func atoiSafe(s string) int {
 			return 0
 		}
 		n = n*10 + int(c-'0')
+		if n > maxAtoiSafe {
+			return 0
+		}
 	}
 	return n
 }
 
-// ansiRE matches CSI/SGR sequences for visible-width math.
-var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-
-// StripANSI removes ANSI SGR sequences from s.
-func StripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+// StripANSI removes terminal escape sequences, including CSI colour/cursor
+// controls and OSC title/hyperlink payloads. Dynamic server values pass
+// through this before rendering, so an untrusted label cannot repaint the
+// terminal or forge another row.
+func StripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != 0x1b {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		i++
+		if i >= len(s) {
+			break
+		}
+		switch s[i] {
+		case '[': // CSI: parameters/intermediates followed by a final byte.
+			i++
+			for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
+				i++
+			}
+			if i < len(s) {
+				i++
+			}
+		case ']', 'P', 'X', '^', '_': // OSC/DCS/SOS/PM/APC until BEL or ST.
+			i++
+			for i < len(s) {
+				if s[i] == 0x07 {
+					i++
+					break
+				}
+				if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+					i += 2
+					break
+				}
+				i++
+			}
+		default:
+			// Two-byte escape or a character-set sequence with intermediate
+			// bytes. Consume the complete sequence, never its payload text.
+			for i < len(s) && s[i] >= 0x20 && s[i] <= 0x2f {
+				i++
+			}
+			if i < len(s) {
+				i++
+			}
+		}
+	}
+	return b.String()
+}
 
 // VisibleWidth approximates the printed column width of s, treating the
 // engine spark glyph and emoji-like wide glyphs as width 2 and ANSI as 0.
 func VisibleWidth(s string) int {
-	stripped := StripANSI(s)
-	w := 0
-	for _, r := range stripped {
-		switch {
-		case r == 0:
-			// nothing
-		case r < 0x20:
-			// control char — count as 0
-		case isWide(r):
-			w += 2
-		default:
-			w++
-		}
+	runes := []rune(StripANSI(s))
+	width := 0
+	for i := 0; i < len(runes); {
+		next, cells := nextCluster(runes, i)
+		width += cells
+		i = next
 	}
-	return w
+	return width
 }
 
 func isWide(r rune) bool {
@@ -221,11 +287,70 @@ func isWide(r rune) bool {
 	if r >= 0x1F300 && r <= 0x1FAFF {
 		return true
 	}
-	if r >= 0x2600 && r <= 0x27BF {
-		return true
-	}
 	return false
 }
+
+// nextCluster returns the next printable cluster boundary and its terminal
+// cell width. It covers combining marks, variation selectors, emoji modifiers,
+// regional-indicator flags, and ZWJ emoji sequences without pulling a large
+// Unicode dependency into the static wrappers.
+func nextCluster(runes []rune, start int) (int, int) {
+	if start >= len(runes) {
+		return start, 0
+	}
+	r := runes[start]
+	if isZeroWidthRune(r) || unicode.IsControl(r) {
+		return start + 1, 0
+	}
+	width := baseRuneWidth(r)
+	i := start + 1
+	if isRegionalIndicator(r) && i < len(runes) && isRegionalIndicator(runes[i]) {
+		return i + 1, 2
+	}
+	for i < len(runes) {
+		switch {
+		case isVariationSelector(runes[i]):
+			if runes[i] == 0xfe0f && width < 2 {
+				width = 2
+			}
+			i++
+		case isCombiningRune(runes[i]) || isEmojiModifier(runes[i]):
+			i++
+		case runes[i] == 0x200d && i+1 < len(runes):
+			// A ZWJ joins the next base into this same displayed glyph.
+			i += 2
+			if width < 2 {
+				width = 2
+			}
+		default:
+			return i, width
+		}
+	}
+	return i, width
+}
+
+func baseRuneWidth(r rune) int {
+	if r == '⚡' || isWide(r) || isRegionalIndicator(r) {
+		return 2
+	}
+	return 1
+}
+
+func isZeroWidthRune(r rune) bool {
+	return r == 0 || r == 0x200d || isCombiningRune(r) || isVariationSelector(r) || isEmojiModifier(r)
+}
+
+func isCombiningRune(r rune) bool {
+	return unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
+}
+
+func isVariationSelector(r rune) bool {
+	return (r >= 0xfe00 && r <= 0xfe0f) || (r >= 0xe0100 && r <= 0xe01ef)
+}
+
+func isEmojiModifier(r rune) bool { return r >= 0x1f3fb && r <= 0x1f3ff }
+
+func isRegionalIndicator(r rune) bool { return r >= 0x1f1e6 && r <= 0x1f1ff }
 
 // PadRight pads s with spaces on the right so its visible width reaches width.
 func PadRight(s string, width int) string {
