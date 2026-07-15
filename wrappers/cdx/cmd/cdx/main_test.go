@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
 )
 
 // TestIsHelpPassthrough covers the legacy contract from
@@ -88,6 +91,14 @@ func TestParseFlagsHelpShortCircuits(t *testing.T) {
 	}
 }
 
+func TestHelpExecArgvStripsWrapperMinimalBeforeSentinel(t *testing.T) {
+	got := helpExecArgv([]string{"--minimal", "exec", "--minimal-output", "--help", "--", "--minimal"})
+	want := []string{"exec", "--help", "--", "--minimal"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("helpExecArgv = %v, want %v", got, want)
+	}
+}
+
 func TestParseFlagsNonHelpStillParses(t *testing.T) {
 	f, pos, pass := parseFlags([]string{"--debug", "exec", "--", "--unknown"})
 	if f.helpPassthrough {
@@ -118,6 +129,69 @@ func TestWrapperHelpIsLocalAndNeedsNoConfig(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("wrapper help stderr = %q", stderr.String())
+	}
+}
+
+func TestExplicitMinimalForcesPortableHelpAndUpdateOutput(t *testing.T) {
+	rich := ui.Caps{
+		IsTTY:   true,
+		UTF8:    true,
+		Columns: 120,
+		Palette: ui.Palette{Bold: "\x1b[1m", Reset: "\x1b[0m", Cyan: "\x1b[96m", Green: "\x1b[32m", Red: "\x1b[31m"},
+	}
+	caps := commandCaps(rich, true)
+	if caps.IsTTY || !caps.NoColor || !caps.Dumb || caps.UTF8 || caps.Palette != (ui.Palette{}) {
+		t.Fatalf("minimal caps retained terminal features: %+v", caps)
+	}
+
+	var help bytes.Buffer
+	ui.PrintWrapperHelp(&help, caps)
+	assertPortableOutput(t, help.String())
+	if !strings.Contains(help.String(), "CDX WRAPPER HELP") || strings.ContainsAny(help.String(), "╭╮╰╯│") {
+		t.Fatalf("minimal help is not the plain renderer:\n%s", help.String())
+	}
+
+	updates := []string{
+		ui.UpdateProgress(caps, "cdx", "wrapper", "0.6.44", "0.6.45"),
+		ui.UpdateComplete(caps, "cdx", "wrapper", "0.6.45", false),
+		ui.UpdateFailure(caps, "cdx", "wrapper", "0.6.45", fmt.Errorf("checksum mismatch")),
+	}
+	for _, line := range updates {
+		assertPortableOutput(t, line)
+		if strings.ContainsAny(line, "↻✓✗→…") {
+			t.Fatalf("minimal update retained rich glyphs: %q", line)
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--minimal", "--wrapper-help", "--config", filepath.Join(t.TempDir(), "missing.json")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("minimal wrapper help exit = %d, stderr=%q", code, stderr.String())
+	}
+	assertPortableOutput(t, stdout.String())
+}
+
+func TestExecuteLifecycleOptionsPreserveMinimal(t *testing.T) {
+	got := executeLifecycleOptions(flags{minimal: true, allowConc: true})
+	if !got.Minimal || !got.SkipBoot || !got.Headless || !got.AllowConcurrentSync {
+		t.Fatalf("execute lifecycle options lost wrapper flags: %+v", got)
+	}
+}
+
+func TestPrintLifecycleErrorIsPortable(t *testing.T) {
+	var out bytes.Buffer
+	printLifecycleError(&out, "cdx run", fmt.Errorf("denied Ω\n\x1b[31mforged"))
+	assertPortableOutput(t, out.String())
+	if strings.Count(out.String(), "\n") != 1 {
+		t.Fatalf("dynamic error forged extra rows: %q", out.String())
+	}
+}
+
+func TestPrintBoundedPlainRedirectedUsesASCII(t *testing.T) {
+	t.Setenv("COLUMNS", "24")
+	var out bytes.Buffer
+	printBoundedPlain(&out, "cdx: "+strings.Repeat("long ", 20), false)
+	if ui.VisibleWidth(strings.TrimSuffix(out.String(), "\n")) > 24 || strings.Contains(out.String(), "…") || !strings.Contains(out.String(), "...") {
+		t.Fatalf("redirected bounded line is not portable: %q", out.String())
 	}
 }
 
@@ -275,6 +349,76 @@ func TestStatusWithUnreadableConfigIsBlocked(t *testing.T) {
 	}
 }
 
+func TestUnreadableConfigCommandsAreStructuredActionableAndSanitized(t *testing.T) {
+	t.Setenv("CODEX_WRAPPER_RESTART_DEPTH", "")
+	missing := filepath.Join(t.TempDir(), "missing\x1b]2;owned\a\nFORGED\x1b[31m.json")
+
+	t.Run("status", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"--minimal", "--status", "--config", missing}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("status exit = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"cdx | status=blocked", "health | config=fail", "config=unreadable", "cdx status"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("blocked status missing %q:\n%s", want, out)
+			}
+		}
+		assertPortableOutput(t, out)
+		if stderr.Len() != 0 {
+			t.Fatalf("blocked status stderr = %q", stderr.String())
+		}
+	})
+
+	t.Run("doctor", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"--minimal", "--doctor", "--config", missing}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("doctor exit = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		out := stdout.String()
+		for _, want := range []string{"CDX DOCTOR", "FAIL CONFIG", "GUIDANCE", "cdx doctor", "VERDICT", "FAIL RESULT"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("blocked doctor missing %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "DEPS") {
+			t.Fatalf("config-blocked doctor ran unrelated checks:\n%s", out)
+		}
+		assertPortableOutput(t, out)
+		if stderr.Len() != 0 {
+			t.Fatalf("blocked doctor stderr = %q", stderr.String())
+		}
+	})
+
+	t.Run("other command", func(t *testing.T) {
+		t.Setenv("COLUMNS", "39")
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"--minimal", "--config", missing}, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("run exit = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		if stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), "cdx: config unavailable: ") {
+			t.Fatalf("unexpected config failure: stdout=%q stderr=%q", stdout.String(), stderr.String())
+		}
+		assertPortableOutput(t, stderr.String())
+		if strings.Count(stderr.String(), "\n") != 1 {
+			t.Fatalf("config failure was not concise: %q", stderr.String())
+		}
+		if width := ui.VisibleWidth(strings.TrimSuffix(stderr.String(), "\n")); width > 39 {
+			t.Fatalf("config failure width = %d, want <= 39: %q", width, stderr.String())
+		}
+	})
+}
+
+func assertPortableOutput(t *testing.T, output string) {
+	t.Helper()
+	if strings.ContainsAny(output, "\x1b\a\r") || strings.Contains(output, "\nFORGED") {
+		t.Fatalf("output contains terminal/control injection: %q", output)
+	}
+}
+
 func TestExecuteDispatchPreservesTrailingArguments(t *testing.T) {
 	f, positional, passthrough := parseFlags([]string{"--execute", "hello", "tail", "--", "--json"})
 	sub, subArgs := resolveCommand(f, positional)
@@ -333,7 +477,7 @@ func TestInvalidCronActionsReachStrictDispatch(t *testing.T) {
 			}
 
 			var stdout, stderr bytes.Buffer
-			if code := cmdCron(context.Background(), nil, subArgs, &stdout, &stderr); code != 2 {
+			if code := cmdCron(context.Background(), nil, subArgs, &stdout, &stderr, true); code != 2 {
 				t.Fatalf("cmdCron exit = %d, want 2", code)
 			}
 			if got, want := stderr.String(), "cdx cron: unknown action: bogus\nusage: cdx cron [install|remove|run]\n"; got != want {
@@ -343,6 +487,53 @@ func TestInvalidCronActionsReachStrictDispatch(t *testing.T) {
 				t.Errorf("stdout = %q, want empty", stdout.String())
 			}
 		})
+	}
+}
+
+func TestFormatCronResultMinimalIsPortable(t *testing.T) {
+	line := formatCronResult(cron.Result{
+		WrapperVersion: "0.6.44",
+		WrapperTarget:  "0.6.45",
+		WrapperAction:  "updated",
+	}, true)
+	assertPortableOutput(t, line)
+	if !strings.Contains(line, "0.6.44 -> 0.6.45") || strings.Contains(line, "→") {
+		t.Fatalf("minimal cron result = %q", line)
+	}
+}
+
+func TestCronResultOutputSanitizesAndBoundsDynamicVersions(t *testing.T) {
+	t.Setenv("COLUMNS", "39")
+	line := formatCronResult(cron.Result{
+		WrapperVersion: "0.6.44\n\x1b[31mFORGED",
+		CodexVersion:   strings.Repeat("Ωlong", 20),
+		Reported:       true,
+	}, true)
+	var out bytes.Buffer
+	printBoundedPlain(&out, line, true)
+	assertPortableOutput(t, out.String())
+	if strings.Count(out.String(), "\n") != 1 {
+		t.Fatalf("cron result forged extra rows: %q", out.String())
+	}
+	if strings.Contains(out.String(), "Ω") {
+		t.Fatalf("cron result is not portable ASCII: %q", out.String())
+	}
+	if width := ui.VisibleWidth(strings.TrimSuffix(out.String(), "\n")); width > 39 {
+		t.Fatalf("cron result width = %d, want <= 39: %q", width, out.String())
+	}
+}
+
+func TestCronUnknownActionSanitizesAndBoundsInput(t *testing.T) {
+	t.Setenv("COLUMNS", "39")
+	var stdout, stderr bytes.Buffer
+	action := "bad\n\x1b[31mFORGED" + strings.Repeat("Ω", 40)
+	if code := cmdCron(context.Background(), nil, []string{action}, &stdout, &stderr, true); code != 2 {
+		t.Fatalf("cmdCron exit = %d, want 2", code)
+	}
+	assertPortableOutput(t, stderr.String())
+	lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
+	if len(lines) != 2 || ui.VisibleWidth(lines[0]) > 39 {
+		t.Fatalf("unexpected bounded cron error: %q", stderr.String())
 	}
 }
 

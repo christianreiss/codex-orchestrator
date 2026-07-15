@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -185,8 +186,9 @@ func TestApplyManagedSettingsLeavesUnparseableFileUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs := &orchestrator.ClaudeSettings{Partial: json.RawMessage(`{"model":"sonnet"}`), OwnedPaths: []string{"model"}}
-	if applyManagedSettings(cs, slog.Default()) {
-		t.Fatal("must report no change when refusing to merge")
+	changed, err := applyManagedSettingsResult(cs, slog.Default())
+	if changed || err == nil {
+		t.Fatalf("refused merge = (%t, %v), want unchanged warning", changed, err)
 	}
 	if !bytesEqual(readFile(t, settingsFile), original) {
 		t.Fatal("unparseable user settings.json MUST be left byte-identical")
@@ -240,6 +242,39 @@ func TestApplyAndStripManagedSettings(t *testing.T) {
 	}
 	if m2["theme"] != "solarized" {
 		t.Error("strip must keep the user key")
+	}
+}
+
+func TestStripManagedSettingsRetriesFailedMirrorWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	cs := &orchestrator.ClaudeSettings{
+		Status:     "updated",
+		Partial:    json.RawMessage(`{"model":"sonnet"}`),
+		OwnedPaths: []string{"model"},
+	}
+	if !applyManagedSettings(cs, logger) {
+		t.Fatal("managed settings were not applied")
+	}
+	mirror := filepath.Join(home, ".clx", "config", "settings.json")
+	err := stripManagedSettingsWith(logger, func(path string, body []byte, mode os.FileMode) error {
+		if path == mirror {
+			return errors.New("mirror busy")
+		}
+		return atomicWrite(path, body, mode)
+	})
+	if err == nil || len(loadManagedState().KeyPaths) == 0 {
+		t.Fatalf("failed strip cleared retry state: err=%v state=%+v", err, loadManagedState())
+	}
+	if _, ok := parseObj(t, readFile(t, mirror))["model"]; !ok {
+		t.Fatal("injected mirror failure did not preserve stale managed key")
+	}
+	if err := stripManagedSettings(logger); err != nil {
+		t.Fatalf("retry strip: %v", err)
+	}
+	if _, ok := parseObj(t, readFile(t, mirror))["model"]; ok || len(loadManagedState().KeyPaths) != 0 {
+		t.Fatalf("retry did not strip mirror/state: state=%+v", loadManagedState())
 	}
 }
 

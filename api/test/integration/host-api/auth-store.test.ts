@@ -4,6 +4,7 @@ import { createDbFake } from '../../helpers/db-fake.js';
 import {
   authEntries,
   authPayloads,
+  chatgptUsageSnapshots,
   hostAuthDigests,
   hostAuthStates,
   hosts as hostsTable,
@@ -86,6 +87,7 @@ function seedDb(apiKey: string) {
   db.tables.set(hostAuthDigests, []);
   db.tables.set(hostAuthStates, []);
   db.tables.set(logsTable, []);
+  db.tables.set(chatgptUsageSnapshots, []);
   return db;
 }
 
@@ -198,6 +200,93 @@ describe('POST /auth command=store', () => {
       message: 'Auth runner unavailable; canonical store is gated',
     });
     expect(db.tables.get(authPayloads)!).toHaveLength(0);
+    await app.close();
+  });
+});
+
+describe('POST /auth command=retrieve quota lane shaping', () => {
+  it('reports unavailable telemetry when no snapshot exists', async () => {
+    const apiKey = 'sk-retrieve-no-quota';
+    const db = seedDb(apiKey);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ command: 'retrieve', engine: 'codex' }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload).chatgpt).toMatchObject({
+      status: 'unavailable',
+      active_quota_lane: 'normal',
+    });
+    await app.close();
+  });
+
+  it('reports unavailable telemetry when the snapshot read fails', async () => {
+    const apiKey = 'sk-retrieve-quota-read-fail';
+    const db = seedDb(apiKey);
+    const originalSelect = db.select.bind(db);
+    db.select = ((fields?: unknown) => {
+      const query = originalSelect(fields) as { from(table: unknown): unknown };
+      return {
+        from(table: unknown) {
+          if (table === chatgptUsageSnapshots) throw new Error('snapshot read failed');
+          return query.from(table);
+        },
+      };
+    }) as typeof db.select;
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ command: 'retrieve', engine: 'codex' }),
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload).chatgpt).toMatchObject({
+      status: 'unavailable',
+      active_quota_lane: 'normal',
+    });
+    await app.close();
+  });
+
+  it('reports the requesting host Spark preference as the active quota lane', async () => {
+    const apiKey = 'sk-retrieve-spark-lane';
+    const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [hostRow(apiKey, { lanePreference: 'spark' })]);
+    db.tables.set(chatgptUsageSnapshots, [
+      {
+        id: 1,
+        hostId: null,
+        status: 'ok',
+        planType: 'pro',
+        rateAllowed: 1,
+        rateLimitReached: 0,
+        primaryUsedPercent: 10,
+        primaryLimitSeconds: 18_000,
+        primaryResetAfterSeconds: 9_000,
+        sparkRateAllowed: 1,
+        sparkRateLimitReached: 0,
+        sparkPrimaryUsedPercent: 20,
+        sparkPrimaryLimitSeconds: 18_000,
+        sparkPrimaryResetAfterSeconds: 8_000,
+        fetchedAt: '2026-07-15T12:00:00Z',
+        nextEligibleAt: '2026-07-15T12:05:00Z',
+        createdAt: '2026-07-15T12:00:00Z',
+      },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ command: 'retrieve', engine: 'codex' }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload).chatgpt.active_quota_lane).toBe('spark');
     await app.close();
   });
 });

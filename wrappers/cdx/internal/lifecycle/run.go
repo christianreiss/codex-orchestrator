@@ -43,7 +43,7 @@ type Options struct {
 	// boot banner on an otherwise-interactive `cdx run`.
 	Headless bool
 	// AllowConcurrentSync honors the explicit escape hatch: when the run lock
-	// is held, continue with normal sync writes instead of read-only fallback.
+	// is held, continue with normal sync writes instead of pausing managed writes.
 	AllowConcurrentSync bool
 	Logger              *slog.Logger
 	WrapperVersion      string
@@ -60,6 +60,25 @@ var localProbe = orchestrator.LocalAuthProbe{
 var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
 var errAuthRecoveryNonInteractive = errors.New("Codex authentication refresh requires an interactive terminal")
 
+type presentedError struct{ err error }
+
+func (e *presentedError) Error() string { return e.err.Error() }
+func (e *presentedError) Unwrap() error { return e.err }
+
+// ErrorWasPresented tells the command dispatcher that the responsive card
+// already rendered this failure and a second raw line would be duplicate noise.
+func ErrorWasPresented(err error) bool {
+	var target *presentedError
+	return errors.As(err, &target)
+}
+
+func markPresented(err error, opts Options) error {
+	if err != nil && !opts.SkipBoot {
+		return &presentedError{err: err}
+	}
+	return err
+}
+
 // Run executes one full Codex session and returns the upstream exit code.
 func Run(ctx context.Context, opts Options) (int, error) {
 	cfg := opts.Config
@@ -69,7 +88,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	}
 
 	// Concurrent-instance detection. If another instance holds the lock we
-	// fall back to a read-only mode so the boot screen still shows fresh quota.
+	// pause managed writes while still checking auth freshness and quota.
 	concurrent := false
 	lock, err := ipc.Acquire("cdx")
 	if err != nil {
@@ -77,10 +96,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			fmt.Fprintln(os.Stderr, "cdx: another session is active — concurrent sync explicitly enabled")
+			fmt.Fprintln(os.Stderr, "cdx: another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			fmt.Fprintln(os.Stderr, "cdx: another session is active — using read-only mode")
+			fmt.Fprintln(os.Stderr, "cdx: another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -92,7 +111,6 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// PreExec keeps a second copy as defense-in-depth. Honors
 	// CODEX_ALLOW_FQDN_MISMATCH=1.
 	if err := codex.GuardFQDN(cfg); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		return 1, err
 	}
 
@@ -112,16 +130,15 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		authResp      *orchestrator.AuthRetrieveResponse
 		authErr       error
 		authSynced    bool
-		agentsUpdated bool
-		configUpdated bool
-		skillsUpdated bool
-		codexUpdated  string
+		agentsSync    summary.ResourceSync
+		configSync    summary.ResourceSync
+		skillsSync    summary.ResourceSync
 		fleetSessions *orchestrator.FleetSessions
 		dec           orchestrator.AuthDecision
 	)
 
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 		dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 
 		// Insecure-host approval polling — block here until status flips or
@@ -132,12 +149,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
 			} else {
 				logger.Warn("auth status insecure; opening approval-pending box")
-				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
+				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second, opts.Minimal)
 				if perr != nil && !errors.Is(perr, context.Canceled) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
 			}
@@ -152,7 +169,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 					authCandidateErr = err
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
-					authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
 			} else if rerr != nil {
@@ -170,18 +187,18 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		case authRecoveryFailClosed:
 			// Non-interactive callers (cron, --execute) must not open a
 			// `codex login` prompt — fail closed with the underlying reason.
-			reason := recoveryReason(dec, authCandidateErr)
+			reason := safeLifecycleText(recoveryReason(dec, authCandidateErr), opts.Minimal)
 			logger.Warn("Codex auth recovery needed but caller is headless; failing closed", "reason", reason)
 			dec.Allowed = false
 			dec.Reason = reason
 		case authRecoveryInteractive:
-			reason := recoveryReason(dec, authCandidateErr)
+			reason := safeLifecycleText(recoveryReason(dec, authCandidateErr), opts.Minimal)
 			if err := recoverCodexAuth(ctx, cfg, client, reason); err != nil {
 				logger.Warn("interactive Codex auth recovery failed", "err", err)
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsUpdated, configUpdated, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
+				authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 			}
 		}
@@ -189,10 +206,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// PR-2: keep the local Codex CLI within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
-			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
-			codexUpdated = maybeEnsureCodex(ctx, cfg, authResp, concurrent, logger)
+			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
+			maybeEnsureCodex(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
 			if !concurrent {
-				peer.Reconcile(ctx, cfg, authResp, logger)
+				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
 			}
 		}
 
@@ -201,13 +218,14 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// purge bash-era on-disk caches once per wrapper version so they
 		// don't shadow MCP resolution. Both are best-effort.
 		if !concurrent {
-			skillsUpdated = syncSkills(ctx, client, logger)
-			pruneLegacySkillDirs(wrapperVersion(cfg), logger)
+			skillsSync = syncSkills(ctx, client, logger)
+			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		}
 	}
 
-	// Concurrent (read-only) secondary run: this process never re-synced auth,
-	// so launch is gated on the existing local auth.json being usable. Applied
+	// Concurrent managed-sync-paused run: managed resource/update writes were
+	// skipped, but auth freshness may have replaced the local file. Gate launch
+	// on the current on-disk auth.json being usable. Applied
 	// as the final verdict (before the boot screen renders it) so it can only
 	// downgrade an allow to a refusal, never override a server-side hard stop.
 	if concurrent {
@@ -224,10 +242,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		AuthErr:        authErr,
 		Concurrent:     concurrent,
 		ConcurrentNote: concurrentNote(concurrent, dec),
-		SkillsUpdated:  skillsUpdated,
-		AgentsUpdated:  agentsUpdated,
-		ConfigUpdated:  configUpdated,
+		SkillsSync:     skillsSync,
+		ConfigSync:     combineResourceSync(agentsSync, configSync),
 		AuthSynced:     authSynced,
+		LaunchArgs:     opts.ExtraArgs,
 		Sessions:       buildSessionCounts(fleetSessions),
 	})
 	if !dec.Allowed && dec.Reason != "" {
@@ -241,8 +259,8 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 		state.ResultTone = ui.ToneWarn
 		markOfflineHealth(state.Dots)
-	} else if dec.Allowed && concurrent {
-		state.ResultLabel = "Ready in read-only mode; local credentials are valid."
+	} else if dec.Allowed && concurrent && state.ResultTone != ui.ToneFail {
+		state.ResultLabel = "Managed content sync paused; auth freshness remains active."
 		state.ResultTone = ui.ToneWarn
 	}
 	printBoot := func() {
@@ -263,7 +281,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	// Refuse launch on auth decision.
 	if !opts.SkipAuthSync && !dec.Allowed {
 		printBoot()
-		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
+		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
 	}
 
 	// Block launch if hard-fail quota — unless the operator sets the documented
@@ -278,7 +296,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			state.ResultLabel = state.QuotaBlock
 			state.ResultTone = ui.ToneFail
 			printBoot()
-			return 1, fmt.Errorf("launch refused: %s", state.QuotaBlock)
+			return 1, markPresented(fmt.Errorf("launch refused: %s", state.QuotaBlock), opts)
 		}
 	}
 
@@ -287,7 +305,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		state.ResultLabel = err.Error()
 		state.ResultTone = ui.ToneFail
 		printBoot()
-		return 1, err
+		return 1, markPresented(err, opts)
 	}
 	defer teardown()
 
@@ -297,7 +315,8 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	beforeHash, beforeRefresh := snapshotAuth(authPath)
 
 	started := time.Now()
-	exitCode, _, runErr := codex.RunCapturePrepared(ctx, cfg, opts.ExtraArgs)
+	launchArgs := launchArgsForAuth(opts.ExtraArgs, authResp)
+	exitCode, _, runErr := codex.RunCapturePrepared(ctx, cfg, launchArgs)
 	duration := time.Since(started)
 
 	// Post-exec auth upload (best-effort, 5s budget). A `codex login` mid-run
@@ -318,29 +337,46 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			AuthStatus:    authStatus,
 			AuthTone:      authTone,
 			EngineName:    "codex",
-			EngineVersion: codexUpdated,
+			EngineVersion: codex.Version(ctx),
 		})
 	}
 
 	return exitCode, runErr
 }
 
+func launchArgsForAuth(args []string, auth *orchestrator.AuthRetrieveResponse) []string {
+	if auth == nil || auth.Host == nil || strings.EqualFold(strings.TrimSpace(auth.Status), "offline") || strings.EqualFold(strings.TrimSpace(auth.Status), "error") {
+		return args
+	}
+	preference := strings.ToLower(strings.TrimSpace(auth.Host.LanePreference))
+	if codex.LaneModel(preference) == "" {
+		return args
+	}
+	return codex.ApplyLanePreference(args, preference)
+}
+
+func safeLifecycleText(value string, portable bool) string {
+	if portable {
+		return ui.PlainInline(value)
+	}
+	return ui.CleanInline(value)
+}
+
 func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 	if minimal {
-		caps.IsTTY = false
-		caps.Palette = ui.Palette{}
+		return ui.MinimalCaps(caps)
 	}
 	return caps
 }
 
 // bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
 // per-resource pulls. Returns the same tuple regardless of which path ran.
-// The last value carries the fleet-session counts when the bundle path was
+// The last value carries the fleet activity counters when the bundle path was
 // taken (nil on the legacy path or when the server didn't supply them).
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string,
-) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool, *orchestrator.FleetSessions) {
+) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	digest, _ := codex.LocalDigest()
 
 	agentsFile, agentsPathErr := agentsPath()
@@ -395,11 +431,11 @@ func bootstrap(
 		// map it to the auth status so the launch gate polls for approval
 		// instead of falling through to the offline branch.
 		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
-			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, false, false, nil
+			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		// Treat network/server failure as "offline" for Decide().
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
-		return offline, berr, false, false, false, nil
+		return offline, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 
 	// Apply bundle outputs.
@@ -416,65 +452,84 @@ func bootstrap(
 		if raw, rerr := codex.ReadAuth(); rerr == nil && len(raw) > 0 {
 			if perr := pushAuthCandidate(ctx, client, raw); perr != nil {
 				logger.Warn("fresher local auth upload rejected", "err", perr)
-				fmt.Fprintln(os.Stderr, "cdx: orchestrator did not accept the newer local credentials: "+perr.Error())
+				fmt.Fprintln(os.Stderr, ui.PlainInline("cdx: orchestrator did not accept the newer local credentials: "+perr.Error()))
 			} else {
 				fmt.Fprintln(os.Stderr, "cdx: newer local credentials uploaded to the orchestrator")
 			}
 		}
 	}
 
-	agentsUpdated := false
-	configUpdated := false
+	agentsSync := summary.ResourceSync{}
+	configSync := summary.ResourceSync{}
 	if !concurrent {
-		if agentsPathErr == nil && len(resp.Agents) > 0 {
+		agentsSync.Checked = true
+		agentsSync.Err = agentsPathErr
+		if agentsSync.Err == nil && len(resp.Agents) > 0 {
 			if err := atomicWrite(agentsFile, resp.Agents, 0o644); err != nil {
 				logger.Debug("bundle agents write failed", "err", err)
+				agentsSync.Err = err
 			} else {
-				agentsUpdated = true
+				agentsSync.Updated = true
 			}
 		}
-		if configPathErr == nil && len(resp.Config) > 0 {
+		configSync.Checked = true
+		configSync.Err = configPathErr
+		if configSync.Err == nil && len(resp.Config) > 0 {
 			if err := atomicWrite(configFile, resp.Config, 0o644); err != nil {
 				logger.Debug("bundle config write failed", "err", err)
+				configSync.Err = err
 			} else {
-				configUpdated = true
+				configSync.Updated = true
 			}
 		}
 	}
-	return authResp, nil, authSynced, agentsUpdated, configUpdated, resp.Sessions
+	return authResp, nil, authSynced, agentsSync, configSync, resp.Sessions
 }
 
 // legacySyncPath runs the per-resource sync (auth + agents + config) when the
 // server is too old for /sync/bootstrap.
-func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
 	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
 
-	var agents, conf bool
+	var agents, conf summary.ResourceSync
 	if !concurrent {
+		agents.Checked = true
+		conf.Checked = true
 		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			u, err := writeAgents(syncCtx, client)
-			if err != nil {
-				logger.Debug("agents sync skipped", "err", err)
+			agents.Updated, agents.Err = writeAgents(syncCtx, client)
+			if agents.Err != nil {
+				logger.Debug("agents sync skipped", "err", agents.Err)
 			}
-			agents = u
 		}()
 		go func() {
 			defer wg.Done()
-			u, err := writeConfigToml(syncCtx, client)
-			if err != nil {
-				logger.Debug("config sync skipped", "err", err)
+			conf.Updated, conf.Err = writeConfigToml(syncCtx, client)
+			if conf.Err != nil {
+				logger.Debug("config sync skipped", "err", conf.Err)
 			}
-			conf = u
 		}()
 		wg.Wait()
 	}
 	_ = authPath
 	return authResp, authErr, authSynced, agents, conf
+}
+
+func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
+	if len(states) == 0 {
+		return summary.ResourceSync{}
+	}
+	combined := summary.ResourceSync{Checked: true}
+	for _, state := range states {
+		combined.Checked = combined.Checked && state.Checked
+		combined.Updated = combined.Updated || state.Updated
+		combined.Err = errors.Join(combined.Err, state.Err)
+	}
+	return combined
 }
 
 // isBundleUnsupported returns true when the error looks like a 404/501 from
@@ -519,7 +574,7 @@ const (
 	authRecoveryFailClosed                            // headless: refuse, no prompt
 )
 
-// decideAuthRecovery encodes the launch-gate rule: a concurrent (read-only) run
+// decideAuthRecovery encodes the launch-gate rule: a concurrent sync-paused run
 // never recovers; a non-interactive run (cron, --execute → headless) fails
 // closed rather than opening a login prompt; an interactive run offers
 // `codex login`. Kept pure so the policy is unit-testable without the full
@@ -698,7 +753,7 @@ func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.Au
 	if localAuthFresherThan(authPath, resp.Auth) {
 		logger.Warn("local auth.json is newer than server canonical; refusing to overwrite",
 			"canonical_last_refresh", resp.CanonicalLastRefresh)
-		fmt.Fprintln(os.Stderr, "cdx: local auth.json is newer than the fleet canonical — keeping the local copy")
+		fmt.Fprintln(os.Stderr, "cdx: local auth.json is newer than the fleet canonical; keeping the local copy")
 		return false, true
 	}
 	if err := codex.WriteAuth(resp.Auth); err != nil {
@@ -742,7 +797,10 @@ func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error)
 	if len(body) == 0 {
 		return false, nil
 	}
-	return true, atomicWrite(dst, body, 0o644)
+	if err := atomicWrite(dst, body, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, error) {
@@ -758,7 +816,10 @@ func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, er
 	if len(body) == 0 {
 		return false, nil
 	}
-	return true, atomicWrite(dst, body, 0o644)
+	if err := atomicWrite(dst, body, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func agentsPath() (string, error) {
@@ -879,15 +940,14 @@ func markOfflineHealth(dots []ui.HealthDot) {
 }
 
 // concurrentNote picks the right "Concurrent" row text for the boot screen.
-// Empty string means PrintConcurrentRow uses its own default
-// ("Using local auth.json."); we override only when local auth is unusable so
-// the operator sees why a second run would block.
+// The note makes clear that only managed writes are paused; credential
+// freshness is still checked before launch.
 func concurrentNote(concurrent bool, dec orchestrator.AuthDecision) string {
 	if !concurrent {
 		return ""
 	}
 	if dec.LocalUsable {
-		return "Using local auth.json."
+		return "Managed content sync paused; auth freshness remains active."
 	}
 	if !dec.Allowed {
 		return "Local auth.json is missing or invalid."
@@ -919,6 +979,14 @@ func themeFromConfig(cfg *config.Config) string {
 	return *cfg.EngineOptions.AdminThemeHint
 }
 
+func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
+}
+
 // maybeEnsureCodex repairs the local Codex CLI when the orchestrator says
 // auto-update is enabled, a target version is known, and the local CLI
 // version differs from that target. Failures are logged but never blocking
@@ -926,12 +994,12 @@ func themeFromConfig(cfg *config.Config) string {
 // not prevent the user from running Codex.
 //
 // Returns the post-install version when an install actually ran successfully,
-// empty string otherwise (no-op cases + failures). The caller includes it in
-// the measured exit footer.
+// empty string otherwise (no-op cases + failures). The lifecycle independently
+// re-measures the installed version for the exit footer.
 //
-// This is a no-op in concurrent (read-only) mode, when auth retrieval
+// This is a no-op when concurrent managed sync is paused, when auth retrieval
 // failed, or when AutoUpdateEnabled is false.
-func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
+func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent, minimal bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -964,7 +1032,7 @@ func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrato
 	// downloads from GitHub. Surface a single human-readable progress line
 	// on stderr so the user knows what's happening — the structured-log
 	// emissions inside the installer are at Debug now.
-	caps := ui.DetectCaps(themeFromConfig(cfg))
+	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "codex", current, target))
 	if err := codex.EnsureCodex(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
 		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
@@ -979,7 +1047,7 @@ func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrato
 	return post
 }
 
-func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent bool, logger *slog.Logger) {
+func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent, minimal bool, logger *slog.Logger) {
 	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
 		return
 	}
@@ -1003,7 +1071,7 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
 		return
 	}
-	caps := ui.DetectCaps(themeFromConfig(cfg))
+	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "wrapper", current, target))
 	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
 	if err != nil {

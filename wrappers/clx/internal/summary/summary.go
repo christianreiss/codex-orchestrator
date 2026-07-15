@@ -19,9 +19,8 @@ type Inputs struct {
 	AuthErr        error
 	Concurrent     bool
 	ConcurrentNote string // override text for the "concurrent" boot-screen row
-	SkillsUpdated  bool
-	AgentsUpdated  bool
-	ConfigUpdated  bool
+	SkillsSync     ResourceSync
+	ConfigSync     ResourceSync
 	AuthSynced     bool
 	// StatusOnly suppresses resource-sync markers because `clx status` probes
 	// /auth only and must not present unprobed skills/config as healthy.
@@ -29,6 +28,23 @@ type Inputs struct {
 	// BypassPermissions mirrors --dangerously-skip-permissions for this run;
 	// lights the boot-screen warning badge only, never persisted.
 	BypassPermissions bool
+	// Sessions is nil when the server omitted its historical activity block.
+	Sessions *SessionCounts
+}
+
+// ResourceSync is the per-run outcome for one boot-screen resource marker.
+// Err is advisory: resource sync remains best-effort and never blocks launch.
+type ResourceSync struct {
+	Checked bool
+	Updated bool
+	Err     error
+}
+
+type SessionCounts struct {
+	LocalNow int64
+	FleetNow int64
+	Today    int64
+	Month    int64
 }
 
 func Build(ctx context.Context, in Inputs) ui.ScreenInput {
@@ -64,13 +80,22 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	if cfg != nil {
 		fqdn = cfg.Host.FQDN
 		if cfg.EngineOptions.ClaudeModelOverride != nil {
-			model = *cfg.EngineOptions.ClaudeModelOverride
+			model = strings.TrimSpace(*cfg.EngineOptions.ClaudeModelOverride)
 		}
+	}
+	// BuildEnv preserves an inherited ANTHROPIC_MODEL unless the signed config
+	// supplies an override. Reflect that runtime precedence before considering
+	// server/settings fallbacks so the card names the model Claude will run.
+	if model == "" {
+		model = inheritedClaudeModel()
 	}
 
 	var apiCalls int64
 	var dots []ui.HealthDot
 	result := "Ready — all systems operational."
+	if in.StatusOnly {
+		result = "API and auth checks passed."
+	}
 	resultTone := ui.ToneOK
 
 	if auth != nil {
@@ -78,7 +103,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			insecure = !auth.Host.Secure
 			apiCalls = auth.Host.APICalls
 			if model == "" {
-				model = auth.Host.ClaudeModelOverride
+				model = strings.TrimSpace(auth.Host.ClaudeModelOverride)
 			}
 			if strings.TrimSpace(auth.Host.ReasoningEffort) != "" {
 				effort = strings.TrimSpace(auth.Host.ReasoningEffort)
@@ -106,6 +131,15 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		result = "API unreachable; run `clx doctor`."
 		resultTone = ui.ToneFail
 	}
+	if strings.TrimSpace(model) == "" || strings.TrimSpace(effort) == "" {
+		localModel, localEffort := localClaudePreferences()
+		if strings.TrimSpace(model) == "" {
+			model = localModel
+		}
+		if strings.TrimSpace(effort) == "" {
+			effort = localEffort
+		}
+	}
 
 	if in.AuthErr != nil {
 		result = fmt.Sprintf("Sync failed: %s.", in.AuthErr.Error())
@@ -116,6 +150,10 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		} else {
 			result = "Ready on insecure host."
 		}
+		resultTone = ui.ToneWarn
+	}
+	if resourceSyncWarning(in) && resultTone == ui.ToneOK {
+		result = "Attention — resource sync incomplete; launch continuing."
 		resultTone = ui.ToneWarn
 	}
 	worst := worstTone(dots, claudeTone, wrapperTone)
@@ -156,10 +194,23 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		Concurrent:        in.Concurrent,
 		ConcurrentNote:    in.ConcurrentNote,
 		Dots:              dots,
+		SessionRows:       sessionRows(in.Sessions),
 		ResultLabel:       result,
 		ResultTone:        resultTone,
 		Theme:             theme,
 		BypassPermissions: in.BypassPermissions,
+	}
+}
+
+func sessionRows(s *SessionCounts) []ui.SessionRow {
+	if s == nil {
+		return nil
+	}
+	return []ui.SessionRow{
+		{Label: "local procs", Count: s.LocalNow},
+		{Label: "hosts 30m", Count: s.FleetNow},
+		{Label: "syncs UTC day", Count: s.Today},
+		{Label: "syncs UTC month", Count: s.Month},
 	}
 }
 
@@ -234,8 +285,8 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 	}
 	if !in.StatusOnly {
 		dots = append(dots,
-			ui.HealthDot{Name: "skills", Tone: ui.ToneOK, Updated: in.SkillsUpdated},
-			ui.HealthDot{Name: "config", Tone: ui.ToneOK, Updated: in.ConfigUpdated || in.AgentsUpdated},
+			ui.HealthDot{Name: "skills", Tone: resourceTone(in.SkillsSync), Updated: resourceUpdated(in.SkillsSync)},
+			ui.HealthDot{Name: "config", Tone: resourceTone(in.ConfigSync), Updated: resourceUpdated(in.ConfigSync)},
 		)
 	}
 	// Runner health dot: the server reports the credential-runner state for this
@@ -249,13 +300,33 @@ func buildDots(auth *orchestrator.AuthRetrieveResponse, in Inputs) []ui.HealthDo
 		case "stale":
 			rt = ui.ToneWarn
 		case "fail", "broken", "":
-			rt = ui.ToneFail
+			// Runner failure blocks new canonical stores, not retrieve/launch.
+			// Show attention without falsely declaring this run blocked.
+			rt = ui.ToneWarn
 		default:
 			rt = ui.ToneWarn
 		}
 		dots = append(dots, ui.HealthDot{Name: "runner", Tone: rt})
 	}
 	return dots
+}
+
+func resourceTone(state ResourceSync) ui.Tone {
+	if state.Err != nil {
+		return ui.ToneWarn
+	}
+	if !state.Checked {
+		return ui.ToneDim
+	}
+	return ui.ToneOK
+}
+
+func resourceUpdated(state ResourceSync) bool {
+	return state.Checked && state.Err == nil && state.Updated
+}
+
+func resourceSyncWarning(in Inputs) bool {
+	return in.SkillsSync.Err != nil || in.ConfigSync.Err != nil
 }
 
 func worstTone(dots []ui.HealthDot, extra ...ui.Tone) ui.Tone {

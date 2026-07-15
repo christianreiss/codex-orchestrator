@@ -56,7 +56,7 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 
 func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	if !caps.IsTTY || caps.Dumb || caps.Columns < minRichColumns || os.Getenv("CDX_SKIP_BANNER") == "1" {
-		PrintMinimalScreen(w, in)
+		printMinimalScreen(w, in, caps)
 		return
 	}
 
@@ -74,7 +74,7 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	brand := accent + "CDX" + reset + "  " + caps.Palette.Bold + "CODEX ORCHESTRATOR" + reset
 	outcome := strings.ToUpper(toneWord(resultTone))
 	if in.Concurrent && resultTone != ToneFail {
-		outcome = "READ ONLY"
+		outcome = "SYNC PAUSED"
 	}
 	outcome = styleTone(caps, resultTone, outcome)
 
@@ -97,23 +97,24 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 		c.line(line)
 	}
 	if in.Concurrent {
-		renderToneText(c, ToneWarn, strOr(in.ConcurrentNote, "Using local state; sync writes are paused."))
-	} else {
-		health := make([]string, 0, len(in.Dots))
-		for _, dot := range in.Dots {
-			if dot.Name != "" {
-				health = append(health, buildDot(caps, dot))
-			}
+		renderToneText(c, ToneWarn, strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active."))
+	}
+	health := make([]string, 0, len(in.Dots))
+	for _, dot := range in.Dots {
+		if dot.Name != "" {
+			health = append(health, buildDot(caps, dot))
 		}
-		for _, line := range packPieces(health, c.inner, 3) {
-			c.line(line)
-		}
+	}
+	for _, line := range packPieces(health, c.inner, 3) {
+		c.line(line)
 	}
 
 	if len(in.QuotaRows) > 0 || in.QuotaWarn != "" || in.QuotaBlock != "" {
 		c.divider("quota")
 		for _, row := range in.QuotaRows {
-			c.line(formatQuotaLine(caps, row, c.inner))
+			for _, line := range formatQuotaLines(caps, row, c.inner) {
+				c.line(line)
+			}
 		}
 		if in.QuotaWarn != "" {
 			renderToneText(c, ToneWarn, in.QuotaWarn)
@@ -124,7 +125,7 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	}
 
 	if len(in.SessionRows) > 0 {
-		c.divider("sessions")
+		c.divider("activity")
 		pieces := make([]string, 0, len(in.SessionRows))
 		for _, row := range in.SessionRows {
 			pieces = append(pieces,
@@ -137,7 +138,7 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	}
 
 	c.divider("")
-	renderToneText(c, resultTone, in.ResultLabel)
+	renderToneTextLimited(c, resultTone, in.ResultLabel, 3)
 	c.bottom()
 }
 
@@ -155,11 +156,14 @@ func renderContext(in ScreenInput) []string {
 		parts = append(parts, CleanInline(in.Lane)+" lane")
 	}
 	model := CleanInline(in.Model)
-	if effort := CleanInline(in.Effort); model != "" && effort != "" {
+	effort := CleanInline(in.Effort)
+	if model != "" && effort != "" {
 		model += "/" + effort
 	}
 	if model != "" {
 		parts = append(parts, model)
+	} else if effort != "" {
+		parts = append(parts, "effort "+effort)
 	}
 	if in.BrowserOS {
 		parts = append(parts, "BrowserOS")
@@ -188,6 +192,10 @@ func versionPiece(caps Caps, label, current, target string, tone Tone) string {
 }
 
 func renderToneText(c card, tone Tone, text string) {
+	renderToneTextLimited(c, tone, text, 0)
+}
+
+func renderToneTextLimited(c card, tone Tone, text string, maxLines int) {
 	text = CleanInline(text)
 	if text == "" {
 		return
@@ -198,7 +206,7 @@ func renderToneText(c card, tone Tone, text string) {
 	if available < 1 {
 		available = 1
 	}
-	lines := WrapText(text, available)
+	lines := limitWrappedLines(WrapText(text, available), maxLines, available, c.caps)
 	for i, line := range lines {
 		if i == 0 {
 			c.line(styleTone(c.caps, tone, prefix+line))
@@ -218,6 +226,10 @@ func richSeparator(caps Caps) string {
 // PrintMinimalScreen is deterministic, ANSI-free, and suitable for pipes,
 // cron logs, dumb terminals, and the explicit --minimal mode.
 func PrintMinimalScreen(w io.Writer, in ScreenInput) {
+	printMinimalScreen(w, in, DetectCapsFor(w, in.Theme))
+}
+
+func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 	tone := in.ResultTone
 	if tone == "" {
 		tone = ToneOK
@@ -242,6 +254,8 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 			model += "/" + PlainInline(in.Effort)
 		}
 		fields = append(fields, "model="+model)
+	} else if in.Effort != "" {
+		fields = append(fields, "effort="+PlainInline(in.Effort))
 	}
 	if in.BrowserOS {
 		fields = append(fields, "browseros=enabled")
@@ -252,7 +266,7 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 	if in.APICalls > 0 {
 		fields = append(fields, "calls="+GroupedInt(in.APICalls))
 	}
-	fmt.Fprintln(w, "cdx | "+strings.Join(fields, " | "))
+	printPlainLine(w, caps, "cdx | "+strings.Join(fields, " | "))
 
 	if len(in.Dots) > 0 {
 		health := make([]string, 0, len(in.Dots))
@@ -261,33 +275,37 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 				health = append(health, PlainInline(dot.Name)+"="+healthWord(dot))
 			}
 		}
-		fmt.Fprintln(w, "health | "+strings.Join(health, " | "))
+		printPlainLine(w, caps, "health | "+strings.Join(health, " | "))
 	}
 	for _, row := range in.QuotaRows {
 		reset := ""
 		if row.ResetAfter > 0 {
 			reset = " | reset=" + DurationShort(row.ResetAfter)
 		}
-		fmt.Fprintf(w, "quota | %s=%d%%%s\n", PlainInline(row.Label), clampPct(row.Used), reset)
+		forecast := ""
+		if row.Projection != "" {
+			forecast = " | forecast=" + PlainInline(row.Projection)
+		}
+		printPlainLine(w, caps, fmt.Sprintf("quota | %s=%d%%%s%s", PlainInline(row.Label), clampPct(row.Used), reset, forecast))
 	}
 	if len(in.SessionRows) > 0 {
 		parts := make([]string, 0, len(in.SessionRows))
 		for _, row := range in.SessionRows {
 			parts = append(parts, PlainInline(row.Label)+"="+GroupedInt(row.Count))
 		}
-		fmt.Fprintln(w, "sessions | "+strings.Join(parts, " | "))
+		printPlainLine(w, caps, "activity | "+strings.Join(parts, " | "))
 	}
 	if in.ConcurrentNote != "" && in.Concurrent {
-		fmt.Fprintln(w, "warning | "+PlainInline(in.ConcurrentNote))
+		printPlainLine(w, caps, "warning | "+PlainInline(in.ConcurrentNote))
 	}
 	if in.QuotaWarn != "" {
-		fmt.Fprintln(w, "warning | "+PlainInline(in.QuotaWarn))
+		printPlainLine(w, caps, "warning | "+PlainInline(in.QuotaWarn))
 	}
 	if in.QuotaBlock != "" {
-		fmt.Fprintln(w, "blocked | "+PlainInline(in.QuotaBlock))
+		printPlainLine(w, caps, "blocked | "+PlainInline(in.QuotaBlock))
 	}
 	if in.ResultLabel != "" {
-		fmt.Fprintln(w, "result | "+PlainInline(in.ResultLabel))
+		printPlainLineLimited(w, caps, "result | "+PlainInline(in.ResultLabel), 3)
 	}
 }
 

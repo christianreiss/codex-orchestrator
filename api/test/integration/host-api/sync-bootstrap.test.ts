@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   authEntries,
   authPayloads,
+  chatgptUsageSnapshots,
   hosts as hostsTable,
   versions as versionsTable,
   agentsDocuments,
@@ -80,6 +81,45 @@ function hostRow(apiKey: string, overrides: Record<string, unknown> = {}): Recor
 }
 
 describe('POST /sync/bootstrap inlines agents + config', () => {
+  it('defaults an inherited host to the normal active quota lane in bundled auth', async () => {
+    const apiKey = 'sk-bootstrap-normal-lane';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey, { lanePreference: null })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    db.tables.set(chatgptUsageSnapshots, [
+      {
+        id: 1,
+        hostId: null,
+        status: 'ok',
+        planType: 'pro',
+        rateAllowed: 1,
+        rateLimitReached: 0,
+        primaryUsedPercent: 5,
+        primaryLimitSeconds: 604_800,
+        primaryResetAfterSeconds: 400_000,
+        fetchedAt: '2026-07-15T12:00:00Z',
+        nextEligibleAt: '2026-07-15T12:05:00Z',
+        createdAt: '2026-07-15T12:00:00Z',
+      },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'codex', include_auth: true }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload).auth.chatgpt.active_quota_lane).toBe('normal');
+    await app.close();
+  });
+
   it('returns content envelopes when local digests differ', async () => {
     const apiKey = 'sk-bootstrap-test';
     const agentsBody = '# AGENTS.md\n';
@@ -459,7 +499,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     await app.close();
   });
 
-  it('includes a sessions block with now/today/month numeric counts', async () => {
+  it('includes the compatible sessions block with sync-activity counts', async () => {
     const apiKey = 'sk-bootstrap-sessions';
     const db = createDbFake();
     db.tables.set(hostsTable, [hostRow(apiKey)]);

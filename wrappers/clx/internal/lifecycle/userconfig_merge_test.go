@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -189,5 +190,24 @@ func TestApplyUserMcpServersLeavesUnparseableUntouched(t *testing.T) {
 	}
 	if !bytesEqual(readFile(t, userConfigFile), original) {
 		t.Fatal("unparseable user .claude.json MUST be left byte-identical")
+	}
+}
+
+func TestStripUserMcpServersRetainsOwnershipAfterWriteFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	if !applyUserMcpServers(map[string]any{"clx": map[string]any{"url": "https://example.test/mcp"}}, logger) {
+		t.Fatal("managed MCP server was not applied")
+	}
+	err := stripUserMcpServersWith(logger, func(string, []byte, os.FileMode) error { return errors.New("busy") })
+	if err == nil || len(loadManagedMcpState().Names) == 0 {
+		t.Fatalf("failed MCP strip cleared retry state: err=%v state=%+v", err, loadManagedMcpState())
+	}
+	if err := stripUserMcpServers(logger); err != nil {
+		t.Fatalf("retry MCP strip: %v", err)
+	}
+	if len(loadManagedMcpState().Names) != 0 {
+		t.Fatalf("retry did not clear MCP ownership: %+v", loadManagedMcpState())
 	}
 }

@@ -162,9 +162,10 @@ func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"valid","chatgpt":{` +
 			`"status":"active",` +
+			`"rate_allowed":false,"rate_limit_reached":true,` +
 			`"primary_used_percent":2,"primary_limit_seconds":18000,"primary_reset_after_seconds":11520,` +
 			`"secondary_used_percent":5,"secondary_limit_seconds":604800,"secondary_reset_after_seconds":169200,` +
-			`"spark_primary_used_percent":42,` +
+			`"spark_rate_allowed":true,"spark_rate_limit_reached":false,"spark_primary_used_percent":42,` +
 			`"spark_secondary_used_percent":7,` +
 			`"spark_window":{` +
 			`"primary_window":{"used_percent":42,"limit_seconds":18000,"reset_after_seconds":3600,"reset_at":null},` +
@@ -189,6 +190,12 @@ func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
 	}
 	if q.SecondaryUsed == nil || *q.SecondaryUsed != 5 {
 		t.Fatalf("normal secondary used = %v, want 5", q.SecondaryUsed)
+	}
+	if q.RateAllowed == nil || *q.RateAllowed || q.RateLimitReached == nil || !*q.RateLimitReached {
+		t.Fatalf("normal provider flags = allowed=%v reached=%v", q.RateAllowed, q.RateLimitReached)
+	}
+	if q.SparkRateAllowed == nil || !*q.SparkRateAllowed || q.SparkRateLimitReached == nil || *q.SparkRateLimitReached {
+		t.Fatalf("spark provider flags = allowed=%v reached=%v", q.SparkRateAllowed, q.SparkRateLimitReached)
 	}
 	if q.SparkPrimaryLimitSec == nil || *q.SparkPrimaryLimitSec != 18000 {
 		t.Fatalf("spark primary limit = %v, want 18000", q.SparkPrimaryLimitSec)

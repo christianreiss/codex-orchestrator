@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
@@ -211,6 +212,24 @@ func isHelpPassthrough(args []string) bool {
 	return false
 }
 
+// helpExecArgv removes wrapper-only presentation flags before handing a help
+// request to the upstream CLI. Tokens after `--` belong to Codex and are left
+// untouched.
+func helpExecArgv(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i, arg := range args {
+		if arg == "--" {
+			out = append(out, args[i:]...)
+			break
+		}
+		if arg == "--minimal" || arg == "--minimal-output" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	// Restart-loop guard: each successful self-update increments
 	// CODEX_WRAPPER_RESTART_DEPTH and re-execs us. Cap that at maxRestartDepth
@@ -218,7 +237,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// itself out-of-date) cannot fork-bomb our way out of the host.
 	depth, _ := strconv.Atoi(os.Getenv("CODEX_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
-		fmt.Fprintf(stderr, "cdx: restart depth %d exceeded cap %d — refusing to continue\n", depth, maxRestartDepth)
+		fmt.Fprintf(stderr, "cdx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
 		return 70
 	}
 
@@ -243,19 +262,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if f.wrapperHelp {
-		ui.PrintWrapperHelp(stdout, ui.DetectCapsFor(stdout, ""))
+		ui.PrintWrapperHelp(stdout, commandCaps(ui.DetectCapsFor(stdout, ""), f.minimal))
 		return 0
 	}
 
 	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
-	// no update check, no boot screen, no footer. argv is unmodified.
+	// no update check, no boot screen, no footer. Wrapper-only presentation
+	// flags are removed before exec; all Codex-owned tokens remain unchanged.
 	if f.helpPassthrough {
 		cli, err := codex.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx --help:", err)
 			return 127
 		}
-		execArgv := append([]string{cli}, args...)
+		execArgv := append([]string{cli}, helpExecArgv(args)...)
 		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
 			fmt.Fprintln(stderr, "cdx --help: exec failed:", err)
 			return 127
@@ -279,20 +299,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Resolve the operator's intent before touching the signed configuration.
+	// Status and doctor have dedicated blocked-state renderers when the config
+	// is unavailable; every other command fails concisely without starting any
+	// lifecycle work.
+	sub, subArgs := resolveCommand(f, positional)
+
 	if f.configPath == "" {
 		f.configPath = config.DefaultPath()
 	}
 	pubkey, _ := signing.PublicKey()
 	cfg, err := config.Load(f.configPath, pubkey, false)
 	if err != nil {
-		sub, _ := resolveCommand(f, positional)
-		if sub == "status" {
-			fmt.Fprintf(stdout, "cdx | status=blocked | wrapper=%s | config=unreadable\n", ui.CleanInline(Version))
-			fmt.Fprintln(stdout, "result | "+ui.CleanInline(err.Error()))
-			return 1
-		}
-		fmt.Fprintln(stderr, err)
-		return 2
+		return configLoadFailure(sub, "cdx", f.configPath, Version, err, stdout, stderr, f.minimal)
 	}
 
 	// Honour silent flag baked into config too.
@@ -301,7 +320,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	logger := log.Setup(f.silent, f.debug)
-	sub, subArgs := resolveCommand(f, positional)
 
 	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
 	// spark-switchers a one-keystroke path.
@@ -330,9 +348,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Logger:              logger,
 			WrapperVersion:      Version,
 		})
-		if err != nil {
-			fmt.Fprintln(stderr, "cdx run:", err)
-		}
+		printLifecycleError(stderr, "cdx run", err)
 		return exit
 	case "resume":
 		// Interactive like `run`, never Headless like `execute` — resume opens
@@ -346,37 +362,30 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Logger:              logger,
 			WrapperVersion:      Version,
 		})
-		if err != nil {
-			fmt.Fprintln(stderr, "cdx resume:", err)
-		}
+		printLifecycleError(stderr, "cdx resume", err)
 		return exit
 	case "exec":
 		exit, err := codex.Run(ctx, cfg, append(subArgs, passthrough...))
 		if err != nil {
-			fmt.Fprintln(stderr, "cdx exec:", err)
+			fmt.Fprintln(stderr, ui.PlainInline("cdx exec: "+err.Error()))
 		}
 		return exit
 	case "execute":
 		// Headless one-shot via upstream codex exec.
 		argv := []string{"--sandbox", "read-only", "-a", "untrusted", "exec", "--skip-git-repo-check", f.executePrompt}
 		argv = append(argv, append(subArgs, passthrough...)...)
-		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:              cfg,
-			ExtraArgs:           argv,
-			SkipBoot:            true,
-			Headless:            true,
-			AllowConcurrentSync: f.allowConc,
-			Logger:              logger,
-			WrapperVersion:      Version,
-		})
-		if err != nil {
-			fmt.Fprintln(stderr, "cdx execute:", err)
-		}
+		opts := executeLifecycleOptions(f)
+		opts.Config = cfg
+		opts.ExtraArgs = argv
+		opts.Logger = logger
+		opts.WrapperVersion = Version
+		exit, err := lifecycle.Run(ctx, opts)
+		printLifecycleError(stderr, "cdx execute", err)
 		return exit
 	case "status":
 		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
-		if err := codex.Doctor(ctx, cfg, stdout, Version); err != nil {
+		if err := codex.Doctor(ctx, cfg, stdout, Version, f.minimal); err != nil {
 			return 1
 		}
 		return 0
@@ -391,7 +400,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if cfg.EngineOptions.AdminThemeHint != nil {
 			theme = *cfg.EngineOptions.AdminThemeHint
 		}
-		errCaps := ui.DetectCapsFor(stderr, theme)
+		errCaps := commandCaps(ui.DetectCapsFor(stderr, theme), f.minimal)
 		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", Version, err))
@@ -405,7 +414,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
 			return 1
 		}
-		fmt.Fprintln(stdout, ui.UpdateComplete(ui.DetectCapsFor(stdout, theme), "cdx", "wrapper", artifact.Version, false))
+		outCaps := commandCaps(ui.DetectCapsFor(stdout, theme), f.minimal)
+		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "cdx", "wrapper", artifact.Version, false))
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -414,7 +424,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case "cron":
-		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
+		return cmdCron(ctx, cfg, subArgs, stdout, stderr, f.minimal)
 	default:
 		// Reserved upstream subcommands (login, logout, mcp, review, …)
 		// passthrough to the real codex binary with the token preserved. The
@@ -434,13 +444,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := codex.Run(ctx, cfg, execArgs)
 			if err != nil {
-				fmt.Fprintln(stderr, "cdx "+sub+":", err)
+				fmt.Fprintln(stderr, ui.PlainInline("cdx "+sub+": "+err.Error()))
 			}
 			if sub == "login" {
 				afterDigest, _ := codex.LocalDigest()
 				if loginRotatedAuth(exit, beforeDigest, afterDigest) {
 					if code := cmdAuthUpload(ctx, cfg, stdout, stderr); code != 0 {
-						fmt.Fprintln(stderr, "cdx login: WARNING — the new credentials were NOT synced to the orchestrator; the fleet still holds the previous token. Retry with `cdx auth-upload`.")
+						fmt.Fprintln(stderr, "cdx login: WARNING; the new credentials were NOT synced to the orchestrator. The fleet still holds the previous token. Retry with `cdx auth-upload`.")
 					}
 				}
 			}
@@ -451,6 +461,102 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
+}
+
+func executeLifecycleOptions(f flags) lifecycle.Options {
+	return lifecycle.Options{
+		SkipBoot:            true,
+		Headless:            true,
+		Minimal:             f.minimal,
+		AllowConcurrentSync: f.allowConc,
+	}
+}
+
+func printLifecycleError(w io.Writer, prefix string, err error) {
+	if err == nil || lifecycle.ErrorWasPresented(err) {
+		return
+	}
+	fmt.Fprintln(w, ui.PlainInline(prefix+": "+err.Error()))
+}
+
+// commandCaps applies explicit --minimal after terminal detection. Keeping the
+// override at dispatch means help, doctor, and update cannot accidentally grow
+// a separate interpretation of "minimal".
+func commandCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
+}
+
+func configLoadFailure(sub, engine, path, wrapperVersion string, loadErr error, stdout, stderr io.Writer, minimal bool) int {
+	detail := boundedPlain(loadErrString(loadErr), 240)
+	configPath := boundedPlain(path, 160)
+	if configPath == "" {
+		configPath = "the configured path"
+	}
+
+	switch sub {
+	case "status":
+		state := ui.ScreenInput{
+			WrapperVersion: wrapperVersion,
+			WrapperTone:    ui.ToneOK,
+			CodexVersion:   "unknown",
+			CodexTone:      ui.ToneWarn,
+			Dots: []ui.HealthDot{
+				{Name: "config", Tone: ui.ToneFail},
+			},
+			ResultLabel: fmt.Sprintf("config=unreadable. Reinstall or repair the signed wrapper config, then run `%s status` again. Path: %s. Cause: %s.", engine, configPath, detail),
+			ResultTone:  ui.ToneFail,
+		}
+		if minimal {
+			ui.PrintMinimalScreen(stdout, state)
+		} else {
+			ui.PrintBootScreen(stdout, state)
+		}
+		return 1
+	case "doctor":
+		report := ui.DoctorReport{
+			Engine: engine,
+			When:   time.Now(),
+			Rows: []ui.DoctorRow{
+				{Label: "Config", Tone: ui.ToneFail, Value: "signed wrapper configuration unavailable: " + detail},
+			},
+			Hints: []string{
+				fmt.Sprintf("Repair %s and its .sig file, then run `%s doctor` again.", configPath, engine),
+			},
+			Result: ui.DoctorRow{Label: "Result", Tone: ui.ToneFail, Value: "diagnostics blocked until the wrapper configuration is repaired"},
+		}
+		caps := commandCaps(ui.DetectCapsFor(stdout, ""), minimal)
+		ui.PrintDoctor(stdout, caps, report)
+		return 1
+	default:
+		printBoundedPlain(stderr, engine+": config unavailable: "+detail, minimal)
+		return 2
+	}
+}
+
+func printBoundedPlain(w io.Writer, value string, minimal bool) {
+	caps := commandCaps(ui.DetectCapsFor(w, ""), minimal)
+	if !caps.IsTTY {
+		caps = ui.MinimalCaps(caps)
+	}
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	fmt.Fprintln(w, ui.TruncateText(ui.PlainInline(value), width, caps))
+}
+
+func loadErrString(err error) string {
+	if err == nil {
+		return "unknown configuration error"
+	}
+	return err.Error()
+}
+
+func boundedPlain(value string, width int) string {
+	return ui.TruncateText(ui.PlainInline(value), width, ui.Caps{Dumb: true})
 }
 
 type wrapperUpdateArtifact struct {
@@ -929,7 +1035,7 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	return 0
 }
 
-func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) int {
+func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer, minimal bool) int {
 	action := "run"
 	if len(args) > 0 {
 		action = args[0]
@@ -937,29 +1043,29 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	switch action {
 	case "install":
 		if err := cron.Install(cfg); err != nil {
-			fmt.Fprintln(stderr, "cdx --cron install:", err)
+			printBoundedPlain(stderr, "cdx --cron install: "+err.Error(), minimal)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cron: installed")
 		return 0
 	case "remove":
 		if err := cron.Remove(); err != nil {
-			fmt.Fprintln(stderr, "cdx --cron remove:", err)
+			printBoundedPlain(stderr, "cdx --cron remove: "+err.Error(), minimal)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cron: removed")
 		return 0
 	case "run":
 		// Non-interactive auto-update tick.
-		res, err := cron.Tick(ctx, cfg)
+		res, err := cron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
-			fmt.Fprintln(stderr, "cdx --cron:", err)
+			printBoundedPlain(stderr, "cdx --cron: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, formatCronResult(res))
+		printBoundedPlain(stdout, formatCronResult(res, minimal), minimal)
 		return 0
 	default:
-		fmt.Fprintln(stderr, "cdx cron: unknown action:", action)
+		printBoundedPlain(stderr, "cdx cron: unknown action: "+action, minimal)
 		fmt.Fprintln(stderr, "usage: cdx cron [install|remove|run]")
 		return 2
 	}
@@ -969,14 +1075,18 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 // consumption. The current invocation either updated something, kept things
 // as-is, or saw the server disable cron entirely; the line states which and
 // names the versions involved so `cdx --cron` is never silent on success.
-func formatCronResult(r cron.Result) string {
+func formatCronResult(r cron.Result, minimal bool) string {
+	arrow := "→"
+	if minimal {
+		arrow = "->"
+	}
 	switch {
 	case r.WrapperAction == "disable":
 		return "cron: auto-update disabled by server; cron job removed"
 	case r.WrapperAction == "updated":
-		return fmt.Sprintf("cron: wrapper updated %s → %s (re-exec)", r.WrapperVersion, r.WrapperTarget)
+		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":
-		return fmt.Sprintf("cron: codex updated %s → %s (wrapper %s, reported=%t)", r.CodexBefore, r.CodexVersion, r.WrapperVersion, r.Reported)
+		return fmt.Sprintf("cron: codex updated %s %s %s (wrapper %s, reported=%t)", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported)
 	default:
 		return fmt.Sprintf("cron: ok (wrapper %s, codex %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
 	}

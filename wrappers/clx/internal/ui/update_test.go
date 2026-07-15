@@ -58,9 +58,38 @@ func TestUpdateLinesUseBoundedAsciiWhenRedirected(t *testing.T) {
 	}
 }
 
+func TestNarrowUpdateLinesPreserveOutcomeBeforeMetadata(t *testing.T) {
+	caps := Caps{IsTTY: true, UTF8: true, Columns: 39}
+	cases := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"progress", UpdateProgress(caps, "clx", "wrapper", "0.6.44-build-metadata", "0.6.45-build-metadata"), "updating…"},
+		{"complete", UpdateComplete(caps, "clx", "wrapper", "0.6.45-build-metadata", true), "updated, restarting…"},
+		{"failure", UpdateFailure(caps, "clx", "wrapper", "0.6.45-build-metadata", errors.New("checksum mismatch with detailed context")), "update skipped"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plain := StripANSI(tc.line)
+			if !strings.Contains(plain, tc.want) {
+				t.Fatalf("narrow update lost outcome %q: %q", tc.want, plain)
+			}
+			if VisibleWidth(tc.line) > caps.Columns {
+				t.Fatalf("narrow update width = %d, want <= %d: %q", VisibleWidth(tc.line), caps.Columns, plain)
+			}
+		})
+	}
+}
+
 func TestUpdateFailureSanitizesDynamicContent(t *testing.T) {
-	line := UpdateFailure(Caps{}, "clx\nforged", "wrapper\x1b[2J", "0.6.44\x1b]2;owned\a", errors.New("bad\nsecond row\x1b[31m"))
+	line := UpdateFailure(Caps{}, "clx Ω\nforged", "wrapper\x1b[2J", "0.6.44\x1b]2;owned\a", errors.New("bad Ω\nsecond row\x1b[31m"))
 	if strings.ContainsAny(line, "\n\r\x1b") {
 		t.Fatalf("update line contains terminal controls: %q", line)
+	}
+	for _, r := range line {
+		if r < 0x20 || r > 0x7e {
+			t.Fatalf("ASCII update line contains non-ASCII %U: %q", r, line)
+		}
 	}
 }

@@ -5,15 +5,30 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
+
+func TestPresentedErrorAndPortableLifecycleText(t *testing.T) {
+	err := errors.New("denied → next\n\x1b[31m")
+	marked := markPresented(err, Options{SkipBoot: false})
+	if !ErrorWasPresented(marked) || ErrorWasPresented(markPresented(err, Options{SkipBoot: true})) {
+		t.Fatal("presented-error marker does not match boot visibility")
+	}
+	if got := safeLifecycleText(err.Error(), true); strings.ContainsAny(got, "→\n\r\x1b") {
+		t.Fatalf("portable lifecycle text leaked controls/Unicode: %q", got)
+	}
+}
 
 func TestFooterCapsKeepsMinimalRunsCompact(t *testing.T) {
 	caps := ui.Caps{IsTTY: true, Palette: ui.Palette{Reset: "ansi"}}
@@ -23,6 +38,134 @@ func TestFooterCapsKeepsMinimalRunsCompact(t *testing.T) {
 	}
 	if got := footerCaps(caps, false); !got.IsTTY || got.Palette.Reset != "ansi" {
 		t.Fatalf("normal footer lost rich capabilities: %+v", got)
+	}
+}
+
+func TestConcurrentNoteExplainsManagedSyncPause(t *testing.T) {
+	got := concurrentNote(true, orchestrator.AuthDecision{LocalUsable: true})
+	if !strings.Contains(got, "Managed content sync paused") || !strings.Contains(got, "auth freshness remains active") || strings.Contains(strings.ToLower(got), "read-only") {
+		t.Fatalf("concurrent note = %q", got)
+	}
+}
+
+func TestUpdateCapsHonorsMinimal(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "C.UTF-8")
+	got := updateCaps(nil, true)
+	if got.IsTTY || !got.Dumb || got.UTF8 || got.Palette.Reset != "" {
+		t.Fatalf("minimal update caps = %+v", got)
+	}
+}
+
+func TestBuildSessionCountsMirrorsFleetAndLocalValues(t *testing.T) {
+	if got := buildSessionCounts(nil); got != nil {
+		t.Fatalf("nil fleet sessions = %+v", got)
+	}
+	got := buildSessionCounts(&orchestrator.FleetSessions{Now: 7, Today: 21, Month: 314})
+	if got == nil || got.LocalNow < 1 || got.FleetNow != 7 || got.Today != 21 || got.Month != 314 {
+		t.Fatalf("session counts = %+v", got)
+	}
+}
+
+func TestApplyBundleClaudeSkillsPreservesAbsentFieldCompatibility(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	absent := applyBundleClaudeSkills(nil, logger)
+	if absent.Checked || absent.Updated || absent.Err != nil {
+		t.Fatalf("absent claude_skills produced a resource outcome: %+v", absent)
+	}
+
+	empty := applyBundleClaudeSkills([]orchestrator.CollectionItem{}, logger)
+	if !empty.Checked || empty.Updated || empty.Err != nil {
+		t.Fatalf("explicit empty claude_skills was not a successful check: %+v", empty)
+	}
+}
+
+func TestCombineOptionalResourceSyncKeepsLegacyProbeAndPropagatesFailure(t *testing.T) {
+	base := summary.ResourceSync{Checked: true, Updated: true}
+	if got := combineOptionalResourceSync(base, summary.ResourceSync{}); !got.Checked || !got.Updated || got.Err != nil {
+		t.Fatalf("absent optional state changed base probe: %+v", got)
+	}
+
+	wantErr := errors.New("native skill write failed")
+	got := combineOptionalResourceSync(base, summary.ResourceSync{Checked: true, Err: wantErr})
+	if !got.Checked || !got.Updated || !errors.Is(got.Err, wantErr) {
+		t.Fatalf("native skill failure was not propagated: %+v", got)
+	}
+}
+
+func TestBootstrapRoutesClaudeSkillFailureAwayFromConfigStatus(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sync/bootstrap" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"status":"success","auth":{"status":"valid"},"claude_skills":[{"slug":"reviewer","sha256":"sha-reviewer","status":"updated"}]}}`))
+	}))
+	defer server.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bootstrapErr, _, _, configSync, nativeSkillsSync, _ := bootstrap(
+		context.Background(), client, logger, false, "",
+	)
+	if bootstrapErr != nil {
+		t.Fatalf("bootstrap returned transport error: %v", bootstrapErr)
+	}
+	if configSync.Err != nil {
+		t.Fatalf("native skill failure leaked into config status: %v", configSync.Err)
+	}
+	if !nativeSkillsSync.Checked || nativeSkillsSync.Err == nil {
+		t.Fatalf("native skill failure missing from skills status: %+v", nativeSkillsSync)
+	}
+}
+
+func TestRunRejectsFQDNMismatchBeforeNetworkAndBoot(t *testing.T) {
+	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"valid"}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test-key"},
+		Host: config.Host{
+			FQDN: "definitely-not-this-host.example.invalid\x1b[31m\nforged",
+		},
+	}
+	var (
+		exitCode int
+		runErr   error
+	)
+	exitCode, runErr = Run(context.Background(), Options{
+		Config: cfg,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if exitCode != 1 || runErr == nil {
+		t.Fatalf("Run mismatch = (%d, %v), want (1, error)", exitCode, runErr)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("FQDN guard ran after network activity: %d requests", got)
+	}
+	portable := safeLifecycleText(runErr.Error(), true)
+	if strings.Contains(strings.ToLower(portable), "ready") {
+		t.Fatalf("mismatch returned a green-ready result: %q", portable)
+	}
+	if !strings.Contains(portable, "CLAUDE_ALLOW_FQDN_MISMATCH=1") {
+		t.Fatalf("mismatch error is not actionable: %q", portable)
+	}
+	if strings.ContainsAny(portable, "\r\n\x1b") {
+		t.Fatalf("mismatch error contains unsanitized terminal controls: %q", portable)
 	}
 }
 
@@ -78,7 +221,7 @@ exit 42
 
 	stderr := captureStderr(t, func() {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		if got := maybeEnsureClaude(context.Background(), nil, auth, false, logger); got != "" {
+		if got := maybeEnsureClaude(context.Background(), nil, auth, false, false, logger); got != "" {
 			t.Fatalf("maybeEnsureClaude() = %q, want no update", got)
 		}
 	})

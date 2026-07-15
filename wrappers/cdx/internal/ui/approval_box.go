@@ -27,9 +27,56 @@ type AuthChecker interface {
 // PollApproval renders the framed status box and re-paints in place every
 // refresh. Cursor movement is used only when stderr is an interactive,
 // non-dumb terminal with a known, usable width.
-func PollApproval(ctx context.Context, client AuthChecker, refresh time.Duration) (bool, error) {
+func PollApproval(ctx context.Context, client AuthChecker, refresh time.Duration, minimal bool) (bool, error) {
 	caps := approvalTerminalCaps()
+	if usePlainApproval(caps, minimal) {
+		return pollApprovalPlain(ctx, client, refresh, caps, os.Stderr)
+	}
 	return pollApproval(ctx, client, refresh, caps, os.Stderr)
+}
+
+func usePlainApproval(caps Caps, minimal bool) bool {
+	return minimal || caps.NoColor
+}
+
+func pollApprovalPlain(ctx context.Context, client AuthChecker, refresh time.Duration, caps Caps, out io.Writer) (bool, error) {
+	if !caps.IsTTY {
+		return false, fmt.Errorf("insecure-host approval pending: stderr is not an interactive terminal; open Admin -> Host Detail, enable this host window, then retry")
+	}
+	if refresh <= 0 {
+		refresh = 5 * time.Second
+	}
+	if out == nil {
+		out = io.Discard
+	}
+	caps = MinimalCaps(caps)
+	start := time.Now()
+	checks := 0
+	printPlainLine(out, caps, "approval | status=pending | Admin: enable this host window")
+	tick := time.NewTicker(refresh)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-tick.C:
+			checks++
+			cctx, cancel := context.WithTimeout(ctx, refresh)
+			status, reason, err := client.CheckAuthStatus(cctx)
+			cancel()
+			if err != nil {
+				status, reason = "offline", err.Error()
+			}
+			line := fmt.Sprintf("approval | status=%s | checks=%d | elapsed=%s", PlainInline(status), checks, durationShort(time.Since(start)))
+			if safe := PlainInline(reason); safe != "" {
+				line += " | reason=" + safe
+			}
+			printPlainLine(out, caps, line)
+			if err == nil && status != "insecure" {
+				return true, nil
+			}
+		}
+	}
 }
 
 // approvalTerminalCaps ignores an optimistic COLUMNS override for this

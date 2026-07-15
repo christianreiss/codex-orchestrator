@@ -1,7 +1,7 @@
 ---
 title: clx — the Claude Code wrapper
 section: Fleet operations
-verified: 2026-07-01
+verified: 2026-07-15
 sources: wrappers/clx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -64,8 +64,8 @@ the JSON Schema file as stale reference, not an enforced contract.
 |---|---|
 | `run` (default) | Full startup sequence, then launch a Claude session |
 | `resume [<session>] [<prompt>]` | Full startup sequence, then reopen a previous Claude session. With no session id the upstream picker is shown. Equivalent to `clx --resume`/`-r` |
-| `status` | Responsive local config + `POST /auth` summary on stdout; unloadable config and failed health return non-zero. Redirected output is compact ASCII. Returned canonical credentials can seed/repair the local file but never replace a fresher local login. |
-| `doctor` | Responsive self-diagnostic: config, paths, Claude CLI, credentials, API reachability/latency, disk, and cron |
+| `status` | Responsive local config + `POST /auth` summary on stdout; unloadable config and failed health return a structured non-zero report. Redirected output is width-bounded ASCII. Returned canonical credentials can seed/repair the local file but never replace a fresher local login. |
+| `doctor` | Responsive self-diagnostic: config, paths, Claude CLI, usable credentials, parsed settings/MCP state, HTTP reachability/latency, disk, and cron |
 | `auth-upload` | POST `~/.claude/.credentials.json` to the orchestrator |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command directly |
 
@@ -88,17 +88,17 @@ fails fast as an unknown subcommand.
 |---|---|
 | `--continue` / `-c` | Forwarded to the upstream `claude` binary |
 | `--resume [<session>]` / `-r` | Alias for the `resume` subcommand. Upstream `claude` spells resume as a flag, so the wrapper re-spells `clx resume …` to `claude --resume …`; a bare `resume` positional would otherwise be swallowed as a prompt and open a *new* session. With no session id the upstream picker is shown |
-| `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
-| `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips all wrapper side effects (no lock, no sync, no boot screen) |
+| `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without claiming the launch itself failed. Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
+| `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips all wrapper side effects (no lock, no sync, no boot screen), and consumes wrapper-only `--minimal`/`--minimal-output` instead of forwarding it as an unsupported Claude flag |
 | `--wrapper-help` | Wrapper-owned command/flag reference; does not need a loadable config |
-| `--cron [install\|remove\|run]` | Manage host auto-update crontab entry |
+| `--cron [install\|remove\|run]` | Manage host auto-update crontab entry; explicit minimal mode keeps cron status and peer updates ASCII |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version, commit, build date, OS/arch, pubkey status |
 | `--update` / `-U` | Self-update (SHA256-verified) |
 | `--uninstall` | Remove credentials, local state, and cron entry |
 | `--execute <prompt>` | Run a one-shot headless prompt (skips boot screen) |
 | `--silent` | Suppress wrapper output |
 | `--debug` / `--verbose` | Verbose logging |
-| `--minimal` / `--minimal-output` | Minimal boot screen |
+| `--minimal` / `--minimal-output` | Stable ANSI-free ASCII across wrapper help, status, doctor, cron/peer-update output, startup, and the exit footer; consumed before upstream help passthrough |
 | `--skip-boot` / `--no-banner` | Skip boot screen entirely |
 | `-4` / `--ipv4` | Force IPv4 |
 | `--allow-concurrent-sync` | Explicitly allow managed writes while another clx session holds the run lock; visibly announced |
@@ -107,21 +107,28 @@ fails fast as an unknown subcommand.
 
 Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
 
-1. **Acquire IPC flock** (`"clx"`). If already held by a concurrent invocation,
-   enter read-only mode for managed `CLAUDE.md`, settings, collections, skills,
-   the wrapper/Claude-CLI update, and peer reconciliation — but the run still
-   submits the local auth digest and atomically writes server-returned
-   canonical credentials on `outdated`/`updated`/`missing`, so a secondary run
-   never launches against a stale local `.credentials.json`.
+1. **Validate the signed config and runtime FQDN.** An unloadable config produces
+   the same structured, sanitized, width-bounded status/doctor surface as a
+   normal health failure. `claude.GuardFQDN` then rejects a cloned or
+   mis-deployed host before acquiring the run lock or making any orchestrator
+   request; `PreExec` repeats the check immediately before spawning Claude.
 
-2. **POST `/sync/bootstrap`** with a `BundleRequest` carrying: `engine=claude`,
+2. **Acquire IPC flock** (`"clx"`). If already held by a concurrent invocation,
+   enter sync-paused mode for managed `CLAUDE.md`, settings, collections,
+   skills, the wrapper/Claude-CLI update, and peer reconciliation — but the run
+   still submits the local auth digest and atomically writes server-returned
+   canonical credentials on `outdated`/`updated`/`missing`, so a secondary run
+   never launches against stale local credentials. The card says `SYNC PAUSED`
+   while retaining the API/auth/runner markers.
+
+3. **POST `/sync/bootstrap`** with a `BundleRequest` carrying: `engine=claude`,
    `include_auth=true`, auth digest, auth candidate, agents digest, config
    digest, `home`, `username`, and artifact digests for subagents, commands,
    output-styles, and skills. Falls back to legacy separate `POST /auth`,
    `POST /agents/retrieve`, and `POST /config/retrieve` calls if the server
    returns 404, 501, or 405.
 
-3. **Apply bundle response**:
+4. **Apply bundle response**:
    - Write `~/.claude/.credentials.json` when status is `outdated`, `updated`,
      or `missing`.
    - Write `~/.claude/CLAUDE.md` (agents/fleet instructions).
@@ -134,9 +141,10 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
      [Claude-native collections](#claude-native-collections) below).
    - Write `~/.claude/skills/<slug>/SKILL.md` from `claude_skills`.
    - All writes are manifest-tracked; only manifest-recorded files are pruned
-     on removal.
+     on removal. Missing changed skill content, write failures, and prune
+     failures preserve the last-good file/manifest entry for retry.
 
-4. **Auth decision** (`orchestrator.Decide`). A few conditions are hard stops
+5. **Auth decision** (`orchestrator.Decide`). A few conditions are hard stops
    ahead of the status table below: the server's `versions.api_disabled` kill
    switch, an `installation_id` mismatch, a reverse-DNS mismatch, the host's
    Claude engine being disabled, and a `verification_state=failed` response
@@ -147,7 +155,7 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    | Status | Meaning |
    |---|---|
    | `current` / `ok` | Credentials are valid and up to date |
-   | `outdated` | Server has a newer credential; refreshed in step 3 |
+   | `outdated` | Server has a newer credential; refreshed in step 4 |
    | `missing` | No credentials on host; written from server payload |
    | `upload_required` | Host has credentials the server doesn't; `auth-upload` needed |
    | `disabled` | Host is disabled; fleet settings + skills stripped |
@@ -157,32 +165,53 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    | `insecure` (HTTP 423 maps here) | Awaiting admin approval; polls `PollApproval` every 5 s |
    | `insecure-denied` (HTTP 403) | Admin denied; fleet settings + skills stripped |
 
-5. **Interactive credential recovery** — when the live-verification hard stop
+6. **Interactive credential recovery** — when the live-verification hard stop
    fires, or `missing`/`upload_required` has no usable local credential (or
    the uploaded candidate was rejected), an interactive `clx run` prompts to
    launch `claude auth login`, uploads the resulting credentials, and
    re-checks with the server. Non-interactive runs (cron, `--execute`) fail
    closed instead of opening the prompt.
 
-6. **Install target Claude CLI version** if allowed and `auto_update` is
+7. **Install target Claude CLI version** if allowed and `auto_update` is
    enabled (`claude.EnsureClaude`), then — unless this is a concurrent
-   (read-only) run — **reconcile the peer `cdx` wrapper** (`peer.Reconcile`):
+   sync-paused run — **reconcile the peer `cdx` wrapper** (`peer.Reconcile`):
    installs/updates or removes the Codex wrapper and CLI on this host per the
    server's `engines_list`. See [wrappers](/admin/manual/wrappers) for the
    shared peer-reconciliation mechanics (Ed25519-verified peer config bundle,
    guarded `--cron run` peer tick, etc.).
 
-7. **Print the responsive outcome-first boot card** (or stable ASCII with
-   `--minimal`, redirects, dumb/narrow terminals) to stderr, then
-   `exec claude`. Immediately before the exec, `PreExec` re-checks the runtime
-   hostname against the FQDN baked into the config and refuses unless
-   `CLAUDE_ALLOW_FQDN_MISMATCH=1` — clx runs this guard at exec time, later in
-   the sequence than cdx (which checks it right after acquiring the lock; see
-   [wrappers](/admin/manual/wrappers)).
+8. **Check resource outcomes and print the responsive outcome-first boot card.**
+   A successful unchanged skills/config check is green, a real local write gets
+   the updated marker, failures warn, and deliberately skipped checks are dim.
+   Applying bundled `claude_skills` contributes to the skills marker, not the
+   config marker. Resource failures are non-fatal but move the result to
+   attention. Rich and compact output are width-bounded; boot/status result
+   detail is sanitized and capped at three lines. Immediately before
+   `exec claude`, `PreExec` repeats the runtime FQDN check;
+   `CLAUDE_ALLOW_FQDN_MISMATCH=1` is the explicit override.
 
-8. **Post-run**: if `~/.claude/.credentials.json` hash changed, upload to
+9. **Post-run**: if `~/.claude/.credentials.json` hash changed, upload to
    orchestrator (`AuthStore`). Print a measured exit footer whose overall tone
    includes both the Claude exit and canonical auth-upload result.
+
+### Doctor truth table
+
+`clx doctor` does not infer health from file existence or matching text. It
+requires a structurally usable Claude token, parses `settings.json` as a JSON
+object, and parses `.claude.json` for the exact non-empty
+`mcpServers.clx` object. Malformed/unreadable JSON is a failure. The API row is
+green only for HTTP 2xx; HTTP errors remain failures, and a request that never
+connected also fails the latency row instead of showing a green `-`.
+
+The boot context mirrors runtime precedence: a signed
+`claude_model_override` wins over inherited `ANTHROPIC_MODEL`; the environment
+is only the fallback when the signed override is absent. Response/local
+`model` and `effortLevel` values then fill fields still unset. The shared
+`ACTIVITY` section uses the API's historical `sessions` compatibility object:
+`local procs` is the same-UID `clx` wrapper process count, `hosts 30m` is distinct
+hosts with an `agents.retrieve` event in the prior 30 minutes, and `syncs UTC
+day` / `syncs UTC month` count those events from the UTC boundaries. They are
+not launch or concurrency totals.
 
 ## Authentication model
 
@@ -269,6 +298,10 @@ The bootstrap bundle returns `claude_settings: {sha256, partial, owned_paths}`.
   generic dotted-leaf merge (not the allow/ask/deny union special-case), since
   Claude Code only reads the nested `permissions.defaultMode` form, not a
   top-level `permissionMode` key.
+- On explicit trust loss (`disabled`, `invalid`, or `insecure-denied`), clx
+  strips only fleet-owned settings, MCP servers, collections, and skills. If a
+  removal fails, its ownership sidecar/manifest entry is retained so a later
+  run retries it; transient `offline` status never triggers this cleanup.
 
 ## Claude-native collections
 
@@ -276,7 +309,7 @@ Claude Code reads several artifact *collections* off disk that Codex has no
 analogue for: subagents, commands, and output-styles. The orchestrator manages
 them as first-class fleet artifacts (table `claude_artifacts`, one row per
 item, discriminated by `kind`), synced via the same `/sync/bootstrap` bundle
-(step 3 above) as `claude_artifacts: { subagent:[…], command:[…],
+(step 4 above) as `claude_artifacts: { subagent:[…], command:[…],
 "output-style":[…] }`:
 
 | Kind | On-disk target |
@@ -288,7 +321,9 @@ item, discriminated by `kind`), synced via the same `/sync/bootstrap` bundle
 `wrappers/clx/internal/lifecycle/collections.go` writes each `<slug>.md` and
 tracks exactly the files it wrote per directory; pruning removes only
 manifest-recorded files that dropped out of the live set, so user-authored
-files in those directories are never touched. Admin CRUD lives at
+files in those directories are never touched. A missing changed payload, write
+failure, or prune failure keeps the last-good file and manifest entry for retry
+instead of silently deleting working state. Admin CRUD lives at
 `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
 `POST /admin/claude/:kind/store`, and `DELETE /admin/claude/:kind/:slug`
 (backed by `api/src/services/claude-artifacts.ts`); the host-facing surface is

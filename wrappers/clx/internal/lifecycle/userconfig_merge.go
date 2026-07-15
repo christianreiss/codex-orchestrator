@@ -18,6 +18,7 @@ package lifecycle
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -138,9 +139,14 @@ func MergeUserMcpServers(userRaw []byte, servers map[string]any, prevNames []str
 // applyUserMcpServers merges the managed MCP servers into ~/.claude.json, persists
 // the managed-mcp sidecar, and returns whether the on-disk file changed.
 func applyUserMcpServers(servers map[string]any, logger *slog.Logger) bool {
+	changed, _ := applyUserMcpServersResult(servers, logger)
+	return changed
+}
+
+func applyUserMcpServersResult(servers map[string]any, logger *slog.Logger) (bool, error) {
 	prev := loadManagedMcpState()
 	if len(servers) == 0 && len(prev.Names) == 0 {
-		return false
+		return false, nil
 	}
 	path := userConfigPath()
 	userRaw, _ := os.ReadFile(path)
@@ -148,7 +154,7 @@ func applyUserMcpServers(servers map[string]any, logger *slog.Logger) bool {
 	if err != nil {
 		// Fail safe: leave the user's .claude.json untouched this run.
 		logger.Warn("skipping MCP merge to avoid clobbering unparseable user .claude.json", "path", path, "err", err)
-		return false
+		return false, err
 	}
 	changed := !bytesEqual(userRaw, merged)
 	if changed {
@@ -160,35 +166,55 @@ func applyUserMcpServers(servers map[string]any, logger *slog.Logger) bool {
 		}
 		if werr := atomicWrite(path, merged, mode); werr != nil {
 			logger.Debug("merged .claude.json write failed", "err", werr)
-			return false
+			return false, werr
 		}
 	}
 	if serr := saveManagedMcpState(managedMcpState{Version: 1, Names: names}); serr != nil {
 		logger.Debug("managed-mcp state write failed", "err", serr)
+		return changed, serr
 	}
-	return changed
+	return changed, nil
 }
 
 // stripUserMcpServers removes every fleet-managed MCP server from ~/.claude.json
 // (trust-loss counterpart of stripManagedSettings); user servers survive.
-func stripUserMcpServers(logger *slog.Logger) {
+func stripUserMcpServers(logger *slog.Logger) error {
+	return stripUserMcpServersWith(logger, atomicWrite)
+}
+
+func stripUserMcpServersWith(logger *slog.Logger, write func(string, []byte, os.FileMode) error) error {
 	prev := loadManagedMcpState()
 	if len(prev.Names) == 0 {
-		return
+		return nil
 	}
 	path := userConfigPath()
-	userRaw, _ := os.ReadFile(path)
+	userRaw, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("read user MCP config: %w", readErr)
+	}
+	if os.IsNotExist(readErr) {
+		if err := saveManagedMcpState(managedMcpState{Version: 1, Names: []string{}}); err != nil {
+			return fmt.Errorf("clear managed MCP ownership: %w", err)
+		}
+		return nil
+	}
 	merged, _, err := MergeUserMcpServers(userRaw, map[string]any{}, prev.Names)
 	if err != nil {
 		logger.Warn("skipping MCP strip; user .claude.json unparseable", "err", err)
-		return
+		return err
 	}
 	if !bytesEqual(userRaw, merged) {
 		mode := os.FileMode(0o600)
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
-		_ = atomicWrite(path, merged, mode)
+		if err := write(path, merged, mode); err != nil {
+			logger.Warn("MCP strip write failed; retaining ownership for retry", "err", err)
+			return err
+		}
 	}
-	_ = saveManagedMcpState(managedMcpState{Version: 1, Names: []string{}})
+	if err := saveManagedMcpState(managedMcpState{Version: 1, Names: []string{}}); err != nil {
+		return fmt.Errorf("clear managed MCP ownership: %w", err)
+	}
+	return nil
 }

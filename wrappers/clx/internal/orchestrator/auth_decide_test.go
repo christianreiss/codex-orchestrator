@@ -215,6 +215,16 @@ func TestDecide_TableDriven(t *testing.T) {
 	}
 }
 
+func TestDecideEngineDisabledCarriesCleanupStatus(t *testing.T) {
+	got := Decide(&AuthRetrieveResponse{
+		Status:  "offline",
+		Message: `POST /sync/bootstrap -> 403: {"code":"engine_disabled"}`,
+	}, "/dev/null", true, LocalAuthProbe{IsValid: func(string) bool { return true }})
+	if got.Allowed || got.Status != "disabled" || !strings.Contains(strings.ToLower(got.Reason), "disabled") {
+		t.Fatalf("engine-disabled decision = %+v", got)
+	}
+}
+
 func TestApplyConcurrent(t *testing.T) {
 	valid := LocalAuthProbe{IsValid: func(string) bool { return true }}
 	invalid := LocalAuthProbe{IsValid: func(string) bool { return false }}

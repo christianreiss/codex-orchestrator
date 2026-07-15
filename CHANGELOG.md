@@ -1,5 +1,76 @@
 # 2026-07-15
 
+## cdx/clx 0.6.45 terminal truthfulness polish
+
+- Finished the shared responsive terminal surface across both wrappers. Rich
+  cards, compact redirected output, and explicit `--minimal` output now obey
+  the detected width consistently across startup, status, doctor, wrapper
+  help, update progress, and exit footers. Compact output is strictly ASCII;
+  boot/status result text is control-sequence stripped, wrapped, and capped at
+  three lines, while diagnostic causes and paths are separately bounded.
+  Minimal mode now also covers cron/peer-update output, and wrapper-only
+  presentation flags are consumed before an upstream `--help` passthrough.
+- Made Codex quota output describe the data actually returned by ChatGPT:
+  window labels come from `limit_seconds`, zero-percent windows remain visible,
+  quota warnings with no reset say `reset unknown`, and unavailable,
+  malformed, or older-than-30-minute telemetry raises attention. Provider
+  `rate_allowed`/`rate_limit_reached` flags are honoured even when no percentage
+  exists, while only the host's effective active lane can warn or block launch;
+  the other lane remains context. Stale or malformed snapshots remain visible
+  only as last-known context: they suppress forecasts and never warn or block
+  from their percentage/provider flags.
+- Quota forecasts now reflow instead of clipping at narrow widths and raise an
+  advisory attention state when the active lane approaches or crosses the
+  configured limit before reset. A forecast is never presented as current
+  exhaustion and does not become a hard quota block by itself. Forecasts wait
+  until at least five minutes and 1% of the quota window have elapsed.
+- `/auth` now shapes `chatgpt.active_quota_lane` from the calling host's
+  lane preference (`spark`, otherwise `normal`) instead of leaking the
+  account-wide snapshot normalizer's default to every host. A missing or
+  unreadable snapshot is now returned explicitly as `status:"unavailable"`, so
+  the wrapper cannot mistake absent quota evidence for a healthy check.
+- Non-null persisted Codex lanes now affect the actual launch, not only the
+  card and quota policy: `normal` selects `gpt-5.6-terra`, while `spark` selects
+  `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled.
+  An explicit per-run `--model`/`-m` or `--profile`/`-p` still wins. When no
+  lane is stored, cdx keeps the signed fleet/per-host model instead of forcing
+  the quota display's `normal` fallback onto the launch. When no override
+  supplies model/effort context, the card falls back per field to
+  `~/.codex/config.toml`; `cdx doctor` now parses that TOML and its managed MCP
+  section instead of accepting matching text.
+- Concurrent launches now say `SYNC PAUSED`, keep API/auth/runner health visible,
+  and state that managed content and update writes are paused while auth
+  freshness remains active. Skills/config markers distinguish checked and
+  unchanged, updated, failed, and deliberately skipped states; best-effort
+  resource failures warn instead of masquerading as green.
+- Brought the glanceable context to full engine parity: both wrappers now show
+  an `ACTIVITY` section with `local procs`, `hosts 30m`, `syncs UTC day`, and
+  `syncs UTC month`. The API retains the historical `sessions` JSON key, but
+  `local procs` counts same-UID wrapper processes and the fleet values are
+  distinct hosts with an `agents.retrieve` event in the prior 30 minutes plus
+  UTC-day/month sync-attempt totals — not launch or concurrency counts. `clx`
+  also falls back per field to effective values in `~/.claude/settings.json`;
+  an effort-only setting remains visible.
+- Unreadable signed configs now produce structured, non-zero status/doctor
+  reports with bounded, sanitized cause/path text. Both doctors now treat only
+  HTTP 2xx as healthy, report unreachable latency as failed, and reject a
+  fresh-looking credential file without a usable token; `clx doctor`
+  additionally parses `settings.json` plus the exact managed MCP block. Stored
+  runner transport failure is attention, not a launch block; an explicit
+  credential-verification failure remains blocked. The clx FQDN guard now runs
+  before the lock or any network request and remains in `PreExec` as a final
+  defense before Claude starts.
+- Kept best-effort sync failures non-destructive: failed/missing Claude
+  collection or skill updates preserve the last-good file and manifest entry,
+  and prune failures remain tracked for retry. Trust-loss cleanup also retains
+  ownership sidecars/manifests for paths it could not remove, so the next run
+  retries instead of forgetting managed residue; native Claude skill
+  application reports through the skills health marker rather than the config
+  marker.
+- Corrected Claude model precedence in both runtime and display: a signed
+  `claude_model_override` wins, inherited `ANTHROPIC_MODEL` is the fallback,
+  and host/settings values fill only what remains unset.
+
 ## cdx/clx 0.6.44 terminal UX
 
 - Replaced the legacy logo-heavy startup output with one responsive,

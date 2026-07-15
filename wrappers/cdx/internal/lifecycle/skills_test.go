@@ -1,13 +1,54 @@
 package lifecycle
 
 import (
+	"context"
+	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 )
+
+func TestSyncSkillsReportsListFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"unavailable"}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := syncSkills(context.Background(), client, logger)
+	if !got.Checked || got.Err == nil || got.Updated {
+		t.Fatalf("syncSkills failure = %+v, want checked warning", got)
+	}
+}
+
+func TestSyncSkillsReportsSuccessfulUnchanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"skills":[{"slug":"git","sha256":"abc"}]}`)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first := syncSkills(context.Background(), client, logger); first.Err != nil || !first.Updated {
+		t.Fatalf("first sync = %+v, want updated success", first)
+	}
+	if second := syncSkills(context.Background(), client, logger); second.Err != nil || !second.Checked || second.Updated {
+		t.Fatalf("second sync = %+v, want unchanged success", second)
+	}
+}
 
 func TestFingerprintSkillsOrderIndependent(t *testing.T) {
 	a := []orchestrator.Skill{
@@ -67,6 +108,30 @@ func TestPruneLegacySkillDirsOneShot(t *testing.T) {
 	pruneLegacySkillDirs("1.2.4", logger)
 	if _, err := os.Stat(dirs[0]); !os.IsNotExist(err) {
 		t.Fatalf("version bump should retrigger prune; stat err=%v", err)
+	}
+}
+
+func TestPruneLegacySkillDirsRetriesAfterFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".codex", "skills")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	failed := pruneLegacySkillDirsWith("9.9.9", logger, func(string) error { return errors.New("busy") })
+	if failed.Err == nil || failed.Updated {
+		t.Fatalf("failed prune = %+v, want visible retryable error", failed)
+	}
+	if _, err := os.Stat(legacyCleanupSentinel("9.9.9")); !os.IsNotExist(err) {
+		t.Fatalf("failed prune wrote sentinel: %v", err)
+	}
+	retried := pruneLegacySkillDirs("9.9.9", logger)
+	if retried.Err != nil || !retried.Updated {
+		t.Fatalf("retry prune = %+v", retried)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("retry did not remove target: %v", err)
 	}
 }
 

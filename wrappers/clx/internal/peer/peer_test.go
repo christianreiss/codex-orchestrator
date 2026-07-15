@@ -13,7 +13,18 @@ import (
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 )
+
+func TestUpdateCapsHonorsMinimal(t *testing.T) {
+	caps := updateCaps(&config.Config{}, true)
+	if caps.IsTTY || !caps.NoColor || !caps.Dumb || caps.UTF8 {
+		t.Fatalf("minimal caps must be portable ASCII without terminal styling: %+v", caps)
+	}
+	if caps.Palette != (ui.Palette{}) {
+		t.Fatalf("minimal caps must have an empty palette: %+v", caps.Palette)
+	}
+}
 
 // A 403 from /wrapper/v2/config means the peer engine is not enabled for this
 // host. fetchBundle must surface the typed sentinel so EnsureForCron can skip
@@ -94,7 +105,7 @@ func TestInstallPeerRejectsBadSignature(t *testing.T) {
 	cfg.Orchestrator.BaseURL = srv.URL
 	cfg.Orchestrator.APIKey = "k"
 
-	err := installPeer(context.Background(), cfg, false)
+	err := installPeer(context.Background(), cfg, false, false)
 	if err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Fatalf("want signature-invalid error, got %v", err)
 	}

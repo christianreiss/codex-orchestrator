@@ -19,6 +19,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -26,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/summary"
 )
 
 func skillsDigestPath() string {
@@ -47,33 +50,42 @@ func legacyCleanupSentinel(version string) string {
 	return filepath.Join(home, ".cache", "codex-orchestrator", "cleanup-v"+version)
 }
 
-// syncSkills pings /skills, fingerprints the result, and returns true when the
-// fingerprint changed since the last run. Network failures, missing cache
-// dirs, and empty server responses all return false — the boot screen falls
-// back to the unchanged-dot.
-func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) bool {
+// syncSkills pings /skills and returns a truthful best-effort health result.
+// Failures remain non-fatal, but callers must render them as warnings rather
+// than treating "not updated" as proof that the resource is healthy.
+func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) summary.ResourceSync {
+	state := summary.ResourceSync{Checked: true}
 	if client == nil {
-		return false
+		state.Err = errors.New("skills client unavailable")
+		return state
 	}
 	list, err := client.ListSkills(ctx)
 	if err != nil {
 		logger.Debug("skills sync skipped", "err", err)
-		return false
+		state.Err = err
+		return state
+	}
+	cached, err := readSkillsDigestResult()
+	if err != nil {
+		logger.Debug("skills digest read failed", "err", err)
+		state.Err = err
+		return state
 	}
 	if len(list) == 0 {
 		// Treat empty server-side list as the absence of a fingerprint — but
 		// still write an empty cache so a later non-empty response registers
 		// as a change.
-		writeSkillsDigest("")
-		return false
+		state.Updated = cached != ""
+		state.Err = writeSkillsDigest("")
+		return state
 	}
 	fp := fingerprintSkills(list)
-	cached := readSkillsDigest()
 	if fp == cached {
-		return false
+		return state
 	}
-	writeSkillsDigest(fp)
-	return true
+	state.Updated = true
+	state.Err = writeSkillsDigest(fp)
+	return state
 }
 
 // fingerprintSkills builds a stable hex digest over the (slug, sha256) pairs
@@ -92,44 +104,64 @@ func fingerprintSkills(list []orchestrator.Skill) string {
 }
 
 func readSkillsDigest() string {
+	digest, _ := readSkillsDigestResult()
+	return digest
+}
+
+func readSkillsDigestResult() (string, error) {
 	p := skillsDigestPath()
 	if p == "" {
-		return ""
+		return "", errors.New("skills digest path unavailable")
 	}
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
 	}
-	return strings.TrimSpace(string(raw))
+	return strings.TrimSpace(string(raw)), nil
 }
 
-func writeSkillsDigest(fp string) {
+func writeSkillsDigest(fp string) error {
 	p := skillsDigestPath()
 	if p == "" {
-		return
+		return errors.New("skills digest path unavailable")
 	}
-	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
 	tmp := p + ".new"
 	if err := os.WriteFile(tmp, []byte(fp+"\n"), 0o600); err != nil {
-		return
+		return err
 	}
-	_ = os.Rename(tmp, p)
+	return os.Rename(tmp, p)
 }
 
 // pruneLegacySkillDirs deletes the bash-era on-disk skill caches once per
 // wrapper version (sentinel-gated). v2 reads skills via MCP only; leaving the
 // old trees in place would let stale manifests shadow live ones.
-func pruneLegacySkillDirs(version string, logger *slog.Logger) {
+func pruneLegacySkillDirs(version string, logger *slog.Logger) summary.ResourceSync {
+	return pruneLegacySkillDirsWith(version, logger, os.RemoveAll)
+}
+
+func pruneLegacySkillDirsWith(version string, logger *slog.Logger, removeAll func(string) error) summary.ResourceSync {
+	state := summary.ResourceSync{Checked: true}
 	sentinel := legacyCleanupSentinel(version)
 	if sentinel == "" {
-		return
+		state.Err = errors.New("legacy skill cleanup sentinel path unavailable")
+		return state
 	}
 	if _, err := os.Stat(sentinel); err == nil {
-		return // already cleaned for this wrapper version
+		return state // already cleaned for this wrapper version
+	} else if !os.IsNotExist(err) {
+		state.Err = err
+		return state
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return
+		state.Err = err
+		return state
 	}
 	targets := []string{
 		filepath.Join(home, ".agents", "skills"),
@@ -137,16 +169,31 @@ func pruneLegacySkillDirs(version string, logger *slog.Logger) {
 		filepath.Join(home, ".codex", "prompts"),
 	}
 	for _, t := range targets {
-		if _, err := os.Stat(t); err != nil {
+		if _, err := os.Stat(t); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			state.Err = errors.Join(state.Err, fmt.Errorf("stat %s: %w", t, err))
 			continue
 		}
-		if err := os.RemoveAll(t); err != nil {
+		if err := removeAll(t); err != nil {
 			logger.Debug("legacy skill dir prune failed", "path", t, "err", err)
+			state.Err = errors.Join(state.Err, fmt.Errorf("prune %s: %w", t, err))
 			continue
 		}
+		state.Updated = true
 		logger.Debug("pruned legacy skill cache", "path", t)
 	}
-	// Drop the sentinel last so a partial prune still retries next run.
-	_ = os.MkdirAll(filepath.Dir(sentinel), 0o700)
-	_ = os.WriteFile(sentinel, []byte(version+"\n"), 0o600)
+	if state.Err != nil {
+		return state
+	}
+	// Drop the sentinel only after a complete successful pass so any partial
+	// prune retries on the next run and remains visible as an attention state.
+	if err := os.MkdirAll(filepath.Dir(sentinel), 0o700); err != nil {
+		state.Err = err
+		return state
+	}
+	if err := os.WriteFile(sentinel, []byte(version+"\n"), 0o600); err != nil {
+		state.Err = err
+	}
+	return state
 }

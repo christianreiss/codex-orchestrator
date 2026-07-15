@@ -14,7 +14,7 @@ func TestGuardFQDN_AllowsMatch(t *testing.T) {
 		t.Skip("no hostname")
 	}
 	cfg := &config.Config{Host: config.Host{FQDN: hn}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("exact-match should allow: %v", err)
 	}
 }
@@ -22,7 +22,7 @@ func TestGuardFQDN_AllowsMatch(t *testing.T) {
 func TestGuardFQDN_RejectsMismatch(t *testing.T) {
 	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "")
 	cfg := &config.Config{Host: config.Host{FQDN: "definitely-not-this-host.example.invalid"}}
-	err := guardFQDN(cfg)
+	err := GuardFQDN(cfg)
 	if err == nil {
 		t.Fatalf("mismatch should error")
 	}
@@ -34,19 +34,19 @@ func TestGuardFQDN_RejectsMismatch(t *testing.T) {
 func TestGuardFQDN_OverrideEnvAllows(t *testing.T) {
 	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "1")
 	cfg := &config.Config{Host: config.Host{FQDN: "wrong.example"}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("override should allow: %v", err)
 	}
 }
 
 func TestGuardFQDN_EmptyBakedAllows(t *testing.T) {
-	if err := guardFQDN(&config.Config{Host: config.Host{FQDN: ""}}); err != nil {
+	if err := GuardFQDN(&config.Config{Host: config.Host{FQDN: ""}}); err != nil {
 		t.Fatalf("empty baked FQDN should pass: %v", err)
 	}
 }
 
 func TestGuardFQDN_NilAllows(t *testing.T) {
-	if err := guardFQDN(nil); err != nil {
+	if err := GuardFQDN(nil); err != nil {
 		t.Fatalf("nil cfg should pass: %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestGuardFQDN_SuffixMatch(t *testing.T) {
 		t.Skip("no hostname")
 	}
 	cfg := &config.Config{Host: config.Host{FQDN: hn + ".prod.example"}}
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		t.Fatalf("suffix match should pass: %v", err)
 	}
 }

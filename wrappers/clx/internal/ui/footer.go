@@ -51,7 +51,7 @@ func PrintExitFooter(w io.Writer, caps Caps, prefix string, f ExitFooter) {
 		if engine != "" && version != "" {
 			fields = append(fields, engine+"="+version)
 		}
-		fmt.Fprintln(w, strings.ToLower(prefix)+" | "+strings.Join(fields, " | "))
+		printPlainLine(w, caps, strings.ToLower(prefix)+" | "+strings.Join(fields, " | "))
 		return
 	}
 

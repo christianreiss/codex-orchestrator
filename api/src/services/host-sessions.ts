@@ -1,11 +1,10 @@
 /**
- * Fleet-wide cdx-run session counts derived from the `logs` table.
+ * Fleet-wide managed-wrapper sync activity derived from the `logs` table.
  *
- * A "session" here is one `cdx run` invocation. Every such invocation hits
- * `/sync/bootstrap`, which fans out to `HostAgentsService.retrieve()` and
- * writes one `logs` row with `action='agents.retrieve'` (see
- * `api/src/services/host-agents.ts:40,76`). Counting those rows by window
- * gives us the three fleet-wide aggregates the boot screen wants.
+ * `agents.retrieve` is emitted by bootstrap and the standalone agents route,
+ * so it is a sync-attempt signal, not proof that an engine process launched.
+ * The API keeps the historical `sessions` response key for compatibility, but
+ * wrappers label these counters as recent hosts / UTC syncs.
  *
  * Read-only and idempotent — safe to call on every bootstrap request.
  */
@@ -17,11 +16,11 @@ const SESSION_ACTION = 'agents.retrieve';
 const NOW_WINDOW_MINUTES = 30;
 
 export interface FleetSessionCounts {
-  /** Distinct hosts that started a cdx run in the last 30 minutes — proxy for "concurrent now". */
+  /** Distinct hosts that retrieved managed agents in the last 30 minutes. */
   now: number;
-  /** Total cdx-run starts across the fleet today (UTC day boundary). */
+  /** Total managed agents retrievals since the UTC day boundary. */
   today: number;
-  /** Total cdx-run starts across the fleet this calendar month (UTC). */
+  /** Total managed agents retrievals since the UTC month boundary. */
   month: number;
 }
 
@@ -34,8 +33,8 @@ export class HostSessionsService {
     const monthCutoff = isoFloor(startOfUtcMonth(now));
 
     const [nowRows, todayRows, monthRows] = await Promise.all([
-      // Count *distinct* hosts in the 30-min window so a chatty host doesn't
-      // inflate the "concurrent now" number to look like ten sessions.
+      // Count distinct hosts in the 30-minute window so retries from one host
+      // do not inflate the recent-host signal.
       this.db
         .select({ c: sql<number>`count(distinct ${logs.hostId})` })
         .from(logs)

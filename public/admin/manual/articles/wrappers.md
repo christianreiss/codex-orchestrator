@@ -1,7 +1,7 @@
 ---
 title: The cdx and clx wrappers
 section: Fleet operations
-verified: 2026-07-01
+verified: 2026-07-15
 sources: wrappers/cdx, wrappers/clx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -91,33 +91,35 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 Implemented in `wrappers/cdx/internal/lifecycle/run.go` (mirrored closely for
 clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
 
-1. **Lock** — acquire a non-blocking `flock` (via `ipc.Acquire`). If already
-   held, fall into concurrent/read-only mode: the run still submits the auth
-   digest and atomically writes server-returned canonical auth on
-   `outdated`/`updated`/`missing`, but skips agents/config/skills writes, the
-   wrapper/engine update, and peer reconciliation below.
-2. **FQDN guard (cdx)** — `codex.GuardFQDN` compares the runtime hostname
-   against the FQDN baked into the config, before any network sync; refuses
-   unless `CODEX_ALLOW_FQDN_MISMATCH=1`. (clx performs the equivalent check
-   later, inside `PreExec` immediately before spawning `claude` — see
-   [clx](/admin/manual/clx).)
-3. **Config load** — load and verify the host config JSON and its detached
+1. **Config load** — load and verify the host config JSON and its detached
    `.sig` file against the Ed25519 public key embedded in the binary at build
-   time.
-4. **Bundle sync** — call `POST /sync/bootstrap` with a bundle request
+   time. `status` and `doctor` turn failures into structured blocked reports;
+   path/cause text is stripped of terminal controls, bounded, and returns
+   non-zero. Other commands fail with one concise sanitized error.
+2. **FQDN guard + lock** — both wrappers compare the runtime hostname against
+   the FQDN baked into the config before any network sync. `clx` performs the
+   guard before even acquiring its lock; `cdx` acquires the lock first but
+   still guards before bootstrap. Both repeat the check in `PreExec` as a final
+   defense before spawning the engine. The override is
+   `CODEX_ALLOW_FQDN_MISMATCH=1` / `CLAUDE_ALLOW_FQDN_MISMATCH=1`.
+   A held lock enters sync-paused mode: auth freshness remains active, while
+   agents/config/skills writes, wrapper/engine updates, and peer
+   reconciliation are skipped. The boot card says `SYNC PAUSED` and keeps
+   API/auth/runner health visible.
+3. **Bundle sync** — call `POST /sync/bootstrap` with a bundle request
    containing: engine, auth digest + candidate bytes, agents digest,
    settings/config digest, username, and home dir. The server returns auth,
-   agents content, config/settings content, and fleet session counts in a
-   single response. If the server returns `404`, `501`, or `405` the wrapper
-   falls back to sequential legacy calls: `POST /auth`, `POST /agents/retrieve`,
-   `POST /config/retrieve`.
-5. **Atomic writes** — if the server returned updated content, write
-   `auth.json`, `AGENTS.md` (cdx: `~/.codex/AGENTS.md`; clx:
-   `~/.claude/AGENTS.md`), and the engine config file (cdx:
+   agents content, config/settings content, and the compatibility `sessions`
+   activity object in one response. If the server returns `404`, `501`, or
+   `405` the wrapper falls back to sequential legacy calls: `POST /auth`,
+   `POST /agents/retrieve`, `POST /config/retrieve`.
+4. **Atomic writes** — if the server returned updated content, write
+   `auth.json`, the agents document (cdx: `~/.codex/AGENTS.md`; clx:
+   `~/.claude/CLAUDE.md`), and the engine config file (cdx:
    `~/.codex/config.toml`; clx: `~/.claude/settings.json`, also mirrored to
    `~/.clx/config/settings.json`) atomically. On the legacy fallback path
    these come from the individual retrieve calls instead of bundle fields.
-6. **Auth decision** — `orchestrator.Decide` evaluates the auth status. A few
+5. **Auth decision** — `orchestrator.Decide` evaluates the auth status. A few
    conditions are hard stops before the normal status switch: the server's
    `versions.api_disabled` kill switch, an `installation_id` mismatch, a
    reverse-DNS mismatch, the peer/host's engine being disabled, and a
@@ -130,13 +132,13 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    `insecure-denied`, `disabled`, and `invalid` refuse; `offline`/`error` fall
    back to a cached `auth.json`/`.credentials.json` within 24h (7d on secure
    hosts) if one is fresh enough.
-7. **Interactive auth recovery** — when the decision is `VerificationFailed`,
+6. **Interactive auth recovery** — when the decision is `VerificationFailed`,
    or `missing`/`upload_required` with no usable local credential (or the
    candidate was rejected), an interactive `run` prompts to launch
    `codex login` / `claude auth login`, uploads the freshly minted
    credentials, and re-checks with the server. Headless callers (cron,
    `--execute`) fail closed instead of opening the prompt.
-8. **Self-update, engine update, and peer reconciliation** — if
+7. **Self-update, engine update, and peer reconciliation** — if
    `dec.Allowed`: `maybeEnsureWrapper` compares the running wrapper binary
    version to the server-declared target; if they differ it downloads the new
    binary and re-execs it before the engine CLI launches. Then
@@ -146,21 +148,84 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    engine's wrapper + CLI on this host (see "Peer engine reconciliation"
    below). For cdx, a `QUOTA_HARD_FAIL=0` env override can also be checked
    here to bypass a hard ChatGPT-quota refusal.
-9. **Skills fingerprint check** — `GET /skills?engine=<engine>`, compare the
+8. **Skills fingerprint check** — `GET /skills?engine=<engine>`, compare the
    slug+SHA256 hash against
-   `~/.cache/codex-orchestrator/skills-digest`. Updates the boot-screen dot if
-   changed. On the first run of a new wrapper version, performs a one-shot
-   purge of legacy on-disk skill directories (`~/.agents/skills`,
-   `~/.codex/skills`, `~/.codex/prompts`).
-10. **Boot screen** — render the responsive outcome/context/version/health card
-    to stderr. Redirects, dumb/narrow terminals, and `--minimal` use stable
-    ANSI-free ASCII.
-11. **Exec** — `exec` the upstream `codex` (or `claude`) CLI with the prepared
+   `~/.cache/codex-orchestrator/skills-digest`. A successful unchanged check is
+   green, a changed digest gets the updated marker, failures warn, and an
+   intentionally skipped check is dim. The combined agents/config marker uses
+   the same evidence-based states; bundled Claude-native skill application
+   contributes to the skills marker, not config. On the first run of a new
+   wrapper version, it performs a one-shot purge of legacy on-disk skill
+   directories (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`).
+9. **Boot screen** — render the shared responsive
+    outcome/context/version/health card to stderr. Redirects, dumb/narrow
+    terminals, and `--minimal` use stable width-bounded ANSI-free ASCII.
+    Explicit minimal mode also applies to wrapper help, status, doctor,
+    cron/peer-update progress, and the footer. Wrapper-only presentation flags
+    are consumed before an upstream help passthrough. Boot/status results are
+    sanitized and capped at three rendered lines; diagnostic causes/paths are
+    bounded separately, and narrow update rows keep the outcome visible before
+    version metadata.
+10. **Exec** — `exec` the upstream `codex` (or `claude`) CLI with the prepared
     env, forwarding stdio and signals. Stdout is captured for token extraction.
-12. **Post-exec** — `maybePostRunAuthUpload` pushes a rotated `auth.json` back
+11. **Post-exec** — `maybePostRunAuthUpload` pushes a rotated `auth.json` back
     to the orchestrator if the SHA or `last_refresh` changed during the run.
     Render a measured exit footer from the real process exit, duration, engine
     version, and auth-upload outcome.
+
+When the bundle contains the historical `sessions` compatibility object, both
+cards render an `ACTIVITY` section. `local procs` is the same-UID wrapper process
+count; `hosts 30m` is the number of distinct hosts with an `agents.retrieve`
+event in the prior 30 minutes; `syncs UTC day` and `syncs UTC month` are total
+events from the UTC day/month boundaries. These values measure managed-agent
+sync attempts, not launches or concurrency. An older server can omit the
+optional block, in which case the card hides the section rather than
+fabricating zeroes.
+
+The context cards follow runtime configuration. cdx fills otherwise absent
+model/effort fields from `~/.codex/config.toml`. For clx, a signed
+`claude_model_override` wins over inherited `ANTHROPIC_MODEL`; the inherited
+environment is a fallback, and response/`~/.claude/settings.json` values fill
+fields still unset.
+
+### Codex quota card
+
+`cdx` derives each quota label from the provider's `limit_seconds`, so a
+seven-day primary window is shown as `weekly` rather than the old hard-coded
+`5h`. Real `0%` readings remain visible and quota warning/block copy explicitly
+says `reset unknown` when no reset exists. Forecast text wraps to a
+continuation line when needed and changes the overall outcome to attention
+when the active lane approaches or crosses the configured threshold; forecasts
+stay advisory and never become a hard block by themselves. Projection is held
+back until at least five minutes and 1% of its quota window have elapsed.
+
+The launch lane is host-effective: the host's lane preference wins, then the
+response's `active_quota_lane`, with `normal` as the fallback. Only the active
+lane can warn/block from current percentage or provider
+`rate_allowed`/`rate_limit_reached` flags; the inactive normal/Spark rows remain
+context. Provider error/unavailable status, malformed fetch timestamps, and
+snapshots older than 30 minutes warn rather than presenting stale numbers as
+healthy. Such snapshots remain last-known context but cannot forecast or gate
+launch from their stored percentages/provider flags. If no readable snapshot
+exists, `/auth` sends `chatgpt.status="unavailable"` instead of omitting quota
+evidence. `/auth` supplies
+`active_quota_lane:"spark"` only to a host whose
+stored lane preference is Spark; all other hosts receive `normal`.
+
+An explicitly stored host lane also controls the actual Codex argv. `normal` selects
+`gpt-5.6-terra`; `spark` selects `gpt-5.3-codex-spark`, high effort, and no
+reasoning summaries. Explicit per-run `--model`/`-m` or `--profile`/`-p` wins
+over lane injection, and the card mirrors that launch choice. Clearing the lane
+preserves the signed fleet/per-host model while quota policy and display fall
+back to `normal`. If no explicit,
+signed, or response override supplies model/effort, cdx reads the top-level
+fields from `~/.codex/config.toml`; doctor validates the real TOML tree and its
+managed MCP block.
+
+Runner health follows launch policy: a stored transport failure is attention,
+because retrieve/cached launch remains allowed, while an explicit stored
+credential-verification failure is blocked. Doctors separately require a
+structurally usable local token and an HTTP 2xx API response.
 
 ## Peer engine reconciliation
 
@@ -215,7 +280,7 @@ Flags: same set as cdx minus the lane/profile-specific ones; adds
 (short form `-r`), which are forwarded to the Claude CLI, plus
 `--dangerously-skip-permissions` for an explicit per-run permission bypass.
 `--allow-concurrent-sync` is an explicit escape hatch on both wrappers: when
-the run lock is held, it allows normal managed writes instead of read-only
+the run lock is held, it allows normal managed writes instead of sync-paused
 fallback and prints that decision before startup.
 
 ### auth-upload

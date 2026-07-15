@@ -45,13 +45,13 @@ type bundle struct {
 	} `json:"signature"`
 }
 
-func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, logger *slog.Logger) {
+func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, minimal bool, logger *slog.Logger) {
 	engines, ok := desiredEngines(cfg, auth)
 	if !ok {
 		return
 	}
 	if hasEngine(engines, peerEngine) {
-		if err := installPeer(ctx, cfg, false); err != nil {
+		if err := installPeer(ctx, cfg, false, minimal); err != nil {
 			logger.Warn("peer wrapper install skipped", "engine", peerEngine, "err", err)
 		}
 		return
@@ -66,7 +66,7 @@ func Reconcile(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthR
 // but never removes anything — removal stays on the interactive path where a
 // fresh server-provided engines list is available (a stale local config must
 // not be able to wipe the peer's home directories from an unattended tick).
-func EnsureForCron(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
+func EnsureForCron(ctx context.Context, cfg *config.Config, minimal bool, logger *slog.Logger) {
 	if os.Getenv(peerSpawnEnv) == "1" {
 		return
 	}
@@ -78,7 +78,7 @@ func EnsureForCron(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 	// is not — skip silently then. As with interactive Reconcile we never
 	// persist the engines list locally and never remove the peer from an
 	// unattended tick.
-	if err := installPeer(ctx, cfg, true); err != nil {
+	if err := installPeer(ctx, cfg, true, minimal); err != nil {
 		if errors.Is(err, errPeerEngineDisabled) {
 			return
 		}
@@ -125,7 +125,7 @@ func hasEngine(engines []string, want string) bool {
 	return false
 }
 
-func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) error {
+func installPeer(ctx context.Context, cfg *config.Config, forceCronTick, minimal bool) error {
 	b, rawPayload, err := fetchBundle(ctx, cfg)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	}
 	installed := false
 	if !peerBinaryCurrent(sum) {
-		caps := updateCaps(cfg)
+		caps := updateCaps(cfg, minimal)
 		fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", peerName, "", ""))
 		if err := installPeerBinary(ctx, cfg, url, sum); err != nil {
 			fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", peerName, "", err))
@@ -171,17 +171,21 @@ func installPeer(ctx context.Context, cfg *config.Config, forceCronTick bool) er
 	// guarded peer tick so a single managed cdx cron entry refreshes clx and
 	// claude too.
 	if shouldRunPeerCronTick(installed, peerEngineCLIPresent(), forceCronTick) {
-		runPeerCronTick(ctx)
+		runPeerCronTick(ctx, minimal)
 	}
 	return nil
 }
 
-func updateCaps(cfg *config.Config) ui.Caps {
+func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
 	theme := ""
 	if cfg != nil && cfg.EngineOptions.AdminThemeHint != nil {
 		theme = *cfg.EngineOptions.AdminThemeHint
 	}
-	return ui.DetectCaps(theme)
+	caps := ui.DetectCaps(theme)
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
 }
 
 func shouldRunPeerCronTick(installed, enginePresent, force bool) bool {
@@ -209,10 +213,14 @@ func peerEngineCLIPresent() bool {
 	return err == nil
 }
 
-func runPeerCronTick(ctx context.Context) {
+func runPeerCronTick(ctx context.Context, minimal bool) {
 	tctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(tctx, peerBinaryPath(), "--cron", "run")
+	args := []string{"--cron", "run"}
+	if minimal {
+		args = append(args, "--minimal")
+	}
+	cmd := exec.CommandContext(tctx, peerBinaryPath(), args...)
 	cmd.Env = append(os.Environ(), peerSpawnEnv+"=1")
 	_ = cmd.Run()
 }

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func TestPrintBootScreenRichIsAtAGlanceAndResponsive(t *testing.T) {
 			{Name: "runner", Tone: ToneFail},
 		},
 		QuotaRows:   []QuotaRow{{Label: "5h", Used: 73, ResetAfter: 42 * time.Minute}},
-		SessionRows: []SessionRow{{Label: "month", Count: 1234}},
+		SessionRows: []SessionRow{{Label: "syncs UTC month", Count: 1234}},
 		ResultLabel: "Ready with warnings; run `cdx doctor` for details.", ResultTone: ToneWarn,
 	}
 
@@ -30,7 +31,7 @@ func TestPrintBootScreenRichIsAtAGlanceAndResponsive(t *testing.T) {
 	for _, want := range []string{
 		"CDX", "CODEX ORCHESTRATOR", "ATTENTION", "workstation.example",
 		"gpt-5.6-terra/ultra", "BrowserOS", "codex 0.144.1", "wrapper 0.6.44",
-		"→ 0.6.45", "api", "auth", "runner", "QUOTA", "73%", "SESSIONS", "1,234",
+		"→ 0.6.45", "api", "auth", "runner", "QUOTA", "73%", "ACTIVITY", "1,234",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rich screen missing %q:\n%s", want, out)
@@ -69,7 +70,7 @@ func TestPrintMinimalScreenIsStableAndLogSafe(t *testing.T) {
 	})
 	out := buf.String()
 	for _, want := range []string{
-		"cdx | status=ready | host=host.example | codex=0.144.1 | wrapper=0.6.44 | browseros=enabled",
+		"cdx | status=ready", "host=host.example", "codex=0.144.1", "wrapper=0.6.44", "browseros=enabled",
 		"health | api=ok", "result | Ready.",
 	} {
 		if !strings.Contains(out, want) {
@@ -79,6 +80,140 @@ func TestPrintMinimalScreenIsStableAndLogSafe(t *testing.T) {
 	if strings.Contains(out, "\x1b[") {
 		t.Fatalf("minimal screen contains ANSI: %q", out)
 	}
+}
+
+func TestScreenKeepsEffortVisibleWithoutModel(t *testing.T) {
+	var rich bytes.Buffer
+	printBootScreen(&rich, ScreenInput{Effort: "ultra"}, screenCaps(64))
+	if !strings.Contains(StripANSI(rich.String()), "effort ultra") {
+		t.Fatalf("rich screen hid effort-only context:\n%s", rich.String())
+	}
+
+	var minimal bytes.Buffer
+	PrintMinimalScreen(&minimal, ScreenInput{Effort: "ultra"})
+	if !strings.Contains(minimal.String(), "effort=ultra") {
+		t.Fatalf("minimal screen hid effort-only context:\n%s", minimal.String())
+	}
+}
+
+func TestCompactScreenAndFooterRespectDetectedWidths(t *testing.T) {
+	for _, width := range []int{39, 80} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			caps := screenCaps(width)
+			caps.IsTTY = false
+			caps.Palette = Palette{Bold: "\x1b[1m", Reset: "\x1b[0m", Red: "\x1b[31m"}
+			input := ScreenInput{
+				HostFQDN:     strings.Repeat("very-long-host-", 8) + "é.example",
+				CodexVersion: strings.Repeat("0.144.1-long-", 5), WrapperVersion: "0.6.44",
+				Model: strings.Repeat("gpt-ultra-long-", 6), Effort: "ultra",
+				Dots:        []HealthDot{{Name: strings.Repeat("runner-long-", 6), Tone: ToneFail}},
+				ResultLabel: strings.Repeat("sync failed with a detailed reason ", 12), ResultTone: ToneFail,
+			}
+			var screen bytes.Buffer
+			printMinimalScreen(&screen, input, caps)
+			assertScreenLinesFit(t, screen.String(), width)
+			assertASCIIOutput(t, screen.String())
+			if lines := strings.Split(strings.TrimSpace(screen.String()), "\n"); len(lines) < 3 {
+				t.Fatalf("compact screen did not retain structured detail:\n%s", screen.String())
+			}
+
+			var footer bytes.Buffer
+			PrintExitFooter(&footer, caps, "cdx", ExitFooter{
+				ExitCode: 7, AuthTone: ToneFail,
+				AuthStatus: strings.Repeat("credential upload failed ", 8) + "é",
+				EngineName: "codex", EngineVersion: strings.Repeat("0.144.1-long-", 6),
+			})
+			assertScreenLinesFit(t, footer.String(), width)
+			assertASCIIOutput(t, footer.String())
+			if !strings.Contains(footer.String(), "exit=7") || !strings.Contains(footer.String(), "auth=") {
+				t.Fatalf("compact footer lost measured outcome:\n%s", footer.String())
+			}
+		})
+	}
+}
+
+func TestRichConcurrentScreenKeepsHealthAtAGlance(t *testing.T) {
+	caps := screenCaps(64)
+	var buf bytes.Buffer
+	printBootScreen(&buf, ScreenInput{
+		Concurrent: true, ConcurrentNote: "Managed content sync paused; auth freshness remains active.",
+		Dots:        []HealthDot{{Name: "api", Tone: ToneOK}, {Name: "auth", Tone: ToneWarn}},
+		ResultLabel: "Managed content sync paused; auth freshness remains active.",
+	}, caps)
+	for _, want := range []string{"SYNC PAUSED", "auth freshness remains", "active.", "api", "auth"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("concurrent screen missing %q:\n%s", want, buf.String())
+		}
+	}
+}
+
+func TestResultLabelIsBoundedWithoutHidingNormalErrors(t *testing.T) {
+	caps := screenCaps(40)
+	var long bytes.Buffer
+	renderToneTextLimited(newCard(&long, caps), ToneFail, strings.Repeat("detailed failure reason ", 20), 3)
+	lines := strings.Split(strings.TrimSuffix(long.String(), "\n"), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[2], "…") {
+		t.Fatalf("long result should be three lines with ellipsis, got %d:\n%s", len(lines), long.String())
+	}
+
+	var normal bytes.Buffer
+	renderToneTextLimited(newCard(&normal, caps), ToneFail, "API error: connection refused", 3)
+	if !strings.Contains(normal.String(), "API error: connection refused") || strings.Contains(normal.String(), "…") {
+		t.Fatalf("normal error was hidden or truncated:\n%s", normal.String())
+	}
+
+	plainCaps := caps
+	plainCaps.IsTTY = false
+	plainCaps.Columns = 39
+	var plain bytes.Buffer
+	printPlainLineLimited(&plain, plainCaps, "result | "+strings.Repeat("detailed failure reason ", 20), 3)
+	plainLines := strings.Split(strings.TrimSuffix(plain.String(), "\n"), "\n")
+	if len(plainLines) != 3 || !strings.HasSuffix(plainLines[2], "...") {
+		t.Fatalf("compact result should be three ASCII lines with ellipsis, got %d:\n%s", len(plainLines), plain.String())
+	}
+}
+
+func TestRiskyQuotaForecastIsCompleteAcrossRichWidths(t *testing.T) {
+	projection := "~123% at reset; 100% in 42m"
+	for _, width := range []int{40, 60, 72, 80} {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			caps := screenCaps(width)
+			var buf bytes.Buffer
+			printBootScreen(&buf, ScreenInput{
+				CodexVersion: "0.144.1", WrapperVersion: "0.6.44",
+				QuotaRows: []QuotaRow{{
+					Label: "5h", Used: 94, ResetAfter: 42 * time.Minute,
+					Projection: projection, ProjectionTone: ToneFail,
+				}},
+			}, caps)
+			plain := StripANSI(buf.String())
+			for _, token := range []string{"forecast", "~123%", "at", "reset;", "100%", "in", "42m"} {
+				if !strings.Contains(plain, token) {
+					t.Fatalf("%d-column forecast lost %q:\n%s", width, token, plain)
+				}
+			}
+			if strings.ContainsAny(plain, "…") || strings.Contains(plain, "...") {
+				t.Fatalf("%d-column forecast was ellipsized:\n%s", width, plain)
+			}
+			assertScreenLinesFit(t, buf.String(), width)
+		})
+	}
+}
+
+func TestMinimalScreenPreservesQuotaForecast(t *testing.T) {
+	caps := screenCaps(39)
+	var buf bytes.Buffer
+	printMinimalScreen(&buf, ScreenInput{QuotaRows: []QuotaRow{{
+		Label: "5h", Used: 94, ResetAfter: 42 * time.Minute,
+		Projection: "~123% at reset; 100% in 42m", ProjectionTone: ToneFail,
+	}}}, caps)
+	for _, want := range []string{"forecast=", "~123%", "reset;", "100%", "42m"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("minimal forecast missing %q:\n%s", want, buf.String())
+		}
+	}
+	assertScreenLinesFit(t, buf.String(), caps.Columns)
+	assertASCIIOutput(t, buf.String())
 }
 
 func TestPrintMinimalScreenShowsTargetsAndUsesPortableASCII(t *testing.T) {
@@ -177,6 +312,18 @@ func assertScreenLinesFit(t *testing.T, output string, columns int) {
 	for i, line := range strings.Split(strings.TrimSuffix(output, "\n"), "\n") {
 		if got := VisibleWidth(line); got > columns {
 			t.Fatalf("line %d is %d columns wide, cap is %d: %q", i+1, got, columns, line)
+		}
+	}
+}
+
+func assertASCIIOutput(t *testing.T, output string) {
+	t.Helper()
+	if strings.Contains(output, "\x1b") {
+		t.Fatalf("compact output contains ANSI: %q", output)
+	}
+	for _, r := range output {
+		if r > 0x7f {
+			t.Fatalf("compact output contains non-ASCII rune %q: %q", r, output)
 		}
 	}
 }

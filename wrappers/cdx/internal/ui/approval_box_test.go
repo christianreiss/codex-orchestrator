@@ -12,6 +12,30 @@ type countingApprovalChecker struct {
 	calls int
 }
 
+type resolvingApprovalChecker struct{}
+
+func (*resolvingApprovalChecker) CheckAuthStatus(context.Context) (string, string, error) {
+	return "valid", "approved\n\x1b[31mnow", nil
+}
+
+func TestPlainApprovalIsPortableForMinimalAndNoColor(t *testing.T) {
+	rich := Caps{IsTTY: true, UTF8: true, Columns: 48, Palette: Palette{Red: "\x1b[31m", Reset: "\x1b[0m"}}
+	if !usePlainApproval(rich, true) || !usePlainApproval(Caps{IsTTY: true, NoColor: true}, false) || usePlainApproval(rich, false) {
+		t.Fatal("plain approval selection does not honor minimal/NO_COLOR")
+	}
+	var out bytes.Buffer
+	resolved, err := pollApprovalPlain(context.Background(), &resolvingApprovalChecker{}, time.Millisecond, rich, &out)
+	if err != nil || !resolved {
+		t.Fatalf("plain approval = resolved:%t err:%v", resolved, err)
+	}
+	if strings.Contains(out.String(), "\x1b") || strings.ContainsAny(out.String(), "→╭╮╰╯│") {
+		t.Fatalf("plain approval leaked controls/Unicode: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "approved now") {
+		t.Fatalf("plain approval did not sanitize dynamic reason: %q", out.String())
+	}
+}
+
 func (c *countingApprovalChecker) CheckAuthStatus(context.Context) (string, string, error) {
 	c.calls++
 	return "insecure", "", nil

@@ -171,9 +171,61 @@ func CleanInline(s string) string {
 // PlainInline is the portable log form used by compact/non-interactive output.
 func PlainInline(s string) string {
 	s = CleanInline(s)
-	return strings.NewReplacer(
+	s = strings.NewReplacer(
 		"⚡", "spark", "→", "->", "←", "<-", "—", "-", "–", "-", "…", "...",
+		"✓", "OK", "×", "x", "✗", "x", "↑", "^", "⬆", "^", "·", "|",
 	).Replace(s)
+	return strings.Map(func(r rune) rune {
+		if r >= 0x20 && r <= 0x7e {
+			return r
+		}
+		return '?'
+	}, s)
+}
+
+// printPlainLine renders one logical compact-output record within the
+// detected terminal width. Continuation lines keep every field visible while
+// remaining deterministic, ANSI-free ASCII for logs and dumb terminals.
+func printPlainLine(w io.Writer, caps Caps, text string) {
+	printPlainLineLimited(w, caps, text, 0)
+}
+
+func printPlainLineLimited(w io.Writer, caps Caps, text string, maxLines int) {
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	plainCaps := caps
+	plainCaps.Dumb = true
+	plainCaps.UTF8 = false
+	lines := limitWrappedLines(WrapText(PlainInline(text), width), maxLines, width, plainCaps)
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
+}
+
+func limitWrappedLines(lines []string, maxLines, width int, caps Caps) []string {
+	if maxLines <= 0 || len(lines) <= maxLines {
+		return lines
+	}
+	lines = append([]string(nil), lines[:maxLines]...)
+	last := strings.TrimRight(lines[maxLines-1], " ")
+	ellipsis := "…"
+	if caps.Dumb || !caps.UTF8 {
+		ellipsis = "..."
+	}
+	if VisibleWidth(last)+VisibleWidth(ellipsis) <= width {
+		lines[maxLines-1] = last + ellipsis
+	} else {
+		available := width - VisibleWidth(ellipsis)
+		if available <= 0 {
+			lines[maxLines-1] = strings.Repeat(".", width)
+		} else {
+			prefix, _ := splitVisible(last, available)
+			lines[maxLines-1] = strings.TrimRight(prefix, " ") + ellipsis
+		}
+	}
+	return lines
 }
 
 // TruncateText clamps plain text to width visible cells and appends an

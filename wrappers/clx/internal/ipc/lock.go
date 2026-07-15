@@ -50,3 +50,60 @@ func lockPath(name string) string {
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%d.lock", name, os.Getuid()))
 }
+
+// CountActive walks /proc and reports same-UID processes whose short name
+// exactly matches name. It returns a conservative floor of one when /proc is
+// unavailable or the caller cannot be observed.
+func CountActive(name string) int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 1
+	}
+	myUID := uint32(os.Getuid())
+	want := []byte(name)
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid := entry.Name()
+		if pid == "" || pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+		comm, err := os.ReadFile(filepath.Join("/proc", pid, "comm"))
+		if err != nil {
+			continue
+		}
+		for len(comm) > 0 && (comm[len(comm)-1] == '\n' || comm[len(comm)-1] == ' ') {
+			comm = comm[:len(comm)-1]
+		}
+		if !bytesEqual(comm, want) {
+			continue
+		}
+		st, err := os.Stat(filepath.Join("/proc", pid))
+		if err != nil {
+			continue
+		}
+		sys, ok := st.Sys().(*syscall.Stat_t)
+		if !ok || sys.Uid != myUID {
+			continue
+		}
+		count++
+	}
+	if count == 0 {
+		return 1
+	}
+	return count
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

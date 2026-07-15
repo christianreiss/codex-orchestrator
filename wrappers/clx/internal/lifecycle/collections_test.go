@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -50,6 +51,38 @@ func TestApplyCollectionIfNoneMatchSkipsRewrite(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(home, ".claude", "agents", "a.md"))
 	if string(got) != "v1" {
 		t.Fatalf("file should be untouched, got %q", got)
+	}
+}
+
+func TestApplyClaudeArtifactsResultReportsIncompleteWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	updated, err := applyClaudeArtifactsResult(&orchestrator.ClaudeArtifacts{
+		Subagents: []orchestrator.CollectionItem{{Slug: "reviewer", SHA256: "new", Status: "updated"}},
+	}, slog.Default())
+	if updated || err == nil {
+		t.Fatalf("incomplete artifact sync = updated %t, err %v", updated, err)
+	}
+}
+
+func TestApplyClaudeArtifactsResultPreservesLastGoodItem(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyCollection("subagent", []orchestrator.CollectionItem{item("reviewer", "old", "old body")}, logger)
+
+	updated, err := applyClaudeArtifactsResult(&orchestrator.ClaudeArtifacts{
+		Subagents: []orchestrator.CollectionItem{{Slug: "reviewer", SHA256: "new", Status: "updated"}},
+	}, logger)
+	if updated || err == nil {
+		t.Fatalf("incomplete artifact update = updated %t, err %v", updated, err)
+	}
+	body, readErr := os.ReadFile(filepath.Join(home, ".claude", "agents", "reviewer.md"))
+	if readErr != nil || string(body) != "old body" {
+		t.Fatalf("last good artifact was not preserved: body %q, err %v", body, readErr)
+	}
+	if got := loadManifest(collectionManifestPath("agents")).Items["reviewer"].SHA256; got != "old" {
+		t.Fatalf("last good artifact manifest SHA = %q", got)
 	}
 }
 
@@ -142,6 +175,24 @@ func TestStripClaudeCollectionsRemovesFleetFilesOnly(t *testing.T) {
 	}
 }
 
+func TestStripClaudeCollectionsRetainsOwnershipAfterRemoveFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	path := filepath.Join(home, ".claude", "agents", "a.md")
+	applyCollection("subagent", []orchestrator.CollectionItem{item("a", "1", "A")}, logger)
+	err := stripClaudeCollectionsWith(logger, func(string) error { return errors.New("busy") })
+	if err == nil || !fileExists(path) || artifactDigestsForRequest()["subagent"]["a"] != "1" {
+		t.Fatalf("failed strip lost file ownership: err=%v digests=%v", err, artifactDigestsForRequest())
+	}
+	if err := stripClaudeCollections(logger); err != nil {
+		t.Fatalf("retry strip: %v", err)
+	}
+	if fileExists(path) || len(artifactDigestsForRequest()) != 0 {
+		t.Fatalf("retry did not clear file and ownership: digests=%v", artifactDigestsForRequest())
+	}
+}
+
 func skillItem(slug, sha, content string) orchestrator.CollectionItem {
 	return orchestrator.CollectionItem{Slug: slug, SHA256: sha, Status: "updated", Content: content}
 }
@@ -180,6 +231,53 @@ func TestApplyClaudeSkillsIfNoneMatch(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(home, ".claude", "skills", "a", "SKILL.md"))
 	if string(got) != "v1" {
 		t.Fatalf("file should be untouched, got %q", got)
+	}
+}
+
+func TestApplyClaudeSkillsResultReportsIncompleteWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{{
+		Slug: "reviewer", SHA256: "new", Status: "updated",
+	}}, slog.Default())
+	if updated || err == nil {
+		t.Fatalf("incomplete skill sync = updated %t, err %v", updated, err)
+	}
+}
+
+func TestApplyClaudeSkillsResultPreservesLastGoodItem(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("reviewer", "old", "old body")}, logger)
+
+	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{{
+		Slug: "reviewer", SHA256: "new", Status: "updated",
+	}}, logger)
+	if updated || err == nil {
+		t.Fatalf("incomplete skill update = updated %t, err %v", updated, err)
+	}
+	body, readErr := os.ReadFile(filepath.Join(home, ".claude", "skills", "reviewer", "SKILL.md"))
+	if readErr != nil || string(body) != "old body" {
+		t.Fatalf("last good skill was not preserved: body %q, err %v", body, readErr)
+	}
+	if got := loadManifest(collectionManifestPath("skills")).Items["reviewer"].SHA256; got != "old" {
+		t.Fatalf("last good skill manifest SHA = %q", got)
+	}
+}
+
+func TestApplyClaudeSkillsNilLegacyPayloadDoesNotPrune(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("reviewer", "sha", "body")}, logger)
+
+	updated, err := applyClaudeSkillsResult(nil, logger)
+	if updated || err != nil {
+		t.Fatalf("legacy nil skill payload = updated %t, err %v", updated, err)
+	}
+	if !fileExists(filepath.Join(home, ".claude", "skills", "reviewer", "SKILL.md")) {
+		t.Fatal("legacy server omission pruned an existing managed skill")
 	}
 }
 
@@ -256,5 +354,23 @@ func TestStripClaudeSkillsRemovesFleetDirsOnly(t *testing.T) {
 	}
 	if len(skillDigestsForRequest()) != 0 {
 		t.Fatal("manifest should be cleared after strip")
+	}
+}
+
+func TestStripClaudeSkillsRetainsOwnershipAfterRemoveFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logger := slog.Default()
+	path := filepath.Join(home, ".claude", "skills", "a", "SKILL.md")
+	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("a", "1", "A")}, logger)
+	err := stripClaudeSkillsWith(logger, func(string) error { return errors.New("busy") })
+	if err == nil || !fileExists(path) || skillDigestsForRequest()["a"] != "1" {
+		t.Fatalf("failed skill strip lost ownership: err=%v digests=%v", err, skillDigestsForRequest())
+	}
+	if err := stripClaudeSkills(logger); err != nil {
+		t.Fatalf("retry skill strip: %v", err)
+	}
+	if fileExists(path) || len(skillDigestsForRequest()) != 0 {
+		t.Fatalf("retry did not clear skill and ownership: digests=%v", skillDigestsForRequest())
 	}
 }

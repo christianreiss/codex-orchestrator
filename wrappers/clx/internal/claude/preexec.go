@@ -21,7 +21,7 @@ import (
 func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	teardown := func() {}
 
-	if err := guardFQDN(cfg); err != nil {
+	if err := GuardFQDN(cfg); err != nil {
 		return teardown, err
 	}
 
@@ -44,10 +44,10 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 	return teardown, nil
 }
 
-// guardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
+// GuardFQDN refuses to proceed when the baked cfg.Host.FQDN doesn't match
 // the runtime hostname. Suffix match counts (a baked "alpha.example.com"
 // matches the short hostname "alpha"). Override with CLAUDE_ALLOW_FQDN_MISMATCH=1.
-func guardFQDN(cfg *config.Config) error {
+func GuardFQDN(cfg *config.Config) error {
 	if cfg == nil || strings.TrimSpace(cfg.Host.FQDN) == "" {
 		return nil
 	}

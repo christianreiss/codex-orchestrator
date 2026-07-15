@@ -81,8 +81,14 @@ type ChatGPTQuota struct {
 	SparkLimit string `json:"spark_limit_name,omitempty"`
 	SparkFeat  string `json:"spark_metered_feature,omitempty"`
 	ActiveLane string `json:"active_quota_lane,omitempty"`
-	DailyUsed  *int   `json:"daily_used_percent,omitempty"`
-	WeekPart   *int   `json:"week_partition,omitempty"`
+	// Pointer booleans preserve the difference between an older response that
+	// omitted provider gate state and an explicit provider-side denial.
+	RateAllowed           *bool `json:"rate_allowed,omitempty"`
+	RateLimitReached      *bool `json:"rate_limit_reached,omitempty"`
+	SparkRateAllowed      *bool `json:"spark_rate_allowed,omitempty"`
+	SparkRateLimitReached *bool `json:"spark_rate_limit_reached,omitempty"`
+	DailyUsed             *int  `json:"daily_used_percent,omitempty"`
+	WeekPart              *int  `json:"week_partition,omitempty"`
 
 	PrimaryUsed       *int   `json:"primary_used_percent,omitempty"`
 	PrimaryLimitSec   *int64 `json:"primary_limit_seconds,omitempty"`

@@ -63,7 +63,9 @@ func PrintWrapperHelp(w io.Writer, caps Caps) {
 	reset := caps.Palette.Reset
 	c.top()
 	c.line(joinSides(accent+"CDX"+reset, caps.Palette.Bold+"WRAPPER HELP"+reset, c.inner, caps))
-	c.line(caps.Palette.Dim + "Fleet-managed Codex launcher and sync wrapper." + reset)
+	for _, line := range WrapText("Fleet-managed Codex launcher and sync wrapper.", c.inner) {
+		c.line(caps.Palette.Dim + line + reset)
+	}
 	c.divider("Commands")
 	printRichHelpItems(c, cdxHelpCommands, accent)
 	c.divider("Global flags")

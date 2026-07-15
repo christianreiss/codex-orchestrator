@@ -73,6 +73,20 @@ func TestPrintWrapperHelpRichUsesOrangeAndStaysWithinWidth(t *testing.T) {
 	assertWrapperHelpWidth(t, got, caps.Columns)
 }
 
+func TestPrintWrapperHelpAtExactRichThresholdWrapsTagline(t *testing.T) {
+	t.Parallel()
+
+	caps := wrapperHelpTestCaps(minRichColumns, true, false)
+	var out bytes.Buffer
+	PrintWrapperHelp(&out, caps)
+	plain := StripANSI(out.String())
+	normalized := strings.Join(strings.Fields(strings.ReplaceAll(plain, "│", " ")), " ")
+	if !strings.Contains(normalized, "Fleet-managed Codex launcher and sync wrapper.") {
+		t.Fatalf("40-column rich help truncated its tagline:\n%s", plain)
+	}
+	assertWrapperHelpWidth(t, out.String(), caps.Columns)
+}
+
 func wrapperHelpTestCaps(columns int, isTTY, dumb bool) Caps {
 	return Caps{
 		IsTTY:   isTTY,

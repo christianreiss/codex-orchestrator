@@ -35,9 +35,16 @@ func UpdateFailure(caps Caps, engine, component, version string, err error) stri
 }
 
 func formatUpdate(caps Caps, color, glyph, engine, component, version, status string) string {
-	engine = CleanInline(engine)
-	component = CleanInline(component)
-	status = CleanInline(status)
+	if updateASCII(caps) {
+		engine = PlainInline(engine)
+		component = PlainInline(component)
+		version = PlainInline(version)
+		status = PlainInline(status)
+	} else {
+		engine = CleanInline(engine)
+		component = CleanInline(component)
+		status = CleanInline(status)
+	}
 	reset := caps.Palette.Reset
 	dim := caps.Palette.Dim
 	bold := caps.Palette.Bold
@@ -69,6 +76,12 @@ func formatUpdate(caps Caps, color, glyph, engine, component, version, status st
 	if VisibleWidth(line) <= columns {
 		return line
 	}
+	// On narrow terminals the outcome is more important than version
+	// metadata. Move it directly behind the glyph before truncation so
+	// "updating", "updated", and "update skipped" remain visible.
+	compactParts := []string{parts[0], parts[len(parts)-1]}
+	compactParts = append(compactParts, parts[1:len(parts)-1]...)
+	line = strings.Join(compactParts, separator)
 	truncateCaps := caps
 	truncateCaps.Dumb = updateASCII(caps)
 	plain := TruncateText(StripANSI(line), columns, truncateCaps)

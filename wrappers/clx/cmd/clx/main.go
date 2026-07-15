@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
@@ -183,14 +184,31 @@ func isHelpPassthrough(args []string) bool {
 // Claude CLI actually renders help. Unlike `codex help`, `claude help` treats
 // `help` as a prompt and opens an interactive session (which hangs a
 // non-interactive caller), so a bare leading `help` positional token is
-// rewritten to `--help`. Every other help form (`--help`, `-h`,
-// `<subcommand> --help`) already renders help upstream and is forwarded
-// verbatim.
+// rewritten to `--help`. Wrapper-only presentation flags are removed before
+// exec; tokens after `--` remain untouched.
 func helpExecArgv(args []string) []string {
-	out := append([]string(nil), args...)
-	for i, a := range out {
+	out := make([]string, 0, len(args))
+	for i, a := range args {
+		if a == "--" {
+			out = append(out, args[i:]...)
+			break
+		}
+		if a == "--minimal" || a == "--minimal-output" {
+			continue
+		}
+		out = append(out, a)
+	}
+	for i := 0; i < len(out); i++ {
+		a := out[i]
 		if a == "--" {
 			break
+		}
+		switch a {
+		case "--execute", "--config", "--resume", "-r", "--cron":
+			if i+1 < len(out) {
+				i++
+			}
+			continue
 		}
 		if strings.HasPrefix(a, "-") {
 			continue
@@ -207,7 +225,7 @@ func helpExecArgv(args []string) []string {
 func run(args []string, stdout, stderr io.Writer) int {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
-		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d — refusing to continue\n", depth, maxRestartDepth)
+		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
 		return 70
 	}
 
@@ -227,7 +245,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if f.wrapperHelp {
-		ui.PrintWrapperHelp(stdout, ui.DetectCapsFor(stdout, ""))
+		ui.PrintWrapperHelp(stdout, commandCaps(ui.DetectCapsFor(stdout, ""), f.minimal))
 		return 0
 	}
 
@@ -265,25 +283,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// Resolve the operator's intent before touching the signed configuration.
+	// Status and doctor have dedicated blocked-state renderers when the config
+	// is unavailable; every other command fails concisely without starting any
+	// lifecycle work.
+	sub, subArgs := resolveCommand(f, positional)
+
 	if f.configPath == "" {
 		p, err := config.DefaultPath()
 		if err != nil {
-			fmt.Fprintln(stderr, "clx:", err)
-			return 2
+			return configLoadFailure(sub, "clx", f.configPath, Version, err, stdout, stderr, f.minimal)
 		}
 		f.configPath = p
 	}
 	pubkey, _ := signing.PublicKey()
 	cfg, err := config.Load(f.configPath, pubkey, false)
 	if err != nil {
-		sub, _ := resolveCommand(f, positional)
-		if sub == "status" {
-			fmt.Fprintf(stdout, "clx | status=blocked | wrapper=%s | config=unreadable\n", ui.CleanInline(Version))
-			fmt.Fprintln(stdout, "result | "+ui.CleanInline(err.Error()))
-			return 1
-		}
-		fmt.Fprintln(stderr, err)
-		return 2
+		return configLoadFailure(sub, "clx", f.configPath, Version, err, stdout, stderr, f.minimal)
 	}
 
 	if cfg.EngineOptions.Silent {
@@ -291,7 +307,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	logger := log.Setup(f.silent, f.debug)
-	sub, subArgs := resolveCommand(f, positional)
 
 	switch sub {
 	case "run":
@@ -305,9 +320,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Logger:                     logger,
 			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
 		})
-		if err != nil {
-			fmt.Fprintln(stderr, "clx run:", err)
-		}
+		printLifecycleError(stderr, "clx run", err)
 		return exit
 	case "resume":
 		// Interactive like `run` — resume opens a TTY session picker.
@@ -321,36 +334,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 			Logger:                     logger,
 			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
 		})
-		if err != nil {
-			fmt.Fprintln(stderr, "clx resume:", err)
-		}
+		printLifecycleError(stderr, "clx resume", err)
 		return exit
 	case "exec":
 		exit, err := claude.Run(ctx, cfg, append(subArgs, passthrough...))
 		if err != nil {
-			fmt.Fprintln(stderr, "clx exec:", err)
+			fmt.Fprintln(stderr, ui.PlainInline("clx exec: "+err.Error()))
 		}
 		return exit
 	case "execute":
 		argv := append([]string{"-p", f.executePrompt}, append(subArgs, passthrough...)...)
-		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			Config:                     cfg,
-			ExtraArgs:                  argv,
-			SkipBoot:                   true,
-			Headless:                   true,
-			AllowConcurrentSync:        f.allowConc,
-			WrapperVersion:             Version,
-			Logger:                     logger,
-			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
-		})
-		if err != nil {
-			fmt.Fprintln(stderr, "clx execute:", err)
-		}
+		opts := executeLifecycleOptions(f)
+		opts.Config = cfg
+		opts.ExtraArgs = argv
+		opts.WrapperVersion = Version
+		opts.Logger = logger
+		exit, err := lifecycle.Run(ctx, opts)
+		printLifecycleError(stderr, "clx execute", err)
 		return exit
 	case "status":
 		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
-		if err := claude.Doctor(ctx, cfg, stdout, Version); err != nil {
+		if err := claude.Doctor(ctx, cfg, stdout, Version, f.minimal); err != nil {
 			return 1
 		}
 		return 0
@@ -361,7 +366,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if cfg.EngineOptions.AdminThemeHint != nil {
 			theme = *cfg.EngineOptions.AdminThemeHint
 		}
-		errCaps := ui.DetectCapsFor(stderr, theme)
+		errCaps := commandCaps(ui.DetectCapsFor(stderr, theme), f.minimal)
 		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", Version, err))
@@ -375,7 +380,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
 			return 1
 		}
-		fmt.Fprintln(stdout, ui.UpdateComplete(ui.DetectCapsFor(stdout, theme), "clx", "wrapper", artifact.Version, false))
+		outCaps := commandCaps(ui.DetectCapsFor(stdout, theme), f.minimal)
+		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "clx", "wrapper", artifact.Version, false))
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -384,7 +390,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case "cron":
-		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
+		return cmdCron(ctx, cfg, subArgs, stdout, stderr, f.minimal)
 	default:
 		// Reserved upstream subcommands (login, logout, mcp, …) passthrough to
 		// the real claude binary with the token preserved. The wrapper-owned
@@ -395,7 +401,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := claude.Run(ctx, cfg, execArgs)
 			if err != nil {
-				fmt.Fprintln(stderr, "clx "+sub+":", err)
+				fmt.Fprintln(stderr, ui.PlainInline("clx "+sub+": "+err.Error()))
 			}
 			return exit
 		}
@@ -404,6 +410,103 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
+}
+
+func executeLifecycleOptions(f flags) lifecycle.Options {
+	return lifecycle.Options{
+		SkipBoot:                   true,
+		Headless:                   true,
+		Minimal:                    f.minimal,
+		AllowConcurrentSync:        f.allowConc,
+		DangerouslySkipPermissions: f.dangerouslySkipPermissions,
+	}
+}
+
+func printLifecycleError(w io.Writer, prefix string, err error) {
+	if err == nil || lifecycle.ErrorWasPresented(err) {
+		return
+	}
+	fmt.Fprintln(w, ui.PlainInline(prefix+": "+err.Error()))
+}
+
+// commandCaps applies explicit --minimal after terminal detection. Keeping the
+// override at dispatch means help, doctor, and update cannot accidentally grow
+// a separate interpretation of "minimal".
+func commandCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
+}
+
+func configLoadFailure(sub, engine, path, wrapperVersion string, loadErr error, stdout, stderr io.Writer, minimal bool) int {
+	detail := boundedPlain(loadErrString(loadErr), 240)
+	configPath := boundedPlain(path, 160)
+	if configPath == "" {
+		configPath = "the configured path"
+	}
+
+	switch sub {
+	case "status":
+		state := ui.ScreenInput{
+			WrapperVersion: wrapperVersion,
+			WrapperTone:    ui.ToneOK,
+			ClaudeVersion:  "unknown",
+			ClaudeTone:     ui.ToneWarn,
+			Dots: []ui.HealthDot{
+				{Name: "config", Tone: ui.ToneFail},
+			},
+			ResultLabel: fmt.Sprintf("config=unreadable. Reinstall or repair the signed wrapper config, then run `%s status` again. Path: %s. Cause: %s.", engine, configPath, detail),
+			ResultTone:  ui.ToneFail,
+		}
+		if minimal {
+			ui.PrintMinimalScreen(stdout, state)
+		} else {
+			ui.PrintBootScreen(stdout, state)
+		}
+		return 1
+	case "doctor":
+		report := ui.DoctorReport{
+			Engine: engine,
+			When:   time.Now(),
+			Rows: []ui.DoctorRow{
+				{Label: "Config", Tone: ui.ToneFail, Value: "signed wrapper configuration unavailable: " + detail},
+			},
+			Hints: []string{
+				fmt.Sprintf("Repair %s and its .sig file, then run `%s doctor` again.", configPath, engine),
+			},
+			Result: ui.DoctorRow{Label: "Result", Tone: ui.ToneFail, Value: "diagnostics blocked until the wrapper configuration is repaired"},
+		}
+		caps := commandCaps(ui.DetectCapsFor(stdout, ""), minimal)
+		ui.PrintDoctor(stdout, caps, report)
+		return 1
+	default:
+		printBoundedPlain(stderr, engine+": config unavailable: "+detail, minimal)
+		return 2
+	}
+}
+
+func printBoundedPlain(w io.Writer, value string, minimal bool) {
+	caps := commandCaps(ui.DetectCapsFor(w, ""), minimal)
+	if !caps.IsTTY {
+		caps = ui.MinimalCaps(caps)
+	}
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	fmt.Fprintln(w, ui.TruncateText(ui.PlainInline(value), width, caps))
+}
+
+func loadErrString(err error) string {
+	if err == nil {
+		return "unknown configuration error"
+	}
+	return err.Error()
+}
+
+func boundedPlain(value string, width int) string {
+	return ui.TruncateText(ui.PlainInline(value), width, ui.Caps{Dumb: true})
 }
 
 type wrapperUpdateArtifact struct {
@@ -803,7 +906,7 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	return 0
 }
 
-func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) int {
+func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer, minimal bool) int {
 	action := "run"
 	if len(args) > 0 {
 		action = args[0]
@@ -811,28 +914,28 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	switch action {
 	case "install":
 		if err := cron.Install(cfg); err != nil {
-			fmt.Fprintln(stderr, "clx --cron install:", err)
+			printBoundedPlain(stderr, "clx --cron install: "+err.Error(), minimal)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cron: installed")
 		return 0
 	case "remove":
 		if err := cron.Remove(); err != nil {
-			fmt.Fprintln(stderr, "clx --cron remove:", err)
+			printBoundedPlain(stderr, "clx --cron remove: "+err.Error(), minimal)
 			return 1
 		}
 		fmt.Fprintln(stdout, "cron: removed")
 		return 0
 	case "run":
-		res, err := cron.Tick(ctx, cfg)
+		res, err := cron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
-			fmt.Fprintln(stderr, "clx --cron:", err)
+			printBoundedPlain(stderr, "clx --cron: "+err.Error(), minimal)
 			return 1
 		}
-		fmt.Fprintln(stdout, formatCronResult(res))
+		printBoundedPlain(stdout, formatCronResult(res, minimal), minimal)
 		return 0
 	default:
-		fmt.Fprintln(stderr, "clx cron: unknown action:", action)
+		printBoundedPlain(stderr, "clx cron: unknown action: "+action, minimal)
 		fmt.Fprintln(stderr, "usage: clx cron [install|remove|run]")
 		return 2
 	}
@@ -841,14 +944,18 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 // formatCronResult renders a one-line summary of a cron Tick for human
 // consumption — same shape as the cdx side. Keeps `clx --cron` from being
 // silent on the common no-op path.
-func formatCronResult(r cron.Result) string {
+func formatCronResult(r cron.Result, minimal bool) string {
+	arrow := "→"
+	if minimal {
+		arrow = "->"
+	}
 	switch {
 	case r.WrapperAction == "disable":
 		return "cron: auto-update disabled by server; cron job removed"
 	case r.WrapperAction == "updated":
-		return fmt.Sprintf("cron: wrapper updated %s → %s (re-exec)", r.WrapperVersion, r.WrapperTarget)
+		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":
-		return fmt.Sprintf("cron: claude updated %s → %s (wrapper %s, reported=%t)", r.CodexBefore, r.CodexVersion, r.WrapperVersion, r.Reported)
+		return fmt.Sprintf("cron: claude updated %s %s %s (wrapper %s, reported=%t)", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported)
 	default:
 		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
 	}

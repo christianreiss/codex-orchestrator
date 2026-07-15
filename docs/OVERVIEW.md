@@ -73,16 +73,65 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Wrapper Codex updates now key off `/auth` `client_version_enforce_exact`: floor-only targets only trigger upgrades, while explicit above-floor pins can still downgrade to match.
   - When the Projects module is enabled, the managed `coco` skill is published through MCP `skill://coco`; there is no separate wrapper-side project bootstrap pass. When the module turns off again, the managed skill disappears from the MCP resource list, and wrapper cleanup removes stale local skill directories so old CoCo docs cannot shadow the project-only skill.
 - `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: when `auth_candidate` is provided, the server uses the same runner-validated canonical store path as `/auth store`, reports `auth_stored` on success, and returns store metadata including `runner_applied` / skipped-reason fields.
-- Wrapper boot summary health markers now reserve the “updated” caret for actual local changes (for example auth refreshed from API, config rewritten, legacy skill cleanup, or a just-verified runner) instead of marking every green check as updated.
+- Wrapper boot health markers distinguish successful unchanged checks, actual
+  local updates, best-effort resource failures, and deliberately skipped
+  checks. The updated caret is reserved for a proven write; resource failures
+  warn and skipped/concurrent checks are dim instead of being painted green.
+  Claude-native `claude_skills` writes feed the skills marker (not config).
+  Failed writes/prunes preserve the last-good manifest; trust-loss cleanup
+  retains ownership sidecars for anything it could not remove so later runs
+  retry the residue.
    - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` now hard-checks a compatible Python 3 interpreter plus `curl` and `unzip` before update/sync work, and tries `bwrap` best-effort via `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility, and legacy YUM retries `python36` when `python3` is not packaged). If Bubblewrap installation fails, launch still continues because Codex can fall back to its vendored helper. When `python3` itself is not on `PATH`, the wrapper first accepts compatible alternatives such as `python3.6`, `python36`, or `platform-python`. On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
    - `cdx --update` stays a recovery path: it pares prerequisite checks down to `curl` before the forced wrapper/Codex update flow, so stale wrappers can still heal themselves and then continue into the Codex check even when `unzip`, `bwrap`, or local package mappings are broken. Normal startup still ensures a compatible Python 3 interpreter before sync/update work when the wrapper can manage prerequisites.
    - Interactive SSH terminals launch Codex through the same direct TTY path as local terminals, avoiding wrapper-owned PTYs around the Codex UI. Alt-screen stays enabled by default; `CODEX_SSH_ALT_SCREEN=1` is only an explicit inline-mode override. `cdx doctor` reports SSH env hints and launch mode for troubleshooting.
-   - When a host has an already-active `cdx` run, concurrent guard still skips mutating sync/update work, but performs a read-only `/auth` retrieve to refresh quota/policy metadata for the compact boot summary (single concurrent-guard section + quota lines).
+   - When a host already has an active wrapper run, the concurrent guard still
+     skips managed content/update writes and peer reconciliation, but performs
+     the auth freshness check and keeps API/auth/runner health visible. The
+     outcome says `SYNC PAUSED`, not the over-broad `READ ONLY`; an explicit
+     `--allow-concurrent-sync` remains the write-enabled escape hatch.
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
-   - `cdx` and `clx` share one responsive terminal dashboard: outcome, host/security/model context, local-to-target versions, semantic health glyphs, quota/sessions, and the final result fit within the detected width. Redirects, dumb/narrow terminals, and `--minimal` use a stable ANSI-free ASCII summary; the measured exit footer reports the real process and credential-upload outcomes.
+   - `cdx` and `clx` share one responsive terminal dashboard: outcome, host/security/model context, local-to-target versions, semantic health glyphs, quota/activity, and the final result fit within the detected width. Redirects, dumb/narrow terminals, and `--minimal` use stable ANSI-free ASCII; explicit minimal mode also covers wrapper help, status, doctor, cron/peer-update progress, and the measured exit footer. Wrapper-only presentation flags are consumed before an upstream help passthrough. Boot/status result text is control-sequence stripped, width-bounded, and capped at three lines; diagnostic causes/paths are bounded separately, and narrow update rows preserve the outcome before version metadata.
+   - Both wrappers show the same optional `ACTIVITY` section: `local procs` is
+     the same-UID wrapper process count; `hosts 30m` is the number of distinct
+     hosts with an `agents.retrieve` event in the prior 30 minutes; `syncs UTC
+     day` and `syncs UTC month` count those managed-agent sync attempts from
+     the corresponding UTC boundaries. The API retains `sessions` as the JSON
+     compatibility key, but these are not launch/concurrency counters. clx
+     resolves missing model/effort context per field from the effective
+     `~/.claude/settings.json`; a signed Claude model override wins over an
+     inherited `ANTHROPIC_MODEL`, which is only the runtime fallback. cdx does
+     the same per-field local fallback from
+     `~/.codex/config.toml`.
+   - Signed-config failures use the same structured status/doctor renderer with
+     sanitized, bounded path/cause text and a non-zero result. `clx doctor`
+     additionally validates usable credentials, parses JSON settings and the
+     exact managed MCP block, treats only HTTP 2xx as API health, and fails an
+     unreachable latency probe. Its FQDN guard now runs before lock/network
+     activity and again immediately before Claude exec.
    - `--wrapper-help` renders the wrapper-owned command surface without a signed config. Upstream `--help` remains a side-effect-free pass-through. Conflicting wrapper action flags fail with exit 2 instead of silently selecting a destructive winner.
-   - Quota rendering aligns metric labels for graph rows and now includes non-active lane 5-hour/weekly bar rows (Spark or Normal) instead of a compact text-only lane summary.
+   - Codex quota rows derive labels from provider `limit_seconds`, retain real
+     zero-percent readings, distinguish unknown reset time in alert copy, and flag
+     unavailable/malformed/stale telemetry. The host-effective active lane is
+     the only lane that can warn or block (including provider
+     allowed/limit-reached flags); the inactive lane remains context. Forecasts
+     wrap instead of clipping and raise advisory attention without becoming a
+     hard block by themselves. A projection is withheld until at least five
+     minutes and 1% of its quota window have elapsed. Stale/malformed snapshots
+     are last-known context only: their projections and percentage/provider
+     gating are suppressed. When no snapshot exists (or reading it fails),
+     `/auth` sends an explicit `status:"unavailable"` quota object rather than
+     omitting the evidence.
+   - A non-null persisted Codex lane also selects the actual launch model: `normal`
+     injects `gpt-5.6-terra`; `spark` injects `gpt-5.3-codex-spark`, high effort,
+     and disabled reasoning summaries. Explicit per-run model/profile flags win
+     over that mapping, and the at-a-glance card mirrors the resulting choice.
+     Clearing the lane leaves the signed fleet/per-host model in charge; only
+     quota display and policy fall back to `normal`.
+   - A stored runner transport failure renders attention because retrieve and
+     cached launch remain allowed; a stored provider credential-verification
+     failure still blocks. Doctors independently validate a usable local token
+     and HTTP 2xx health.
 
 5) **Host telemetry**
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
@@ -91,7 +140,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
    - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
 
 6) **Quotas**
-   - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards with dual-lane metadata: normal + Spark windows and active-lane hints.
+   - ChatGPT quota snapshots are pulled from `/wham/usage` using canonical tokens (cooldown 5m, also usable via the `quota-cron` sidecar). Results are cached and surfaced on `/auth` responses and admin dashboards with dual-lane metadata: normal + Spark windows and provider rate flags. `/auth` shapes `active_quota_lane` per calling host (`spark` only for a Spark-preferring host; otherwise `normal`) instead of reusing the account snapshot's default. If no readable snapshot exists, the host still receives `{status:"unavailable", active_quota_lane:...}` so the wrapper renders unknown quota health explicitly.
 
 ## Safety rails
 

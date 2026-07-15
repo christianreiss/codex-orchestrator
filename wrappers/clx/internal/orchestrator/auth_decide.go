@@ -76,6 +76,7 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// would fall through to the offline path and launch a disabled engine from
 	// cached auth instead of refusing.
 	if strings.Contains(strings.ToLower(resp.Message), "engine_disabled") {
+		d.Status = "disabled"
 		d.Reason = "Engine disabled for this host by administrator."
 		return d
 	}
@@ -174,9 +175,10 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	return d
 }
 
-// ApplyConcurrent adjusts a base decision for a read-only secondary run. It
-// never upgrades a refusal; it only refuses an otherwise-allowed launch when the
-// local Claude credentials file is not structurally usable.
+// ApplyConcurrent adjusts a base decision for a sync-paused secondary run.
+// Auth freshness stays active even though managed resource/update writes pause.
+// It never upgrades a refusal; it only refuses an otherwise-allowed launch when
+// the current local Claude credentials file is not structurally usable.
 func ApplyConcurrent(dec AuthDecision, localAuthPath string, probe LocalAuthProbe) AuthDecision {
 	if !dec.Allowed {
 		return dec

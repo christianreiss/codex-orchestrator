@@ -26,6 +26,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/peer"
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/update"
 )
 
@@ -62,9 +63,18 @@ func Install(cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := pingCronCheck(ctx, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "clx --cron install: initial /cron/check ping failed: %v\n", err)
+		printPortableWarning("clx --cron install: initial /cron/check ping failed: " + err.Error())
 	}
 	return nil
+}
+
+func printPortableWarning(value string) {
+	caps := ui.MinimalCaps(ui.DetectCaps(""))
+	width := caps.Columns
+	if width <= 0 {
+		width = 80
+	}
+	fmt.Fprintln(os.Stderr, ui.TruncateText(ui.PlainInline(value), width, caps))
 }
 
 func installCrontab() error {
@@ -229,6 +239,12 @@ type Result struct {
 
 // Tick is the action taken by `clx --cron run`.
 func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
+	return TickWithOptions(ctx, cfg, false)
+}
+
+// TickWithOptions is Tick with presentation state carried through unattended
+// self/peer updates. Minimal mode stays portable even after a re-exec.
+func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Result, error) {
 	logger := slog.Default()
 	ensureCronPath()
 	res := Result{
@@ -292,7 +308,11 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 			logger.Info("cron: wrapper updated; re-exec'ing", "target", check.Wrapper.TargetVersion)
 			res.WrapperAction = "updated"
 			res.WrapperTarget = check.Wrapper.TargetVersion
-			if err := update.ReExecAfterUpdate(exe, []string{"--cron", "run"}); err != nil {
+			reexecArgs := []string{"--cron", "run"}
+			if minimal {
+				reexecArgs = append(reexecArgs, "--minimal")
+			}
+			if err := update.ReExecAfterUpdate(exe, reexecArgs); err != nil {
 				return res, fmt.Errorf("cron: re-exec after wrapper update: %w", err)
 			}
 			return res, nil
@@ -319,7 +339,7 @@ func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
 	// all four components (clx, cdx, claude, codex) updated by a single cron
 	// entry. EnsureForCron no-ops when this tick was itself spawned by the
 	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
-	peer.EnsureForCron(ctx, cfg, logger)
+	peer.EnsureForCron(ctx, cfg, minimal, logger)
 
 	newVer := strings.TrimSpace(claude.Version(ctx))
 	res.CodexVersion = newVer

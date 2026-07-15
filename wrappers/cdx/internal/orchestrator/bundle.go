@@ -50,13 +50,13 @@ type BundleResponse struct {
 	Sessions *FleetSessions        `json:"sessions,omitempty"`
 }
 
-// FleetSessions carries the boot-screen "sessions" counts derived server-side
-// from the logs table. Nil-safe — older servers omit the block entirely and
-// the wrapper renders nothing in that case.
+// FleetSessions is the historical response name for boot-screen sync activity
+// derived server-side from the logs table. Nil-safe: older servers omit the
+// block entirely and the wrapper renders nothing in that case.
 //
-//   - Now    — distinct hosts with a cdx-run start in the last 30 minutes
-//   - Today  — total cdx-run starts across the fleet today (UTC day)
-//   - Month  — total cdx-run starts across the fleet this calendar month (UTC)
+//   - Now    — distinct hosts with managed sync activity in the last 30 minutes
+//   - Today  — total managed sync attempts since the UTC day boundary
+//   - Month  — total managed sync attempts since the UTC month boundary
 type FleetSessions struct {
 	Now   int64 `json:"now"`
 	Today int64 `json:"today"`

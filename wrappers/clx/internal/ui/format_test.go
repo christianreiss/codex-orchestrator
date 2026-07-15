@@ -115,6 +115,9 @@ func TestProjectUsage(t *testing.T) {
 	if got := ProjectUsage(0, 100, 50); got != 0 {
 		t.Errorf("ProjectUsage(0,…) = %d want 0", got)
 	}
+	if got := ProjectUsage(1, int64(5*time.Hour/time.Second), int64(5*time.Hour/time.Second)-1); got != 1 {
+		t.Errorf("near-fresh ProjectUsage = %d, want current 1", got)
+	}
 }
 
 func TestProjectETA(t *testing.T) {
@@ -138,11 +141,11 @@ func TestFormatQuotaLineHonorsProjectionTone(t *testing.T) {
 		tone Tone
 		want string
 	}{
-		{tone: ToneDim, want: "\x1b[2mforecast\x1b[0m"},
-		{tone: ToneWarn, want: "\x1b[33m\x1b[1mforecast\x1b[0m"},
-		{tone: ToneFail, want: "\x1b[31m\x1b[1mforecast\x1b[0m"},
+		{tone: ToneDim, want: "\x1b[2mforecast ~47% at reset\x1b[0m"},
+		{tone: ToneWarn, want: "\x1b[33m\x1b[1mforecast ~47% at reset\x1b[0m"},
+		{tone: ToneFail, want: "\x1b[31m\x1b[1mforecast ~47% at reset\x1b[0m"},
 	} {
-		line := formatQuotaLine(caps, QuotaRow{Label: "5h", Used: 20, Projection: "forecast", ProjectionTone: tc.tone}, 80)
+		line := formatQuotaLine(caps, QuotaRow{Label: "5h", Used: 20, Projection: "~47% at reset", ProjectionTone: tc.tone}, 80)
 		if !strings.Contains(line, tc.want) {
 			t.Fatalf("projection tone %q not rendered: %q", tc.tone, line)
 		}

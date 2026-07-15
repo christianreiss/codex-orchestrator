@@ -95,6 +95,18 @@ func DetectCapsFor(w io.Writer, adminTheme string) Caps {
 	return detectCaps(-1, adminTheme)
 }
 
+// MinimalCaps forces the deterministic, portable rendering path even when the
+// destination is an otherwise capable TTY. Explicit --minimal must be stronger
+// than terminal auto-detection: no colour, Unicode glyphs, or framed cards.
+func MinimalCaps(caps Caps) Caps {
+	caps.IsTTY = false
+	caps.NoColor = true
+	caps.Dumb = true
+	caps.UTF8 = false
+	caps.Palette = Palette{}
+	return caps
+}
+
 func detectCaps(fd int, adminTheme string) Caps {
 	noColor := os.Getenv("NO_COLOR") != ""
 	termEnv := strings.ToLower(os.Getenv("TERM"))

@@ -68,6 +68,16 @@ type BundleResponse struct {
 	// Code SKILL.md files for on-disk install at ~/.claude/skills/<slug>/SKILL.md
 	// (Claude Code can't read skills over MCP). Content omitted on sha match.
 	ClaudeSkills []CollectionItem `json:"claude_skills,omitempty"`
+	Sessions     *FleetSessions   `json:"sessions,omitempty"`
+}
+
+// FleetSessions is the historical response name for the same recent-host and
+// UTC sync-activity counters exposed to cdx. Nil hides the block for an older
+// server.
+type FleetSessions struct {
+	Now   int64 `json:"now"`
+	Today int64 `json:"today"`
+	Month int64 `json:"month"`
 }
 
 // SyncBootstrap calls POST /sync/bootstrap. On 404/501 the caller is expected

@@ -31,3 +31,9 @@ func TestAcquireDoesNotShareCodexLock(t *testing.T) {
 	}
 	defer clx.Release()
 }
+
+func TestCountActiveReturnsAtLeastOne(t *testing.T) {
+	if got := CountActive("definitely-not-a-real-binary-foo"); got < 1 {
+		t.Fatalf("CountActive must floor at 1, got %d", got)
+	}
+}

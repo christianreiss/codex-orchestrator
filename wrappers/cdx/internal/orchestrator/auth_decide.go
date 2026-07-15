@@ -104,6 +104,7 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// would fall through to the offline path and launch a disabled engine from
 	// cached auth instead of refusing.
 	if strings.Contains(strings.ToLower(resp.Message), "engine_disabled") {
+		d.Status = "disabled"
 		d.Reason = "Engine disabled for this host by administrator."
 		return d
 	}
@@ -267,11 +268,11 @@ func parseCanonicalRefresh(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// ApplyConcurrent adjusts a base decision for a read-only secondary run — one
-// where another local instance already holds the cdx lock, so this process
-// never re-synced auth. It NEVER upgrades a refusal to a launch; it only refuses
-// an otherwise-allowed launch when the on-disk auth.json is not structurally
-// usable, since Codex would otherwise boot without tokens. This is what makes
+// ApplyConcurrent adjusts a base decision for a sync-paused secondary run.
+// Auth freshness stays active even though managed resource/update writes pause.
+// It NEVER upgrades a refusal to a launch; it only refuses an otherwise-allowed
+// launch when the current on-disk auth.json is not structurally usable, since
+// Codex would otherwise boot without tokens. This is what makes
 // the spec's refusal real: "Lock held by another PID with invalid local auth →
 // refuse" (previously unreachable, because the local lock state was never mapped
 // onto the decision).

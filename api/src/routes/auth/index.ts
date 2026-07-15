@@ -208,10 +208,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       out.claude_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
 
-    // Fleet-wide session counts for the cdx boot-screen "sessions" block.
-    // Cheap indexed COUNT queries against the existing logs table; the
-    // wrapper renders them next to the quota bars (or skips gracefully on
-    // older servers that don't return this block).
+    // Fleet-wide managed-sync activity for the cdx/clx boot-screen activity
+    // block. The response key remains `sessions` for compatibility; wrappers
+    // label the counters as recent hosts / UTC syncs rather than launches.
     out.sessions = await sessionsService.fleetCounts();
 
     out.reasons = uniqueNonEmpty(out.reasons);
@@ -319,7 +318,7 @@ async function handleRetrieve(
     engine,
   };
   if (engine === ENGINE_CODEX) {
-    baseResponse.chatgpt = await readChatgptSnapshot(ctx);
+    baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
   }
 
   if (!canonicalRow || !canonicalDigest) {
@@ -422,7 +421,7 @@ async function buildRetrieveBaseResponse(
     engine,
   };
   if (engine === ENGINE_CODEX) {
-    baseResponse.chatgpt = await readChatgptSnapshot(ctx);
+    baseResponse.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
   }
   return baseResponse;
 }
@@ -736,13 +735,26 @@ async function readQuotaLimitPercent(
   return Math.max(50, Math.min(100, Math.round(n)));
 }
 
-async function readChatgptSnapshot(ctx: RouteContext): Promise<Record<string, unknown> | null> {
+async function readChatgptSnapshot(
+  ctx: RouteContext,
+  lanePreference: string | null | undefined,
+): Promise<Record<string, unknown>> {
+  const unavailable = {
+    status: 'unavailable',
+    active_quota_lane: lanePreference === 'spark' ? 'spark' : 'normal',
+  };
   try {
     const svc = new ChatGptUsageService(ctx.db, undefined, { env: ctx.env, keyring: ctx.keyring });
     const row = await svc.latest();
-    if (!row) return null;
-    return normalizeChatGptUsageSnapshot(row);
+    if (!row) return unavailable;
+    return {
+      ...normalizeChatGptUsageSnapshot(row),
+      // Usage snapshots are account-wide, but the active lane is host state.
+      // Shape it at the host response boundary instead of leaking the
+      // normal-lane default baked into the account snapshot normalizer.
+      active_quota_lane: lanePreference === 'spark' ? 'spark' : 'normal',
+    };
   } catch {
-    return null;
+    return unavailable;
   }
 }

@@ -15,6 +15,8 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -108,34 +110,51 @@ func fileExists(path string) bool {
 // applyCollection writes/prunes one collection kind and returns whether anything
 // changed on disk.
 func applyCollection(kind string, items []orchestrator.CollectionItem, logger *slog.Logger) bool {
+	updated, _ := applyCollectionResult(kind, items, logger)
+	return updated
+}
+
+func applyCollectionResult(kind string, items []orchestrator.CollectionItem, logger *slog.Logger) (bool, error) {
 	dir, ok := artifactDirs[kind]
 	if !ok {
-		return false
+		return false, fmt.Errorf("unknown Claude collection kind %q", kind)
 	}
 	targetDir := claudeSubdir(dir)
 	man := loadManifest(collectionManifestPath(dir))
 	newItems := map[string]manifestEntry{}
 	updated := false
+	var resultErr error
 
 	for _, it := range items {
+		prev, known := man.Items[it.Slug]
+		preservePrevious := func() {
+			if known {
+				newItems[it.Slug] = prev
+			}
+		}
 		name := sanitizeSlug(it.Slug)
 		if name == "" {
 			logger.Warn("skipping artifact with unsafe slug", "kind", kind, "slug", it.Slug)
+			resultErr = errors.Join(resultErr, fmt.Errorf("%s artifact %q has an unsafe slug", kind, it.Slug))
+			preservePrevious()
 			continue
 		}
 		path := filepath.Join(targetDir, name+".md")
-		prev, known := man.Items[it.Slug]
 		if known && prev.SHA256 == it.SHA256 && fileExists(path) {
 			// If-None-Match: unchanged and present — leave it.
 		} else if it.Content != "" {
 			if err := atomicWrite(path, []byte(it.Content), 0o644); err != nil {
 				logger.Debug("collection write failed", "kind", kind, "slug", it.Slug, "err", err)
+				resultErr = errors.Join(resultErr, fmt.Errorf("write %s artifact %q: %w", kind, it.Slug, err))
+				preservePrevious()
 				continue
 			}
 			updated = true
-		} else if !fileExists(path) {
-			// Server flagged a change but sent no content and we have no file —
-			// nothing to write. Skip without recording so we re-request next run.
+		} else {
+			// Server flagged a change but sent no content. Keep any
+			// last-known-good file/manifest and re-request next run.
+			resultErr = errors.Join(resultErr, fmt.Errorf("%s artifact %q is missing content", kind, it.Slug))
+			preservePrevious()
 			continue
 		}
 		newItems[it.Slug] = manifestEntry{Filename: name + ".md", SHA256: it.SHA256}
@@ -148,6 +167,10 @@ func applyCollection(kind string, items []orchestrator.CollectionItem, logger *s
 		}
 		if err := os.Remove(filepath.Join(targetDir, rec.Filename)); err != nil && !os.IsNotExist(err) {
 			logger.Debug("collection prune failed", "kind", kind, "slug", slug, "err", err)
+			resultErr = errors.Join(resultErr, fmt.Errorf("prune %s artifact %q: %w", kind, slug, err))
+			// Keep ownership in the manifest so the next sync retries the prune.
+			newItems[slug] = rec
+			continue
 		}
 		updated = true
 	}
@@ -155,8 +178,9 @@ func applyCollection(kind string, items []orchestrator.CollectionItem, logger *s
 	man.Items = newItems
 	if err := saveManifest(collectionManifestPath(dir), man); err != nil {
 		logger.Debug("collection manifest write failed", "kind", kind, "err", err)
+		resultErr = errors.Join(resultErr, fmt.Errorf("save %s collection manifest: %w", kind, err))
 	}
-	return updated
+	return updated, resultErr
 }
 
 // applyClaudeArtifacts writes all three collection kinds. Returns true if any
@@ -169,6 +193,18 @@ func applyClaudeArtifacts(ca *orchestrator.ClaudeArtifacts, logger *slog.Logger)
 	u = applyCollection("command", ca.Commands, logger) || u
 	u = applyCollection("output-style", ca.OutputStyles, logger) || u
 	return u
+}
+
+func applyClaudeArtifactsResult(ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) (bool, error) {
+	if ca == nil {
+		return false, nil
+	}
+	updated, resultErr := applyCollectionResult("subagent", ca.Subagents, logger)
+	changed, err := applyCollectionResult("command", ca.Commands, logger)
+	updated = updated || changed
+	resultErr = errors.Join(resultErr, err)
+	changed, err = applyCollectionResult("output-style", ca.OutputStyles, logger)
+	return updated || changed, errors.Join(resultErr, err)
 }
 
 // artifactDigestsForRequest reads the manifests so the bootstrap request can
@@ -196,29 +232,52 @@ func artifactDigestsForRequest() map[string]map[string]string {
 // skill dirs and the skills/ root are never touched. (Claude Code can't read
 // skills over MCP, so on-disk is the only way; codex stays MCP-only.)
 func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) bool {
+	updated, _ := applyClaudeSkillsResult(items, logger)
+	return updated
+}
+
+func applyClaudeSkillsResult(items []orchestrator.CollectionItem, logger *slog.Logger) (bool, error) {
+	// nil means an older server omitted claude_skills entirely. An explicit
+	// empty JSON array is non-nil and remains the authoritative signal to prune
+	// fleet-managed skills that no longer exist.
+	if items == nil {
+		return false, nil
+	}
 	skillsRoot := claudeSubdir("skills")
 	manPath := collectionManifestPath("skills")
 	man := loadManifest(manPath)
 	newItems := map[string]manifestEntry{}
 	updated := false
+	var resultErr error
 
 	for _, it := range items {
+		prev, known := man.Items[it.Slug]
+		preservePrevious := func() {
+			if known {
+				newItems[it.Slug] = prev
+			}
+		}
 		name := sanitizeSlug(it.Slug)
 		if name == "" {
 			logger.Warn("skipping skill with unsafe slug", "slug", it.Slug)
+			resultErr = errors.Join(resultErr, fmt.Errorf("Claude skill %q has an unsafe slug", it.Slug))
+			preservePrevious()
 			continue
 		}
 		path := filepath.Join(skillsRoot, name, "SKILL.md") // atomicWrite MkdirAll's <slug>/
-		prev, known := man.Items[it.Slug]
 		if known && prev.SHA256 == it.SHA256 && fileExists(path) {
 			// If-None-Match: unchanged and present — leave it.
 		} else if it.Content != "" {
 			if err := atomicWrite(path, []byte(it.Content), 0o644); err != nil {
 				logger.Debug("skill write failed", "slug", it.Slug, "err", err)
+				resultErr = errors.Join(resultErr, fmt.Errorf("write Claude skill %q: %w", it.Slug, err))
+				preservePrevious()
 				continue
 			}
 			updated = true
-		} else if !fileExists(path) {
+		} else {
+			resultErr = errors.Join(resultErr, fmt.Errorf("Claude skill %q is missing content", it.Slug))
+			preservePrevious()
 			continue
 		}
 		newItems[it.Slug] = manifestEntry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256}
@@ -231,6 +290,10 @@ func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger)
 		if d := skillDirFromManifest(skillsRoot, rec.Filename); d != "" {
 			if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
 				logger.Debug("skill prune failed", "slug", slug, "err", err)
+				resultErr = errors.Join(resultErr, fmt.Errorf("prune Claude skill %q: %w", slug, err))
+				// Keep ownership in the manifest so the next sync retries the prune.
+				newItems[slug] = rec
+				continue
 			}
 			updated = true
 		}
@@ -239,8 +302,9 @@ func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger)
 	man.Items = newItems
 	if err := saveManifest(manPath, man); err != nil {
 		logger.Debug("skill manifest write failed", "err", err)
+		resultErr = errors.Join(resultErr, fmt.Errorf("save Claude skill manifest: %w", err))
 	}
-	return updated
+	return updated, resultErr
 }
 
 // skillDirFromManifest resolves the absolute skill directory for a manifest
@@ -270,32 +334,64 @@ func skillDigestsForRequest() map[string]string {
 
 // stripClaudeSkills removes every fleet-written skill dir (trust-loss). Surgical:
 // only manifest-recorded skill dirs, never the skills/ root or user dirs.
-func stripClaudeSkills(logger *slog.Logger) {
+func stripClaudeSkills(logger *slog.Logger) error {
+	return stripClaudeSkillsWith(logger, os.RemoveAll)
+}
+
+func stripClaudeSkillsWith(logger *slog.Logger, removeAll func(string) error) error {
 	skillsRoot := claudeSubdir("skills")
 	manPath := collectionManifestPath("skills")
 	man := loadManifest(manPath)
+	remaining := map[string]manifestEntry{}
+	var resultErr error
 	for slug, rec := range man.Items {
-		if d := skillDirFromManifest(skillsRoot, rec.Filename); d != "" {
-			if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
-				logger.Debug("skill strip failed", "slug", slug, "err", err)
-			}
+		d := skillDirFromManifest(skillsRoot, rec.Filename)
+		if d == "" {
+			remaining[slug] = rec
+			resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude skill %q: unsafe manifest path", slug))
+			continue
+		}
+		if err := removeAll(d); err != nil && !os.IsNotExist(err) {
+			logger.Debug("skill strip failed", "slug", slug, "err", err)
+			remaining[slug] = rec
+			resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude skill %q: %w", slug, err))
 		}
 	}
-	_ = saveManifest(manPath, collectionManifest{Version: 1, Items: map[string]manifestEntry{}})
+	if err := saveManifest(manPath, collectionManifest{Version: 1, Items: remaining}); err != nil {
+		resultErr = errors.Join(resultErr, fmt.Errorf("save Claude skill ownership: %w", err))
+	}
+	return resultErr
 }
 
 // stripClaudeCollections removes every fleet-written collection file (used when
 // a host loses trust). Surgical: only manifest-recorded files, never the dir.
-func stripClaudeCollections(logger *slog.Logger) {
+func stripClaudeCollections(logger *slog.Logger) error {
+	return stripClaudeCollectionsWith(logger, os.Remove)
+}
+
+func stripClaudeCollectionsWith(logger *slog.Logger, remove func(string) error) error {
+	var resultErr error
 	for _, dir := range artifactDirs {
 		manPath := collectionManifestPath(dir)
 		man := loadManifest(manPath)
 		targetDir := claudeSubdir(dir)
+		remaining := map[string]manifestEntry{}
 		for slug, rec := range man.Items {
-			if err := os.Remove(filepath.Join(targetDir, rec.Filename)); err != nil && !os.IsNotExist(err) {
+			name := sanitizeSlug(slug)
+			if name == "" || rec.Filename != name+".md" {
+				remaining[slug] = rec
+				resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude collection %s/%q: unsafe manifest path", dir, slug))
+				continue
+			}
+			if err := remove(filepath.Join(targetDir, rec.Filename)); err != nil && !os.IsNotExist(err) {
 				logger.Debug("collection strip failed", "dir", dir, "slug", slug, "err", err)
+				remaining[slug] = rec
+				resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude collection %s/%q: %w", dir, slug, err))
 			}
 		}
-		_ = saveManifest(manPath, collectionManifest{Version: 1, Items: map[string]manifestEntry{}})
+		if err := saveManifest(manPath, collectionManifest{Version: 1, Items: remaining}); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("save Claude collection %s ownership: %w", dir, err))
+		}
 	}
+	return resultErr
 }

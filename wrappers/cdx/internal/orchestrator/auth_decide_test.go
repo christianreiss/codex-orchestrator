@@ -261,6 +261,9 @@ func TestDecideEngineDisabled(t *testing.T) {
 	if got.Allowed {
 		t.Fatalf("engine_disabled must refuse launch, got Allowed=true (reason=%q)", got.Reason)
 	}
+	if got.Status != "disabled" {
+		t.Fatalf("engine_disabled status = %q, want disabled", got.Status)
+	}
 	if !strings.Contains(strings.ToLower(got.Reason), "disabled") {
 		t.Fatalf("reason = %q, want a 'disabled' refusal", got.Reason)
 	}
@@ -288,7 +291,7 @@ func TestDecideIPMismatch(t *testing.T) {
 	}
 }
 
-// TestApplyConcurrent pins the read-only secondary-run gate: only downgrades an
+// TestApplyConcurrent pins the sync-paused secondary-run gate: only downgrades an
 // allow to a refusal when local auth is unusable; never upgrades a refusal.
 func TestApplyConcurrent(t *testing.T) {
 	valid := LocalAuthProbe{IsValid: func(string) bool { return true }}

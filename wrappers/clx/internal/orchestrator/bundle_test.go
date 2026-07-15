@@ -20,7 +20,8 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"status":"ok",
 			"auth":{"status":"valid"},
-			"host":{"fqdn":"alpha.example","secure":true}
+			"host":{"fqdn":"alpha.example","secure":true},
+			"sessions":{"now":3,"today":17,"month":204}
 		}`))
 	})
 	resp, err := c.SyncBootstrap(context.Background(), BundleRequest{
@@ -33,6 +34,9 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	}
 	if resp.Auth == nil || resp.Auth.Status != "valid" {
 		t.Errorf("auth: %+v", resp.Auth)
+	}
+	if resp.Sessions == nil || resp.Sessions.Now != 3 || resp.Sessions.Today != 17 || resp.Sessions.Month != 204 {
+		t.Errorf("sessions: %+v", resp.Sessions)
 	}
 	if !strings.Contains(sawBody, `"engine":"claude"`) {
 		t.Errorf("engine missing: %s", sawBody)

@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pelletier/go-toml"
+
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
@@ -21,8 +23,9 @@ import (
 
 // Doctor runs the full diagnostic and writes a terminal-aware report.
 // Returns nil if every row is OK/warn; returns an error if any row is fail.
-func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string) error {
-	caps := ui.DetectCapsFor(w, themeFromConfig(cfg))
+// minimal forces the stable ASCII report even when w is a capable TTY.
+func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string, minimal bool) error {
+	caps := doctorCaps(ui.DetectCapsFor(w, themeFromConfig(cfg)), minimal)
 	report := ui.DoctorReport{
 		Engine: "cdx",
 		When:   time.Now(),
@@ -87,6 +90,13 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 		return fmt.Errorf("%d doctor checks failed", failures)
 	}
 	return nil
+}
+
+func doctorCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
 }
 
 // tallyRows reduces a set of report rows to (failure count, worst tone). It is
@@ -161,6 +171,9 @@ func checkAuth() ui.DoctorRow {
 	if err != nil {
 		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: err.Error()}
 	}
+	if !IsValidLocalAuth(p) {
+		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: "invalid auth.json (no usable Codex token)"}
+	}
 	age := time.Since(st.ModTime())
 	freshness := "fresh"
 	tone := ui.ToneOK
@@ -177,10 +190,20 @@ func checkAuth() ui.DoctorRow {
 func checkConfig() ui.DoctorRow {
 	home, _ := os.UserHomeDir()
 	cfg := filepath.Join(home, ".codex", "config.toml")
-	st, err := os.Stat(cfg)
+	raw, err := os.ReadFile(cfg)
 	if errors.Is(err, os.ErrNotExist) {
 		return ui.DoctorRow{Label: "Config", Tone: ui.ToneWarn, Value: "no config.toml (will sync from server)"}
 	}
+	if err != nil {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: err.Error()}
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: "config.toml is empty"}
+	}
+	if _, err := toml.LoadBytes(raw); err != nil {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: "invalid config.toml: " + err.Error()}
+	}
+	st, err := os.Stat(cfg)
 	if err != nil {
 		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: err.Error()}
 	}
@@ -195,8 +218,16 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 	if err != nil {
 		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: "config.toml absent"}
 	}
-	if strings.Contains(string(raw), "[mcp_servers.cdx]") || strings.Contains(string(raw), "[mcp_servers.codex-orchestrator]") {
-		if strings.Contains(string(raw), "enabled = false") {
+	tree, err := toml.LoadBytes(raw)
+	if err != nil {
+		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneFail, Value: "invalid config.toml: " + err.Error()}
+	}
+	for _, path := range [][]string{{"mcp_servers", "cdx"}, {"mcp_servers", "codex-orchestrator"}} {
+		block, ok := tree.GetPath(path).(*toml.Tree)
+		if !ok {
+			continue
+		}
+		if enabled, ok := block.Get("enabled").(bool); ok && !enabled {
 			*hints = append(*hints, "MCP block is disabled (enabled = false). Remove that line to use orchestrator-provided MCP tools.")
 			return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: "configured but disabled"}
 		}
@@ -208,7 +239,7 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorRow, ui.Tone, string) {
 	apiTone := ui.ToneFail
 	apiValue := "unreachable"
-	latTone := ui.ToneOK
+	latTone := ui.ToneFail
 	latValue := "-"
 	syncTone := ui.ToneFail
 	syncDetail := "no orchestrator response"
@@ -230,8 +261,13 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	d := time.Since(t0)
 	if err == nil {
 		defer resp.Body.Close()
-		apiTone = ui.ToneOK
-		apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			apiTone = ui.ToneOK
+			apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
+		} else {
+			apiValue = fmt.Sprintf("unhealthy response (http %d)", resp.StatusCode)
+		}
+		latTone = ui.ToneOK
 		latValue = d.Truncate(time.Millisecond).String()
 		switch {
 		case d > 5*time.Second:
@@ -248,7 +284,7 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	if ar, err := client.AuthRetrieve(ctx, digest); err == nil {
 		syncDetail = fmt.Sprintf("auth=%s", ar.Status)
 		switch strings.ToLower(ar.Status) {
-		case "valid", "current", "ok", "":
+		case "valid", "current", "ok":
 			syncTone = ui.ToneOK
 		case "outdated", "updated", "missing", "upload_required":
 			syncTone = ui.ToneWarn

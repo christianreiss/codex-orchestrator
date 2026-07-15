@@ -1,11 +1,15 @@
 package lifecycle
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +18,69 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
 )
+
+func TestPresentedErrorAndPortableLifecycleText(t *testing.T) {
+	err := errors.New("denied → next\n\x1b[31m")
+	marked := markPresented(err, Options{SkipBoot: false})
+	if !ErrorWasPresented(marked) || ErrorWasPresented(markPresented(err, Options{SkipBoot: true})) {
+		t.Fatal("presented-error marker does not match boot visibility")
+	}
+	if got := safeLifecycleText(err.Error(), true); strings.ContainsAny(got, "→\n\r\x1b") {
+		t.Fatalf("portable lifecycle text leaked controls/Unicode: %q", got)
+	}
+}
+
+func TestLaunchArgsForAuthUsesEffectiveLaneWithoutGuessingOffline(t *testing.T) {
+	base := []string{"resume", "abc"}
+	validDefault := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{
+		Status:  "valid",
+		Host:    &orchestrator.HostInfo{},
+		ChatGPT: &orchestrator.ChatGPTQuota{ActiveLane: "normal"},
+	})
+	if !reflect.DeepEqual(validDefault, base) {
+		t.Fatalf("quota-display default overrode fleet model args: %v", validDefault)
+	}
+	normal := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{
+		Status: "valid",
+		Host:   &orchestrator.HostInfo{LanePreference: "normal"},
+	})
+	if len(normal) < 2 || normal[0] != "--model" || normal[1] != "gpt-5.6-terra" {
+		t.Fatalf("normal lane args = %v", normal)
+	}
+	spark := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{
+		Status: "valid",
+		Host:   &orchestrator.HostInfo{LanePreference: "spark"},
+	})
+	if len(spark) < 2 || spark[1] != "gpt-5.3-codex-spark" {
+		t.Fatalf("spark lane args = %v", spark)
+	}
+	offline := launchArgsForAuth(base, &orchestrator.AuthRetrieveResponse{Status: "offline"})
+	if !reflect.DeepEqual(offline, base) {
+		t.Fatalf("offline lane was guessed: %v", offline)
+	}
+}
+
+func TestWriteAgentsPropagatesLocalWriteFailure(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(homeFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"content":"fleet agents"}}`)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := writeAgents(context.Background(), client)
+	if updated || err == nil {
+		t.Fatalf("writeAgents = (%t, %v), want propagated write failure", updated, err)
+	}
+}
 
 func TestApplyQuotaHardFailOverrideReclassifiesScreen(t *testing.T) {
 	state := ui.ScreenInput{
@@ -37,6 +104,22 @@ func TestFooterCapsKeepsMinimalRunsCompact(t *testing.T) {
 	}
 	if got := footerCaps(caps, false); !got.IsTTY || got.Palette.Reset != "ansi" {
 		t.Fatalf("normal footer lost rich capabilities: %+v", got)
+	}
+}
+
+func TestConcurrentNoteExplainsManagedSyncPause(t *testing.T) {
+	got := concurrentNote(true, orchestrator.AuthDecision{LocalUsable: true})
+	if !strings.Contains(got, "Managed content sync paused") || !strings.Contains(got, "auth freshness remains active") || strings.Contains(strings.ToLower(got), "read-only") {
+		t.Fatalf("concurrent note = %q", got)
+	}
+}
+
+func TestUpdateCapsHonorsMinimal(t *testing.T) {
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "C.UTF-8")
+	got := updateCaps(nil, true)
+	if got.IsTTY || !got.Dumb || got.UTF8 || got.Palette.Reset != "" {
+		t.Fatalf("minimal update caps = %+v", got)
 	}
 }
 

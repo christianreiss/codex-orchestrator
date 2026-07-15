@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +21,9 @@ import (
 )
 
 // Doctor runs the full diagnostic for clx. Returns nil on no failures.
-func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string) error {
-	caps := ui.DetectCapsFor(w, themeFromConfig(cfg))
+// minimal forces the stable ASCII report even when w is a capable TTY.
+func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string, minimal bool) error {
+	caps := doctorCaps(ui.DetectCapsFor(w, themeFromConfig(cfg)), minimal)
 	report := ui.DoctorReport{
 		Engine: "clx",
 		When:   time.Now(),
@@ -69,6 +71,13 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 		return fmt.Errorf("%d doctor checks failed", failures)
 	}
 	return nil
+}
+
+func doctorCaps(caps ui.Caps, minimal bool) ui.Caps {
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
 }
 
 // tallyRows reduces a set of report rows to (failure count, worst tone). It is
@@ -150,6 +159,9 @@ func checkAuth() ui.DoctorRow {
 	if err != nil {
 		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: err.Error()}
 	}
+	if !IsValidLocalAuth(p) {
+		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: "invalid credentials (no usable Claude token)"}
+	}
 	age := time.Since(st.ModTime())
 	freshness, tone := "fresh", ui.ToneOK
 	switch {
@@ -171,6 +183,14 @@ func checkConfig() ui.DoctorRow {
 	if err != nil {
 		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: err.Error()}
 	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: err.Error()}
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: "settings.json is not a valid JSON object"}
+	}
 	return ui.DoctorRow{Label: "Config", Tone: ui.ToneOK, Value: fmt.Sprintf("path=%s; %d bytes; updated %s", p, st.Size(), ui.DurationShort(time.Since(st.ModTime())))}
 }
 
@@ -181,11 +201,19 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 	home, _ := os.UserHomeDir()
 	p := filepath.Join(home, ".claude.json")
 	raw, err := os.ReadFile(p)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: ".claude.json absent"}
 	}
-	s := string(raw)
-	if strings.Contains(s, "\"mcpServers\"") && (strings.Contains(s, "\"clx\"") || strings.Contains(s, "\"codex-orchestrator\"")) {
+	if err != nil {
+		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneFail, Value: err.Error()}
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil || doc == nil {
+		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneFail, Value: ".claude.json is not a valid JSON object"}
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	managed, ok := servers["clx"].(map[string]any)
+	if ok && len(managed) > 0 {
 		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneOK, Value: "configured"}
 	}
 	*hints = append(*hints, "Run clx once online to sync the clx MCP server into ~/.claude.json.")
@@ -195,7 +223,7 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorRow, ui.Tone, string) {
 	apiTone := ui.ToneFail
 	apiValue := "unreachable"
-	latTone := ui.ToneOK
+	latTone := ui.ToneFail
 	latValue := "-"
 	syncTone := ui.ToneFail
 	syncDetail := "no orchestrator response"
@@ -217,8 +245,13 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	d := time.Since(t0)
 	if err == nil {
 		defer resp.Body.Close()
-		apiTone = ui.ToneOK
-		apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			apiTone = ui.ToneOK
+			apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
+		} else {
+			apiValue = fmt.Sprintf("unhealthy response (http %d)", resp.StatusCode)
+		}
+		latTone = ui.ToneOK
 		latValue = d.Truncate(time.Millisecond).String()
 		switch {
 		case d > 5*time.Second:
@@ -234,7 +267,7 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	if ar, err := client.AuthRetrieve(ctx, digest); err == nil {
 		syncDetail = fmt.Sprintf("auth=%s", ar.Status)
 		switch strings.ToLower(ar.Status) {
-		case "valid", "current", "ok", "":
+		case "valid", "current", "ok":
 			syncTone = ui.ToneOK
 		case "outdated", "updated", "missing", "upload_required":
 			syncTone = ui.ToneWarn

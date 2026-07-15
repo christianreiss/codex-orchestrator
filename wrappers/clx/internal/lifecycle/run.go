@@ -1,6 +1,6 @@
 // Package lifecycle orchestrates the startup sequence for a single `clx run`:
-// lock → bundle (auth + agents + settings in one POST) → decide → boot screen
-// → pre-exec → Claude → post-exec auth upload → exit footer.
+// FQDN guard → lock → bundle (auth + agents + settings in one POST) → decide
+// → boot screen → pre-exec → Claude → post-exec auth upload → exit footer.
 package lifecycle
 
 import (
@@ -58,11 +58,35 @@ var localProbe = orchestrator.LocalAuthProbe{
 var errAuthRecoveryDeclined = errors.New("Claude authentication was not refreshed")
 var errAuthRecoveryNonInteractive = errors.New("Claude authentication refresh requires an interactive terminal")
 
+type presentedError struct{ err error }
+
+func (e *presentedError) Error() string { return e.err.Error() }
+func (e *presentedError) Unwrap() error { return e.err }
+
+func ErrorWasPresented(err error) bool {
+	var target *presentedError
+	return errors.As(err, &target)
+}
+
+func markPresented(err error, opts Options) error {
+	if err != nil && !opts.SkipBoot {
+		return &presentedError{err: err}
+	}
+	return err
+}
+
 func Run(ctx context.Context, opts Options) (int, error) {
 	cfg := opts.Config
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
+	}
+
+	// Refuse a cloned or mis-deployed host before acquiring a run lock or
+	// making any orchestrator request. PreExec repeats this immediately before
+	// spawning Claude as defense-in-depth.
+	if err := claude.GuardFQDN(cfg); err != nil {
+		return 1, err
 	}
 
 	concurrent := false
@@ -72,10 +96,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			return 1, err
 		}
 		if opts.AllowConcurrentSync {
-			fmt.Fprintln(os.Stderr, "clx: another session is active — concurrent sync explicitly enabled")
+			fmt.Fprintln(os.Stderr, "clx: another session is active; concurrent sync explicitly enabled")
 		} else {
 			concurrent = true
-			fmt.Fprintln(os.Stderr, "clx: another session is active — using read-only mode")
+			fmt.Fprintln(os.Stderr, "clx: another session is active; managed content sync paused; auth freshness remains active")
 		}
 	} else {
 		defer lock.Release()
@@ -94,18 +118,19 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	authPath, _ := claude.AuthPath()
 
 	var (
-		authResp      *orchestrator.AuthRetrieveResponse
-		authErr       error
-		authSynced    bool
-		agentsUpdated bool
-		configUpdated bool
-		skillsUpdated bool
-		claudeUpdated string
-		dec           orchestrator.AuthDecision
+		authResp         *orchestrator.AuthRetrieveResponse
+		authErr          error
+		authSynced       bool
+		agentsSync       summary.ResourceSync
+		configSync       summary.ResourceSync
+		nativeSkillsSync summary.ResourceSync
+		skillsSync       summary.ResourceSync
+		fleetSessions    *orchestrator.FleetSessions
+		dec              orchestrator.AuthDecision
 	)
 
 	if !opts.SkipAuthSync {
-		authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+		authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 		dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 
 		if dec.NeedsApprovalPoll {
@@ -114,12 +139,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				dec.Reason = "Insecure host approval is required; open Admin → Host Detail, then retry."
 			} else {
 				logger.Warn("auth status insecure; opening approval-pending box")
-				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second)
+				resolved, perr := ui.PollApproval(ctx, client, 5*time.Second, opts.Minimal)
 				if perr != nil && !errors.Is(perr, context.Canceled) {
 					logger.Warn("approval poll failed", "err", perr)
 				}
 				if resolved {
-					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
 			}
@@ -132,7 +157,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 					authCandidateErr = err
 					logger.Warn("auth-candidate upload failed", "err", err)
 				} else {
-					authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 					dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 				}
 			} else if rerr != nil {
@@ -141,7 +166,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 
 		if needsInteractiveAuthRecovery(dec, authCandidateErr) && !concurrent {
-			reason := recoveryReason(dec, authCandidateErr)
+			reason := safeLifecycleText(recoveryReason(dec, authCandidateErr), opts.Minimal)
 			if opts.Headless {
 				dec.Allowed = false
 				dec.Reason = reason
@@ -150,7 +175,7 @@ func Run(ctx context.Context, opts Options) (int, error) {
 				dec.Allowed = false
 				dec.Reason = err.Error()
 			} else {
-				authResp, authErr, authSynced, agentsUpdated, configUpdated = bootstrap(ctx, client, logger, concurrent, authPath)
+				authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
 				dec = orchestrator.Decide(authResp, authPath, cfg.Host.Secure, localProbe)
 			}
 		}
@@ -158,10 +183,10 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// PR-2: keep the local Claude CLI within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
 		if dec.Allowed {
-			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, logger)
-			claudeUpdated = maybeEnsureClaude(ctx, cfg, authResp, concurrent, logger)
+			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
+			maybeEnsureClaude(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
 			if !concurrent {
-				peer.Reconcile(ctx, cfg, authResp, logger)
+				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
 				// Fresh hosts: minted credentials alone don't stop Claude's
 				// first-start login wizard — ~/.claude.json must carry the
 				// onboarding flag too.
@@ -176,8 +201,9 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		// dot) and purge bash-era on-disk caches once per wrapper version
 		// so they don't shadow MCP resolution. Both best-effort.
 		if !concurrent {
-			skillsUpdated = syncSkills(ctx, client, logger)
-			pruneLegacySkillDirs(wrapperVersion(cfg), logger)
+			skillsSync = syncSkills(ctx, client, logger)
+			skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+			skillsSync = combineOptionalResourceSync(skillsSync, nativeSkillsSync)
 		}
 	}
 
@@ -195,11 +221,11 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		AuthErr:           authErr,
 		Concurrent:        concurrent,
 		ConcurrentNote:    concurrentNote(concurrent, dec),
-		SkillsUpdated:     skillsUpdated,
-		AgentsUpdated:     agentsUpdated,
-		ConfigUpdated:     configUpdated,
+		SkillsSync:        skillsSync,
+		ConfigSync:        combineResourceSync(agentsSync, configSync),
 		AuthSynced:        authSynced,
 		BypassPermissions: opts.DangerouslySkipPermissions,
+		Sessions:          buildSessionCounts(fleetSessions),
 	})
 	if !dec.Allowed && dec.Reason != "" {
 		state.ResultLabel = dec.Reason
@@ -212,8 +238,8 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		}
 		state.ResultTone = ui.ToneWarn
 		markOfflineHealth(state.Dots)
-	} else if dec.Allowed && concurrent {
-		state.ResultLabel = "Ready in read-only mode; local credentials are valid."
+	} else if dec.Allowed && concurrent && state.ResultTone != ui.ToneFail {
+		state.ResultLabel = "Managed content sync paused; auth freshness remains active."
 		state.ResultTone = ui.ToneWarn
 	}
 	if !opts.SkipBoot {
@@ -234,12 +260,18 @@ func Run(ctx context.Context, opts Options) (int, error) {
 		if !concurrent {
 			switch dec.Status {
 			case "disabled", "invalid", "insecure-denied":
-				stripManagedSettings(logger)
-				stripClaudeCollections(logger)
-				stripClaudeSkills(logger)
+				cleanupErr := errors.Join(
+					stripManagedSettings(logger),
+					stripClaudeCollections(logger),
+					stripClaudeSkills(logger),
+				)
+				if cleanupErr != nil {
+					logger.Warn("managed trust-loss cleanup incomplete; ownership retained for retry", "err", cleanupErr)
+					return 1, fmt.Errorf("managed cleanup incomplete after launch refusal: %w", cleanupErr)
+				}
 			}
 		}
-		return 1, fmt.Errorf("launch refused: %s", dec.Reason)
+		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
 	}
 
 	before := snapshotAuthFiles()
@@ -263,17 +295,23 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			AuthStatus:    authStatus,
 			AuthTone:      authTone,
 			EngineName:    "claude",
-			EngineVersion: claudeUpdated,
+			EngineVersion: claude.Version(ctx),
 		})
 	}
 
 	return exitCode, runErr
 }
 
+func safeLifecycleText(value string, portable bool) string {
+	if portable {
+		return ui.PlainInline(value)
+	}
+	return ui.CleanInline(value)
+}
+
 func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 	if minimal {
-		caps.IsTTY = false
-		caps.Palette = ui.Palette{}
+		return ui.MinimalCaps(caps)
 	}
 	return caps
 }
@@ -281,7 +319,7 @@ func footerCaps(caps ui.Caps, minimal bool) ui.Caps {
 func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string,
-) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
 	digest, _ := claude.LocalDigest()
 	agentsDigest := fileDigest(agentsPath())
 	configDigest := fileDigest(settingsPath())
@@ -328,17 +366,18 @@ func bootstrap(
 
 	if berr != nil && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
-		return legacySyncPath(ctx, client, logger, concurrent, authPath)
+		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
+		return a, e, s, ag, co, summary.ResourceSync{}, nil
 	}
 	if berr != nil {
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval
 		// instead of falling through to the offline branch.
 		if st := orchestrator.InsecureStatusFromError(berr); st != "" {
-			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, false, false
+			return &orchestrator.AuthRetrieveResponse{Status: st}, nil, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
-		return offline, berr, false, false, false
+		return offline, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 	}
 
 	authResp := resp.Auth
@@ -355,74 +394,110 @@ func bootstrap(
 		}
 	}
 
-	agentsUpdated := false
-	configUpdated := false
+	agentsSync := summary.ResourceSync{}
+	configSync := summary.ResourceSync{}
+	nativeSkillsSync := summary.ResourceSync{}
 	if !concurrent {
+		agentsSync.Checked = true
 		if len(resp.Agents) > 0 {
 			if err := atomicWrite(agentsPath(), resp.Agents, 0o644); err != nil {
 				logger.Debug("bundle agents write failed", "err", err)
+				agentsSync.Err = err
 			} else {
-				agentsUpdated = true
+				agentsSync.Updated = true
 			}
 		}
+		configSync.Checked = true
 		// Settings: prefer the deep-merge partial (preserves user-owned keys);
 		// fall back to the legacy wholesale write only for old servers that
 		// don't return claude_settings.
 		if resp.ClaudeSettings != nil && len(resp.ClaudeSettings.Partial) > 0 {
-			if applyManagedSettings(resp.ClaudeSettings, logger) {
-				configUpdated = true
-			}
+			updated, err := applyManagedSettingsResult(resp.ClaudeSettings, logger)
+			configSync.Updated = configSync.Updated || updated
+			configSync.Err = errors.Join(configSync.Err, err)
 		} else if len(resp.Config) > 0 {
 			if err := atomicWrite(settingsPath(), resp.Config, 0o644); err != nil {
 				logger.Debug("bundle settings write failed", "err", err)
+				configSync.Err = errors.Join(configSync.Err, err)
 			} else {
-				configUpdated = true
+				configSync.Updated = true
 			}
 		}
 		// Claude-native collections (subagents / commands / output-styles).
-		// Folded into configUpdated for the boot-screen "config" dot; writes are
+		// Folded into configSync for the boot-screen "config" dot; writes are
 		// manifest-tracked and never touch user-authored files in those dirs.
-		if applyClaudeArtifacts(resp.ClaudeArtifacts, logger) {
-			configUpdated = true
-		}
+		updated, err := applyClaudeArtifactsResult(resp.ClaudeArtifacts, logger)
+		configSync.Updated = configSync.Updated || updated
+		configSync.Err = errors.Join(configSync.Err, err)
 		// On-disk skills → ~/.claude/skills/<slug>/SKILL.md (Claude Code's native
-		// skill layout; it can't read skills over MCP like codex does).
-		if applyClaudeSkills(resp.ClaudeSkills, logger) {
-			configUpdated = true
-		}
+		// skill layout; it can't read skills over MCP like codex does). Keep this
+		// outcome on the skills marker rather than masking it as config health.
+		nativeSkillsSync = applyBundleClaudeSkills(resp.ClaudeSkills, logger)
 	}
-	return authResp, nil, authSynced, agentsUpdated, configUpdated
+	return authResp, nil, authSynced, agentsSync, configSync, nativeSkillsSync, resp.Sessions
 }
 
-func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, bool, bool) {
+func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
 	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
 
-	var agents, conf bool
+	var agents, conf summary.ResourceSync
 	if !concurrent {
+		agents.Checked = true
+		conf.Checked = true
 		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			u, err := writeAgents(syncCtx, client)
-			if err != nil {
-				logger.Debug("agents sync skipped", "err", err)
+			agents.Updated, agents.Err = writeAgents(syncCtx, client)
+			if agents.Err != nil {
+				logger.Debug("agents sync skipped", "err", agents.Err)
 			}
-			agents = u
 		}()
 		go func() {
 			defer wg.Done()
-			u, err := writeSettings(syncCtx, client)
-			if err != nil {
-				logger.Debug("settings sync skipped", "err", err)
+			conf.Updated, conf.Err = writeSettings(syncCtx, client)
+			if conf.Err != nil {
+				logger.Debug("settings sync skipped", "err", conf.Err)
 			}
-			conf = u
 		}()
 		wg.Wait()
 	}
 	_ = authPath
 	return authResp, authErr, authSynced, agents, conf
+}
+
+func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
+	if len(states) == 0 {
+		return summary.ResourceSync{}
+	}
+	combined := summary.ResourceSync{Checked: true}
+	for _, state := range states {
+		combined.Checked = combined.Checked && state.Checked
+		combined.Updated = combined.Updated || state.Updated
+		combined.Err = errors.Join(combined.Err, state.Err)
+	}
+	return combined
+}
+
+// combineOptionalResourceSync folds a resource outcome into an already-probed
+// marker only when the server actually advertised that resource. This keeps an
+// older server that omits claude_skills from turning a successful skills probe
+// into an unchecked/skipped result.
+func combineOptionalResourceSync(base, optional summary.ResourceSync) summary.ResourceSync {
+	if !optional.Checked && !optional.Updated && optional.Err == nil {
+		return base
+	}
+	return combineResourceSync(base, optional)
+}
+
+func applyBundleClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) summary.ResourceSync {
+	if items == nil {
+		return summary.ResourceSync{}
+	}
+	updated, err := applyClaudeSkillsResult(items, logger)
+	return summary.ResourceSync{Checked: true, Updated: updated, Err: err}
 }
 
 func isBundleUnsupported(err error) bool {
@@ -556,7 +631,10 @@ func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error)
 	if len(body) == 0 {
 		return false, nil
 	}
-	return true, atomicWrite(dst, body, 0o644)
+	if err := atomicWrite(dst, body, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, error) {
@@ -713,16 +791,23 @@ func themeFromConfig(cfg *config.Config) string {
 	return *cfg.EngineOptions.AdminThemeHint
 }
 
+func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
+	caps := ui.DetectCaps(themeFromConfig(cfg))
+	if minimal {
+		return ui.MinimalCaps(caps)
+	}
+	return caps
+}
+
 // concurrentNote picks the right "Concurrent" row text for the boot screen.
-// Empty string means PrintConcurrentRow uses its own default
-// ("Using local credentials."); we override only when local auth is unusable
-// so the operator sees why a second run would block.
+// The note makes clear that only managed writes are paused; credential
+// freshness is still checked before launch.
 func concurrentNote(concurrent bool, dec orchestrator.AuthDecision) string {
 	if !concurrent {
 		return ""
 	}
 	if dec.LocalUsable {
-		return "Using local credentials."
+		return "Managed content sync paused; auth freshness remains active."
 	}
 	if !dec.Allowed {
 		return "Local credentials missing or invalid."
@@ -751,9 +836,10 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 // reports auto-update enabled and the local version differs from target.
 // Failures are logged but never block launch.
 //
-// Returns the post-install claude version when an install actually ran,
-// empty otherwise. See the cdx-side counterpart for the rationale.
-func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent bool, logger *slog.Logger) string {
+// Returns the post-install Claude version when an install actually ran,
+// empty otherwise. The lifecycle independently re-measures the installed
+// version for the exit footer.
+func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent, minimal bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -781,7 +867,7 @@ func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrat
 		logger.Debug("skipping downgrade", "current", current, "target", target)
 		return ""
 	}
-	caps := ui.DetectCaps(themeFromConfig(cfg))
+	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "claude", current, target))
 	if err := claude.EnsureClaude(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
 		logger.Warn("claude auto-update skipped", "err", err, "target", target, "current", current)
@@ -796,7 +882,7 @@ func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrat
 	return post
 }
 
-func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent bool, logger *slog.Logger) {
+func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, current string, concurrent, minimal bool, logger *slog.Logger) {
 	if concurrent || cfg == nil || auth == nil || auth.Versions == nil {
 		return
 	}
@@ -820,7 +906,7 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 		logger.Warn("wrapper auto-update skipped: missing artifact metadata", "current", current, "target", target)
 		return
 	}
-	caps := ui.DetectCaps(themeFromConfig(cfg))
+	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "wrapper", current, target))
 	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
 	if err != nil {
@@ -832,6 +918,18 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
 		logger.Warn("wrapper restart after update failed", "err", err)
 		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "wrapper", target, err))
+	}
+}
+
+func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
+	if fs == nil {
+		return nil
+	}
+	return &summary.SessionCounts{
+		LocalNow: int64(ipc.CountActive("clx")),
+		FleetNow: fs.Now,
+		Today:    fs.Today,
+		Month:    fs.Month,
 	}
 }
 

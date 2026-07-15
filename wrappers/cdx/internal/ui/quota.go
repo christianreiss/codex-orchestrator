@@ -23,14 +23,25 @@ type QuotaRow struct {
 	BlockAtPct     int    // default 95
 }
 
-// PrintQuotaRow renders "  label   pct% [bar]  resetLabel  note".
+// PrintQuotaRow renders one responsive quota row. Forecast/detail text stays
+// inline when it fits and reflows onto indented continuation lines otherwise.
 func PrintQuotaRow(w io.Writer, caps Caps, row QuotaRow) {
-	fmt.Fprintln(w, formatQuotaLine(caps, row, 80))
+	for _, line := range formatQuotaLines(caps, row, 80) {
+		fmt.Fprintln(w, line)
+	}
 }
 
-// formatQuotaLine adapts the graph to the available card width. Notes are
-// useful on wide terminals but yield to the actual usage/reset values first.
+// formatQuotaLine keeps the historical single-line helper for callers that
+// only need the primary meter line. Card renderers should use formatQuotaLines
+// so forecast text is never silently clipped.
 func formatQuotaLine(caps Caps, row QuotaRow, width int) string {
+	return formatQuotaLines(caps, row, width)[0]
+}
+
+// formatQuotaLines adapts the graph to the available width. Usage and reset
+// remain on the primary line; a forecast that cannot fit in full moves to a
+// semantic, width-bounded continuation line instead of being ellipsized.
+func formatQuotaLines(caps Caps, row QuotaRow, width int) []string {
 	label := CleanInline(row.Label)
 	if caps.Dumb || !caps.UTF8 {
 		label = strings.ReplaceAll(label, "⚡", "spark")
@@ -64,20 +75,49 @@ func formatQuotaLine(caps Caps, row QuotaRow, width int) string {
 		resetTxt,
 	)
 
-	note := row.Note
+	note := CleanInline(row.Note)
+	noteTone := ToneDim
 	if row.Projection != "" {
-		note = row.Projection
-	}
-	remaining := width - VisibleWidth(line) - 2
-	if note != "" && remaining >= 12 {
-		note = TruncateText(note, remaining, caps)
-		noteTone := ToneDim
-		if row.Projection != "" && row.ProjectionTone != "" {
+		note = "forecast " + CleanInline(row.Projection)
+		if row.ProjectionTone != "" {
 			noteTone = row.ProjectionTone
 		}
-		line += "  " + styleTone(caps, noteTone, note)
 	}
-	return line
+	if note == "" {
+		return []string{line}
+	}
+
+	marker := ""
+	if row.Projection != "" && (noteTone == ToneWarn || noteTone == ToneFail) {
+		// A forecast is advisory even when it crosses the configured limit:
+		// use an attention marker, not a current-failure cross. The forecast
+		// text itself retains its stronger colour when colour is available.
+		marker = styleTone(caps, ToneWarn, toneSymbol(caps, ToneWarn, false)) + " "
+	}
+	decorated := marker + styleTone(caps, noteTone, note)
+	remaining := width - VisibleWidth(line) - 2
+	if remaining >= 12 && VisibleWidth(decorated) <= remaining {
+		return []string{line + "  " + decorated}
+	}
+
+	indentWidth := labelWidth + 2
+	if indentWidth >= width {
+		indentWidth = 0
+	}
+	textWidth := width - indentWidth - VisibleWidth(marker)
+	if textWidth < 1 {
+		textWidth = 1
+	}
+	lines := []string{line}
+	indent := strings.Repeat(" ", indentWidth)
+	for i, wrapped := range WrapText(note, textWidth) {
+		lineMarker := marker
+		if i > 0 {
+			lineMarker = strings.Repeat(" ", VisibleWidth(marker))
+		}
+		lines = append(lines, indent+lineMarker+styleTone(caps, noteTone, wrapped))
+	}
+	return lines
 }
 
 // BuildBar renders the fill string with appropriate colour by saturation.
@@ -159,19 +199,35 @@ func tonePalette(caps Caps, tone Tone) string {
 // ProjectUsage extrapolates current %used to the end of the reset window.
 // Returns the projected end-of-window % (may be > 100).
 //
-// elapsed = limitSeconds - resetAfterSeconds (clamped to >= 1).
+// Projection is suppressed until at least five minutes and 1% of the window
+// have elapsed; a first telemetry sample is not a burn-rate trend.
+// elapsed = limitSeconds - resetAfterSeconds.
 // rate    = used/elapsed.
 // projected = used + rate*resetAfter.
 func ProjectUsage(used int, limitSeconds, resetAfterSeconds int64) int {
 	if used <= 0 || limitSeconds <= 0 || resetAfterSeconds <= 0 {
 		return used
 	}
-	elapsed := limitSeconds - resetAfterSeconds
-	if elapsed < 1 {
-		elapsed = 1
+	if !ProjectionReady(limitSeconds, resetAfterSeconds) {
+		return used
 	}
+	elapsed := limitSeconds - resetAfterSeconds
 	rate := float64(used) / float64(elapsed)
 	return int(float64(used) + rate*float64(resetAfterSeconds))
+}
+
+// ProjectionReady rejects near-fresh windows where a single percent consumed
+// over seconds would extrapolate into a meaningless alarm.
+func ProjectionReady(limitSeconds, resetAfterSeconds int64) bool {
+	if limitSeconds <= 0 || resetAfterSeconds <= 0 {
+		return false
+	}
+	elapsed := limitSeconds - resetAfterSeconds
+	minimum := limitSeconds / 100
+	if minimum < int64(5*time.Minute/time.Second) {
+		minimum = int64(5 * time.Minute / time.Second)
+	}
+	return elapsed >= minimum
 }
 
 // ProjectETA returns the time-to-100% at the current burn rate, only if
@@ -185,9 +241,6 @@ func ProjectETA(used int, limitSeconds, resetAfterSeconds int64) time.Duration {
 		return 0
 	}
 	elapsed := limitSeconds - resetAfterSeconds
-	if elapsed < 1 {
-		elapsed = 1
-	}
 	rate := float64(used) / float64(elapsed)
 	if rate <= 0 {
 		return 0
