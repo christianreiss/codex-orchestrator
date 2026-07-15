@@ -1,7 +1,8 @@
 // clx — Codex Orchestrator wrapper, engine=claude.
 //
-// Subcommands: run (default), status, doctor, exec, auth-upload, --version,
-// --update, --uninstall, --cron [install|remove|run], --execute, --resume,
+// Subcommands: run (default), resume, status, doctor, exec, auth-upload,
+// --version, --update, --uninstall, --cron [install|remove|run], --execute,
+// -r/--resume, --continue,
 // --dangerously-skip-permissions (per-run only; forwarded to `claude`, never
 // persisted to the fleet-managed permissions.defaultMode).
 package main
@@ -63,7 +64,12 @@ type flags struct {
 	// Forwarded straight to the upstream Claude CLI through the normal
 	// lifecycle. Recognised so parseFlags doesn't reject them.
 	continueSession bool
-	resumeSession   string
+	// resumeFlag records that --resume/-r was given at all; resumeSession holds
+	// its optional value. The two are distinct because a bare --resume is a
+	// valid request for the upstream session picker, which resumeSession == ""
+	// cannot express on its own.
+	resumeFlag    bool
+	resumeSession string
 	// dangerouslySkipPermissions forwards --dangerously-skip-permissions to the
 	// upstream claude binary (bypasses all tool-permission prompts for this run
 	// only) and lights a boot-screen warning badge; it is never persisted, so
@@ -73,16 +79,35 @@ type flags struct {
 
 // reservedClaudeSubcommands lists Claude CLI subcommands whose `--help`
 // invocations route straight to the upstream binary.
+//
+// `resume` stays listed so `clx resume --help` renders upstream help; the
+// wrapper-owned `case "resume"` in run() handles every non-help invocation and
+// takes precedence over the default passthrough branch. `sessions` is
+// deliberately absent: Claude has no such subcommand, so passing it through
+// made `clx sessions` hang as a literal prompt. Failing fast with "unknown
+// subcommand" is the honest answer.
 var reservedClaudeSubcommands = map[string]bool{
-	"auth":     true,
-	"login":    true,
-	"logout":   true,
-	"mcp":      true,
-	"config":   true,
-	"doctor":   true,
-	"sessions": true,
-	"resume":   true,
-	"help":     true,
+	"auth":   true,
+	"login":  true,
+	"logout": true,
+	"mcp":    true,
+	"config": true,
+	"doctor": true,
+	"resume": true,
+	"help":   true,
+}
+
+// resumeArgs builds the upstream argv for a resume request. Claude spells
+// resume as a flag with an optional value (`claude -r/--resume [value]`), not a
+// subcommand — `claude resume` is swallowed as a prompt and opens a brand-new
+// session. Both `clx resume ...` and `clx --resume <id> ...` funnel through
+// here, which is what keeps the two spellings from drifting apart again.
+//
+// A leading "-" in rest needs no guard: --resume's value is optional, so
+// `claude --resume --foo` parses as picker + --foo, which is what was meant.
+func resumeArgs(rest, passthrough []string) []string {
+	out := append([]string{"--resume"}, rest...)
+	return append(out, passthrough...)
 }
 
 // isHelpPassthrough returns true when argv requests upstream Claude help text.
@@ -251,6 +276,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		subArgs = f.cronArgs
 	case f.executePrompt != "":
 		sub = "execute"
+	case f.resumeFlag:
+		// `clx --resume <id> [prompt]` — resume intent came from a flag, so
+		// positional[0] is a real argument (an optional trailing prompt), not a
+		// subcommand. Rebind to the *unsliced* positional; the sub/subArgs
+		// preamble above already consumed positional[0] on the assumption that
+		// it named a subcommand, which would silently drop the prompt.
+		sub = "resume"
+		subArgs = positional
+		if f.resumeSession != "" {
+			subArgs = append([]string{f.resumeSession}, subArgs...)
+		}
 	}
 
 	switch sub {
@@ -266,6 +302,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "clx run:", err)
+		}
+		return exit
+	case "resume":
+		// Interactive like `run` — resume opens a TTY session picker.
+		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			Config:                     cfg,
+			ExtraArgs:                  resumeArgs(subArgs, passthrough),
+			SkipBoot:                   f.skipBoot,
+			Minimal:                    f.minimal,
+			WrapperVersion:             Version,
+			Logger:                     logger,
+			DangerouslySkipPermissions: f.dangerouslySkipPermissions,
+		})
+		if err != nil {
+			fmt.Fprintln(stderr, "clx resume:", err)
 		}
 		return exit
 	case "exec":
@@ -321,10 +372,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "cron":
 		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
 	default:
-		// Reserved upstream subcommands (login, logout, mcp, resume, …)
-		// passthrough to the real claude binary with the token preserved. The
-		// wrapper-owned subcommands above win first; isHelpPassthrough has
-		// already caught `--help` variants.
+		// Reserved upstream subcommands (login, logout, mcp, …) passthrough to
+		// the real claude binary with the token preserved. The wrapper-owned
+		// subcommands above win first — `resume` is reserved but never lands
+		// here, since its own case claims it; isHelpPassthrough has already
+		// caught `--help` variants.
 		if reservedClaudeSubcommands[sub] {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := claude.Run(ctx, cfg, execArgs)
@@ -334,8 +386,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return exit
 		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
-		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | exec -- <cmd...>")
-		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "flags: --version | --update | --uninstall | -r/--resume [<session>] | --continue | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
 }
@@ -507,18 +559,19 @@ func parseFlags(args []string) (flags, []string, []string) {
 		case a == "--dangerously-skip-permissions":
 			f.dangerouslySkipPermissions = true
 			passthrough = append(passthrough, a)
-		case a == "--resume":
+		// Normalised onto the wrapper's `resume` subcommand rather than pushed
+		// to passthrough, so `clx resume`, `clx --resume` and `clx -r` all
+		// resolve to the same upstream argv. See resumeArgs.
+		case a == "--resume" || a == "-r":
+			f.resumeFlag = true
 			f.resumeSession = ""
 			if i+1 < len(args) {
 				f.resumeSession = args[i+1]
-				passthrough = append(passthrough, "--resume", args[i+1])
 				i++
-			} else {
-				passthrough = append(passthrough, "--resume")
 			}
 		case strings.HasPrefix(a, "--resume="):
+			f.resumeFlag = true
 			f.resumeSession = strings.TrimPrefix(a, "--resume=")
-			passthrough = append(passthrough, a)
 		case a == "--config" && i+1 < len(args):
 			f.configPath = args[i+1]
 			i++

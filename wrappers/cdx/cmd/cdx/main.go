@@ -1,7 +1,8 @@
 // cdx — Codex Orchestrator wrapper, engine=codex.
 //
-// Subcommands: run (default), status, doctor, lane, profile, exec, auth-upload,
-// --version, --update, --cron [install|remove|run], --uninstall, --execute, --resume.
+// Subcommands: run (default), resume, status, doctor, lane, profile, exec,
+// auth-upload, --version, --update, --cron [install|remove|run], --uninstall,
+// --execute, --resume.
 package main
 
 import (
@@ -46,18 +47,23 @@ func main() {
 
 // Parsed flags shared across subcommands.
 type flags struct {
-	configPath      string
-	silent          bool
-	debug           bool
-	minimal         bool
-	skipBoot        bool
-	versionFlag     bool
-	updateFlag      bool
-	uninstallFlag   bool
-	statusFlag      bool
-	doctorFlag      bool
-	cronArgs        []string
-	executePrompt   string
+	configPath    string
+	silent        bool
+	debug         bool
+	minimal       bool
+	skipBoot      bool
+	versionFlag   bool
+	updateFlag    bool
+	uninstallFlag bool
+	statusFlag    bool
+	doctorFlag    bool
+	cronArgs      []string
+	executePrompt string
+	// resumeFlag records that --resume was given at all; resumeSession holds
+	// its optional value. The two are distinct because a bare --resume is a
+	// valid request for the upstream session picker, which resumeSession ==
+	// "" cannot express on its own.
+	resumeFlag      bool
 	resumeSession   string
 	forceIPv4       bool
 	allowConc       bool
@@ -79,6 +85,17 @@ var wrapperOwnedSubcommands = map[string]bool{
 	"cron":        true,
 	"execute":     true,
 	"ls":          true,
+	"resume":      true,
+}
+
+// resumeArgs builds the upstream argv for a resume request. Codex spells resume
+// as a subcommand (`codex resume [SESSION_ID] [PROMPT]`), so the token leads and
+// any session id / trailing prompt follows positionally. Both `cdx resume ...`
+// and `cdx --resume <id> ...` funnel through here, which is what keeps the two
+// spellings from drifting apart again.
+func resumeArgs(rest, passthrough []string) []string {
+	out := append([]string{"resume"}, rest...)
+	return append(out, passthrough...)
 }
 
 // isProfileShorthand reports whether `sub` is a candidate for the legacy
@@ -288,6 +305,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		subArgs = f.cronArgs
 	case f.executePrompt != "":
 		sub = "execute"
+	case f.resumeFlag:
+		// `cdx --resume <id> [prompt]` — resume intent came from a flag, so
+		// positional[0] is a real argument (an optional trailing prompt), not a
+		// subcommand. Rebind to the *unsliced* positional; the sub/subArgs
+		// preamble above already consumed positional[0] on the assumption that
+		// it named a subcommand, which would silently drop the prompt.
+		sub = "resume"
+		subArgs = positional
+		if f.resumeSession != "" {
+			subArgs = append([]string{f.resumeSession}, subArgs...)
+		}
 	}
 
 	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
@@ -318,6 +346,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		})
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx run:", err)
+		}
+		return exit
+	case "resume":
+		// Interactive like `run`, never Headless like `execute` — resume opens
+		// a TTY session picker and a headless run would fail it closed.
+		exit, err := lifecycle.Run(ctx, lifecycle.Options{
+			Config:         cfg,
+			ExtraArgs:      resumeArgs(subArgs, passthrough),
+			SkipBoot:       f.skipBoot,
+			Minimal:        f.minimal,
+			Logger:         logger,
+			WrapperVersion: Version,
+		})
+		if err != nil {
+			fmt.Fprintln(stderr, "cdx resume:", err)
 		}
 		return exit
 	case "exec":
@@ -379,9 +422,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "cron":
 		return cmdCron(ctx, cfg, subArgs, stdout, stderr)
 	default:
-		// Reserved upstream subcommands (resume, login, logout, mcp, review, …)
+		// Reserved upstream subcommands (login, logout, mcp, review, …)
 		// passthrough to the real codex binary with the token preserved. The
-		// wrapper-owned subcommands above win first; isHelpPassthrough has
+		// wrapper-owned subcommands above win first — `resume` is reserved but
+		// never lands here, since its own case claims it; isHelpPassthrough has
 		// already caught `--help` variants.
 		if reservedCodexSubcommands[sub] {
 			// A successful `cdx login` mints the fleet's most precious
@@ -409,7 +453,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return exit
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
-		fmt.Fprintln(stderr, "subcommands: run | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --version | --status | --doctor | --update | --uninstall | --resume <session> | --execute <prompt> | --cron [install|remove] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
@@ -585,18 +629,19 @@ func parseFlags(args []string) (flags, []string, []string) {
 				f.executePrompt = args[i+1]
 				i++
 			}
+		// --resume is a wrapper-level alias for the upstream `codex resume`
+		// subcommand; upstream has no --resume flag and rejects it outright, so
+		// the token must never reach passthrough. See resumeArgs.
 		case a == "--resume":
+			f.resumeFlag = true
 			f.resumeSession = ""
 			if i+1 < len(args) {
 				f.resumeSession = args[i+1]
-				passthrough = append(passthrough, "--resume", args[i+1])
 				i++
-			} else {
-				passthrough = append(passthrough, "--resume")
 			}
 		case strings.HasPrefix(a, "--resume="):
+			f.resumeFlag = true
 			f.resumeSession = strings.TrimPrefix(a, "--resume=")
-			passthrough = append(passthrough, a)
 		case a == "--config" && i+1 < len(args):
 			f.configPath = args[i+1]
 			i++

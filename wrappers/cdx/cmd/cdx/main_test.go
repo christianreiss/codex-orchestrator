@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -95,29 +96,110 @@ func TestParseFlagsNonHelpStillParses(t *testing.T) {
 	}
 }
 
-func TestParseFlagsResumeIsForwarded(t *testing.T) {
-	f, pos, pass := parseFlags([]string{"--resume", "d9647178-2855-42b5-afaf-07caef131f73"})
-	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
+const testSession = "d9647178-2855-42b5-afaf-07caef131f73"
+
+// TestParseFlagsResumeIsNotForwarded pins the inverted contract: --resume must
+// NOT reach passthrough. Upstream codex has no --resume flag and rejects it
+// ("error: unexpected argument '--resume' found"), so the wrapper records the
+// intent and re-spells it as the `resume` subcommand via resumeArgs.
+func TestParseFlagsResumeIsNotForwarded(t *testing.T) {
+	f, pos, pass := parseFlags([]string{"--resume", testSession})
+	if !f.resumeFlag {
+		t.Errorf("resumeFlag = false, want true")
+	}
+	if f.resumeSession != testSession {
 		t.Errorf("resumeSession = %q", f.resumeSession)
 	}
 	if len(pos) != 0 {
 		t.Errorf("positional = %v", pos)
 	}
-	if len(pass) != 2 || pass[0] != "--resume" || pass[1] != "d9647178-2855-42b5-afaf-07caef131f73" {
-		t.Errorf("passthrough = %v", pass)
+	if len(pass) != 0 {
+		t.Errorf("passthrough = %v, want empty (codex rejects --resume)", pass)
 	}
 }
 
 func TestParseFlagsResumeEqualForm(t *testing.T) {
-	f, pos, pass := parseFlags([]string{"--resume=d9647178-2855-42b5-afaf-07caef131f73"})
-	if f.resumeSession != "d9647178-2855-42b5-afaf-07caef131f73" {
+	f, pos, pass := parseFlags([]string{"--resume=" + testSession})
+	if !f.resumeFlag {
+		t.Errorf("resumeFlag = false, want true")
+	}
+	if f.resumeSession != testSession {
 		t.Errorf("resumeSession = %q", f.resumeSession)
 	}
 	if len(pos) != 0 {
 		t.Errorf("positional = %v", pos)
 	}
-	if len(pass) != 1 || pass[0] != "--resume=d9647178-2855-42b5-afaf-07caef131f73" {
-		t.Errorf("passthrough = %v", pass)
+	if len(pass) != 0 {
+		t.Errorf("passthrough = %v, want empty (codex rejects --resume)", pass)
+	}
+}
+
+// TestParseFlagsBareResumeRequestsPicker covers `cdx --resume` with no value:
+// resumeSession is empty but the request is still real, which is why resumeFlag
+// exists as a separate field.
+func TestParseFlagsBareResumeRequestsPicker(t *testing.T) {
+	f, _, pass := parseFlags([]string{"--resume"})
+	if !f.resumeFlag {
+		t.Errorf("resumeFlag = false, want true")
+	}
+	if f.resumeSession != "" {
+		t.Errorf("resumeSession = %q, want empty", f.resumeSession)
+	}
+	if len(pass) != 0 {
+		t.Errorf("passthrough = %v, want empty", pass)
+	}
+}
+
+// TestResumeArgs pins the upstream argv translation for every user-facing form.
+// `rest` is what run() hands over after the flag/subcommand paths converge.
+func TestResumeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		rest []string
+		pass []string
+		want []string
+	}{
+		{"bare picker", nil, nil, []string{"resume"}},
+		{"session id", []string{testSession}, nil, []string{"resume", testSession}},
+		{"last", []string{"--last"}, nil, []string{"resume", "--last"}},
+		{
+			// codex resume [SESSION_ID] [PROMPT] — the trailing prompt is a
+			// documented form and must survive both spellings.
+			"session id + trailing prompt",
+			[]string{testSession, "keep going"}, nil,
+			[]string{"resume", testSession, "keep going"},
+		},
+		{"passthrough tail", []string{testSession}, []string{"--foo"}, []string{"resume", testSession, "--foo"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resumeArgs(tc.rest, tc.pass)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("resumeArgs(%v, %v) = %v, want %v", tc.rest, tc.pass, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResumeDispatchPreservesTrailingPrompt guards the slicing trap: run()'s
+// preamble does sub = positional[0]; subArgs = positional[1:], which assumes
+// positional[0] names a subcommand. When resume intent arrives via the *flag*,
+// positional[0] is a real trailing prompt, so the flag path must rebind to the
+// unsliced positional or the prompt is silently dropped.
+func TestResumeDispatchPreservesTrailingPrompt(t *testing.T) {
+	// Mirrors the flag→subcommand branch in run().
+	f, positional, passthrough := parseFlags([]string{"--resume", testSession, "keep going"})
+	if !f.resumeFlag {
+		t.Fatalf("resumeFlag = false, want true")
+	}
+	subArgs := positional
+	if f.resumeSession != "" {
+		subArgs = append([]string{f.resumeSession}, subArgs...)
+	}
+	got := resumeArgs(subArgs, passthrough)
+	want := []string{"resume", testSession, "keep going"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("flag-form resume argv = %v, want %v", got, want)
 	}
 }
 

@@ -63,24 +63,31 @@ the JSON Schema file as stale reference, not an enforced contract.
 | Subcommand | Description |
 |---|---|
 | `run` (default) | Full startup sequence, then launch a Claude session |
+| `resume [<session>] [<prompt>]` | Full startup sequence, then reopen a previous Claude session. With no session id the upstream picker is shown. Equivalent to `clx --resume`/`-r` |
 | `status` | Local config summary + a `POST /auth` round-trip (not `/sync/status`); works even when config is unloadable (prints version + error); on a fresh install it also seeds credentials if the server returns auth while local status is `outdated`/`updated`/`missing` |
 | `doctor` | Self-diagnostic: config, CLI presence, credentials, reachability |
 | `auth-upload` | POST `~/.claude/.credentials.json` to the orchestrator |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command directly |
 
 Reserved upstream subcommands (`auth`, `login`, `logout`, `mcp`, `config`,
-`doctor`, `sessions`, `resume`, `help`) route their `--help`/`-h` invocations
+`doctor`, `resume`, `help`) route their `--help`/`-h` invocations
 straight through to the real `claude` binary. `doctor` is listed here too, but
 that only affects help passthrough (`clx doctor --help`) — a bare `clx doctor`
 always hits the wrapper's own self-diagnostic, since the wrapper-owned
-subcommand switch is checked first.
+subcommand switch is checked first. `resume` is the same shape: only
+`clx resume --help` passes through, while a bare `clx resume` is handled by the
+wrapper (see below).
+
+`sessions` is **not** reserved — upstream `claude` has no such subcommand, so
+forwarding it made `clx sessions` hang on a literal `sessions` prompt. It now
+fails fast as an unknown subcommand.
 
 ### Flags
 
 | Flag | Description |
 |---|---|
 | `--continue` / `-c` | Forwarded to the upstream `claude` binary |
-| `--resume <session>` | Forwarded to the upstream `claude` binary (no `-r` short form) |
+| `--resume [<session>]` / `-r` | Alias for the `resume` subcommand. Upstream `claude` spells resume as a flag, so the wrapper re-spells `clx resume …` to `claude --resume …`; a bare `resume` positional would otherwise be swallowed as a prompt and open a *new* session. With no session id the upstream picker is shown |
 | `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights a red `⚠ bypass permissions` boot-screen badge (`Warn` row in `--minimal`). Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
 | `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips all wrapper side effects (no lock, no sync, no boot screen) |
 | `--cron [install\|remove\|run]` | Manage host auto-update crontab entry |

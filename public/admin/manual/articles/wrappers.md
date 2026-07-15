@@ -187,28 +187,31 @@ cron tick, the wrapper reads the desired engine set from the auth response's
 
 ### cdx
 
-Subcommands: `run` (default), `status`, `doctor`, `auth-upload`, `exec -- <cmd>`,
-`update`, `uninstall`, `cron [install|remove|run]`, `execute` (headless
-one-shot), `lane [normal|spark|clear] [--persist]`, `profile <name>`, `ls`
+Subcommands: `run` (default), `resume [<session>] [<prompt>]`, `status`,
+`doctor`, `auth-upload`, `exec -- <cmd>`, `update`, `uninstall`,
+`cron [install|remove|run]`, `execute` (headless one-shot),
+`lane [normal|spark|clear] [--persist]`, `profile <name>`, `ls`
 (legacy alias for `lane spark`).
 
 Flags: `--version` (`-V`, `-W`, `--wrapper-version`), `--update` (`-U`),
 `--uninstall`, `--status`, `--doctor`, `--silent`, `--debug` (`--verbose`),
 `--minimal` (`--minimal-output`), `--skip-boot` (`--no-banner`), `-4`/`--ipv4`,
 `--allow-concurrent-sync`, `--cron [install|remove]`, `--execute <prompt>`,
-`--resume <session>` (forwarded to `codex`), `--config <path>`.
+`--resume [<session>]` (alias for the `resume` subcommand — upstream `codex` has
+no `--resume` flag), `--config <path>`.
 
 ### clx
 
-Subcommands: `run` (default), `status`, `doctor`, `auth-upload`, `exec -- <cmd>`,
-`update`, `uninstall`, `cron [install|remove|run]`, `execute` (headless
-one-shot). **`clx` has no `lane`, `profile`, or `ls` subcommands.**
+Subcommands: `run` (default), `resume [<session>] [<prompt>]`, `status`,
+`doctor`, `auth-upload`, `exec -- <cmd>`, `update`, `uninstall`,
+`cron [install|remove|run]`, `execute` (headless one-shot).
+**`clx` has no `lane`, `profile`, or `ls` subcommands.**
 
 Flags: same set as cdx minus the `-W`/`--wrapper-version` alias and the
-lane/profile-specific ones; adds `--continue`/`-c` and `--resume <session>`
-which are forwarded to the Claude CLI (despite the name, there is **no**
-`-r` short form). `--allow-concurrent-sync` is parsed on both wrappers but
-currently has no effect (dead flag).
+lane/profile-specific ones; adds `--continue`/`-c` and `--resume [<session>]`
+(short form `-r`), which are forwarded to the Claude CLI.
+`--allow-concurrent-sync` is parsed on both wrappers but currently has no
+effect (dead flag).
 
 ### auth-upload
 

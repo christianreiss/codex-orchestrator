@@ -1,5 +1,36 @@
 # 2026-07-15
 
+## `cdx resume` / `clx resume` actually resume
+
+- **Both wrappers now own `resume`** and route it through the full startup
+  lifecycle (auth sync, boot screen, lane `--model`, quota footer) like `run`,
+  instead of bypassing it. Resume is interactive, never headless — it opens the
+  upstream TTY session picker.
+- **The two engines spell resume in opposite shapes, and each wrapper forwarded
+  the wrong one.** Codex has a `resume` *subcommand* and no `--resume` flag;
+  Claude has a `-r`/`--resume` *flag* and no `resume` subcommand. The wrappers
+  reserved the `resume` token and forwarded it verbatim, so three of four
+  user-facing forms were broken:
+  - `cdx --resume <id>` died at the Codex arg parser (`error: unexpected
+    argument '--resume' found`) despite being documented.
+  - `clx resume` **hung**: `claude` swallowed `resume` as a literal prompt and
+    opened a brand-new session.
+  - `clx -r` was never parsed and failed with `unknown subcommand: -r`.
+- **Fix:** each wrapper records resume intent (`resumeFlag` + optional
+  `resumeSession`) and re-spells it once, in `resumeArgs` — `codex resume <id>`
+  for cdx, `claude --resume <id>` for clx. Every spelling (`resume`,
+  `--resume`, `--resume=`, and `-r` on clx) converges on that one translation,
+  so the flag and subcommand forms cannot drift apart again. A trailing prompt
+  (`codex resume [SESSION_ID] [PROMPT]`) survives both forms.
+- **`clx sessions` no longer hangs.** It was reserved for help passthrough, but
+  Claude has no `sessions` subcommand, so a bare `clx sessions` opened a session
+  prompted with the word "sessions". It now fails fast as an unknown
+  subcommand. `resume` stays reserved so `clx resume --help` still renders
+  upstream help without any wrapper side effects.
+- **No session listing was added.** A stale comment claimed the wrapper "relies
+  on JSONL session-file discovery"; no such code ever existed. Both upstream
+  pickers already handle the no-argument case.
+
 ## Project-scoped memories (`project_memory_*`)
 
 - **New MCP tools:** `project_memory_list`, `project_memory_get`,
