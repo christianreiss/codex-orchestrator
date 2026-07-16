@@ -124,12 +124,20 @@ func installUserCron(bin string, min, hr int) error {
 // comment in cdx/internal/cron/cron.go. The upstream CLI scratchpad lives
 // under $HOME/.claude/tmp/, and cron-as-root must not leak root-owned dirs
 // into the install user's home.
+//
+// CDX_CONFIG_PATH is pinned for the same reason: every tick forces a guarded
+// peer reconcile (peer.EnsureForCron) that may spawn `cdx --cron run` as a
+// child of this root-owned process. Without it, cdx's own config.DefaultPath
+// falls through to HOME=/root and resolves a phantom /root/.config/... file
+// instead of this host's real one, so the Codex engine silently never
+// updates via this tick even though the log reports success.
 func installSystemCron(bin string, min, hr int) error {
 	configPath, err := config.DefaultPath()
 	if err != nil {
 		return err
 	}
 	_, userHome := installUserContext()
+	peerConfigPath := filepath.Join(userHome, ".config", "codex-orchestrator", "cdx.json")
 	logFile := filepath.Join(userHome, ".claude", "cron.log")
 	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
@@ -138,8 +146,9 @@ SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 HOME=/root
 CLX_CONFIG_PATH=%s
+CDX_CONFIG_PATH=%s
 %d %d * * * root %s
-`, configPath, min, hr, cmd)
+`, configPath, peerConfigPath, min, hr, cmd)
 	if err := sudoWriteFile(systemCronPath, body, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", systemCronPath, err)
 	}

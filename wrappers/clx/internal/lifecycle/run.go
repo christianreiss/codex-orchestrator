@@ -180,11 +180,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			}
 		}
 
-		// PR-2: keep the local Claude CLI within range of the server-declared
+		// PR-2: keep the local wrapper within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
+		// The Claude engine itself updates post-session (see maybeEnsureClaude
+		// below) so a version bump never delays an interactive launch.
 		if dec.Allowed {
 			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
-			maybeEnsureClaude(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
 				// Fresh hosts: minted credentials alone don't stop Claude's
@@ -279,6 +280,13 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	started := time.Now()
 	exitCode, _, runErr := claude.RunCapture(ctx, cfg, opts.ExtraArgs)
 	duration := time.Since(started)
+
+	// Post-session Claude engine update (best-effort). Runs after the user's
+	// work is done instead of before it starts, so a version bump never
+	// delays an interactive launch — the new version lands on the next run.
+	if dec.Allowed {
+		maybeEnsureClaude(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
+	}
 
 	authStatus, authTone := maybePostRunAuthUpload(client, logger, before)
 
@@ -834,7 +842,12 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 
 // maybeEnsureClaude repairs the local Claude CLI when the orchestrator
 // reports auto-update enabled and the local version differs from target.
-// Failures are logged but never block launch.
+// Failures are logged but never fatal — a transient install error just
+// leaves the current version in place for next time.
+//
+// Called after the Claude session has already exited (see Run), so the
+// install never delays an interactive launch; the user only pays for it
+// once, on their way out, and the new version takes effect on the next run.
 //
 // Returns the post-install Claude version when an install actually ran,
 // empty otherwise. The lifecycle independently re-measures the installed

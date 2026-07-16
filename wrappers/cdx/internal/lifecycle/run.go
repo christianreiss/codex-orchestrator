@@ -203,11 +203,12 @@ func Run(ctx context.Context, opts Options) (int, error) {
 			}
 		}
 
-		// PR-2: keep the local Codex CLI within range of the server-declared
+		// PR-2: keep the local wrapper within range of the server-declared
 		// target version when auto-update is enabled. Never blocks launch.
+		// The Codex engine itself updates post-session (see maybeEnsureCodex
+		// below) so a version bump never delays an interactive launch.
 		if dec.Allowed {
 			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
-			maybeEnsureCodex(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
 			}
@@ -318,6 +319,13 @@ func Run(ctx context.Context, opts Options) (int, error) {
 	launchArgs := launchArgsForAuth(opts.ExtraArgs, authResp)
 	exitCode, _, runErr := codex.RunCapturePrepared(ctx, cfg, launchArgs)
 	duration := time.Since(started)
+
+	// Post-session Codex engine update (best-effort). Runs after the user's
+	// work is done instead of before it starts, so a version bump never
+	// delays an interactive launch — the new version lands on the next run.
+	if dec.Allowed {
+		maybeEnsureCodex(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
+	}
 
 	// Post-exec auth upload (best-effort, 5s budget). A `codex login` mid-run
 	// rotates tokens; we want to push the rotated payload to canonical store.
@@ -989,9 +997,13 @@ func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
 
 // maybeEnsureCodex repairs the local Codex CLI when the orchestrator says
 // auto-update is enabled, a target version is known, and the local CLI
-// version differs from that target. Failures are logged but never blocking
-// — the launch path continues regardless so a transient install error does
-// not prevent the user from running Codex.
+// version differs from that target. Failures are logged but never fatal —
+// a transient install error just leaves the current version in place for
+// next time.
+//
+// Called after the Codex session has already exited (see Run), so the
+// install never delays an interactive launch; the user only pays for it
+// once, on their way out, and the new version takes effect on the next run.
 //
 // Returns the post-install version when an install actually ran successfully,
 // empty string otherwise (no-op cases + failures). The lifecycle independently

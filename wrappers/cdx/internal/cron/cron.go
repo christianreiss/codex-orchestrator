@@ -159,9 +159,17 @@ func installUserCron(bin string, min, hr int) error {
 // to clean (`Permission denied`). Keeping HOME=/root isolates that scratch
 // space; CDX_CONFIG_PATH explicitly tells the wrapper where the user's
 // orchestrator credentials live, so we don't need HOME for that anymore.
+//
+// CLX_CONFIG_PATH is pinned for the same reason: every tick forces a guarded
+// peer reconcile (peer.EnsureForCron) that may spawn `clx --cron run` as a
+// child of this root-owned process. Without it, clx's own config.DefaultPath
+// falls through to HOME=/root and resolves a phantom /root/.config/... file
+// instead of this host's real one, so the Claude engine silently never
+// updates via this tick even though the log reports success.
 func installSystemCron(bin string, min, hr int) error {
 	configPath := config.DefaultPath()
 	_, userHome := installUserContext()
+	peerConfigPath := filepath.Join(userHome, ".config", "codex-orchestrator", "clx.json")
 	logFile := filepath.Join(userHome, ".codex", "cron.log")
 	cmd := fmt.Sprintf("%s --cron run >> %s 2>&1", shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
@@ -170,8 +178,9 @@ SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 HOME=/root
 CDX_CONFIG_PATH=%s
+CLX_CONFIG_PATH=%s
 %d %d * * * root %s
-`, configPath, min, hr, cmd)
+`, configPath, peerConfigPath, min, hr, cmd)
 	if err := sudoWriteFile(systemCronPath, body, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", systemCronPath, err)
 	}
