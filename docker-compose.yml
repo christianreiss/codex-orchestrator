@@ -101,6 +101,47 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  quota-cron:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: ["node", "chatgpt-usage-worker.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_ENV: ${APP_ENV:-production}
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE:-codex_auth}
+      DB_USERNAME: ${DB_USERNAME:-codex}
+      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
+      ENV_FILE: /app/api/dist/.env
+      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
+      CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}
+      CHATGPT_USAGE_TIMEOUT: ${CHATGPT_USAGE_TIMEOUT:-10}
+      CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/chatgpt-usage-health.json}
+      CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS: ${CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS:-}
+    volumes:
+      - ${ENV_FILE:-./.env}:/app/api/dist/.env:ro
+    networks:
+      - codex_auth
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e 'const fs=require("fs"); const path=process.env.CHATGPT_USAGE_HEALTH_PATH||"/tmp/chatgpt-usage-health.json"; const max=Number(process.env.CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS)||Number(process.env.CHATGPT_USAGE_CRON_INTERVAL||3600)+300; try { process.exit(Date.now()-fs.statSync(path).mtimeMs<=max*1000?0:1); } catch { process.exit(1); }'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
   caddy:
     profiles: ["caddy"]
     image: caddy:2

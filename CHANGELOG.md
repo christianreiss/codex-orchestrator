@@ -1,3 +1,10 @@
+# 2026-07-17
+
+- ChatGPT quota telemetry: restored the missing `quota-cron` Compose service.
+  It refreshes `/wham/usage` immediately at startup and then hourly by default,
+  while a successful-snapshot heartbeat makes provider failures visible through
+  container health instead of leaving `cdx` on an indefinitely stale reading.
+
 # 2026-07-15
 
 ## Admin WebUI information architecture and presentation polish

@@ -7,9 +7,7 @@ const dist = resolve(root, 'dist');
 
 mkdirSync(dist, { recursive: true });
 
-await esbuild.build({
-  entryPoints: [resolve(root, 'src/server.ts')],
-  outfile: resolve(dist, 'server.js'),
+const sharedBuildOptions: Omit<esbuild.BuildOptions, 'entryPoints' | 'outfile'> = {
   bundle: true,
   platform: 'node',
   target: 'node22',
@@ -30,6 +28,18 @@ await esbuild.build({
   banner: {
     js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
   },
+};
+
+await esbuild.build({
+  ...sharedBuildOptions,
+  entryPoints: [resolve(root, 'src/server.ts')],
+  outfile: resolve(dist, 'server.js'),
+});
+
+await esbuild.build({
+  ...sharedBuildOptions,
+  entryPoints: [resolve(root, 'src/ops/chatgpt-usage-worker.ts')],
+  outfile: resolve(dist, 'chatgpt-usage-worker.js'),
 });
 
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
@@ -61,4 +71,4 @@ try {
   // .env optional at build time
 }
 
-console.log('Build complete -> dist/server.js');
+console.log('Build complete -> dist/server.js, dist/chatgpt-usage-worker.js');

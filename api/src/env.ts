@@ -174,6 +174,8 @@ const schema = z
         const n = typeof v === 'number' ? v : Number(v);
         return Number.isFinite(n) && n > 0 ? n : 10;
       }),
+    CHATGPT_USAGE_HEALTH_PATH: z.string().default('/tmp/chatgpt-usage-health.json'),
+    CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS: intish(),
 
     INSTALLATION_ID: z.string().optional(),
     DATA_ROOT: z.string().optional(),
