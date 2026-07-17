@@ -143,9 +143,12 @@ if [[ "${backup}" -eq 1 ]]; then
     fail "mysql service is not available for backup"
   fi
   # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
-  "${compose[@]}" exec -T mysql sh -lc \
-    'mysqldump --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-    > "${backup_file}"
+  (
+    umask 077
+    "${compose[@]}" exec -T mysql sh -lc \
+      'mysqldump --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+      > "${backup_file}"
+  )
   log "backup complete ($(wc -c < "${backup_file}") bytes)"
 fi
 

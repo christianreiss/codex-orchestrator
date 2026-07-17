@@ -4,6 +4,8 @@
   `0004_add_claude_artifacts.sql` migration and made API boot plus the deploy
   helper fail closed when that required table is absent, preventing a generic
   green health check from hiding a broken Claude `/sync/bootstrap` path.
+  Deployment SQL dumps are now created with mode `0600` regardless of the
+  operator's ambient umask.
 - Contract-schema tests no longer depend on npm hoisting Ajv to one physical
   package path, so clean Docker builds typecheck the same way as warm local
   installs.
