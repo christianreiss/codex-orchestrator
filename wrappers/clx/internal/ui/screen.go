@@ -119,9 +119,22 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 		renderToneText(c, ToneWarn, "Bypass permissions active for this run.")
 	}
 
-	c.divider("")
-	renderToneTextLimited(c, resultTone, in.ResultLabel, 3)
+	if !concurrentResultAlreadyShown(in) {
+		c.divider("")
+		renderToneTextLimited(c, resultTone, in.ResultLabel, 3)
+	}
 	c.bottom()
+}
+
+// concurrentResultAlreadyShown avoids repeating the exact pause explanation in
+// both SYSTEM and the result footer. Distinct concurrent errors still retain a
+// result footer so the important outcome is never hidden.
+func concurrentResultAlreadyShown(in ScreenInput) bool {
+	if !in.Concurrent {
+		return false
+	}
+	note := strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active.")
+	return CleanInline(in.ResultLabel) == CleanInline(note)
 }
 
 func renderContext(in ScreenInput) []string {

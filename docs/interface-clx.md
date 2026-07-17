@@ -59,7 +59,8 @@ skills/config check warns, and an unperformed check is dim. Resource-sync
 failure remains non-fatal but changes the overall result to attention. In a
 concurrent launch, `SYNC PAUSED` replaces the misleading read-only headline;
 managed content/update writes pause, auth freshness remains active, and the
-API/auth/runner health markers stay visible.
+API/auth/runner health markers stay visible. The pause explanation appears
+once in SYSTEM; a distinct result/error still receives the normal footer.
 
 The context line shows the effective Claude model and effort. A signed
 `claude_model_override` wins; an inherited `ANTHROPIC_MODEL` is the runtime

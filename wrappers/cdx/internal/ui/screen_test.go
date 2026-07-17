@@ -140,10 +140,27 @@ func TestRichConcurrentScreenKeepsHealthAtAGlance(t *testing.T) {
 		Dots:        []HealthDot{{Name: "api", Tone: ToneOK}, {Name: "auth", Tone: ToneWarn}},
 		ResultLabel: "Managed content sync paused; auth freshness remains active.",
 	}, caps)
+	plain := StripANSI(buf.String())
 	for _, want := range []string{"SYNC PAUSED", "auth freshness remains", "active.", "api", "auth"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Fatalf("concurrent screen missing %q:\n%s", want, buf.String())
 		}
+	}
+	if got := strings.Count(plain, "Managed content sync paused;"); got != 1 {
+		t.Fatalf("concurrent note occurrences = %d, want 1:\n%s", got, plain)
+	}
+}
+
+func TestConcurrentScreenKeepsDistinctResultFooter(t *testing.T) {
+	caps := screenCaps(64)
+	var buf bytes.Buffer
+	printBootScreen(&buf, ScreenInput{
+		Concurrent:  true,
+		ResultLabel: "Auth refresh failed; cached auth remains usable.",
+		ResultTone:  ToneWarn,
+	}, caps)
+	if !strings.Contains(StripANSI(buf.String()), "Auth refresh failed; cached auth remains usable.") {
+		t.Fatalf("distinct concurrent result was hidden:\n%s", buf.String())
 	}
 }
 

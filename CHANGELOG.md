@@ -1,5 +1,8 @@
 # 2026-07-17
 
+- cdx/clx 0.6.46 terminal UI: concurrent launches now show the managed-sync
+  pause explanation once in SYSTEM instead of repeating it in the result
+  footer; distinct results and errors remain visible in that footer.
 - ChatGPT quota telemetry: restored the missing `quota-cron` Compose service.
   It refreshes `/wham/usage` immediately at startup and then hourly by default,
   while a successful-snapshot heartbeat makes provider failures visible through
