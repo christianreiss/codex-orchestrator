@@ -2,6 +2,7 @@ package codex
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -76,5 +77,29 @@ func TestGuardFQDN_PrefixMatch(t *testing.T) {
 		if err := GuardFQDN(cfg); err != nil {
 			t.Fatalf("baked short matches runtime FQDN prefix: %v", err)
 		}
+	}
+}
+
+func TestEnsureProjectTrustHonorsCodexHome(t *testing.T) {
+	codexHome := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := EnsureProjectTrust(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil || !strings.Contains(string(raw), project) {
+		t.Fatalf("custom config.toml = %q, %v", raw, err)
+	}
+	if got := configTomlPath(); got != filepath.Join(codexHome, "config.toml") {
+		t.Fatalf("profile config path = %q", got)
 	}
 }

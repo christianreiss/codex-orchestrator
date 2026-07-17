@@ -7,6 +7,11 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    env: {
+      // Most lifecycle fixtures use compact redacted tokens. Production keeps
+      // the documented default of 24; dedicated validation tests cover it.
+      TOKEN_MIN_LENGTH: '8',
+    },
     include: ['test/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
     coverage: {

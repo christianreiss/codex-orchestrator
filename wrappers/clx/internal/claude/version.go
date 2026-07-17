@@ -24,7 +24,7 @@ func versionFromCLI(ctx context.Context, cli string) string {
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &out
-		if err := cmd.Run(); err == nil {
+		if err := runCommandWithAuthChildLease(cmd); err == nil {
 			s := strings.TrimSpace(out.String())
 			if s != "" {
 				if v := versionTokenRE.FindString(s); v != "" {

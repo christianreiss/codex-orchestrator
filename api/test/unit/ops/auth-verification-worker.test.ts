@@ -36,6 +36,7 @@ function runnerValidation(rows: Partial<Record<Engine, CanonicalPayloadRow>>): R
     canonicalAuthFromPayload: () => AUTH,
     ensureAuthsFallback: (payload) => payload,
     normalizeAuthEntries: () => [],
+    hasUsableEngineCredential: () => true,
     canonicalizeAuthPayload: (payload) => payload,
     calculateDigest: () => DIGEST,
   };
@@ -125,6 +126,37 @@ describe('auth verification worker tick', () => {
           digest: DIGEST,
           lastRefresh: '2026-07-05T08:00:00Z',
           refreshed: false,
+        }),
+      } as unknown as CanonicalAuthStoreService,
+      telemetry: {
+        write: async (engine, state, checkedAt) => {
+          writes.push({ engine, state, checkedAt });
+        },
+      },
+      ttlSeconds: 60,
+      reason: 'interval',
+      now: () => '2026-07-05T10:00:00Z',
+    });
+
+    expect(writes).toEqual([]);
+  });
+
+  it('does not report OK when the queued canonical changed to pending', async () => {
+    const writes: Array<{ engine: Engine; state: 'ok' | 'fail'; checkedAt: string }> = [];
+
+    await runAuthVerificationWorkerTick({
+      runnerValidation: runnerValidation({
+        claude: canonicalRow('claude', 'verified', '2026-07-05T08:00:00Z'),
+      }),
+      authStore: {
+        ensureServedVerification: async () => ({
+          state: 'unknown' as const,
+          auth: AUTH,
+          digest: 'b'.repeat(64),
+          lastRefresh: '2026-07-05T09:00:00Z',
+          // Legacy selection-change behavior used this flag even though the
+          // newly selected row had never received a live verdict.
+          refreshed: true,
         }),
       } as unknown as CanonicalAuthStoreService,
       telemetry: {

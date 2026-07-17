@@ -4,18 +4,26 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 ## HTTP surface (runner container)
 
-- `POST /verify` is the probe entrypoint. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
+- `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
+- `POST /verify-claude` validates Claude credentials. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
 - `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), and optional `timeout_seconds`.
 - `POST /memories/summarize` generates a short AGENTS-safe memory summary. Body: `auth_json` (required object), `memory_key` (required string), `content` (required string), and optional `timeout_seconds`.
 - `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, and optional `timeout_seconds`.
 - `POST /skills/assist` revises a structured skill draft from a conversation. Body: `auth_json` (required object), `messages` (required array), `skill` (required object), optional `mode`, optional `slug_locked`, and optional `timeout_seconds`.
-- When `RUNNER_SHARED_SECRET` is set, `/verify` requires header `X-Runner-Auth` with an exact secret match (otherwise HTTP 401).
-- When `RUNNER_SHARED_SECRET` is set, `/skills/summarize` also requires header `X-Runner-Auth` with an exact secret match.
-- When `RUNNER_SHARED_SECRET` is set, `/memories/summarize` also requires header `X-Runner-Auth` with an exact secret match.
-- When `RUNNER_SHARED_SECRET` is set, `/skills/generate` also requires header `X-Runner-Auth` with an exact secret match.
-- When `RUNNER_SHARED_SECRET` is set, `/skills/assist` also requires header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` is mandatory. Every POST surface requires
+  `X-Runner-Auth` with an exact match; an unset runner secret fails closed with
+  HTTP 500 and a wrong/missing request secret returns 401.
 - `GET /health` returns `{"status": "ok"}` and is used by Docker health checks.
-- `POST /verify` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `updated_auth`, and optional `reason`.
+- `POST /verify` and `/verify-claude` probe responses include `status`,
+  `latency_ms`, `reachable`, `definitive`, the engine version, optional
+  `updated_auth`, and optional `reason`. Native probes also report
+  `auth_readback` (`unchanged`, `updated`, or `error`) plus
+  `auth_readback_error` on a failed post-probe read; direct API-key probes use
+  `not_applicable`. A failed result is definitive only
+  when the output explicitly identifies credential rejection; provider
+  outages, quota/model errors, timeouts, and generic CLI failures remain
+  retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
+  `auth_limited:true`.
 - `GET /skills/summarize` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST summaries.
 - `POST /skills/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
 - `GET /memories/summarize` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST summaries.
@@ -24,8 +32,15 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - `POST /skills/generate` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `GET /skills/assist` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST assist calls.
 - `POST /skills/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
-- `status` is `ok` only when the probe command exits `0` and stdout contains `banana` (case-insensitive); otherwise `status` is `fail`.
-- Error responses: HTTP `400` when no usable token exists, HTTP `504` on probe timeout, HTTP `500` for other exceptions.
+- CLI probe `status` is `ok` only when the command exits `0` and stdout contains
+  `banana` (case-insensitive); otherwise it is `fail`. A non-zero CLI exit alone
+  is not a credential verdict.
+- Error responses: HTTP `400` when no usable token exists and HTTP `500` for
+  runner exceptions. Native Codex and Claude probe timeouts are returned as a
+  normal non-definitive `status:fail` result while the temporary home still
+  exists, so refreshed credential bytes (or an explicit readback error) cannot
+  be lost; an unexpected timeout outside that lifecycle may still be HTTP 504.
+  API-side runner HTTP errors are always non-definitive infrastructure failures.
 
 ## Probe lifecycle (runner/app.py)
 
@@ -36,6 +51,11 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 5. Run `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey).
 6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.
 7. Compute `codex_version` from `/usr/local/bin/codex --version`; if that command fails, `codex_version` is `unknown`.
+
+Claude OAuth verification mirrors that isolated-home lifecycle with
+`~/.claude/.credentials.json` and the native Claude CLI. Genuine API keys use a
+direct Anthropic request; only HTTP 401/`authentication_error` is a definitive
+failure, while permission/model/server failures are not.
 
 ## Skill summary lifecycle (runner/app.py)
 
@@ -72,20 +92,21 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 ## How the API uses it (`api/src/services/host-auth.ts` + `api/src/services/runner-client.ts`)
 
 - Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise the runner client is not created.
-- The runner client's readiness probe uses `GET AUTH_RUNNER_URL` (same URL as POST target), retries once after 500ms, and treats transport failure as `reachable=false`. It then `POST`s to the same URL and retries once after 300ms when the first POST attempt is unreachable.
-- Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`.
+- API boot checks probe the runner's derived `/health` endpoint once for per-engine telemetry. Credential verification itself sends one `POST` directly to `/verify` or `/verify-claude`; transport/parse/HTTP failures are non-definitive and report `reachable=false` only for an actual transport/provider-unreachable signal.
+- Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`. The API HTTP transport allows an additional bounded six-second response/readback grace beyond the native probe deadline; this lets a timed-out CLI return any rotated credential bytes safely instead of losing them at the transport boundary.
 - OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, optional `images[]`, optional `model`, and `timeout_seconds`; when `model` is present the runner invokes `codex --model <id> exec ...`, and each image is materialized to a temp file then passed through as `codex --image <file>`.
 - Skill summary request payload includes `auth_json`, `slug`, `manifest`, and `timeout_seconds`. The API only asks for summaries when a skill is created or its manifest changes and no explicit description was supplied.
 - Memory summary request payload includes `auth_json`, `memory_key`, `content`, and `timeout_seconds`. The API asks for summaries after memory create/update writes and may backfill them on unchanged writes when an older row still lacks `summary`.
 - Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Skill assist request payload includes `auth_json`, `messages`, `skill`, optional `mode`, optional `slug_locked`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/assist` conversational draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - `/auth` `store` with `skipRunner=false`:
-  - If the candidate payload would update canonical auth, runner verification is mandatory.
-  - If runner is not configured, request fails with HTTP `503` (`Auth runner required`).
-  - If runner is unreachable, request fails with HTTP `503` (`Auth runner unavailable`).
-  - If runner returns non-`ok`, request fails with validation error.
-  - If runner returns `updated_auth`, it is applied only when it has a valid RFC3339 `last_refresh`, has usable auth tokens after engine fallback normalization, and `updated_auth.last_refresh >= upload.last_refresh`.
-  - Older or malformed `updated_auth` is ignored; the runner-verified upload candidate is stored and the response/log includes a skipped reason.
+  - If the candidate payload would update canonical auth and the runner is configured, a positive live verdict is mandatory.
+  - With no configured runner, a new/newer lineage may be stored `pending`; it cannot repair a selected `failed` lineage.
+  - If the runner is unreachable or returns a non-definitive failure without changing credentials, the update returns HTTP 503 and canonical state is unchanged.
+  - If a timeout/non-definitive probe changed the credential file, usable replacement bytes are stored as a new `pending` lineage before the request fails with the wrapper-recognized unsafe-refresh code `runner_updated_auth_invalid`. If a probe changed credentials before a definitive rejection, the replacement is retained as the newest `failed` lineage and the same unsafe-refresh 503 is returned, so neither the rejected replacement nor the possibly consumed pre-probe credential can be served. Missing, unreadable, malformed, older, or wrong-engine replacement bytes fail closed and mark an already-selected old lineage unsafe where applicable.
+  - A definitive provider-auth rejection with unchanged credentials returns HTTP 422. Generic provider/CLI failures never become credential verdicts.
+  - If runner `updated_auth` omits `last_refresh`, it inherits the upload generation for validation. A supplied stamp must be RFC3339 and same/newer, and the payload must retain usable engine credentials. When its digest changes canonical auth without advancing that stamp, persistence assigns a bounded timestamp at least 1 ms after the selected lineage; it fails closed if no later millisecond fits below `now+300s`.
+  - A present `updated_auth` must be structurally usable and same/newer than the submitted generation. Older or malformed refreshed credentials fail the store closed; the pre-refresh candidate is never stamped verified after the runner reports a changed credential.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - **Background launch-gate verification (both engines).** The API starts an
   auth-verification worker when `AUTH_RUNNER_URL` is configured. It runs on boot
@@ -100,19 +121,26 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   - `failed` — runner reached the provider and the credentials do not work; the
     known-bad blob is withheld and the wrapper refuses launch with a re-login
     prompt instead of a raw 401 (Claude) / `refresh token already used` (Codex).
+    A probe that rotates credentials before definitively rejecting them retains
+    the replacement as the newest failed lineage. A successful probe that
+    returned unusable replacement bytes, or whose refreshed writeback failed,
+    instead marks the old lineage failed because it may already have been
+    consumed.
   - `unknown` — runner not configured or unreachable; the response preserves the
     legacy digest-derived status and the wrapper keeps its offline/cached
     behaviour (a runner outage never downgrades a payload to `failed`).
-  Worker/store probes for the same canonical payload are single-flighted
-  in-process (keyed by engine + payload id) so a fleet of checks cannot race the
-  refresh-token rotation into spurious `failed` verdicts. When the runner
+  All canonical-changing work is queued per engine inside the API process.
+  Worker/store probes for the same canonical payload are additionally
+  single-flighted (keyed by engine + payload id) so a fleet of checks cannot
+  race the refresh-token rotation into spurious `failed` verdicts. A final
+  canonical compare-and-swap runs after each probe. When the runner
   refreshes the token during a worker probe, the refreshed blob is persisted as a
   fresh canonical (rotation-safe) and picked up by the next retrieve. After a
   stale live probe reaches the runner, the worker also updates the engine-scoped
   runner telemetry (`runner_last_ok[_claude]` or `runner_last_fail[_claude]`),
   so the admin runner card reflects the background auth-readiness check rather
   than only boot-time or manual checks.
-- `store` responses always include `runner_applied`; they include `validation` when a runner call was made.
+- `store` responses always include `runner_applied` and `verification_state`.
 - The auth-verification worker is timer-driven, not request-driven; wrapper
   startup does not wait for stale canonical auth to be re-probed.
 - Recovery behavior when `runner_state=fail`: retries are triggered on boot-id change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path). Recovery failures are logged and do not block serving auth.
@@ -128,7 +156,10 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 - Runner-originated requests can bypass host-IP rebinding when `AUTH_RUNNER_IP_BYPASS` is truthy (`1`, `true`, `yes`, `on`) and caller IP matches a CIDR in `AUTH_RUNNER_BYPASS_SUBNETS`; those requests are logged as `auth.runner_ip_bypass`.
 - Code defaults: `AUTH_RUNNER_IP_BYPASS=0` and `AUTH_RUNNER_BYPASS_SUBNETS=''`. Compose/.env defaults keep bypass disabled unless explicitly enabled.
-- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports `runner_enabled=false` in version snapshots. Host `/auth` store requests that need canonical updates then fail with `503 Auth runner required`, and the same applies to admin/seed uploads because they now use the same canonical runner-validation path.
+- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports `runner_enabled=false`
+  in version snapshots. New/newer host, admin, seed, and bootstrap candidates may
+  enter `pending`; replacing a selected `failed` canonical still requires live
+  verification and returns 503 until the runner is restored.
 
 ## Configuration quick reference
 
@@ -137,7 +168,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 - `AUTH_RUNNER_MEMORY_SUMMARY_URL` (API): optional explicit runner memory-summary endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/memories/summarize`.
 - `AUTH_RUNNER_SKILL_GENERATE_URL` (API): optional explicit runner skill-generation endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`.
 - Skill assist endpoint is derived from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/assist`.
-- `AUTH_RUNNER_TIMEOUT` (API): default runner timeout passed to verifier payload and HTTP client timeout. Default: `8` seconds.
+- `AUTH_RUNNER_TIMEOUT` (API): native provider/CLI probe timeout passed to the verifier payload. The API verifier HTTP request adds a fixed six-second readback/response grace. Default probe timeout: `8` seconds.
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
 - `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): legacy preflight interval retained for old deployments. Default: `28800` (8h).

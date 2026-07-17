@@ -28,7 +28,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
@@ -37,6 +39,8 @@ import (
 // collectionDirs maps the on-disk manifest name to the ~/.claude subdir holding
 // fleet-written collection files (kept in lock-step with lifecycle/collections.go).
 var collectionDirs = map[string]string{"agents": "agents", "commands": "commands", "output-styles": "output-styles"}
+
+const probeTimeout = 5 * time.Second
 
 // removeFleetCollections deletes only the collection files the fleet wrote, per
 // the manifests under ~/.clx/state/collections/. Must run BEFORE ~/.clx is
@@ -60,7 +64,7 @@ func removeFleetCollections(home string, stdout, stderr io.Writer) {
 			if rec.Filename == "" || rec.Filename == "." || rec.Filename == ".." || rec.Filename != filepath.Base(rec.Filename) {
 				continue
 			}
-			removeReport(stdout, stderr, filepath.Join(home, ".claude", sub, rec.Filename))
+			_ = removeReport(stdout, stderr, filepath.Join(home, ".claude", sub, rec.Filename))
 		}
 	}
 }
@@ -117,6 +121,12 @@ func (r *hostUsersResponse) merged() []hostUser {
 }
 
 func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) error {
+	maintenance, err := claude.AcquireAuthMaintenance()
+	if err != nil {
+		return fmt.Errorf("uninstall: acquire exclusive auth maintenance lease: %w", err)
+	}
+	defer maintenance.Close() //nolint:errcheck
+
 	client, clientErr := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -124,13 +134,20 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	})
 
 	currentUsername := currentUser()
-	var others []string
-	if clientErr == nil {
-		others = otherUsers(ctx, client, currentUsername)
-	}
-	if len(others) > 0 {
-		if err := ensureCanDestructivelyTouchOtherUsers(ctx, stderr, others); err != nil {
+	if clientErr != nil {
+		if err := requireRootOrSudo(ctx, stderr, "the multi-user safety check could not run (orchestrator client init failed)"); err != nil {
 			return err
+		}
+	} else {
+		others, lookupErr := otherUsersOrErr(ctx, client, currentUsername)
+		if lookupErr != nil {
+			if err := requireRootOrSudo(ctx, stderr, "the multi-user safety check could not run (host lookup failed)"); err != nil {
+				return err
+			}
+		} else if len(others) > 0 {
+			if err := ensureCanDestructivelyTouchOtherUsers(ctx, stderr, others); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -151,31 +168,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	if homeErr != nil {
 		return fmt.Errorf("uninstall: cannot resolve home directory: %w", homeErr)
 	}
-	targets := []string{
-		filepath.Join(home, ".claude", "settings.json"),
-		filepath.Join(home, ".claude", "CLAUDE.md"),
-		filepath.Join(home, ".claude", ".credentials.json"),
-		filepath.Join(home, ".config", "codex-orchestrator", "clx.json"),
-		filepath.Join(home, ".config", "codex-orchestrator", "clx.json.sig"),
-	}
-	for _, p := range targets {
-		removeReport(stdout, stderr, p)
-	}
-
-	// Remove fleet-written collection files (subagents/commands/output-styles)
-	// before dropping ~/.clx, which holds the manifests that locate them.
-	removeFleetCollections(home, stdout, stderr)
-	removeFleetSkills(home, stdout, stderr)
-
-	// Drop the entire clx-native tree (auth/, config/, cache).
-	clxDir := filepath.Join(home, ".clx")
-	if _, err := os.Stat(clxDir); err == nil {
-		if err := os.RemoveAll(clxDir); err != nil {
-			fmt.Fprintln(stderr, "uninstall: remove", clxDir, ":", err)
-		} else {
-			fmt.Fprintln(stdout, "uninstall: removed", clxDir)
-		}
-	}
+	localCleanupErr := removeLocalState(home, stdout, stderr)
 
 	if npmGlobalHas("@anthropic-ai/claude-code") {
 		cmd := exec.CommandContext(ctx, "npm", "uninstall", "-g", "@anthropic-ai/claude-code")
@@ -192,10 +185,48 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		fmt.Fprintln(stdout, "uninstall: removed managed crontab entry")
 	}
 
-	return nil
+	return localCleanupErr
+}
+
+func removeLocalState(home string, stdout, stderr io.Writer) error {
+	var cleanupErr error
+	targets := []string{
+		filepath.Join(home, ".claude", "settings.json"),
+		filepath.Join(home, ".claude", "CLAUDE.md"),
+		filepath.Join(home, ".claude", ".credentials.json"),
+		filepath.Join(home, ".config", "codex-orchestrator", "clx.json"),
+		filepath.Join(home, ".config", "codex-orchestrator", "clx.json.sig"),
+	}
+	for _, p := range targets {
+		cleanupErr = errors.Join(cleanupErr, removeReport(stdout, stderr, p))
+	}
+
+	// Remove fleet-written collection files (subagents/commands/output-styles)
+	// before dropping ~/.clx, which holds the manifests that locate them.
+	removeFleetCollections(home, stdout, stderr)
+	removeFleetSkills(home, stdout, stderr)
+
+	// Drop the entire clx-native tree (auth/, config/, cache).
+	clxDir := filepath.Join(home, ".clx")
+	if _, err := os.Stat(clxDir); err == nil {
+		if err := os.RemoveAll(clxDir); err != nil {
+			fmt.Fprintln(stderr, "uninstall: remove", clxDir, ":", err)
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove %s: %w", clxDir, err))
+		} else {
+			fmt.Fprintln(stdout, "uninstall: removed", clxDir)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("inspect %s: %w", clxDir, err))
+	}
+	return cleanupErr
 }
 
 func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {
+	out, _ := otherUsersOrErr(ctx, client, currentUsername)
+	return out
+}
+
+func otherUsersOrErr(ctx context.Context, client *orchestrator.Client, currentUsername string) ([]string, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]any{
 		"username": currentUsername,
@@ -203,7 +234,7 @@ func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsernam
 	}
 	var resp hostUsersResponse
 	if err := client.JSON(ctx, http.MethodPost, "/host/users", body, &resp, 0); err != nil {
-		return nil
+		return nil, err
 	}
 	seen := map[string]struct{}{}
 	out := []string{}
@@ -218,26 +249,32 @@ func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsernam
 		seen[name] = struct{}{}
 		out = append(out, name)
 	}
-	return out
+	return out, nil
 }
 
 func ensureCanDestructivelyTouchOtherUsers(ctx context.Context, stderr io.Writer, others []string) error {
+	return requireRootOrSudo(ctx, stderr, fmt.Sprintf("host has registered users besides this one (%v)", others))
+}
+
+func requireRootOrSudo(ctx context.Context, stderr io.Writer, reason string) error {
 	if os.Geteuid() == 0 {
 		return nil
 	}
-	if sudoWorksNonInteractively() {
+	if sudoWorksNonInteractively(ctx) {
 		return nil
 	}
 	fmt.Fprintf(stderr,
-		"clx --uninstall refused: host has registered users besides this one (%v) "+
+		"clx --uninstall refused: %s "+
 			"but the process is not root and `sudo -n true` is unavailable.\n"+
 			"Rerun as root or with passwordless sudo so the cleanup can touch every user's state.\n",
-		others)
+		reason)
 	return errors.New("uninstall refused: multi-user host without root/sudo")
 }
 
-func sudoWorksNonInteractively() bool {
-	cmd := exec.Command("sudo", "-n", "true")
+func sudoWorksNonInteractively(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "true")
 	return cmd.Run() == nil
 }
 
@@ -256,14 +293,15 @@ func npmGlobalHas(pkg string) bool {
 	return cmd.Run() == nil
 }
 
-func removeReport(stdout, stderr io.Writer, p string) {
+func removeReport(stdout, stderr io.Writer, p string) error {
 	err := os.Remove(p)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return
+			return nil
 		}
 		fmt.Fprintln(stderr, "uninstall: remove", p, ":", err)
-		return
+		return fmt.Errorf("remove %s: %w", p, err)
 	}
 	fmt.Fprintln(stdout, "uninstall: removed", p)
+	return nil
 }

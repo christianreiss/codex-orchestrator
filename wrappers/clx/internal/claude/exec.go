@@ -121,11 +121,40 @@ func Run(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 	return exit, err
 }
 
+func RunWithAuthSession(ctx context.Context, cfg *config.Config, args []string, session *AuthSession) (int, error) {
+	exit, _, err := RunCaptureWithAuthSession(ctx, cfg, args, session)
+	return exit, err
+}
+
 // RunCapture execs `claude` with the wrapper env. Behaviour mirrors
 // codex.RunCapture: tee stdout to a 1 MiB ring buffer when stdout is not a
 // TTY, and set PROMPT_TOOLKIT_NO_CPR=1 when stdin or stdout is a pipe so the
 // upstream CLI doesn't hang on a cursor-position probe.
 func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []byte, error) {
+	return runCaptureWithHeldAuthLease(ctx, cfg, args, nil, nil)
+}
+
+func RunCaptureWithAuthSession(ctx context.Context, cfg *config.Config, args []string, session *AuthSession) (int, []byte, error) {
+	return runCaptureWithHeldAuthLease(ctx, cfg, args, nil, session)
+}
+
+// RunExplicitLogout either runs the upstream logout under an exclusive
+// active-child lease or, when a peer child is active, records durable intent and
+// defers native removal without starting a destructive second child.
+func RunExplicitLogout(ctx context.Context, cfg *config.Config, args []string, before AuthGeneration, session *AuthSession) (exit int, marked, deferred bool, retErr error) {
+	guard, deferred, marked, err := beginExplicitLogout(before)
+	if err != nil || guard == nil {
+		return 0, marked, deferred, err
+	}
+	exit, _, runErr := runCaptureWithHeldAuthLease(ctx, cfg, args, guard.writer, session)
+	marked, finishErr := guard.finish(runErr == nil && exit == 0)
+	if runErr != nil {
+		return exit, marked, false, errors.Join(runErr, finishErr)
+	}
+	return exit, marked, false, finishErr
+}
+
+func runCaptureWithHeldAuthLease(ctx context.Context, cfg *config.Config, args []string, heldLease *authChildLease, session *AuthSession) (int, []byte, error) {
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err
@@ -160,9 +189,30 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 		cmd.Stdout = io.MultiWriter(os.Stdout, capture)
 	}
 
+	childLease := heldLease
+	closeChildLease := false
+	if childLease == nil {
+		childLease, err = acquireAuthChildShared()
+		if err != nil {
+			return 1, nil, fmt.Errorf("acquire Claude auth child lease: %w", err)
+		}
+		closeChildLease = true
+	}
+	closeExtras, err := attachAuthLeaseFiles(cmd, session, childLease)
+	if err != nil {
+		if closeChildLease {
+			_ = childLease.Close()
+		}
+		return 1, nil, fmt.Errorf("inherit Claude auth leases: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
+		closeExtras()
+		if closeChildLease {
+			_ = childLease.Close()
+		}
 		return 127, nil, fmt.Errorf("start claude: %w", err)
 	}
+	closeExtras()
 
 	sigCh := make(chan os.Signal, 4)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -175,6 +225,10 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 	}()
 
 	waitErr := cmd.Wait()
+	var leaseErr error
+	if closeChildLease {
+		leaseErr = childLease.Close()
+	}
 	signal.Stop(sigCh)
 	close(sigCh)
 
@@ -183,6 +237,9 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 		captured = capture.Bytes()
 	}
 
+	if waitErr == nil && leaseErr != nil {
+		return 1, captured, fmt.Errorf("release Claude auth child lease: %w", leaseErr)
+	}
 	if waitErr == nil {
 		return 0, captured, nil
 	}

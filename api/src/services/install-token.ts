@@ -43,6 +43,8 @@ export interface InstallTokenService {
   findSeed(token: string): Promise<SeedTokenRow | null>;
   /** Atomically claims the token (WHERE usedAt IS NULL). Returns false if it was already used. */
   markSeedUsed(id: number): Promise<boolean>;
+  /** Releases a claim after a failed store so the single-use token can retry. */
+  releaseSeed(id: number): Promise<void>;
 }
 
 export interface InstallTokenDeps {
@@ -114,6 +116,9 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
         .set({ usedAt: nowIso() })
         .where(and(eq(authSeedTokens.id, id), isNull(authSeedTokens.usedAt)));
       return Number(result[0]?.affectedRows ?? 0) > 0;
+    },
+    async releaseSeed(id) {
+      await db.update(authSeedTokens).set({ usedAt: null }).where(eq(authSeedTokens.id, id));
     },
   };
 }

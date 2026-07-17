@@ -188,8 +188,11 @@ func checkAuth() ui.DoctorRow {
 }
 
 func checkConfig() ui.DoctorRow {
-	home, _ := os.UserHomeDir()
-	cfg := filepath.Join(home, ".codex", "config.toml")
+	home, err := CodexHome()
+	if err != nil {
+		return ui.DoctorRow{Label: "Config", Tone: ui.ToneFail, Value: err.Error()}
+	}
+	cfg := filepath.Join(home, "config.toml")
 	raw, err := os.ReadFile(cfg)
 	if errors.Is(err, os.ErrNotExist) {
 		return ui.DoctorRow{Label: "Config", Tone: ui.ToneWarn, Value: "no config.toml (will sync from server)"}
@@ -212,8 +215,11 @@ func checkConfig() ui.DoctorRow {
 }
 
 func checkMCP(hints *[]string) ui.DoctorRow {
-	home, _ := os.UserHomeDir()
-	cfg := filepath.Join(home, ".codex", "config.toml")
+	home, homeErr := CodexHome()
+	if homeErr != nil {
+		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneFail, Value: homeErr.Error()}
+	}
+	cfg := filepath.Join(home, "config.toml")
 	raw, err := os.ReadFile(cfg)
 	if err != nil {
 		return ui.DoctorRow{Label: "MCP", Tone: ui.ToneWarn, Value: "config.toml absent"}
@@ -283,6 +289,18 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	digest, _ := LocalDigest()
 	if ar, err := client.AuthRetrieve(ctx, digest); err == nil {
 		syncDetail = fmt.Sprintf("auth=%s", ar.Status)
+		var secure *bool
+		if ar.Host != nil {
+			value := ar.Host.Secure
+			secure = &value
+		}
+		if securityErr := UpdateActiveAuthSessionSecurity(ar.Status, secure); securityErr != nil {
+			syncTone = ui.ToneFail
+			syncDetail = "auth session security update failed: " + securityErr.Error()
+			return ui.DoctorRow{Label: "API", Tone: apiTone, Value: apiValue},
+				ui.DoctorRow{Label: "Latency", Tone: latTone, Value: latValue},
+				syncTone, syncDetail
+		}
 		switch strings.ToLower(ar.Status) {
 		case "valid", "current", "ok":
 			syncTone = ui.ToneOK
@@ -301,8 +319,10 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 }
 
 func checkDisk() ui.DoctorRow {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".codex")
+	dir, err := CodexHome()
+	if err != nil {
+		return ui.DoctorRow{Label: "Disk", Tone: ui.ToneFail, Value: err.Error()}
+	}
 	_ = os.MkdirAll(dir, 0o700)
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(dir, &stat); err != nil {

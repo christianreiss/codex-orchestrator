@@ -87,22 +87,25 @@ model/effort pairs. POST accepts strict
 `{model, reasoning_effort?: string|null}`; omitted/null effort selects the
 model's default and unsupported combinations return 422. Per-host
 `model_override` / `reasoning_effort_override` still take precedence when the
-server bakes `~/.codex/config.toml`.
+server bakes effective `CODEX_HOME/config.toml`.
 
 ## CLI surface
 
 | Subcommand | Purpose |
 |---|---|
 | `run` (default) | One Codex session; the full startup sequence runs first |
-| `status` / `--status` | Responsive local + remote `/auth` status summary on stdout. Returned canonical auth can seed/repair the local file but never replaces a fresher local login; unreadable config and failed health return a structured non-zero report, and redirects automatically use compact ASCII. |
+| `status` / `--status` | Responsive local + remote `/auth` status summary on stdout. Returned canonical auth can seed/repair the local file but replaces a fresher usable local login only when that exact candidate was definitively rejected and the canonical is verified; an active local logout marker is always rendered as logged out and exits non-zero even when the fleet digest is otherwise valid. Unreadable config/marker state and failed health return a structured non-zero report, and redirects automatically use compact ASCII. |
 | `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, auth, reachability, latency, disk, cron) on stdout; an unreadable signed config is rendered as a blocked diagnostic instead of bypassing the terminal UI |
-| `auth-upload` | POST the local `~/.codex/auth.json` to canonical store. `last_refresh` is backfilled with the current UTC RFC3339 stamp if the file lacks one (legacy `normalize_auth_json_file` parity). |
+| `auth-upload` | Stabilize and POST the effective `CODEX_HOME/auth.json` to canonical store. A native file without `last_refresh` is stamped once from its bounded mtime and that exact generation is persisted/reused by concurrent processes. The authoritative store response is applied only if the local generation has not changed. |
+| `login` | Run upstream login, then upload the resulting generation. A byte-identical successful login may supersede logout intent only after the server accepts the exact auth + marker snapshot. |
+| `login status` | Read-only upstream login probe. It never uploads credentials or acknowledges logout intent. |
+| `logout` | Wrapper-owned, pre-journaled logout. With no peer session it holds exclusive session + active-child writer leases across native logout; with any peer it records intent and defers native removal until the final session exits. |
 | `lane [normal\|spark\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-5.6-terra`; stored `spark` selects `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
 | `ls` | Shorthand for `cdx lane spark` |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
-| `--help` / `-h` / `help` | Passed straight through to the upstream `codex` binary without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
+| `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
 | `--resume[=<session>]` | Alias for the `resume` subcommand above — upstream `codex` has no `--resume` flag, so the wrapper re-spells it as `codex resume [session]`; a following option is not consumed as a session id |
@@ -110,7 +113,7 @@ server bakes `~/.codex/config.toml`.
 | `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
-| `--uninstall` | Remove auth + local state + cron entry; refuses on multi-user hosts without sudo |
+| `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, then remove auth + local state + cron entry; refuses while another cdx auth session is active and on multi-user hosts without sudo |
 
 ### Terminal presentation
 
@@ -129,7 +132,7 @@ executes Codex with only its supported help argv.
 
 The context model/effort first reflects an explicit launch model/profile and
 the signed/host overrides. Any field still absent falls back to the parsed
-top-level `model` / `model_reasoning_effort` in `~/.codex/config.toml`, so the
+top-level `model` / `model_reasoning_effort` in effective `CODEX_HOME/config.toml`, so the
 card does not hide the effective local default. `cdx doctor` parses real TOML
 and inspects the parsed managed MCP table (`mcp_servers.cdx` or the legacy
 `mcp_servers.codex-orchestrator`); matching text in malformed TOML is not green.
@@ -200,17 +203,84 @@ Interactive peer-install progress inherits `--minimal`; explicit minimal mode
 also propagates through cron peer reconciliation, while unattended cron remains
 non-interactive and escape-free through terminal detection.
 
+## Auth generation, logout, and insecure cleanup
+
+`CODEX_HOME` is honoured consistently for Codex-owned auth and configuration;
+when it is unset the usual `~/.codex` directory is used. Every native
+credential generation gets one stable content digest and `last_refresh`.
+Wrapper processes normally hold the auth-file lock only for a short
+read/write/CAS. The deliberate exception is a bounded request that can persist
+an auth candidate (`/auth` store or `/sync/bootstrap` with `auth_candidate`):
+the auth + logout-intent snapshot stays locked through that network boundary so
+logout orders wholly before or after server persistence. Every wrapper-launched
+Codex child holds a separate shared lease keyed to the effective `CODEX_HOME`
+from `Start` through `Wait`; duplicate session + active-child descriptors are
+inherited by the native child, including help, so the leases survive wrapper
+SIGKILL until Codex itself exits. Managed writers take the exclusive side before
+rename/remove/stabilization. A late startup, status, upload, or runner response
+is written only when `auth.json` still matches the request generation. If two
+verified canonical responses raced from the same generation, their
+`last_refresh` instants converge monotonically: newer wins in either completion
+order and older never rolls it back. Distinct payloads at the same instant are
+ambiguous on older APIs: the first bytes are preserved, but the invocation
+fails closed instead of silently choosing a digest. A bounded local digest
+ledger distinguishes those wrapper-written canonical generations from a
+native/local write; the native generation wins regardless of clock ordering. A
+newer usable login wins unless that exact candidate was definitively rejected
+and the API explicitly serves an older `verification_state=verified` canonical.
+Invalid local JSON is repairable even when its mtime is newer than canonical;
+if an active child blocks required repair and no usable local auth remains, the
+command fails closed instead of launching unauthenticated.
+
+Explicit `cdx logout` records a nonce-bearing intent marker next to `auth.json`
+*before* starting the destructive native command. It takes exclusive session
+maintenance and the active-child writer; if any peer session already selected
+auth, native logout is skipped and removal is deferred to the last peer exit.
+A marker-write failure never launches native logout, and a non-zero native exit
+rolls back a new marker only when the original usable generation is unchanged;
+partial removal keeps intent. Managed retrieve cannot rehydrate the governed
+generation. A distinct later native login is preserved but does not implicitly
+clear intent: only server acceptance of the exact auth generation plus the
+exact marker bytes observed by the bounded store clears it. `cdx login status`
+is read-only. A logout created while an upload is in flight therefore orders
+after that store and cannot be erased by its late response.
+
+All config-backed commands and managed runs take a portable shared session
+lease keyed to effective `CODEX_HOME`. They remain concurrent. Each API
+`host.secure` response updates only that invocation's durable purge request;
+`insecure` and `insecure-denied` statuses are authoritative insecure
+observations even when the response omits `host`. The latest observation is not
+replaced by stale startup metadata during finalization. New shared acquisitions
+fail immediately while uninstall/logout maintenance owns the exclusive side;
+concurrent insecure requests stay sticky. The last exiting process alone can
+obtain the exclusive cleanup lease and purge `auth.json`; an active Codex child
+defers cleanup and the request remains for the next last exit. Final cleanup
+also services deferred logout on secure hosts, but never deletes a distinct
+usable login or clears its marker before server acceptance. The logout marker
+survives insecure purge. Native child descriptor inheritance keeps cleanup
+blocked even if the supervising wrapper is killed; no process relies on Linux
+`/proc` or owner-PID metadata. A raw `codex` started outside cdx cannot
+participate in these leases and is the explicit coordination boundary.
+
 ## Startup sequence
 
 1. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. `status`/`doctor` use the structured blocked report described above; other commands exit 2 with a concise sanitized error. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
-2. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host, then run the FQDN guard before any sync (`CODEX_ALLOW_FQDN_MISMATCH=1` is the explicit override). If the lock is held, the wrapper enters sync-paused mode for managed AGENTS/config/skills writes, wrapper/engine updates, and peer reconciliation, and surfaces `SYNC PAUSED` on the boot screen without hiding API/auth/runner health. The pause explanation appears once in SYSTEM; a distinct result/error still receives the normal footer. Auth is the exception: every run still submits the local auth digest and atomically writes server-returned canonical auth when the response is `outdated`/`updated`/`missing`, so a secondary run does not launch with stale local credentials. The explicit `--allow-concurrent-sync` escape hatch allows normal writes without the lock and is visibly announced. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not pause each other's managed sync.
-3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. Resource envelopes are unwrapped before local writes, so `~/.codex/AGENTS.md` and `~/.codex/config.toml` contain only the served `content` bodies. On 404/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`).
+2. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host, then run the FQDN guard before any sync (`CODEX_ALLOW_FQDN_MISMATCH=1` is the explicit override). If the lock is held, the wrapper enters sync-paused mode for managed AGENTS/config/skills writes, wrapper/engine updates, and peer reconciliation, and surfaces `SYNC PAUSED` on the boot screen without hiding API/auth/runner health. The pause explanation appears once in SYSTEM; a distinct result/error still receives the normal footer. Auth remains active but follows the full replacement gate: never materialize failed canonical auth, preserve a newer usable local generation, require definitive-rejection authority for an older verified repair, and compare-and-swap against the request generation plus active-child lease. The explicit `--allow-concurrent-sync` escape hatch allows normal managed writes without the run lock and is visibly announced. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not pause each other's managed sync.
+3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. When a candidate is present, its auth/intent transaction remains locked across the bounded bundle request; an already committed same-generation logout omits it, while a distinct login clears old intent only after `auth_stored`/equivalent acceptance. Resource envelopes are unwrapped before local writes, so effective `CODEX_HOME/AGENTS.md` and `CODEX_HOME/config.toml` contain only the served `content` bodies. On 404/405/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`). The fallback converges two ways: preserve newer local auth and attempt store; only a validation-shaped 400/422 plus the already-retrieved verified canonical permits older replacement. Transient/security/rate failures preserve local auth, while `runner_updated_auth_invalid` fails closed.
 4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Approval polling only repaints an interactive, non-dumb stderr with a measured width of at least 40 columns; other contexts fail immediately with Admin → Host Detail guidance instead of hanging or emitting cursor controls. Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. A server `verification_state=failed` (the background runner worker reached ChatGPT and the canonical token did not authenticate) overrides any green digest status: the launch is refused with a re-login message and the boot-screen auth marker turns red. Startup does not wait on live runner verification; `/auth` and `/sync/bootstrap` report the latest stored worker verdict. When ChatGPT quota metadata is available, the boot screen uses provider-duration labels, explicit unknown resets, the host-effective active lane, provider allow/limit flags, snapshot freshness, and a wrapped burn-rate projection. Current quota state can warn/block only for the active lane; projections remain advisory.
-4a. Interactive recovery: when the credentials failed live verification, or are missing/upload-required with no usable local file (or the server rejected the candidate), interactive `cdx run` prompts before launch, runs `codex login` on acceptance, uploads the resulting `~/.codex/auth.json` through `/auth command=store`, and re-runs the startup auth check. Launch proceeds only after the server accepts and verifies the new credentials. Non-interactive runs (cron, `--execute`) fail closed instead of opening a login flow.
-5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`) are pruned so they don't shadow MCP.
+4a. Interactive recovery: when credentials failed live verification, or are missing/upload-required with no usable recovery (including a definitively rejected candidate), interactive `cdx run` prompts before launch, runs `codex login` on acceptance, uploads the resulting effective `CODEX_HOME/auth.json` through `/auth command=store`, and re-runs the startup auth check. Launch proceeds only after the server accepts and verifies the new credentials. Non-interactive runs (cron, `--execute`) fail closed instead of opening a login flow. An unsafe runner rotation (`runner_updated_auth_invalid`) is also a hard stop even when the old local bytes still look usable.
+5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
 6. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when redirected, on `TERM=dumb`, or under explicit `--minimal`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
-7. Snapshot `auth.json` sha256 + `last_refresh`; `exec` the upstream `codex` CLI; forward stdio + signals. `PreExec` repeats the FQDN guard immediately before launch.
-8. Post-exit auth re-upload: if either the sha or `last_refresh` changed during the run (token rotation, `codex login`), POST the new payload to `/auth` store.
+7. Snapshot the content-bound `auth.json` generation; acquire shared session +
+   active-child leases; pass duplicate descriptors into upstream `codex`;
+   start/wait while forwarding stdio and signals; release only after exit.
+   `PreExec` repeats the FQDN guard immediately before launch.
+8. Post-exit auth reconciliation: a changed usable generation is stabilized and
+   POSTed to `/auth` store, while a removed/unusable generation records logout
+   intent. The returned canonical payload is generation/marker guarded. Upload,
+   required writeback, marker, or insecure-purge failure makes an otherwise
+   successful wrapper invocation non-zero instead of hiding behind the Codex
+   exit status.
 
 ## Refusal modes
 

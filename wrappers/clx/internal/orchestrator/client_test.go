@@ -58,24 +58,67 @@ func TestAuthStoreReturnsServerAuthResponse(t *testing.T) {
 	}
 }
 
-func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
+func TestAuthStoreAcceptsOutdatedAuthoritativeResponse(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":                 "outdated",
+			"action":                 "store",
+			"canonical_digest":       strings.Repeat("b", 64),
+			"canonical_last_refresh": "2026-01-02T00:00:00Z",
+			"auth":                   map[string]any{"claudeAiOauth": map[string]any{"accessToken": "newer-canonical"}},
+		})
+	})
+	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err != nil {
+		t.Fatalf("authoritative arbitration response rejected: %v", err)
+	}
+	if resp == nil || resp.Status != "outdated" {
+		t.Fatalf("expected authoritative response, got %#v", resp)
+	}
+}
+
+func TestAuthStoreRejectsOutdatedWithoutAuthoritativeAuth(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "outdated", "action": "store"})
+	})
+	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err == nil || resp == nil || resp.Status != "outdated" || !strings.Contains(err.Error(), "status=outdated") {
+		t.Fatalf("missing authoritative auth was accepted: resp=%#v err=%v", resp, err)
+	}
+}
+
+func TestAuthStoreRejectsLegacyFallbackOutdatedWithoutCanonicalProof(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":  "outdated",
-			"action":  "store",
 			"message": "runner verification failed",
 			"auth":    map[string]any{"claudeAiOauth": map[string]any{"accessToken": "old"}},
 		})
 	})
 	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
-	if err == nil {
-		t.Fatalf("expected store rejection, got resp=%#v", resp)
+	if err == nil || resp == nil || resp.Status != "outdated" {
+		t.Fatalf("legacy fallback was accepted: resp=%#v err=%v", resp, err)
 	}
-	if resp == nil || resp.Status != "outdated" {
-		t.Fatalf("expected fallback response to be returned, got %#v", resp)
-	}
-	if !strings.Contains(err.Error(), "status=outdated") {
-		t.Fatalf("unexpected error: %v", err)
+}
+
+func TestAuthCandidateAcceptedDistinguishesStoreArbitration(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		resp *AuthRetrieveResponse
+		want bool
+	}{
+		{name: "valid", resp: &AuthRetrieveResponse{Status: "valid"}, want: true},
+		{name: "updated", resp: &AuthRetrieveResponse{Status: "updated"}, want: true},
+		{name: "outdated canonical won", resp: &AuthRetrieveResponse{Status: "outdated"}},
+		{name: "failed verification", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "failed"}},
+		{name: "definitive rejection", resp: &AuthRetrieveResponse{Status: "valid", CandidateRejectedDefinitive: true}},
+		{name: "nil", resp: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.resp.AuthCandidateAccepted(); got != tc.want {
+				t.Fatalf("AuthCandidateAccepted()=%v want=%v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -219,6 +262,68 @@ func TestParseErrorCodeAcceptsSupportedEnvelopes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := parseErrorCode([]byte(tc.body)); got != tc.want {
 				t.Fatalf("parseErrorCode = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAuthCandidateErrorClassifiersAreNarrow(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		err              error
+		wantDefinitive   bool
+		wantUnsafeRunner bool
+	}{
+		{name: "422 validation", err: &HTTPError{StatusCode: 422, Code: "validation_failed"}, wantDefinitive: true},
+		{name: "legacy 422 without code", err: &HTTPError{StatusCode: 422}, wantDefinitive: true},
+		{name: "400 validation", err: &HTTPError{StatusCode: 400, Code: "validation_failed"}, wantDefinitive: true},
+		{name: "400 generic", err: &HTTPError{StatusCode: 400, Code: "bad_request"}},
+		{name: "422 policy code", err: &HTTPError{StatusCode: 422, Code: "policy_denied"}},
+		{name: "403 engine policy", err: &HTTPError{StatusCode: 403, Code: "engine_disabled"}},
+		{name: "423 approval", err: &HTTPError{StatusCode: 423, Code: "insecure_pending"}},
+		{name: "429 rate limit", err: &HTTPError{StatusCode: 429, Code: "rate_limited"}},
+		{name: "ordinary runner outage", err: &HTTPError{StatusCode: 503, Code: "runner_unreachable"}},
+		{name: "rotated unusable writeback", err: &HTTPError{StatusCode: 503, Code: "runner_updated_auth_invalid"}, wantUnsafeRunner: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsDefinitiveAuthCandidateRejection(tc.err); got != tc.wantDefinitive {
+				t.Fatalf("definitive=%v want=%v", got, tc.wantDefinitive)
+			}
+			if got := IsUnsafeRunnerUpdatedAuthError(tc.err); got != tc.wantUnsafeRunner {
+				t.Fatalf("unsafe runner=%v want=%v", got, tc.wantUnsafeRunner)
+			}
+		})
+	}
+}
+
+func TestAuthStorePreservesTypedUnsafe503CodeAfterRetries(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","code":"runner_updated_auth_invalid","message":"bad rotated writeback"}`))
+	})
+	_, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z"}`))
+	if !IsUnsafeRunnerUpdatedAuthError(err) {
+		t.Fatalf("AuthStore lost typed unsafe 503: %T %v", err, err)
+	}
+}
+
+func TestAuthResponseHostSecurity(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		resp       *AuthRetrieveResponse
+		wantSecure bool
+		wantKnown  bool
+	}{
+		{name: "secure host object", resp: &AuthRetrieveResponse{Host: &HostInfo{Secure: true}}, wantSecure: true, wantKnown: true},
+		{name: "insecure host object", resp: &AuthRetrieveResponse{Host: &HostInfo{Secure: false}}, wantKnown: true},
+		{name: "insecure status", resp: &AuthRetrieveResponse{Status: "insecure"}, wantKnown: true},
+		{name: "unknown compact response", resp: &AuthRetrieveResponse{Status: "valid"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			secure, known := tc.resp.HostSecurity()
+			if secure != tc.wantSecure || known != tc.wantKnown {
+				t.Fatalf("HostSecurity=(%v,%v) want=(%v,%v)", secure, known, tc.wantSecure, tc.wantKnown)
 			}
 		})
 	}

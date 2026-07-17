@@ -71,7 +71,7 @@ func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
 			"status":"ok",
 			"data":{
 				"status":"ok",
-				"auth":{"status":"valid","canonical_last_refresh":"2026-07-08T08:00:00Z"},
+				"auth":{"status":"valid","canonical_last_refresh":"2026-07-08T08:00:00Z","candidate_rejected_definitive":true},
 				"host":{"fqdn":"alpha.example","secure":true},
 				"agents":{"status":"updated","content":"# CLAUDE.md\n"},
 				"config":{"status":"updated","content":"{\n  \"model\": \"sonnet\"\n}\n"}
@@ -84,6 +84,9 @@ func TestSyncBootstrap_UnwrapsStandardEnvelope(t *testing.T) {
 	}
 	if resp.Auth == nil || resp.Auth.Status != "valid" {
 		t.Fatalf("auth from envelope: %+v", resp.Auth)
+	}
+	if !resp.Auth.CandidateRejectedDefinitive {
+		t.Fatalf("candidate rejection signal was not decoded: %+v", resp.Auth)
 	}
 	if resp.Host == nil || resp.Host.FQDN != "alpha.example" {
 		t.Fatalf("host from envelope: %+v", resp.Host)

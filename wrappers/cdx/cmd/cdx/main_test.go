@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,11 +14,78 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ui"
 )
+
+func TestHelpChildLeasesBlockMutationsAndServicePendingPurge(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	authPath := filepath.Join(dir, "auth.json")
+	if err := codex.WriteAuth(json.RawMessage(`{"tokens":{"access_token":"temporary"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	insecure, err := codex.StartAuthSession(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(dir, "ready")
+	type helpResult struct {
+		exit    int
+		removed bool
+		err     error
+	}
+	result := make(chan helpResult, 1)
+	t.Setenv("CDX_HELP_LEASE_READY", ready)
+	go func() {
+		exit, removed, err := runHelpChild(context.Background(), "/bin/sh", []string{"-c", `touch "$CDX_HELP_LEASE_READY"; sleep 0.4`}, io.Discard, io.Discard)
+		result <- helpResult{exit: exit, removed: removed, err: err}
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("supervised help child did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if maintenance, err := codex.TryAcquireAuthMaintenance(); !errors.Is(err, ipc.ErrHeld) {
+		if maintenance != nil {
+			_ = maintenance.Release()
+		}
+		t.Fatalf("inherited session lease missing: %v", err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	wrote, err := codex.WriteAuthIfCurrent(json.RawMessage(`{"tokens":{"access_token":"server"}}`), expected)
+	if err != nil || wrote {
+		t.Fatalf("supervised active-child lease missing: wrote=%v err=%v", wrote, err)
+	}
+	if removed, deferred, err := codex.FinishAuthSession(insecure); err != nil || removed || !deferred {
+		t.Fatalf("insecure peer finish while help active = removed=%v deferred=%v err=%v", removed, deferred, err)
+	}
+	if _, err := os.Stat(authPath); err != nil {
+		t.Fatalf("auth purged while help child could still use it: %v", err)
+	}
+	got := <-result
+	if got.exit != 0 || !got.removed || got.err != nil {
+		t.Fatalf("help result = exit=%d removed=%v err=%v", got.exit, got.removed, got.err)
+	}
+	if _, err := os.Stat(authPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("last help session stranded insecure auth: %v", err)
+	}
+	maintenance, err := codex.TryAcquireAuthMaintenance()
+	if err != nil {
+		t.Fatalf("leases survived child exit: %v", err)
+	}
+	_ = maintenance.Release()
+}
 
 // TestIsHelpPassthrough covers the legacy contract from
 // fe70ac3:docs/interface-cdx.md §"Help passthrough":
@@ -313,6 +382,197 @@ func TestStatusAppliesReturnedCanonicalAuth(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "auth=updated") {
 		t.Fatalf("status did not report applied auth: %q", stdout.String())
+	}
+}
+
+func TestStatusPurgesMaterializedAuthOnLastInsecureCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","auth":{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"temporary"}},"host":{"secure":false}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: false}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 0 {
+		t.Fatalf("status = %d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("insecure status left auth behind: %v", err)
+	}
+}
+
+func TestAuthUploadPurgesAuthOnLastInsecureCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"tokens":{"access_token":"login"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","host":{"secure":false}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: false}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdAuthUpload(context.Background(), cfg, &stdout, &stderr); code != 0 {
+		t.Fatalf("auth-upload = %d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("insecure auth-upload left auth behind: %v", err)
+	}
+}
+
+func TestAuthUploadRetainsLogoutIntentUntilStoreAccepted(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path := filepath.Join(dir, "auth.json")
+	if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"login"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(generation); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"runner_unreachable","message":"runner unavailable"}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdAuthUpload(context.Background(), cfg, &stdout, &stderr); code == 0 {
+		t.Fatalf("auth-upload unexpectedly succeeded: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("failed store erased logout intent: active=%v err=%v", active, err)
+	}
+}
+
+func TestAuthUploadAcknowledgesMarkerObservedBeforeAcceptedStore(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path := filepath.Join(dir, "auth.json")
+	local := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"login"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(generation); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","auth":{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"server"}},"host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdAuthUpload(context.Background(), cfg, &stdout, &stderr); code != 0 {
+		t.Fatalf("auth-upload = %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || active {
+		t.Fatalf("accepted explicit upload left prior logout intent active=%v err=%v", active, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), `"access_token":"server"`) {
+		t.Fatalf("auth writeback = %s, %v", raw, err)
+	}
+}
+
+func TestStatusReportsExplicitLogoutAsFailureEvenWhenCanonicalIsValid(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	auth := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"same"}}`)
+	if err := os.WriteFile(path, auth, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(generation); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified","host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 1 {
+		t.Fatalf("status exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(strings.ToLower(stdout.String()), "explicitly logged out") {
+		t.Fatalf("status hid explicit logout: %q", stdout.String())
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("status cleared logout intent: active=%v err=%v", active, err)
+	}
+}
+
+func TestStatusSurfacesLocalAuthStateErrorsBeforeNetwork(t *testing.T) {
+	for _, markerDirectory := range []bool{true, false} {
+		name := "auth-generation"
+		if markerDirectory {
+			name = "logout-marker"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			if markerDirectory {
+				if err := os.Mkdir(filepath.Join(dir, ".cdx-logout-intent.json"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Mkdir(filepath.Join(dir, "auth.json"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				_, _ = w.Write([]byte(`{"status":"valid"}`))
+			}))
+			defer server.Close()
+			cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+			var stdout, stderr bytes.Buffer
+			if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code == 0 {
+				t.Fatalf("status swallowed local error: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+			if requests != 0 {
+				t.Fatalf("status made %d request(s) with unreadable local auth state", requests)
+			}
+		})
+	}
+}
+
+func TestStatusFailsWhenRequiredCanonicalWriteIsBlockedByActiveChild(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	bin := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 0.144.1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CDX_CODEX_BIN", bin)
+	child, err := codex.AcquireActiveChild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Release()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","auth":{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"required"}},"host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code == 0 {
+		t.Fatalf("status launched without usable auth: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("status wrote auth during peer child: %v", err)
 	}
 }
 
@@ -748,5 +1008,70 @@ func TestLoginRotatedAuth(t *testing.T) {
 				t.Fatalf("loginRotatedAuth(%d, %q, %q) = %v, want %v", tc.exit, tc.before, tc.after, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSuccessfulIdenticalLoginStillUploadsToAcknowledgeLogoutIntent(t *testing.T) {
+	if !loginNeedsAuthUpload(0, "same", "same", true) {
+		t.Fatal("byte-identical explicit login did not supersede logout intent through accepted upload")
+	}
+	if loginNeedsAuthUpload(0, "same", "same", false) {
+		t.Fatal("unchanged login without logout intent uploaded unnecessarily")
+	}
+	if loginNeedsAuthUpload(1, "same", "same", true) {
+		t.Fatal("failed login was allowed to acknowledge logout intent")
+	}
+}
+
+func TestLoginStatusInvocationIsAlwaysReadOnly(t *testing.T) {
+	for _, tc := range []struct {
+		subArgs, passthrough []string
+		want                 bool
+	}{
+		{subArgs: []string{"status"}, want: true},
+		{subArgs: []string{"--json", "status"}, want: true},
+		{passthrough: []string{"status"}, want: true},
+		{subArgs: nil, want: false},
+		{subArgs: []string{"--device-auth"}, want: false},
+	} {
+		if got := loginStatusInvocation(tc.subArgs, tc.passthrough); got != tc.want {
+			t.Fatalf("loginStatusInvocation(%v,%v)=%v want %v", tc.subArgs, tc.passthrough, got, tc.want)
+		}
+	}
+}
+
+func TestLoginCompletionExitFailsWhenFleetUploadFails(t *testing.T) {
+	if got := loginCompletionExit(0, 1); got != 1 {
+		t.Fatalf("successful upstream login masked upload failure: %d", got)
+	}
+	if got := loginCompletionExit(7, 0); got != 7 {
+		t.Fatalf("upstream login exit lost: %d", got)
+	}
+}
+
+func TestDirectLoginDigestSnapshotSurfacesReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	if err := os.Mkdir(filepath.Join(dir, "auth.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := directLoginDigestSnapshot(); err == nil || !strings.Contains(err.Error(), "local auth digest") {
+		t.Fatalf("digest snapshot error = %v", err)
+	}
+}
+
+func TestLogoutDoesNotMarkConcurrentNewerLogin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "auth.json")
+	before := codex.AuthGeneration{Exists: true, Digest: "old"}
+	after := codex.AuthGeneration{Exists: true, Digest: "new"}
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"new-login"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if logoutGenerationMayBeMarked(before, after, path) {
+		t.Fatal("concurrent usable login was marked as logged out")
+	}
+	if !logoutGenerationMayBeMarked(before, codex.AuthGeneration{}, path) {
+		t.Fatal("normal logout removal was not markable")
 	}
 }

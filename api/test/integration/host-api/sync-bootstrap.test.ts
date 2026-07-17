@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
@@ -15,6 +15,7 @@ import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
+import { assertContract } from '../../helpers/contract-schema.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -78,6 +79,35 @@ function hostRow(apiKey: string, overrides: Record<string, unknown> = {}): Recor
     agentsDocumentIdOverride: null,
     ...overrides,
   };
+}
+
+function seedVerifiedCodexCanonical(
+  db: ReturnType<typeof createDbFake>,
+  keyring: Keyring,
+  stamp = '2026-06-08T15:26:33Z',
+): void {
+  const validation = createRunnerValidationService({ db: db as never, keyring });
+  const auths = { 'api.openai.com': { token: 'verified-token', token_type: 'bearer' } };
+  const canonical = validation.canonicalizeAuthPayload(
+    { auths },
+    validation.normalizeAuthEntries({ auths }, 'codex'),
+    stamp,
+  );
+  const encoded = JSON.stringify(canonical);
+  db.tables.set(authPayloads, [
+    {
+      id: 71,
+      lastRefresh: stamp,
+      sha256: createHash('sha256').update(encoded).digest('hex'),
+      sourceHostId: null,
+      createdAt: stamp,
+      body: encrypt(encoded, keyring),
+      verificationState: 'verified',
+      verificationCheckedAt: stamp,
+      verificationReason: null,
+      engine: 'codex',
+    },
+  ]);
 }
 
 describe('POST /sync/bootstrap inlines agents + config', () => {
@@ -322,7 +352,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     );
 
     const freshStamp = new Date(Date.now() - 60_000).toISOString();
-    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+    const app = await buildHostApiTestApp({ db: db as never, env: envWithRunner, keyring });
     const r = await app.inject({
       method: 'POST',
       url: '/sync/bootstrap',
@@ -342,6 +372,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
     expect(body.auth.status).toBe('upload_required');
+    expect(body.auth.candidate_rejected_definitive).toBeUndefined();
     // The stale blob must NOT ride along — that is the clobber payload.
     expect(body.auth.auth).toBeUndefined();
     // Nothing was stored either (runner gated).
@@ -410,6 +441,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
           JSON.stringify({
             status: 'fail',
             reachable: true,
+            definitive: true,
             reason:
               'Failed to authenticate. API Error: 401 Invalid authentication credentials',
           }),
@@ -433,12 +465,172 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
 
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
+    assertContract('sync-bootstrap.schema.json', body);
     expect(body.auth.status).toBe('outdated');
+    expect(body.auth.candidate_rejected_definitive).toBe(true);
     // The verified canonical blob rides along so the host can heal.
     expect(body.auth.auth).toBeDefined();
     expect(body.auth.auth.claudeAiOauth.accessToken).toBe('sk-ant-oat01-live');
     // The dead candidate was not stored.
     expect(db.tables.get(authPayloads)!).toHaveLength(1);
+    await app.close();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    {
+      name: 'has no usable auth token',
+      candidate: () => ({ last_refresh: new Date(Date.now() - 60_000).toISOString(), note: 'not auth' }),
+    },
+    {
+      name: 'has an invalid last_refresh',
+      candidate: () => ({
+        last_refresh: 'not-an-rfc3339-timestamp',
+        tokens: { access_token: 'syntactically-present' },
+      }),
+    },
+  ])('marks a deterministic candidate rejection when it $name', async ({ candidate }) => {
+    const apiKey = 'sk-bootstrap-malformed-candidate';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+    seedVerifiedCodexCanonical(db, keyring);
+
+    // No network request is needed for a syntactically invalid candidate, but
+    // a configured runner lets retrieve preserve the stored verified verdict.
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    const app = await buildHostApiTestApp({ db: db as never, env: envWithRunner, keyring });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: true,
+        auth_digest: '3'.repeat(64),
+        auth_candidate: candidate(),
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth).toMatchObject({
+      status: 'outdated',
+      verification_state: 'verified',
+      candidate_rejected_definitive: true,
+    });
+    expect(body.auth.auth.auths['api.openai.com'].token).toBe('verified-token');
+    expect(db.tables.get(authPayloads)!).toHaveLength(1);
+    await app.close();
+  });
+
+  it('does not mark a deterministic rejection when no verified canonical is served', async () => {
+    const apiKey = 'sk-bootstrap-malformed-no-canonical';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: true,
+        auth_candidate: { last_refresh: 'not-an-rfc3339-timestamp', note: 'not auth' },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('missing');
+    expect(body.auth.auth).toBeUndefined();
+    expect(body.auth.candidate_rejected_definitive).toBeUndefined();
+    await app.close();
+  });
+
+  it('lets an older valid client repair the selected failed canonical', async () => {
+    const apiKey = 'sk-bootstrap-repair-failed';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const failedStamp = '2026-07-17T09:00:00Z';
+    const failedSource = {
+      last_refresh: failedStamp,
+      tokens: { access_token: 'failed-token', refresh_token: 'failed-r' },
+    };
+    const failedWithAuths = validation.ensureAuthsFallback(failedSource, 'codex');
+    const failedCanonical = validation.canonicalizeAuthPayload(
+      failedWithAuths,
+      validation.normalizeAuthEntries(failedWithAuths, 'codex'),
+      failedStamp,
+    );
+    const failedBody = JSON.stringify(failedCanonical);
+    db.tables.set(authPayloads, [
+      {
+        id: 1,
+        lastRefresh: failedStamp,
+        sha256: createHash('sha256').update(failedBody).digest('hex'),
+        sourceHostId: null,
+        createdAt: failedStamp,
+        body: encrypt(failedBody, keyring),
+        verificationState: 'failed',
+        verificationCheckedAt: failedStamp,
+        verificationReason: 'expired',
+        engine: 'codex',
+      },
+    ]);
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
+    );
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: true,
+        auth_candidate: {
+          last_refresh: '2026-07-17T08:00:00Z',
+          tokens: { access_token: 'working-token', refresh_token: 'working-r' },
+        },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body.auth.status).toBe('updated');
+    expect(body.auth.verification_state).toBe('verified');
+    expect(body.auth.auth.tokens.access_token).toBe('working-token');
+    expect(Date.parse(body.auth.canonical_last_refresh)).toBeGreaterThan(Date.parse(failedStamp));
+    expect((await validation.resolveCanonicalPayload('codex'))?.id).toBe(2);
     await app.close();
     vi.unstubAllGlobals();
   });

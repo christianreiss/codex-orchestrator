@@ -125,8 +125,15 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 		} else if resp.StatusCode < 500 {
 			return resp, nil
 		} else {
-			lastErr = fmt.Errorf("orchestrator %s %s -> %d", req.Method, req.URL.Path, resp.StatusCode)
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 2048))
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			lastErr = &HTTPError{
+				StatusCode: resp.StatusCode,
+				Code:       parseErrorCode(raw),
+				Method:     req.Method,
+				Path:       req.URL.Path,
+				Body:       strings.TrimSpace(string(raw)),
+			}
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 		if attempt < retries {

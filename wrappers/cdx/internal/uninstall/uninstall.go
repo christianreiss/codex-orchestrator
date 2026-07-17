@@ -28,8 +28,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 )
 
@@ -61,7 +63,18 @@ func (r *hostUsersResponse) merged() []hostUser {
 
 // Run performs an uninstall. Errors are surfaced for fatal issues only — every
 // per-target removal is best-effort and logged inline.
-func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) error {
+func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (runErr error) {
+	maintenance, err := codex.TryAcquireAuthMaintenance()
+	if err != nil {
+		if errors.Is(err, ipc.ErrHeld) {
+			return errors.New("uninstall refused: another cdx process is using this Codex home")
+		}
+		return fmt.Errorf("uninstall: acquire auth maintenance lease: %w", err)
+	}
+	defer func() {
+		runErr = errors.Join(runErr, maintenance.Release())
+	}()
+
 	client, clientErr := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -93,7 +106,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	// (2) Best-effort server-side delete (force=1 to bypass any "host has
 	// other users" guard the server may apply).
 	if clientErr == nil {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, cfg.Orchestrator.BaseURL+"/auth?force=1", nil)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, cfg.Orchestrator.BaseURL+authDeletePath(), nil)
 		resp, derr := client.Do(ctx, req, 0)
 		if derr != nil {
 			fmt.Fprintln(stderr, "uninstall: server-side delete failed (best-effort):", derr)
@@ -112,15 +125,21 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 			return fmt.Errorf("uninstall: could not determine home directory: %w", homeErr)
 		}
 	}
+	codexHome, codexHomeErr := codex.CodexHome()
+	if codexHomeErr != nil {
+		return fmt.Errorf("uninstall: could not determine Codex home: %w", codexHomeErr)
+	}
+	authTargets := requiredAuthStateTargets(codexHome)
+	requiredCleanupErr := removeRequiredAuthState(stdout, stderr, authTargets)
 	targets := []string{
-		filepath.Join(home, ".codex", "auth.json"),
-		filepath.Join(home, ".codex", "AGENTS.md"),
-		filepath.Join(home, ".codex", "config.toml"),
+		filepath.Join(codexHome, ".cdx-auth.lock"),
+		filepath.Join(codexHome, "AGENTS.md"),
+		filepath.Join(codexHome, "config.toml"),
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx.json"),
 		filepath.Join(home, ".config", "codex-orchestrator", "cdx.json.sig"),
 	}
 	for _, p := range targets {
-		removeReport(stdout, stderr, p)
+		_ = removeReport(stdout, stderr, p)
 	}
 
 	// /opt/codex — only attempt when writable to avoid clobbering a
@@ -150,7 +169,20 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 		fmt.Fprintln(stdout, "uninstall: removed managed crontab entry")
 	}
 
-	return nil
+	return requiredCleanupErr
+}
+
+func requiredAuthStateTargets(codexHome string) []string {
+	return []string{
+		filepath.Join(codexHome, "auth.json"),
+		filepath.Join(codexHome, ".cdx-logout-intent.json"),
+		filepath.Join(codexHome, ".cdx-insecure-purge-request"),
+		filepath.Join(codexHome, ".cdx-canonical-auth-generations.json"),
+	}
+}
+
+func authDeletePath() string {
+	return "/auth?force=1&engine=codex"
 }
 
 // otherUsers calls POST /host/users with the current username/hostname and
@@ -260,14 +292,25 @@ func npmGlobalHas(ctx context.Context, pkg string) bool {
 	return cmd.Run() == nil
 }
 
-func removeReport(stdout, stderr io.Writer, p string) {
+func removeReport(stdout, stderr io.Writer, p string) error {
 	err := os.Remove(p)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return
+			return nil
 		}
 		fmt.Fprintln(stderr, "uninstall: remove", p, ":", err)
-		return
+		return err
 	}
 	fmt.Fprintln(stdout, "uninstall: removed", p)
+	return nil
+}
+
+func removeRequiredAuthState(stdout, stderr io.Writer, targets []string) error {
+	var joined error
+	for _, path := range targets {
+		if err := removeReport(stdout, stderr, path); err != nil {
+			joined = errors.Join(joined, fmt.Errorf("remove required auth state %s: %w", path, err))
+		}
+	}
+	return joined
 }

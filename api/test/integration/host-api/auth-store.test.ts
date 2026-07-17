@@ -8,11 +8,15 @@ import {
   hostAuthDigests,
   hostAuthStates,
   hosts as hostsTable,
+  installTokens,
   logs as logsTable,
   versions as versionsTable,
 } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
+import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
+import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
+import { assertContract } from '../../helpers/contract-schema.js';
 
 const baseEnv = {
   INSTALLATION_ID: 'inst',
@@ -96,6 +100,43 @@ afterEach(() => {
 });
 
 describe('POST /auth command=store', () => {
+  it('accepts a valid candidate while an insecure host retrieve window is fully closed', async () => {
+    const apiKey = 'sk-store-insecure-closed';
+    const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        secure: 0,
+        insecureEnabledUntil: new Date(Date.now() - 120_000),
+        insecureGraceUntil: new Date(Date.now() - 60_000),
+      }),
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        command: 'store',
+        engine: 'codex',
+        auth: {
+          last_refresh: '2026-06-13T06:00:00Z',
+          tokens: {
+            access_token: 'sk-openai-valid-closed-window-token',
+            refresh_token: 'refresh-valid-closed-window-token',
+          },
+        },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    assertContract('auth-store.schema.json', body);
+    expect(body).toMatchObject({ status: 'updated', engine: 'codex' });
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    await app.close();
+  });
+
   it('rejects payloads with no usable auth tokens', async () => {
     const apiKey = 'sk-store-poem';
     const db = seedDb(apiKey);
@@ -135,7 +176,13 @@ describe('POST /auth command=store', () => {
     } as typeof baseEnv;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ status: 'fail', reason: 'bad credentials' }), { status: 200 })),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ status: 'fail', definitive: true, reason: 'bad credentials' }),
+            { status: 200 },
+          ),
+      ),
     );
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
 
@@ -204,7 +251,222 @@ describe('POST /auth command=store', () => {
   });
 });
 
+describe('DELETE /auth uninstall scope', () => {
+  it('removes only an explicitly requested engine from a dual-engine host', async () => {
+    const apiKey = 'sk-delete-claude-only';
+    const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        engines: 'codex,claude',
+        authDigest: 'codex-digest',
+        lastRefresh: '2026-07-17T08:00:00Z',
+        claudeAuthDigest: 'claude-digest',
+        claudeLastRefresh: '2026-07-17T09:00:00Z',
+        claudeClientVersionOverride: '9.9.9',
+        claudeModelOverride: 'claude-test',
+        claudeReasoningEffortOverride: 'high',
+        modelOverride: 'codex-test',
+      }),
+    ]);
+    db.tables.set(installTokens, [
+      { id: 7, hostId: 1, engine: 'claude', token: 'pending-claude-installer' },
+      { id: 8, hostId: 1, engine: 'codex', token: 'pending-codex-installer' },
+    ]);
+    db.tables.set(hostAuthDigests, [
+      { id: 1, hostId: 1, engine: 'codex', digest: 'codex-digest' },
+      { id: 2, hostId: 1, engine: 'claude', digest: 'claude-digest' },
+    ]);
+    db.tables.set(hostAuthStates, [
+      { hostId: 1, engine: 'codex', payloadId: 10, digest: 'codex-digest' },
+      { hostId: 1, engine: 'claude', payloadId: 11, digest: 'claude-digest' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'DELETE',
+      url: '/auth?force=1&engine=claude',
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      deleted_engine: 'claude',
+      remaining_engines: ['codex'],
+    });
+    expect(db.tables.get(hostsTable)).toHaveLength(1);
+    expect(db.tables.get(hostsTable)![0]).toMatchObject({
+      engines: 'codex',
+      authDigest: 'codex-digest',
+      claudeAuthDigest: null,
+      claudeLastRefresh: null,
+      claudeClientVersionOverride: null,
+      claudeModelOverride: null,
+      claudeReasoningEffortOverride: null,
+      modelOverride: 'codex-test',
+    });
+    expect(db.tables.get(installTokens)).toEqual([
+      expect.objectContaining({ engine: 'codex', token: 'pending-codex-installer' }),
+    ]);
+    expect(db.tables.get(hostAuthDigests)).toEqual([
+      expect.objectContaining({ engine: 'codex', digest: 'codex-digest' }),
+    ]);
+    expect(db.tables.get(hostAuthStates)).toEqual([
+      expect.objectContaining({ engine: 'codex', digest: 'codex-digest' }),
+    ]);
+    expect(db.tables.get(logsTable)?.some((row) => row.action === 'host.engine.delete')).toBe(true);
+    await app.close();
+  });
+
+  it('clears Codex-only policy while preserving Claude state on a Codex uninstall', async () => {
+    const apiKey = 'sk-delete-codex-only';
+    const db = seedDb(apiKey);
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        engines: 'codex,claude',
+        authDigest: 'codex-digest',
+        lastRefresh: '2026-07-17T08:00:00Z',
+        clientVersionOverride: '9.9.9',
+        lanePreference: 'spark',
+        modelOverride: 'codex-test',
+        reasoningEffortOverride: 'high',
+        claudeAuthDigest: 'claude-digest',
+        claudeLastRefresh: '2026-07-17T09:00:00Z',
+        claudeModelOverride: 'claude-test',
+      }),
+    ]);
+    db.tables.set(installTokens, [
+      { id: 8, hostId: 1, engine: 'codex', token: 'pending-codex-installer' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'DELETE',
+      url: '/auth?force=1&engine=codex',
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(db.tables.get(hostsTable)![0]).toMatchObject({
+      engines: 'claude',
+      authDigest: null,
+      lastRefresh: null,
+      clientVersionOverride: null,
+      lanePreference: null,
+      modelOverride: null,
+      reasoningEffortOverride: null,
+      claudeAuthDigest: 'claude-digest',
+      claudeModelOverride: 'claude-test',
+    });
+    expect(db.tables.get(installTokens)).toHaveLength(0);
+    await app.close();
+  });
+
+  it('retains legacy whole-host deletion and writes an FK-independent audit row', async () => {
+    const apiKey = 'sk-delete-whole-host';
+    const db = seedDb(apiKey);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'DELETE',
+      url: '/auth?force=1',
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(db.tables.get(hostsTable)).toHaveLength(0);
+    expect(db.tables.get(logsTable)?.find((row) => row.action === 'host.delete')).toMatchObject({
+      hostId: null,
+    });
+    await app.close();
+  });
+});
+
 describe('POST /auth command=retrieve quota lane shaping', () => {
+  it('keeps a same/newer local generation visible as drift until its store succeeds', async () => {
+    const apiKey = 'sk-retrieve-upload-required-drift';
+    const db = seedDb(apiKey);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring, tokenMinLength: 8 });
+    const canonicalStamp = '2026-07-17T08:00:00Z';
+    const canonicalSource = {
+      last_refresh: canonicalStamp,
+      tokens: { access_token: 'sk-openai-canonical-valid-token' },
+    };
+    const withFallback = validation.ensureAuthsFallback(canonicalSource, 'codex');
+    const canonical = validation.canonicalizeAuthPayload(
+      withFallback,
+      validation.normalizeAuthEntries(withFallback, 'codex'),
+      canonicalStamp,
+    );
+    const encoded = JSON.stringify(canonical);
+    const canonicalDigest = validation.calculateDigest(encoded);
+    db.tables.set(authPayloads, [
+      {
+        id: 41,
+        lastRefresh: canonicalStamp,
+        sha256: canonicalDigest,
+        sourceHostId: null,
+        createdAt: canonicalStamp,
+        body: encrypt(encoded, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: canonicalStamp,
+        verificationReason: null,
+        engine: 'codex',
+      },
+    ]);
+    const envWithRunner = {
+      ...baseEnv,
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof baseEnv;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('runner unavailable');
+    }));
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+    const localStamp = '2026-07-17T09:00:00Z';
+    const localDigest = 'b'.repeat(64);
+
+    const retrieve = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        command: 'retrieve',
+        engine: 'codex',
+        last_refresh: localStamp,
+        digest: localDigest,
+      }),
+    });
+    expect(retrieve.statusCode).toBe(200);
+    expect(JSON.parse(retrieve.payload)).toMatchObject({ status: 'upload_required', action: 'store' });
+    expect(db.tables.get(hostsTable)![0]).toMatchObject({
+      lastRefresh: localStamp,
+      authDigest: localDigest,
+    });
+    expect(db.tables.get(hostAuthStates)).toHaveLength(0);
+
+    const store = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        command: 'store',
+        engine: 'codex',
+        auth: {
+          last_refresh: localStamp,
+          tokens: { access_token: 'sk-openai-local-valid-token' },
+        },
+      }),
+    });
+    expect(store.statusCode).toBe(503);
+    expect(db.tables.get(hostsTable)![0]).toMatchObject({
+      lastRefresh: localStamp,
+      authDigest: localDigest,
+    });
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    await app.close();
+  });
+
   it('reports unavailable telemetry when no snapshot exists', async () => {
     const apiKey = 'sk-retrieve-no-quota';
     const db = seedDb(apiKey);
@@ -216,7 +478,9 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       payload: JSON.stringify({ command: 'retrieve', engine: 'codex' }),
     });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload).chatgpt).toMatchObject({
+    const body = JSON.parse(r.payload);
+    assertContract('auth-retrieve.schema.json', body);
+    expect(body.chatgpt).toMatchObject({
       status: 'unavailable',
       active_quota_lane: 'normal',
     });

@@ -148,12 +148,16 @@ def _extract_openai_token(auth_json: dict) -> Optional[str]:
 
 
 def _codex_version(env: dict) -> str:
-    proc = subprocess.run(
-        ["/usr/local/bin/codex", "--version"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            ["/usr/local/bin/codex", "--version"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return "unavailable"
     if proc.returncode != 0:
         return "unknown"
     parts = proc.stdout.strip().split()
@@ -272,6 +276,51 @@ def _has_claude_oauth(auth_json: dict) -> bool:
     return False
 
 
+def _is_definitive_auth_rejection(message: str) -> bool:
+    """Classify only credential-specific CLI failures as definitive.
+
+    A CLI subprocess exiting non-zero proves that the probe failed, but not why:
+    provider outages, quota/model errors, and local CLI failures all use the same
+    exit channel. Keep those failures retryable unless the output explicitly
+    identifies an authentication rejection.
+    """
+    text = " ".join((message or "").lower().split())
+    if not text:
+        return False
+    phrases = (
+        "refresh token already used",
+        "refresh token has already been used",
+        "refresh token was already used",
+        "refresh token has been revoked",
+        "invalid refresh token",
+        "refresh token is invalid",
+        "invalid_grant",
+        "access token expired",
+        "access token has expired",
+        "access token has been revoked",
+        "oauth token expired",
+        "oauth token has expired",
+        "authentication token is invalid",
+        "authentication failed",
+        "authentication_error",
+        "invalid credentials",
+        "credentials are invalid",
+        "not logged in",
+        "please run /login",
+        "please log in",
+        "please login",
+    )
+    if any(phrase in text for phrase in phrases):
+        return True
+    if "unauthorized" in text:
+        return True
+    if re.search(r"refresh token.{0,40}used.{0,20}already", text):
+        return True
+    if re.search(r"refresh token.{0,40}already.{0,20}used", text):
+        return True
+    return re.search(r"\b(?:api error|http|status|error)\s*[:=]?\s*401\b", text) is not None
+
+
 def _anthropic_auth_headers(token: str) -> dict:
     if token.startswith("sk-ant-oat"):
         return {"Authorization": f"Bearer {token}"}
@@ -348,6 +397,26 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     return env, home_dir, auth_path
 
 
+def _credential_readback(auth_path: str, original_auth: dict) -> dict:
+    """Return an explicit post-probe state for the native credential file."""
+    try:
+        with open(auth_path, "r", encoding="utf-8") as fh:
+            updated_auth = json.load(fh)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "auth_readback": "error",
+            "auth_readback_error": f"{type(exc).__name__}: {exc}"[:400],
+        }
+    if not isinstance(updated_auth, dict):
+        return {
+            "auth_readback": "error",
+            "auth_readback_error": "credential file did not contain a JSON object",
+        }
+    if updated_auth == original_auth:
+        return {"auth_readback": "unchanged"}
+    return {"auth_readback": "updated", "updated_auth": updated_auth}
+
+
 def _run_claude_probe(payload) -> dict:
     """Validate Claude credentials.
 
@@ -359,37 +428,50 @@ def _run_claude_probe(payload) -> dict:
     if token is None or token.strip() == "":
         raise HTTPException(status_code=400, detail="no usable Anthropic token in auth_json")
 
-    version = _claude_version()
     timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
     if _has_claude_oauth(payload.auth_json) or token.startswith("sk-ant-oat"):
         env, home_dir, auth_path = _prepare_claude_env(payload.auth_json)
         try:
-            proc, latency_ms = _run_claude_exec("Reply Banana if this works.", env, timeout)
+            probe_started = time.perf_counter()
+            try:
+                proc, latency_ms = _run_claude_exec("Reply Banana if this works.", env, timeout)
+            except subprocess.TimeoutExpired:
+                result = {
+                    "status": "fail",
+                    "latency_ms": int((time.perf_counter() - probe_started) * 1000),
+                    "reachable": False,
+                    "definitive": False,
+                    "claude_version": _claude_version(env),
+                    "native_oauth": True,
+                    "reason": "Claude CLI probe timed out",
+                }
+                result.update(_credential_readback(auth_path, payload.auth_json))
+                return result
             stdout = (proc.stdout or "").strip()
             stderr = (proc.stderr or "").strip()
             ok = proc.returncode == 0 and "banana" in stdout.lower()
+            parts = [p for p in [stderr, stdout] if p]
+            message = "\n".join(parts).strip()
             result = {
                 "status": "ok" if ok else "fail",
                 "latency_ms": latency_ms,
                 "reachable": True,
+                "definitive": ok or _is_definitive_auth_rejection(message),
                 "claude_version": _claude_version(env),
                 "native_oauth": True,
             }
-            try:
-                with open(auth_path, "r", encoding="utf-8") as fh:
-                    updated_auth = json.load(fh)
-            except Exception:
-                updated_auth = None
-            if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
-                result["updated_auth"] = updated_auth
+            result.update(_credential_readback(auth_path, payload.auth_json))
             if not ok:
-                parts = [p for p in [stderr, stdout] if p]
-                message = "\n".join(parts).strip()
                 result["reason"] = message[:400] if message else "probe failed"
             return result
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
+    # API-key probes do not launch the native CLI, so collect its fleet
+    # telemetry once here. OAuth probes collect the version from their isolated
+    # HOME after the probe; doing both could consume two five-second version
+    # budgets and overrun the API's bounded readback grace.
+    version = _claude_version()
     start = time.perf_counter()
     try:
         resp = httpx.post(
@@ -419,6 +501,8 @@ def _run_claude_probe(payload) -> dict:
                 "status": "ok" if ok else "fail",
                 "latency_ms": latency_ms,
                 "reachable": True,
+                "definitive": ok,
+                "auth_readback": "not_applicable",
                 "claude_version": version,
             }
             if not ok:
@@ -441,14 +525,25 @@ def _run_claude_probe(payload) -> dict:
                 "status": "ok",
                 "latency_ms": latency_ms,
                 "reachable": True,
+                "definitive": True,
                 "auth_limited": True,
+                "auth_readback": "not_applicable",
                 "reason": "Anthropic accepted the credential but returned rate_limit_error",
                 "claude_version": version,
             }
+        # A permission error can be model/account policy (the probe model may
+        # be unavailable) rather than bad credentials. Only Anthropic's
+        # authentication_error/401 is safe to turn into a fleet-wide auth
+        # failure.
+        auth_rejected = resp.status_code == 401 or (
+            400 <= resp.status_code < 500 and error_type == "authentication_error"
+        )
         return {
             "status": "fail",
             "latency_ms": latency_ms,
             "reachable": True,
+            "definitive": auth_rejected,
+            "auth_readback": "not_applicable",
             "reason": f"HTTP {resp.status_code}: {error_text}",
             "claude_version": version,
         }
@@ -458,6 +553,8 @@ def _run_claude_probe(payload) -> dict:
             "status": "fail",
             "latency_ms": latency_ms,
             "reachable": False,
+            "definitive": False,
+            "auth_readback": "not_applicable",
             "reason": "timeout contacting Anthropic API",
             "claude_version": version,
         }
@@ -467,6 +564,8 @@ def _run_claude_probe(payload) -> dict:
             "status": "fail",
             "latency_ms": latency_ms,
             "reachable": False,
+            "definitive": False,
+            "auth_readback": "not_applicable",
             "reason": str(exc)[:400],
             "claude_version": version,
         }
@@ -554,27 +653,35 @@ def _run_probe(payload: VerifyRequest) -> dict:
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
         probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-5.6-terra").strip() or None
-        proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout, probe_model)
+        probe_started = time.perf_counter()
+        try:
+            proc, latency_ms = _run_codex_exec("Reply Banana if this works.", env, timeout, probe_model)
+        except subprocess.TimeoutExpired:
+            result = {
+                "status": "fail",
+                "latency_ms": int((time.perf_counter() - probe_started) * 1000),
+                "reachable": False,
+                "definitive": False,
+                "codex_version": _codex_version(env),
+                "reason": "Codex CLI probe timed out",
+            }
+            result.update(_credential_readback(auth_path, payload.auth_json))
+            return result
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
 
         ok = proc.returncode == 0 and "banana" in stdout.lower()
+        parts = [p for p in [stderr, stdout] if p]
+        message = "\n".join(parts).strip()
         result = {
             "status": "ok" if ok else "fail",
             "latency_ms": latency_ms,
             "reachable": True,
+            "definitive": ok or _is_definitive_auth_rejection(message),
             "codex_version": _codex_version(env),
         }
-        try:
-            with open(auth_path, "r", encoding="utf-8") as fh:
-                updated_auth = json.load(fh)
-        except Exception:
-            updated_auth = None
-        if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
-            result["updated_auth"] = updated_auth
+        result.update(_credential_readback(auth_path, payload.auth_json))
         if not ok:
-            parts = [p for p in [stderr, stdout] if p]
-            message = "\n".join(parts).strip()
             result["reason"] = message[:400] if message else "probe failed"
         return result
     finally:

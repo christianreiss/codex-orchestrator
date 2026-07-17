@@ -29,6 +29,11 @@ type AuthRetrieveResponse struct {
 	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
 	Engine               string          `json:"engine,omitempty"`
 	VerificationState    string          `json:"verification_state,omitempty"`
+	// CandidateRejectedDefinitive is emitted only when the server has
+	// authoritatively rejected the submitted local candidate and is returning
+	// its verified canonical fallback. It is the sole override for a newer
+	// locally usable generation.
+	CandidateRejectedDefinitive bool `json:"candidate_rejected_definitive,omitempty"`
 }
 
 // VersionSummary mirrors VersionSnapshot on the server.
@@ -199,8 +204,10 @@ func (c *Client) AuthRetrieve(ctx context.Context, digest string) (*AuthRetrieve
 	return out, nil
 }
 
-// AuthStore uploads an auth payload (used by `cdx auth-upload`).
-func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
+// AuthStore uploads an auth payload and returns the authoritative response.
+// The runner may rotate OAuth while validating and return that replacement
+// under auth; callers must generation-guard any local materialization.
+func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) (*AuthRetrieveResponse, error) {
 	body := map[string]any{
 		"command": "store",
 		"engine":  "codex",
@@ -208,12 +215,15 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 	}
 	out := &AuthRetrieveResponse{}
 	if err := c.JSON(ctx, http.MethodPost, "/auth", body, out, 1); err != nil {
-		return err
+		return nil, err
 	}
 	if out.Status == "error" {
-		return errors.New(out.Message)
+		return out, errors.New(out.Message)
 	}
-	if strings.ToLower(strings.TrimSpace(out.Status)) != "updated" {
+	switch strings.ToLower(strings.TrimSpace(out.Status)) {
+	case "valid", "outdated", "updated":
+		return out, nil
+	default:
 		reason := out.Message
 		if reason == "" {
 			reason = out.Action
@@ -221,9 +231,35 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) error {
 		if reason == "" {
 			reason = "server did not accept uploaded auth"
 		}
-		return fmt.Errorf("auth store not accepted: status=%s reason=%s", out.Status, reason)
+		return out, fmt.Errorf("auth store not accepted: status=%s reason=%s", out.Status, reason)
 	}
-	return nil
+}
+
+// IsDefinitiveAuthCandidateRejection recognizes only validation-shaped store
+// failures. Security policy, approval, installation, and rate-limit 4xx
+// responses are deliberately excluded: none proves the candidate credential
+// itself is bad.
+func IsDefinitiveAuthCandidateRejection(err error) bool {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(he.Code))
+	if he.StatusCode == http.StatusUnprocessableEntity {
+		return code == "" || code == "validation_failed"
+	}
+	return he.StatusCode == http.StatusBadRequest && code == "validation_failed"
+}
+
+// IsUnsafeRunnerUpdatedAuthError identifies the one infrastructure response
+// that invalidates the pre-request token too: the runner rotated/changed auth
+// but returned an unusable replacement. Falling back to the old local token is
+// unsafe and usually produces a refresh-token reuse loop.
+func IsUnsafeRunnerUpdatedAuthError(err error) bool {
+	var he *HTTPError
+	return errors.As(err, &he) &&
+		he.StatusCode == http.StatusServiceUnavailable &&
+		strings.EqualFold(strings.TrimSpace(he.Code), "runner_updated_auth_invalid")
 }
 
 // CheckAuthStatus is the minimal shape ui.PollApproval consumes: re-runs

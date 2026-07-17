@@ -1,15 +1,17 @@
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import {
   hostAuthDigests,
+  hostAuthStates,
   hosts as hostsTable,
+  installTokens,
   logs as logsTable,
   type Host,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
-import { parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
+import { isEngine, parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
@@ -101,14 +103,84 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   // DELETE /auth — host uninstall.
   app.delete('/auth', async (req) => {
     const host = await hostAuth.authenticate(req);
-    const force = (req.query as { force?: string })?.force === '1';
-    await ctx.db.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, host.id));
-    await ctx.db.delete(hostsTable).where(eq(hostsTable.id, host.id));
-    await ctx.db.insert(logsTable).values({
-      hostId: host.id,
-      action: 'host.delete',
-      details: JSON.stringify({ fqdn: host.fqdn, initiator: 'host_api', force }),
-      createdAt: nowIso(),
+    const query = req.query as { force?: string; engine?: string };
+    const force = query.force === '1';
+    const explicitEngine = typeof query.engine === 'string' && query.engine.trim() !== '';
+    if (explicitEngine) {
+      const engine = query.engine!.trim().toLowerCase();
+      if (!isEngine(engine)) {
+        throw new ValidationError('engine must be "codex" or "claude"', { param: 'engine' });
+      }
+      assertHostEngineEnabled(host, engine);
+      const remaining = hostEnginesList(host.engines).filter((item) => item !== engine);
+      if (remaining.length > 0) {
+        const now = nowIso();
+        await ctx.db.transaction(async (tx) => {
+          await tx.insert(logsTable).values({
+            hostId: host.id,
+            action: 'host.engine.delete',
+            details: JSON.stringify({ fqdn: host.fqdn, engine, initiator: 'host_api', force }),
+            createdAt: now,
+          });
+          await tx
+            .delete(hostAuthDigests)
+            .where(and(eq(hostAuthDigests.hostId, host.id), eq(hostAuthDigests.engine, engine)));
+          await tx
+            .delete(hostAuthStates)
+            .where(and(eq(hostAuthStates.hostId, host.id), eq(hostAuthStates.engine, engine)));
+          // A pending installer embeds the shared host API key. Revoke any
+          // installer for the removed engine so an old one-time URL cannot be
+          // used after that engine has been uninstalled.
+          await tx
+            .delete(installTokens)
+            .where(and(eq(installTokens.hostId, host.id), eq(installTokens.engine, engine)));
+          await tx
+            .update(hostsTable)
+            .set({
+              engines: remaining.join(','),
+              ...(engine === ENGINE_CLAUDE
+                ? {
+                    claudeAuthDigest: null,
+                    claudeLastRefresh: null,
+                    claudeClientVersion: null,
+                    claudeClientVersionOverride: null,
+                    claudeWrapperVersion: null,
+                    claudeModelOverride: null,
+                    claudeReasoningEffortOverride: null,
+                  }
+                : {
+                    authDigest: null,
+                    lastRefresh: null,
+                    clientVersion: null,
+                    clientVersionOverride: null,
+                    wrapperVersion: null,
+                    lanePreference: null,
+                    modelOverride: null,
+                    reasoningEffortOverride: null,
+                  }),
+              updatedAt: now,
+            })
+            .where(eq(hostsTable.id, host.id));
+        });
+        wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, engine });
+        return { deleted_engine: engine, remaining_engines: remaining };
+      }
+    }
+
+    // Legacy requests without `engine` (and an explicit uninstall of the last
+    // enabled engine) retain the whole-host de-registration behaviour.
+    await ctx.db.transaction(async (tx) => {
+      // Keep the audit row independent of host FK policy: the host identity is
+      // preserved in details while the nullable FK is deliberately unset.
+      await tx.insert(logsTable).values({
+        hostId: null,
+        action: 'host.delete',
+        details: JSON.stringify({ host_id: host.id, fqdn: host.fqdn, initiator: 'host_api', force }),
+        createdAt: nowIso(),
+      });
+      await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, host.id));
+      await tx.delete(hostAuthStates).where(eq(hostAuthStates.hostId, host.id));
+      await tx.delete(hostsTable).where(eq(hostsTable.id, host.id));
     });
     wsPublisher.publish('host.deleted', { id: host.id, fqdn: host.fqdn });
     return { deleted: host.fqdn };
@@ -306,14 +378,14 @@ async function handleRetrieve(
     payload.wrapper_version,
     engine,
   );
+  const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
     canonical_last_refresh: canonicalLast,
     canonical_digest: canonicalDigest,
     host: buildHostPayload(host),
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions,
-    quota_hard_fail: host.vip === 1 ? false : await versionSvc.flag('quota_hard_fail', true),
-    quota_limit_percent: await readQuotaLimitPercent(versionSvc),
+    ...quota,
     cdx_silent: versions.cdx_silent,
     engine,
   };
@@ -378,8 +450,13 @@ async function handleRetrieve(
     return { ...baseResponse, status: 'valid' };
   }
   if (incomingTs >= canonicalTs) {
-    await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
-    await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
+    // No canonical blob was served: this host explicitly reported a distinct
+    // same/newer local generation that still needs to pass the store gate.
+    // Preserve that presented state for admin drift reporting instead of
+    // falsely marking the host synchronized before the upload succeeds.
+    if (providedDigest && incomingLast) {
+      await touchHostAuthFields(ctx.db, host.id, incomingLast, providedDigest, engine);
+    }
     return { ...baseResponse, status: 'upload_required', action: 'store' };
   }
   // Otherwise, host is outdated — serve the (verified) canonical auth.
@@ -411,12 +488,12 @@ async function buildRetrieveBaseResponse(
     payload.wrapper_version,
     engine,
   );
+  const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host),
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions,
-    quota_hard_fail: host.vip === 1 ? false : await versionSvc.flag('quota_hard_fail', true),
-    quota_limit_percent: await readQuotaLimitPercent(versionSvc),
+    ...quota,
     cdx_silent: versions.cdx_silent,
     engine,
   };
@@ -444,11 +521,38 @@ async function handleBootstrapAuth(
   const canonicalDigest = validated?.digest ?? null;
   const canonicalLast = validated?.last_refresh ?? null;
   const candidateLast = typeof candidate.last_refresh === 'string' ? candidate.last_refresh.trim() : '';
-  if (candidateLast) assertReasonableLastRefresh(candidateLast, 'auth_candidate.last_refresh');
+  const serveDefinitiveCandidateFallback = async (): Promise<Record<string, unknown>> => {
+    const fallback = await handleRetrieve(
+      app,
+      ctx,
+      host,
+      payload,
+      engine,
+      runnerValidation,
+      versionSvc,
+      authStore,
+    );
+    // This signal authorizes the wrapper to replace a locally newer candidate
+    // with the older canonical. Emit it only when the candidate failure was
+    // deterministic AND this response actually carries a verified canonical
+    // blob. A failed/pending canonical or upload_required response must never
+    // grant that authority.
+    return servesVerifiedCanonicalAuth(fallback)
+      ? { ...fallback, candidate_rejected_definitive: true }
+      : fallback;
+  };
+  if (candidateLast) {
+    try {
+      assertReasonableLastRefresh(candidateLast, 'auth_candidate.last_refresh');
+    } catch (err) {
+      if (err instanceof ValidationError) return serveDefinitiveCandidateFallback();
+      throw err;
+    }
+  }
 
   if (canonicalRow && canonicalDigest && canonicalLast && validated) {
     const candidateDigest = canonicalizedCandidateDigest(candidate, candidateLast || canonicalLast, engine, runnerValidation);
-    if (candidateDigest === canonicalDigest) {
+    if (candidateDigest === canonicalDigest && canonicalRow.verificationState !== 'failed') {
       // Candidate already matches canonical: this is the common warm-launch
       // path. Startup must not wait on live runner probes; use the latest stored
       // verdict from the background auth-verification worker.
@@ -484,8 +588,22 @@ async function handleBootstrapAuth(
       await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
       return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'valid' };
     }
-    if (candidateLast && Date.parse(candidateLast) < Date.parse(canonicalLast)) {
-      return handleRetrieve(app, ctx, host, retrievePayloadWithCandidateFreshness(payload, candidateLast), engine, runnerValidation, versionSvc, authStore);
+    if (
+      candidateLast &&
+      Date.parse(candidateLast) < Date.parse(canonicalLast) &&
+      canonicalRow.verificationState !== 'failed' &&
+      canonicalRow.verificationState !== 'pending'
+    ) {
+      return handleRetrieve(
+        app,
+        ctx,
+        host,
+        retrievePayloadWithCandidateFreshness(payload, candidateLast),
+        engine,
+        runnerValidation,
+        versionSvc,
+        authStore,
+      );
     }
   }
 
@@ -502,17 +620,18 @@ async function handleBootstrapAuth(
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
-    // Definitive live-probe rejection (422): the candidate credentials are
-    // proven dead — do NOT carry their freshness into the fallback. Stamping
-    // a dead candidate "fresh as now" out-ranks the verified canonical, the
-    // retrieve answers `upload_required`, and the wrapper re-uploads the same
-    // dead blob into another 422 → interactive re-login prompt, while a
-    // working canonical sits on the server the whole time. Falling back
-    // without the stamp lets retrieve report the host `outdated` and serve
-    // the canonical blob, so the host overwrites its dead credentials and
-    // heals unattended.
+    // A successful runner probe may already have consumed/rotated the
+    // candidate's refresh token. If its replacement bytes are unusable, the
+    // pre-refresh candidate is no longer safe to launch and an ordinary
+    // retrieve fallback would hide that fact from concurrent wrappers.
+    if (err instanceof ApiError && err.code === 'runner_updated_auth_invalid') throw err;
+    // Deterministic candidate rejection (422): malformed/unusable credentials
+    // or a definitive live-provider rejection. Do NOT carry their freshness
+    // into the fallback. That lets retrieve serve a verified canonical and
+    // heal the host; the explicit response flag tells the wrapper this is the
+    // one safe exception to its local-newer anti-clobber rule.
     if (err instanceof ValidationError) {
-      return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+      return serveDefinitiveCandidateFallback();
     }
     // CRITICAL (infrastructure failures only, e.g. runner outage): carry the
     // candidate's freshness into the fallback. The bundle payload has no
@@ -533,6 +652,16 @@ async function handleBootstrapAuth(
       authStore,
     );
   }
+}
+
+function servesVerifiedCanonicalAuth(response: Record<string, unknown>): boolean {
+  return (
+    response.status === 'outdated' &&
+    response.verification_state === 'verified' &&
+    response.auth !== null &&
+    typeof response.auth === 'object' &&
+    !Array.isArray(response.auth)
+  );
 }
 
 /**
@@ -605,13 +734,20 @@ async function handleStore(
     payload.wrapper_version,
     engine,
   );
+  const quota = await readQuotaControls(ctx, host.vip === 1);
 
-  return {
+  const response: Record<string, unknown> = {
     ...stored,
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions: summary,
+    ...quota,
+    cdx_silent: summary.cdx_silent,
     host: buildHostPayload(host),
   };
+  if (engine === ENGINE_CODEX) {
+    response.chatgpt = await readChatgptSnapshot(ctx, host.lanePreference);
+  }
+  return response;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -725,14 +861,21 @@ void ENGINE_CODEX;
 // Reference desc to silence unused-imports warning when callers don't use it.
 void desc;
 
-async function readQuotaLimitPercent(
-  versionSvc: ReturnType<typeof createVersionSnapshotService>,
-): Promise<number | null> {
-  const raw = await versionSvc.setting('quota_limit_percent');
-  if (raw === null || raw === undefined) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(50, Math.min(100, Math.round(n)));
+async function readQuotaControls(
+  ctx: RouteContext,
+  vip: boolean,
+): Promise<{
+  quota_hard_fail: boolean;
+  quota_limit_percent: number;
+  quota_week_partition: 0 | 5 | 7;
+}> {
+  const settings = new SettingsService(ctx.db);
+  const rawPartition = ((await settings.getString('quota_week_partition', 'off')) ?? 'off').trim();
+  return {
+    quota_hard_fail: vip ? false : await settings.getFlag('quota_hard_fail', true),
+    quota_limit_percent: Math.max(50, Math.min(100, await settings.getInt('quota_limit_percent', 95))),
+    quota_week_partition: rawPartition === '5' ? 5 : rawPartition === '7' ? 7 : 0,
+  };
 }
 
 async function readChatgptSnapshot(

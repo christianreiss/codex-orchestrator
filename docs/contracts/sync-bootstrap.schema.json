@@ -8,7 +8,10 @@
   ],
   "properties": {
     "status": {
-      "const": "ok"
+      "enum": [
+        "ok",
+        "update"
+      ]
     },
     "data": {
       "type": "object",
@@ -41,8 +44,7 @@
         "agents": {
           "type": "object",
           "required": [
-            "status",
-            "changed"
+            "status"
           ],
           "properties": {
             "status": {
@@ -51,9 +53,6 @@
                 "unchanged",
                 "updated"
               ]
-            },
-            "changed": {
-              "type": "boolean"
             },
             "content": {
               "type": [
@@ -67,8 +66,7 @@
         "config": {
           "type": "object",
           "required": [
-            "status",
-            "changed"
+            "status"
           ],
           "properties": {
             "status": {
@@ -77,9 +75,6 @@
                 "unchanged",
                 "updated"
               ]
-            },
-            "changed": {
-              "type": "boolean"
             },
             "content": {
               "type": [
@@ -101,8 +96,55 @@
           "properties": {
             "status": {
               "type": "string"
+            },
+            "auth": {
+              "type": "object"
+            },
+            "verification_state": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "verified",
+                "failed",
+                "unknown"
+              ]
+            },
+            "candidate_rejected_definitive": {
+              "type": "boolean",
+              "description": "True only when a submitted auth candidate was definitively rejected and the response also serves verified canonical auth that may replace it."
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "candidate_rejected_definitive"
+                ],
+                "properties": {
+                  "candidate_rejected_definitive": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "auth",
+                  "verification_state"
+                ],
+                "properties": {
+                  "auth": {
+                    "type": "object"
+                  },
+                  "status": {
+                    "const": "outdated"
+                  },
+                  "verification_state": {
+                    "const": "verified"
+                  }
+                }
+              }
+            }
+          ],
           "additionalProperties": true
         }
       },

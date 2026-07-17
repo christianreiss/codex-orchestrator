@@ -115,8 +115,14 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
       return {
         where: (w: unknown) => {
           fake.deletes.push({ table, where: w });
-          tables.set(table, []);
-          return Promise.resolve([{ affectedRows: 1 }]);
+          const rows = tables.get(table) ?? [];
+          const matched = filterRows(rows, w);
+          const removed = new Set(matched);
+          tables.set(
+            table,
+            rows.filter((row) => !removed.has(row)),
+          );
+          return Promise.resolve([{ affectedRows: matched.length }]);
         },
       };
     },
@@ -125,9 +131,81 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
 }
 
 function filterRows(rows: Row[], where: unknown): Row[] {
+  const conditions = containsOr(where) ? [] : whereConditions(where);
+  if (conditions.length > 0) {
+    return rows.filter((row) =>
+      conditions.every(({ column, value }) => {
+        const actual = rowValue(row, column);
+        return value === null ? actual === null || actual === undefined : actual === value;
+      }),
+    );
+  }
   const values = whereValues(where);
   if (values.length === 0) return rows;
   return rows.filter((row) => Object.values(row).some((value) => values.includes(value)));
+}
+
+interface WhereCondition {
+  column: string;
+  value: unknown;
+}
+
+function whereConditions(where: unknown): WhereCondition[] {
+  const out: WhereCondition[] = [];
+  visitConditions(where, out, new WeakSet<object>());
+  return out;
+}
+
+function visitConditions(value: unknown, out: WhereCondition[], seen: WeakSet<object>): void {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  const chunks = (value as { queryChunks?: unknown[] }).queryChunks;
+  if (!Array.isArray(chunks)) return;
+
+  const column = chunks.find(isColumnChunk);
+  const param = chunks.find(
+    (chunk): chunk is { value: unknown } =>
+      !!chunk && typeof chunk === 'object' && chunk.constructor?.name === 'Param' && 'value' in chunk,
+  );
+  const operator = chunks.map(stringChunkValue).join('').toLowerCase();
+  if (column && param && /\s=\s/.test(operator)) {
+    out.push({ column: column.name, value: param.value });
+    return;
+  }
+  if (column && /\sis\s+null\b/.test(operator)) {
+    out.push({ column: column.name, value: null });
+    return;
+  }
+  for (const chunk of chunks) visitConditions(chunk, out, seen);
+}
+
+function containsOr(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  const chunks = (value as { queryChunks?: unknown[] }).queryChunks;
+  if (!Array.isArray(chunks)) return false;
+  return chunks.some((chunk) => /\sor\s/i.test(stringChunkValue(chunk)) || containsOr(chunk, seen));
+}
+
+function isColumnChunk(value: unknown): value is { name: string } {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { name?: unknown }).name === 'string' &&
+    'table' in value
+  );
+}
+
+function stringChunkValue(value: unknown): string {
+  if (!value || typeof value !== 'object' || value.constructor?.name !== 'StringChunk') return '';
+  const raw = (value as { value?: unknown }).value;
+  return Array.isArray(raw) ? raw.join('') : typeof raw === 'string' ? raw : '';
+}
+
+function rowValue(row: Row, column: string): unknown {
+  if (column in row) return row[column];
+  const camel = column.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+  return row[camel];
 }
 
 function whereValues(where: unknown): unknown[] {

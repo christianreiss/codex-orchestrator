@@ -16,8 +16,8 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
    - Injects managed HTTP MCP auth for the host: the host API key on secure hosts, or a short-lived MCP bearer on insecure hosts (when orchestrator MCP is enabled).
    - Appends a trusted projects stanza when `username`/`home` identify a valid home path.
    - Returns baked `sha256` plus `base_sha256` (the stored template hash). When hashes match, `status:unchanged` omits the body.
-   - Returns `status:missing` when no config is stored; clients should delete `~/.codex/config.toml`.
-4. `cdx` writes the baked file to `~/.codex/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
+   - Returns `status:missing` when no config is stored; clients should delete the effective `CODEX_HOME/config.toml` (default `~/.codex/config.toml`).
+4. `cdx` writes the baked file to effective `CODEX_HOME/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
 Default notice mappings:
 - Builder defaults include `notice.model_migrations` entries for retired models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.3-codex`) to `gpt-5.6-terra` so Codex upgrade prompts can be auto-resolved from fleet-managed config.

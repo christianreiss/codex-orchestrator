@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import {
@@ -34,6 +34,10 @@ const installToken = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 // (A UUID here would pass the install-token regex and mask the seed-token
 // matcher, which is exactly how the 64-hex-rejection bug slipped through.)
 const seedToken = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('GET /install/:token', () => {
   it('emits a text/x-shellscript installer for a valid token', async () => {
@@ -278,7 +282,7 @@ describe('POST /seed/auth/:token', () => {
       headers: { 'content-type': 'application/json' },
       payload: JSON.stringify({
         last_refresh: '2026-05-17T00:00:00Z',
-        auths: { 'api.openai.com': { token: 'sk-abc', token_type: 'bearer' } },
+        auths: { 'api.openai.com': { token: 'sk-valid-seed-token', token_type: 'bearer' } },
       }),
     });
     expect(r.statusCode).toBe(200);
@@ -290,6 +294,43 @@ describe('POST /seed/auth/:token', () => {
     expect(db.tables.get(authPayloads)!.length).toBe(1);
     expect(db.tables.get(authEntries)!.length).toBe(1);
     expect(db.tables.get(authSeedTokens)![0]!.usedAt).toBeTruthy();
+    await app.close();
+  });
+
+  it('accepts exactly one of two concurrent requests for the same seed token', async () => {
+    const db = createDbFake();
+    db.tables.set(authSeedTokens, [
+      {
+        id: 5,
+        token: seedToken,
+        tokenEnc: null,
+        baseUrl: null,
+        engine: 'codex',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const request = () =>
+      app.inject({
+        method: 'POST',
+        url: `/seed/auth/${seedToken}`,
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          last_refresh: '2026-05-17T00:00:00Z',
+          auths: {
+            'api.openai.com': { token: 'sk-valid-concurrent-seed-token', token_type: 'bearer' },
+          },
+        }),
+      });
+
+    const responses = await Promise.all([request(), request()]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 410]);
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    expect(db.tables.get(authSeedTokens)![0]!.usedAt).not.toBeNull();
     await app.close();
   });
 
@@ -314,6 +355,141 @@ describe('POST /seed/auth/:token', () => {
       payload: JSON.stringify(null),
     });
     expect(r.statusCode).toBe(422);
+    expect(db.tables.get(authSeedTokens)![0]!.usedAt).toBeNull();
+    await app.close();
+  });
+
+  it('releases the seed token when canonical validation/store fails', async () => {
+    const db = createDbFake();
+    db.tables.set(authSeedTokens, [
+      {
+        id: 5,
+        token: seedToken,
+        tokenEnc: null,
+        baseUrl: null,
+        engine: 'codex',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: `/seed/auth/${seedToken}`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ poem: 'not credentials' }),
+    });
+    expect(r.statusCode).toBe(422);
+    expect(db.tables.get(authSeedTokens)![0]!.usedAt).toBeNull();
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+    await app.close();
+  });
+
+  it('releases the seed token when a valid candidate hits a transient runner outage', async () => {
+    const db = createDbFake();
+    db.tables.set(authSeedTokens, [
+      {
+        id: 5,
+        token: seedToken,
+        tokenEnc: null,
+        baseUrl: null,
+        engine: 'codex',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('runner unavailable');
+      }),
+    );
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/seed/auth/${seedToken}`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        last_refresh: '2026-05-17T00:00:00Z',
+        auths: { 'api.openai.com': { token: 'sk-valid-candidate', token_type: 'bearer' } },
+      }),
+    });
+
+    expect(r.statusCode).toBe(503);
+    expect(db.tables.get(authSeedTokens)![0]!.usedAt).toBeNull();
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+    await app.close();
+  });
+
+  it('keeps the seed token consumed when runner rotation was retained pending', async () => {
+    const db = createDbFake();
+    db.tables.set(authSeedTokens, [
+      {
+        id: 5,
+        token: seedToken,
+        tokenEnc: null,
+        baseUrl: null,
+        engine: 'codex',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            status: 'fail',
+            reachable: false,
+            definitive: false,
+            reason: 'CLI timed out after refresh',
+            auth_readback: 'updated',
+            updated_auth: {
+              last_refresh: '2026-05-17T00:00:00Z',
+              tokens: { access_token: 'sk-retained-pending-seed-token' },
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: `/seed/auth/${seedToken}`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        last_refresh: '2026-05-17T00:00:00Z',
+        tokens: { access_token: 'sk-original-valid-seed-token' },
+      }),
+    });
+
+    expect(r.statusCode).toBe(503);
+    expect(r.json().code).toBe('runner_updated_auth_invalid');
+    expect(db.tables.get(authSeedTokens)![0]!.usedAt).not.toBeNull();
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('pending');
     await app.close();
   });
 });

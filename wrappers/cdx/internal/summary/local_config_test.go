@@ -38,3 +38,15 @@ func TestLocalCodexPreferencesIgnoresInvalidOrMissingConfig(t *testing.T) {
 		t.Fatalf("invalid config = %q, %q", model, effort)
 	}
 }
+
+func TestLocalCodexPreferencesHonorsCodexHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("model = \"custom-home-model\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model, _ := localCodexPreferences()
+	if model != "custom-home-model" {
+		t.Fatalf("model = %q", model)
+	}
+}

@@ -48,9 +48,9 @@ func HasProfile(name string) bool {
 }
 
 func configTomlPath() string {
-	home, err := os.UserHomeDir()
+	home, err := CodexHome()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".codex", "config.toml")
+	return filepath.Join(home, "config.toml")
 }

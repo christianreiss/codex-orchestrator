@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
@@ -39,6 +40,25 @@ func TestRemoveFleetSkillsRemovesManifestDirsOnly(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(skills, "keep", "SKILL.md")); err != nil {
 		t.Fatalf("user skill dir keep/ must survive: %v", err)
+	}
+}
+
+func TestRemoveLocalStateReturnsCredentialRemovalFailure(t *testing.T) {
+	home := t.TempDir()
+	blocked := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(blocked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blocked, "still-in-use"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := removeLocalState(home, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), ".credentials.json") {
+		t.Fatalf("credential removal failure=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), ".credentials.json") {
+		t.Fatalf("credential removal failure was not reported: %q", stderr.String())
 	}
 }
 
@@ -103,13 +123,8 @@ func TestOtherUsersHonoursRootLevelUsersShape(t *testing.T) {
 	}
 }
 
-// otherUsers deliberately fails OPEN on a /host/users lookup error: an explicit
-// user-initiated `clx --uninstall` must not be blocked by a transient
-// orchestrator outage. The host-wide destructive ops it then reaches
-// (npm -g remove, system cron removal) are still OS-permission-bounded, so a
-// non-root user cannot actually nuke another user's shared state. This test
-// locks that contract — flipping it to fail-closed is a deliberate decision, not
-// an accident.
+// The compatibility helper still collapses errors, while Run uses
+// otherUsersOrErr and requires root/passwordless sudo when enumeration fails.
 func TestOtherUsersReturnsEmptyOnNetworkError(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -119,11 +134,20 @@ func TestOtherUsersReturnsEmptyOnNetworkError(t *testing.T) {
 	}
 }
 
+func TestOtherUsersOrErrPropagatesNetworkError(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	if _, err := otherUsersOrErr(context.Background(), c, "alice"); err == nil {
+		t.Fatal("host-user lookup failure was swallowed")
+	}
+}
+
 func TestEnsureCanDestructivelyTouchOtherUsersRefusesWhenNonRootAndNoSudo(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("test relies on non-root euid")
 	}
-	if sudoWorksNonInteractively() {
+	if sudoWorksNonInteractively(context.Background()) {
 		t.Skip("passwordless sudo available — refusal path skipped")
 	}
 	var buf bytes.Buffer

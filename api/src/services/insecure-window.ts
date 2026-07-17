@@ -21,8 +21,9 @@ import { wsPublisher } from '../ws/publisher.js';
  *     is set on the host row) is 10 minutes.
  *   - hitting a still-open window pushes both `enabled_until` and the grace
  *     tail forward.
- *   - `store` is allowed during the grace tail so a session's final upload
- *     succeeds after the window technically closes.
+ *   - `store` is always admitted as a candidate after normal API-key, host,
+ *     IP, and reverse-DNS authentication. It neither requires nor extends the
+ *     retrieve window; runner validation still gates canonical persistence.
  *   - a matching `insecure_domain_allows` row opens the window automatically.
  */
 
@@ -62,11 +63,15 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
     async enforce(host, command) {
       if (host.secure === 1) return host;
 
+      // A local login/logout may complete after the retrieve window closes.
+      // Rejecting its final store strands the fresh generation on one host and
+      // lets an older canonical win later. Authentication and runner checks
+      // still apply; only the insecure retrieve-window gate is bypassed.
+      if (command === 'store') return host;
+
       const now = new Date();
       const enabledUntil = parseDate(host.insecureEnabledUntil ?? null);
-      const graceUntil = parseDate(host.insecureGraceUntil ?? null);
       const enabledActive = enabledUntil !== null && enabledUntil >= now;
-      const graceActive = graceUntil !== null && graceUntil >= now;
       const hostId = host.id;
 
       if (enabledActive) {
@@ -87,8 +92,6 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
           insecureGraceUntil: newGrace,
         };
       }
-
-      if (command === 'store' && graceActive) return host;
 
       const domainMatch = await findActiveDomainAllow(db, host.fqdn);
       if (domainMatch) {

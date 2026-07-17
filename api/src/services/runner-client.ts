@@ -32,6 +32,9 @@ export interface RunnerVerifyResult {
   definitive?: boolean;
   reason?: string;
   updated_auth?: Record<string, unknown>;
+  /** Native credential-file state observed after a CLI probe. */
+  auth_readback?: 'unchanged' | 'updated' | 'error' | 'not_applicable';
+  auth_readback_error?: string;
   reachable: boolean;
   latency_ms?: number;
   [key: string]: unknown;
@@ -73,6 +76,13 @@ export interface RunnerClientDeps {
   env: Env;
   fetchImpl?: typeof fetch;
 }
+
+// The runner owns the provider/CLI probe deadline.  Its HTTP response still
+// needs a small, separate budget to read back a possibly-rotated credential
+// file, collect bounded version telemetry, and serialize the verdict.  Using
+// the exact same deadline for both layers can abort the one response that
+// carries replacement refresh-token bytes after the CLI times out.
+const VERIFY_RESPONSE_GRACE_MS = 6_000;
 
 export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
   const env = deps.env;
@@ -146,20 +156,34 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           if (messages.length) d.reason = messages.join('; ');
         }
       }
-      const isOk = (d.status ?? 'fail') === 'ok' && res.ok;
+      // The runner can be reached while the provider cannot (for example an
+      // Anthropic timeout).  Preserve that explicit signal instead of
+      // overwriting it merely because the runner returned HTTP 200.
+      const reachable = d.reachable === false ? false : true;
+      const isOk = (d.status ?? 'fail') === 'ok' && res.ok && reachable;
       // A verdict is only DEFINITIVE when the runner itself produced a
       // well-formed ok/fail on HTTP 200 — the probe actually ran against the
       // provider. Proxy error pages, empty bodies, runner-side HTTP errors
       // (400/500/504 {detail:...}) are infrastructure noise: they say nothing
       // about whether the credentials work and must never be treated as a
       // provider-side rejection.
-      const definitive = res.status === 200 && (d.status === 'ok' || d.status === 'fail');
+      // Successful probes are definitive unless the runner explicitly says
+      // otherwise. Failed probes are the inverse: require an explicit
+      // `definitive:true` from the runner, because a generic CLI non-zero exit
+      // can be a provider outage, quota/model error, or local runner failure.
+      const definitive =
+        reachable &&
+        res.status === 200 &&
+        ((d.status === 'ok' && d.definitive !== false) ||
+          (d.status === 'fail' && d.definitive === true));
+      const reason = typeof d.reason === 'string' ? d.reason : undefined;
       return {
         ...d,
         ok: isOk,
         status: isOk ? 'ok' : 'fail',
-        reachable: true,
+        reachable,
         definitive,
+        reason,
         latency_ms: typeof d.latency_ms === 'number' ? d.latency_ms : latencyMs,
       };
     } catch (err) {
@@ -199,14 +223,18 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
     isConfigured: () => Boolean(url),
     async verify(input) {
       const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
-      return send(url, { auth_json: input.authJson, timeout_seconds: timeout / 1000 }, timeout || defaultTimeout);
+      return send(
+        url,
+        { auth_json: input.authJson, timeout_seconds: timeout / 1000 },
+        (timeout || defaultTimeout) + VERIFY_RESPONSE_GRACE_MS,
+      );
     },
     async verifyClaude(input) {
       const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
       return send(
         deriveClaudeUrl(url),
         { auth_json: input.authJson, timeout_seconds: timeout / 1000 },
-        timeout || defaultTimeout,
+        (timeout || defaultTimeout) + VERIFY_RESPONSE_GRACE_MS,
       );
     },
     async generateSkillDraft(input) {

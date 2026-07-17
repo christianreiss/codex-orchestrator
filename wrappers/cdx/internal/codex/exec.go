@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ipc"
 )
 
 // captureMaxBytes caps the in-memory stdout buffer for pipe-mode runs. The
@@ -154,7 +155,42 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 // RunCapturePrepared runs the upstream Codex CLI after the caller has already
 // completed PreExec and arranged to call its teardown. Lifecycle uses this so
 // the boot screen's "Ready" line is printed only after wrapper-side setup.
-func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) (int, []byte, error) {
+func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) (exitCode int, captured []byte, runErr error) {
+	authSessionLease, err := StartAuthSession(cfg != nil && !cfg.Host.Secure)
+	if err != nil {
+		return 1, nil, fmt.Errorf("acquire auth session lease: %w", err)
+	}
+	defer func() {
+		_, _, cleanupErr := FinishAuthSession(authSessionLease)
+		if cleanupErr != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("finish auth session: %w", cleanupErr))
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
+
+	childLease, err := AcquireActiveChild()
+	if err != nil {
+		return 1, nil, fmt.Errorf("acquire active Codex child lease: %w", err)
+	}
+	defer func() {
+		if cleanupErr := childLease.Release(); cleanupErr != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("release active Codex child lease: %w", cleanupErr))
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
+
+	return runCapturePreparedWithHeldLeases(ctx, cfg, args, authSessionLease, childLease)
+}
+
+// runCapturePreparedWithHeldLeases supervises one native Codex child using
+// caller-owned coordination leases. Standard runs pass a shared AuthSession +
+// active-child lease; explicit logout passes exclusive maintenance + writer
+// leases so no shared process can queue through its destructive transaction.
+func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, args []string, session *AuthSession, childLease *ipc.Lock, extraLeases ...*ipc.Lock) (exitCode int, captured []byte, runErr error) {
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err
@@ -184,9 +220,14 @@ func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) 
 		cmd.Stdout = io.MultiWriter(os.Stdout, capture)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return 127, nil, fmt.Errorf("start codex: %w", err)
+	closeExtras, err := AttachAuthLeaseFiles(cmd, session, append([]*ipc.Lock{childLease}, extraLeases...)...)
+	if err != nil {
+		return 1, nil, fmt.Errorf("inherit Codex auth safety leases: %w", err)
 	}
+	if err := cmd.Start(); err != nil {
+		return 127, nil, errors.Join(fmt.Errorf("start codex: %w", err), closeExtras())
+	}
+	bridgeErr := closeExtras()
 
 	sigCh := make(chan os.Signal, 4)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -202,11 +243,16 @@ func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) 
 	signal.Stop(sigCh)
 	close(sigCh)
 
-	var captured []byte
 	if capture != nil {
 		captured = capture.Bytes()
 	}
 
+	if bridgeErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), captured, fmt.Errorf("release inherited Codex auth lease copies: %w", bridgeErr)
+		}
+		return 1, captured, errors.Join(waitErr, fmt.Errorf("release inherited Codex auth lease copies: %w", bridgeErr))
+	}
 	if waitErr == nil {
 		return 0, captured, nil
 	}

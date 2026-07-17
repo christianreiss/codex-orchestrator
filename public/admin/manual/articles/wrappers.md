@@ -1,7 +1,7 @@
 ---
 title: The cdx and clx wrappers
 section: Fleet operations
-verified: 2026-07-15
+verified: 2026-07-17
 sources: wrappers/cdx, wrappers/clx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -113,10 +113,23 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    activity object in one response. If the server returns `404`, `501`, or
    `405` the wrapper falls back to sequential legacy calls: `POST /auth`,
    `POST /agents/retrieve`, `POST /config/retrieve`.
-4. **Atomic writes** — if the server returned updated content, write
-   `auth.json`, the agents document (cdx: `~/.codex/AGENTS.md`; clx:
+   Legacy auth convergence is two-way: a newer usable local generation is
+   preserved and offered through `store`; only a validation-shaped 400/422
+   rejection plus an already-retrieved verified canonical can authorize older
+   replacement. Transient, policy/security, and rate failures preserve local
+   auth; `runner_updated_auth_invalid` fails closed on initial and concurrent
+   bundle paths, including when refreshed credentials were retained pending a
+   conclusive provider retry.
+4. **Atomic writes** — server auth is first filtered through the shared
+   replacement policy: never materialize `verification_state=failed`, preserve
+   newer usable local auth unless `candidate_rejected_definitive:true` arrives
+   with an older verified canonical, then compare-and-swap against the exact
+   local generation used by the request. A blocked native-child write is a safe
+   skip only if usable local auth remains and that exact generation was not
+   definitively rejected. Then write the
+   agents document (cdx: effective `CODEX_HOME/AGENTS.md`; clx:
    `~/.claude/CLAUDE.md`), and the engine config file (cdx:
-   `~/.codex/config.toml`; clx: `~/.claude/settings.json`, also mirrored to
+   effective `CODEX_HOME/config.toml`; clx: `~/.claude/settings.json`, also mirrored to
    `~/.clx/config/settings.json`) atomically. On the legacy fallback path
    these come from the individual retrieve calls instead of bundle fields.
 5. **Auth decision** — `orchestrator.Decide` evaluates the auth status. A few
@@ -133,15 +146,17 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    back to a cached `auth.json`/`.credentials.json` within 24h (7d on secure
    hosts) if one is fresh enough.
 6. **Interactive auth recovery** — when the decision is `VerificationFailed`,
-   or `missing`/`upload_required` with no usable local credential (or the
-   candidate was rejected), an interactive `run` prompts to launch
+   or `missing`/`upload_required` with no usable local recovery (including a
+   definitively rejected candidate), an interactive `run` prompts to launch
    `codex login` / `claude auth login`, uploads the freshly minted
    credentials, and re-checks with the server. Headless callers (cron,
    `--execute`) fail closed instead of opening the prompt.
 7. **Self-update, engine update, and peer reconciliation** — if
    `dec.Allowed`: `maybeEnsureWrapper` compares the running wrapper binary
    version to the server-declared target; if they differ it downloads the new
-   binary and re-execs it before the engine CLI launches. Then
+   binary and re-execs it before the engine CLI launches. cdx bridges its
+   shared auth lease and purge-request IDs into the replacement process; clx
+   finalizes its current auth session before re-exec. Then
    `maybeEnsureCodex` / `maybeEnsureClaude` auto-updates the upstream engine
    CLI to its server-declared target version. If not running in concurrent
    mode, `peer.Reconcile` then installs/updates or removes the *other*
@@ -156,7 +171,8 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    the same evidence-based states; bundled Claude-native skill application
    contributes to the skills marker, not config. On the first run of a new
    wrapper version, it performs a one-shot purge of legacy on-disk skill
-   directories (`~/.agents/skills`, `~/.codex/skills`, `~/.codex/prompts`).
+   directories (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective
+   `CODEX_HOME/prompts`).
 9. **Boot screen** — render the shared responsive
     outcome/context/version/health card to stderr. Redirects, dumb/narrow
     terminals, and `--minimal` use stable width-bounded ANSI-free ASCII.
@@ -166,12 +182,29 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
     sanitized and capped at three rendered lines; diagnostic causes/paths are
     bounded separately, and narrow update rows keep the outcome visible before
     version metadata.
-10. **Exec** — `exec` the upstream `codex` (or `claude`) CLI with the prepared
-    env, forwarding stdio and signals. Stdout is captured for token extraction.
-11. **Post-exec** — `maybePostRunAuthUpload` pushes a rotated `auth.json` back
-    to the orchestrator if the SHA or `last_refresh` changed during the run.
-    Render a measured exit footer from the real process exit, duration, engine
-    version, and auth-upload outcome.
+10. **Exec** — launch the upstream `codex` (or `claude`) CLI with the prepared
+    env, forwarding stdio and signals. A separate auth-path-keyed shared
+    active-child lease spans `Start` through `Wait`; duplicate session and
+    child-lease descriptors are inherited by the native process (including
+    help), so a killed wrapper cannot release coordination under a surviving
+    child. Stdout is captured for token
+    extraction.
+11. **Post-exec** — reconcile the native content generation: upload changed
+    usable credentials with guarded writeback, or record logout intent when
+    credentials were removed/unusable. As with bootstrap, pre-run, legacy,
+    recovery, and explicit auth-upload/login candidates, the post-run store keeps
+    an atomic auth+intent transaction through the bounded request so explicit
+    logout is linearly ordered around it. Logout markers include a random nonce
+    and are cleared only after an accepted store of the exact auth generation
+    and exact marker bytes observed before the request. Competing CLX canonical
+    responses advance only when their stable `last_refresh` is newer; older
+    responses cannot roll back, equal-stamp/different-content rotations fail
+    closed, and a peer child blocking writeback of an unchanged request
+    generation is a visible failure. Then the last
+    insecure-host session purges credential material; an active child defers
+    cleanup. Any required upload/writeback, marker, or purge failure makes an
+    otherwise successful invocation non-zero. Render the measured footer from
+    that combined result.
 
 When the bundle contains the historical `sessions` compatibility object, both
 cards render an `ACTIVITY` section. `local procs` is the same-UID wrapper process
@@ -183,7 +216,7 @@ optional block, in which case the card hides the section rather than
 fabricating zeroes.
 
 The context cards follow runtime configuration. cdx fills otherwise absent
-model/effort fields from `~/.codex/config.toml`. For clx, a signed
+model/effort fields from `${CODEX_HOME:-~/.codex}/config.toml`. For clx, a signed
 `claude_model_override` wins over inherited `ANTHROPIC_MODEL`; the inherited
 environment is a fallback, and response/`~/.claude/settings.json` values fill
 fields still unset.
@@ -219,13 +252,16 @@ over lane injection, and the card mirrors that launch choice. Clearing the lane
 preserves the signed fleet/per-host model while quota policy and display fall
 back to `normal`. If no explicit,
 signed, or response override supplies model/effort, cdx reads the top-level
-fields from `~/.codex/config.toml`; doctor validates the real TOML tree and its
+fields from `${CODEX_HOME:-~/.codex}/config.toml`; doctor validates the real TOML tree and its
 managed MCP block.
 
 Runner health follows launch policy: a stored transport failure is attention,
 because retrieve/cached launch remains allowed, while an explicit stored
-credential-verification failure is blocked. Doctors separately require a
-structurally usable local token and an HTTP 2xx API response.
+credential-verification failure is blocked. A store response reporting
+`runner_updated_auth_invalid` is also a hard failure: the runner may have
+consumed/rotated the submitted token, so usable-looking local bytes are not a
+safe fallback. Doctors separately require a structurally usable local token and
+an HTTP 2xx API response.
 
 ## Peer engine reconciliation
 
@@ -287,7 +323,36 @@ fallback and prints that decision before startup.
 
 Both `cdx` and `clx` expose an `auth-upload` subcommand that lets an operator
 manually push a locally-edited auth file to the orchestrator without waiting
-for the next automatic sync.
+for the next automatic sync. The request uses one stable, content-bound local
+generation. Candidate-carrying network requests keep the atomic auth+logout
+snapshot locked through their bounded store call; the returned canonical
+payload is compare-and-swapped only if that generation is still current. An
+overlapping explicit logout therefore orders wholly before or after the store.
+For clx, a different usable login after an older logout marker remains pending
+until `updated`/`valid` accepts that exact candidate; an `outdated` canonical-win
+response cannot clear the marker.
+
+Every config-backed command plus managed run and standalone
+status/login/logout/auth-upload participates in a portable shared auth-session
+lease keyed to the effective auth home. This does not serialize sessions. Each
+live API `host.secure` response updates only that session's durable purge
+request; requests from concurrent insecure sessions remain sticky. Only the
+last process to exit can obtain the exclusive lease and purge credentials,
+independent of exit order, and an active native child defers cleanup. Explicit
+logout takes an exclusive session when alone; with any peer it journals intent
+without starting a destructive native logout, and final peer exit completes
+removal. Uninstall requires the corresponding exclusive maintenance lease and
+refuses while a session is active. A failed multi-user safety lookup also fails
+closed unless root/passwordless sudo provides the fallback. cdx uses effective
+`CODEX_HOME/auth.json`; clx reads only
+Claude Code's native `~/.claude/.credentials.json` and treats the legacy clx
+credential file as an optional write-only mirror. Credential upload, guarded
+materialization, logout tracking, and insecure purge failures are non-zero
+wrapper failures; required uninstall removal failures are non-zero too. Lease
+FDs are inherited by wrapper-launched children, so coordination survives a
+wrapper crash until the child exits. These leases cover wrapper-launched children only: a raw
+`codex`/`claude` invocation outside cdx/clx is an unavoidable coordination
+boundary.
 
 ### execute / --execute
 

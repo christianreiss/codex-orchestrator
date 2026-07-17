@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 )
 
@@ -31,7 +32,7 @@ import (
 //
 // Cron callers reuse this helper after their own self-update so the restart
 // happens via the same code path as the interactive --update flow.
-func ReExecAfterUpdate(exe string, argv []string) error {
+func ReExecAfterUpdate(exe string, argv []string) (err error) {
 	if exe == "" {
 		return errors.New("ReExecAfterUpdate: empty exe path")
 	}
@@ -41,6 +42,18 @@ func ReExecAfterUpdate(exe string, argv []string) error {
 	env := os.Environ()
 	env = setEnvKV(env, "CODEX_WRAPPER_RESTARTED", "1")
 	env = setEnvKV(env, "CODEX_WRAPPER_RESTART_DEPTH", strconv.Itoa(depth+1))
+
+	// Defers do not run across syscall.Exec. Preserve this process's durable
+	// purge IDs and tell the restarted wrapper which IDs it must atomically
+	// adopt. Nothing is mutated before Exec, so an Exec failure leaves the
+	// current process fully responsible for its original requests.
+	env, cancelHandoff, err := codex.PrepareAuthSessionReexec(env)
+	if err != nil {
+		return fmt.Errorf("prepare auth sessions for wrapper re-exec: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, cancelHandoff())
+	}()
 
 	return syscall.Exec(exe, full, env)
 }

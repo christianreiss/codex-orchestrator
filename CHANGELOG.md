@@ -1,5 +1,78 @@
 # 2026-07-17
 
+- clx auth lifecycle race closure: every candidate-carrying bundle/direct store
+  now keeps one bounded auth+logout-intent transaction through the network call.
+  A usable login after an older logout marker remains pending until the server
+  accepts that exact generation; canonical-win `outdated` responses cannot clear
+  it. Competing canonical responses now converge monotonically by stable
+  `last_refresh`; older responses cannot roll back, equal-stamp/different-content
+  rotations fail closed, and peer-child-blocked writeback of an unchanged local
+  generation is no longer reported as success. Native auth reads bind bytes and
+  metadata to one open file descriptor, bundle/direct/post-run uploads serialize
+  overlapping logout, and uninstall fails closed on an unavailable multi-user
+  lookup unless root/passwordless sudo provides the safe fallback.
+- cdx auth lifecycle race closure: explicit logout is journaled before native
+  removal, becomes exclusive when no peer exists, and otherwise defers removal
+  until the final shared session exits. Native children inherit session and
+  active-child descriptors, keeping uninstall/logout/canonical writes blocked
+  after wrapper SIGKILL. Auth candidates hold one bounded auth+intent
+  transaction across `/auth` store and `/sync/bootstrap`; a distinct login
+  clears logout only after exact server acceptance, while `login status` stays
+  read-only and `status` reports active logout as non-zero. Status-only insecure
+  responses now request purge without a host block, stale startup security is
+  not replayed at finish, and required canonical writes fail closed when an
+  unchanged generation is merely blocked by a child. Concurrent verified
+  canonical responses now converge by RFC3339 instant in either completion
+  order, while a native/local generation remains authoritative regardless of
+  clock ordering. Distinct canonical digests with the same instant preserve the
+  first response and fail closed as an ordering conflict.
+- cdx uninstall now aggregates failures removing required `auth.json`, logout
+  intent, and insecure-purge state, continues the remaining cleanup, and exits
+  non-zero instead of reporting a false success.
+- cdx/clx 0.6.47 auth lifecycle hardening: local credentials now carry one
+  stable, content-bound generation across concurrent wrapper processes; late
+  server or runner responses use compare-and-swap and preserve a newer usable
+  login unless that exact candidate was definitively rejected and the API
+  explicitly serves an older verified recovery; they cannot undo an explicit
+  logout. Claude Code's native
+  `~/.claude/.credentials.json` is authoritative (the legacy clx file is a
+  write-only compatibility mirror), while cdx follows the effective
+  `CODEX_HOME`. Auth materialization, post-run upload, logout tracking, and
+  insecure-host cleanup failures are visible non-zero failures.
+- Concurrent and insecure wrapper lifecycles now use portable shared session
+  leases plus separate auth-path-keyed active-child leases. Any number of
+  cdx/clx sessions may run together, live API security metadata updates each
+  session's durable purge request, and only the last exiting auth-aware process
+  may purge insecure-host credentials. Standalone status/login/logout/upload
+  and uninstall maintenance participate; explicit logout intent uses exact
+  marker-byte CAS and survives purge. Raw engine processes outside the wrappers
+  remain the coordination boundary.
+- Canonical auth storage is now monotonic per engine: store and background
+  verification paths serialize runner work, re-check the selected generation
+  before commit, compare RFC3339 values by their actual instant, never roll
+  back to an older historically verified row, and let an older credential
+  repair a failed lineage only after live verification. Accepted digest changes
+  on timestamp ties, including runner rotations, now receive a bounded canonical
+  stamp at least 1 ms later so delayed concurrent responses cannot strand a
+  consumed predecessor token. Runner timeouts and
+  transient provider/CLI failures are non-definitive; only recognized auth
+  rejection can poison a canonical row. Seed tokens remain retryable after a
+  failed store, host auth-state writes are atomic upserts, and wrapper uninstall
+  removes only its requested engine from a dual-engine host.
+- Runner credential writeback is now explicit and lossless: both native probes
+  report unchanged/updated/read-error state even on timeout; a changed token
+  from a non-definitive probe is quarantined as pending, while a changed token
+  observed before a definitive rejection is retained as the newest failed
+  lineage. In either case the consumed old token cannot be used for offline
+  launch. Canonical reads now enforce the same timestamp, token-quality, and
+  engine-native credential rules as writes.
+  Published host-response schemas are compiled with Ajv and representative
+  live auth/bootstrap responses are validated against them in CI.
+- Insecure hosts can now finish `/auth store` after both retrieve window and
+  grace close without reopening the window, while all normal host/token/runner
+  checks still apply. Older clients can no longer roll a newer `pending`
+  canonical lineage backward; deterministic bootstrap candidate rejection is
+  the only guarded path that authorizes an older verified recovery.
 - cdx/clx 0.6.46 terminal UI: concurrent launches now show the managed-sync
   pause explanation once in SYSTEM instead of repeating it in the result
   footer; distinct results and errors remain visible in that footer.

@@ -6,25 +6,65 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-// AuthPath returns the local credential file path.
-//
-// Dual-location selection:
-//  1. choose the newest structurally usable file across ~/.claude and ~/.clx;
-//  2. prefer ~/.claude on ties because upstream Claude Code writes there;
-//  3. fall back to ~/.claude when neither exists yet.
-func AuthPath() (string, error) {
-	path, _, _, err := selectedAuthFile()
-	if errors.Is(err, os.ErrNotExist) {
-		return path, nil
+const generationStateFile = "generation.json"
+
+var ErrAuthUploadBlockedByLogout = errors.New("explicit Claude logout became active before auth upload")
+
+// AuthGeneration identifies the exact authoritative Claude-native credential
+// content observed before a network call. It deliberately excludes mtimes:
+// rewriting byte-identical credentials does not create a new auth generation.
+type AuthGeneration struct {
+	Exists bool
+	Digest string
+}
+
+// AuthSnapshot is a coherent read of Claude Code's authoritative credential
+// file. Upload contains the same credentials plus the wrapper's stable
+// last_refresh generation stamp.
+type AuthSnapshot struct {
+	Path       string
+	Raw        json.RawMessage
+	Upload     json.RawMessage
+	Generation AuthGeneration
+	// ServerDigest is the digest of the last authoritative canonical envelope
+	// that materialized this exact native digest. It lets status/bootstrap use a
+	// server-comparable digest even though Claude's native file omits fleet fields.
+	ServerDigest string
+	// LastRefresh is the stable wrapper generation timestamp when available,
+	// otherwise the authoritative native file's mtime.
+	LastRefresh time.Time
+	Usable      bool
+}
+
+type generationState struct {
+	Digest          string `json:"digest"`
+	LastRefresh     string `json:"last_refresh"`
+	CanonicalDigest string `json:"canonical_digest,omitempty"`
+}
+
+func (s AuthSnapshot) DigestForServer() string {
+	if validDigest(s.ServerDigest) {
+		return s.ServerDigest
 	}
+	return s.Generation.Digest
+}
+
+// AuthPath returns the only credential path Claude Code itself consumes.
+// ~/.clx/auth/credentials.json is a compatibility mirror, never an auth source:
+// otherwise a stale sidecar can green-light a missing native file or resurrect
+// an intentional Claude logout.
+func AuthPath() (string, error) {
+	path, _, err := authPaths()
 	return path, err
 }
 
@@ -36,7 +76,8 @@ func authPaths() (claudePath, clxPath string, err error) {
 	return filepath.Join(home, ".claude", ".credentials.json"), filepath.Join(home, ".clx", "auth", "credentials.json"), nil
 }
 
-// AuthCandidatePaths returns both credential paths in preference order for scans.
+// AuthCandidatePaths returns the authoritative path followed by its legacy
+// compatibility mirror. Callers may use this for cleanup/diagnostics only.
 func AuthCandidatePaths() ([]string, error) {
 	claudePath, clxPath, err := authPaths()
 	if err != nil {
@@ -46,52 +87,331 @@ func AuthCandidatePaths() ([]string, error) {
 }
 
 func LocalDigest() (string, error) {
-	_, raw, _, err := selectedAuthFile()
+	snap, err := ReadAuthSnapshot(false)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:]), nil
+	return snap.DigestForServer(), nil
 }
 
 // ReadAuth returns the raw bytes of the local credentials.json.
 func ReadAuth() (json.RawMessage, error) {
-	_, raw, _, err := selectedAuthFile()
+	snap, err := ReadAuthSnapshot(false)
 	if err != nil {
 		return nil, err
 	}
-	return json.RawMessage(raw), nil
+	return snap.Raw, nil
 }
 
-// ReadAuthForUpload returns a server-store-ready copy of the selected
-// credentials. It backfills last_refresh in memory only; local files are changed
-// only after the server accepts and returns canonical auth.
+// ReadAuthForUpload returns a server-store-ready copy of the authoritative
+// credentials. It persists only digest-bound generation metadata; the native
+// credential file changes only after the server accepts canonical auth.
 func ReadAuthForUpload() (json.RawMessage, string, error) {
-	path, raw, _, err := selectedAuthFile()
+	snap, err := ReadAuthSnapshot(true)
 	if err != nil {
 		return nil, "", err
 	}
-	out, err := backfillLastRefresh(json.RawMessage(raw))
+	return snap.Upload, snap.Path, nil
+}
+
+// ReadAuthForUploadSnapshot returns upload bytes and the exact native-file
+// generation they came from, then releases its short auth lock. Candidate
+// stores that must order against logout use BeginAuthUploadState or
+// BeginChangedAuthUploadState and deliberately keep that transaction lease
+// through the bounded network call.
+func ReadAuthForUploadSnapshot() (AuthSnapshot, error) {
+	return ReadAuthSnapshot(true)
+}
+
+// ReadAuthForRetrieveSnapshot returns the exact native generation for digest
+// comparison while offering a candidate only when the native JSON is
+// structurally usable. Invalid JSON therefore remains replaceable by verified
+// canonical auth instead of aborting bootstrap during upload normalization.
+func ReadAuthForRetrieveSnapshot() (AuthSnapshot, error) {
+	paths, unlock, err := lockAuthFiles()
 	if err != nil {
-		return nil, "", err
+		return AuthSnapshot{}, err
 	}
-	return out, path, nil
+	defer unlock()
+	snap, err := readAuthSnapshotLocked(paths, false)
+	if err != nil || !snap.Usable {
+		return snap, err
+	}
+	return readAuthSnapshotLocked(paths, true)
+}
+
+// ReadAuthForUploadState atomically snapshots the stabilized native upload and
+// the exact logout marker bytes used by an explicit store operation.
+func ReadAuthForUploadState() (AuthSnapshot, LogoutIntentGeneration, error) {
+	paths, unlock, err := lockAuthFiles()
+	if err != nil {
+		return AuthSnapshot{}, LogoutIntentGeneration{}, err
+	}
+	defer unlock()
+	snap, err := readAuthSnapshotLocked(paths, true)
+	if err != nil {
+		return AuthSnapshot{}, LogoutIntentGeneration{}, err
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	if err != nil {
+		return AuthSnapshot{}, LogoutIntentGeneration{}, err
+	}
+	return snap, intent, nil
+}
+
+// BeginAuthUploadState takes a linearizable auth+logout-intent snapshot for an
+// explicit login/auth-upload and returns an idempotent release function. The
+// caller deliberately keeps this lease through AuthStore: an explicit logout
+// then orders wholly before or wholly after the store. Existing intent is
+// returned unchanged because a later explicitly accepted login may acknowledge
+// it with ClearLogoutIntentIfUnchanged.
+func BeginAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	return beginAuthUploadState()
+}
+
+// BeginChangedAuthUploadState is the automatic candidate/post-run spelling.
+// Callers abort only when intent.Blocks(snapshot); a different usable native
+// generation must be uploaded and may acknowledge the exact marker after the
+// server accepts it.
+func BeginChangedAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	return beginAuthUploadState()
+}
+
+func beginAuthUploadState() (AuthSnapshot, LogoutIntentGeneration, func(), error) {
+	paths, unlock, err := lockAuthFiles()
+	if err != nil {
+		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
+	}
+	var once sync.Once
+	release := func() { once.Do(unlock) }
+	snap, err := readAuthSnapshotLocked(paths, true)
+	if err != nil {
+		release()
+		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	if err != nil {
+		release()
+		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
+	}
+	return snap, intent, release, nil
 }
 
 func ReadAuthForUploadFromPath(path string) (json.RawMessage, error) {
-	raw, err := os.ReadFile(path)
+	authPath, err := AuthPath()
 	if err != nil {
 		return nil, err
 	}
-	return backfillLastRefresh(json.RawMessage(raw))
+	if filepath.Clean(path) != filepath.Clean(authPath) {
+		return nil, fmt.Errorf("refusing non-authoritative Claude auth path %s", path)
+	}
+	snap, err := ReadAuthSnapshot(true)
+	if err != nil {
+		return nil, err
+	}
+	return snap.Upload, nil
+}
+
+// ReadAuthSnapshot reads the authoritative native file while holding the short
+// cross-process auth lock. When forUpload is true, a missing last_refresh is
+// assigned once per native-content digest and persisted in wrapper state. Every
+// concurrent reader of identical native content therefore uploads one stable
+// generation rather than independently inventing "now".
+func ReadAuthSnapshot(forUpload bool) (AuthSnapshot, error) {
+	paths, unlock, err := lockAuthFiles()
+	if err != nil {
+		return AuthSnapshot{}, err
+	}
+	defer unlock()
+	return readAuthSnapshotLocked(paths, forUpload)
+}
+
+func readAuthSnapshotLocked(paths authFileSet, forUpload bool) (AuthSnapshot, error) {
+	raw, info, err := readNative(paths.claude)
+	if err != nil {
+		return AuthSnapshot{Path: paths.claude}, err
+	}
+	digest := digestBytes(raw)
+	snap := AuthSnapshot{
+		Path:        paths.claude,
+		Raw:         json.RawMessage(raw),
+		Generation:  AuthGeneration{Exists: true, Digest: digest},
+		LastRefresh: info.ModTime().UTC(),
+		Usable:      isUsableAuth(raw),
+	}
+	if stamp, err := LastRefreshFromRaw(raw); err == nil {
+		snap.LastRefresh = stamp
+	}
+	if state := readGenerationState(paths.generation); state.Digest == digest {
+		if validDigest(state.CanonicalDigest) {
+			snap.ServerDigest = state.CanonicalDigest
+		}
+		if validRefresh(state.LastRefresh) {
+			if stamp, err := time.Parse(time.RFC3339Nano, state.LastRefresh); err == nil {
+				snap.LastRefresh = stamp.UTC()
+			}
+		}
+	}
+	if !forUpload {
+		return snap, nil
+	}
+
+	stamp, err := stableLastRefreshLocked(paths, raw, info, digest)
+	if err != nil {
+		return AuthSnapshot{}, err
+	}
+	snap.Upload, err = withLastRefresh(json.RawMessage(raw), stamp)
+	if err != nil {
+		return AuthSnapshot{}, err
+	}
+	if parsed, parseErr := time.Parse(time.RFC3339Nano, stamp); parseErr == nil {
+		snap.LastRefresh = parsed.UTC()
+	}
+	return snap, nil
+}
+
+// ServerAuthMayReplace is the shared materialization gate for bundle, legacy,
+// status, and accepted store responses. A known-bad canonical is never written.
+// A usable newer local login wins over an older canonical unless the API says
+// that exact candidate was definitively rejected and the canonical is verified.
+func ServerAuthMayReplace(local AuthSnapshot, canonical json.RawMessage, canonicalLastRefresh, verificationState string, candidateRejectedDefinitive bool) bool {
+	verificationState = strings.ToLower(strings.TrimSpace(verificationState))
+	if verificationState == "failed" {
+		return false
+	}
+	if !local.Generation.Exists || !local.Usable {
+		return true
+	}
+	if candidateRejectedDefinitive && verificationState == "verified" {
+		return true
+	}
+	canonicalRefresh, err := parseISO8601(strings.TrimSpace(canonicalLastRefresh))
+	if err != nil {
+		canonicalRefresh, err = LastRefreshFromRaw(canonical)
+	}
+	if err != nil || local.LastRefresh.IsZero() {
+		return false
+	}
+	return !local.LastRefresh.After(canonicalRefresh)
+}
+
+// BlockedCanonicalWriteError decides whether a generation-guarded canonical
+// write that returned applied=false is safe to skip. A different newer usable
+// local generation is a genuine CAS loss and wins. If the request generation is
+// still unchanged, however, the write was blocked (normally by an active native
+// child) and the caller must fail closed rather than consume credentials the
+// server explicitly replaced. Logout intent remains an intentional safe block.
+func BlockedCanonicalWriteError(request AuthSnapshot, canonical json.RawMessage, candidateRejectedDefinitive bool) error {
+	paths, unlock, err := lockAuthFiles()
+	if err != nil {
+		return fmt.Errorf("lock Claude credentials after blocked canonical write: %w", err)
+	}
+	defer unlock()
+	latest, err := readAuthSnapshotLocked(paths, false)
+	if errors.Is(err, os.ErrNotExist) {
+		intent, intentErr := logoutIntentGenerationAt(paths.logout)
+		if intentErr != nil {
+			return fmt.Errorf("inspect Claude logout intent after blocked canonical write: %w", intentErr)
+		}
+		if intent.Exists {
+			return nil
+		}
+		return errors.New("canonical Claude credentials were required but local credentials are absent")
+	}
+	if err != nil {
+		return fmt.Errorf("inspect Claude credentials after blocked canonical write: %w", err)
+	}
+	logoutActive, logoutErr := logoutIntentActiveLocked(paths, latest.Generation)
+	if logoutErr != nil {
+		return fmt.Errorf("inspect Claude logout intent after blocked canonical write: %w", logoutErr)
+	}
+	if logoutActive {
+		return nil
+	}
+	if !latest.Usable {
+		return errors.New("canonical Claude credentials were required but local credentials are unusable")
+	}
+	if latest.Generation == request.Generation {
+		if candidateRejectedDefinitive {
+			return errors.New("the current local Claude credential generation was definitively rejected and canonical repair was blocked by an active child")
+		}
+		return errors.New("canonical Claude credentials were required but the unchanged local generation could not be replaced while a Claude child was active")
+	}
+
+	// A different raw native generation is a genuine newer login and wins. A
+	// different wrapper-materialized canonical is safe only when it is strictly
+	// newer than this response (or carries identical native credentials). Equal
+	// timestamps with different digests are ambiguous runner rotations and must
+	// not be reported as successful convergence.
+	state := readGenerationState(paths.generation)
+	if state.Digest != latest.Generation.Digest || !validDigest(state.CanonicalDigest) {
+		return nil
+	}
+	native, nativeErr := extractClaudeFormat(canonical)
+	if nativeErr != nil {
+		return fmt.Errorf("normalize blocked canonical Claude credentials: %w", nativeErr)
+	}
+	if digestBytes(native) == latest.Generation.Digest {
+		return nil
+	}
+	incomingStamp := lastRefreshFromPayload(canonical)
+	if !validRefresh(incomingStamp) || !validRefresh(state.LastRefresh) {
+		return errors.New("canonical Claude response order is ambiguous because stable last_refresh metadata is missing")
+	}
+	incomingTime, incomingErr := time.Parse(time.RFC3339Nano, incomingStamp)
+	currentTime, currentErr := time.Parse(time.RFC3339Nano, state.LastRefresh)
+	if incomingErr != nil || currentErr != nil {
+		return errors.New("canonical Claude response order is ambiguous because stable last_refresh metadata is invalid")
+	}
+	if !incomingTime.Before(currentTime) {
+		return errors.New("canonical Claude response order is ambiguous: equal/newer last_refresh has different credential content but was not applied")
+	}
+	return nil
+}
+
+func readNative(path string) ([]byte, os.FileInfo, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close() //nolint:errcheck
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	return raw, info, nil
 }
 
 func WriteAuth(payload json.RawMessage) error {
+	_, err := writeAuth(payload, "", nil)
+	return err
+}
+
+// WriteAuthIfCurrent applies server-returned auth when the authoritative local
+// generation still matches what the request used. On a mismatch, it may also
+// advance a prior wrapper-materialized canonical generation when the incoming
+// stable last_refresh is strictly newer. Raw native logins never have that
+// canonical provenance and therefore still win response-order races.
+func WriteAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (bool, error) {
+	return writeAuth(payload, "", &expected)
+}
+
+// WriteAuthIfCurrentWithDigest is WriteAuthIfCurrent plus the API's canonical
+// digest, which is persisted only for the matching native generation.
+func WriteAuthIfCurrentWithDigest(payload json.RawMessage, canonicalDigest string, expected AuthGeneration) (bool, error) {
+	return writeAuth(payload, canonicalDigest, &expected)
+}
+
+func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGeneration) (bool, error) {
 	if len(payload) == 0 {
-		return errors.New("empty auth payload")
+		return false, errors.New("empty auth payload")
 	}
 	// Claude Code reads ~/.claude/.credentials.json and expects ONLY the
 	// claudeAiOauth block. The orchestrator payload may also carry legacy
@@ -99,21 +419,173 @@ func WriteAuth(payload json.RawMessage) error {
 	// back to the legacy auth flow or show the login wizard.
 	toWrite, err := extractClaudeFormat(payload)
 	if err != nil {
-		return fmt.Errorf("auth payload not valid JSON: %w", err)
+		return false, fmt.Errorf("auth payload not valid JSON: %w", err)
 	}
-	claudePath, clxPath, err := authPaths()
+	paths, unlock, err := lockAuthFiles()
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := atomicWrite(claudePath, toWrite); err != nil {
-		return err
+	defer unlock()
+	childLease, err := tryAcquireAuthChildWriter()
+	if err != nil {
+		if errors.Is(err, ErrAuthChildActive) && expected != nil {
+			return false, nil
+		}
+		return false, err
 	}
-	if _, statErr := os.Stat(clxPath); statErr == nil {
-		if err := atomicWrite(clxPath, toWrite); err != nil {
-			return err
+	defer childLease.Close() //nolint:errcheck
+
+	incomingStamp := lastRefreshFromPayload(payload)
+	current, err := generationAt(paths.claude)
+	if err != nil {
+		return false, err
+	}
+	commitExpected := expected
+	if expected != nil {
+		active, err := logoutIntentActiveLocked(paths, current)
+		if err != nil {
+			return false, err
+		}
+		if active {
+			return false, nil
+		}
+		if current != *expected {
+			state := readGenerationState(paths.generation)
+			if state.Digest != current.Digest || !validDigest(state.CanonicalDigest) || !refreshStrictlyAfter(incomingStamp, state.LastRefresh) {
+				return false, nil
+			}
+			// Another response for the same request generation committed first.
+			// Advance only from that exact wrapper-materialized native generation;
+			// commitAuthPairLocked re-checks it after staging to protect a raw login.
+			permitted := current
+			commitExpected = &permitted
 		}
 	}
-	return nil
+
+	stamp := incomingStamp
+	if stamp == "" {
+		stamp = stableTimestamp(time.Now().UTC(), "")
+	}
+	if !validDigest(canonicalDigest) {
+		canonicalDigest = digestBytes(payload)
+	}
+	state := generationState{Digest: digestBytes(toWrite), LastRefresh: stamp, CanonicalDigest: canonicalDigest}
+	stateRaw, err := json.Marshal(state)
+	if err != nil {
+		return false, err
+	}
+	applied, err := commitAuthPairLocked(paths, toWrite, stateRaw, commitExpected)
+	if err != nil {
+		return false, err
+	}
+	if !applied {
+		return false, nil
+	}
+	if err := clearLogoutIntentLocked(paths); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func refreshStrictlyAfter(candidate, current string) bool {
+	if !validRefresh(candidate) || !validRefresh(current) {
+		return false
+	}
+	candidateTime, candidateErr := time.Parse(time.RFC3339Nano, candidate)
+	currentTime, currentErr := time.Parse(time.RFC3339Nano, current)
+	return candidateErr == nil && currentErr == nil && candidateTime.After(currentTime)
+}
+
+func generationAt(path string) (AuthGeneration, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return AuthGeneration{}, nil
+	}
+	if err != nil {
+		return AuthGeneration{}, err
+	}
+	return AuthGeneration{Exists: true, Digest: digestBytes(raw)}, nil
+}
+
+func digestBytes(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func validDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, digest string) (string, error) {
+	if stamp := lastRefreshFromPayload(raw); stamp != "" {
+		return stamp, nil
+	}
+	previous := readGenerationState(paths.generation)
+	if previous.Digest == digest && validRefresh(previous.LastRefresh) {
+		return previous.LastRefresh, nil
+	}
+	stamp := stableTimestamp(info.ModTime().UTC(), previous.LastRefresh)
+	stateRaw, err := json.Marshal(generationState{Digest: digest, LastRefresh: stamp})
+	if err != nil {
+		return "", err
+	}
+	if err := atomicWriteLocked(paths.generation, stateRaw, 0o600); err != nil {
+		return "", err
+	}
+	return stamp, nil
+}
+
+func stableTimestamp(candidate time.Time, previous string) string {
+	now := time.Now().UTC()
+	if candidate.Year() < 2000 || candidate.After(now.Add(5*time.Minute)) {
+		candidate = now
+	}
+	if prev, err := time.Parse(time.RFC3339Nano, previous); err == nil && !candidate.After(prev) {
+		candidate = prev.Add(time.Nanosecond)
+		if candidate.After(now.Add(5 * time.Minute)) {
+			candidate = now
+		}
+	}
+	return candidate.UTC().Format(time.RFC3339Nano)
+}
+
+func validRefresh(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return false
+	}
+	now := time.Now().UTC()
+	return ts.Year() >= 2000 && !ts.After(now.Add(5*time.Minute))
+}
+
+func lastRefreshFromPayload(payload []byte) string {
+	var doc struct {
+		LastRefresh string `json:"last_refresh"`
+	}
+	if json.Unmarshal(payload, &doc) != nil || !validRefresh(doc.LastRefresh) {
+		return ""
+	}
+	return strings.TrimSpace(doc.LastRefresh)
+}
+
+func withLastRefresh(payload json.RawMessage, stamp string) (json.RawMessage, error) {
+	var obj map[string]any
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return nil, err
+	}
+	obj["last_refresh"] = stamp
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(out), nil
 }
 
 // AuthMatchesCanonical compares the on-disk Claude credential shape with the
@@ -159,64 +631,11 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 	return out, nil
 }
 
-// HasUsableAuth reports whether a structurally usable local credentials file
-// exists (either location, containing at least one Claude token).
+// HasUsableAuth reports whether Claude Code's authoritative native credential
+// file exists and contains at least one structurally usable token.
 func HasUsableAuth() bool {
-	_, raw, _, err := selectedAuthFile()
-	return err == nil && isUsableAuth(raw)
-}
-
-func selectedAuthFile() (string, []byte, os.FileInfo, error) {
-	claudePath, clxPath, err := authPaths()
-	if err != nil {
-		return "", nil, nil, err
-	}
-	type cand struct {
-		path   string
-		raw    []byte
-		info   os.FileInfo
-		usable bool
-	}
-	var found []cand
-	var lastErr error
-	for _, path := range []string{claudePath, clxPath} {
-		raw, readErr := os.ReadFile(path)
-		if errors.Is(readErr, os.ErrNotExist) {
-			continue
-		}
-		if readErr != nil {
-			// A transient/permission error on one candidate should not abort
-			// selection when the other candidate may still be usable; skip it.
-			lastErr = readErr
-			continue
-		}
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			lastErr = statErr
-			continue
-		}
-		found = append(found, cand{path: path, raw: raw, info: info, usable: isUsableAuth(raw)})
-	}
-	if len(found) == 0 {
-		if lastErr != nil {
-			return "", nil, nil, lastErr
-		}
-		return claudePath, nil, nil, os.ErrNotExist
-	}
-	best := found[0]
-	for _, cur := range found[1:] {
-		if cur.usable != best.usable {
-			if cur.usable {
-				best = cur
-			}
-			continue
-		}
-		if cur.info.ModTime().After(best.info.ModTime()) ||
-			(cur.info.ModTime().Equal(best.info.ModTime()) && cur.path == claudePath) {
-			best = cur
-		}
-	}
-	return best.path, best.raw, best.info, nil
+	snap, err := ReadAuthSnapshot(false)
+	return err == nil && snap.Usable
 }
 
 func isUsableAuth(raw []byte) bool {
@@ -227,73 +646,185 @@ func isUsableAuth(raw []byte) bool {
 	return hasAnyClaudeToken(doc)
 }
 
-func backfillLastRefresh(payload json.RawMessage) (json.RawMessage, error) {
-	var obj map[string]any
-	if err := json.Unmarshal(payload, &obj); err != nil {
-		return nil, err
-	}
-	if cur, ok := obj["last_refresh"].(string); ok && strings.TrimSpace(cur) != "" {
-		return payload, nil
-	}
-	obj["last_refresh"] = time.Now().UTC().Format(time.RFC3339)
-	out, err := json.Marshal(obj)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(out), nil
+type authFileSet struct {
+	claude       string
+	clx          string
+	generation   string
+	logout       string
+	purgeRequest string
+	lock         string
+	sessionLease string
+	childLease   string
 }
 
-// atomicWrite writes body to path via a unique temp file in the same
-// directory, forced to 0600, then renames it into place. An advisory
-// exclusive file lock serializes concurrent writers (e.g. a refresh cron and
-// an interactive session) so they cannot race on the same temp inode or
-// interleave writes.
-func atomicWrite(path string, body []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	unlock, err := lockAuthPath(path)
+func authFiles() (authFileSet, error) {
+	claudePath, clxPath, err := authPaths()
 	if err != nil {
-		return err
+		return authFileSet{}, err
 	}
-	defer unlock()
-
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.new")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // no-op once renamed into place
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	// os.WriteFile/os.CreateTemp only apply the requested mode when creating
-	// the file; force 0600 explicitly regardless of umask or pre-existing state.
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	stateDir := filepath.Dir(clxPath)
+	return authFileSet{
+		claude:       claudePath,
+		clx:          clxPath,
+		generation:   filepath.Join(stateDir, generationStateFile),
+		logout:       filepath.Join(stateDir, "logout-intent.json"),
+		purgeRequest: filepath.Join(stateDir, "purge-on-last-exit"),
+		lock:         filepath.Join(stateDir, "auth.lock"),
+		sessionLease: filepath.Join(filepath.Dir(claudePath), ".clx-auth-sessions.lock"),
+		childLease:   filepath.Join(filepath.Dir(claudePath), ".clx-auth-active-child.lock"),
+	}, nil
 }
 
-// lockAuthPath takes a blocking, exclusive advisory lock on a sibling lock
-// file so concurrent WriteAuth callers serialize instead of racing.
-func lockAuthPath(path string) (func(), error) {
-	lockPath := path + ".lock"
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+func lockAuthFiles() (authFileSet, func(), error) {
+	paths, err := authFiles()
 	if err != nil {
-		return nil, err
+		return authFileSet{}, nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.lock), 0o700); err != nil {
+		return authFileSet{}, nil, err
+	}
+	f, err := os.OpenFile(paths.lock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return authFileSet{}, nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		_ = f.Close()
-		return nil, err
+		return authFileSet{}, nil, err
 	}
-	return func() {
+	return paths, func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		_ = f.Close()
 	}, nil
+}
+
+func readGenerationState(path string) generationState {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return generationState{}
+	}
+	var state generationState
+	if json.Unmarshal(raw, &state) != nil {
+		return generationState{}
+	}
+	return state
+}
+
+// commitAuthPairLocked stages every file, commits the compatibility sidecar
+// and generation metadata first, and commits the authoritative native file
+// last. Once ~/.claude changes, both wrapper-owned companions are already in
+// sync. A crash before the final rename can only leave ignored sidecar state.
+func commitAuthPairLocked(paths authFileSet, native, state []byte, expected *AuthGeneration) (bool, error) {
+	claudeTmp, err := stageFile(paths.claude, native, 0o600)
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(claudeTmp)
+	stateTmp, err := stageFile(paths.generation, state, 0o600)
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(stateTmp)
+
+	mirrorExists := false
+	if _, err := os.Stat(paths.clx); err == nil {
+		mirrorExists = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	var mirrorTmp string
+	if mirrorExists {
+		mirrorTmp, err = stageFile(paths.clx, native, 0o600)
+		if err != nil {
+			return false, err
+		}
+		defer os.Remove(mirrorTmp)
+		if err := commitStaged(mirrorTmp, paths.clx); err != nil {
+			return false, err
+		}
+	}
+	if err := commitStaged(stateTmp, paths.generation); err != nil {
+		return false, err
+	}
+	// Staging and fsync can take long enough for an upstream Claude process,
+	// which cannot honor the wrapper lock, to mint a new login. Re-check at the
+	// native commit point so that generation wins too; stale companion state is
+	// harmless because readers bind it to the native digest.
+	if expected != nil {
+		current, err := generationAt(paths.claude)
+		if err != nil {
+			return false, err
+		}
+		if current != *expected {
+			return false, nil
+		}
+	}
+	if err := commitStaged(claudeTmp, paths.claude); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func atomicWriteLocked(path string, body []byte, mode os.FileMode) error {
+	tmp, err := stageFile(path, body, mode)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	return commitStaged(tmp, path)
+}
+
+func stageFile(path string, body []byte, mode os.FileMode) (string, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.new")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(mode); err != nil {
+		return "", err
+	}
+	if _, err := tmp.Write(body); err != nil {
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	ok = true
+	return tmpPath, nil
+}
+
+func commitStaged(tmpPath, path string) error {
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	err = f.Sync()
+	// Some Unix filesystems/platforms do not support fsync on directory file
+	// descriptors. The attempt still provides durability where supported; these
+	// specific portability errors must not make every auth update fail on macOS.
+	if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
+		return nil
+	}
+	return err
 }

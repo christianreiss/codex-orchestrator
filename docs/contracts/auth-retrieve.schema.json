@@ -8,7 +8,12 @@
   ],
   "properties": {
     "status": {
-      "const": "ok"
+      "enum": [
+        "valid",
+        "upload_required",
+        "outdated",
+        "missing"
+      ]
     },
     "data": {
       "type": "object",
@@ -22,7 +27,7 @@
         "quota_limit_percent",
         "quota_week_partition",
         "cdx_silent",
-        "chatgpt_usage"
+        "engine"
       ],
       "properties": {
         "status": {
@@ -51,6 +56,24 @@
         },
         "auth": {
           "type": "object"
+        },
+        "verification_state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "verified",
+            "failed",
+            "unknown"
+          ]
+        },
+        "verification_reason": {
+          "type": "string"
+        },
+        "engine": {
+          "enum": [
+            "codex",
+            "claude"
+          ]
         },
         "host": {
           "type": [
@@ -213,29 +236,27 @@
           "type": "object",
           "required": [
             "client_version",
-            "client_version_checked_at",
-            "client_version_source",
+            "client_version_override",
             "client_version_enforce_exact",
             "wrapper_version",
             "wrapper_sha256",
             "wrapper_url",
-            "reported_client_version",
-            "reported_wrapper_version",
-            "quota_hard_fail",
-            "quota_limit_percent",
-            "quota_week_partition",
-            "cdx_silent",
-            "admin_theme",
-            "auto_update_enabled",
-            "runner_enabled",
             "runner_state",
-            "runner_last_ok",
-            "runner_last_fail",
-            "runner_last_check",
-            "installation_id"
+            "api_disabled",
+            "cdx_silent",
+            "clx_silent",
+            "auto_update_enabled",
+            "installation_id",
+            "engine"
           ],
           "properties": {
             "client_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_version_override": {
               "type": [
                 "string",
                 "null"
@@ -312,6 +333,12 @@
             "auto_update_enabled": {
               "type": "boolean"
             },
+            "api_disabled": {
+              "type": "boolean"
+            },
+            "clx_silent": {
+              "type": "boolean"
+            },
             "runner_enabled": {
               "type": "boolean"
             },
@@ -344,6 +371,12 @@
                 "string",
                 "null"
               ]
+            },
+            "engine": {
+              "enum": [
+                "codex",
+                "claude"
+              ]
             }
           },
           "additionalProperties": true
@@ -360,13 +393,34 @@
         "cdx_silent": {
           "type": "boolean"
         },
-        "chatgpt_usage": {
-          "type": [
-            "object",
-            "null"
-          ]
+        "chatgpt": {
+          "type": "object"
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "engine": {
+                "const": "codex"
+              }
+            },
+            "required": [
+              "engine"
+            ]
+          },
+          "then": {
+            "required": [
+              "chatgpt"
+            ],
+            "properties": {
+              "chatgpt": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ],
       "anyOf": [
         {
           "required": [
@@ -386,6 +440,9 @@
           "properties": {
             "status": {
               "const": "upload_required"
+            },
+            "action": {
+              "const": "store"
             }
           }
         },
@@ -397,19 +454,43 @@
           "properties": {
             "status": {
               "const": "missing"
+            },
+            "action": {
+              "const": "store"
             }
           }
         },
         {
           "required": [
-            "status",
-            "auth"
+            "status"
           ],
           "properties": {
             "status": {
               "const": "outdated"
             }
-          }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "auth"
+              ],
+              "properties": {
+                "auth": {
+                  "type": "object"
+                }
+              }
+            },
+            {
+              "required": [
+                "verification_state"
+              ],
+              "properties": {
+                "verification_state": {
+                  "const": "failed"
+                }
+              }
+            }
+          ]
         }
       ],
       "additionalProperties": true

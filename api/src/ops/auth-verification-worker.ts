@@ -127,12 +127,13 @@ async function verifyEngine(
   if (verdict.state === 'failed') {
     await deps.telemetry.write(engine, 'fail', (deps.now ?? nowIso)());
     log?.warn?.({ engine, reason, reason_detail: verdict.reason }, 'canonical auth verification failed');
-  } else if (verdict.refreshed) {
-    await deps.telemetry.write(engine, 'ok', (deps.now ?? nowIso)());
-    log?.info?.({ engine, reason, digest: verdict.digest }, 'canonical auth refreshed by worker');
   } else if (verdict.state === 'verified') {
     await deps.telemetry.write(engine, 'ok', (deps.now ?? nowIso)());
-    log?.debug?.({ engine, reason, state: verdict.state }, 'canonical auth verification checked');
+    if (verdict.refreshed) {
+      log?.info?.({ engine, reason, digest: verdict.digest }, 'canonical auth refreshed by worker');
+    } else {
+      log?.debug?.({ engine, reason, state: verdict.state }, 'canonical auth verification checked');
+    }
   } else {
     log?.debug?.({ engine, reason, state: verdict.state }, 'canonical auth verification unavailable');
   }

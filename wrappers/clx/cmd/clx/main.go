@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -222,7 +223,7 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdout, stderr io.Writer) (code int) {
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	if depth > maxRestartDepth {
 		fmt.Fprintf(stderr, "clx: restart depth %d exceeded cap %d - refusing to continue\n", depth, maxRestartDepth)
@@ -249,23 +250,39 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
-	// no update check, no boot screen, no footer. argv is forwarded as-is except
+	// Help passthrough bypasses ordinary lifecycle work: no run lock, sync,
+	// update check, boot screen, or footer. It still holds the portable auth
+	// safety leases while the native process runs. argv is forwarded as-is except
 	// that a bare leading `help` token is rewritten to `--help` (see
 	// helpExecArgv) so the upstream Claude CLI renders help instead of opening an
 	// interactive session.
 	if f.helpPassthrough {
+		helpSession, err := claude.StartAuthSession(false)
+		if err != nil {
+			fmt.Fprintln(stderr, "clx --help: start auth session:", err)
+			return 1
+		}
+		defer func() {
+			_, cleanupErr := helpSession.CloseAndPurgeIfLast()
+			if cleanupErr != nil {
+				fmt.Fprintln(stderr, "clx --help: finalize auth session:", cleanupErr)
+				code = 1
+			}
+		}()
 		cli, err := claude.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "clx --help:", err)
 			return 127
 		}
 		execArgv := append([]string{cli}, helpExecArgv(args)...)
-		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
-			fmt.Fprintln(stderr, "clx --help: exec failed:", err)
-			return 127
+		exit, err := claude.RunHelpPassthrough(ctx, cli, execArgv, os.Environ(), os.Stdin, stdout, stderr, helpSession)
+		if err != nil {
+			fmt.Fprintln(stderr, "clx --help:", err)
+			if exit == 0 {
+				return 1
+			}
 		}
-		return 0
+		return exit
 	}
 
 	if f.executeInvalid {
@@ -308,6 +325,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	logger := log.Setup(f.silent, f.debug)
 
+	// Commands that exchange auth own a session so API-authoritative host
+	// security can update only that invocation's persisted purge request.
+	// Other config-backed commands still participate through this outer lease.
+	var commandSession *claude.AuthSession
+	if !commandOwnsAuthSession(sub, subArgs) {
+		commandSession, err = claude.StartAuthSession(!cfg.Host.Secure)
+		if err != nil {
+			fmt.Fprintln(stderr, "clx: start auth session:", err)
+			return 1
+		}
+		defer func() {
+			_, cleanupErr := commandSession.CloseAndPurgeIfLast()
+			if cleanupErr != nil {
+				fmt.Fprintln(stderr, "clx: finalize auth session:", cleanupErr)
+				code = 1
+			}
+		}()
+	}
+
 	switch sub {
 	case "run":
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
@@ -337,7 +373,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		printLifecycleError(stderr, "clx resume", err)
 		return exit
 	case "exec":
-		exit, err := claude.Run(ctx, cfg, append(subArgs, passthrough...))
+		exit, err := claude.RunWithAuthSession(ctx, cfg, append(subArgs, passthrough...), commandSession)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.PlainInline("clx exec: "+err.Error()))
 		}
@@ -367,7 +403,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			theme = *cfg.EngineOptions.AdminThemeHint
 		}
 		errCaps := commandCaps(ui.DetectCapsFor(stderr, theme), f.minimal)
-		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version)
+		artifact, err := resolveWrapperUpdateArtifact(ctx, cfg, Version, commandSession)
 		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", Version, err))
 			return 1
@@ -399,7 +435,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// caught `--help` variants.
 		if reservedClaudeSubcommands[sub] {
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
-			exit, err := claude.Run(ctx, cfg, execArgs)
+			if authMutationKind(execArgs) != "" {
+				return runClaudeAuthMutation(ctx, cfg, execArgs, stdout, stderr)
+			}
+			exit, err := claude.RunWithAuthSession(ctx, cfg, execArgs, commandSession)
 			if err != nil {
 				fmt.Fprintln(stderr, ui.PlainInline("clx "+sub+": "+err.Error()))
 			}
@@ -410,6 +449,226 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
+}
+
+func commandOwnsAuthSession(sub string, subArgs []string) bool {
+	switch sub {
+	case "run", "resume", "execute", "status", "auth-upload", "uninstall":
+		return true
+	}
+	if reservedClaudeSubcommands[sub] {
+		args := append([]string{sub}, subArgs...)
+		return authMutationKind(args) != ""
+	}
+	return false
+}
+
+func authMutationKind(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	if args[0] == "login" || args[0] == "logout" {
+		return args[0]
+	}
+	if args[0] == "auth" && len(args) > 1 && (args[1] == "login" || args[1] == "logout") {
+		return args[1]
+	}
+	return ""
+}
+
+func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) (code int) {
+	kind := authMutationKind(args)
+	var (
+		session     *claude.AuthSession
+		logoutPeers bool
+		err         error
+	)
+	if kind == "logout" {
+		session, logoutPeers, err = claude.StartExplicitLogoutSession(!cfg.Host.Secure)
+	} else {
+		session, err = claude.StartAuthSession(!cfg.Host.Secure)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "clx "+kind+": start auth session:", err)
+		return 1
+	}
+	defer func() {
+		_, err := session.CloseAndPurgeIfLast()
+		if err != nil {
+			fmt.Fprintln(stderr, "clx "+kind+": finalize auth session:", err)
+			code = 1
+		}
+	}()
+	before := claude.AuthGeneration{}
+	if snap, err := claude.ReadAuthSnapshot(false); err == nil {
+		before = snap.Generation
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, "clx "+kind+":", err)
+		return 1
+	}
+
+	if kind == "logout" {
+		if logoutPeers {
+			marked, err := claude.RecordDeferredExplicitLogout(before)
+			if err != nil {
+				fmt.Fprintln(stderr, "clx logout:", err)
+				return 1
+			}
+			if marked {
+				fmt.Fprintln(stdout, "clx logout: local logout recorded; native removal deferred until active CLX sessions exit")
+			}
+			return 0
+		}
+		exit, marked, deferred, err := claude.RunExplicitLogout(ctx, cfg, args, before, session)
+		if err != nil {
+			fmt.Fprintln(stderr, "clx logout:", err)
+			if exit == 0 {
+				return 1
+			}
+			return exit
+		}
+		if exit != 0 {
+			return exit
+		}
+		if marked {
+			if deferred {
+				fmt.Fprintln(stdout, "clx logout: local logout recorded; native removal deferred until active Claude exits")
+			} else {
+				fmt.Fprintln(stdout, "clx logout: local logout recorded")
+			}
+		}
+		return 0
+	}
+
+	exit, err := claude.RunWithAuthSession(ctx, cfg, args, session)
+	if err != nil {
+		fmt.Fprintln(stderr, "clx "+kind+":", err)
+		if exit == 0 {
+			return 1
+		}
+		return exit
+	}
+	if exit != 0 {
+		return exit
+	}
+	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
+	if err != nil {
+		fmt.Fprintln(stderr, "clx login: upload:", err)
+		return 1
+	}
+	if keptNewer {
+		fmt.Fprintln(stdout, "clx login: uploaded; newer concurrent local credentials kept")
+	} else {
+		fmt.Fprintln(stdout, "clx login: credentials uploaded")
+	}
+	return 0
+}
+
+func withInsecureAuthSession(cfg *config.Config, stderr io.Writer, fn func() int) (code int) {
+	if cfg.Host.Secure {
+		return fn()
+	}
+	session, err := claude.StartAuthSession(true)
+	if err != nil {
+		fmt.Fprintln(stderr, "clx: start insecure auth session:", err)
+		return 1
+	}
+	defer func() {
+		_, cleanupErr := session.CloseAndPurgeIfLast()
+		if cleanupErr != nil {
+			fmt.Fprintln(stderr, "clx: purge insecure credentials:", cleanupErr)
+			code = 1
+		}
+	}()
+	return fn()
+}
+
+func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *claude.AuthSession) (bool, error) {
+	client, err := orchestrator.New(orchestrator.Options{
+		BaseURL:       cfg.Orchestrator.BaseURL,
+		APIKey:        cfg.Orchestrator.APIKey,
+		AllowInsecure: cfg.Orchestrator.AllowInsecure,
+	})
+	if err != nil {
+		return false, err
+	}
+	snap, intent, releaseUpload, err := claude.BeginAuthUploadState()
+	if err != nil {
+		return false, err
+	}
+	defer releaseUpload()
+	uploadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	resp, err := client.AuthStore(uploadCtx, snap.Upload)
+	releaseUpload()
+	if err != nil {
+		return false, err
+	}
+	if err := updateCommandAuthSessionSecurity(session, resp); err != nil {
+		return false, fmt.Errorf("persist API host security state: %w", err)
+	}
+	if resp != nil && strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		return false, errors.New("server returned canonical Claude credentials that failed live verification")
+	}
+	if !resp.AuthCandidateAccepted() {
+		// `outdated` is authoritative arbitration, not acknowledgement of the
+		// uploaded login. Converge to its verified canonical when no logout
+		// marker is pending, but still return a visible failure so the user is
+		// never told that the rejected login was accepted.
+		if !intent.Exists && resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
+			snap,
+			resp.Auth,
+			resp.CanonicalLastRefresh,
+			resp.VerificationState,
+			resp.CandidateRejectedDefinitive,
+		) {
+			applied, writeErr := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+			if writeErr != nil {
+				return false, fmt.Errorf("apply authoritative Claude credentials after rejected upload: %w", writeErr)
+			}
+			if !applied {
+				if blockedErr := claude.BlockedCanonicalWriteError(snap, resp.Auth, resp.CandidateRejectedDefinitive); blockedErr != nil {
+					return false, fmt.Errorf("apply authoritative Claude credentials after rejected upload: %w", blockedErr)
+				}
+			}
+		}
+		status := ""
+		if resp != nil {
+			status = resp.Status
+		}
+		return false, fmt.Errorf("server did not accept the uploaded Claude credential generation (status %q)", status)
+	}
+	unchanged, err := claude.ClearLogoutIntentIfUnchanged(snap.Generation, intent)
+	if err != nil {
+		return false, err
+	}
+	if !unchanged {
+		return true, nil
+	}
+	if resp == nil || len(resp.Auth) == 0 {
+		return false, nil
+	}
+	if !claude.ServerAuthMayReplace(snap, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive) {
+		return true, nil
+	}
+	applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+	if err != nil {
+		return false, err
+	}
+	if !applied {
+		if blockedErr := claude.BlockedCanonicalWriteError(snap, resp.Auth, resp.CandidateRejectedDefinitive); blockedErr != nil {
+			return false, blockedErr
+		}
+	}
+	return !applied, nil
+}
+
+func updateCommandAuthSessionSecurity(session *claude.AuthSession, resp *orchestrator.AuthRetrieveResponse) error {
+	secure, known := resp.HostSecurity()
+	if !known || session == nil {
+		return nil
+	}
+	return session.SetPurgeOnLastExit(!secure)
 }
 
 func executeLifecycleOptions(f flags) lifecycle.Options {
@@ -515,7 +774,7 @@ type wrapperUpdateArtifact struct {
 	SHA256  string
 }
 
-func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, current string) (wrapperUpdateArtifact, error) {
+func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, current string, session *claude.AuthSession) (wrapperUpdateArtifact, error) {
 	if cfg == nil {
 		return wrapperUpdateArtifact{}, fmt.Errorf("wrapper config unavailable")
 	}
@@ -526,6 +785,9 @@ func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, curre
 	})
 	if err == nil {
 		if resp, rerr := client.AuthRetrieve(ctx, ""); rerr == nil && resp != nil {
+			if securityErr := updateCommandAuthSessionSecurity(session, resp); securityErr != nil {
+				return wrapperUpdateArtifact{}, fmt.Errorf("persist API host security state: %w", securityErr)
+			}
 			if artifact, ok := artifactFromVersionSummary(resp.Versions); ok {
 				return validateWrapperUpdateArtifact(artifact, current)
 			}
@@ -801,7 +1063,24 @@ func conflictingActions(f flags, positional []string) []string {
 	return actions
 }
 
-func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) int {
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) (code int) {
+	session, err := claude.StartAuthSession(!cfg.Host.Secure)
+	if err != nil {
+		fmt.Fprintln(stderr, "clx status: start auth session:", err)
+		return 1
+	}
+	defer func() {
+		_, cleanupErr := session.CloseAndPurgeIfLast()
+		if cleanupErr != nil {
+			fmt.Fprintln(stderr, "clx status: finalize auth session:", cleanupErr)
+			code = 1
+		}
+	}()
+	logoutHold, logoutErr := claude.LogoutIntentActive()
+	if logoutErr != nil {
+		fmt.Fprintln(stderr, "clx status: inspect logout intent:", logoutErr)
+		return 1
+	}
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -811,20 +1090,35 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		fmt.Fprintln(stderr, "clx status:", err)
 		return 1
 	}
-	digest, _ := claude.LocalDigest()
+	requestGeneration := claude.AuthGeneration{}
+	requestSnapshot := claude.AuthSnapshot{}
+	digest := ""
+	if snap, snapErr := claude.ReadAuthForRetrieveSnapshot(); snapErr == nil {
+		requestSnapshot = snap
+		requestGeneration = snap.Generation
+		if !logoutHold {
+			digest = snap.DigestForServer()
+		}
+	} else if !errors.Is(snapErr, os.ErrNotExist) {
+		fmt.Fprintln(stderr, "clx status:", snapErr)
+		return 1
+	}
 	resp, authErr := client.AuthRetrieve(ctx, digest)
+	if securityErr := updateCommandAuthSessionSecurity(session, resp); securityErr != nil {
+		authErr = errors.Join(authErr, fmt.Errorf("persist API host security state: %w", securityErr))
+	}
 	authSynced := false
 
 	// Seed credentials on a fresh install: if the server returns auth and the
 	// local status is outdated/missing/updated, write it now so the first
 	// `clx run` doesn't hit Claude's interactive login screen.
-	if authErr == nil && resp != nil && len(resp.Auth) > 0 {
+	if authErr == nil && !logoutHold && resp != nil && len(resp.Auth) > 0 {
 		switch strings.ToLower(strings.TrimSpace(resp.Status)) {
 		case "outdated", "updated", "missing":
-			if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+			authPath, _ := claude.AuthPath()
+			if !claude.ServerAuthMayReplace(requestSnapshot, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive) {
 				break
 			}
-			authPath, _ := claude.AuthPath()
 			if claude.AuthMatchesCanonical(authPath, resp.Auth) {
 				// The server compares the fleet envelope digest, while Claude's
 				// native file omits last_refresh. Treat equivalent credentials as
@@ -832,15 +1126,33 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 				resp.Status = "valid"
 				break
 			}
-			if !statusCanonicalAuthMayReplace(authPath, resp.Auth) {
-				break
-			}
-			if err := claude.WriteAuth(resp.Auth); err != nil {
+			applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, requestGeneration)
+			if err != nil {
 				authErr = fmt.Errorf("apply canonical auth: %w", err)
-			} else {
+			} else if applied {
 				authSynced = true
+			} else if blockedErr := claude.BlockedCanonicalWriteError(requestSnapshot, resp.Auth, resp.CandidateRejectedDefinitive); blockedErr != nil {
+				authErr = blockedErr
+			} else if claude.HasLogoutIntent() {
+				resp.Status = "missing"
+				resp.Auth = nil
+				resp.Message = "Local Claude logout is authoritative; re-authentication is required."
 			}
 		}
+	}
+	if !logoutHold {
+		finalLogout, finalLogoutErr := claude.LogoutIntentActive()
+		if finalLogoutErr != nil {
+			authErr = errors.Join(authErr, fmt.Errorf("inspect logout intent after status request: %w", finalLogoutErr))
+		} else {
+			logoutHold = finalLogout
+		}
+	}
+	if logoutHold && resp != nil {
+		resp.Status = "missing"
+		resp.Auth = nil
+		resp.VerificationState = ""
+		resp.Message = "Explicitly logged out locally; run `clx auth login` to authenticate again."
 	}
 
 	state := summary.Build(ctx, summary.Inputs{
@@ -851,6 +1163,10 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AuthSynced:     authSynced,
 		StatusOnly:     true,
 	})
+	if logoutHold {
+		state.ResultLabel = "Explicitly logged out locally; run `clx auth login` to authenticate again."
+		state.ResultTone = ui.ToneFail
+	}
 	if minimal {
 		ui.PrintMinimalScreen(stdout, state)
 	} else {
@@ -862,45 +1178,27 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 	return 0
 }
 
-// statusCanonicalAuthMayReplace prevents status from clobbering a newer local
-// Claude login before the orchestrator has accepted it.
-func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
-	localTime, err := claude.LastRefreshOfFile(localPath)
+func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (code int) {
+	session, err := claude.StartAuthSession(!cfg.Host.Secure)
 	if err != nil {
-		return true
-	}
-	canonicalTime, err := claude.LastRefreshFromRaw(canonical)
-	if err != nil {
-		return false
-	}
-	return !localTime.After(canonicalTime)
-}
-
-func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) int {
-	client, err := orchestrator.New(orchestrator.Options{
-		BaseURL:       cfg.Orchestrator.BaseURL,
-		APIKey:        cfg.Orchestrator.APIKey,
-		AllowInsecure: cfg.Orchestrator.AllowInsecure,
-	})
-	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
+		fmt.Fprintln(stderr, "auth-upload: start auth session:", err)
 		return 1
 	}
-	payload, _, err := claude.ReadAuthForUpload()
-	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
-		return 1
-	}
-	resp, err := client.AuthStore(ctx, payload)
-	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
-		return 1
-	}
-	if resp != nil && len(resp.Auth) > 0 {
-		if err := claude.WriteAuth(resp.Auth); err != nil {
-			fmt.Fprintln(stderr, "auth-upload:", err)
-			return 1
+	defer func() {
+		_, cleanupErr := session.CloseAndPurgeIfLast()
+		if cleanupErr != nil {
+			fmt.Fprintln(stderr, "auth-upload: finalize auth session:", cleanupErr)
+			code = 1
 		}
+	}()
+	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
+	if err != nil {
+		fmt.Fprintln(stderr, "auth-upload:", err)
+		return 1
+	}
+	if keptNewer {
+		fmt.Fprintln(stdout, "auth-upload: accepted; newer local credentials or logout intent kept")
+		return 0
 	}
 	fmt.Fprintln(stdout, "auth-upload: ok")
 	return 0

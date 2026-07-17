@@ -31,6 +31,8 @@ const (
 // ErrNoAuthFile is returned by helpers when the local auth file is absent.
 var ErrNoAuthFile = errors.New("auth.json not present")
 
+var minAuthTimestamp = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 // IsFresh reports whether the local auth.json's last_refresh timestamp is
 // within `window` of now (with a 5-minute future-skew tolerance). Missing
 // file → (false, ErrNoAuthFile). Unparseable timestamp → (false, error).
@@ -44,7 +46,19 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 	}
 	ts, err := lastRefreshFrom(raw)
 	if err != nil {
-		return false, err
+		// Native `codex login` credentials intentionally have no orchestrator
+		// last_refresh. Treat the file mtime as that generation's freshness,
+		// but only after proving the token document is structurally usable; an
+		// arbitrary or corrupt recently-written file must not unlock offline
+		// fallback.
+		if !isValidAuthRaw(raw) {
+			return false, err
+		}
+		st, statErr := os.Stat(path)
+		if statErr != nil {
+			return false, statErr
+		}
+		ts = st.ModTime().UTC()
 	}
 	now := time.Now().UTC()
 	delta := now.Sub(ts)
@@ -70,6 +84,10 @@ func IsValidLocalAuth(path string) bool {
 	if err != nil {
 		return false
 	}
+	return isValidAuthRaw(raw)
+}
+
+func isValidAuthRaw(raw []byte) bool {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return false
@@ -119,13 +137,26 @@ func LastRefreshOfFile(path string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	if ts, perr := lastRefreshFrom(raw); perr == nil {
+		if !reasonableAuthTimestamp(ts, time.Now()) {
+			return time.Time{}, errors.New("auth.json: last_refresh outside accepted bounds")
+		}
 		return ts, nil
 	}
 	st, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return st.ModTime().UTC(), nil
+	ts := st.ModTime().UTC()
+	if !reasonableAuthTimestamp(ts, time.Now()) {
+		return time.Time{}, errors.New("auth.json: mtime outside accepted bounds")
+	}
+	return ts, nil
+}
+
+func reasonableAuthTimestamp(candidate, now time.Time) bool {
+	candidate = candidate.UTC()
+	now = now.UTC()
+	return !candidate.Before(minAuthTimestamp) && !candidate.After(now.Add(maxFutureSkew))
 }
 
 // lastRefreshFrom parses a value from arbitrary auth JSON. Tolerates the `Z`

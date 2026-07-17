@@ -43,7 +43,7 @@ func TestAuthRetrieveSendsDigestAndAPIKey(t *testing.T) {
 	}
 }
 
-func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
+func TestAuthStoreReturnsAuthoritativeOutdatedResponse(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":  "outdated",
@@ -52,12 +52,62 @@ func TestAuthStoreRejectsFallbackRetrieveResponse(t *testing.T) {
 			"auth":    map[string]any{"tokens": map[string]any{"access_token": "old"}},
 		})
 	})
-	err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
-	if err == nil {
-		t.Fatal("expected store rejection")
+	resp, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err != nil {
+		t.Fatalf("store: %v", err)
 	}
-	if !strings.Contains(err.Error(), "status=outdated") {
+	if resp == nil || resp.Status != "outdated" || !strings.Contains(string(resp.Auth), "access_token") {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestAuthStoreRejectsNonSuccessStatus(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "upload_required", "message": "not stored"})
+	})
+	_, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if err == nil || !strings.Contains(err.Error(), "status=upload_required") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAuthStorePreservesTypedFinalServerError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"runner_updated_auth_invalid","message":"rotated writeback unusable"}`))
+	})
+	_, err := c.AuthStore(context.Background(), json.RawMessage(`{"last_refresh":"2026-01-01T00:00:00Z"}`))
+	if !IsUnsafeRunnerUpdatedAuthError(err) {
+		t.Fatalf("AuthStore error lost typed 503 code: %T %v", err, err)
+	}
+}
+
+func TestAuthCandidateErrorClassifiersAreNarrow(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		err              error
+		wantDefinitive   bool
+		wantUnsafeRunner bool
+	}{
+		{name: "422 validation", err: &HTTPError{StatusCode: 422, Code: "validation_failed"}, wantDefinitive: true},
+		{name: "legacy 422 without code", err: &HTTPError{StatusCode: 422}, wantDefinitive: true},
+		{name: "400 validation", err: &HTTPError{StatusCode: 400, Code: "validation_failed"}, wantDefinitive: true},
+		{name: "400 generic", err: &HTTPError{StatusCode: 400, Code: "bad_request"}},
+		{name: "403 engine policy", err: &HTTPError{StatusCode: 403, Code: "engine_disabled"}},
+		{name: "423 approval", err: &HTTPError{StatusCode: 423, Code: "insecure_pending"}},
+		{name: "429 rate limit", err: &HTTPError{StatusCode: 429, Code: "rate_limited"}},
+		{name: "ordinary runner outage", err: &HTTPError{StatusCode: 503, Code: "runner_unreachable"}},
+		{name: "rotated unusable writeback", err: &HTTPError{StatusCode: 503, Code: "runner_updated_auth_invalid"}, wantUnsafeRunner: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsDefinitiveAuthCandidateRejection(tc.err); got != tc.wantDefinitive {
+				t.Fatalf("definitive = %v, want %v", got, tc.wantDefinitive)
+			}
+			if got := IsUnsafeRunnerUpdatedAuthError(tc.err); got != tc.wantUnsafeRunner {
+				t.Fatalf("unsafe runner = %v, want %v", got, tc.wantUnsafeRunner)
+			}
+		})
 	}
 }
 

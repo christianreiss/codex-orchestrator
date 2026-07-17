@@ -2,10 +2,12 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 )
@@ -31,6 +33,66 @@ func TestRunCaptureRefusesFQDNMismatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "FQDN") {
 		t.Fatalf("expected FQDN mismatch error, got %v", err)
+	}
+}
+
+func TestActiveClaudeChildPreventsCanonicalRenameUntilWait(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ready := filepath.Join(home, "child-ready")
+	release := filepath.Join(home, "child-release")
+	t.Setenv("CLX_TEST_READY", ready)
+	t.Setenv("CLX_TEST_RELEASE", release)
+	bin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+: > "$CLX_TEST_READY"
+while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	old := json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)
+	if err := WriteAuth(old); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := RunCapture(context.Background(), &config.Config{}, nil)
+		done <- err
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Claude child did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	newer := json.RawMessage(`{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"new"}}`)
+	applied, err := WriteAuthIfCurrent(newer, before.Generation)
+	if err != nil || applied {
+		t.Fatalf("write during active child applied=%v err=%v", applied, err)
+	}
+	current, err := ReadAuthSnapshot(false)
+	if err != nil || current.Generation != before.Generation {
+		t.Fatalf("active child auth changed: current=%+v err=%v", current, err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	applied, err = WriteAuthIfCurrent(newer, before.Generation)
+	if err != nil || !applied {
+		t.Fatalf("write after child wait applied=%v err=%v", applied, err)
 	}
 }
 

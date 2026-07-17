@@ -93,6 +93,24 @@ func TestIsFresh_MissingLastRefresh(t *testing.T) {
 	}
 }
 
+func TestIsFresh_NativeLoginUsesMtimeOnlyWhenStructurallyValid(t *testing.T) {
+	p := writeAuth(t, `{"tokens":{"access_token":"fresh-native"}}`)
+	if ok, err := IsFresh(p, MaxAge24h); err != nil || !ok {
+		t.Fatalf("fresh native login should support offline fallback: ok=%v err=%v", ok, err)
+	}
+	old := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := IsFresh(p, MaxAge24h); ok {
+		t.Fatal("old native login mtime must not pass 24h fallback")
+	}
+	invalid := writeAuth(t, `{"tokens":{}}`)
+	if ok, err := IsFresh(invalid, MaxAge24h); err == nil || ok {
+		t.Fatalf("recent invalid file must not pass mtime fallback: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestIsFresh_TimezoneOffsetParses(t *testing.T) {
 	// +02:00 offset 1 hour ago — valid.
 	now := time.Now().In(time.FixedZone("CEST", 2*3600)).Add(-1 * time.Hour)

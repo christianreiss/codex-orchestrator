@@ -12,22 +12,57 @@ import (
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
 // add fields freely; unknown fields are tolerated.
 type AuthRetrieveResponse struct {
-	Status               string          `json:"status"`
-	Action               string          `json:"action,omitempty"`
-	Message              string          `json:"message,omitempty"`
-	Digest               string          `json:"digest,omitempty"`
-	CanonicalDigest      string          `json:"canonical_digest,omitempty"`
-	CanonicalLastRefresh string          `json:"canonical_last_refresh,omitempty"`
-	Auth                 json.RawMessage `json:"auth,omitempty"`
-	APICalls             int64           `json:"api_calls,omitempty"`
-	Versions             *VersionSummary `json:"versions,omitempty"`
-	Host                 *HostInfo       `json:"host,omitempty"`
-	QuotaHardFail        bool            `json:"quota_hard_fail,omitempty"`
-	QuotaLimitPercent    *int            `json:"quota_limit_percent,omitempty"`
-	Engine               string          `json:"engine,omitempty"`
-	VerificationState    string          `json:"verification_state,omitempty"`
-	RunnerApplied        bool            `json:"runner_applied,omitempty"`
-	RunnerSkippedReason  string          `json:"runner_skipped_reason,omitempty"`
+	Status                      string          `json:"status"`
+	Action                      string          `json:"action,omitempty"`
+	Message                     string          `json:"message,omitempty"`
+	Digest                      string          `json:"digest,omitempty"`
+	CanonicalDigest             string          `json:"canonical_digest,omitempty"`
+	CanonicalLastRefresh        string          `json:"canonical_last_refresh,omitempty"`
+	Auth                        json.RawMessage `json:"auth,omitempty"`
+	APICalls                    int64           `json:"api_calls,omitempty"`
+	Versions                    *VersionSummary `json:"versions,omitempty"`
+	Host                        *HostInfo       `json:"host,omitempty"`
+	QuotaHardFail               bool            `json:"quota_hard_fail,omitempty"`
+	QuotaLimitPercent           *int            `json:"quota_limit_percent,omitempty"`
+	Engine                      string          `json:"engine,omitempty"`
+	VerificationState           string          `json:"verification_state,omitempty"`
+	RunnerApplied               bool            `json:"runner_applied,omitempty"`
+	RunnerSkippedReason         string          `json:"runner_skipped_reason,omitempty"`
+	CandidateRejectedDefinitive bool            `json:"candidate_rejected_definitive,omitempty"`
+}
+
+// HostSecurity reports API-authoritative host security when present. Insecure
+// approval statuses are themselves authoritative even when the compact error
+// response omits the host object.
+func (r *AuthRetrieveResponse) HostSecurity() (secure bool, known bool) {
+	if r == nil {
+		return false, false
+	}
+	if r.Host != nil {
+		return r.Host.Secure, true
+	}
+	switch strings.ToLower(strings.TrimSpace(r.Status)) {
+	case "insecure", "insecure-denied", "insecure_pending", "insecure_denied":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// AuthCandidateAccepted reports whether the server accepted the exact auth
+// candidate carried by an AuthStore or /sync/bootstrap request. In particular,
+// an "outdated" response is a successful arbitration response but does not
+// acknowledge the candidate: its canonical auth won instead.
+func (r *AuthRetrieveResponse) AuthCandidateAccepted() bool {
+	if r == nil || r.CandidateRejectedDefinitive || strings.EqualFold(strings.TrimSpace(r.VerificationState), "failed") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(r.Status)) {
+	case "valid", "updated", "current", "ok", "unchanged":
+		return true
+	default:
+		return false
+	}
 }
 
 type VersionSummary struct {
@@ -107,7 +142,19 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) (*AuthR
 	if out.Status == "error" {
 		return out, errors.New(out.Message)
 	}
-	if strings.ToLower(strings.TrimSpace(out.Status)) != "updated" {
+	status := strings.ToLower(strings.TrimSpace(out.Status))
+	switch status {
+	case "updated", "valid":
+		return out, nil
+	case "outdated":
+		// A concurrent/newer canonical won server-side arbitration. This is a
+		// successful store outcome only when the server returns that authoritative
+		// auth for generation-guarded local application.
+		if len(out.Auth) > 0 && out.CanonicalDigest != "" && out.CanonicalLastRefresh != "" {
+			return out, nil
+		}
+	}
+	{
 		reason := out.Message
 		if reason == "" {
 			reason = out.Action
@@ -117,7 +164,29 @@ func (c *Client) AuthStore(ctx context.Context, payload json.RawMessage) (*AuthR
 		}
 		return out, fmt.Errorf("auth store not accepted: status=%s reason=%s", out.Status, reason)
 	}
-	return out, nil
+}
+
+// IsDefinitiveAuthCandidateRejection recognizes only validation-shaped store
+// failures. Security policy, approval, installation, and rate-limit 4xx
+// responses do not prove that the candidate credential itself is bad.
+func IsDefinitiveAuthCandidateRejection(err error) bool {
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(httpErr.Code))
+	if httpErr.StatusCode == http.StatusUnprocessableEntity {
+		return code == "" || code == "validation_failed"
+	}
+	return httpErr.StatusCode == http.StatusBadRequest && code == "validation_failed"
+}
+
+// IsUnsafeRunnerUpdatedAuthError identifies the fail-closed case where the
+// runner rotated/changed credentials but returned unusable replacement bytes.
+// Reusing the pre-refresh token or starting another login loop is unsafe.
+func IsUnsafeRunnerUpdatedAuthError(err error) bool {
+	var httpErr *HTTPError
+	return errors.As(err, &httpErr) && httpErr.Code == "runner_updated_auth_invalid"
 }
 
 // CheckAuthStatus runs /auth retrieve and returns just the lower-cased

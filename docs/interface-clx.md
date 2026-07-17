@@ -10,8 +10,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | Wrapper binary | static Go binary (`wrappers/cdx/`) | static Go binary (`wrappers/clx/`) |
 | Built by | `cd wrappers && make cdx` | `cd wrappers && make clx` |
 | CLI under the hood | `codex` (Rust) | `claude` or `claude-code` (Node, `@anthropic-ai/claude-code`) |
-| Auth file | `~/.codex/auth.json` | `~/.claude/.credentials.json` |
-| Config file | `~/.codex/config.toml` (TOML) | `~/.claude/settings.json` (JSON) |
+| Auth file | effective `CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | `~/.claude/.credentials.json` |
+| Config file | effective `CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.claude/settings.json` (JSON) |
 | Agents document | `AGENTS.md` | `CLAUDE.md` |
 | API key prefix | `sk-codex-` | `sk-claude-` |
 | Admin API endpoints | `/v1/*` + `/admin/openai/*` | `/anthropic/v1/*` + `/admin/claude/*` |
@@ -22,21 +22,21 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | Subcommand | Purpose |
 |---|---|
 | `run` (default) | One Claude session; runs the full startup sequence first |
-| `status` / `--status` | Responsive local config + `/auth` round-trip (API, auth, and reported runner health) on stdout. Returned canonical credentials can seed/repair the local file but never replace a fresher local login; unreadable config and failed health return a structured non-zero report. |
+| `status` / `--status` | Responsive local config + `/auth` round-trip (API, auth, and reported runner health) on stdout. Returned canonical credentials can seed/repair the local file but replace a fresher usable local login only when that exact candidate was definitively rejected and the canonical is verified; unreadable config/marker state and failed health return a structured non-zero report. |
 | `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, usable credentials, parsed settings/MCP state, HTTP reachability, latency, disk, cron) on stdout; an unreadable signed config is rendered as a blocked diagnostic instead of bypassing the terminal UI |
-| `auth-upload` | POST the local credentials file to canonical store |
-| `auth ...` | Passed straight through to the upstream `claude auth` command |
+| `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
+| `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
 | `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
-| `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
+| `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. It skips the managed run lock but keeps a neutral auth session plus the native-auth active-child lease until the help child exits, so another insecure invocation's final purge cannot be stranded. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `--update` | Self-update now (verifies SHA256 before swapping) |
-| `--uninstall` | Remove credentials + local state + cron entry; refuses on multi-user hosts without sudo |
+| `--uninstall` | Take the native-auth exclusive maintenance lease, then remove credentials + local state + cron entry; refuses while another clx auth session is active, on a known multi-user host without sudo, or when the user lookup fails without root/passwordless-sudo fallback |
 
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
 
@@ -81,7 +81,8 @@ healthy; unreachable requests also fail the latency row instead of displaying
 a green dash.
 
 On normal startup, managed hosts install the server-advertised `clx` wrapper
-artifact first, re-exec the original argv after a successful swap, then repair a
+artifact first, finalize that invocation's auth session (including any final
+insecure purge), re-exec the original argv after a successful swap, then repair a
 stale Claude Code CLI; an already matching Claude Code version is a no-op even
 when the fleet policy is an exact pin. Root-owned wrapper installs use the same verified
 temp-file plus `sudo -n install` fallback as explicit `--update` and cron runs.
@@ -146,7 +147,11 @@ single-instance flock on `$XDG_RUNTIME_DIR/clx.lock` (or
 (`/sync/bootstrap` with `include_auth=true`; resource envelopes are unwrapped
 before `CLAUDE.md` / `settings.json` writes), typed auth decision matrix
 including approval-pending polling, Claude CLI version
-reconciliation, and post-run credential re-upload on sha change. The `clx`
+reconciliation, and post-run generation reconciliation. A changed usable
+native generation is uploaded with compare-and-swap writeback; a removed or
+unusable generation records logout intent. Upload, writeback, marker, or
+last-session insecure-purge failures make an otherwise successful run non-zero.
+The `clx`
 lock is deliberately independent from `cdx.lock`, so active Codex and Claude
 sessions can run side by side without pausing each other's managed sync. The
 FQDN mismatch check runs before acquiring the lock or making any orchestrator
@@ -157,6 +162,16 @@ Startup does not wait on live runner verification; `/auth` and
 `/sync/bootstrap` return the latest stored background-worker verdict, and a
 stored `verification_state=failed` still refuses launch with the interactive
 Claude login recovery path.
+Bootstrap `candidate_rejected_definitive:true` is honored only with
+`status:outdated`, `verification_state:verified`, and an auth object. Invalid
+native JSON is submitted as digest/state without raw candidate bytes so verified
+canonical auth can repair it. On 404/405/501, legacy fallback preserves a newer
+usable native generation and attempts store; only validation-shaped 400/422
+permits applying the already-retrieved verified canonical. Transient,
+security/policy, and rate failures preserve local auth, while unsafe runner
+rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
+retry) fails closed on initial and concurrent bundle paths instead of using the
+pre-refresh local token as an offline fallback.
 An IP-binding denial (`ip_mismatch`) wrapped by `/sync/bootstrap` as an offline
 response is instead treated as a reachable hard policy denial: `clx` states
 that the current IP is not bound and directs the operator to **Admin → Host
@@ -164,10 +179,13 @@ Detail → Release IP binding** for the controlled IP move. Cached credentials
 are never used for this condition.
 When the `clx` lock is already held, the secondary run pauses writes for
 managed `CLAUDE.md`, settings, collections, skills, wrapper/CLI updates, and
-peer reconciliation, but it still performs the startup auth digest check and
-atomically writes server-returned canonical
-credentials on `outdated`/`updated`/`missing` so it cannot launch Claude with a
-stale local `.credentials.json`. `--allow-concurrent-sync` is the explicit
+peer reconciliation, but auth still follows the full replacement gate: never
+write `verification_state=failed`, preserve newer usable native auth unless the
+API definitively rejects that candidate and serves a verified canonical, then
+require generation CAS plus the active-child writer lease. A blocked required
+write fails when no usable local credential remains, and the exact local
+generation named by `candidate_rejected_definitive` is treated as unusable even
+when its JSON still contains a token. `--allow-concurrent-sync` is the explicit
 escape hatch: it allows normal managed writes without the lock and announces
 that choice before startup. The boot card says `SYNC PAUSED` and keeps the
 probed health markers visible. Approval polling only repaints an interactive,
@@ -176,13 +194,73 @@ Admin → Host Detail guidance instead of hanging or writing cursor controls.
 The boot summary uses the same client-version policy as the updater:
 non-exact latest/current targets only show an arrow when the resolved target is
 newer than the local Claude CLI.
+### Auth generation, logout, and insecure cleanup
+
+`~/.claude/.credentials.json` is the sole read authority because it is the file
+Claude Code actually consumes. `~/.clx/auth/credentials.json` is only an
+optional write-through compatibility mirror and can never green-light a missing
+native file or resurrect logout. Wrapper-owned
+`~/.clx/auth/generation.json` binds a stable RFC3339 `last_refresh` to the
+native content digest without injecting wrapper fields into Claude's file.
+Concurrent readers of identical native bytes therefore upload the same
+generation.
+
+Auth-file locks normally cover only coherent reads, compare-and-swap writes,
+and fsynced renames. Every request carrying Claude candidate bytes is the
+deliberate exception: bundle bootstrap, pre-run/legacy recovery, explicit
+login/auth-upload, and post-run upload keep one atomic auth+logout-intent
+snapshot locked through the bounded network call (normally 10–15 seconds).
+An overlapping explicit logout therefore orders wholly before or after the
+upload. A separate shared lease beside native
+credentials spans every wrapper-launched Claude `Start`/`Wait` interval.
+Duplicate session and active-child lease descriptors are inherited by the
+native child, including help, so a wrapper `SIGKILL` cannot make uninstall,
+purge, or canonical writes race an orphaned Claude process. Managed writers
+acquire the exclusive side before rename/removal. Server/runner
+writeback commits only if the native generation is unchanged, with the native
+file as the final commit point after generation metadata and any existing
+compatibility mirror. Competing responses for the same request generation use
+the persisted canonical `last_refresh`: a strictly newer response can advance a
+prior wrapper-materialized response, an older response cannot roll it back, and
+equal-stamp/different-content responses fail closed as an ambiguous rotation.
+A raw newer login, logout marker, or active child is never overwritten. If a
+required write is blocked while the request generation is still unchanged, the
+invocation fails instead of consuming a credential the server replaced. A newer
+usable local login otherwise wins every response-order race unless that exact
+candidate was definitively rejected and an older verified canonical is
+explicitly authorized. If an older logout marker exists, however,
+that login is pending rather than immediately authoritative: only server
+acceptance of the exact uploaded generation permits an exact-marker CAS. A
+blocked write fails closed when native auth is missing/unusable.
+Explicit `clx logout` / `clx auth logout`, plus logout detected inside a managed
+session, records nonce-bearing durable intent before native removal. A
+standalone wrapper-owned logout runs the upstream command only while it owns an
+exclusive auth session and active-child writer. If any peer auth session exists
+(even between sync and child start), intent is journaled and destructive native
+logout is deferred; the last peer exit completes removal automatically. A later explicit usable login is acknowledged only after
+the server accepts the exact auth generation and exact marker bytes observed
+before that store; ordinary canonical retrieve cannot clear intent.
+
+All config-backed commands and managed runs share a portable session lease
+keyed beside native credentials. Each API `host.secure` response updates only
+that session's persisted purge request; concurrent insecure requests remain
+sticky. Only the last exiting process in either exit order obtains the
+exclusive cleanup lease and purges native/mirror/generation credentials; an
+active child defers cleanup. Re-exec explicitly finalizes its session because Go
+defers do not survive `exec`. Uninstall fails closed when `/host/users` cannot be
+checked unless root/passwordless sudo provides the safe fallback, and is
+non-zero if any required local state removal fails. The logout marker is
+deliberately retained.
+Upload, required materialization, marker, or purge errors make an otherwise
+successful clx invocation non-zero. A raw `claude` process launched outside clx
+cannot participate in these leases and is the explicit coordination boundary.
+
 Engine-specific details:
 
-- Credentials are read from the newest structurally usable file across
-  `~/.claude/.credentials.json` and `~/.clx/auth/credentials.json`, with
-  `~/.claude/.credentials.json` winning ties because upstream Claude Code writes
-  there. Server-accepted credentials are always written to `~/.claude` and are
-  mirrored to `~/.clx/auth/credentials.json` when that sidecar already exists.
+- Credentials are read only from `~/.claude/.credentials.json`. Server-accepted
+  credentials are written there atomically and mirrored to
+  `~/.clx/auth/credentials.json` only when that legacy sidecar already exists;
+  the sidecar is never a fallback source.
 - **Auth model is native account-login, 1:1 with cdx/`auth.json`.** The fleet
   keeps the host's `.credentials.json` current and Claude Code reads its
   `claudeAiOauth` account login from it directly. clx deliberately does **not**
@@ -194,12 +272,21 @@ Engine-specific details:
   the round-trip. The `/anthropic/v1` proxy is a separate gateway for issued
   `sk-claude-*` keys and is not part of the host launch path.
 - `clx auth-upload`, missing/upload-required pre-run upload, and post-run
-  changed-credential upload backfill `last_refresh` only in the uploaded copy.
-  When the server returns canonical auth (including runner-refreshed auth), the
-  wrapper writes that accepted payload back locally. Explicit upload attempts
-  exit non-zero unless the server confirms `status:"updated"`; a 200 response
-  that fell back to canonical retrieve because runner validation failed is not
-  treated as success.
+  changed-credential upload reuse the digest-bound `last_refresh` stored in
+  wrapper generation metadata. When the server returns canonical auth
+  (including runner-refreshed auth), the wrapper writes that accepted payload
+  back only if the native generation used by the request is still current.
+  `updated` and `valid` acknowledge the uploaded candidate. An `outdated`
+  response carrying authoritative auth is a successful arbitration outcome, but
+  explicitly does not acknowledge that candidate or clear logout intent.
+  Explicit login/auth-upload converges to that canonical when no logout marker
+  is pending, but exits non-zero instead of claiming that the submitted login
+  was accepted.
+  `runner_updated_auth_invalid` is a hard failure even
+  if old local bytes look usable. On legacy fallback, only validation-shaped
+  400/422 plus an already-retrieved verified canonical authorizes older
+  replacement; transient, security/policy, and rate failures preserve local
+  auth. Writeback or logout-marker failure exits non-zero.
 - Interactive `clx run` can recover missing or live-verification-failed
   credentials: it prompts before launch, runs `claude auth login` on acceptance,
   uploads the resulting local credentials through `/auth command=store`, and

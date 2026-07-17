@@ -38,6 +38,7 @@ function fakeValidation(): RunnerValidationService {
     canonicalAuthFromPayload: () => null,
     ensureAuthsFallback: (payload) => payload,
     normalizeAuthEntries: () => [],
+    hasUsableEngineCredential: () => true,
     canonicalizeAuthPayload: (payload) => payload,
     calculateDigest: () => 'deadbeef',
   };

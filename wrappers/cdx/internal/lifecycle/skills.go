@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/summary"
 )
@@ -163,10 +164,15 @@ func pruneLegacySkillDirsWith(version string, logger *slog.Logger, removeAll fun
 		state.Err = err
 		return state
 	}
+	codexHome, err := codex.CodexHome()
+	if err != nil {
+		state.Err = err
+		return state
+	}
 	targets := []string{
 		filepath.Join(home, ".agents", "skills"),
-		filepath.Join(home, ".codex", "skills"),
-		filepath.Join(home, ".codex", "prompts"),
+		filepath.Join(codexHome, "skills"),
+		filepath.Join(codexHome, "prompts"),
 	}
 	for _, t := range targets {
 		if _, err := os.Stat(t); os.IsNotExist(err) {

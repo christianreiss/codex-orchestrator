@@ -7,9 +7,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -20,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cdx/internal/orchestrator"
@@ -230,7 +233,27 @@ func helpExecArgv(args []string) []string {
 	return out
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdout, stderr io.Writer) (exitCode int) {
+	// A self-update exec hands its durable purge IDs and one inherited shared
+	// lease to the new wrapper. Adopt that handoff before even the restart-depth
+	// or config checks so every exit path services an insecure purge request.
+	handoffSession, handoffErr := codex.ResumeAuthSessionReexecHandoff()
+	if handoffErr != nil {
+		fmt.Fprintln(stderr, "cdx: resume auth session after update:", handoffErr)
+		return 1
+	}
+	if handoffSession != nil {
+		defer func() {
+			removed, _, finishErr := codex.FinishAuthSession(handoffSession)
+			if finishErr != nil {
+				fmt.Fprintln(stderr, "cdx: auth session cleanup after update:", finishErr)
+				exitCode = 1
+			} else if removed {
+				fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
+			}
+		}()
+	}
+
 	// Restart-loop guard: each successful self-update increments
 	// CODEX_WRAPPER_RESTART_DEPTH and re-execs us. Cap that at maxRestartDepth
 	// so a misbehaving server (or a corrupt local binary that keeps reporting
@@ -266,22 +289,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	// Help passthrough bypasses every wrapper side effect: no lock, no sync,
-	// no update check, no boot screen, no footer. Wrapper-only presentation
-	// flags are removed before exec; all Codex-owned tokens remain unchanged.
+	// Help passthrough bypasses config, sync, update checks, boot screen, and
+	// footer. The wrapper supervises the native child while holding home-keyed
+	// session + active-child leases, then performs last-session purge cleanup.
+	// Wrapper-only presentation flags are removed before launch.
 	if f.helpPassthrough {
 		cli, err := codex.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "cdx --help:", err)
 			return 127
 		}
-		execArgv := append([]string{cli}, helpExecArgv(args)...)
-		if err := syscall.Exec(cli, execArgv, os.Environ()); err != nil {
-			fmt.Fprintln(stderr, "cdx --help: exec failed:", err)
-			return 127
+		exit, removed, runErr := runHelpChild(ctx, cli, helpExecArgv(args), stdout, stderr)
+		if removed {
+			fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
 		}
-		// Unreachable: syscall.Exec replaces this process on success.
-		return 0
+		if runErr != nil {
+			fmt.Fprintln(stderr, "cdx --help:", runErr)
+		}
+		return exit
 	}
 
 	if f.executeInvalid {
@@ -320,6 +345,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	logger := log.Setup(f.silent, f.debug)
+
+	// Every config-backed invocation participates in the same Codex-home keyed
+	// session set, including doctor/update/cron/lane and reserved passthroughs.
+	// Nested lifecycle/exec/auth calls may take additional shared leases; the
+	// durable purge request makes the outermost process the final arbiter.
+	if sub != "uninstall" && sub != "logout" {
+		outerSession, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
+		if leaseErr != nil {
+			fmt.Fprintln(stderr, "cdx: acquire auth session lease:", leaseErr)
+			return 1
+		}
+		defer func() {
+			removed, _, finishErr := codex.FinishAuthSession(outerSession)
+			if finishErr != nil {
+				fmt.Fprintln(stderr, "cdx: auth session cleanup:", finishErr)
+				exitCode = 1
+			} else if removed {
+				fmt.Fprintln(stderr, "cdx: insecure-host credentials purged")
+			}
+		}()
+	}
 
 	// Legacy shorthand: `cdx ls` ↔ `cdx lane spark` — give frequent
 	// spark-switchers a one-keystroke path.
@@ -432,14 +478,66 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// never lands here, since its own case claims it; isHelpPassthrough has
 		// already caught `--help` variants.
 		if reservedCodexSubcommands[sub] {
+			if sub == "logout" {
+				before, snapshotErr := codex.CurrentAuthGeneration()
+				if snapshotErr != nil {
+					fmt.Fprintln(stderr, "cdx logout: could not snapshot local auth state:", snapshotErr)
+					return 1
+				}
+				execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
+				exit, marked, deferred, logoutErr := codex.RunExplicitLogout(ctx, cfg, execArgs, before)
+				if logoutErr != nil {
+					fmt.Fprintln(stderr, ui.PlainInline("cdx logout: "+logoutErr.Error()))
+					if exit == 0 {
+						return 1
+					}
+					return exit
+				}
+				if marked {
+					if deferred {
+						fmt.Fprintln(stdout, "cdx logout: local logout recorded; native removal deferred until active Codex exits")
+					} else {
+						fmt.Fprintln(stdout, "cdx logout: local logout recorded")
+					}
+				}
+				return exit
+			}
+			var authMutationLease *codex.AuthSession
+			if sub == "login" {
+				authMutationLease, err = codex.StartAuthSession(!cfg.Host.Secure)
+				if err != nil {
+					fmt.Fprintln(stderr, "cdx "+sub+": acquire auth session lease:", err)
+					return 1
+				}
+			}
+			finishAuthMutation := func(code int) int {
+				if authMutationLease == nil {
+					return code
+				}
+				removed, _, finishErr := codex.FinishAuthSession(authMutationLease)
+				authMutationLease = nil
+				if finishErr != nil {
+					fmt.Fprintln(stderr, "cdx "+sub+": auth session cleanup:", finishErr)
+					return 1
+				}
+				if removed {
+					fmt.Fprintln(stderr, "cdx: insecure-host credentials purged after "+sub)
+				}
+				return code
+			}
 			// A successful `cdx login` mints the fleet's most precious
 			// credential — snapshot the local auth digest so we can detect the
 			// rotation and push it to the orchestrator afterwards. Without
 			// this the fresh token only ever existed on this disk, and the
 			// next sync clobbered it with the stale fleet canonical.
 			beforeDigest := ""
+			loginStatus := sub == "login" && loginStatusInvocation(subArgs, passthrough)
 			if sub == "login" {
-				beforeDigest, _ = codex.LocalDigest()
+				beforeDigest, err = directLoginDigestSnapshot()
+				if err != nil {
+					fmt.Fprintln(stderr, "cdx login:", err)
+					return finishAuthMutation(1)
+				}
 			}
 			execArgs := append([]string{sub}, append(subArgs, passthrough...)...)
 			exit, err := codex.Run(ctx, cfg, execArgs)
@@ -447,20 +545,101 @@ func run(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, ui.PlainInline("cdx "+sub+": "+err.Error()))
 			}
 			if sub == "login" {
-				afterDigest, _ := codex.LocalDigest()
-				if loginRotatedAuth(exit, beforeDigest, afterDigest) {
+				afterDigest, digestErr := directLoginDigestSnapshot()
+				if digestErr != nil {
+					fmt.Fprintln(stderr, "cdx login:", digestErr)
+					return finishAuthMutation(1)
+				}
+				intent := codex.LogoutIntentGeneration{}
+				if exit == 0 && !loginStatus {
+					intent, digestErr = codex.CurrentLogoutIntentGeneration()
+					if digestErr != nil {
+						fmt.Fprintln(stderr, "cdx login: could not inspect logout intent:", digestErr)
+						return finishAuthMutation(1)
+					}
+				}
+				if !loginStatus && loginNeedsAuthUpload(exit, beforeDigest, afterDigest, intent.Exists) {
 					if code := cmdAuthUpload(ctx, cfg, stdout, stderr); code != 0 {
 						fmt.Fprintln(stderr, "cdx login: WARNING; the new credentials were NOT synced to the orchestrator. The fleet still holds the previous token. Retry with `cdx auth-upload`.")
+						return finishAuthMutation(loginCompletionExit(exit, code))
 					}
 				}
 			}
-			return exit
+			return finishAuthMutation(exit)
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
 		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
+}
+
+func prepareHelpChildLeases() (*codex.AuthSession, *ipc.Lock, error) {
+	session, err := codex.AcquireAuthSession()
+	if err != nil {
+		return nil, nil, err
+	}
+	child, err := codex.AcquireActiveChild()
+	if err != nil {
+		_, _, _ = codex.FinishAuthSession(session)
+		return nil, nil, err
+	}
+	return session, child, nil
+}
+
+func runHelpChild(ctx context.Context, cli string, args []string, stdout, stderr io.Writer) (exitCode int, removed bool, err error) {
+	session, child, err := prepareHelpChildLeases()
+	if err != nil {
+		return 1, false, fmt.Errorf("acquire auth safety leases: %w", err)
+	}
+	finish := func() (bool, error) {
+		releaseErr := child.Release()
+		removed, _, finishErr := codex.FinishAuthSession(session)
+		return removed, errors.Join(releaseErr, finishErr)
+	}
+
+	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	closeExtras, inheritErr := codex.AttachAuthLeaseFiles(cmd, session, child)
+	if inheritErr != nil {
+		removed, cleanupErr := finish()
+		return 1, removed, errors.Join(fmt.Errorf("inherit auth safety leases: %w", inheritErr), cleanupErr)
+	}
+	if startErr := cmd.Start(); startErr != nil {
+		bridgeErr := closeExtras()
+		removed, cleanupErr := finish()
+		return 127, removed, errors.Join(fmt.Errorf("start failed: %w", startErr), bridgeErr, cleanupErr)
+	}
+	bridgeErr := closeExtras()
+	waitErr := cmd.Wait()
+	removed, cleanupErr := finish()
+
+	exitCode = 0
+	if waitErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(waitErr, &exitErr) {
+			exitCode = exitErr.ExitCode()
+			if exitCode < 0 {
+				if ctx.Err() != nil {
+					exitCode = 130
+				} else {
+					exitCode = 1
+				}
+			}
+		} else {
+			exitCode = 1
+			err = fmt.Errorf("wait for native help: %w", waitErr)
+		}
+	}
+	if bridgeErr != nil || cleanupErr != nil {
+		err = errors.Join(err, fmt.Errorf("release auth safety leases: %w", errors.Join(bridgeErr, cleanupErr)))
+		if exitCode == 0 {
+			exitCode = 1
+		}
+	}
+	return exitCode, removed, err
 }
 
 func executeLifecycleOptions(f flags) lifecycle.Options {
@@ -576,6 +755,9 @@ func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, curre
 	})
 	if err == nil {
 		if resp, rerr := client.AuthRetrieve(ctx, ""); rerr == nil && resp != nil {
+			if err := updateCommandAuthSessionSecurity(resp); err != nil {
+				return wrapperUpdateArtifact{}, fmt.Errorf("update auth session security state: %w", err)
+			}
 			if artifact, ok := artifactFromVersionSummary(resp.Versions); ok {
 				return validateWrapperUpdateArtifact(artifact, current)
 			}
@@ -852,7 +1034,21 @@ func conflictingActions(f flags, positional []string) []string {
 }
 
 // cmdStatus runs auth-retrieve + renders the boot screen.
-func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) int {
+func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, stdout, stderr io.Writer, minimal bool) (exitCode int) {
+	authSessionLease, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
+	if leaseErr != nil {
+		fmt.Fprintln(stderr, "cdx status: acquire auth session lease:", leaseErr)
+		return 1
+	}
+	defer func() {
+		removed, _, err := codex.FinishAuthSession(authSessionLease)
+		if err != nil {
+			fmt.Fprintln(stderr, "cdx status: auth session cleanup:", err)
+			exitCode = 1
+		} else if removed {
+			fmt.Fprintln(stderr, "cdx status: insecure-host credentials purged")
+		}
+	}()
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -862,22 +1058,68 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		fmt.Fprintln(stderr, "cdx status:", err)
 		return 1
 	}
-	digest, _ := codex.LocalDigest()
+	logoutHold, err := codex.LogoutIntentActive()
+	if err != nil {
+		fmt.Fprintln(stderr, "cdx status: inspect logout intent:", err)
+		return 1
+	}
+	expected, err := codex.CurrentAuthGeneration()
+	if err != nil {
+		fmt.Fprintln(stderr, "cdx status: snapshot local auth:", err)
+		return 1
+	}
+	if !logoutHold && expected.Exists {
+		_, stabilized, stabilizeErr := codex.ReadAuthForUpload()
+		if errors.Is(stabilizeErr, os.ErrNotExist) {
+			expected, stabilizeErr = codex.CurrentAuthGeneration()
+		}
+		if stabilizeErr != nil {
+			fmt.Fprintln(stderr, "cdx status: stabilize local auth:", stabilizeErr)
+			return 1
+		}
+		expected = stabilized
+	}
+	digest := expected.Digest
 	resp, authErr := client.AuthRetrieve(ctx, digest)
+	if securityErr := updateCommandAuthSessionSecurity(resp); securityErr != nil {
+		authErr = errors.Join(authErr, fmt.Errorf("update auth session security state: %w", securityErr))
+	}
 	authSynced := false
-	if authErr == nil && resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+	if authErr == nil && !logoutHold && resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
 		switch strings.ToLower(strings.TrimSpace(resp.Status)) {
 		case "outdated", "updated", "missing":
 			authPath, _ := codex.AuthPath()
-			if !statusCanonicalAuthMayReplace(authPath, resp.Auth) {
+			definitiveFallback := resp.CandidateRejectedDefinitive && strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified")
+			if !statusCanonicalAuthMayReplace(authPath, resp.Auth) && !definitiveFallback {
 				break
 			}
-			if err := codex.WriteAuth(resp.Auth); err != nil {
+			result, err := codex.ConvergeAuthIfCurrent(resp.Auth, expected)
+			if err != nil {
 				authErr = fmt.Errorf("apply canonical auth: %w", err)
-			} else {
+			} else if result.Written {
 				authSynced = true
+			} else if _, outcomeErr := classifyBlockedAuthWrite(authPath, expected, result); outcomeErr != nil {
+				authErr = outcomeErr
 			}
 		}
+	}
+	if !logoutHold {
+		finalLogout, finalErr := codex.LogoutIntentActive()
+		if finalErr != nil {
+			authErr = errors.Join(authErr, fmt.Errorf("inspect logout intent after status request: %w", finalErr))
+		} else {
+			logoutHold = finalLogout
+		}
+	}
+	if logoutHold {
+		if resp == nil {
+			resp = &orchestrator.AuthRetrieveResponse{}
+		}
+		resp.Status = "missing"
+		resp.Auth = nil
+		resp.VerificationState = ""
+		resp.Message = "Explicitly logged out locally; run `cdx login` to authenticate again."
+		authSynced = false
 	}
 	state := summary.Build(ctx, summary.Inputs{
 		Config:         cfg,
@@ -887,6 +1129,10 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AuthSynced:     authSynced,
 		StatusOnly:     true,
 	})
+	if logoutHold {
+		state.ResultLabel = "Explicitly logged out locally; run `cdx login` to authenticate again."
+		state.ResultTone = ui.ToneFail
+	}
 	if minimal {
 		ui.PrintMinimalScreen(stdout, state)
 	} else {
@@ -898,11 +1144,48 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 	return 0
 }
 
+func updateCommandAuthSessionSecurity(resp *orchestrator.AuthRetrieveResponse) error {
+	if resp == nil {
+		return nil
+	}
+	var secure *bool
+	if resp.Host != nil {
+		value := resp.Host.Secure
+		secure = &value
+	}
+	return codex.UpdateActiveAuthSessionSecurity(resp.Status, secure)
+}
+
+// classifyBlockedAuthWrite distinguishes a genuine CAS winner from the same
+// expected generation being unwritable solely because a native child still
+// owns it. Only the former may be preserved as a newer local login.
+func classifyBlockedAuthWrite(authPath string, expected codex.AuthGeneration, result codex.AuthConvergenceResult) (keptNewer bool, err error) {
+	if result.AlreadyCurrent {
+		return false, nil
+	}
+	if result.KeptNewerGeneration {
+		return true, nil
+	}
+	if result.Current != expected {
+		if !codex.IsValidLocalAuth(authPath) {
+			return false, errors.New("canonical auth was required but a changed unusable local generation prevented materialization")
+		}
+		return false, errors.New("canonical auth was required but a changed local generation could not be converged")
+	}
+	if result.BlockedByActiveChild {
+		return false, errors.New("canonical auth was required but the unchanged local generation is still owned by a native Codex child")
+	}
+	return false, errors.New("canonical auth was required but could not be materialized")
+}
+
 // statusCanonicalAuthMayReplace prevents a read-only-looking status check from
 // destroying a newer local login when the fleet has not adopted it yet. An
 // absent/unreadable local file may be repaired; an existing local file wins
 // over a canonical payload with no usable freshness stamp.
 func statusCanonicalAuthMayReplace(localPath string, canonical []byte) bool {
+	if codex.IsValidLocalAuth(localPath) == false {
+		return true
+	}
 	localTime, err := codex.LastRefreshOfFile(localPath)
 	if err != nil {
 		return true
@@ -998,8 +1281,63 @@ func loginRotatedAuth(exit int, beforeDigest, afterDigest string) bool {
 	return exit == 0 && afterDigest != "" && afterDigest != beforeDigest
 }
 
+func loginNeedsAuthUpload(exit int, beforeDigest, afterDigest string, logoutIntentExists bool) bool {
+	return loginRotatedAuth(exit, beforeDigest, afterDigest) ||
+		(exit == 0 && afterDigest != "" && logoutIntentExists)
+}
+
+// loginStatusInvocation recognizes the read-only upstream status probe. A
+// byte-identical credential plus an old logout marker is intentionally enough
+// to upload after a real successful login, but never after `codex login status`.
+func loginStatusInvocation(subArgs, passthrough []string) bool {
+	args := append(append([]string(nil), subArgs...), passthrough...)
+	for _, arg := range args {
+		if arg == "--" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "status"
+	}
+	return false
+}
+
+func loginCompletionExit(upstreamExit, uploadExit int) int {
+	if uploadExit != 0 {
+		return uploadExit
+	}
+	return upstreamExit
+}
+
+func directLoginDigestSnapshot() (string, error) {
+	digest, err := codex.LocalDigest()
+	if err != nil {
+		return "", fmt.Errorf("could not read local auth digest: %w", err)
+	}
+	return digest, nil
+}
+
+func logoutGenerationMayBeMarked(before, after codex.AuthGeneration, authPath string) bool {
+	return after == before || !after.Exists || !codex.IsValidLocalAuth(authPath)
+}
+
 // cmdAuthUpload pushes a locally-edited auth.json to the orchestrator.
-func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) int {
+func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (exitCode int) {
+	authSessionLease, leaseErr := codex.StartAuthSession(!cfg.Host.Secure)
+	if leaseErr != nil {
+		fmt.Fprintln(stderr, "auth-upload: acquire auth session lease:", leaseErr)
+		return 1
+	}
+	defer func() {
+		removed, _, err := codex.FinishAuthSession(authSessionLease)
+		if err != nil {
+			fmt.Fprintln(stderr, "auth-upload: auth session cleanup:", err)
+			exitCode = 1
+		} else if removed {
+			fmt.Fprintln(stderr, "auth-upload: insecure-host credentials purged")
+		}
+	}()
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -1009,29 +1347,56 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	payload, err := codex.ReadAuth()
+	upload, err := codex.BeginAuthUpload(true)
 	if err != nil {
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	// Legacy parity: a vanilla `codex login` auth.json has no `last_refresh`
-	// and the orchestrator would reject the POST. Backfill an RFC3339 stamp
-	// in-memory so the upload goes through; the server's canonical store
-	// rewrites `last_refresh` to its own clock anyway.
-	payload, backfilled, err := codex.BackfillLastRefresh(payload)
+	expected := upload.Generation()
+	storeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	resp, err := client.AuthStore(storeCtx, upload.Payload())
+	cancel()
 	if err != nil {
+		_ = upload.Close()
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	if err := client.AuthStore(ctx, payload); err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
+	// The store accepted this exact login. Only now acknowledge the marker
+	// observed before the request while the same linearization lock is held.
+	if _, err := upload.AcknowledgeObservedLogout(); err != nil {
+		_ = upload.Close()
+		fmt.Fprintln(stderr, "auth-upload: accepted by server but logout marker cleanup failed:", err)
 		return 1
 	}
-	if backfilled {
-		fmt.Fprintln(stdout, "auth-upload: ok (last_refresh backfilled)")
-	} else {
-		fmt.Fprintln(stdout, "auth-upload: ok")
+	if err := upload.Close(); err != nil {
+		fmt.Fprintln(stderr, "auth-upload: accepted by server but auth transaction cleanup failed:", err)
+		return 1
 	}
+	if err := updateCommandAuthSessionSecurity(resp); err != nil {
+		fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
+		return 1
+	}
+	if resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		if result, writeErr := codex.ConvergeAuthIfCurrent(resp.Auth, expected); writeErr != nil {
+			fmt.Fprintln(stderr, "auth-upload: accepted by server but local writeback failed:", writeErr)
+			return 1
+		} else if !result.Written {
+			if logoutActive, logoutErr := codex.LogoutIntentActive(); logoutErr == nil && logoutActive {
+				fmt.Fprintln(stdout, "auth-upload: accepted; a later local logout was kept")
+				return 0
+			}
+			authPath, _ := codex.AuthPath()
+			kept, outcomeErr := classifyBlockedAuthWrite(authPath, expected, result)
+			if outcomeErr != nil {
+				fmt.Fprintln(stderr, "auth-upload: server accepted the upload but canonical credentials could not be materialized locally:", outcomeErr)
+				return 1
+			}
+			if kept {
+				fmt.Fprintln(stderr, "auth-upload: server accepted the upload; a newer local login was kept")
+			}
+		}
+	}
+	fmt.Fprintln(stdout, "auth-upload: ok")
 	return 0
 }
 

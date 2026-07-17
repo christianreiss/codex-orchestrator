@@ -152,11 +152,6 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       throw new ApiError('Seed token expired', { status: 410, code: 'seed_expired' });
     }
 
-    // Claim the token atomically before doing any work: this is the only thing
-    // guarding against a concurrent/replayed request also being accepted.
-    const claimed = await installSvc.markSeedUsed(row.id);
-    if (!claimed) throw new ApiError('Seed token already used', { status: 410, code: 'seed_used' });
-
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new ValidationError('auth payload must be valid JSON', { param: 'auth' });
     }
@@ -166,15 +161,35 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       throw new ValidationError('auth payload must be an object', { param: 'auth' });
     }
 
+    // Reserve only after cheap shape validation. Keep the atomic reservation
+    // while the runner/store executes, but release it on any failure so a
+    // transient runner outage or rejected malformed credential does not burn
+    // the single-use recovery token permanently.
+    const claimed = await installSvc.markSeedUsed(row.id);
+    if (!claimed) throw new ApiError('Seed token already used', { status: 410, code: 'seed_used' });
+
     const engine = row.engine;
-    const stored = await authStore.storeCandidate({
-      auth: candidate as Record<string, unknown>,
-      engine,
-      sourceHostId: null,
-      requireLastRefresh: false,
-      logAction: 'auth.seed.v2.consume',
-      logDetails: { token: token.slice(0, 8) + '…' },
-    });
+    let stored;
+    try {
+      stored = await authStore.storeCandidate({
+        auth: candidate as Record<string, unknown>,
+        engine,
+        sourceHostId: null,
+        requireLastRefresh: false,
+        logAction: 'auth.seed.v2.consume',
+        logDetails: { token: token.slice(0, 8) + '…' },
+      });
+    } catch (err) {
+      // An unsafe runner readback can mean the candidate's refresh token was
+      // consumed and replacement bytes were already retained as a pending
+      // canonical lineage.  Never reopen a one-time seed after that ambiguous
+      // side effect; an ordinary validation/transport failure remains safely
+      // retryable.
+      if (!(err instanceof ApiError && err.code === 'runner_updated_auth_invalid')) {
+        await installSvc.releaseSeed(row.id);
+      }
+      throw err;
+    }
 
     return {
       ...stored,

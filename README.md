@@ -24,7 +24,7 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 
 **Stay safe without thinking about it**
 - Auth payloads are encrypted at rest. API keys are hashed and IP-bound on first use.
-- Hosts you don't trust to keep credentials on disk? Mark them "insecure" — auth gets purged after every run.
+- Hosts you don't trust to keep credentials on disk? Mark them "insecure" — auth is purged after the last overlapping auth-aware wrapper process exits.
 - A global kill switch lets you cut API access fleet-wide in seconds if something goes sideways.
 
 **See what's happening**
@@ -103,7 +103,10 @@ That's it. The guided installer walks you through `.env` configuration, data dir
    ```
 4. **Done.** Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both in one install.
 
-Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback). Insecure hosts purge auth after each run and need an open window from the admin.
+Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback).
+On insecure hosts, every auth-aware cdx/clx invocation shares a session lease;
+the last exiting process purges native credentials while preserving explicit
+logout intent. An open admin window is required for the next retrieve.
 
 ## See it in action
 

@@ -89,8 +89,11 @@ func GuardFQDN(cfg *config.Config) error {
 // ~/.codex/config.toml if not already present. cwd is the resolved physical
 // path (symlink-following).
 func EnsureProjectTrust() error {
-	home, _ := os.UserHomeDir()
-	cfgPath := filepath.Join(home, ".codex", "config.toml")
+	home, err := CodexHome()
+	if err != nil {
+		return err
+	}
+	cfgPath := filepath.Join(home, "config.toml")
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -149,8 +152,11 @@ func EnsureProjectTrust() error {
 //	service_name = "cdx"
 //	headers = { Authorization = "Bearer X" }
 func exportOTELFromConfig() error {
-	home, _ := os.UserHomeDir()
-	raw, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	home, err := CodexHome()
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(home, "config.toml"))
 	if err != nil {
 		return nil
 	}

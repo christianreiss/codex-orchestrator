@@ -2,7 +2,9 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,7 +14,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/clx/internal/summary"
@@ -126,6 +130,336 @@ func TestBootstrapRoutesClaudeSkillFailureAwayFromConfigStatus(t *testing.T) {
 	}
 }
 
+func TestBundleUnsafeRunnerWritebackFailsClosedWithLocalAuth(t *testing.T) {
+	for _, concurrent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			authPath := filepath.Join(home, ".claude", ".credentials.json")
+			if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(authPath, []byte(`{"last_refresh":"2026-07-17T12:00:00Z","claudeAiOauth":{"accessToken":"pre-refresh-local"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"error","code":"runner_updated_auth_invalid","message":"runner refresh saved pending retry"}`))
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, authErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, concurrent, authPath)
+			if !orchestrator.IsUnsafeRunnerUpdatedAuthError(authErr) {
+				t.Fatalf("bootstrap error = %v", authErr)
+			}
+			dec := decideAuth(resp, authErr, authPath, true)
+			if dec.Allowed || dec.LocalUsable || !strings.Contains(dec.Reason, "superseded") {
+				t.Fatalf("unsafe bundle decision = %+v", dec)
+			}
+			raw, err := os.ReadFile(authPath)
+			if err != nil || !strings.Contains(string(raw), "pre-refresh-local") {
+				t.Fatalf("bundle error changed local auth: %q, %v", raw, err)
+			}
+		})
+	}
+}
+
+func TestBootstrapUsesSharedServerAuthReplacementGate(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		verify     string
+		definitive bool
+		wantToken  string
+		wantSynced bool
+	}{
+		{name: "older canonical preserves newer local", verify: "verified", wantToken: "local"},
+		{name: "definitive rejection heals from verified canonical", verify: "verified", definitive: true, wantToken: "canonical", wantSynced: true},
+		{name: "failed canonical is never materialized", verify: "failed", definitive: true, wantToken: "local"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			authPath := filepath.Join(home, ".claude", ".credentials.json")
+			if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(authPath, []byte(`{"last_refresh":"2026-07-16T12:00:00Z","claudeAiOauth":{"accessToken":"local"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			preflight, err := claude.ReadAuthForRetrieveSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.definitive && tc.verify == "verified" && claude.ServerAuthMayReplace(preflight, json.RawMessage(`{"last_refresh":"2026-07-16T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}`), "2026-07-16T11:00:00Z", tc.verify, false) {
+				t.Fatalf("preflight gate allowed older canonical: %+v", preflight)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"status":"success","data":{"status":"success","auth":{"status":"outdated","verification_state":%q,"candidate_rejected_definitive":%t,"canonical_last_refresh":"2026-07-16T11:00:00Z","auth":{"last_refresh":"2026-07-16T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}}}}`, tc.verify, tc.definitive)
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+			if bootstrapErr != nil {
+				t.Fatal(bootstrapErr)
+			}
+			if synced != tc.wantSynced {
+				t.Fatalf("authSynced=%v want=%v", synced, tc.wantSynced)
+			}
+			raw, err := os.ReadFile(authPath)
+			if err != nil || !strings.Contains(string(raw), `"accessToken":"`+tc.wantToken+`"`) {
+				t.Fatalf("native auth=%q err=%v want token %q", raw, err, tc.wantToken)
+			}
+		})
+	}
+}
+
+func TestBootstrapRepairsStructurallyInvalidNativeJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{broken-json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-16T11:00:00Z","auth":{"last_refresh":"2026-07-16T11:00:00Z","claudeAiOauth":{"accessToken":"healed"}}}}}`))
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+	if bootstrapErr != nil || !synced {
+		t.Fatalf("invalid native repair synced=%v err=%v", synced, bootstrapErr)
+	}
+	raw, err := os.ReadFile(authPath)
+	if err != nil || !strings.Contains(string(raw), `"accessToken":"healed"`) {
+		t.Fatalf("invalid native was not healed: %q err=%v", raw, err)
+	}
+}
+
+func TestBundleAndLegacyFailWhenRequiredCanonicalWriteIsBlockedByActiveChild(t *testing.T) {
+	for _, mode := range []string{"bundle", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T08:00:00Z","claudeAiOauth":{"accessToken":"client-older"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			ready := filepath.Join(home, "ready")
+			release := filepath.Join(home, "release")
+			t.Setenv("CLX_TEST_READY", ready)
+			t.Setenv("CLX_TEST_RELEASE", release)
+			bin := filepath.Join(t.TempDir(), "claude")
+			script := `#!/bin/sh
+: > "$CLX_TEST_READY"
+while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
+`
+			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CLX_CLAUDE_BIN", bin)
+			childDone := make(chan error, 1)
+			go func() {
+				_, err := claude.Run(context.Background(), &config.Config{}, nil)
+				childDone <- err
+			}()
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("peer Claude child did not start")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				canonical := `{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-17T09:00:00Z","auth":{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"server-newer"}}}`
+				if r.URL.Path == "/sync/bootstrap" {
+					_, _ = w.Write([]byte(`{"status":"success","data":{"auth":` + canonical + `}}`))
+					return
+				}
+				_, _ = w.Write([]byte(canonical))
+			}))
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "bundle" {
+				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, filepath.Join(home, ".claude", ".credentials.json"))
+			} else {
+				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
+			}
+			if err == nil || !strings.Contains(err.Error(), "canonical Claude credentials were required") {
+				t.Fatalf("%s active-child materialization error=%v", mode, err)
+			}
+			raw, readErr := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+			if readErr != nil || !strings.Contains(string(raw), "client-older") {
+				t.Fatalf("%s active child changed client auth: %q err=%v", mode, raw, readErr)
+			}
+			server.Close()
+			if err := os.WriteFile(release, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-childDone; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestBundleAndLegacyNeverLaunchExactDefinitivelyRejectedLocalUnderActiveChild(t *testing.T) {
+	for _, mode := range []string{"bundle", "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T12:00:00Z","claudeAiOauth":{"accessToken":"rejected-local"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			authPath, err := claude.AuthPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ready := filepath.Join(home, "ready")
+			release := filepath.Join(home, "release")
+			t.Setenv("CLX_TEST_READY", ready)
+			t.Setenv("CLX_TEST_RELEASE", release)
+			bin := filepath.Join(t.TempDir(), "claude")
+			writeTestScript(t, bin, `#!/bin/sh
+: > "$CLX_TEST_READY"
+while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
+`)
+			t.Setenv("CLX_CLAUDE_BIN", bin)
+			t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+			childDone := make(chan error, 1)
+			go func() {
+				_, err := claude.Run(context.Background(), &config.Config{}, nil)
+				childDone <- err
+			}()
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("peer Claude child did not start")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			canonical := `{"status":"outdated","verification_state":"verified","candidate_rejected_definitive":true,"canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"canonical-repair"}}}`
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/sync/bootstrap" {
+					_, _ = w.Write([]byte(`{"status":"success","data":{"auth":` + canonical + `}}`))
+					return
+				}
+				_, _ = w.Write([]byte(canonical))
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "bundle" {
+				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, authPath)
+			} else {
+				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
+			}
+			if err == nil || !strings.Contains(err.Error(), "definitively rejected") {
+				t.Fatalf("%s exact rejected generation error=%v", mode, err)
+			}
+			raw, readErr := os.ReadFile(authPath)
+			if readErr != nil || !strings.Contains(string(raw), "rejected-local") {
+				t.Fatalf("active child auth changed: %q err=%v", raw, readErr)
+			}
+			if err := os.WriteFile(release, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-childDone; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestLegacyTwoWayAuthArbitration(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		storeStatus   int
+		storeBody     string
+		wantToken     string
+		wantErr       bool
+		wantRespValid bool
+	}{
+		{name: "accepted local converges", storeStatus: http.StatusOK, storeBody: `{"status":"valid"}`, wantToken: "local", wantRespValid: true},
+		{name: "transient preserves local", storeStatus: http.StatusServiceUnavailable, storeBody: `{"status":"error","code":"runner_unreachable","message":"later"}`, wantToken: "local"},
+		{name: "validation 422 heals verified canonical", storeStatus: http.StatusUnprocessableEntity, storeBody: `{"status":"error","code":"validation_failed","message":"bad candidate"}`, wantToken: "canonical"},
+		{name: "security 403 preserves local", storeStatus: http.StatusForbidden, storeBody: `{"status":"error","code":"engine_disabled","message":"disabled"}`, wantToken: "local"},
+		{name: "unsafe rotated auth fails closed", storeStatus: http.StatusServiceUnavailable, storeBody: `{"status":"error","code":"runner_updated_auth_invalid","message":"bad writeback"}`, wantToken: "local", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			authPath := filepath.Join(home, ".claude", ".credentials.json")
+			if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(authPath, []byte(`{"last_refresh":"2026-07-16T12:00:00Z","claudeAiOauth":{"accessToken":"local"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Command string `json:"command"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				w.Header().Set("Content-Type", "application/json")
+				if body.Command == "store" {
+					w.WriteHeader(tc.storeStatus)
+					_, _ = w.Write([]byte(tc.storeBody))
+					return
+				}
+				_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-16T11:00:00Z","auth":{"last_refresh":"2026-07-16T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}}`))
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, syncErr, _ := syncAuthLegacy(context.Background(), client, logger, false)
+			if (syncErr != nil) != tc.wantErr {
+				t.Fatalf("sync error=%v wantErr=%v", syncErr, tc.wantErr)
+			}
+			if tc.wantRespValid && (resp == nil || resp.Status != "valid") {
+				t.Fatalf("accepted arbitration response=%+v", resp)
+			}
+			raw, err := os.ReadFile(authPath)
+			if err != nil || !strings.Contains(string(raw), `"accessToken":"`+tc.wantToken+`"`) {
+				t.Fatalf("legacy arbitration auth=%q err=%v want=%q", raw, err, tc.wantToken)
+			}
+		})
+	}
+}
+
 func TestRunRejectsFQDNMismatchBeforeNetworkAndBoot(t *testing.T) {
 	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "")
 	var requests atomic.Int32
@@ -233,6 +567,104 @@ exit 42
 	}
 }
 
+func TestWrapperAutoUpdateFinalizesSoleSessionBeforeFailedReexec(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_WRAPPER_RESTARTED", "")
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"temporary"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	session, err := claude.StartAuthSession(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldUpdate, oldExec := wrapperSelfUpdate, wrapperReExec
+	t.Cleanup(func() {
+		wrapperSelfUpdate = oldUpdate
+		wrapperReExec = oldExec
+	})
+	wrapperSelfUpdate = func(context.Context, *config.Config, string, string, string, *slog.Logger) (string, error) {
+		return "/tmp/clx-updated", nil
+	}
+	execErr := errors.New("exec replacement failed")
+	execCalled := false
+	wrapperReExec = func(exe string, _ []string) error {
+		execCalled = true
+		if exe != "/tmp/clx-updated" {
+			t.Fatalf("reexec path=%q", exe)
+		}
+		if claude.HasUsableAuth() {
+			t.Fatal("reexec attempted before sole insecure session purged")
+		}
+		return execErr
+	}
+	target, url, sha := "0.6.46", "https://updates.invalid/clx", strings.Repeat("a", 64)
+	auth := &orchestrator.AuthRetrieveResponse{Versions: &orchestrator.VersionSummary{
+		AutoUpdateEnabled: true,
+		WrapperVersion:    &target,
+		WrapperURL:        &url,
+		WrapperSHA256:     &sha,
+	}}
+	err = maybeEnsureWrapper(context.Background(), &config.Config{}, auth, "0.6.45", false, true, slog.New(slog.NewTextHandler(io.Discard, nil)), session)
+	if !errors.Is(err, execErr) || !execCalled {
+		t.Fatalf("failed reexec result called=%v err=%v", execCalled, err)
+	}
+	if _, err := session.CloseAndPurgeIfLast(); err != nil {
+		t.Fatalf("ordinary defer after failed reexec was not idempotent: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".clx", "auth", "purge-on-last-exit")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed reexec orphaned purge request: %v", err)
+	}
+}
+
+func TestWrapperAutoUpdateFinalizationDefersPurgeToPeer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_WRAPPER_RESTARTED", "")
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"shared"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	session, err := claude.StartAuthSession(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := claude.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldUpdate, oldExec := wrapperSelfUpdate, wrapperReExec
+	t.Cleanup(func() {
+		wrapperSelfUpdate = oldUpdate
+		wrapperReExec = oldExec
+	})
+	wrapperSelfUpdate = func(context.Context, *config.Config, string, string, string, *slog.Logger) (string, error) {
+		return "/tmp/clx-updated", nil
+	}
+	wrapperReExec = func(string, []string) error { return nil }
+	target, url, sha := "0.6.46", "https://updates.invalid/clx", strings.Repeat("b", 64)
+	auth := &orchestrator.AuthRetrieveResponse{Versions: &orchestrator.VersionSummary{
+		AutoUpdateEnabled: true,
+		WrapperVersion:    &target,
+		WrapperURL:        &url,
+		WrapperSHA256:     &sha,
+	}}
+	if err := maybeEnsureWrapper(context.Background(), &config.Config{}, auth, "0.6.45", false, true, slog.New(slog.NewTextHandler(io.Discard, nil)), session); err != nil {
+		t.Fatal(err)
+	}
+	if !claude.HasUsableAuth() {
+		t.Fatal("reexec finalization purged credentials still used by peer")
+	}
+	if err := session.SetPurgeOnLastExit(false); err == nil {
+		t.Fatal("updated wrapper session remained open after reexec finalization")
+	}
+	if purged, err := peer.CloseAndPurgeIfLast(); err != nil || !purged {
+		t.Fatalf("peer did not service inherited purge request: purged=%v err=%v", purged, err)
+	}
+	if claude.HasUsableAuth() {
+		t.Fatal("credentials survived final peer after wrapper reexec")
+	}
+}
+
 func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -273,6 +705,15 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "unsafe rotated runner writeback fails closed without login loop",
+			decision: orchestrator.AuthDecision{
+				Allowed: true,
+				Status:  "missing",
+			},
+			uploadErr: &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "runner_updated_auth_invalid"},
+			want:      false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -294,13 +735,380 @@ func TestShouldWriteServerAuth(t *testing.T) {
 		{"updated", auth, true},
 		{"missing", auth, true},
 		{" OUTDATED ", auth, true},
-		{"valid", auth, false},
+		{"valid", auth, true},
 		{"outdated", nil, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.status, func(t *testing.T) {
 			if got := shouldWriteServerAuth(tc.status, tc.auth); got != tc.want {
 				t.Fatalf("shouldWriteServerAuth(%q, len=%d) = %v, want %v", tc.status, len(tc.auth), got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPostRunABLoginRacePreservesBWhenAResponseArrivesLast(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(claudeDir, ".credentials.json")
+	old := `{"claudeAiOauth":{"accessToken":"old"}}`
+	loginA := `{"claudeAiOauth":{"accessToken":"login-a"}}`
+	loginB := `{"claudeAiOauth":{"accessToken":"login-b"}}`
+	if err := os.WriteFile(authPath, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotAuthGeneration()
+	if err := os.WriteFile(authPath, []byte(loginA), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	requestSeen := make(chan string, 1)
+	releaseA := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestSeen <- string(body)
+		<-releaseA
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"login-a"}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		status string
+		tone   ui.Tone
+	}
+	done := make(chan result, 1)
+	go func() {
+		status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
+		done <- result{status: status, tone: tone}
+	}()
+	body := <-requestSeen
+	if !strings.Contains(body, "login-a") {
+		t.Fatalf("A upload did not contain login A: %s", body)
+	}
+	// B renews while A's store is in flight. A's late canonical response must
+	// never rename login A over the newer shared native file.
+	if err := os.WriteFile(authPath, []byte(loginB), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseA)
+	got := <-done
+	if got.tone != ui.ToneOK || got.status != "newer local kept" {
+		t.Fatalf("post-run result = (%q,%v)", got.status, got.tone)
+	}
+	raw, err := os.ReadFile(authPath)
+	if err != nil || string(raw) != loginB {
+		t.Fatalf("late A response clobbered B: raw=%q err=%v", raw, err)
+	}
+}
+
+func TestPostRunStoreUpdatesSessionFromAPIAuthoritativeSecurity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotAuthGeneration()
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"renewed"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	session, err := claude.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","host":{"secure":false}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, session)
+	if status != "uploaded" || tone != ui.ToneOK {
+		t.Fatalf("post-run store result=(%q,%v)", status, tone)
+	}
+	if purged, err := session.CloseAndPurgeIfLast(); err != nil || !purged {
+		t.Fatalf("API-insecure session finalization purged=%v err=%v", purged, err)
+	}
+	if claude.HasUsableAuth() {
+		t.Fatal("API-authoritative insecure response did not purge changed auth")
+	}
+}
+
+func TestPostRunLoginFailsClosedWhenPeerChildBlocksRunnerWriteback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T07:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotAuthGeneration()
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T08:00:00Z","claudeAiOauth":{"accessToken":"slash-login"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(home, "peer-ready")
+	release := filepath.Join(home, "peer-release")
+	t.Setenv("CLX_TEST_READY", ready)
+	t.Setenv("CLX_TEST_RELEASE", release)
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, `#!/bin/sh
+: > "$CLX_TEST_READY"
+while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
+`)
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	peerDone := make(chan error, 1)
+	go func() {
+		_, runErr := claude.Run(context.Background(), &config.Config{}, nil)
+		peerDone <- runErr
+	}()
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("peer Claude child did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","canonical_last_refresh":"2026-07-17T09:00:00Z","auth":{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"runner-refreshed"}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
+	if status != "write-back blocked" || tone != ui.ToneFail {
+		t.Fatalf("peer-blocked post-run login=(%q,%v)", status, tone)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	if err != nil || !strings.Contains(string(raw), "slash-login") {
+		t.Fatalf("peer-blocked post-run login changed local auth: %q err=%v", raw, err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-peerDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostRunUploadAbortsWhenLogoutIntentIsAlreadyActive(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotAuthGeneration()
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"renewed"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	current, err := claude.ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := claude.RecordDeferredExplicitLogout(current.Generation); err != nil || !marked {
+		t.Fatalf("record logout = %v, %v", marked, err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated"}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
+	if status != "logged out" || tone != ui.ToneWarn {
+		t.Fatalf("post-run with active logout = (%q,%v)", status, tone)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("post-run uploaded after active logout: %d requests", got)
+	}
+}
+
+func TestPostRunUploadSerializesOverlappingExplicitLogout(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotAuthGeneration()
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"renewed"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	requestSeen := make(chan struct{})
+	releaseStore := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestSeen)
+		<-releaseStore
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"renewed"}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadDone := make(chan struct{})
+	go func() {
+		_, _ = maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
+		close(uploadDone)
+	}()
+	<-requestSeen
+	logoutDone := make(chan error, 1)
+	go func() {
+		current, err := claude.ReadAuthSnapshot(false)
+		if err == nil {
+			_, err = claude.RecordDeferredExplicitLogout(current.Generation)
+		}
+		logoutDone <- err
+	}()
+	select {
+	case err := <-logoutDone:
+		t.Fatalf("logout crossed an in-flight AuthStore boundary: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseStore)
+	<-uploadDone
+	if err := <-logoutDone; err != nil {
+		t.Fatal(err)
+	}
+	if active, err := claude.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("overlapping logout intent = %v, %v", active, err)
+	}
+	if claude.HasUsableAuth() {
+		t.Fatal("post-run write-back resurrected auth after serialized logout")
+	}
+}
+
+func TestBundleCandidateSerializesOverlappingExplicitLogout(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"bundle-login"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestSeen := make(chan struct{})
+	releaseStore := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req orchestrator.BundleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode bundle request: %v", err)
+		}
+		if len(req.AuthCandidate) == 0 || !strings.Contains(string(req.AuthCandidate), "bundle-login") {
+			t.Errorf("bundle omitted auth candidate: %s", req.AuthCandidate)
+		}
+		close(requestSeen)
+		<-releaseStore
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"valid"}}}`))
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapDone := make(chan error, 1)
+	go func() {
+		_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+		bootstrapDone <- bootstrapErr
+	}()
+	<-requestSeen
+	logoutDone := make(chan error, 1)
+	go func() {
+		current, readErr := claude.ReadAuthSnapshot(false)
+		if readErr == nil {
+			_, readErr = claude.RecordDeferredExplicitLogout(current.Generation)
+		}
+		logoutDone <- readErr
+	}()
+	select {
+	case err := <-logoutDone:
+		t.Fatalf("logout crossed in-flight bundle candidate boundary: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseStore)
+	if err := <-bootstrapDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-logoutDone; err != nil {
+		t.Fatal(err)
+	}
+	if active, err := claude.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("overlapping bundle logout intent = %v, %v", active, err)
+	}
+}
+
+func TestBundleClearsOldLogoutMarkerOnlyAfterDifferentLoginIsAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		authReply string
+		wantHold  bool
+	}{
+		{name: "accepted", authReply: `{"status":"valid"}`},
+		{name: "canonical wins", authReply: `{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}}`, wantHold: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"logged-out"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			old, err := claude.ReadAuthSnapshot(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if marked, err := claude.RecordExplicitLogout(old.Generation); err != nil || !marked {
+				t.Fatalf("record logout=%v err=%v", marked, err)
+			}
+			if err := os.WriteFile(old.Path, []byte(`{"claudeAiOauth":{"accessToken":"new-login"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req orchestrator.BundleRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				if !strings.Contains(string(req.AuthCandidate), "new-login") {
+					t.Errorf("pending login missing from bundle candidate: %s", req.AuthCandidate)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"status":"success","data":{"auth":%s}}`, tc.authReply)
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, old.Path)
+			if bootstrapErr != nil {
+				t.Fatal(bootstrapErr)
+			}
+			if hold := claude.HasLogoutIntent(); hold != tc.wantHold {
+				t.Fatalf("logout hold=%v want=%v", hold, tc.wantHold)
+			}
+			raw, err := os.ReadFile(old.Path)
+			if err != nil || !strings.Contains(string(raw), "new-login") {
+				t.Fatalf("pending login changed: %q err=%v", raw, err)
 			}
 		})
 	}

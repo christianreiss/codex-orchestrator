@@ -2,7 +2,9 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,6 +84,19 @@ func TestWriteAgentsPropagatesLocalWriteFailure(t *testing.T) {
 	}
 }
 
+func TestManagedCodexPathsHonorCodexHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	agents, err := agentsPath()
+	if err != nil || agents != filepath.Join(dir, "AGENTS.md") {
+		t.Fatalf("agentsPath = %q, %v", agents, err)
+	}
+	configPath, err := configTomlPath()
+	if err != nil || configPath != filepath.Join(dir, "config.toml") {
+		t.Fatalf("configTomlPath = %q, %v", configPath, err)
+	}
+}
+
 func TestApplyQuotaHardFailOverrideReclassifiesScreen(t *testing.T) {
 	state := ui.ScreenInput{
 		QuotaBlock:  "weekly quota reached (100% used)",
@@ -145,8 +160,26 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 				Allowed: true,
 				Status:  "missing",
 			},
-			uploadErr: &orchestrator.HTTPError{StatusCode: 400, Method: "POST", Path: "/auth", Body: "candidate failed live verification"},
+			uploadErr: &orchestrator.HTTPError{StatusCode: 400, Code: "validation_failed", Method: "POST", Path: "/auth", Body: "candidate failed live verification"},
 			want:      true,
+		},
+		{
+			name: "security 403 is not credential rejection",
+			decision: orchestrator.AuthDecision{
+				Allowed: true,
+				Status:  "upload_required",
+			},
+			uploadErr: &orchestrator.HTTPError{StatusCode: 403, Code: "engine_disabled", Method: "POST", Path: "/auth"},
+			want:      false,
+		},
+		{
+			name: "unusable runner writeback fails without login loop",
+			decision: orchestrator.AuthDecision{
+				Allowed: true,
+				Status:  "upload_required",
+			},
+			uploadErr: &orchestrator.HTTPError{StatusCode: 503, Code: "runner_updated_auth_invalid", Method: "POST", Path: "/auth"},
+			want:      false,
 		},
 		{
 			name: "upload_required with gated store (503) must not prompt a login loop",
@@ -231,7 +264,7 @@ func TestShouldWriteServerAuth(t *testing.T) {
 		{"updated", auth, true},
 		{"missing", auth, true},
 		{" UPDATED ", auth, true},
-		{"valid", auth, false},
+		{"valid", auth, true},
 		{"outdated", nil, false},
 	}
 	for _, tc := range cases {
@@ -265,11 +298,11 @@ func TestApplyServerAuth(t *testing.T) {
 
 	t.Run("stale server auth must not clobber fresher stamped local", func(t *testing.T) {
 		local := writeLocal(t, `{"last_refresh":"`+freshStamp+`","auths":{"api.openai.com":{"token":"new"}}}`)
-		wrote, kept := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
+		wrote, kept, err := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: staleServerAuth, CanonicalLastRefresh: staleStamp,
-		}, false)
-		if wrote || !kept {
-			t.Fatalf("wrote=%v kept=%v; want wrote=false kept=true", wrote, kept)
+		}, false, codex.AuthGeneration{})
+		if err != nil || wrote || !kept {
+			t.Fatalf("wrote=%v kept=%v err=%v; want wrote=false kept=true", wrote, kept, err)
 		}
 		raw, _ := os.ReadFile(local)
 		if !strings.Contains(string(raw), `"new"`) {
@@ -280,11 +313,11 @@ func TestApplyServerAuth(t *testing.T) {
 	t.Run("stale server auth must not clobber fresher vanilla-login local (mtime)", func(t *testing.T) {
 		// Vanilla `codex login` output: no last_refresh — freshness comes from mtime.
 		local := writeLocal(t, `{"auths":{"api.openai.com":{"token":"new"}}}`)
-		wrote, kept := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
+		wrote, kept, err := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: staleServerAuth, CanonicalLastRefresh: staleStamp,
-		}, false)
-		if wrote || !kept {
-			t.Fatalf("wrote=%v kept=%v; want wrote=false kept=true", wrote, kept)
+		}, false, codex.AuthGeneration{})
+		if err != nil || wrote || !kept {
+			t.Fatalf("wrote=%v kept=%v err=%v; want wrote=false kept=true", wrote, kept, err)
 		}
 	})
 
@@ -300,11 +333,12 @@ func TestApplyServerAuth(t *testing.T) {
 		if err := os.WriteFile(realPath, []byte(`{"last_refresh":"`+staleStamp+`","auths":{"api.openai.com":{"token":"old"}}}`), 0o600); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
-		wrote, kept := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
+		expected, _ := codex.CurrentAuthGeneration()
+		wrote, kept, err := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: freshServerAuth, CanonicalLastRefresh: freshStamp,
-		}, false)
-		if !wrote || kept {
-			t.Fatalf("wrote=%v kept=%v; want wrote=true kept=false", wrote, kept)
+		}, false, expected)
+		if err != nil || !wrote || kept {
+			t.Fatalf("wrote=%v kept=%v err=%v; want wrote=true kept=false", wrote, kept, err)
 		}
 		raw, _ := os.ReadFile(realPath)
 		if !strings.Contains(string(raw), `"fresh"`) {
@@ -317,11 +351,12 @@ func TestApplyServerAuth(t *testing.T) {
 		home, _ := os.UserHomeDir()
 		_ = os.MkdirAll(filepath.Join(home, ".codex"), 0o700)
 		realPath, _ := codex.AuthPath()
-		wrote, kept := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
+		expected, _ := codex.CurrentAuthGeneration()
+		wrote, kept, err := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: freshServerAuth, VerificationState: "failed",
-		}, false)
-		if wrote || kept {
-			t.Fatalf("wrote=%v kept=%v; want both false", wrote, kept)
+		}, false, expected)
+		if err != nil || wrote || kept {
+			t.Fatalf("wrote=%v kept=%v err=%v; want both false", wrote, kept, err)
 		}
 		if _, err := os.Stat(realPath); !os.IsNotExist(err) {
 			t.Fatalf("known-bad blob was materialized")
@@ -333,11 +368,12 @@ func TestApplyServerAuth(t *testing.T) {
 		home, _ := os.UserHomeDir()
 		_ = os.MkdirAll(filepath.Join(home, ".codex"), 0o700)
 		realPath, _ := codex.AuthPath()
-		wrote, kept := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
+		expected, _ := codex.CurrentAuthGeneration()
+		wrote, kept, err := applyServerAuth(logger, realPath, &orchestrator.AuthRetrieveResponse{
 			Status: "missing", Auth: freshServerAuth,
-		}, false)
-		if !wrote || kept {
-			t.Fatalf("wrote=%v kept=%v; want wrote=true kept=false", wrote, kept)
+		}, false, expected)
+		if err != nil || !wrote || kept {
+			t.Fatalf("wrote=%v kept=%v err=%v; want wrote=true kept=false", wrote, kept, err)
 		}
 	})
 }
@@ -353,16 +389,16 @@ func TestLocalAuthFresherThan(t *testing.T) {
 		}
 		return p
 	}
-	if !localAuthFresherThan(write(t, `{"last_refresh":"`+freshStamp+`"}`), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
+	if !localAuthFresherThan(write(t, `{"last_refresh":"`+freshStamp+`","tokens":{"access_token":"valid"}}`), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
 		t.Fatalf("fresher stamped local must win over stale server payload")
 	}
-	if localAuthFresherThan(write(t, `{"last_refresh":"`+staleStamp+`"}`), []byte(`{"last_refresh":"`+freshStamp+`"}`)) {
+	if localAuthFresherThan(write(t, `{"last_refresh":"`+staleStamp+`","tokens":{"access_token":"valid"}}`), []byte(`{"last_refresh":"`+freshStamp+`"}`)) {
 		t.Fatalf("older local must lose to fresher server payload")
 	}
 	if !localAuthFresherThan(write(t, `{"auths":{"x":{"token":"t"}}}`), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
 		t.Fatalf("vanilla-login local (mtime=now) must win over stale server payload")
 	}
-	if !localAuthFresherThan(write(t, `{"last_refresh":"`+freshStamp+`"}`), []byte(`{}`)) {
+	if !localAuthFresherThan(write(t, `{"last_refresh":"`+freshStamp+`","tokens":{"access_token":"valid"}}`), []byte(`{}`)) {
 		t.Fatalf("server payload without a stamp must never win over an existing local")
 	}
 	if localAuthFresherThan(filepath.Join(t.TempDir(), "absent.json"), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
@@ -370,5 +406,648 @@ func TestLocalAuthFresherThan(t *testing.T) {
 	}
 	if localAuthFresherThan("", []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
 		t.Fatalf("empty path is never fresher")
+	}
+	if localAuthFresherThan(write(t, `{"last_refresh":"`+freshStamp+`","tokens":{}}`), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
+		t.Fatalf("newer but invalid local auth must not block canonical healing")
+	}
+	if localAuthFresherThan(write(t, `{"last_refresh":"2099-01-01T00:00:00Z","tokens":{"access_token":"valid"}}`), []byte(`{"last_refresh":"`+staleStamp+`"}`)) {
+		t.Fatalf("out-of-range local timestamp must not block canonical healing")
+	}
+}
+
+func TestApplyServerAuthGenerationGuardKeepsLoginWrittenInFlight(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	old := []byte(`{"last_refresh":"2026-07-17T08:00:00Z","tokens":{"access_token":"old"}}`)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	login := []byte(`{"last_refresh":"2026-07-17T08:30:00Z","tokens":{"access_token":"login"}}`)
+	if err := os.WriteFile(path, login, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"server"}}`)
+	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{Status: "outdated", Auth: server}, false, expected)
+	if err != nil || wrote || !kept {
+		t.Fatalf("applyServerAuth = wrote=%v kept=%v err=%v", wrote, kept, err)
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != string(login) {
+		t.Fatalf("in-flight login clobbered: %s", raw)
+	}
+}
+
+func TestConcurrentCanonicalResponsesConvergeToNewestInEitherOrder(t *testing.T) {
+	base := time.Now().UTC()
+	stamp := func(delta time.Duration) string { return base.Add(delta).Format(time.RFC3339Nano) }
+	initial := []byte(`{"last_refresh":"` + stamp(-3*time.Hour) + `","tokens":{"access_token":"initial"}}`)
+	older := []byte(`{"last_refresh":"` + stamp(-2*time.Hour) + `","tokens":{"access_token":"canonical-old"}}`)
+	newer := []byte(`{"last_refresh":"` + stamp(-time.Hour) + `","tokens":{"access_token":"canonical-new"}}`)
+	for _, tc := range []struct {
+		name          string
+		first, second []byte
+	}{
+		{name: "older response lands first", first: older, second: newer},
+		{name: "newer response lands first", first: newer, second: older},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			path, _ := codex.AuthPath()
+			if err := os.WriteFile(path, initial, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			expected, _ := codex.CurrentAuthGeneration()
+			for _, payload := range [][]byte{tc.first, tc.second} {
+				_, _, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+					Status: "outdated", Auth: payload, VerificationState: "verified",
+				}, false, expected)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(raw), `"access_token":"canonical-new"`) {
+				t.Fatalf("final auth did not converge to newest: %s, %v", raw, err)
+			}
+		})
+	}
+}
+
+func TestConcurrentCanonicalResponsesWithEqualFreshnessFailClosedInEitherOrder(t *testing.T) {
+	stamp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	initial := []byte(`{"last_refresh":"` + time.Now().UTC().Add(-2*time.Hour).Format(time.RFC3339Nano) + `","tokens":{"access_token":"initial"}}`)
+	left := []byte(`{"last_refresh":"` + stamp + `","tokens":{"access_token":"canonical-left"}}`)
+	right := []byte(`{"last_refresh":"` + stamp + `","tokens":{"access_token":"canonical-right"}}`)
+	for _, tc := range []struct {
+		name          string
+		first, second []byte
+	}{
+		{name: "left response lands first", first: left, second: right},
+		{name: "right response lands first", first: right, second: left},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			path, _ := codex.AuthPath()
+			if err := os.WriteFile(path, initial, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			expected, _ := codex.CurrentAuthGeneration()
+			if _, _, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+				Status: "outdated", Auth: tc.first, VerificationState: "verified",
+			}, false, expected); err != nil {
+				t.Fatalf("first response: %v", err)
+			}
+			if _, _, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+				Status: "outdated", Auth: tc.second, VerificationState: "verified",
+			}, false, expected); !errors.Is(err, codex.ErrCanonicalAuthConflict) {
+				t.Fatalf("second response error = %v, want equal-freshness conflict", err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || string(raw) != string(tc.first) {
+				t.Fatalf("first response was not preserved: %s, %v", raw, err)
+			}
+			if _, _, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+				Status: "outdated", Auth: tc.first, VerificationState: "verified",
+			}, false, expected); err != nil {
+				t.Fatalf("exact duplicate response must be idempotent: %v", err)
+			}
+		})
+	}
+}
+
+func TestApplyServerAuthHealsDefinitivelyRejectedNewerLocal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	localStamp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	serverStamp := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	rejected := []byte(`{"last_refresh":"` + localStamp + `","tokens":{"access_token":"provider-rejected"}}`)
+	if err := os.WriteFile(path, rejected, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	server := []byte(`{"last_refresh":"` + serverStamp + `","tokens":{"access_token":"healed"}}`)
+	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+		Status: "outdated", Auth: server, VerificationState: "verified", CandidateRejectedDefinitive: true,
+	}, false, expected)
+	if err != nil || !wrote || kept {
+		t.Fatalf("applyServerAuth = wrote=%v kept=%v err=%v", wrote, kept, err)
+	}
+	if !codex.IsValidLocalAuth(path) {
+		t.Fatal("verified canonical did not heal invalid newer local auth")
+	}
+}
+
+func TestApplyServerAuthDefinitiveSignalRequiresVerifiedCanonical(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	localStamp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	serverStamp := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	local := []byte(`{"last_refresh":"` + localStamp + `","tokens":{"access_token":"local"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	server := []byte(`{"last_refresh":"` + serverStamp + `","tokens":{"access_token":"server"}}`)
+	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+		Status: "outdated", Auth: server, CandidateRejectedDefinitive: true,
+	}, false, expected)
+	if err != nil || wrote || !kept {
+		t.Fatalf("unverified override = wrote=%v kept=%v err=%v", wrote, kept, err)
+	}
+}
+
+func TestApplyServerAuthFailsWhenCanonicalNeededButActiveChildBlocksWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	expected, _ := codex.CurrentAuthGeneration()
+	child, err := codex.AcquireActiveChild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Release()
+	server := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"required"}}`)
+	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+		Status: "missing", Auth: server, VerificationState: "verified",
+	}, false, expected)
+	if err == nil || wrote || kept {
+		t.Fatalf("blocked required write = wrote=%v kept=%v err=%v", wrote, kept, err)
+	}
+}
+
+func TestApplyServerAuthFailsClosedWhenActiveChildOwnsUnchangedValidGeneration(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	local := []byte(`{"last_refresh":"2026-07-17T08:00:00Z","tokens":{"access_token":"still-valid-old"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	child, err := codex.AcquireActiveChild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Release()
+	server := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"required-newer"}}`)
+	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
+		Status: "outdated", Auth: server, VerificationState: "verified",
+	}, false, expected)
+	if err == nil || wrote || kept || !strings.Contains(err.Error(), "unchanged local generation") {
+		t.Fatalf("active-child unchanged generation = wrote=%v kept=%v err=%v", wrote, kept, err)
+	}
+	if raw, readErr := os.ReadFile(path); readErr != nil || string(raw) != string(local) {
+		t.Fatalf("blocked child generation changed: %q, %v", raw, readErr)
+	}
+}
+
+func TestBootstrapOmitsInvalidJSONCandidateAndHealsFromCanonical(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	if err := os.WriteFile(path, []byte(`not-json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidateSeen := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bundle request: %v", err)
+		}
+		_, candidateSeen = request["auth_candidate"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","auth":{"status":"outdated","verification_state":"verified","auth":{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"healed"}},"host":{"secure":true}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+	if authErr != nil || !synced || resp == nil {
+		t.Fatalf("bootstrap = resp=%+v err=%v synced=%v", resp, authErr, synced)
+	}
+	if candidateSeen {
+		t.Fatal("structurally invalid auth was sent as RawMessage candidate")
+	}
+	if raw, err := os.ReadFile(path); err != nil || !strings.Contains(string(raw), `"access_token":"healed"`) {
+		t.Fatalf("canonical did not heal invalid JSON: %q, %v", raw, err)
+	}
+}
+
+func TestLegacySyncTwoWayAuthConvergencePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		storeCode  int
+		errorCode  string
+		wantToken  string
+		wantSynced bool
+		wantUnsafe bool
+	}{
+		{name: "accepted newer candidate converges", storeCode: http.StatusOK, wantToken: "local", wantSynced: true},
+		{name: "transient runner outage preserves newer local", storeCode: http.StatusServiceUnavailable, errorCode: "runner_unreachable", wantToken: "local"},
+		{name: "security denial preserves newer local", storeCode: http.StatusForbidden, errorCode: "engine_disabled", wantToken: "local"},
+		{name: "definitive validation rejection heals from verified canonical", storeCode: http.StatusUnprocessableEntity, errorCode: "validation_failed", wantToken: "canonical", wantSynced: true},
+		{name: "unusable rotated runner writeback fails closed", storeCode: http.StatusServiceUnavailable, errorCode: "runner_updated_auth_invalid", wantToken: "local", wantUnsafe: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			path, _ := codex.AuthPath()
+			localStamp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+			canonicalStamp := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+			local := json.RawMessage(`{"last_refresh":"` + localStamp + `","tokens":{"access_token":"local"}}`)
+			canonical := json.RawMessage(`{"last_refresh":"` + canonicalStamp + `","tokens":{"access_token":"canonical"}}`)
+			if err := os.WriteFile(path, local, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Command string          `json:"command"`
+					Auth    json.RawMessage `json:"auth"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode request: %v", err)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if request.Command == "retrieve" {
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"status": "outdated", "verification_state": "verified", "auth": canonical,
+					})
+					return
+				}
+				if tc.storeCode != http.StatusOK {
+					w.WriteHeader(tc.storeCode)
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": tc.errorCode, "message": tc.errorCode})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"status": "updated", "verification_state": "verified", "auth": request.Auth,
+				})
+			}))
+			defer server.Close()
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, syncErr, synced := syncAuthLegacy(context.Background(), client, slog.Default(), false)
+			if resp == nil {
+				t.Fatal("legacy sync returned nil response")
+			}
+			if tc.wantUnsafe {
+				if !orchestrator.IsUnsafeRunnerUpdatedAuthError(syncErr) {
+					t.Fatalf("unsafe store error = %v", syncErr)
+				}
+				decision := decideAuth(resp, syncErr, path, true)
+				if decision.Allowed || !strings.Contains(decision.Reason, "superseded") {
+					t.Fatalf("unsafe runner writeback decision = %+v", decision)
+				}
+			} else if syncErr != nil {
+				t.Fatalf("legacy sync error = %v", syncErr)
+			}
+			if synced != tc.wantSynced {
+				t.Fatalf("synced = %v, want %v", synced, tc.wantSynced)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(raw), `"access_token":"`+tc.wantToken+`"`) {
+				t.Fatalf("final auth = %s, %v; want %s", raw, err, tc.wantToken)
+			}
+		})
+	}
+}
+
+func TestDecideAuthFailsOnCanonicalMaterializationErrorEvenWithOldLocal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T08:00:00Z","tokens":{"access_token":"old"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dec := decideAuth(
+		&orchestrator.AuthRetrieveResponse{Status: "outdated"},
+		&authMaterializationError{err: errors.New("disk full")},
+		path,
+		true,
+	)
+	if dec.Allowed || !strings.Contains(dec.Reason, "could not be written") {
+		t.Fatalf("decision = %+v", dec)
+	}
+}
+
+func TestPostRunChangedAuthFailureBecomesLifecycleFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	before := []byte(`{"last_refresh":"2026-07-17T08:00:00Z","tokens":{"access_token":"old"}}`)
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeHash, beforeRefresh := snapshotAuth(path)
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"rotated"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "runner unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, tone, postErr := maybePostRunAuthUpload(client, slog.Default(), path, beforeHash, beforeRefresh)
+	if postErr == nil || status != "upload failed" || tone != ui.ToneFail {
+		t.Fatalf("post-run = status=%q tone=%v err=%v", status, tone, postErr)
+	}
+	exit, merged := mergeLifecycleFailure(0, nil, postErr)
+	if exit != 1 || merged == nil {
+		t.Fatalf("mergeLifecycleFailure = %d, %v", exit, merged)
+	}
+}
+
+func TestPostRunDifferentLoginClearsDeferredLogoutOnlyAfterStoreAcceptance(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	old := []byte(`{"last_refresh":"2026-07-17T09:00:00Z","tokens":{"access_token":"old"}}`)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeHash, beforeRefresh := snapshotAuth(path)
+	oldGeneration, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(oldGeneration); err != nil || !marked {
+		t.Fatalf("deferred logout = %v, %v", marked, err)
+	}
+	if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"new-login"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	status, tone, err := maybePostRunAuthUpload(client, slog.Default(), path, beforeHash, beforeRefresh)
+	if err != nil || status != "uploaded" || tone != ui.ToneOK || requests != 1 {
+		t.Fatalf("post-run accepted login = status=%q tone=%v requests=%d err=%v", status, tone, requests, err)
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || active {
+		t.Fatalf("accepted changed login left logout active=%v err=%v", active, err)
+	}
+}
+
+func TestBootstrapAuthCandidateSerializesConcurrentLogoutAcrossNetwork(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"candidate"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	requestEntered := make(chan struct{})
+	allowResponse := make(chan struct{})
+	candidateSeen := make(chan bool, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bootstrap: %v", err)
+		}
+		_, present := request["auth_candidate"]
+		candidateSeen <- present
+		close(requestEntered)
+		<-allowResponse
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","auth":{"status":"valid","host":{"secure":true}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct{ err error }
+	done := make(chan result, 1)
+	go func() {
+		_, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+		done <- result{err: err}
+	}()
+	select {
+	case <-requestEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("bootstrap request did not start")
+	}
+	if !<-candidateSeen {
+		t.Fatal("bootstrap test did not exercise inline auth_candidate persistence")
+	}
+	logoutDone := make(chan error, 1)
+	go func() {
+		marked, err := codex.MarkLogoutIntent(expected)
+		if err == nil && !marked {
+			err = errors.New("logout generation changed before store boundary")
+		}
+		logoutDone <- err
+	}()
+	select {
+	case err := <-logoutDone:
+		t.Fatalf("logout crossed in-flight bootstrap auth_candidate store: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	close(allowResponse)
+	if got := <-done; got.err != nil {
+		t.Fatal(got.err)
+	}
+	select {
+	case err := <-logoutDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("logout did not commit after bootstrap store boundary released")
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("later logout active=%v err=%v", active, err)
+	}
+}
+
+func TestBootstrapOmitsAuthCandidateWhenLogoutAlreadyCommitted(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"logged-out"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(expected); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	candidateSeen := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bootstrap: %v", err)
+		}
+		_, candidateSeen = request["auth_candidate"]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","auth":{"status":"missing","host":{"secure":true}}}`))
+	}))
+	defer server.Close()
+	client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if _, err, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path); err != nil {
+		t.Fatal(err)
+	}
+	if candidateSeen {
+		t.Fatal("bootstrap published an auth_candidate after explicit logout")
+	}
+}
+
+func TestBootstrapClearsLogoutOnlyAfterDifferentLoginIsAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		auth       string
+		reasons    string
+		wantActive bool
+	}{
+		{
+			name:       "accepted",
+			auth:       `{"status":"updated","verification_state":"verified","host":{"secure":true}}`,
+			reasons:    `,"reasons":["auth_stored"]`,
+			wantActive: false,
+		},
+		{
+			name:       "definitively rejected",
+			auth:       `{"status":"outdated","verification_state":"verified","candidate_rejected_definitive":true,"auth":{"last_refresh":"2026-07-17T08:00:00Z","tokens":{"access_token":"canonical"}},"host":{"secure":true}}`,
+			wantActive: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			path, _ := codex.AuthPath()
+			if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T09:00:00Z","tokens":{"access_token":"old"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			old, _ := codex.CurrentAuthGeneration()
+			if marked, err := codex.MarkLogoutIntent(old); err != nil || !marked {
+				t.Fatalf("mark logout = %v, %v", marked, err)
+			}
+			if err := os.WriteFile(path, []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"new-login"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			candidateSeen := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode bootstrap: %v", err)
+				}
+				_, candidateSeen = request["auth_candidate"]
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"status":"ok"%s,"auth":%s}`, tc.reasons, tc.auth)
+			}))
+			defer server.Close()
+			client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+			_, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, slog.Default(), false, path)
+			if bootstrapErr != nil {
+				t.Fatal(bootstrapErr)
+			}
+			if !candidateSeen {
+				t.Fatal("different login was not offered for server acceptance")
+			}
+			active, err := codex.LogoutIntentActive()
+			if err != nil || active != tc.wantActive {
+				t.Fatalf("logout active=%v err=%v, want %v", active, err, tc.wantActive)
+			}
+		})
+	}
+}
+
+func TestInsecurePurgeUsesLastSharedSessionLeaseInEitherExitOrder(t *testing.T) {
+	for _, first := range []int{0, 1} {
+		t.Run(fmt.Sprintf("lease-%d-exits-first", first), func(t *testing.T) {
+			t.Setenv("CODEX_HOME", t.TempDir())
+			path, _ := codex.AuthPath()
+			if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"secret"}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			leases := make([]*codex.AuthSession, 2)
+			for i := range leases {
+				var err error
+				leases[i], err = codex.StartAuthSession(true)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			if err := finishAuthSession(logger, leases[first], first == 1); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("first exit purged auth while peer active: %v", err)
+			}
+			last := 1 - first
+			if err := finishAuthSession(logger, leases[last], last == 1); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("last exit did not purge auth: %v", err)
+			}
+		})
+	}
+}
+
+func TestFinishDoesNotReplayStaleSecureBootstrapAfterPostRunInsecureResponse(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"temporary"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session, err := codex.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updateAuthSessionSecurity(&orchestrator.AuthRetrieveResponse{
+		Status: "valid", Host: &orchestrator.HostInfo{Secure: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateAuthSessionSecurity(&orchestrator.AuthRetrieveResponse{Status: "insecure"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := finishAuthSession(slog.Default(), session, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale secure bootstrap replay canceled latest insecure purge: %v", err)
+	}
+}
+
+func TestInsecurePurgeErrorCanForceNonzeroExit(t *testing.T) {
+	base := t.TempDir()
+	badHome := filepath.Join(base, "codex-home")
+	t.Setenv("CODEX_HOME", badHome)
+	lease, err := codex.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(badHome, badHome+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badHome, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cleanupErr := finishAuthSession(slog.Default(), lease, false)
+	if cleanupErr == nil {
+		t.Fatal("expected insecure purge failure")
+	}
+	exit, merged := mergeLifecycleFailure(0, nil, cleanupErr)
+	if exit != 1 || merged == nil {
+		t.Fatalf("cleanup failure did not force nonzero: exit=%d err=%v", exit, merged)
 	}
 }

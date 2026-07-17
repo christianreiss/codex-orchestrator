@@ -109,6 +109,7 @@ describe('RunnerProxyService', () => {
       canonicalAuthFromPayload: () => null,
       ensureAuthsFallback: (payload) => payload,
       normalizeAuthEntries: () => [],
+      hasUsableEngineCredential: () => true,
       canonicalizeAuthPayload: (payload) => payload,
       calculateDigest: () => 'a'.repeat(64),
     } satisfies RunnerValidationService;
