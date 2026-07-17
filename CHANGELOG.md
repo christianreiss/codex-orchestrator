@@ -1,5 +1,12 @@
 # 2026-07-17
 
+- Database deployment safety: added the missing idempotent
+  `0004_add_claude_artifacts.sql` migration and made API boot plus the deploy
+  helper fail closed when that required table is absent, preventing a generic
+  green health check from hiding a broken Claude `/sync/bootstrap` path.
+- Contract-schema tests no longer depend on npm hoisting Ajv to one physical
+  package path, so clean Docker builds typecheck the same way as warm local
+  installs.
 - clx auth lifecycle race closure: every candidate-carrying bundle/direct store
   now keeps one bounded auth+logout-intent transaction through the network call.
   A usable login after an older logout marker remains pending until the server

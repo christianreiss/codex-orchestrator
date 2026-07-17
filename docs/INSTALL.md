@@ -102,7 +102,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_MEMORY_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
-   - Startup behavior: `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` (default off in production; use `scripts/migrate.php` for explicit schema/backfill runs).
+   - Schema changes: apply the reviewable SQL under `api/src/db/migrations/` explicitly before starting the matching API version. There is no boot migration runner.
    - Token TTLs: `INSTALL_TOKEN_TTL_SECONDS` (default 1800) and `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
   - Usage telemetry: `quota-cron` is a default Compose service. It performs one refresh at boot and then polls on `CHATGPT_USAGE_CRON_INTERVAL` (default 3600). Configure `CHATGPT_BASE_URL` and `CHATGPT_USAGE_TIMEOUT` as needed. Its healthcheck reads `CHATGPT_USAGE_HEALTH_PATH` and becomes unhealthy when no successful snapshot arrives within `CHATGPT_USAGE_CRON_INTERVAL + 300s`, unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides that limit.
@@ -128,7 +128,7 @@ It checks the git worktree, fast-forwards from the configured upstream, optional
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
 - Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable API-side runner checks. The API keeps canonical Codex/Claude auth fresh from a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s) instead of blocking wrapper startup. Admin seed/admin upload paths still run through the same strict runner validation/update path as host `/auth` stores, so they require a reachable runner when enabled. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
-- API container startup can run migrations/backfills when `RUN_MIGRATIONS_ON_BOOT=1` / `RUN_BACKFILLS_ON_BOOT=1`; production defaults keep both off for explicit operator control.
+- Apply additive migrations before the matching deploy. For example: `docker compose exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < api/src/db/migrations/0004_add_claude_artifacts.sql`. API startup and the deploy helper fail closed if the required `claude_artifacts` table is absent.
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
 
 ## Optional: bundled Caddy frontend (no existing proxy)

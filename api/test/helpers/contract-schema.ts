@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
-import type { FormatsPlugin } from 'ajv-formats';
 
 const CONTRACT_ROOT = new URL('../../../docs/contracts/', import.meta.url);
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const require = createRequire(import.meta.url);
-const formatsPackage = require('ajv-formats') as FormatsPlugin & { default?: FormatsPlugin };
+// A clean npm install may keep Fastify's Ajv under @fastify/ajv-compiler while
+// this helper uses the root Ajv2020 entrypoint.  Those instances are runtime
+// compatible, but their private TypeScript identities are not.  Keep the CJS
+// interop boundary structural so container builds do not depend on npm's
+// particular Ajv hoisting layout.
+type ApplyFormats = (instance: unknown) => unknown;
+const formatsPackage = require('ajv-formats') as ApplyFormats & { default?: ApplyFormats };
 (formatsPackage.default ?? formatsPackage)(ajv);
 
 const validators = new Map<string, ValidateFunction>();

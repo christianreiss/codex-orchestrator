@@ -149,6 +149,11 @@ if [[ "${backup}" -eq 1 ]]; then
   log "backup complete ($(wc -c < "${backup_file}") bytes)"
 fi
 
+log "checking required database schema before restart"
+# shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
+"${compose[@]}" exec -T mysql sh -lc \
+  'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT 1 FROM claude_artifacts LIMIT 0;" >/dev/null'
+
 build_args=(build)
 if [[ "${#services[@]}" -gt 0 ]]; then
   build_args+=("${services[@]}")

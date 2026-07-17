@@ -1,28 +1,22 @@
 # Drizzle schema
 
-`schema.ts` mirrors the cumulative state of the legacy PHP migrations
-(`../../../src/Migrations/*.php`) exactly. The existing production database is
-the source of truth; this file is a typed shadow that lets us read/write rows
-through Drizzle.
+`schema.ts` is the typed mirror used by Drizzle. Reviewable schema changes live
+as hand-written SQL in `migrations/` and are applied explicitly before the API
+is started.
 
-## Generating the initial no-op migration
-
-```sh
-# Make sure your .env points DB_* at the live (already-migrated) database.
-pnpm drizzle:generate
-```
-
-Drizzle Kit diffs `schema.ts` against the introspected live schema. If the two
-match, the generated migration is empty — exactly what we want at cutover.
-
-## Going forward
-
-All future schema evolution lives in this file. Generate + apply with:
+## Applying a migration
 
 ```sh
-pnpm drizzle:generate   # writes a new migration to src/db/migrations/
-pnpm drizzle:push       # applies pending migrations (dev/CI)
+docker compose exec -T mysql sh -lc \
+  'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+  < api/src/db/migrations/0004_add_claude_artifacts.sql
 ```
 
-The 17 legacy PHP migration files are dead code after the cutover and live in
-git history.
+There is no automatic migration runner or migration ledger. Apply each new SQL
+file once as part of its deployment; migrations intended for retry must be
+idempotent. API boot and `scripts/deploy.sh` probe required schema and fail when
+`claude_artifacts` has not been created.
+
+Do not use `drizzle:push` against an existing database. It reconciles the whole
+hand-maintained mirror rather than applying `migrations/`, and cannot preserve
+the FULLTEXT indexes defined by SQL migrations.

@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS claude_artifacts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    kind VARCHAR(32) NOT NULL,
+    slug VARCHAR(255) NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    display_name VARCHAR(255) NULL,
+    description TEXT NULL,
+    model VARCHAR(128) NULL,
+    frontmatter JSON NULL,
+    body LONGTEXT NOT NULL,
+    source_host_id BIGINT UNSIGNED NULL,
+    created_at VARCHAR(100) NOT NULL,
+    updated_at VARCHAR(100) NOT NULL,
+    deleted_at VARCHAR(100) NULL,
+    engine VARCHAR(16) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_claude_artifacts_kind_slug (kind, slug),
+    INDEX idx_claude_artifacts_kind (kind),
+    INDEX idx_claude_artifacts_updated_at (updated_at),
+    INDEX idx_claude_artifacts_engine (engine)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

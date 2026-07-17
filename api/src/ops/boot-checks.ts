@@ -12,6 +12,10 @@ export async function runBootChecks(env: Env, db: Database): Promise<void> {
   Keyring.fromEnv(env);
 
   await db.execute(sql`SELECT 1`);
+  // Claude bootstrap always reads this table. Probe it before the listener is
+  // opened so a missed additive migration cannot hide behind a green generic
+  // database health check and fail only when the first clx host syncs.
+  await db.execute(sql`SELECT 1 FROM claude_artifacts LIMIT 0`);
   await refreshRunnerHealth(env, db);
   await refreshWrapperVersions(env, db);
 
