@@ -16,7 +16,10 @@ import (
 	"time"
 )
 
-const generationStateFile = "generation.json"
+const (
+	generationStateFile    = "generation.json"
+	generationStateVersion = 1
+)
 
 var ErrAuthUploadBlockedByLogout = errors.New("explicit Claude logout became active before auth upload")
 
@@ -47,6 +50,7 @@ type AuthSnapshot struct {
 }
 
 type generationState struct {
+	Version         int    `json:"version,omitempty"`
 	Digest          string `json:"digest"`
 	LastRefresh     string `json:"last_refresh"`
 	CanonicalDigest string `json:"canonical_digest,omitempty"`
@@ -249,7 +253,7 @@ func readAuthSnapshotLocked(paths authFileSet, forUpload bool) (AuthSnapshot, er
 		if validDigest(state.CanonicalDigest) {
 			snap.ServerDigest = state.CanonicalDigest
 		}
-		if validRefresh(state.LastRefresh) {
+		if validGenerationStateRefresh(state) {
 			if stamp, err := time.Parse(time.RFC3339Nano, state.LastRefresh); err == nil {
 				snap.LastRefresh = stamp.UTC()
 			}
@@ -358,7 +362,7 @@ func BlockedCanonicalWriteError(request AuthSnapshot, canonical json.RawMessage,
 		return nil
 	}
 	incomingStamp := lastRefreshFromPayload(canonical)
-	if !validRefresh(incomingStamp) || !validRefresh(state.LastRefresh) {
+	if !validLogicalRefresh(incomingStamp) || !validGenerationStateRefresh(state) {
 		return errors.New("canonical Claude response order is ambiguous because stable last_refresh metadata is missing")
 	}
 	incomingTime, incomingErr := time.Parse(time.RFC3339Nano, incomingStamp)
@@ -464,12 +468,12 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 
 	stamp := incomingStamp
 	if stamp == "" {
-		stamp = stableTimestamp(time.Now().UTC(), "")
+		stamp = stableTimestamp(time.Now().UTC(), "", false)
 	}
 	if !validDigest(canonicalDigest) {
 		canonicalDigest = digestBytes(payload)
 	}
-	state := generationState{Digest: digestBytes(toWrite), LastRefresh: stamp, CanonicalDigest: canonicalDigest}
+	state := generationState{Version: generationStateVersion, Digest: digestBytes(toWrite), LastRefresh: stamp, CanonicalDigest: canonicalDigest}
 	stateRaw, err := json.Marshal(state)
 	if err != nil {
 		return false, err
@@ -488,7 +492,7 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 }
 
 func refreshStrictlyAfter(candidate, current string) bool {
-	if !validRefresh(candidate) || !validRefresh(current) {
+	if !validLogicalRefresh(candidate) || !validLogicalRefresh(current) {
 		return false
 	}
 	candidateTime, candidateErr := time.Parse(time.RFC3339Nano, candidate)
@@ -525,11 +529,27 @@ func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, di
 		return stamp, nil
 	}
 	previous := readGenerationState(paths.generation)
-	if previous.Digest == digest && validRefresh(previous.LastRefresh) {
+	if previous.Digest == digest && validGenerationStateRefresh(previous) {
+		if previous.Version != generationStateVersion {
+			previous.Version = generationStateVersion
+			stateRaw, err := json.Marshal(previous)
+			if err != nil {
+				return "", err
+			}
+			if err := atomicWriteLocked(paths.generation, stateRaw, 0o600); err != nil {
+				return "", err
+			}
+		}
 		return previous.LastRefresh, nil
 	}
-	stamp := stableTimestamp(info.ModTime().UTC(), previous.LastRefresh)
-	stateRaw, err := json.Marshal(generationState{Digest: digest, LastRefresh: stamp})
+	previousStamp := ""
+	trustPrevious := false
+	if validGenerationStateRefresh(previous) {
+		previousStamp = previous.LastRefresh
+		trustPrevious = trustedGenerationState(previous)
+	}
+	stamp := stableTimestamp(info.ModTime().UTC(), previousStamp, trustPrevious)
+	stateRaw, err := json.Marshal(generationState{Version: generationStateVersion, Digest: digest, LastRefresh: stamp})
 	if err != nil {
 		return "", err
 	}
@@ -539,14 +559,14 @@ func stableLastRefreshLocked(paths authFileSet, raw []byte, info os.FileInfo, di
 	return stamp, nil
 }
 
-func stableTimestamp(candidate time.Time, previous string) string {
+func stableTimestamp(candidate time.Time, previous string, trustPrevious bool) string {
 	now := time.Now().UTC()
 	if candidate.Year() < 2000 || candidate.After(now.Add(5*time.Minute)) {
 		candidate = now
 	}
 	if prev, err := time.Parse(time.RFC3339Nano, previous); err == nil && !candidate.After(prev) {
 		candidate = prev.Add(time.Nanosecond)
-		if candidate.After(now.Add(5 * time.Minute)) {
+		if !trustPrevious && candidate.After(now.Add(5*time.Minute)) {
 			candidate = now
 		}
 	}
@@ -565,11 +585,37 @@ func validRefresh(value string) bool {
 	return ts.Year() >= 2000 && !ts.After(now.Add(5*time.Minute))
 }
 
+// validLogicalRefresh validates an ordering stamp without comparing it to the
+// local wall clock. A persisted wrapper generation can legitimately appear in
+// the future after the host clock moves backwards; the API remains the
+// authority for its own +5 minute acceptance bound.
+func validLogicalRefresh(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	ts, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil && ts.Year() >= 2000
+}
+
+func validGenerationStateRefresh(state generationState) bool {
+	if trustedGenerationState(state) {
+		return validLogicalRefresh(state.LastRefresh)
+	}
+	// Legacy/unversioned metadata retains the historical local-clock sanity
+	// check. Reading it once rewrites it into the versioned monotonic format.
+	return validRefresh(state.LastRefresh)
+}
+
+func trustedGenerationState(state generationState) bool {
+	return state.Version == generationStateVersion ||
+		(state.Version == 0 && validDigest(state.CanonicalDigest))
+}
+
 func lastRefreshFromPayload(payload []byte) string {
 	var doc struct {
 		LastRefresh string `json:"last_refresh"`
 	}
-	if json.Unmarshal(payload, &doc) != nil || !validRefresh(doc.LastRefresh) {
+	if json.Unmarshal(payload, &doc) != nil || !validLogicalRefresh(doc.LastRefresh) {
 		return ""
 	}
 	return strings.TrimSpace(doc.LastRefresh)

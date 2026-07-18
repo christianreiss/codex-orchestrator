@@ -5,7 +5,7 @@ import { sha256 } from '../security/hash.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { ValidationError } from '../http/errors.js';
-import { isRfc3339 } from '../util/timestamp.js';
+import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
 
@@ -106,7 +106,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       const auth = parsed as Record<string, unknown>;
       const lr = auth.last_refresh;
       if (typeof lr !== 'string' || !isRfc3339(lr)) return null;
-      if (!isRfc3339(row.lastRefresh) || Date.parse(lr) !== Date.parse(row.lastRefresh)) return null;
+      if (!isRfc3339(row.lastRefresh) || compareRfc3339(lr, row.lastRefresh) !== 0) return null;
       if (!isReasonableLastRefresh(lr)) return null;
       if (sha256(body) !== row.sha256) return null;
       const engine =
@@ -139,7 +139,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       if (engine === ENGINE_CLAUDE) {
         candidates.push(out.api_key, out.anthropic_api_key, out.ANTHROPIC_API_KEY);
         const tokens = isRecord(out.tokens) ? out.tokens : null;
-        candidates.push(tokens?.anthropic_api_key);
+        candidates.push(tokens?.anthropic_api_key, tokens?.ANTHROPIC_API_KEY);
         const oauth = isRecord(out.claudeAiOauth) ? out.claudeAiOauth : null;
         candidates.push(oauth?.accessToken);
       } else if (engine === ENGINE_CODEX) {
@@ -252,9 +252,9 @@ function resolveTokenMinLength(override?: number): number {
 }
 
 function isReasonableLastRefresh(value: string): boolean {
-  const timestamp = Date.parse(value);
+  const timestamp = parseRfc3339Millis(value);
   return (
-    Number.isFinite(timestamp) &&
+    timestamp !== null &&
     timestamp >= MIN_REFRESH_EPOCH_MS &&
     timestamp <= Date.now() + MAX_FUTURE_SKEW_MS
   );
@@ -305,11 +305,11 @@ function toCanonicalPayloadRow(row: typeof authPayloads.$inferSelect): Canonical
 }
 
 function compareCanonicalRowsNewestFirst(a: CanonicalPayloadRow, b: CanonicalPayloadRow): number {
-  const aMs = Date.parse(a.lastRefresh);
-  const bMs = Date.parse(b.lastRefresh);
-  const safeA = Number.isFinite(aMs) ? aMs : Number.NEGATIVE_INFINITY;
-  const safeB = Number.isFinite(bMs) ? bMs : Number.NEGATIVE_INFINITY;
-  if (safeA !== safeB) return safeB - safeA;
+  const aNanos = parseRfc3339Nanos(a.lastRefresh);
+  const bNanos = parseRfc3339Nanos(b.lastRefresh);
+  if (aNanos !== null && bNanos !== null && aNanos !== bNanos) return aNanos < bNanos ? 1 : -1;
+  if (aNanos === null && bNanos !== null) return 1;
+  if (aNanos !== null && bNanos === null) return -1;
   return b.id - a.id;
 }
 

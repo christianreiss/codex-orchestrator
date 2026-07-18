@@ -484,6 +484,75 @@ func TestAuthUploadAcknowledgesMarkerObservedBeforeAcceptedStore(t *testing.T) {
 	}
 }
 
+func TestAuthUploadRetriesOneInFlightGenerationChangeAndFailsOnSecond(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		changes     int
+		wantCode    int
+		wantCalls   int
+		wantCurrent string
+	}{
+		{name: "one overlap converges", changes: 1, wantCode: 0, wantCalls: 2, wantCurrent: "login-b"},
+		{name: "second overlap fails visibly", changes: 2, wantCode: 1, wantCalls: 2, wantCurrent: "login-c"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			path := filepath.Join(dir, "auth.json")
+			payloads := [][]byte{
+				[]byte(`{"last_refresh":"2026-07-18T10:00:00Z","tokens":{"access_token":"login-a"}}`),
+				[]byte(`{"last_refresh":"2026-07-18T10:00:01Z","tokens":{"access_token":"login-b"}}`),
+				[]byte(`{"last_refresh":"2026-07-18T10:00:02Z","tokens":{"access_token":"login-c"}}`),
+			}
+			if err := os.WriteFile(path, payloads[0], 0o600); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var req struct {
+					Command string          `json:"command"`
+					Auth    json.RawMessage `json:"auth"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Errorf("decode store %d: %v", calls, err)
+					return
+				}
+				if req.Command != "store" || calls > len(payloads) || !strings.Contains(string(req.Auth), "login-"+string(rune('a'+calls-1))) {
+					t.Errorf("store %d = command %q auth %s", calls, req.Command, req.Auth)
+				}
+				// Native Codex does not honor the wrapper flock. Model another
+				// overlapping process atomically replacing auth.json while this
+				// request is in flight.
+				if calls <= tc.changes {
+					if err := os.WriteFile(path, payloads[calls], 0o600); err != nil {
+						t.Errorf("write overlapping generation %d: %v", calls, err)
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified"}`))
+			}))
+			defer server.Close()
+
+			cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+			var stdout, stderr bytes.Buffer
+			if code := cmdAuthUpload(context.Background(), cfg, &stdout, &stderr); code != tc.wantCode {
+				t.Fatalf("auth-upload code=%d want=%d stdout=%q stderr=%q", code, tc.wantCode, stdout.String(), stderr.String())
+			}
+			if calls != tc.wantCalls {
+				t.Fatalf("store calls=%d want=%d stdout=%q stderr=%q", calls, tc.wantCalls, stdout.String(), stderr.String())
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(raw), tc.wantCurrent) {
+				t.Fatalf("current auth=%q err=%v want=%q", raw, err, tc.wantCurrent)
+			}
+			if tc.wantCode != 0 && strings.Contains(stdout.String(), "auth-upload: ok") {
+				t.Fatalf("stale generation reported success: stdout=%q", stdout.String())
+			}
+		})
+	}
+}
+
 func TestStatusReportsExplicitLogoutAsFailureEvenWhenCanonicalIsValid(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
@@ -1011,12 +1080,12 @@ func TestLoginRotatedAuth(t *testing.T) {
 	}
 }
 
-func TestSuccessfulIdenticalLoginStillUploadsToAcknowledgeLogoutIntent(t *testing.T) {
+func TestSuccessfulUnchangedLoginStillUploadsForFleetVerification(t *testing.T) {
 	if !loginNeedsAuthUpload(0, "same", "same", true) {
 		t.Fatal("byte-identical explicit login did not supersede logout intent through accepted upload")
 	}
-	if loginNeedsAuthUpload(0, "same", "same", false) {
-		t.Fatal("unchanged login without logout intent uploaded unnecessarily")
+	if !loginNeedsAuthUpload(0, "same", "same", false) {
+		t.Fatal("successful real login did not prove unchanged credentials through server/runner upload")
 	}
 	if loginNeedsAuthUpload(1, "same", "same", true) {
 		t.Fatal("failed login was allowed to acknowledge logout intent")

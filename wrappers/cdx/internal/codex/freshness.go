@@ -63,6 +63,13 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 	now := time.Now().UTC()
 	delta := now.Sub(ts)
 	if delta < -maxFutureSkew {
+		trusted, trustErr := trustedGenerationKnownAt(path, generationOf(raw))
+		if trustErr != nil {
+			return false, trustErr
+		}
+		if trusted && validLogicalAuthTimestamp(ts) {
+			return true, nil
+		}
 		return false, nil
 	}
 	return delta <= window, nil
@@ -137,10 +144,17 @@ func LastRefreshOfFile(path string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	if ts, perr := lastRefreshFrom(raw); perr == nil {
-		if !reasonableAuthTimestamp(ts, time.Now()) {
-			return time.Time{}, errors.New("auth.json: last_refresh outside accepted bounds")
+		if reasonableAuthTimestamp(ts, time.Now()) {
+			return ts, nil
 		}
-		return ts, nil
+		knownGeneration, knownErr := trustedGenerationKnownAt(path, generationOf(raw))
+		if knownErr != nil {
+			return time.Time{}, knownErr
+		}
+		if knownGeneration && validLogicalAuthTimestamp(ts) {
+			return ts, nil
+		}
+		return time.Time{}, errors.New("auth.json: last_refresh outside accepted bounds")
 	}
 	st, err := os.Stat(path)
 	if err != nil {
@@ -157,6 +171,13 @@ func reasonableAuthTimestamp(candidate, now time.Time) bool {
 	candidate = candidate.UTC()
 	now = now.UTC()
 	return !candidate.Before(minAuthTimestamp) && !candidate.After(now.Add(maxFutureSkew))
+}
+
+// validLogicalAuthTimestamp validates a persisted ordering stamp without
+// comparing it with the current host clock. Verified canonical generations
+// can legitimately appear in the future after the clock moves backwards.
+func validLogicalAuthTimestamp(candidate time.Time) bool {
+	return !candidate.UTC().Before(minAuthTimestamp)
 }
 
 // lastRefreshFrom parses a value from arbitrary auth JSON. Tolerates the `Z`

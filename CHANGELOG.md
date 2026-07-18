@@ -1,3 +1,17 @@
+# 2026-07-18
+
+- Auth API ordering now retains RFC3339 nanoseconds, rejects malformed dates
+  and invalid explicit engine hints, and recognizes legacy nested Claude API
+  keys without ever routing them to the Codex store.
+- cdx 0.6.48 verifies every successful real login through the API/runner,
+  retries one auth generation that changes in flight, and keeps a small local
+  logical clock so accepted X followed by an old-mtime login Y remains newer,
+  stable, and usable by an immediately started or offline cdx process.
+- clx 0.6.48 versions and migrates its generation sidecar so `last_refresh`
+  remains monotonic across host clock rollback. A `/login` that writes Y is
+  uploaded on normal close, and an immediately started clx reuses exact Y
+  without restamping or restoring X.
+
 # 2026-07-17
 
 - Database deployment safety: added the missing idempotent

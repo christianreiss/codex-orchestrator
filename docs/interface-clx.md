@@ -203,7 +203,12 @@ native file or resurrect logout. Wrapper-owned
 `~/.clx/auth/generation.json` binds a stable RFC3339 `last_refresh` to the
 native content digest without injecting wrapper fields into Claude's file.
 Concurrent readers of identical native bytes therefore upload the same
-generation.
+generation. Version 1 of the sidecar is a monotonic logical clock: a trusted
+deployed unversioned canonical binding migrates on read, accepted X survives a
+host clock rollback, and a raw old-mtime Y advances strictly after X. After
+`/login` writes Y and clx closes normally, post-run upload accepts Y; an
+immediately started clx reuses that exact generation without restamping or
+restoring X.
 
 Auth-file locks normally cover only coherent reads, compare-and-swap writes,
 and fsynced renames. Every request carrying Claude candidate bytes is the

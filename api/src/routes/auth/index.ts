@@ -10,8 +10,8 @@ import {
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
-import { nowIso } from '../../util/timestamp.js';
-import { isEngine, parseEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
+import { compareRfc3339, nowIso } from '../../util/timestamp.js';
+import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX } from '../../util/engine.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
@@ -40,6 +40,7 @@ import {
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
+import { resolveAuthRequestEngine } from './engine-resolution.js';
 
 /**
  * Registers the wrapper-facing /auth (+ /sync/*) routes. The legacy PHP
@@ -89,7 +90,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
-    const engine = parseEngine(payload.engine);
+    const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
@@ -191,7 +192,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
-    const engine = parseEngine(payload.engine);
+    const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
 
@@ -220,7 +221,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
     const payload = readPayload(req.body);
-    const engine = parseEngine(payload.engine);
+    const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
 
@@ -440,8 +441,6 @@ async function handleRetrieve(
     baseResponse.canonical_last_refresh = servedLast;
   }
 
-  const incomingTs = incomingLast ? Date.parse(incomingLast) : 0;
-  const canonicalTs = servedLast ? Date.parse(servedLast) : 0;
   const matchesCanonical = providedDigest && servedDigest && providedDigest === servedDigest;
 
   if (matchesCanonical) {
@@ -449,7 +448,7 @@ async function handleRetrieve(
     await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
     return { ...baseResponse, status: 'valid' };
   }
-  if (incomingTs >= canonicalTs) {
+  if (compareOptionalAuthStamps(incomingLast, servedLast) >= 0) {
     // No canonical blob was served: this host explicitly reported a distinct
     // same/newer local generation that still needs to pass the store gate.
     // Preserve that presented state for admin drift reporting instead of
@@ -590,7 +589,7 @@ async function handleBootstrapAuth(
     }
     if (
       candidateLast &&
-      Date.parse(candidateLast) < Date.parse(canonicalLast) &&
+      compareOptionalAuthStamps(candidateLast, canonicalLast) < 0 &&
       canonicalRow.verificationState !== 'failed' &&
       canonicalRow.verificationState !== 'pending'
     ) {
@@ -682,6 +681,12 @@ function readAuthCandidate(payload: Record<string, unknown>): Record<string, unk
   const candidate = payload.auth_candidate;
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
   return candidate as Record<string, unknown>;
+}
+
+function compareOptionalAuthStamps(a: string | null, b: string | null): number {
+  if (!a) return b ? -1 : 0;
+  if (!b) return 1;
+  return compareRfc3339(a, b) ?? -1;
 }
 
 function canonicalizedCandidateDigest(

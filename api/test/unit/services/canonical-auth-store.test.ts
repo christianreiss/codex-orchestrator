@@ -503,6 +503,49 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(1);
   });
 
+  it('does not roll back a newer generation that differs only below millisecond precision', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const r = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: r.client,
+    });
+
+    const newer = await svc.storeCandidate({
+      auth: {
+        ...CODEX_AUTH,
+        last_refresh: '2026-07-17T12:00:00.100000002Z',
+        tokens: { access_token: 'sk-openai-newer-nanosecond-token', refresh_token: 'newer-refresh' },
+      },
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    const older = await svc.storeCandidate({
+      auth: {
+        ...CODEX_AUTH,
+        last_refresh: '2026-07-17T12:00:00.100000001Z',
+        tokens: { access_token: 'sk-openai-older-nanosecond-token', refresh_token: 'older-refresh' },
+      },
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+
+    expect(newer.status).toBe('updated');
+    expect(older.status).toBe('outdated');
+    expect(older.canonical_digest).toBe(newer.canonical_digest);
+    expect(r.calls()).toBe(1);
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+  });
+
   it.each([
     {
       engine: 'codex' as const,

@@ -804,6 +804,98 @@ func TestPostRunDifferentLoginClearsDeferredLogoutOnlyAfterStoreAcceptance(t *te
 	}
 }
 
+func TestPostRunNativeLoginClockRollbackConvergesBeforeImmediateNextRun(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	xStamp := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+	x := json.RawMessage(`{"last_refresh":"` + xStamp.Format(time.RFC3339Nano) + `","tokens":{"access_token":"native-x"}}`)
+	expected, err := codex.CurrentAuthGeneration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := codex.ConvergeAuthIfCurrent(x, expected); err != nil || !result.Written {
+		t.Fatalf("seed accepted X = %+v, %v", result, err)
+	}
+	beforeHash, beforeRefresh := snapshotAuth(path)
+
+	// Native Codex writes Y without last_refresh after the host clock moved
+	// backwards. The wrapper must derive Y from logical X, not the old mtime.
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"native-y"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rolledBack := time.Now().UTC().Add(-24 * time.Hour)
+	if err := os.Chtimes(path, rolledBack, rolledBack); err != nil {
+		t.Fatal(err)
+	}
+
+	acceptedStamp := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/auth":
+			var req struct {
+				Command string          `json:"command"`
+				Auth    json.RawMessage `json:"auth"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode post-run store: %v", err)
+				return
+			}
+			candidateStamp, err := codex.LastRefreshFromRaw(req.Auth)
+			if err != nil || req.Command != "store" || !strings.Contains(string(req.Auth), "native-y") {
+				t.Errorf("post-run request = command %q auth %s stampErr=%v", req.Command, req.Auth, err)
+				return
+			}
+			if !candidateStamp.After(xStamp) {
+				_, _ = fmt.Fprintf(w, `{"status":"outdated","verification_state":"verified","canonical_last_refresh":%q,"auth":%s}`, xStamp.Format(time.RFC3339Nano), x)
+				return
+			}
+			acceptedStamp = candidateStamp.Format(time.RFC3339Nano)
+			_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","host":{"secure":true}}`))
+		case "/sync/bootstrap":
+			var req orchestrator.BundleRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode immediate next bootstrap: %v", err)
+				return
+			}
+			candidateStamp, err := codex.LastRefreshFromRaw(req.AuthCandidate)
+			if err != nil || !strings.Contains(string(req.AuthCandidate), "native-y") || candidateStamp.Format(time.RFC3339Nano) != acceptedStamp {
+				t.Errorf("immediate next cdx candidate=%s stamp=%s err=%v want=%s", req.AuthCandidate, candidateStamp, err, acceptedStamp)
+			}
+			_, _ = w.Write([]byte(`{"status":"ok","auth":{"status":"valid","verification_state":"verified","host":{"secure":true}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, tone, postErr := maybePostRunAuthUpload(client, logger, path, beforeHash, beforeRefresh)
+	if postErr != nil || status != "uploaded" || tone != ui.ToneOK {
+		t.Fatalf("post-run Y convergence = (%q,%v,%v)", status, tone, postErr)
+	}
+	if acceptedStamp == "" {
+		t.Fatal("server never accepted monotonic Y generation")
+	}
+	resp, bootstrapErr, _, _, _, _ := bootstrap(context.Background(), client, logger, false, path)
+	if bootstrapErr != nil || resp == nil || resp.Status != "valid" {
+		t.Fatalf("immediate next cdx bootstrap = resp=%+v err=%v", resp, bootstrapErr)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(raw), "native-y") {
+		t.Fatalf("immediate next cdx changed Y: %q err=%v", raw, err)
+	}
+	stamp, err := codex.LastRefreshFromRaw(raw)
+	if err != nil || stamp.Format(time.RFC3339Nano) != acceptedStamp {
+		t.Fatalf("immediate next cdx restamped Y: got %s err=%v want=%s", stamp, err, acceptedStamp)
+	}
+}
+
 func TestBootstrapAuthCandidateSerializesConcurrentLogoutAcrossNetwork(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)

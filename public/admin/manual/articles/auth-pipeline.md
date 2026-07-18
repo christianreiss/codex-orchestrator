@@ -1,7 +1,7 @@
 ---
 title: The auth distribution pipeline
 section: Fleet operations
-verified: 2026-07-17
+verified: 2026-07-18
 sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cdx/internal/codex/auth_writer.go, wrappers/cdx/internal/codex/auth_session.go, wrappers/clx/internal/claude/auth_writer.go, wrappers/clx/internal/claude/auth_session.go
 ---
 
@@ -147,9 +147,15 @@ Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verif
 ## Credentials file on the host
 
 For cdx, the effective `CODEX_HOME/auth.json` contains the stabilized generation.
+Its bounded sidecar records both verified canonical digests and the current
+wrapper-stabilized local digest/stamp. This local logical clock makes a native Y
+strictly newer than accepted X even after host clock rollback or an old mtime;
+an immediate/offline next cdx sees the exact Y as fresh. A successful real
+`cdx login` always proves its resulting auth through the API/runner, and
+`auth-upload` retries one in-flight native replacement before failing visibly.
 For clx, `~/.claude/.credentials.json` is the sole read authority; the legacy
 `~/.clx/auth/credentials.json` is an optional write-only mirror. clx stores its
-digest-bound `last_refresh` in `~/.clx/auth/generation.json`, keeping wrapper
+versioned digest-bound `last_refresh` in `~/.clx/auth/generation.json`, keeping wrapper
 metadata out of Claude's native file. Both wrappers use short auth-file locks,
 fsynced atomic renames, generation compare-and-swap after network calls, and
 nonce-bearing logout-marker byte CAS. Separate auth-path-keyed active-child

@@ -116,7 +116,10 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      defers removal until every peer session exits. Durable logout intent uses
      auth-generation plus exact marker-byte compare-and-swap; a distinct local
      login remains marked until that exact candidate is accepted server-side,
-     while `cdx login status` never acknowledges it. cdx follows
+     while `cdx login status` never acknowledges it. Content-bound local
+     logical generations keep accepted X and subsequent native Y ordered even
+     if the host clock/mtime moves backwards; immediate next runs reuse the
+     exact stamp. cdx follows
      effective `CODEX_HOME`; clx treats `~/.claude/.credentials.json` as
      authoritative and its old clx credential path as a write-only mirror.
    - Every auth-aware invocation holds a portable shared session lease keyed to

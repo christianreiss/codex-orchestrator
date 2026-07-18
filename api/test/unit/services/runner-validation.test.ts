@@ -85,6 +85,19 @@ describe('runner-validation: ensureAuthsFallback', () => {
       });
     },
   );
+
+  it.each(['anthropic_api_key', 'ANTHROPIC_API_KEY'])(
+    'synthesises Claude auths from legacy tokens.%s',
+    (key) => {
+      const r = svc.ensureAuthsFallback(
+        { tokens: { [key]: 'sk-ant-api03-valid-nested-fallback-123' } },
+        'claude',
+      );
+      expect(r.auths).toMatchObject({
+        'api.anthropic.com': { token: 'sk-ant-api03-valid-nested-fallback-123' },
+      });
+    },
+  );
 });
 
 describe('runner-validation: normalizeAuthEntries', () => {

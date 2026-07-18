@@ -1,7 +1,7 @@
 ---
 title: clx — the Claude Code wrapper
 section: Fleet operations
-verified: 2026-07-17
+verified: 2026-07-18
 sources: wrappers/clx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -241,6 +241,12 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    the same auth home. A failed `/host/users` safety lookup also refuses unless
    root/passwordless sudo provides the safe fallback; required local removal
    errors make uninstall non-zero.
+
+   Generation metadata is versioned logical time rather than host wall time.
+   If accepted X is followed by `/login` writing old-mtime Y after a clock
+   rollback, normal close uploads Y and an immediately started clx reuses the
+   same digest and `last_refresh`; it never restores X merely because Y's mtime
+   looks older.
 
 The active-child lease covers Claude processes launched through `clx`. A raw
 `claude` process started separately cannot participate, so fleet-managed hosts

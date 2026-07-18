@@ -1,7 +1,7 @@
 ---
 title: The cdx and clx wrappers
 section: Fleet operations
-verified: 2026-07-17
+verified: 2026-07-18
 sources: wrappers/cdx, wrappers/clx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -199,7 +199,11 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
     and exact marker bytes observed before the request. Competing CLX canonical
     responses advance only when their stable `last_refresh` is newer; older
     responses cannot roll back, equal-stamp/different-content rotations fail
-    closed, and a peer child blocking writeback of an unchanged request
+    closed, and content-bound logical generation metadata preserves X→Y order
+    across old mtimes or host clock rollback. A normal-close Claude `/login`
+    upload and immediate next clx reuse exact Y. cdx retries one native
+    replacement during explicit upload and otherwise fails visibly instead of
+    acknowledging stale bytes. A peer child blocking writeback of an unchanged request
     generation is a visible failure. Then the last
     insecure-host session purges credential material; an active child defers
     cleanup. Any required upload/writeback, marker, or purge failure makes an

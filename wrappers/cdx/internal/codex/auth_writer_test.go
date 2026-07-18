@@ -183,6 +183,86 @@ func TestReadAuthForUploadClampsExistingOutOfRangeStamp(t *testing.T) {
 	}
 }
 
+func TestReadAuthForUploadPreservesAcceptedGenerationAcrossClockRollback(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	future := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+	payload := json.RawMessage(`{"last_refresh":"` + future.Format(time.RFC3339Nano) + `","tokens":{"access_token":"server-canonical"}}`)
+
+	expected, err := CurrentAuthGeneration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConvergeAuthIfCurrent(payload, expected)
+	if err != nil || !result.Written {
+		t.Fatalf("write future canonical = %+v, %v", result, err)
+	}
+	upload, generation, err := ReadAuthForUpload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(upload) != string(payload) || generation != generationOf(payload) {
+		t.Fatalf("trusted canonical was restamped: upload=%s generation=%+v", upload, generation)
+	}
+	path, _ := AuthPath()
+	stamp, err := LastRefreshOfFile(path)
+	if err != nil || !stamp.Equal(future) {
+		t.Fatalf("trusted canonical freshness = %s, %v; want %s", stamp, err, future)
+	}
+
+	// A fresh native login after the clock rollback has an old mtime and no
+	// wrapper stamp. It must advance from canonical X's logical generation,
+	// otherwise the server would classify Y as outdated and return X over it.
+	nativeY := []byte(`{"tokens":{"access_token":"native-y"}}`)
+	if err := os.WriteFile(path, nativeY, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rolledBack := time.Now().UTC().Add(-24 * time.Hour)
+	if err := os.Chtimes(path, rolledBack, rolledBack); err != nil {
+		t.Fatal(err)
+	}
+	yUpload, yGeneration, err := ReadAuthForUpload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	yStamp, err := LastRefreshFromRaw(yUpload)
+	if err != nil || !yStamp.After(future) {
+		t.Fatalf("native Y logical freshness = %s, %v; want after X %s", yStamp, err, future)
+	}
+	if !strings.Contains(string(yUpload), "native-y") {
+		t.Fatalf("native Y was not preserved: %s", yUpload)
+	}
+	if yFileStamp, err := LastRefreshOfFile(path); err != nil || !yFileStamp.Equal(yStamp) {
+		t.Fatalf("native Y bound freshness = %s, %v; want %s", yFileStamp, err, yStamp)
+	}
+	if fresh, err := IsFresh(path, MaxAge24h); err != nil || !fresh {
+		t.Fatalf("native Y offline freshness = %v, %v; want usable after clock rollback", fresh, err)
+	}
+	yUploadAgain, yGenerationAgain, err := ReadAuthForUpload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(yUploadAgain) != string(yUpload) || yGenerationAgain != yGeneration {
+		t.Fatalf("native Y generation was not stable: first=%s/%+v second=%s/%+v", yUpload, yGeneration, yUploadAgain, yGenerationAgain)
+	}
+
+	nativeZ := []byte(`{"tokens":{"access_token":"native-z"}}`)
+	if err := os.WriteFile(path, nativeZ, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, rolledBack.Add(-time.Hour), rolledBack.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	zUpload, _, err := ReadAuthForUpload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	zStamp, err := LastRefreshFromRaw(zUpload)
+	if err != nil || !zStamp.After(yStamp) {
+		t.Fatalf("native Z logical freshness = %s, %v; want after Y %s", zStamp, err, yStamp)
+	}
+}
+
 func TestAuthUploadLeaseSerializesLogoutIntentAtStoreBoundary(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)

@@ -809,6 +809,138 @@ func TestPostRunABLoginRacePreservesBWhenAResponseArrivesLast(t *testing.T) {
 	}
 }
 
+func TestPostRunNativeSlashLoginClockRollbackConvergesBeforeImmediateNextRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	x := []byte(`{"claudeAiOauth":{"accessToken":"native-x"}}`)
+	if err := os.WriteFile(authPath, x, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := claude.ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// X was accepted while the host clock was correct. The clock then moves
+	// backwards before Claude writes raw, unbound native Y with an old mtime.
+	// The wrapper-owned logical generation must remain monotonic independently
+	// of that local wall clock.
+	xStamp := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+	stateDir := filepath.Join(home, ".clx", "auth")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state, err := json.Marshal(map[string]any{
+		"version":          1,
+		"digest":           before.Generation.Digest,
+		"last_refresh":     xStamp.Format(time.RFC3339Nano),
+		"canonical_digest": strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "generation.json"), state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	y := []byte(`{"claudeAiOauth":{"accessToken":"native-y"}}`)
+	if err := os.WriteFile(authPath, y, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rolledBackMtime := time.Now().UTC().Add(-24 * time.Hour)
+	if err := os.Chtimes(authPath, rolledBackMtime, rolledBackMtime); err != nil {
+		t.Fatal(err)
+	}
+
+	acceptedStamp := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/auth":
+			var req struct {
+				Command string          `json:"command"`
+				Auth    json.RawMessage `json:"auth"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode post-run store: %v", err)
+				return
+			}
+			if req.Command != "store" || !strings.Contains(string(req.Auth), "native-y") {
+				t.Errorf("post-run request = command %q auth %s", req.Command, req.Auth)
+				return
+			}
+			var candidate struct {
+				LastRefresh string `json:"last_refresh"`
+			}
+			if err := json.Unmarshal(req.Auth, &candidate); err != nil {
+				t.Errorf("decode post-run candidate: %v", err)
+				return
+			}
+			candidateStamp, err := time.Parse(time.RFC3339Nano, candidate.LastRefresh)
+			if err != nil {
+				t.Errorf("parse post-run generation: %v", err)
+				return
+			}
+			if !candidateStamp.After(xStamp) {
+				// Model the single API/runner correctly preserving canonical X
+				// when a wrapper presents an older candidate generation.
+				_, _ = fmt.Fprintf(w, `{"status":"outdated","verification_state":"verified","canonical_digest":%q,"canonical_last_refresh":%q,"auth":{"last_refresh":%q,"claudeAiOauth":{"accessToken":"native-x"}}}`, strings.Repeat("a", 64), xStamp.Format(time.RFC3339Nano), xStamp.Format(time.RFC3339Nano))
+				return
+			}
+			acceptedStamp = candidate.LastRefresh
+			_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified"}`))
+		case "/sync/bootstrap":
+			var req orchestrator.BundleRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode immediate next bootstrap: %v", err)
+				return
+			}
+			if !strings.Contains(string(req.AuthCandidate), "native-y") {
+				t.Errorf("immediate next clx did not retain Y: %s", req.AuthCandidate)
+			}
+			var candidate struct {
+				LastRefresh string `json:"last_refresh"`
+			}
+			if err := json.Unmarshal(req.AuthCandidate, &candidate); err != nil {
+				t.Errorf("decode immediate next candidate: %v", err)
+			} else if candidate.LastRefresh != acceptedStamp {
+				t.Errorf("immediate next clx restamped Y: got %q want %q", candidate.LastRefresh, acceptedStamp)
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"valid","verification_state":"verified"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, tone := maybePostRunAuthUpload(client, logger, before.Generation, nil)
+	if status != "uploaded" || tone != ui.ToneOK {
+		t.Fatalf("post-run Y convergence = (%q,%v)", status, tone)
+	}
+	if acceptedStamp == "" {
+		t.Fatal("server never accepted monotonic Y generation")
+	}
+	if raw, err := os.ReadFile(authPath); err != nil || string(raw) != string(y) {
+		t.Fatalf("normal close did not retain Y: %q err=%v", raw, err)
+	}
+	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, false, authPath)
+	if bootstrapErr != nil || resp == nil || resp.Status != "valid" {
+		t.Fatalf("immediate next clx bootstrap = resp=%+v err=%v", resp, bootstrapErr)
+	}
+	if raw, err := os.ReadFile(authPath); err != nil || string(raw) != string(y) {
+		t.Fatalf("immediate next clx changed Y: %q err=%v", raw, err)
+	}
+}
+
 func TestPostRunStoreUpdatesSessionFromAPIAuthoritativeSecurity(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

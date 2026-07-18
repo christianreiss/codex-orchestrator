@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -59,7 +60,10 @@ type AuthConvergenceResult struct {
 const canonicalGenerationLedgerFile = ".cdx-canonical-auth-generations.json"
 
 type canonicalGenerationLedger struct {
-	Digests []string `json:"digests"`
+	Digests          []string `json:"digests"`
+	LastRefresh      string   `json:"last_refresh,omitempty"`
+	LocalDigest      string   `json:"local_digest,omitempty"`
+	LocalLastRefresh string   `json:"local_last_refresh,omitempty"`
 }
 
 // ErrActiveChild means an unconditional canonical write was intentionally
@@ -224,6 +228,25 @@ func readAuthForUploadStateLocked(path string) (json.RawMessage, AuthGeneration,
 			return nil, AuthGeneration{}, LogoutIntentGeneration{}, err
 		}
 		original := generationOf(raw)
+		knownCanonical, knownLocal, latestLogical, err := authGenerationMetadataAt(path, original)
+		if err != nil {
+			return nil, AuthGeneration{}, LogoutIntentGeneration{}, err
+		}
+		if knownCanonical || knownLocal {
+			// A verified server generation remains authoritative even if the
+			// host clock later moves backwards. Wrapper-stabilized native
+			// generations use the same exact-content binding. Preserve either
+			// logical stamp instead of rewriting it to rolled-back wall time.
+			if stamp, stampErr := LastRefreshFromRaw(raw); stampErr == nil && validLogicalAuthTimestamp(stamp) {
+				if knownCanonical && (latestLogical.IsZero() || stamp.After(latestLogical)) {
+					if err := rememberCanonicalGenerationLocked(path, raw); err != nil {
+						return nil, AuthGeneration{}, LogoutIntentGeneration{}, err
+					}
+				}
+				intent, intentErr := logoutIntentGenerationAt(path)
+				return json.RawMessage(append([]byte(nil), raw...)), original, intent, intentErr
+			}
+		}
 		now := time.Now()
 		stabilized, modified, err := backfillLastRefreshAt(raw, clampUploadTimestamp(modTime, now))
 		if err != nil {
@@ -238,6 +261,21 @@ func readAuthForUploadStateLocked(path string) (json.RawMessage, AuthGeneration,
 				}
 				modified = true
 			}
+		}
+		// A native login is causally newer than the last canonical generation
+		// observed on this host even when its mtime comes from a rolled-back
+		// clock. Carry that ordering forward as local logical time.
+		if !latestLogical.IsZero() {
+			if stamped, stampErr := LastRefreshFromRaw(stabilized); stampErr == nil && !stamped.After(latestLogical) {
+				stabilized, err = replaceLastRefresh(stabilized, latestLogical.Add(time.Nanosecond))
+				if err != nil {
+					return nil, AuthGeneration{}, LogoutIntentGeneration{}, err
+				}
+				modified = true
+			}
+		}
+		if modified && bytes.Equal(stabilized, raw) {
+			modified = false
 		}
 		if modified {
 			wrote := false
@@ -260,6 +298,11 @@ func readAuthForUploadStateLocked(path string) (json.RawMessage, AuthGeneration,
 				continue
 			}
 			raw = stabilized
+		}
+		if stamp, stampErr := LastRefreshFromRaw(raw); stampErr == nil && validLogicalAuthTimestamp(stamp) && isValidAuthRaw(raw) {
+			if err := rememberLocalGenerationLocked(path, raw); err != nil {
+				return nil, AuthGeneration{}, LogoutIntentGeneration{}, err
+			}
 		}
 		intent, err := logoutIntentGenerationAt(path)
 		if err != nil {
@@ -511,7 +554,7 @@ func ConvergeAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (Au
 	if candidateTimeErr != nil {
 		return AuthConvergenceResult{}, fmt.Errorf("canonical auth has no usable last_refresh: %w", candidateTimeErr)
 	}
-	if !reasonableAuthTimestamp(candidateTime, time.Now()) {
+	if !validLogicalAuthTimestamp(candidateTime) {
 		return AuthConvergenceResult{}, errors.New("canonical auth last_refresh outside accepted bounds")
 	}
 	candidateGeneration := generationOf(payload)
@@ -610,7 +653,7 @@ func writeAuthPayload(payload json.RawMessage, expected *AuthGeneration) (AuthWr
 			}
 			return nil
 		}
-		if err := rememberCanonicalGenerationLocked(path, generationOf(payload)); err != nil {
+		if err := rememberCanonicalGenerationLocked(path, payload); err != nil {
 			return err
 		}
 		wroteNow := false
@@ -640,7 +683,8 @@ func canonicalGenerationLedgerPath(authPath string) string {
 // before its auth rename. A bounded digest ledger supplies cross-process
 // provenance for convergence: another response may supersede C_old by RFC3339
 // freshness, while an unrecognized generation is conservatively a native login.
-func rememberCanonicalGenerationLocked(authPath string, generation AuthGeneration) error {
+func rememberCanonicalGenerationLocked(authPath string, payload []byte) error {
+	generation := generationOf(payload)
 	if !generation.Exists || generation.Digest == "" {
 		return nil
 	}
@@ -664,7 +708,19 @@ func rememberCanonicalGenerationLocked(authPath string, generation AuthGeneratio
 			break
 		}
 	}
-	raw, err := json.Marshal(canonicalGenerationLedger{Digests: digests})
+	latestRefresh := ledger.LastRefresh
+	if stamp, stampErr := LastRefreshFromRaw(payload); stampErr == nil && validLogicalAuthTimestamp(stamp) {
+		currentLatest, currentErr := parseGenerationLedgerRefresh(ledger.LastRefresh)
+		if currentErr != nil {
+			return currentErr
+		}
+		if currentLatest.IsZero() || stamp.After(currentLatest) {
+			latestRefresh = stamp.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	ledger.Digests = digests
+	ledger.LastRefresh = latestRefresh
+	raw, err := json.Marshal(ledger)
 	if err != nil {
 		return err
 	}
@@ -672,26 +728,89 @@ func rememberCanonicalGenerationLocked(authPath string, generation AuthGeneratio
 }
 
 func canonicalGenerationKnownAt(authPath string, generation AuthGeneration) (bool, error) {
+	known, _, _, err := authGenerationMetadataAt(authPath, generation)
+	return known, err
+}
+
+func trustedGenerationKnownAt(authPath string, generation AuthGeneration) (bool, error) {
+	knownCanonical, knownLocal, _, err := authGenerationMetadataAt(authPath, generation)
+	return knownCanonical || knownLocal, err
+}
+
+func authGenerationMetadataAt(authPath string, generation AuthGeneration) (bool, bool, time.Time, error) {
 	if !generation.Exists || generation.Digest == "" {
-		return false, nil
+		return false, false, time.Time{}, nil
 	}
 	raw, err := os.ReadFile(canonicalGenerationLedgerPath(authPath))
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return false, false, time.Time{}, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, time.Time{}, err
 	}
 	var ledger canonicalGenerationLedger
 	if err := json.Unmarshal(raw, &ledger); err != nil {
-		return false, fmt.Errorf("parse canonical auth generation ledger: %w", err)
+		return false, false, time.Time{}, fmt.Errorf("parse canonical auth generation ledger: %w", err)
 	}
+	canonicalRefresh, err := parseGenerationLedgerRefresh(ledger.LastRefresh)
+	if err != nil {
+		return false, false, time.Time{}, err
+	}
+	localRefresh, err := parseGenerationLedgerRefresh(ledger.LocalLastRefresh)
+	if err != nil {
+		return false, false, time.Time{}, err
+	}
+	latestRefresh := canonicalRefresh
+	if localRefresh.After(latestRefresh) {
+		latestRefresh = localRefresh
+	}
+	knownCanonical := false
 	for _, digest := range ledger.Digests {
 		if digest == generation.Digest {
-			return true, nil
+			knownCanonical = true
+			break
 		}
 	}
-	return false, nil
+	knownLocal := ledger.LocalDigest == generation.Digest && !localRefresh.IsZero()
+	return knownCanonical, knownLocal, latestRefresh, nil
+}
+
+func rememberLocalGenerationLocked(authPath string, payload []byte) error {
+	generation := generationOf(payload)
+	stamp, err := LastRefreshFromRaw(payload)
+	if err != nil || !validLogicalAuthTimestamp(stamp) {
+		return errors.New("local auth generation has no usable last_refresh")
+	}
+	path := canonicalGenerationLedgerPath(authPath)
+	ledger := canonicalGenerationLedger{}
+	if raw, readErr := os.ReadFile(path); readErr == nil {
+		if jsonErr := json.Unmarshal(raw, &ledger); jsonErr != nil {
+			return fmt.Errorf("parse canonical auth generation ledger: %w", jsonErr)
+		}
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+	ledger.LocalDigest = generation.Digest
+	ledger.LocalLastRefresh = stamp.UTC().Format(time.RFC3339Nano)
+	raw, err := json.Marshal(ledger)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(path, raw, 0o600)
+}
+
+func parseGenerationLedgerRefresh(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	stamp, err := parseISO8601(value)
+	if err != nil || !validLogicalAuthTimestamp(stamp) {
+		if err == nil {
+			err = errors.New("timestamp predates minimum auth epoch")
+		}
+		return time.Time{}, fmt.Errorf("parse auth generation ledger last_refresh: %w", err)
+	}
+	return stamp.UTC(), nil
 }
 
 // RemoveAuthIfCurrent removes auth.json only when it still matches expected.

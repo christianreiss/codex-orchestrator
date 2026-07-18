@@ -96,8 +96,8 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `run` (default) | One Codex session; the full startup sequence runs first |
 | `status` / `--status` | Responsive local + remote `/auth` status summary on stdout. Returned canonical auth can seed/repair the local file but replaces a fresher usable local login only when that exact candidate was definitively rejected and the canonical is verified; an active local logout marker is always rendered as logged out and exits non-zero even when the fleet digest is otherwise valid. Unreadable config/marker state and failed health return a structured non-zero report, and redirects automatically use compact ASCII. |
 | `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, auth, reachability, latency, disk, cron) on stdout; an unreadable signed config is rendered as a blocked diagnostic instead of bypassing the terminal UI |
-| `auth-upload` | Stabilize and POST the effective `CODEX_HOME/auth.json` to canonical store. A native file without `last_refresh` is stamped once from its bounded mtime and that exact generation is persisted/reused by concurrent processes. The authoritative store response is applied only if the local generation has not changed. |
-| `login` | Run upstream login, then upload the resulting generation. A byte-identical successful login may supersede logout intent only after the server accepts the exact auth + marker snapshot. |
+| `auth-upload` | Stabilize and POST the effective `CODEX_HOME/auth.json` to canonical store. A native file without `last_refresh` receives one content-bound logical generation reused by concurrent processes. If native Codex replaces the file during the request, upload retries once; a second replacement exits non-zero instead of claiming stale success. The authoritative response is applied only if the accepted local generation is still current. |
+| `login` | Run upstream login, then upload every successful non-status result with usable auth, even when its bytes match the pre-login file. Logout intent is superseded only after the server accepts the exact auth + marker snapshot. |
 | `login status` | Read-only upstream login probe. It never uploads credentials or acknowledges logout intent. |
 | `logout` | Wrapper-owned, pre-journaled logout. With no peer session it holds exclusive session + active-child writer leases across native logout; with any peer it records intent and defers native removal until the final session exits. |
 | `lane [normal\|spark\|clear] [--persist]` | Inspect the effective quota lane, set a persistent host preference, or clear it back to the inherited default (`/host/lane`). `--persist` is retained as a compatibility no-op; explicit selections always persist. A stored `normal` selects `gpt-5.6-terra`; stored `spark` selects `gpt-5.3-codex-spark` with high effort and reasoning summaries disabled. Clearing the preference preserves the signed fleet/per-host launch model while quota policy falls back to `normal`. An explicit per-run model/profile flag wins. |
@@ -225,7 +225,11 @@ order and older never rolls it back. Distinct payloads at the same instant are
 ambiguous on older APIs: the first bytes are preserved, but the invocation
 fails closed instead of silently choosing a digest. A bounded local digest
 ledger distinguishes those wrapper-written canonical generations from a
-native/local write; the native generation wins regardless of clock ordering. A
+native/local write; the native generation wins regardless of clock ordering.
+It also binds the latest wrapper-stabilized local digest to logical
+`last_refresh`: if the host clock or file mtime moves backwards after canonical
+X, a new native Y is stamped strictly after X and remains stable/fresh for an
+immediately started or offline process. A
 newer usable login wins unless that exact candidate was definitively rejected
 and the API explicitly serves an older `verification_state=verified` canonical.
 Invalid local JSON is repairable even when its mtime is newer than canonical;

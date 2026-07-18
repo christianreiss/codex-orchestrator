@@ -284,6 +284,87 @@ func TestReadAuthForUploadReplacesImplausibleFutureGenerationMetadata(t *testing
 	}
 }
 
+func TestLegacyCanonicalGenerationSurvivesClockRollbackAndMigrates(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		rotate     bool
+		wantStrict bool
+	}{
+		{name: "matching X is reused", rotate: false},
+		{name: "raw Y advances after X", rotate: true, wantStrict: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			nativeDir := filepath.Join(home, ".claude")
+			stateDir := filepath.Join(home, ".clx", "auth")
+			if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(stateDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(nativeDir, ".credentials.json")
+			x := []byte(`{"claudeAiOauth":{"accessToken":"native-x"}}`)
+			if err := os.WriteFile(path, x, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			xStamp := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+			legacy := generationState{
+				Digest:          digestBytes(x),
+				LastRefresh:     xStamp.Format(time.RFC3339Nano),
+				CanonicalDigest: strings.Repeat("a", 64),
+			}
+			legacyRaw, err := json.Marshal(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			statePath := filepath.Join(stateDir, generationStateFile)
+			if err := os.WriteFile(statePath, legacyRaw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			currentDigest := legacy.Digest
+			if tc.rotate {
+				y := []byte(`{"claudeAiOauth":{"accessToken":"native-y"}}`)
+				if err := os.WriteFile(path, y, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				rolledBack := time.Now().UTC().Add(-24 * time.Hour)
+				if err := os.Chtimes(path, rolledBack, rolledBack); err != nil {
+					t.Fatal(err)
+				}
+				currentDigest = digestBytes(y)
+			}
+
+			snap, err := ReadAuthForUploadSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			stamp, err := time.Parse(time.RFC3339Nano, lastRefreshFromPayload(snap.Upload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantStrict && !stamp.After(xStamp) {
+				t.Fatalf("rotated legacy generation stamp=%s want after %s", stamp, xStamp)
+			}
+			if !tc.wantStrict && !stamp.Equal(xStamp) {
+				t.Fatalf("matching legacy generation stamp=%s want %s", stamp, xStamp)
+			}
+			migratedRaw, err := os.ReadFile(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var migrated generationState
+			if err := json.Unmarshal(migratedRaw, &migrated); err != nil {
+				t.Fatal(err)
+			}
+			if migrated.Version != generationStateVersion || migrated.Digest != currentDigest {
+				t.Fatalf("migrated generation state=%+v want version=%d digest=%s", migrated, generationStateVersion, currentDigest)
+			}
+		})
+	}
+}
+
 func TestWriteAuthIfCurrentPreservesLoginWrittenDuringRequest(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

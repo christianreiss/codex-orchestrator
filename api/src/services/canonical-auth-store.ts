@@ -11,7 +11,15 @@ import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt } from '../security/secret-box.js';
 import { ServiceUnavailableError, ValidationError } from '../http/errors.js';
-import { isRfc3339, nowIso } from '../util/timestamp.js';
+import {
+  compareRfc3339,
+  formatRfc3339Nanos,
+  isRfc3339,
+  normalizeRfc3339Nanos,
+  nowIso,
+  parseRfc3339Millis,
+  parseRfc3339Nanos,
+} from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import type { RunnerClient } from './runner-client.js';
 import type { RunnerValidationService, NormalizedAuthEntry } from './runner-validation.js';
@@ -199,9 +207,8 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       if (digest === current.digest && !currentRepairable) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'valid');
       }
-      const candidateMs = Date.parse(lastRefresh);
-      const currentMs = Date.parse(current.last_refresh);
-      if (candidateMs < currentMs && !currentRepairable) {
+      const generationOrder = compareCanonicalStamps(lastRefresh, current.last_refresh);
+      if (generationOrder < 0 && !currentRepairable) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated');
       }
       // A proven/pending newest lineage must not make an older, still-valid
@@ -211,7 +218,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       // then restamped after verification. Deferring the restamp until after
       // the runner call lets native updated_auth legitimately echo the submitted
       // generation instead of looking older than a synthetic pre-probe stamp.
-      if (candidateMs <= currentMs && (currentRepairable || digest !== current.digest)) {
+      if (generationOrder <= 0 && (currentRepairable || digest !== current.digest)) {
         mustAdvanceSelectedStamp = true;
       }
     }
@@ -301,13 +308,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     // Canonical digest changes must also advance the canonical timestamp. This
     // gives wrappers an ordering key for delayed response races, including a
     // runner rotation whose native file omitted last_refresh or retained the
-    // submitted value. Millisecond precision matches JS Date and the DB string
-    // representation; if the selected lineage already occupies the +300s
-    // ceiling, nextCanonicalStamp fails closed instead of minting an invalid
-    // future generation.
+    // submitted value. Auth ordering retains nanoseconds; synthetic rotations
+    // advance by 1 ms for compatibility with existing clients. If the selected
+    // lineage already occupies the +300s ceiling, nextCanonicalStamp fails
+    // closed instead of minting an invalid future generation.
     if (
       current &&
-      Date.parse(String(canonicalToStore.last_refresh ?? lastRefresh)) <= Date.parse(current.last_refresh) &&
+      compareCanonicalStamps(String(canonicalToStore.last_refresh ?? lastRefresh), current.last_refresh) <= 0 &&
       (mustAdvanceSelectedStamp || digestToStore !== current.digest)
     ) {
       const advancedStamp = nextCanonicalStamp(
@@ -336,7 +343,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       // row is pending/failed, it may represent a genuinely newer login. Only
       // the exact row observed before the probe may be repaired by restamping;
       // never leapfrog a different lineage during this final CAS.
-      if (Date.parse(lastRefreshToStore) <= Date.parse(latest.last_refresh)) {
+      if (compareCanonicalStamps(lastRefreshToStore, latest.last_refresh) <= 0) {
         return returnExisting(input, latestRow.id, latestRow.verificationState, latest, 'outdated');
       }
     }
@@ -740,8 +747,8 @@ export async function touchHostAuthState(
 
 export function assertReasonableLastRefresh(value: string, field: string): void {
   if (!isRfc3339(value)) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
-  const ts = Date.parse(value);
-  if (Number.isNaN(ts)) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
+  const ts = parseRfc3339Millis(value);
+  if (ts === null) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
   if (ts < MIN_REFRESH_EPOCH_MS) throw new ValidationError(`${field} is implausibly old`, { param: field });
   if (ts > Date.now() + MAX_FUTURE_SKEW_MS) throw new ValidationError(`${field} is in the future`, { param: field });
 }
@@ -774,7 +781,7 @@ function prepareRunnerUpdatedAuth(
     return { ok: false, reason: 'updated_auth_invalid_last_refresh' };
   }
   updated.last_refresh = normalizeLastRefresh(updatedLast);
-  if (Date.parse(updatedLast) < Date.parse(uploadLastRefresh)) {
+  if (compareCanonicalStamps(updatedLast, uploadLastRefresh) < 0) {
     return { ok: false, reason: 'updated_auth_older_than_upload' };
   }
   const withFallback = runnerValidation.ensureAuthsFallback(updated, engine);
@@ -830,19 +837,31 @@ function normalizeVerificationState(value: string): 'pending' | 'verified' | 'fa
 }
 
 function normalizeLastRefresh(value: string): string {
-  return new Date(Date.parse(value)).toISOString().replace(/\.000Z$/, 'Z');
+  const normalized = normalizeRfc3339Nanos(value);
+  if (!normalized) throw new ValidationError('last_refresh must be an RFC3339 timestamp', { param: 'last_refresh' });
+  return normalized;
 }
 
 function nextCanonicalStamp(current: string, reflectRotationTime = false): string {
-  const now = Date.now();
-  const nextMs = reflectRotationTime
-    ? Math.max(now, Date.parse(current) + 1)
-    : Date.parse(current) + 1;
-  if (nextMs > now + MAX_FUTURE_SKEW_MS) {
+  const currentNanos = parseRfc3339Nanos(current);
+  if (currentNanos === null) {
+    throw new ServiceUnavailableError('Canonical auth timestamp is invalid', 'canonical_timestamp_exhausted');
+  }
+  const nowNanos = BigInt(Date.now()) * 1_000_000n;
+  const nextNanos = reflectRotationTime && nowNanos > currentNanos ? nowNanos : currentNanos + 1_000_000n;
+  if (nextNanos > nowNanos + BigInt(MAX_FUTURE_SKEW_MS) * 1_000_000n) {
     throw new ServiceUnavailableError(
       'Canonical auth timestamp cannot advance within the accepted future-skew bound',
       'canonical_timestamp_exhausted',
     );
   }
-  return new Date(nextMs).toISOString().replace(/\.000Z$/, 'Z');
+  return formatRfc3339Nanos(nextNanos);
+}
+
+function compareCanonicalStamps(a: string, b: string): number {
+  const compared = compareRfc3339(a, b);
+  if (compared === null) {
+    throw new ServiceUnavailableError('Canonical auth timestamp is invalid', 'canonical_timestamp_exhausted');
+  }
+  return compared;
 }

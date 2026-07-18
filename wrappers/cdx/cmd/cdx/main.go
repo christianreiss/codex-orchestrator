@@ -1282,8 +1282,12 @@ func loginRotatedAuth(exit int, beforeDigest, afterDigest string) bool {
 }
 
 func loginNeedsAuthUpload(exit int, beforeDigest, afterDigest string, logoutIntentExists bool) bool {
-	return loginRotatedAuth(exit, beforeDigest, afterDigest) ||
-		(exit == 0 && afterDigest != "" && logoutIntentExists)
+	// Every successful real login must prove the resulting credential through
+	// the API/runner, even when the bytes happen to match the pre-login file.
+	// The caller filters the read-only `login status` form separately.
+	_ = beforeDigest
+	_ = logoutIntentExists
+	return exit == 0 && afterDigest != ""
 }
 
 // loginStatusInvocation recognizes the read-only upstream status probe. A
@@ -1347,57 +1351,69 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}
-	upload, err := codex.BeginAuthUpload(true)
-	if err != nil {
-		fmt.Fprintln(stderr, "auth-upload:", err)
-		return 1
-	}
-	expected := upload.Generation()
 	storeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	resp, err := client.AuthStore(storeCtx, upload.Payload())
-	cancel()
-	if err != nil {
-		_ = upload.Close()
-		fmt.Fprintln(stderr, "auth-upload:", err)
-		return 1
-	}
-	// The store accepted this exact login. Only now acknowledge the marker
-	// observed before the request while the same linearization lock is held.
-	if _, err := upload.AcknowledgeObservedLogout(); err != nil {
-		_ = upload.Close()
-		fmt.Fprintln(stderr, "auth-upload: accepted by server but logout marker cleanup failed:", err)
-		return 1
-	}
-	if err := upload.Close(); err != nil {
-		fmt.Fprintln(stderr, "auth-upload: accepted by server but auth transaction cleanup failed:", err)
-		return 1
-	}
-	if err := updateCommandAuthSessionSecurity(resp); err != nil {
-		fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
-		return 1
-	}
-	if resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
-		if result, writeErr := codex.ConvergeAuthIfCurrent(resp.Auth, expected); writeErr != nil {
-			fmt.Fprintln(stderr, "auth-upload: accepted by server but local writeback failed:", writeErr)
+	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		upload, err := codex.BeginAuthUpload(true)
+		if err != nil {
+			fmt.Fprintln(stderr, "auth-upload:", err)
 			return 1
-		} else if !result.Written {
-			if logoutActive, logoutErr := codex.LogoutIntentActive(); logoutErr == nil && logoutActive {
-				fmt.Fprintln(stdout, "auth-upload: accepted; a later local logout was kept")
-				return 0
+		}
+		expected := upload.Generation()
+		resp, err := client.AuthStore(storeCtx, upload.Payload())
+		if err != nil {
+			_ = upload.Close()
+			fmt.Fprintln(stderr, "auth-upload:", err)
+			return 1
+		}
+		// Native Codex does not honor the wrapper flock. Confirm that the exact
+		// accepted generation is still current; one overlap gets one bounded
+		// retry, while a second change fails visibly instead of claiming success.
+		acknowledged, ackErr := upload.AcknowledgeObservedLogout()
+		closeErr := upload.Close()
+		if ackErr != nil {
+			fmt.Fprintln(stderr, "auth-upload: accepted by server but logout marker cleanup failed:", ackErr)
+			return 1
+		}
+		if closeErr != nil {
+			fmt.Fprintln(stderr, "auth-upload: accepted by server but auth transaction cleanup failed:", closeErr)
+			return 1
+		}
+		if err := updateCommandAuthSessionSecurity(resp); err != nil {
+			fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
+			return 1
+		}
+		if !acknowledged {
+			if attempt == 0 {
+				continue
 			}
-			authPath, _ := codex.AuthPath()
-			kept, outcomeErr := classifyBlockedAuthWrite(authPath, expected, result)
-			if outcomeErr != nil {
-				fmt.Fprintln(stderr, "auth-upload: server accepted the upload but canonical credentials could not be materialized locally:", outcomeErr)
+			fmt.Fprintln(stderr, "auth-upload: local credentials changed during both upload attempts; latest generation was not verified")
+			return 1
+		}
+		if resp != nil && len(resp.Auth) > 0 && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+			if result, writeErr := codex.ConvergeAuthIfCurrent(resp.Auth, expected); writeErr != nil {
+				fmt.Fprintln(stderr, "auth-upload: accepted by server but local writeback failed:", writeErr)
 				return 1
-			}
-			if kept {
-				fmt.Fprintln(stderr, "auth-upload: server accepted the upload; a newer local login was kept")
+			} else if !result.Written {
+				if logoutActive, logoutErr := codex.LogoutIntentActive(); logoutErr == nil && logoutActive {
+					fmt.Fprintln(stdout, "auth-upload: accepted; a later local logout was kept")
+					return 0
+				}
+				authPath, _ := codex.AuthPath()
+				kept, outcomeErr := classifyBlockedAuthWrite(authPath, expected, result)
+				if outcomeErr != nil {
+					fmt.Fprintln(stderr, "auth-upload: server accepted the upload but canonical credentials could not be materialized locally:", outcomeErr)
+					return 1
+				}
+				if kept {
+					fmt.Fprintln(stderr, "auth-upload: server accepted the upload; a newer local login was kept")
+				}
 			}
 		}
+		fmt.Fprintln(stdout, "auth-upload: ok")
+		return 0
 	}
-	fmt.Fprintln(stdout, "auth-upload: ok")
-	return 0
+	return 1
 }
 
 func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer, minimal bool) int {
