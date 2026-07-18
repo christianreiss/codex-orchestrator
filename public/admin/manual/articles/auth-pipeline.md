@@ -153,6 +153,9 @@ strictly newer than accepted X even after host clock rollback or an old mtime;
 an immediate/offline next cdx sees the exact Y as fresh. A successful real
 `cdx login` always proves its resulting auth through the API/runner, and
 `auth-upload` retries one in-flight native replacement before failing visibly.
+For both wrappers, only store `valid`/`updated` accepts the exact candidate. A
+canonical-win `outdated` response can still carry guarded download bytes, but
+never acknowledges the upload, clears logout intent, or prints upload success.
 For clx, `~/.claude/.credentials.json` is the sole read authority; the legacy
 `~/.clx/auth/credentials.json` is an optional write-only mirror. clx stores its
 versioned digest-bound `last_refresh` in `~/.clx/auth/generation.json`, keeping wrapper

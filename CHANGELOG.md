@@ -1,5 +1,9 @@
 # 2026-07-18
 
+- cdx 0.6.49 now distinguishes a successful store round-trip from acceptance
+  of the exact uploaded generation. A canonical-win `outdated` response exits
+  non-zero and cannot clear logout intent or print `auth-upload: ok`; clx
+  0.6.49 is the matching bakery rebuild.
 - Auth API ordering now retains RFC3339 nanoseconds, rejects malformed dates
   and invalid explicit engine hints, and recognizes legacy nested Claude API
   keys without ever routing them to the Codex store.

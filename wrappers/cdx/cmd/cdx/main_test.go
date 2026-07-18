@@ -453,6 +453,43 @@ func TestAuthUploadRetainsLogoutIntentUntilStoreAccepted(t *testing.T) {
 	}
 }
 
+func TestAuthUploadOutdatedArbitrationDoesNotClaimOrAcknowledgeAcceptance(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path := filepath.Join(dir, "auth.json")
+	local := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"local-login"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(generation); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"canonical"}},"host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdAuthUpload(context.Background(), cfg, &stdout, &stderr); code == 0 {
+		t.Fatalf("outdated upload claimed success: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "auth-upload: ok") {
+		t.Fatalf("outdated upload printed success: %q", stdout.String())
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("outdated store erased logout intent: active=%v err=%v", active, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read auth after rejected upload: %v", err)
+	}
+	if err == nil && !bytes.Equal(raw, local) {
+		t.Fatalf("outdated store replaced logged-out generation: %q", raw)
+	}
+}
+
 func TestAuthUploadAcknowledgesMarkerObservedBeforeAcceptedStore(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)

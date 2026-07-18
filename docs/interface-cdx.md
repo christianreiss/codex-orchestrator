@@ -96,7 +96,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `run` (default) | One Codex session; the full startup sequence runs first |
 | `status` / `--status` | Responsive local + remote `/auth` status summary on stdout. Returned canonical auth can seed/repair the local file but replaces a fresher usable local login only when that exact candidate was definitively rejected and the canonical is verified; an active local logout marker is always rendered as logged out and exits non-zero even when the fleet digest is otherwise valid. Unreadable config/marker state and failed health return a structured non-zero report, and redirects automatically use compact ASCII. |
 | `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, auth, reachability, latency, disk, cron) on stdout; an unreadable signed config is rendered as a blocked diagnostic instead of bypassing the terminal UI |
-| `auth-upload` | Stabilize and POST the effective `CODEX_HOME/auth.json` to canonical store. A native file without `last_refresh` receives one content-bound logical generation reused by concurrent processes. If native Codex replaces the file during the request, upload retries once; a second replacement exits non-zero instead of claiming stale success. The authoritative response is applied only if the accepted local generation is still current. |
+| `auth-upload` | Stabilize and POST the effective `CODEX_HOME/auth.json` to canonical store. A native file without `last_refresh` receives one content-bound logical generation reused by concurrent processes. If native Codex replaces the file during the request, upload retries once; a second replacement exits non-zero instead of claiming stale success. Only `valid`/`updated` acknowledges the exact candidate; a canonical-win `outdated` response exits non-zero without clearing logout intent or printing success. The authoritative response is applied only if the accepted local generation is still current. |
 | `login` | Run upstream login, then upload every successful non-status result with usable auth, even when its bytes match the pre-login file. Logout intent is superseded only after the server accepts the exact auth + marker snapshot. |
 | `login status` | Read-only upstream login probe. It never uploads credentials or acknowledges logout intent. |
 | `logout` | Wrapper-owned, pre-journaled logout. With no peer session it holds exclusive session + active-child writer leases across native logout; with any peer it records intent and defers native removal until the final session exits. |
@@ -281,10 +281,11 @@ participate in these leases and is the explicit coordination boundary.
    `PreExec` repeats the FQDN guard immediately before launch.
 8. Post-exit auth reconciliation: a changed usable generation is stabilized and
    POSTed to `/auth` store, while a removed/unusable generation records logout
-   intent. The returned canonical payload is generation/marker guarded. Upload,
-   required writeback, marker, or insecure-purge failure makes an otherwise
-   successful wrapper invocation non-zero instead of hiding behind the Codex
-   exit status.
+   intent. Only `valid`/`updated` acknowledges that exact upload; `outdated`
+   means canonical won and leaves any observed logout marker intact. The
+   returned canonical payload is generation/marker guarded. Upload, required
+   writeback, marker, or insecure-purge failure makes an otherwise successful
+   wrapper invocation non-zero instead of hiding behind the Codex exit status.
 
 ## Refusal modes
 

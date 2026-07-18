@@ -1366,6 +1366,23 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 			fmt.Fprintln(stderr, "auth-upload:", err)
 			return 1
 		}
+		if !resp.AuthCandidateAccepted() {
+			closeErr := upload.Close()
+			if err := updateCommandAuthSessionSecurity(resp); err != nil {
+				fmt.Fprintln(stderr, "auth-upload: update auth session security state:", err)
+				return 1
+			}
+			if closeErr != nil {
+				fmt.Fprintln(stderr, "auth-upload: rejected upload transaction cleanup:", closeErr)
+				return 1
+			}
+			status := ""
+			if resp != nil {
+				status = resp.Status
+			}
+			fmt.Fprintf(stderr, "auth-upload: server did not accept the uploaded Codex credential generation (status %q)\n", status)
+			return 1
+		}
 		// Native Codex does not honor the wrapper flock. Confirm that the exact
 		// accepted generation is still current; one overlap gets one bounded
 		// retry, while a second change fails visibly instead of claiming success.

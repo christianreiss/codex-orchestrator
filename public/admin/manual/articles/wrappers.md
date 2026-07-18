@@ -332,9 +332,10 @@ generation. Candidate-carrying network requests keep the atomic auth+logout
 snapshot locked through their bounded store call; the returned canonical
 payload is compare-and-swapped only if that generation is still current. An
 overlapping explicit logout therefore orders wholly before or after the store.
-For clx, a different usable login after an older logout marker remains pending
-until `updated`/`valid` accepts that exact candidate; an `outdated` canonical-win
-response cannot clear the marker.
+For both engines, a different usable login after an older logout marker remains
+pending until `updated`/`valid` accepts that exact candidate; an `outdated`
+canonical-win response cannot clear the marker or be reported as upload
+success.
 
 Every config-backed command plus managed run and standalone
 status/login/logout/auth-upload participates in a portable shared auth-session

@@ -746,6 +746,19 @@ func storeCurrentAuthCandidate(ctx context.Context, client *orchestrator.Client,
 		_ = upload.Close()
 		return resp, expected, err
 	}
+	if !resp.AuthCandidateAccepted() {
+		closeErr := upload.Close()
+		securityErr := updateAuthSessionSecurity(resp)
+		status := ""
+		if resp != nil {
+			status = resp.Status
+		}
+		return resp, expected, errors.Join(
+			fmt.Errorf("server did not accept the uploaded Codex credential generation (status %q)", status),
+			closeErr,
+			securityErr,
+		)
+	}
 	if upload.IntentGeneration().Exists {
 		if acknowledged, err := upload.AcknowledgeObservedLogout(); err != nil {
 			_ = upload.Close()
@@ -1217,6 +1230,13 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	resp, err := client.AuthStore(ctx, upload.Payload())
 	cancel()
+	if err == nil && !resp.AuthCandidateAccepted() {
+		status := ""
+		if resp != nil {
+			status = resp.Status
+		}
+		err = fmt.Errorf("server did not accept the uploaded Codex credential generation (status %q)", status)
+	}
 	if err == nil && expectedIntent.Exists {
 		acknowledged, ackErr := upload.AcknowledgeObservedLogout()
 		if ackErr != nil {
@@ -1228,15 +1248,16 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, pa
 		}
 	}
 	releaseErr := upload.Close()
+	securityErr := updateAuthSessionSecurity(resp)
 	if err != nil {
 		logger.Warn("post-run auth upload failed", "err", err)
-		return "upload failed", ui.ToneFail, errors.Join(fmt.Errorf("upload changed local auth: %w", err), releaseErr)
+		return "upload failed", ui.ToneFail, errors.Join(fmt.Errorf("upload changed local auth: %w", err), releaseErr, securityErr)
 	}
 	if releaseErr != nil {
 		return "upload cleanup failed", ui.ToneFail, fmt.Errorf("release post-run auth upload transaction: %w", releaseErr)
 	}
-	if err := updateAuthSessionSecurity(resp); err != nil {
-		return "security update failed", ui.ToneFail, fmt.Errorf("update auth session security state: %w", err)
+	if securityErr != nil {
+		return "security update failed", ui.ToneFail, fmt.Errorf("update auth session security state: %w", securityErr)
 	}
 	latestIntent, intentErr := codex.CurrentLogoutIntentGeneration()
 	if intentErr != nil {

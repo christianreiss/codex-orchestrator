@@ -36,6 +36,21 @@ type AuthRetrieveResponse struct {
 	CandidateRejectedDefinitive bool `json:"candidate_rejected_definitive,omitempty"`
 }
 
+// AuthCandidateAccepted reports whether the server accepted the exact auth
+// generation carried by an AuthStore request. An "outdated" response is a
+// successful arbitration response, but its canonical generation won instead.
+func (r *AuthRetrieveResponse) AuthCandidateAccepted() bool {
+	if r == nil || r.CandidateRejectedDefinitive || strings.EqualFold(strings.TrimSpace(r.VerificationState), "failed") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(r.Status)) {
+	case "valid", "updated":
+		return true
+	default:
+		return false
+	}
+}
+
 // VersionSummary mirrors VersionSnapshot on the server.
 type VersionSummary struct {
 	ClientVersion             *string `json:"client_version"`

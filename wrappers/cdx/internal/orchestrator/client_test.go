@@ -61,6 +61,28 @@ func TestAuthStoreReturnsAuthoritativeOutdatedResponse(t *testing.T) {
 	}
 }
 
+func TestAuthCandidateAcceptedDistinguishesStoreArbitration(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		resp *AuthRetrieveResponse
+		want bool
+	}{
+		{name: "nil"},
+		{name: "valid", resp: &AuthRetrieveResponse{Status: "valid"}, want: true},
+		{name: "updated", resp: &AuthRetrieveResponse{Status: "updated"}, want: true},
+		{name: "outdated", resp: &AuthRetrieveResponse{Status: "outdated"}},
+		{name: "failed verification", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "failed"}},
+		{name: "definitive rejection", resp: &AuthRetrieveResponse{Status: "updated", CandidateRejectedDefinitive: true}},
+		{name: "retrieve-only status", resp: &AuthRetrieveResponse{Status: "current"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.resp.AuthCandidateAccepted(); got != tc.want {
+				t.Fatalf("AuthCandidateAccepted()=%v want=%v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAuthStoreRejectsNonSuccessStatus(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "upload_required", "message": "not stored"})

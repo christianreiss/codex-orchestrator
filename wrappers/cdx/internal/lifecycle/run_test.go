@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -768,6 +769,69 @@ func TestPostRunChangedAuthFailureBecomesLifecycleFailure(t *testing.T) {
 	exit, merged := mergeLifecycleFailure(0, nil, postErr)
 	if exit != 1 || merged == nil {
 		t.Fatalf("mergeLifecycleFailure = %d, %v", exit, merged)
+	}
+}
+
+func TestStoreCurrentAuthCandidateOutdatedDoesNotClearLogoutIntent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	local := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"local-login"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(generation); err != nil || !marked {
+		t.Fatalf("mark logout = %v, %v", marked, err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"canonical"}},"host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	resp, _, err := storeCurrentAuthCandidate(context.Background(), client, true)
+	if err == nil || resp == nil || resp.Status != "outdated" {
+		t.Fatalf("outdated store = resp=%+v err=%v", resp, err)
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("outdated store erased logout intent: active=%v err=%v", active, err)
+	}
+}
+
+func TestPostRunOutdatedStoreDoesNotAcknowledgeDeferredLogout(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, _ := codex.AuthPath()
+	old := []byte(`{"last_refresh":"2026-07-17T09:00:00Z","tokens":{"access_token":"old"}}`)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeHash, beforeRefresh := snapshotAuth(path)
+	oldGeneration, _ := codex.CurrentAuthGeneration()
+	if marked, err := codex.MarkLogoutIntent(oldGeneration); err != nil || !marked {
+		t.Fatalf("deferred logout = %v, %v", marked, err)
+	}
+	local := []byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"new-login"}}`)
+	if err := os.WriteFile(path, local, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"canonical"}},"host":{"secure":true}}`))
+	}))
+	defer server.Close()
+	client, _ := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	status, tone, postErr := maybePostRunAuthUpload(client, slog.Default(), path, beforeHash, beforeRefresh)
+	if postErr == nil || status != "upload failed" || tone != ui.ToneFail {
+		t.Fatalf("outdated post-run = status=%q tone=%v err=%v", status, tone, postErr)
+	}
+	if active, err := codex.LogoutIntentActive(); err != nil || !active {
+		t.Fatalf("outdated post-run erased logout intent: active=%v err=%v", active, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(raw, local) {
+		t.Fatalf("outdated post-run replaced logged-out generation: %q, %v", raw, err)
 	}
 }
 
