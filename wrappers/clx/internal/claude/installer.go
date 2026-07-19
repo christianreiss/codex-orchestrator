@@ -52,13 +52,7 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	cmd := exec.CommandContext(ctx, "npm", args...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		if cacheInstalledClaude(ctx, target) {
-			return nil
-		}
-		if target != "" && target != "latest" {
-			return fmt.Errorf("npm install %s completed but claude %s was not found on npm's global path", spec, target)
-		}
-		return nil
+		return finalizeInstall(ctx, spec, target, logger)
 	}
 	if isPermErr(out, err) {
 		if _, lerr := exec.LookPath("sudo"); lerr == nil {
@@ -67,18 +61,63 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 			cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)
 			out2, serr := cmd.CombinedOutput()
 			if serr == nil {
-				if cacheInstalledClaude(ctx, target) {
-					return nil
-				}
-				if target != "" && target != "latest" {
-					return fmt.Errorf("npm install %s completed under sudo but claude %s was not found on npm's global path", spec, target)
-				}
-				return nil
+				return finalizeInstall(ctx, spec, target, logger)
 			}
 			return fmt.Errorf("npm install %s failed under sudo: %w: %s", spec, serr, strings.TrimSpace(string(out2)))
 		}
 	}
 	return fmt.Errorf("npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(out)))
+}
+
+// finalizeInstall verifies that npm left a runnable Claude binary. Some npm
+// invocations leave Claude's small fallback stub in bin/claude.exe when its
+// postinstall hook was skipped. The package explicitly supports running that
+// hook manually, so retry it before declaring the install successful.
+func finalizeInstall(ctx context.Context, spec, target string, logger *slog.Logger) error {
+	if cacheInstalledClaude(ctx, target) {
+		return nil
+	}
+
+	logger.Warn("Claude npm install did not yield a usable binary; retrying package postinstall", "spec", spec)
+	if err := runClaudePostinstall(ctx); err != nil {
+		return fmt.Errorf("npm install %s completed but Claude postinstall recovery failed: %w", spec, err)
+	}
+	if cacheInstalledClaude(ctx, target) {
+		return nil
+	}
+
+	if target != "" && target != "latest" {
+		return fmt.Errorf("npm install %s completed but runnable claude %s was not found on npm's global path", spec, target)
+	}
+	return fmt.Errorf("npm install %s completed but no runnable Claude CLI was found on npm's global path", spec)
+}
+
+// runClaudePostinstall executes the installed package's documented recovery
+// hook. It is deliberately resolved from npm's global root rather than PATH so
+// a stale user-owned `claude` executable cannot influence the repair.
+func runClaudePostinstall(ctx context.Context) error {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		return errors.New("node is not available on PATH")
+	}
+
+	raw, err := exec.CommandContext(ctx, "npm", "root", "-g").Output()
+	if err != nil {
+		return fmt.Errorf("resolve npm global root: %w", err)
+	}
+	packageDir := filepath.Join(strings.TrimSpace(string(raw)), "@anthropic-ai", "claude-code")
+	script := filepath.Join(packageDir, "install.cjs")
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("locate Claude postinstall %q: %w", script, err)
+	}
+
+	cmd := exec.CommandContext(ctx, node, script)
+	cmd.Dir = packageDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("run %s: %w: %s", script, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // cacheInstalledClaude resolves the claude binary location via npm's global
@@ -138,8 +177,11 @@ func cacheClaudeIfMatches(ctx context.Context, path, target string) bool {
 	if _, err := os.Stat(path); err != nil {
 		return false
 	}
+	version := strings.TrimSpace(versionFromCLI(ctx, path))
+	if version == "" || version == "unknown" {
+		return false
+	}
 	if target != "" && target != "latest" {
-		version := strings.TrimSpace(versionFromCLI(ctx, path))
 		if version != target {
 			return false
 		}

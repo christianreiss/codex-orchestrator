@@ -1,5 +1,9 @@
 # 2026-07-19
 
+- clx 0.6.50 now verifies that `npm install -g @anthropic-ai/claude-code`
+  produced a runnable CLI. When npm leaves the package's postinstall fallback
+  stub in place, clx runs the package-provided recovery hook and fails clearly
+  if Claude is still unusable instead of caching the stub as a successful update.
 - README product tour now uses seven current, synthetic-data showcases for
   the cdx launch, fleet overview, hosts, authoring, projects, and compatible
   API access.

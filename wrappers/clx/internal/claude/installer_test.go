@@ -96,7 +96,7 @@ fi
 echo "unexpected npm args: $*" >&2
 exit 2
 `)
-	t.Setenv("PATH", staleBin+string(os.PathListSeparator)+npmBin)
+	t.Setenv("PATH", staleBin+string(os.PathListSeparator)+npmBin+string(os.PathListSeparator)+"/bin")
 	if err := cacheClaude(filepath.Join(staleBin, "claude")); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +112,75 @@ exit 2
 	}
 	if got := Version(context.Background()); got != "2.1.204" {
 		t.Fatalf("Version() = %q, want 2.1.204", got)
+	}
+}
+
+func TestEnsureClaudeRecoversSkippedPostinstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	staleBin := filepath.Join(dir, "stale-bin")
+	npmBin := filepath.Join(dir, "npm-bin")
+	prefix := filepath.Join(dir, "prefix")
+	root := filepath.Join(prefix, "lib", "node_modules")
+	packageDir := filepath.Join(root, "@anthropic-ai", "claude-code")
+	for _, path := range []string{home, staleBin, npmBin, filepath.Join(prefix, "bin"), packageDir} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+
+	writeScript(t, filepath.Join(staleBin, "claude"), "#!/bin/sh\necho '2.1.161 (Claude Code)'\n")
+	candidate := filepath.Join(prefix, "bin", "claude")
+	if err := os.WriteFile(candidate, []byte("#!/bin/sh\necho '2.1.215 (Claude Code)'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "install.cjs"), []byte("// fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "postinstall-called")
+	writeScript(t, filepath.Join(npmBin, "npm"), `#!/bin/sh
+if [ "$1" = "prefix" ] && [ "$2" = "-g" ]; then
+  echo "`+prefix+`"
+  exit 0
+fi
+if [ "$1" = "root" ] && [ "$2" = "-g" ]; then
+  echo "`+root+`"
+  exit 0
+fi
+if [ "$1" = "install" ] && [ "$2" = "-g" ]; then
+  exit 0
+fi
+echo "unexpected npm args: $*" >&2
+exit 2
+`)
+	writeScript(t, filepath.Join(npmBin, "node"), `#!/bin/sh
+test "$1" = "`+filepath.Join(packageDir, "install.cjs")+`" || exit 2
+chmod +x "$TEST_CLAUDE_CANDIDATE"
+: > "$TEST_POSTINSTALL_MARKER"
+`)
+	t.Setenv("TEST_CLAUDE_CANDIDATE", candidate)
+	t.Setenv("TEST_POSTINSTALL_MARKER", marker)
+	t.Setenv("PATH", staleBin+string(os.PathListSeparator)+npmBin+string(os.PathListSeparator)+"/bin")
+	if err := cacheClaude(filepath.Join(staleBin, "claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureClaude(context.Background(), "2.1.215", true, logger); err != nil {
+		t.Fatalf("EnsureClaude: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("postinstall was not called: %v", err)
+	}
+	if got := cachedClaudeBin(); got != candidate {
+		t.Fatalf("cachedClaudeBin() = %q, want %q", got, candidate)
+	}
+	if got := Version(context.Background()); got != "2.1.215" {
+		t.Fatalf("Version() = %q, want 2.1.215", got)
 	}
 }
 

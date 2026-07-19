@@ -90,7 +90,10 @@ Update activity for the wrapper, Claude CLI, and peer `cdx` install uses the
 compact `↻` / `✓` / `✗` status line; it is coloured only on interactive
 terminals, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when
 redirected, on `TERM=dumb`, or under explicit `--minimal` (including an update
-initiated while reconciling the peer wrapper).
+initiated while reconciling the peer wrapper). After `npm install -g`, `clx`
+verifies that the Claude executable is runnable. If npm left the package's
+postinstall fallback stub in place, `clx` runs the package's documented
+`install.cjs` recovery hook and fails the update if no usable CLI results.
 
 ## Per-host config (typed, signed)
 
