@@ -1,5 +1,18 @@
 # 2026-07-19
 
+- The `#context` skill is now stored fleet-wide (`engine: null`), so it reaches
+  codex over MCP `skill_retrieve` and Claude hosts as
+  `~/.claude/skills/context/SKILL.md`. It had only ever existed as an unstored
+  file under `docs/skills/`, which ships nothing — `#context` was undefined on
+  both engines.
+- `#context` now explicitly overrides Claude Code's native file memory
+  (`~/.claude/projects/**/memory/`, `MEMORY.md`). Previously the skill ruled out
+  only the host-scoped `memory_*` MCP tools, a different mechanism, so on Claude
+  hosts the system-prompt memory feature won by default and context was written
+  to host-local files instead of shared `project_*` rows. Codex, having no such
+  native feature, used MCP — the two engines diverged on identical instructions.
+  The ban is scoped to `#context` state; native memory stays available elsewhere.
+
 - clx 0.6.50 now verifies that `npm install -g @anthropic-ai/claude-code`
   produced a runnable CLI. When npm leaves the package's postinstall fallback
   stub in place, clx runs the package-provided recovery hook and fails clearly

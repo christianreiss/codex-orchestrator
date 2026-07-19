@@ -39,7 +39,14 @@ jq -n --arg m "$(cat docs/skills/context.SKILL.md)" \
 
 ## Current manifests
 
-- `context.SKILL.md` — `#context`. **Depends on the `project_memory_*` MCP tools**, so
-  store it only after `api/src/db/migrations/0003_add_coord_project_memories.sql` is
-  applied and the API is deployed. Storing it earlier ships instructions for tools that
-  do not answer yet.
+- `context.SKILL.md` — `#context`. **Stored on 2026-07-19** (migration
+  `0003_add_coord_project_memories.sql` is applied and `project_memory_*` answers).
+  `engine` is `null`, so it serves codex over MCP *and* rides the clx bundle to
+  `~/.claude/skills/context/SKILL.md`.
+
+  Its "The store is MCP, not local files" section is load-bearing, not boilerplate:
+  Claude Code ships a native file-memory feature (`~/.claude/projects/**/memory/` +
+  `MEMORY.md`) injected into the system prompt, and Codex has no equivalent. Without a
+  section naming those paths, clx silently wrote context to host-local files while cdx
+  used MCP — the same skill, opposite substrates. Do not trim it back to "use
+  `project_*` tools"; the override has to name what it is overriding.
