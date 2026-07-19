@@ -113,6 +113,13 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
 
 ## Peer engine reconciliation
 
+For initial Claude-only or dual-engine provisioning, the host installer first
+ensures Node.js and npm, preferring the OS Node package plus a managed pinned
+Corepack npm 10.9.2 shim over the often much larger OS npm dependency tree. It
+then bootstraps each requested engine explicitly with `--minimal` and
+`CODEX_ORCH_PEER_SPAWN=1`; `READY` is printed only after every wrapper, CLI, and
+cron entry verifies.
+
 After a successful startup sync, `clx` reads the host `engines_list`. If Codex is
 enabled, `clx` fetches the signed `cdx` config from
 `/wrapper/v2/config?engine=codex`, writes `cdx.json{,.sig}`, verifies the served

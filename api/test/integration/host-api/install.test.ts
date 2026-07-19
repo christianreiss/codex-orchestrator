@@ -120,6 +120,45 @@ describe('GET /install/:token', () => {
     await app.close();
   });
 
+  it('emits the complete fail-closed bootstrap for a dual-engine host', async () => {
+    const db = createDbFake();
+    db.tables.set(hostsTable, [
+      {
+        id: 10,
+        fqdn: 'both.example',
+        engines: 'codex,claude',
+        curlInsecure: 0,
+        apiKeyEnc: null,
+      },
+    ]);
+    db.tables.set(installTokens, [
+      {
+        id: 2,
+        token: installToken,
+        tokenEnc: null,
+        hostId: 10,
+        fqdn: 'both.example',
+        apiKey: 'sk-both-foo',
+        apiKeyEnc: null,
+        baseUrl: 'https://o.example',
+        expiresAt: futureExpiry,
+        usedAt: null,
+        createdAt: '2026-07-19T00:00:00Z',
+        engine: 'codex',
+      },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({ method: 'GET', url: `/install/${installToken}` });
+    expect(r.statusCode).toBe(200);
+    expect(r.payload).toContain("INSTALL_LABEL='Codex + Claude'");
+    expect(r.payload).toContain('NEEDS_CLAUDE=1');
+    expect(r.payload).toContain("PEER_ENGINE='claude'");
+    expect(r.payload).toContain('ui_result_ok "READY"');
+    expect(r.payload).toContain('ui_result_fail "INCOMPLETE"');
+    expect(r.payload).not.toContain('Done. Try:');
+    await app.close();
+  });
+
   it('resolves hashed installer tokens and decrypts the embedded api key', async () => {
     const db = createDbFake();
     const keyring = makeKeyring();
@@ -456,21 +495,22 @@ describe('POST /seed/auth/:token', () => {
     } as typeof env;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            status: 'fail',
-            reachable: false,
-            definitive: false,
-            reason: 'CLI timed out after refresh',
-            auth_readback: 'updated',
-            updated_auth: {
-              last_refresh: '2026-05-17T00:00:00Z',
-              tokens: { access_token: 'sk-retained-pending-seed-token' },
-            },
-          }),
-          { status: 200 },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 'fail',
+              reachable: false,
+              definitive: false,
+              reason: 'CLI timed out after refresh',
+              auth_readback: 'updated',
+              updated_auth: {
+                last_refresh: '2026-05-17T00:00:00Z',
+                tokens: { access_token: 'sk-retained-pending-seed-token' },
+              },
+            }),
+            { status: 200 },
+          ),
       ),
     );
     const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring: makeKeyring() });

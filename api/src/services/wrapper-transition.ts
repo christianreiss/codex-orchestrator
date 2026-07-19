@@ -37,23 +37,13 @@ export function buildWrapperV2InstallerScript(opts: {
   if (!opts.fqdn) throw new Error('Installer host FQDN missing');
 
   const name = binaryName(opts.engine);
-  const cliName = opts.engine === ENGINE_CLAUDE ? 'claude' : 'codex';
-  const cliHint =
-    opts.engine === ENGINE_CLAUDE
-      ? `if ! command -v ${cliName} >/dev/null 2>&1; then
-  if command -v npm >/dev/null 2>&1; then
-    echo ">> claude not found — installing @anthropic-ai/claude-code via npm…"
-    npm install -g @anthropic-ai/claude-code 2>/dev/null || \\
-      sudo -n npm install -g @anthropic-ai/claude-code 2>/dev/null || \\
-      { echo ">> npm install failed. Install manually: npm install -g @anthropic-ai/claude-code" >&2; exit 1; }
-  else
-    echo ">> claude not found and npm not available. Install Node.js + npm, then: npm install -g @anthropic-ai/claude-code" >&2
-    exit 1
-  fi
-fi`
-      : `command -v ${cliName} >/dev/null 2>&1 || echo ">> codex CLI not found — the wrapper will install it automatically during bootstrap."`;
-
   const peers = (opts.peerEngines ?? []).filter((e) => e !== opts.engine);
+  const requestedEngines = [...new Set<Engine>([opts.engine, ...peers])];
+  const needsClaude = requestedEngines.includes(ENGINE_CLAUDE);
+  const hasCodex = requestedEngines.some((engine) => engine !== ENGINE_CLAUDE);
+  const installLabel = requestedEngines
+    .map((engine) => (engine === ENGINE_CLAUDE ? 'Claude' : 'Codex'))
+    .join(' + ');
   const peerBlock = peers.length > 0 ? peers.map(peerInstallBlock).join('\n') : undefined;
   const defaultCurlInsecure = opts.allowInsecure ? '1' : '0';
 
@@ -68,20 +58,59 @@ ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 CONFIG_FILE=${shellQuote(`${name}.json`)}
 CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
+HOST_LABEL=${shellQuote(opts.fqdn)}
+INSTALL_LABEL=${shellQuote(installLabel)}
+NEEDS_CLAUDE=${needsClaude ? '1' : '0'}
+HAS_CODEX=${hasCodex ? '1' : '0'}
+HAS_CLAUDE=${needsClaude ? '1' : '0'}
 INSTALL_CONTEXT=installer
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecure}}
 
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
-echo ">> Installing the ${name} wrapper into $BIN_DIR"
 
-# 1. Friendly engine CLI hint (the wrapper invokes this binary).
-${cliHint}
-
-# 2. Pull the signed host config and the matching wrapper binary.
+# Pull signed host config(s), install the wrapper(s), then bootstrap each
+# engine explicitly. The installer owns peer ordering, so cron peer-spawn is
+# suppressed during this one run to avoid duplicate work and hidden failures.
 ${bootstrapBody({ peerBlock })}
 
-echo
-echo "Done. Try: ${name} run    (or ${name} doctor for a self-check)."
+INSTALL_FINISHED=1
+ui_divider
+if [ "$INSTALL_FAILED" = "0" ]; then
+  ui_result_ok "READY" "$INSTALL_LABEL installed successfully"
+  if [ "$HAS_CODEX" = "1" ]; then
+    ui_hint "cdx run       Start Codex"
+  fi
+  if [ "$HAS_CLAUDE" = "1" ]; then
+    ui_hint "clx run       Start Claude Code"
+  fi
+  if [ "$HAS_CODEX" = "1" ]; then
+    ui_hint "cdx doctor    Verify Codex setup"
+  fi
+  if [ "$HAS_CLAUDE" = "1" ]; then
+    ui_hint "clx doctor    Verify Claude setup"
+  fi
+  if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
+    ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
+    ui_path_hint
+  fi
+  exit 0
+fi
+
+ui_result_fail "INCOMPLETE" "One or more requested components failed"
+if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
+  ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
+  ui_path_hint
+fi
+if [ "$HAS_CODEX" = "1" ]; then
+  ui_hint "Retry Codex cron: cdx --minimal --cron install"
+  ui_hint "Retry Codex CLI:  cdx --minimal --cron run"
+fi
+if [ "$HAS_CLAUDE" = "1" ]; then
+  ui_hint "Retry Claude cron: clx --minimal --cron install"
+  ui_hint "Retry Claude CLI:  clx --minimal --cron run"
+fi
+ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
+exit 1
 `;
 }
 
@@ -111,7 +140,186 @@ ${bootstrapBody()}
 
 function bootstrapBody(opts?: { peerBlock?: string }): string {
   const peerSection = opts?.peerBlock != null ? `\n${opts.peerBlock}` : '';
-  return `CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
+  return `PARENT_PATH=\${PATH:-}
+if [ -z "$PARENT_PATH" ]; then
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  export PATH
+fi
+
+INSTALL_FAILED=0
+INSTALL_FINISHED=0
+BUNDLE_FILE=
+BIN_TMP=
+STEP_LOG=
+NODE_SHIM_TMP=
+NPM_SHIM_TMP=
+
+UI_TTY=0
+UI_UTF8=0
+if [ -t 1 ] && [ "\${TERM:-dumb}" != "dumb" ]; then
+  UI_TTY=1
+fi
+case "\${LC_ALL:-\${LC_CTYPE:-\${LANG:-}}}" in
+  *UTF-8*|*utf-8*|*UTF8*|*utf8*)
+    if [ "$UI_TTY" = "1" ]; then UI_UTF8=1; fi
+    ;;
+esac
+
+UI_RESET=
+UI_BOLD=
+UI_DIM=
+UI_CYAN=
+UI_GREEN=
+UI_RED=
+UI_YELLOW=
+if [ "$UI_TTY" = "1" ] && [ -z "\${NO_COLOR:-}" ]; then
+  UI_RESET=$(printf '\\033[0m')
+  UI_BOLD=$(printf '\\033[1m')
+  UI_DIM=$(printf '\\033[2m')
+  UI_CYAN=$(printf '\\033[96m')
+  UI_GREEN=$(printf '\\033[32m')
+  UI_RED=$(printf '\\033[31m')
+  UI_YELLOW=$(printf '\\033[33m')
+fi
+
+ui_line() {
+  UI_MARK=$1
+  UI_COLOR=$2
+  UI_ENGINE=$3
+  UI_COMPONENT=$4
+  UI_VERSION=$5
+  UI_STATUS=$6
+  if [ "$UI_UTF8" = "1" ]; then
+    if [ -n "$UI_VERSION" ]; then
+      printf '%s%s%s · %s%s%s · %s%s%s · %s%s%s · %s%s%s\n' \\
+        "$UI_COLOR" "$UI_MARK" "$UI_RESET" \\
+        "$UI_BOLD" "$UI_ENGINE" "$UI_RESET" \\
+        "$UI_DIM" "$UI_COMPONENT" "$UI_RESET" \\
+        "$UI_BOLD" "$UI_VERSION" "$UI_RESET" \\
+        "$UI_COLOR" "$UI_STATUS" "$UI_RESET"
+    else
+      printf '%s%s%s · %s%s%s · %s%s%s · %s%s%s\n' \\
+        "$UI_COLOR" "$UI_MARK" "$UI_RESET" \\
+        "$UI_BOLD" "$UI_ENGINE" "$UI_RESET" \\
+        "$UI_DIM" "$UI_COMPONENT" "$UI_RESET" \\
+        "$UI_COLOR" "$UI_STATUS" "$UI_RESET"
+    fi
+  elif [ -n "$UI_VERSION" ]; then
+    printf '%s | %s | %s | %s | %s\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_VERSION" "$UI_STATUS"
+  else
+    printf '%s | %s | %s | %s\n' "$UI_MARK" "$UI_ENGINE" "$UI_COMPONENT" "$UI_STATUS"
+  fi
+}
+
+ui_progress() {
+  if [ "$UI_UTF8" = "1" ]; then
+    ui_line '↻' "$UI_CYAN" "$1" "$2" "$3" "$4"
+  else
+    UI_ASCII_STATUS=$(printf '%s' "$4" | sed 's/…/.../g')
+    ui_line '..' '' "$1" "$2" "$3" "$UI_ASCII_STATUS"
+  fi
+}
+
+ui_ok() {
+  if [ "$UI_UTF8" = "1" ]; then
+    ui_line '✓' "$UI_GREEN" "$1" "$2" "$3" "$4"
+  else
+    ui_line 'OK' '' "$1" "$2" "$3" "$4"
+  fi
+}
+
+ui_fail() {
+  if [ "$UI_UTF8" = "1" ]; then
+    ui_line '✗' "$UI_RED" "$1" "$2" "$3" "$4" >&2
+  else
+    ui_line 'FAIL' '' "$1" "$2" "$3" "$4" >&2
+  fi
+}
+
+ui_warn() {
+  if [ "$UI_UTF8" = "1" ]; then
+    ui_line '!' "$UI_YELLOW" "$1" "$2" "$3" "$4"
+  else
+    ui_line 'WARN' '' "$1" "$2" "$3" "$4"
+  fi
+}
+
+ui_header() {
+  if [ "$UI_UTF8" = "1" ]; then
+    printf '\n%s╭─ CODEX ORCHESTRATOR · HOST SETUP%s\n' "$UI_BOLD" "$UI_RESET"
+    printf '│ %s · %s\n' "$HOST_LABEL" "$INSTALL_LABEL"
+    printf '│ %s\n' "$BIN_DIR"
+    printf '╰─────────────────────────────────────────────\n\n'
+  else
+    printf '\n== CODEX ORCHESTRATOR / HOST SETUP ==\n'
+    printf '   %s | %s | %s\n\n' "$HOST_LABEL" "$INSTALL_LABEL" "$BIN_DIR"
+  fi
+}
+
+ui_divider() {
+  if [ "$UI_UTF8" = "1" ]; then
+    printf '%s──────────────────────────────────────────────%s\n' "$UI_DIM" "$UI_RESET"
+  else
+    printf '%s\n' '----------------------------------------------'
+  fi
+}
+
+ui_result_ok() {
+  if [ "$UI_UTF8" = "1" ]; then
+    printf '%s%s%s · %s\n' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" "$2"
+  else
+    printf '%s | %s\n' "$1" "$2"
+  fi
+}
+
+ui_result_fail() {
+  if [ "$UI_UTF8" = "1" ]; then
+    printf '%s%s%s · %s\n' "$UI_RED$UI_BOLD" "$1" "$UI_RESET" "$2" >&2
+  else
+    printf '%s | %s\n' "$1" "$2" >&2
+  fi
+}
+
+ui_hint() {
+  printf '  %s\n' "$1"
+}
+
+ui_path_hint() {
+  # $PATH must remain literal for the parent shell.
+  # shellcheck disable=SC2016
+  printf '  Before running: export PATH="%s:$PATH"\n' "$BIN_ROOT"
+}
+
+show_step_log() {
+  if [ -n "$STEP_LOG" ] && [ -s "$STEP_LOG" ]; then
+    tail -n 20 "$STEP_LOG" | sed 's/^/      /' >&2
+  fi
+}
+
+cleanup() {
+  for CLEAN_PATH in "$BUNDLE_FILE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
+    if [ -n "$CLEAN_PATH" ]; then rm -f "$CLEAN_PATH"; fi
+  done
+}
+
+on_exit() {
+  INSTALL_EXIT=$?
+  trap - EXIT INT TERM
+  cleanup
+  if [ "$INSTALL_EXIT" != "0" ] && [ "$INSTALL_FINISHED" = "0" ]; then
+    ui_divider
+    ui_result_fail "INCOMPLETE" "Setup stopped before every requested component was ready"
+    if [ "$INSTALL_CONTEXT" = "installer" ]; then
+      ui_hint "This single-use installer was consumed. Fix the cause, then mint and run a fresh installer."
+    fi
+  fi
+  exit "$INSTALL_EXIT"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
 DATA_HOME=\${XDG_DATA_HOME:-$HOME/.local/share}
 CONFIG_PATH="$CONFIG_HOME/codex-orchestrator/$CONFIG_FILE"
 case "$CONFIG_ENV" in
@@ -132,6 +340,9 @@ INSTALL_WITH_SUDO=0
 ensure_bin_root() {
   if [ "$INSTALL_CONTEXT" = "transition" ]; then
     mkdir -p "$BIN_ROOT"
+    return 0
+  fi
+  if mkdir -p "$BIN_ROOT" 2>/dev/null && [ -w "$BIN_ROOT" ]; then
     return 0
   fi
   if [ -d "$BIN_ROOT" ] && [ -w "$BIN_ROOT" ]; then
@@ -165,6 +376,239 @@ install_bin() {
   fi
 }
 
+remove_installed_bin() {
+  REMOVE_PATH=$1
+  if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+    sudo -n rm -f "$REMOVE_PATH"
+  else
+    rm -f "$REMOVE_PATH"
+  fi
+}
+
+run_privileged() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n "$@"
+    return
+  fi
+  return 126
+}
+
+run_install_context() {
+  if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+    sudo -n "$@"
+  else
+    "$@"
+  fi
+}
+
+package_manager() {
+  for PACKAGE_TOOL in apt-get dnf yum apk pacman zypper brew; do
+    if command -v "$PACKAGE_TOOL" >/dev/null 2>&1; then
+      printf '%s\n' "$PACKAGE_TOOL"
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_os_component() {
+  PACKAGE_KIND=$1
+  PACKAGE_TOOL=$(package_manager) || return 1
+  case "$PACKAGE_TOOL:$PACKAGE_KIND" in
+    apt-get:node) PACKAGE_NAMES='nodejs' ;;
+    apt-get:npm) PACKAGE_NAMES='npm' ;;
+    dnf:node|yum:node|apk:node|pacman:node|zypper:node) PACKAGE_NAMES='nodejs' ;;
+    dnf:npm|yum:npm|apk:npm|pacman:npm|zypper:npm) PACKAGE_NAMES='npm' ;;
+    brew:node|brew:npm) PACKAGE_NAMES='node' ;;
+    *) return 1 ;;
+  esac
+
+  : > "$STEP_LOG"
+  case "$PACKAGE_TOOL" in
+    apt-get)
+      if run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PACKAGE_NAMES >>"$STEP_LOG" 2>&1; then
+        return 0
+      fi
+      run_privileged apt-get update >>"$STEP_LOG" 2>&1 &&
+        run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    dnf)
+      run_privileged dnf install -y --setopt=install_weak_deps=False $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    yum)
+      run_privileged yum install -y $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    apk)
+      run_privileged apk add --no-cache $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    pacman)
+      run_privileged pacman -S --noconfirm --needed $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive install --no-recommends $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+    brew)
+      brew install $PACKAGE_NAMES >>"$STEP_LOG" 2>&1
+      ;;
+  esac
+}
+
+ensure_node_command() {
+  if command -v node >/dev/null 2>&1; then return 0; fi
+  NODEJS_BIN=$(command -v nodejs 2>/dev/null || true)
+  if [ -z "$NODEJS_BIN" ]; then return 1; fi
+  NODE_SHIM_TMP=$(mktemp "\${TMPDIR:-/tmp}/node.shim.XXXXXX")
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$NODEJS_BIN" > "$NODE_SHIM_TMP"
+  chmod 755 "$NODE_SHIM_TMP"
+  install_bin "$NODE_SHIM_TMP" "$BIN_ROOT/node"
+  hash -r 2>/dev/null || true
+  command -v node >/dev/null 2>&1
+}
+
+install_corepack_npm() {
+  COREPACK_BIN=$(command -v corepack 2>/dev/null || true)
+  if [ -z "$COREPACK_BIN" ]; then return 1; fi
+  case "$BIN_ROOT" in
+    */bin) NPM_PREFIX=\${BIN_ROOT%/bin} ;;
+    *) NPM_PREFIX="$DATA_HOME/codex-orchestrator/npm" ;;
+  esac
+  COREPACK_HOME="$NPM_PREFIX/lib/codex-orchestrator/corepack"
+  NPM_SHIM_TMP=$(mktemp "\${TMPDIR:-/tmp}/npm.shim.XXXXXX")
+  python3 - "$NPM_SHIM_TMP" "$COREPACK_BIN" "$COREPACK_HOME" "$NPM_PREFIX" <<'PY'
+import os
+import shlex
+import sys
+
+path, corepack, corepack_home, prefix = sys.argv[1:5]
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write("#!/bin/sh\\n")
+    fh.write(f"export COREPACK_HOME={shlex.quote(corepack_home)}\\n")
+    fh.write(f"export npm_config_prefix={shlex.quote(prefix)}\\n")
+    fh.write(f'exec {shlex.quote(corepack)} npm@10.9.2 "$@"\\n')
+os.chmod(path, 0o755)
+PY
+  install_bin "$NPM_SHIM_TMP" "$BIN_ROOT/npm"
+  hash -r 2>/dev/null || true
+  : > "$STEP_LOG"
+  if run_install_context "$BIN_ROOT/npm" --version >>"$STEP_LOG" 2>&1; then
+    return 0
+  fi
+  remove_installed_bin "$BIN_ROOT/npm"
+  hash -r 2>/dev/null || true
+  return 1
+}
+
+read_claude_prerequisite_versions() {
+  NODE_VERSION=$(node --version 2>/dev/null) || return 1
+  NPM_VERSION=$(npm --version 2>/dev/null) || return 1
+  NODE_VERSION=$(printf '%s\n' "$NODE_VERSION" | head -n 1)
+  NPM_VERSION=$(printf '%s\n' "$NPM_VERSION" | head -n 1)
+  [ -n "$NODE_VERSION" ] && [ -n "$NPM_VERSION" ]
+}
+
+cached_engine_cli() {
+  case "$1" in
+    cdx) CLI_CACHE="$HOME/.config/codex-orchestrator/cdx-codex-bin" ;;
+    clx) CLI_CACHE="$HOME/.clx/state/claude-bin" ;;
+    *) return 1 ;;
+  esac
+  if [ ! -r "$CLI_CACHE" ]; then return 1; fi
+  CACHED_CLI=$(head -n 1 "$CLI_CACHE" 2>/dev/null || true)
+  if [ ! -x "$CACHED_CLI" ]; then return 1; fi
+  printf '%s\n' "$CACHED_CLI"
+}
+
+ensure_claude_prerequisites() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 &&
+    read_claude_prerequisite_versions; then
+    ui_ok "clx" "prerequisites" "$NODE_VERSION / npm $NPM_VERSION" "ready"
+    return 0
+  fi
+
+  ui_progress "clx" "prerequisites" "" "preparing Node.js + npm"
+  if ! command -v node >/dev/null 2>&1 && ! command -v nodejs >/dev/null 2>&1; then
+    if ! install_os_component node; then
+      ui_fail "clx" "prerequisites" "" "Node.js install failed"
+      show_step_log
+      return 1
+    fi
+  fi
+  if ! ensure_node_command; then
+    ui_fail "clx" "prerequisites" "" "Node.js is unavailable after install"
+    show_step_log
+    return 1
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    if ! install_corepack_npm && ! install_os_component npm; then
+      ui_fail "clx" "prerequisites" "" "npm install failed"
+      show_step_log
+      return 1
+    fi
+    hash -r 2>/dev/null || true
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    ui_fail "clx" "prerequisites" "" "npm is unavailable after install"
+    show_step_log
+    return 1
+  fi
+
+  if ! read_claude_prerequisite_versions; then
+    ui_fail "clx" "prerequisites" "" "Node.js/npm version check failed"
+    return 1
+  fi
+  ui_ok "clx" "prerequisites" "$NODE_VERSION / npm $NPM_VERSION" "ready"
+}
+
+bootstrap_engine() {
+  BOOT_BIN=$1
+  BOOT_NAME=$2
+  BOOT_CLI=$3
+  BOOT_FAILED=0
+
+  ui_progress "$BOOT_NAME" "auto-update" "" "scheduling"
+  : > "$STEP_LOG"
+  if CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron install >"$STEP_LOG" 2>&1; then
+    ui_ok "$BOOT_NAME" "auto-update" "" "scheduled"
+  else
+    ui_fail "$BOOT_NAME" "auto-update" "" "schedule failed"
+    show_step_log
+    BOOT_FAILED=1
+  fi
+
+  ui_progress "$BOOT_NAME" "$BOOT_CLI" "" "installing…"
+  : > "$STEP_LOG"
+  if CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron run >"$STEP_LOG" 2>&1; then
+    BOOT_CLI_BIN=$(command -v "$BOOT_CLI" 2>/dev/null || true)
+    if [ -z "$BOOT_CLI_BIN" ]; then
+      BOOT_CLI_BIN=$(cached_engine_cli "$BOOT_NAME" || true)
+    fi
+    if [ -n "$BOOT_CLI_BIN" ]; then
+      if BOOT_VERSION=$("$BOOT_CLI_BIN" --version 2>/dev/null) && [ -n "$BOOT_VERSION" ]; then
+        BOOT_VERSION=$(printf '%s\n' "$BOOT_VERSION" | head -n 1)
+        ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "ready"
+      else
+        ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "version check failed"
+        BOOT_FAILED=1
+      fi
+    else
+      ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "command unavailable after bootstrap"
+      show_step_log
+      BOOT_FAILED=1
+    fi
+  else
+    ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "install failed"
+    show_step_log
+    BOOT_FAILED=1
+  fi
+
+  [ "$BOOT_FAILED" = "0" ]
+}
+
 if [ "$INSTALL_CONTEXT" = "transition" ]; then
   BIN_ROOT="$DATA_HOME/codex-orchestrator/bin"
 else
@@ -173,12 +617,25 @@ fi
 
 mkdir -p "$(dirname "$CONFIG_PATH")"
 ensure_bin_root
+BIN_ROOT_ON_PATH=0
+case ":$PARENT_PATH:" in
+  *":$BIN_ROOT:"*) BIN_ROOT_ON_PATH=1 ;;
+esac
+ORIGINAL_RESOLVED_BIN=$(command -v "$NAME" 2>/dev/null || true)
+PATH="$BIN_ROOT:\${PATH:-}"
+export PATH
+if [ "$INSTALL_CONTEXT" = "installer" ]; then
+  ui_header
+fi
 BUNDLE_FILE=$(mktemp "\${TMPDIR:-/tmp}/$NAME.config.XXXXXX")
 BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$NAME.bin.XXXXXX")
-cleanup() {
-  rm -f "$BUNDLE_FILE" "$BIN_TMP"
-}
-trap cleanup EXIT INT TERM
+STEP_LOG=$(mktemp "\${TMPDIR:-/tmp}/$NAME.install.XXXXXX")
+
+if [ "$INSTALL_CONTEXT" = "installer" ] && [ "$NEEDS_CLAUDE" = "1" ]; then
+  if ! ensure_claude_prerequisites; then
+    exit 1
+  fi
+fi
 
 PLATFORM_OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
 case "$PLATFORM_OS" in
@@ -194,6 +651,7 @@ case "$PLATFORM_ARCH" in
 esac
 WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
 
+ui_progress "$NAME" "wrapper" "" "installing…"
 curl $CURL_INSECURE_FLAG -fsSL \\
   -H "X-API-Key: $HOST_API_KEY" \\
   -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
@@ -331,7 +789,6 @@ if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
       exec "$TARGET_BIN" "$@"
     fi
     cleanup_known_relics
-    "$TARGET_BIN" status || true
     SKIP_DOWNLOAD=1
   fi
 fi
@@ -360,24 +817,21 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
     exec "$TARGET_BIN" "$@"
   fi
 
-  "$TARGET_BIN" status || true
-
-  RESOLVED_BIN=$(command -v "$NAME" 2>/dev/null || true)
-  if [ -n "$RESOLVED_BIN" ] && [ "$RESOLVED_BIN" != "$TARGET_BIN" ]; then
-    echo ">> Note: this shell resolves $NAME to $RESOLVED_BIN, not $TARGET_BIN."
-    echo ">> Put $BIN_ROOT earlier in PATH or run directly: $TARGET_BIN run"
-  fi
-  echo ">> If your shell cached an older $NAME, run: hash -r 2>/dev/null || rehash 2>/dev/null || true"
 fi
+if [ -n "$ORIGINAL_RESOLVED_BIN" ] && [ "$ORIGINAL_RESOLVED_BIN" != "$TARGET_BIN" ]; then
+  ui_warn "$NAME" "PATH" "$ORIGINAL_RESOLVED_BIN" "expected $TARGET_BIN"
+  ui_hint "Refresh the parent shell: hash -r; or run directly: $TARGET_BIN run"
+fi
+ui_ok "$NAME" "wrapper" "$WRAPPER_VERSION" "ready"
 
-# 2b. Bootstrap the primary engine: install the auto-update cron entry, then
-#     run one tick — that installs/updates the engine CLI itself and checks in
-#     with the orchestrator (versions, pending auth seed). Without this only
-#     the wrapper binary lands and the engine stays missing until the first
-#     manual run.
-echo ">> Bootstrapping $NAME (cron + engine install)…"
-"$TARGET_BIN" --cron install || echo ">> Warning: $NAME --cron install failed; auto-update cron not set up." >&2
-"$TARGET_BIN" --cron run || echo ">> Warning: $NAME --cron run failed; run it manually to finish engine setup." >&2${peerSection}`;
+if [ "$NAME" = "clx" ]; then
+  PRIMARY_CLI=claude
+else
+  PRIMARY_CLI=codex
+fi
+if ! bootstrap_engine "$TARGET_BIN" "$NAME" "$PRIMARY_CLI"; then
+  INSTALL_FAILED=1
+fi${peerSection}`;
 }
 
 function peerInstallBlock(engine: Engine): string {
@@ -396,12 +850,21 @@ set +e
   PEER_CONFIG_ENV=${shellQuote(peerConfigEnv)}
   PEER_CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
   PEER_CONFIG_PATH="$PEER_CONFIG_HOME/codex-orchestrator/$PEER_CONFIG_FILE"
+  case "$PEER_CONFIG_ENV" in
+    CDX_CONFIG_PATH)
+      if [ -n "\${CDX_CONFIG_PATH:-}" ]; then PEER_CONFIG_PATH=$CDX_CONFIG_PATH; fi
+      ;;
+    CLX_CONFIG_PATH)
+      if [ -n "\${CLX_CONFIG_PATH:-}" ]; then PEER_CONFIG_PATH=$CLX_CONFIG_PATH; fi
+      ;;
+  esac
   PEER_BIN_DIR="$(dirname "$TARGET_BIN")"
   mkdir -p "$(dirname "$PEER_CONFIG_PATH")"
   PEER_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/$PEER_NAME.config.XXXXXX")
   PEER_BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$PEER_NAME.bin.XXXXXX")
   peer_cleanup() { rm -f "$PEER_BUNDLE" "$PEER_BIN_TMP"; }
   trap peer_cleanup EXIT INT TERM
+  ui_progress "$PEER_NAME" "wrapper" "" "installing…"
   curl $CURL_INSECURE_FLAG -fsSL \\
     -H "X-API-Key: $HOST_API_KEY" \\
     -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
@@ -455,6 +918,7 @@ os.chmod(config_path, 0o600)
 os.chmod(config_path + ".sig", 0o600)
 
 target = os.path.join(bin_root, name)
+print(f"PEER_WRAPPER_VERSION={shlex.quote(version)}")
 print(f"PEER_BINARY_URL={shlex.quote(binary_url)}")
 print(f"PEER_BINARY_SHA256={shlex.quote(binary_sha256)}")
 print(f"PEER_TARGET_BIN={shlex.quote(target)}")
@@ -488,14 +952,19 @@ PY
     install_bin "$PEER_BIN_TMP" "$PEER_TARGET_BIN"
     rm -f "$PEER_BIN_TMP"
   fi
-  echo ">> Bootstrapping $PEER_NAME (cron + engine install)…"
-  "$PEER_TARGET_BIN" --cron install || echo ">> Warning: $PEER_NAME --cron install failed; auto-update cron not set up." >&2
-  "$PEER_TARGET_BIN" --cron run || echo ">> Warning: $PEER_NAME --cron run failed; run it manually to finish engine setup." >&2
+  ui_ok "$PEER_NAME" "wrapper" "$PEER_WRAPPER_VERSION" "ready"
+  if [ "$PEER_NAME" = "clx" ]; then
+    PEER_CLI=claude
+  else
+    PEER_CLI=codex
+  fi
+  bootstrap_engine "$PEER_TARGET_BIN" "$PEER_NAME" "$PEER_CLI"
 )
 PEER_EXIT=$?
 set -e
 if [ "$PEER_EXIT" != "0" ]; then
-  echo ">> Warning: peer install of $PEER_NAME failed. Re-run the installer to retry." >&2
+  ui_fail "$PEER_NAME" "setup" "" "failed"
+  INSTALL_FAILED=1
 fi`;
 }
 

@@ -3,6 +3,18 @@
 - README product tour now uses seven current, synthetic-data showcases for
   the cdx launch, fleet overview, hosts, authoring, projects, and compatible
   API access.
+- Host installers now present one compact, terminal-aware setup view instead
+  of rendering the full pre-bootstrap quota/status card. Codex/Claude wrapper,
+  engine CLI, and auto-update steps are reported once; redirected and minimal
+  terminals stay ASCII and escape-free.
+- Claude-only and dual-engine installers now prepare Node.js plus npm before
+  bootstrapping `clx`. They prefer the OS Node runtime and a managed, pinned
+  Corepack npm 10.9.2 shim, falling back to the OS npm package only when
+  Corepack is unavailable.
+- Dual-engine bootstrap now suppresses recursive peer ticks, verifies each
+  requested CLI independently, and exits non-zero with `INCOMPLETE` on any
+  wrapper, cron, or engine failure. A failed Claude peer install can no longer
+  be reduced to a warning followed by a false `Done` result.
 
 # 2026-07-18
 

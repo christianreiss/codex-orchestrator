@@ -187,6 +187,12 @@ successful engine process with a failed canonical credential upload is shown as
 
 ## Peer engine reconciliation
 
+The host installer does not rely on runtime peer reconciliation for initial
+provisioning. It installs and verifies each requested wrapper/CLI explicitly,
+invoking cron bootstrap with `CODEX_ORCH_PEER_SPAWN=1` and `--minimal` so dual
+installs neither recurse nor duplicate progress. The final `READY` result is
+fail-closed across both engines.
+
 After a successful startup sync, `cdx` reads the host `engines_list`. If Claude is
 enabled, `cdx` fetches the signed `clx` config from
 `/wrapper/v2/config?engine=claude`, writes `clx.json{,.sig}`, verifies the

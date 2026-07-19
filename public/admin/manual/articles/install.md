@@ -139,14 +139,20 @@ The GET twin at `/seed/auth/{token}` returns an executable shell script that rea
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host installation script — a compact script that writes the bootstrap transition launcher under `~/.local/bin/cdx` (or `clx`). The admin sees a `curl … | bash` command under *Hosts → New Host*.
+`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host POSIX shell installer. It installs `cdx`, `clx`, or both into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
 
 What the installer actually does on the target machine:
 
-1. Writes the bootstrap transition launcher to `~/.local/bin/{cdx|clx}`.
-2. Hints at installing the upstream engine CLI (`codex` / `claude`) if absent.
-3. Runs the transition launcher once, which fetches the signed config + platform-specific binary.
-4. Subsequent `cdx run` invocations exec the binary directly; the transition launcher only re-fetches if the config SHA changes.
+1. Fetches each signed per-host config and its platform-specific Go wrapper,
+   verifies SHA-256, and installs the wrapper into the selected bin directory.
+2. When Claude is requested, prepares Node.js/npm first. It prefers the OS Node
+   runtime plus a pinned Corepack npm shim and falls back to the OS npm package.
+3. Runs each requested wrapper's managed cron/bootstrap path once with minimal
+   output and peer recursion suppressed, installing Codex and/or Claude Code at
+   the server-selected version.
+4. Prints `READY` only after every wrapper, CLI, and cron entry verifies. Any
+   partial failure prints `INCOMPLETE`, exits non-zero, and gives a direct retry;
+   wrapper/config failures require minting a fresh single-use installer.
 
 ## Wrapper distribution
 

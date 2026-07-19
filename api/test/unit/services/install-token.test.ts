@@ -38,12 +38,13 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('-H "X-API-Key: $HOST_API_KEY"');
     expect(out).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-0}');
     expect(out).toContain('curl $CURL_INSECURE_FLAG -fsSL');
-    expect(out).toContain('CONFIG_FILE=\'cdx.json\'');
+    expect(out).toContain("CONFIG_FILE='cdx.json'");
     expect(out).toContain('INSTALL_CONTEXT=installer');
-    expect(out).toContain('the wrapper will install it automatically');
+    expect(out).toContain("INSTALL_LABEL='Codex'");
+    expect(out).toContain('ui_result_ok "READY"');
     // Primary engine bootstrap: cron entry + one tick (engine install + check-in).
-    expect(out).toContain('"$TARGET_BIN" --cron install');
-    expect(out).toContain('"$TARGET_BIN" --cron run');
+    expect(out).toContain('CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron install');
+    expect(out).toContain('CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron run');
     // strip trailing slashes on baseUrl
     expect(out).not.toContain("baseUrl '''https://orchestrator.example.com/");
   });
@@ -61,17 +62,34 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('curl $CURL_INSECURE_FLAG -fsSL');
   });
 
-  it('builds a claude installer with the npm hint', () => {
+  it('builds a Claude installer with managed Node/npm preflight', () => {
     const out = buildInstallerScript({
       fqdn: 'h.example.com',
       apiKey: 'sk-claude-foo',
       baseUrl: 'https://o.example/',
       engine: 'claude',
     });
-    expect(out).toContain('claude not found');
-    expect(out).toContain('@anthropic-ai/claude-code');
-    expect(out).toContain('CONFIG_FILE=\'clx.json\'');
-    expect(out).toContain('ENGINE=\'claude\'');
+    expect(out).toContain('NEEDS_CLAUDE=1');
+    expect(out).toContain('ensure_claude_prerequisites');
+    expect(out).toContain('npm@10.9.2');
+    expect(out).toContain("CONFIG_FILE='clx.json'");
+    expect(out).toContain("ENGINE='claude'");
+  });
+
+  it('builds a complete dual-engine installer from the host engine list', () => {
+    const out = buildInstallerScript({
+      fqdn: 'both.example.com',
+      apiKey: 'sk-both-foo',
+      baseUrl: 'https://o.example/',
+      engine: 'codex',
+      enginesList: ['codex', 'claude'],
+    });
+    expect(out).toContain("INSTALL_LABEL='Codex + Claude'");
+    expect(out).toContain("PEER_ENGINE='claude'");
+    expect(out).toContain("PEER_CONFIG_FILE='clx.json'");
+    expect(out).toContain('ui_hint "cdx run       Start Codex"');
+    expect(out).toContain('ui_hint "clx run       Start Claude Code"');
+    expect(out).not.toContain('Done. Try:');
   });
 
   it('rejects missing fqdn or api key', () => {
@@ -103,9 +121,7 @@ describe('install-token: shell builders', () => {
   });
 
   it('rejects an invalid seed base URL', () => {
-    expect(() =>
-      buildSeedAuthScript({ baseUrl: 'https:', token: 'x', engine: 'codex' }),
-    ).toThrow();
+    expect(() => buildSeedAuthScript({ baseUrl: 'https:', token: 'x', engine: 'codex' })).toThrow();
   });
 });
 

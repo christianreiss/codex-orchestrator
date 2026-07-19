@@ -103,17 +103,23 @@ The `CODEX_INSTALL_CURL_INSECURE=1` part tells the installer to reuse `curl -k` 
 If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” before issuing or re-minting the host installer. The generated installer command then includes the `curl -k` / `CODEX_INSTALL_CURL_INSECURE=1` form automatically, and the baked wrapper gets `CODEX_SYNC_ALLOW_INSECURE=1` for future sync. This is a last resort — trusting the correct CA is strongly preferred.
 
 What the installer does:
-- Downloads the engine-appropriate wrapper(s) from `/wrapper/download?engine=...`
-- Installs Codex CLI for `cdx` hosts, Claude Code CLI for `clx` hosts, or both for dual-engine hosts
+- Downloads each signed host config from `/wrapper/v2/config`, downloads the
+  matching platform wrapper, and verifies its SHA-256 before installation.
+- Installs system-wide into `/usr/local/bin` by default, using root or
+  passwordless `sudo`. Set `BIN_DIR` explicitly for a per-user/custom prefix.
+- For Claude-capable hosts, ensures Node.js and npm first. The installer asks
+  the OS package manager for the small Node runtime, prefers a managed pinned
+  Corepack npm 10.9.2 shim, and uses the OS npm package only as a fallback.
+- Bootstraps Codex and/or Claude Code at the server-selected versions and
+  installs each managed cron entry. Dual installs suppress cron peer recursion,
+  so each requested engine runs once instead of installing its peer twice.
+- Prints compact progress and installed versions. A final `READY` with exit 0
+  is the success signal; `INCOMPLETE` is non-zero and includes direct retry
+  commands. The installer does not open an interactive engine session.
 
-- Downloads the **host-baked** `cdx` wrapper from the service (`/wrapper/download`).
-- Reuses the currently active standard wrapper path (`/usr/local/bin/{cdx,clx}` or `~/.local/bin/{cdx,clx}`) when one already exists; otherwise installs to `/usr/local/bin/...` when writable, falling back to `~/.local/bin/...`.
-- Downloads the matching Codex CLI release from GitHub and installs `codex` similarly.
-- Prints installed versions plus a compact `Next steps` quickstart (`cdx --version`, `cdx`, `cdx --execute ...`) and leaves `cdx` ready to run.
-
-If the install switches wrapper locations and your current Bash session still resolves `cdx` or `clx` to the old path, run `hash -r` (or open a new shell) so Bash forgets the cached command path.
-
-If it installed into `~/.local/bin`, make sure that’s on `PATH`:
+If the installer reports a conflicting wrapper path, put the selected
+`BIN_DIR` first on `PATH` or open a new shell. For an explicit per-user prefix,
+for example:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
