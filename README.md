@@ -8,7 +8,9 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 
 > **Claude Code support is in beta.** Codex (`cdx`) is the mature, battle-tested path. Claude Code (`clx`) — native account-login auth, on-disk skill sync, and the `/anthropic/v1/` proxy — is newer and still stabilizing. Expect the occasional rough edge and fleet binary bump; please report anything that breaks.
 
-![Host-specific installer baking and sync flow](docs/img/cdx.png)
+[![Codex wrapper status showing fleet sync, policy, versions, and quota checks before launch](docs/img/cdx-cli.png)](docs/img/cdx-cli.png)
+
+*`cdx` verifies fleet policy, auth, versions, quota, skills, and MCP before handing control to Codex.*
 
 ## What does it actually do?
 
@@ -110,9 +112,43 @@ logout intent. An open admin window is required for the next retrieve.
 
 ## See it in action
 
-![Admin dashboard overview](docs/img/dashboard_1.png)
-![Per-host digests and validation logs](docs/img/dashboard_2.png)
-![Token usage aggregates and recent activity](docs/img/dashboard_3.png)
+All screenshots use documentation-safe demo data. Click any image for the full-resolution view.
+
+### Fleet state at a glance
+
+[![Admin overview showing fleet health, releases, quota windows, and runner state](docs/img/fleet-overview.png)](docs/img/fleet-overview.png)
+
+*See fleet health, upstream releases, quota pressure, and both verification runners without tab hunting.*
+
+### Every host, one control plane
+
+[![Host inventory showing engine coverage, status, versions, and trust state](docs/img/host-inventory.png)](docs/img/host-inventory.png)
+
+*Search and filter the fleet while engine coverage, sync health, version drift, and trust state remain visible.*
+
+### One machine, all the context
+
+[![Host detail showing auth drift, versions, policy, engines, and lifecycle controls](docs/img/host-detail.png)](docs/img/host-detail.png)
+
+*Inspect auth drift, versions, model overrides, IP policy, engines, and lifecycle controls from one page.*
+
+### Author once. Serve everywhere.
+
+[![Authoring workspace for shared agent instructions and version history](docs/img/authoring-agents.png)](docs/img/authoring-agents.png)
+
+*Version shared fleet instructions, choose exactly what is served, and manage cross-engine context from one workspace.*
+
+### Shared context for both engines
+
+[![Project workspace with shared notes, todos, files, feedback, and activity](docs/img/project-workspace.png)](docs/img/project-workspace.png)
+
+*Give Codex and Claude the same notes, todos, files, feedback, and append-only activity trail.*
+
+### Compatible APIs, scoped credentials
+
+[![API access page with compatible endpoints and scoped key controls](docs/img/api-access.png)](docs/img/api-access.png)
+
+*Copy either compatible base URL, gate each proxy independently, and issue revocable, expiring, rate-limited keys.*
 
 ## Day-to-day: the `cdx` command
 

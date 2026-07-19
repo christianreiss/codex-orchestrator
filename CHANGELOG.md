@@ -1,3 +1,9 @@
+# 2026-07-19
+
+- README product tour now uses seven current, synthetic-data showcases for
+  the cdx launch, fleet overview, hosts, authoring, projects, and compatible
+  API access.
+
 # 2026-07-18
 
 - cdx 0.6.49 now distinguishes a successful store round-trip from acceptance
