@@ -9,6 +9,22 @@ Keeps the context of a long-running task durable across sessions, weeks, and hos
 
 Context lives in the project, not on the host. `project_memory_*` and `project_file_*` rows are visible from every host and outlive any session. Host-scoped `memory_*` / `memory://` is not context storage: it cannot be listed, so a fresh agent cannot discover what it holds. Do not use it here.
 
+## The store is MCP, not local files
+
+`#context` state is read and written **only** through the `project_*` MCP tools. This
+overrides any host-local memory mechanism your harness offers by default, including
+Claude Code's built-in file memory (`~/.claude/projects/**/memory/*.md` and its
+`MEMORY.md` index) and any `CLAUDE.md` / `AGENTS.md` scratch notes.
+
+While `#context` is active, do not read or write those local paths for context state,
+and do not mirror project memory into them. They are host-scoped files: another host,
+another agent, and a reinstalled workstation cannot see them, which defeats the entire
+point of this skill. That local memory feature stays available for work outside
+`#context` — this rule is scoped to context state, not a global ban.
+
+If you catch yourself about to write a local memory file for something durable, that is
+a `project_memory_upsert` (a fact) or a `project_file_upsert` (an artifact) instead.
+
 ## When to use this skill
 
 Use when the prompt includes `#context`, or when work will plainly outlive the current session.
@@ -54,6 +70,8 @@ Report the delta in one line, or state `context unchanged`. Do not silently skip
 - Convert relative dates to absolute ones. "Last week" is worthless three sessions later.
 - Keep one fact per memory, and name keys `<area>.<topic>` (e.g. `deploy.crane`, `auth.bootstrap`).
 - Bootstrap before acting, even when the task looks self-evident.
+- Read and write context through the `project_*` MCP tools only. Never let a host-local
+  memory file stand in for them.
 
 ## Output requirements
 
