@@ -1,5 +1,13 @@
 # 2026-07-20
 
+- An active-lane quota forecast is no longer stated three times in the `cdx`
+  panel. The synthesized `<lane> lane quota forecast crosses/approaches the
+  configured limit before reset` warn line is gone; the lane's own quota row
+  already carries the forecast with its numbers, and the result footer already
+  carries the outcome. A Warn/Fail forecast tone is only ever set alongside a
+  non-empty row projection, so no signal is lost. Unlike
+  `concurrentResultAlreadyShown`, this drops the in-panel line and keeps the
+  footer — here the in-panel line was the redundant one.
 - Canonical Codex and Claude auth now has an explicit server-side generation
   ledger. OAuth identity is compared with keyed fingerprints of the access and
   refresh tokens, exact historical replays are rejected, and host uploads with

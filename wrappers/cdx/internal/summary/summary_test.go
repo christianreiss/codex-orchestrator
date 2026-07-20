@@ -458,11 +458,19 @@ func TestBuildPromotesActiveForecastToAdvisoryOutcome(t *testing.T) {
 			},
 		},
 	})
-	if got.ResultTone != ui.ToneWarn || got.QuotaWarn == "" || got.QuotaBlock != "" {
-		t.Fatalf("forecast did not become advisory: result=%q warn=%q block=%q", got.ResultTone, got.QuotaWarn, got.QuotaBlock)
+	if got.ResultTone != ui.ToneWarn || got.QuotaBlock != "" {
+		t.Fatalf("forecast did not become advisory: result=%q block=%q", got.ResultTone, got.QuotaBlock)
 	}
 	if got.ResultLabel != "Quota forecast crosses the configured limit before reset." {
 		t.Fatalf("forecast result = %q", got.ResultLabel)
+	}
+	// The forecast is stated exactly twice: the lane row carries the numbers,
+	// the footer carries the outcome. No prose warn line restating either.
+	if got.QuotaWarn != "" {
+		t.Fatalf("forecast warn duplicated the row and footer: warn=%q", got.QuotaWarn)
+	}
+	if len(got.QuotaRows) != 1 || got.QuotaRows[0].Projection == "" || got.QuotaRows[0].ProjectionTone != ui.ToneFail {
+		t.Fatalf("forecast detail missing from the quota row: %+v", got.QuotaRows)
 	}
 }
 

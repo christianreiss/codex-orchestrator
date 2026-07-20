@@ -149,14 +149,16 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		dots = buildDots(auth, in)
 		quotaRows, warnText, blockText = buildQuota(auth)
 		forecastTone = activeQuotaProjectionTone(quotaRows, effectiveQuotaLane(auth))
-		if warnText == "" {
-			switch forecastTone {
-			case ui.ToneFail:
-				warnText = fmt.Sprintf("%s lane quota forecast crosses the configured limit before reset", effectiveQuotaLane(auth))
-			case ui.ToneWarn:
-				warnText = fmt.Sprintf("%s lane quota forecast approaches the configured limit before reset", effectiveQuotaLane(auth))
-			}
-		}
+		// No synthesized forecast warn line here: a Warn/Fail forecast tone is
+		// only ever set alongside a non-empty row Projection, so the lane's own
+		// quota row already renders the forecast with its numbers ("forecast
+		// ~190% at reset; 100% in 2d 12h"), and the result footer states the
+		// outcome. Prose in between restated both without adding anything.
+		//
+		// Note this drops the in-panel line and keeps the footer — the opposite
+		// of concurrentResultAlreadyShown, which suppresses the footer. That is
+		// deliberate: there the in-panel note is the only carrier of the detail,
+		// here it was the redundant one.
 	} else {
 		// No auth response — degrade.
 		dots = []ui.HealthDot{
