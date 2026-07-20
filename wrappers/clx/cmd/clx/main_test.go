@@ -436,7 +436,7 @@ func TestStatusRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 	}
 }
 
-func TestStatusFailsWhenRequiredCanonicalWriteIsSkippedForActiveChild(t *testing.T) {
+func TestStatusMaterializesRequiredCanonicalWriteAlongsideActiveChild(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ready := filepath.Join(home, "ready")
@@ -476,14 +476,11 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
 	var stdout, stderr bytes.Buffer
-	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 1 {
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 0 {
 		t.Fatalf("active-child status code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "canonical Claude credentials were required") {
-		t.Fatalf("active-child skip was not surfaced: %q", stdout.String())
-	}
-	if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); !os.IsNotExist(err) {
-		t.Fatalf("canonical was written under active child: %v", err)
+	if raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json")); err != nil || !bytes.Contains(raw, []byte("needed")) {
+		t.Fatalf("canonical was not written under active child: %q %v", raw, err)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -799,7 +796,7 @@ func TestConcurrentSameGenerationLogoutSurvivesExplicitUploadCAS(t *testing.T) {
 	}
 }
 
-func TestExplicitLoginStoreFailsClosedWhenPeerChildBlocksRunnerWriteback(t *testing.T) {
+func TestExplicitLoginStoreAppliesRunnerWritebackAlongsidePeerChild(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T08:00:00Z","claudeAiOauth":{"accessToken":"explicit-login"}}`)); err != nil {
@@ -844,12 +841,12 @@ func TestExplicitLoginStoreFailsClosedWhenPeerChildBlocksRunnerWriteback(t *test
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
-	if _, err := uploadCurrentClaudeAuth(context.Background(), cfg, session); err == nil || !strings.Contains(err.Error(), "canonical Claude credentials were required") {
-		t.Fatalf("blocked explicit login writeback error=%v", err)
+	if _, err := uploadCurrentClaudeAuth(context.Background(), cfg, session); err != nil {
+		t.Fatalf("explicit login writeback error=%v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	if err != nil || !strings.Contains(string(raw), "explicit-login") {
-		t.Fatalf("peer-blocked explicit login changed local auth: %q err=%v", raw, err)
+	if err != nil || !strings.Contains(string(raw), "runner-refreshed") {
+		t.Fatalf("runner writeback not applied alongside peer child: %q err=%v", raw, err)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)

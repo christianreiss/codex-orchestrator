@@ -20,6 +20,8 @@ type AuthRetrieveResponse struct {
 	Digest               string          `json:"digest,omitempty"`
 	CanonicalDigest      string          `json:"canonical_digest,omitempty"`
 	CanonicalLastRefresh string          `json:"canonical_last_refresh,omitempty"`
+	CanonicalGeneration  int64           `json:"canonical_generation,omitempty"`
+	CandidateResult      string          `json:"candidate_result,omitempty"`
 	Auth                 json.RawMessage `json:"auth,omitempty"`
 	APICalls             int64           `json:"api_calls,omitempty"`
 	Versions             *VersionSummary `json:"versions,omitempty"`

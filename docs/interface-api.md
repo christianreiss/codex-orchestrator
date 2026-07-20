@@ -38,6 +38,18 @@
   rotation that returns an unusable replacement or cannot persist its refreshed
   lineage also fails closed, because the pre-rotation credential can no longer
   safely be served as verified.
+- `/auth` credential-generation arbitration — canonical selection uses the
+  engine's explicit `auth_canonical_heads` pointer, not a client timestamp.
+  OAuth access/refresh pairs are compared through keyed HMAC fingerprints;
+  plaintext tokens are never logged or stored in the ledger metadata. An exact
+  match to a superseded generation returns `status:outdated` with
+  `candidate_result:historical_replay` and never reaches the runner. Host OAuth
+  candidates with comparable native `iat`/expiry metadata must be strictly
+  newer than the current canonical generation; runner descendants, admin
+  uploads, seed uploads, and opaque API-key candidates retain their existing
+  validation/source policy. Responses expose `canonical_generation`; store
+  responses may additionally expose `candidate_result` and
+  `candidate_rejected_definitive` for guarded wrapper convergence.
 - `DELETE /auth` — uninstall auth registration. `?engine=codex|claude` removes
   only that engine, its host digest/state, and engine-specific version metadata
   when another engine remains; uninstalling the last engine removes the host.

@@ -17,13 +17,19 @@ function renderedSql(query: SQL): string {
 describe('boot database checks', () => {
   it('probes the required Claude artifact table before optional boot work', async () => {
     const execute = vi.fn().mockResolvedValue([]);
+    const select = vi.fn(() => ({
+      from: () => ({ where: async () => [{ version: 'complete' }] }),
+    }));
 
-    await runBootChecks(env, { execute } as unknown as Database);
+    await runBootChecks(env, { execute, select } as unknown as Database);
 
     expect(execute.mock.calls.map(([query]) => renderedSql(query as SQL))).toEqual([
       'SELECT 1',
       'SELECT 1 FROM claude_artifacts LIMIT 0',
+      'SELECT generation, superseded_at, purge_after FROM auth_payloads LIMIT 0',
+      'SELECT 1 FROM auth_canonical_heads LIMIT 0',
     ]);
+    expect(select).toHaveBeenCalledOnce();
   });
 
   it('fails startup when the required Claude artifact table is missing', async () => {

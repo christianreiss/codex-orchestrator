@@ -430,14 +430,14 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 		return false, err
 	}
 	defer unlock()
-	childLease, err := tryAcquireAuthChildWriter()
-	if err != nil {
-		if errors.Is(err, ErrAuthChildActive) && expected != nil {
-			return false, nil
+	var childLease *authChildLease
+	if expected == nil {
+		childLease, err = tryAcquireAuthChildWriter()
+		if err != nil {
+			return false, err
 		}
-		return false, err
+		defer childLease.Close() //nolint:errcheck
 	}
-	defer childLease.Close() //nolint:errcheck
 
 	incomingStamp := lastRefreshFromPayload(payload)
 	current, err := generationAt(paths.claude)

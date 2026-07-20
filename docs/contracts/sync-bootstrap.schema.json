@@ -109,6 +109,18 @@
                 "unknown"
               ]
             },
+            "canonical_generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "candidate_result": {
+              "enum": [
+                "accepted",
+                "current",
+                "historical_replay",
+                "older_internal"
+              ]
+            },
             "candidate_rejected_definitive": {
               "type": "boolean",
               "description": "True only when a submitted auth candidate was definitively rejected and the response also serves verified canonical auth that may replace it."

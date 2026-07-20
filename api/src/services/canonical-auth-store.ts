@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import {
+  authCanonicalHeads,
   authEntries,
   authPayloads,
   hostAuthDigests,
@@ -24,6 +25,15 @@ import type { Engine } from '../util/engine.js';
 import type { RunnerClient } from './runner-client.js';
 import type { RunnerValidationService, NormalizedAuthEntry } from './runner-validation.js';
 import { ENGINE_CLAUDE } from '../util/engine.js';
+import {
+  compareCredentialFreshness,
+  credentialMetadata,
+  fingerprintMatches,
+  inspectCredential,
+  pairFingerprints,
+  refreshCredentialExpired,
+} from './auth-generation.js';
+import { retentionDeadline } from './auth-generation-retention.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
@@ -63,6 +73,8 @@ export interface StoreAuthCandidateInput {
   runnerFailureReason?: string;
   /** Internal CAS guard for runner-refreshed replacements. */
   expectedCanonicalDigest?: string;
+  sourceKind?: 'host' | 'admin' | 'seed' | 'runner' | 'legacy';
+  baseCanonicalGeneration?: number | null;
 }
 
 export interface StoreAuthCandidateResult {
@@ -75,6 +87,9 @@ export interface StoreAuthCandidateResult {
   runner_applied: boolean;
   runner_skipped_reason?: string;
   engine: Engine;
+  canonical_generation?: number;
+  candidate_result?: 'accepted' | 'current' | 'historical_replay' | 'older_internal';
+  candidate_rejected_definitive?: boolean;
 }
 
 export interface EnsureServedVerificationInput {
@@ -170,6 +185,64 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 
     const currentRow = await runnerValidation.resolveCanonicalPayload(engine);
     const current = runnerValidation.validateCanonicalPayload(currentRow);
+    const sourceKind = input.sourceKind ?? (input.sourceHostId === null ? 'legacy' : 'host');
+    const candidateIdentity = inspectCredential(withFallback, engine);
+    const currentIdentity = current ? inspectCredential(current.auth, engine) : null;
+    if (!candidateIdentity) {
+      throw new ValidationError('payload contains no inspectable engine credential', { param: 'auth' });
+    }
+    const candidateFingerprints = pairFingerprints(candidateIdentity, keyring);
+    const history = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+    const currentIdentityMatches = currentRow
+      ? fingerprintMatches(
+          currentRow.pairFingerprint,
+          candidateFingerprints.get(currentRow.fingerprintKid ?? ''),
+        )
+      : false;
+    const historicalIdentityMatch = history.find((row) =>
+      row.id !== currentRow?.id &&
+      fingerprintMatches(row.pairFingerprint, candidateFingerprints.get(row.fingerprintKid ?? '')),
+    );
+    if (
+      currentIdentityMatches &&
+      currentRow &&
+      current &&
+      currentRow.verificationState !== 'failed' &&
+      currentRow.verificationState !== 'pending'
+    ) {
+      return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'valid', {
+        generation: currentRow.generation ?? undefined,
+        candidateResult: 'current',
+      });
+    }
+    if (historicalIdentityMatch && currentRow && current) {
+      return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
+        generation: currentRow.generation ?? undefined,
+        candidateResult: 'historical_replay',
+        definitive: currentRow.verificationState === 'verified',
+      });
+    }
+    if (refreshCredentialExpired(candidateIdentity)) {
+      if (currentRow && current) {
+        return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
+          generation: currentRow.generation ?? undefined,
+          candidateResult: 'older_internal',
+          definitive: currentRow.verificationState === 'verified',
+        });
+      }
+      throw new ValidationError('credential refresh token is expired', { param: 'auth' });
+    }
+    const isExplicitDescendant = sourceKind === 'runner' || input.runnerVerified || input.runnerPending || input.runnerFailed;
+    if (sourceKind === 'host' && !isExplicitDescendant && currentIdentity && currentRow && current) {
+      const freshness = compareCredentialFreshness(candidateIdentity, currentIdentity);
+      if (freshness !== null && freshness <= 0) {
+        return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
+          generation: currentRow.generation ?? undefined,
+          candidateResult: 'older_internal',
+          definitive: currentRow.verificationState === 'verified',
+        });
+      }
+    }
     if (
       (input.runnerVerified || input.runnerPending || input.runnerFailed) &&
       input.expectedCanonicalDigest &&
@@ -350,6 +423,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 
     const now = nowIso();
     const finalLastRefresh = String(canonicalToStore.last_refresh ?? lastRefreshToStore);
+    const finalIdentity = inspectCredential(canonicalToStore, engine);
+    if (!finalIdentity) {
+      throw new ValidationError('canonical payload contains no inspectable credential', { param: 'auth' });
+    }
+    const finalMetadata = credentialMetadata(finalIdentity, keyring.active());
+    const maxKnownGeneration = history.reduce((max, row) => Math.max(max, row.generation ?? 0), 0);
+    const parentRow = latestRow ?? currentRow;
+    const nextGeneration = Math.max(parentRow?.generation ?? 0, maxKnownGeneration) + 1;
     let payloadId = 0;
     await db.transaction(async (tx) => {
       const ins = await tx.insert(authPayloads).values({
@@ -362,9 +443,32 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         verificationCheckedAt: verificationState === 'pending' ? null : now,
         verificationReason: runnerSkippedReason ?? null,
         engine,
+        generation: nextGeneration,
+        sourceKind,
+        parentPayloadId: parentRow?.id ?? null,
+        ...finalMetadata,
       });
       const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
       payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
+
+      if (parentRow) {
+        await tx
+          .update(authPayloads)
+          .set({ supersededAt: now, purgeAfter: retentionDeadline(now) })
+          .where(eq(authPayloads.id, parentRow.id));
+      }
+      const existingHead = await tx
+        .select()
+        .from(authCanonicalHeads)
+        .where(eq(authCanonicalHeads.engine, engine));
+      if (existingHead.length > 0) {
+        await tx
+          .update(authCanonicalHeads)
+          .set({ payloadId, generation: nextGeneration, updatedAt: now })
+          .where(eq(authCanonicalHeads.engine, engine));
+      } else {
+        await tx.insert(authCanonicalHeads).values({ engine, payloadId, generation: nextGeneration, updatedAt: now });
+      }
 
       await persistEntries(tx, payloadId, entriesToStore, now);
       if (input.sourceHostId !== null) {
@@ -378,7 +482,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           now,
         );
       }
-      await writeStoreLog(tx, input, 'updated', digestToStore, now, runnerApplied, runnerSkippedReason);
+      await writeStoreLog(tx, input, 'updated', digestToStore, now, runnerApplied, runnerSkippedReason, 'accepted');
     });
 
     const result: StoreAuthCandidateResult = {
@@ -389,6 +493,8 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       verification_state: verificationState,
       pending_payload_id: payloadId,
       runner_applied: runnerApplied,
+      canonical_generation: nextGeneration,
+      candidate_result: 'accepted',
       ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
       engine,
     };
@@ -402,8 +508,18 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     rawState: string,
     canonical: { auth: Record<string, unknown>; digest: string; last_refresh: string },
     status: 'valid' | 'outdated',
+    options: {
+      generation?: number;
+      candidateResult?: StoreAuthCandidateResult['candidate_result'];
+      definitive?: boolean;
+    } = {},
   ): Promise<StoreAuthCandidateResult> {
     const now = nowIso();
+    let generation = options.generation;
+    if (generation === undefined) {
+      const rows = await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
+      generation = rows[0]?.generation ?? undefined;
+    }
     await db.transaction(async (tx) => {
       if (input.sourceHostId !== null) {
         await recordHostCanonical(
@@ -416,7 +532,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           now,
         );
       }
-      await writeStoreLog(tx, input, status, canonical.digest, now, false);
+      await writeStoreLog(tx, input, status, canonical.digest, now, false, undefined, options.candidateResult);
     });
     return {
       status,
@@ -427,6 +543,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       pending_payload_id: payloadId,
       runner_applied: false,
       engine: input.engine,
+      ...(generation !== undefined ? { canonical_generation: generation } : {}),
+      ...(options.candidateResult ? { candidate_result: options.candidateResult } : {}),
+      ...(options.definitive ? { candidate_rejected_definitive: true } : {}),
     };
   }
 
@@ -472,6 +591,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     now: string,
     runnerApplied: boolean,
     runnerSkippedReason?: string,
+    candidateResult?: StoreAuthCandidateResult['candidate_result'],
   ): Promise<void> {
     await tx.insert(logsTable).values({
       hostId: input.sourceHostId,
@@ -481,6 +601,11 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         engine: input.engine,
         digest,
         runner_applied: runnerApplied,
+        source_kind: input.sourceKind ?? (input.sourceHostId === null ? 'legacy' : 'host'),
+        ...(input.baseCanonicalGeneration !== undefined && input.baseCanonicalGeneration !== null
+          ? { base_canonical_generation: input.baseCanonicalGeneration }
+          : {}),
+        ...(candidateResult ? { candidate_result: candidateResult } : {}),
         ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
         ...(input.logDetails ?? {}),
       }),
@@ -617,6 +742,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             runnerFailed: definitive,
             runnerFailureReason: failureReason,
             expectedCanonicalDigest: digest,
+            sourceKind: 'runner',
           });
           return {
             state:
@@ -674,6 +800,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             logAction: 'auth.reverify_refresh',
             runnerVerified: true,
             expectedCanonicalDigest: digest,
+            sourceKind: 'runner',
           });
           return {
             state: 'verified',

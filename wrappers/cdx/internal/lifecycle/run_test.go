@@ -563,7 +563,7 @@ func TestApplyServerAuthDefinitiveSignalRequiresVerifiedCanonical(t *testing.T) 
 	}
 }
 
-func TestApplyServerAuthFailsWhenCanonicalNeededButActiveChildBlocksWrite(t *testing.T) {
+func TestApplyServerAuthWritesRequiredCanonicalAlongsideActiveChild(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
 	path, _ := codex.AuthPath()
@@ -577,12 +577,12 @@ func TestApplyServerAuthFailsWhenCanonicalNeededButActiveChildBlocksWrite(t *tes
 	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
 		Status: "missing", Auth: server, VerificationState: "verified",
 	}, false, expected)
-	if err == nil || wrote || kept {
-		t.Fatalf("blocked required write = wrote=%v kept=%v err=%v", wrote, kept, err)
+	if err != nil || !wrote || kept {
+		t.Fatalf("required write = wrote=%v kept=%v err=%v", wrote, kept, err)
 	}
 }
 
-func TestApplyServerAuthFailsClosedWhenActiveChildOwnsUnchangedValidGeneration(t *testing.T) {
+func TestApplyServerAuthReplacesUnchangedGenerationAlongsideActiveChild(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
 	path, _ := codex.AuthPath()
@@ -600,11 +600,11 @@ func TestApplyServerAuthFailsClosedWhenActiveChildOwnsUnchangedValidGeneration(t
 	wrote, kept, err := applyServerAuth(slog.Default(), path, &orchestrator.AuthRetrieveResponse{
 		Status: "outdated", Auth: server, VerificationState: "verified",
 	}, false, expected)
-	if err == nil || wrote || kept || !strings.Contains(err.Error(), "unchanged local generation") {
+	if err != nil || !wrote || kept {
 		t.Fatalf("active-child unchanged generation = wrote=%v kept=%v err=%v", wrote, kept, err)
 	}
-	if raw, readErr := os.ReadFile(path); readErr != nil || string(raw) != string(local) {
-		t.Fatalf("blocked child generation changed: %q, %v", raw, readErr)
+	if raw, readErr := os.ReadFile(path); readErr != nil || !strings.Contains(string(raw), "required-newer") {
+		t.Fatalf("canonical child generation missing: %q, %v", raw, readErr)
 	}
 }
 

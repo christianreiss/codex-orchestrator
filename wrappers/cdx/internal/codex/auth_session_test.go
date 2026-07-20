@@ -396,7 +396,7 @@ func TestSecureSessionCannotCancelConcurrentInsecureSessionRequest(t *testing.T)
 	}
 }
 
-func TestActiveChildLeaseSkipsEveryManagedAuthMutation(t *testing.T) {
+func TestActiveChildLeaseAllowsGuardedCanonicalButBlocksDestructiveMutation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
 	path := filepath.Join(dir, "auth.json")
@@ -414,7 +414,7 @@ func TestActiveChildLeaseSkipsEveryManagedAuthMutation(t *testing.T) {
 	}
 
 	server := json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"server"}}`)
-	if wrote, err := WriteAuthIfCurrent(server, expected); err != nil || wrote {
+	if wrote, err := WriteAuthIfCurrent(server, expected); err != nil || !wrote {
 		t.Fatalf("guarded write during child = %v, %v", wrote, err)
 	}
 	if err := WriteAuth(server); !errors.Is(err, ErrActiveChild) {
@@ -424,8 +424,8 @@ func TestActiveChildLeaseSkipsEveryManagedAuthMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if generation != expected {
-		t.Fatalf("stabilization changed local generation during child: %+v != %+v", generation, expected)
+	if generation == expected {
+		t.Fatalf("canonical materialization did not advance generation during child: %+v", generation)
 	}
 	if string(payload) == string(original) {
 		t.Fatal("upload payload was not deterministically stabilized in memory")
@@ -433,13 +433,14 @@ func TestActiveChildLeaseSkipsEveryManagedAuthMutation(t *testing.T) {
 	if removed, err := RemoveAuthIfCurrent(expected); err != nil || removed {
 		t.Fatalf("remove during child = %v, %v", removed, err)
 	}
-	if raw, err := os.ReadFile(path); err != nil || string(raw) != string(original) {
-		t.Fatalf("child-owned file changed: %q, %v", raw, err)
+	if raw, err := os.ReadFile(path); err != nil || !strings.Contains(string(raw), "server") {
+		t.Fatalf("canonical file missing: %q, %v", raw, err)
 	}
 	if err := child.Release(); err != nil {
 		t.Fatal(err)
 	}
-	if wrote, err := WriteAuthIfCurrent(server, expected); err != nil || !wrote {
+	current, _ := CurrentAuthGeneration()
+	if wrote, err := WriteAuthIfCurrent(json.RawMessage(`{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"server-2"}}`), current); err != nil || !wrote {
 		t.Fatalf("write after child = %v, %v", wrote, err)
 	}
 }

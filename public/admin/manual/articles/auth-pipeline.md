@@ -23,7 +23,12 @@ API keys are read from HTTP **headers** in all cases via `extractApiKey(req.head
 
 1. **Authenticate** — API key extracted from headers, hashed, matched against `hosts.api_key_hash` (fallback to plaintext `hosts.api_key` for legacy rows).
 2. **Check the insecure window** — `maybeEnforceInsecure` tests whether the host may receive auth. If outside both window and grace, and no `insecure_domain_allows` match exists, an `insecure_auth_requests` row is inserted and the caller sees a 423.
-3. **Resolve the canonical payload** — decrypts and structurally validates rows for the host's engine, orders RFC3339 values by their actual instant, and selects the newest usable row even when its stored verdict is `pending` or `failed`. An older verified history row is never resurrected behind a newer lineage. Decryption happens in `validateCanonicalPayload` / `decodePayloadBody` via `decryptOrNull`.
+3. **Resolve the canonical payload** — follows the engine's explicit
+   `auth_canonical_heads` pointer and decrypts/validates that row. Timestamp
+   ordering remains only as a legacy fallback before the generation-ledger
+   backfill. An older verified history row is never resurrected behind a newer
+   lineage. Decryption happens in `validateCanonicalPayload` /
+   `decodePayloadBody` via `decryptOrNull`.
 4. **Compare digests** — the host-submitted `digest`/`auth_digest`/`auth_sha` is compared against the canonical digest. Returns one of:
    - `status: 'valid'` — digests match, host is current.
    - `status: 'outdated'` — host is behind; response includes the decrypted auth blob unless the selected canonical is `failed`.
@@ -39,7 +44,12 @@ The retrieve response includes `versions`, `canonical_digest`, `canonical_last_r
 
 1. **Authenticate** — same header-based key check as retrieve.
 2. **Admit the candidate** — insecure `store` bypasses the retrieve-window gate even when window and grace are fully closed. API-key, engine, IP, reverse-DNS, installation, token-quality, and runner checks still apply, and the store does not open or extend the window.
-3. **Accept and canonicalize the auth blob** — the `auth` body field (with `last_refresh`) is normalized and canonicalized. The `claudeAiOauth` object is preserved so hosts receive the full OAuth credentials shape needed for token refresh.
+3. **Accept, inspect, and canonicalize the auth blob** — the `auth` body field
+   is normalized while preserving native OAuth fields. Access/refresh identity
+   is recorded only as keyed HMAC fingerprints. Exact matches to any
+   superseded generation are rejected before runner work; host OAuth uploads
+   with comparable native issue/expiry metadata must be strictly newer than
+   current canonical auth.
 4. **Serialize and runner-verify** — one process-wide queue per engine prevents
    concurrent store/worker probes from racing one refresh-token lineage. The
    runner calls `/verify` (Codex) or `/verify-claude` with the shared secret.
@@ -59,9 +69,15 @@ The retrieve response includes `versions`, `canonical_digest`, `canonical_last_r
    definitive rejection is persisted as the newest failed lineage; a present
    but unusable rotated payload fails closed rather than stamping the
    pre-rotation token verified.
-   The encrypted payload/entries and host digest/state upsert commit in one
-   transaction. Results are `updated`, `valid`, or `outdated`, always carrying
-   the authoritative payload and digest.
+   The encrypted payload/entries, supersession metadata, explicit canonical
+   head, and host digest/state upsert commit in one transaction. Results are
+   `updated`, `valid`, or `outdated`, carrying the authoritative payload,
+   digest, generation, and candidate classification.
+
+Superseded generations are replay evidence for 180 days. The daily retention
+worker deletes only rows whose supersession deadline passed and which are not
+an engine head; current canonical credentials do not expire merely because of
+their age.
 
 ## Authentication in host-auth.ts
 

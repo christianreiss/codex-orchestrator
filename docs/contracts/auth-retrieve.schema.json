@@ -51,6 +51,10 @@
             "null"
           ]
         },
+        "canonical_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
         "action": {
           "const": "store"
         },

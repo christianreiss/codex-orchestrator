@@ -773,6 +773,7 @@ export async function registerAdminOverviewRoutes(
       requireLastRefresh: false,
       logAction: 'admin.auth.upload',
       logDetails: { size: payloadText.length },
+      sourceKind: 'admin',
     });
 
     return ok({

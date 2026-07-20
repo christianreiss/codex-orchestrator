@@ -7,22 +7,25 @@ import { Keyring } from '../security/keyring.js';
 import { sql } from 'drizzle-orm';
 import { nowIso } from '../util/timestamp.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
+import { ensureAuthGenerationBackfill } from '../services/auth-generation-retention.js';
 
 export async function runBootChecks(env: Env, db: Database): Promise<void> {
-  Keyring.fromEnv(env);
+  const keyring = Keyring.fromEnv(env);
 
   await db.execute(sql`SELECT 1`);
   // Claude bootstrap always reads this table. Probe it before the listener is
   // opened so a missed additive migration cannot hide behind a green generic
   // database health check and fail only when the first clx host syncs.
   await db.execute(sql`SELECT 1 FROM claude_artifacts LIMIT 0`);
+  await db.execute(sql`SELECT generation, superseded_at, purge_after FROM auth_payloads LIMIT 0`);
+  await db.execute(sql`SELECT 1 FROM auth_canonical_heads LIMIT 0`);
+  await ensureAuthGenerationBackfill(db, keyring);
   await refreshRunnerHealth(env, db);
   await refreshWrapperVersions(env, db);
 
   if (env.STATIC_ROOT) {
     if (!existsSync(env.STATIC_ROOT) || !statSync(env.STATIC_ROOT).isDirectory()) {
       // Non-fatal: log and continue; static plugin will surface 404s.
-      // eslint-disable-next-line no-console
       console.warn(`[boot] STATIC_ROOT not found or not a directory: ${env.STATIC_ROOT}`);
     }
   }

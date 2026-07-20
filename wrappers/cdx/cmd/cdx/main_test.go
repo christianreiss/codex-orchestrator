@@ -64,8 +64,8 @@ func TestHelpChildLeasesBlockMutationsAndServicePendingPurge(t *testing.T) {
 	}
 	expected, _ := codex.CurrentAuthGeneration()
 	wrote, err := codex.WriteAuthIfCurrent(json.RawMessage(`{"tokens":{"access_token":"server"}}`), expected)
-	if err != nil || wrote {
-		t.Fatalf("supervised active-child lease missing: wrote=%v err=%v", wrote, err)
+	if err != nil || !wrote {
+		t.Fatalf("guarded canonical write did not pass active child: wrote=%v err=%v", wrote, err)
 	}
 	if removed, deferred, err := codex.FinishAuthSession(insecure); err != nil || removed || !deferred {
 		t.Fatalf("insecure peer finish while help active = removed=%v deferred=%v err=%v", removed, deferred, err)
@@ -654,7 +654,7 @@ func TestStatusSurfacesLocalAuthStateErrorsBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestStatusFailsWhenRequiredCanonicalWriteIsBlockedByActiveChild(t *testing.T) {
+func TestStatusMaterializesRequiredCanonicalWriteAlongsideActiveChild(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
 	bin := filepath.Join(t.TempDir(), "codex")
@@ -674,11 +674,11 @@ func TestStatusFailsWhenRequiredCanonicalWriteIsBlockedByActiveChild(t *testing.
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
 	var stdout, stderr bytes.Buffer
-	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code == 0 {
-		t.Fatalf("status launched without usable auth: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 0 {
+		t.Fatalf("status rejected authoritative auth: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(dir, "auth.json")); !os.IsNotExist(err) {
-		t.Fatalf("status wrote auth during peer child: %v", err)
+	if raw, err := os.ReadFile(filepath.Join(dir, "auth.json")); err != nil || !bytes.Contains(raw, []byte("required")) {
+		t.Fatalf("status did not materialize auth during peer child: %q %v", raw, err)
 	}
 }
 

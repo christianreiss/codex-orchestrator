@@ -206,7 +206,14 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 
 ## Data retention & pruning
 
-- Canonical auth lives in `auth_payloads` (encrypted body + sha256) with per-target `auth_entries` (encrypted tokens). Those canonical payloads are engine-scoped (`codex` and `claude`), `host_auth_states` tracks what each host last saw per engine, and `host_auth_digests` caches up to 3 recent digests per host per engine.
+- Canonical auth lives in an engine-scoped generation ledger: `auth_payloads`
+  keeps encrypted payloads plus keyed credential fingerprints and native
+  freshness metadata, while `auth_canonical_heads` points at the current Codex
+  and Claude generations. Exact historical credential replays are refused.
+  Superseded generations are retained for 180 days and then pruned daily;
+  current canonical rows are exempt regardless of age. `host_auth_states`
+  tracks what each host last saw and `host_auth_digests` caches three recent
+  digests per host and engine.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
 - Logs, Skills, project coordination tables, ChatGPT snapshots, and version flags all live in MySQL; storage is the compose volume.
 

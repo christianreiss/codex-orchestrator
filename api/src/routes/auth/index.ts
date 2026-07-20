@@ -383,6 +383,7 @@ async function handleRetrieve(
   const baseResponse: Record<string, unknown> = {
     canonical_last_refresh: canonicalLast,
     canonical_digest: canonicalDigest,
+    canonical_generation: canonicalRow?.generation ?? undefined,
     host: buildHostPayload(host),
     api_calls: Number(host.apiCalls ?? 0) + 1,
     versions,
@@ -556,6 +557,7 @@ async function handleBootstrapAuth(
       // path. Startup must not wait on live runner probes; use the latest stored
       // verdict from the background auth-verification worker.
       const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
+      baseResponse.canonical_generation = canonicalRow.generation ?? undefined;
       let servedDigest = canonicalDigest;
       let servedLast = canonicalLast;
       {
@@ -614,6 +616,9 @@ async function handleBootstrapAuth(
       requireLastRefresh: false,
       logAction: 'auth.store',
       logDetails: { source: 'sync.bootstrap' },
+      sourceKind: 'host',
+      baseCanonicalGeneration:
+        typeof payload.base_canonical_generation === 'number' ? payload.base_canonical_generation : null,
     });
     const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
     return { ...baseResponse, ...stored };
@@ -721,6 +726,9 @@ async function handleStore(
       sourceHostId: host.id,
       requireLastRefresh: true,
       logAction: 'auth.store',
+      sourceKind: 'host',
+      baseCanonicalGeneration:
+        typeof payload.base_canonical_generation === 'number' ? payload.base_canonical_generation : null,
     });
   } catch (err) {
     app.log.warn({ err, host: host.fqdn, engine }, 'auth store failed');

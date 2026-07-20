@@ -253,7 +253,7 @@ func TestBootstrapRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 	}
 }
 
-func TestBundleAndLegacyFailWhenRequiredCanonicalWriteIsBlockedByActiveChild(t *testing.T) {
+func TestBundleAndLegacyMaterializeRequiredCanonicalAlongsideActiveChild(t *testing.T) {
 	for _, mode := range []string{"bundle", "legacy"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
@@ -308,11 +308,11 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 			} else {
 				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
 			}
-			if err == nil || !strings.Contains(err.Error(), "canonical Claude credentials were required") {
+			if err != nil {
 				t.Fatalf("%s active-child materialization error=%v", mode, err)
 			}
 			raw, readErr := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-			if readErr != nil || !strings.Contains(string(raw), "client-older") {
+			if readErr != nil || !strings.Contains(string(raw), "server-newer") {
 				t.Fatalf("%s active child changed client auth: %q err=%v", mode, raw, readErr)
 			}
 			server.Close()
@@ -326,7 +326,7 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	}
 }
 
-func TestBundleAndLegacyNeverLaunchExactDefinitivelyRejectedLocalUnderActiveChild(t *testing.T) {
+func TestBundleAndLegacyRepairExactDefinitivelyRejectedLocalUnderActiveChild(t *testing.T) {
 	for _, mode := range []string{"bundle", "legacy"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
@@ -384,11 +384,11 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 			} else {
 				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
 			}
-			if err == nil || !strings.Contains(err.Error(), "definitively rejected") {
+			if err != nil {
 				t.Fatalf("%s exact rejected generation error=%v", mode, err)
 			}
 			raw, readErr := os.ReadFile(authPath)
-			if readErr != nil || !strings.Contains(string(raw), "rejected-local") {
+			if readErr != nil || !strings.Contains(string(raw), "canonical-repair") {
 				t.Fatalf("active child auth changed: %q err=%v", raw, readErr)
 			}
 			if err := os.WriteFile(release, nil, 0o600); err != nil {
@@ -976,7 +976,7 @@ func TestPostRunStoreUpdatesSessionFromAPIAuthoritativeSecurity(t *testing.T) {
 	}
 }
 
-func TestPostRunLoginFailsClosedWhenPeerChildBlocksRunnerWriteback(t *testing.T) {
+func TestPostRunLoginAppliesRunnerWritebackAlongsidePeerChild(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T07:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)); err != nil {
@@ -1022,12 +1022,12 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 		t.Fatal(err)
 	}
 	status, tone := maybePostRunAuthUpload(client, slog.New(slog.NewTextHandler(io.Discard, nil)), before, nil)
-	if status != "write-back blocked" || tone != ui.ToneFail {
-		t.Fatalf("peer-blocked post-run login=(%q,%v)", status, tone)
+	if status != "uploaded" || tone != ui.ToneOK {
+		t.Fatalf("post-run login=(%q,%v)", status, tone)
 	}
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	if err != nil || !strings.Contains(string(raw), "slash-login") {
-		t.Fatalf("peer-blocked post-run login changed local auth: %q err=%v", raw, err)
+	if err != nil || !strings.Contains(string(raw), "runner-refreshed") {
+		t.Fatalf("runner writeback not applied alongside peer child: %q err=%v", raw, err)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)

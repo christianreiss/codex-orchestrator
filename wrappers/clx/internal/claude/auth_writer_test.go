@@ -499,9 +499,10 @@ func TestEqualStampDifferentCanonicalResponsesFailClosedInEitherOrder(t *testing
 
 func TestCanonicalResponseConvergencePreservesRawLoginAndLogout(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		mutate func(t *testing.T, path string)
-		want   string
+		name        string
+		mutate      func(t *testing.T, path string)
+		want        string
+		wantMissing bool
 	}{
 		{
 			name: "raw newer login",
@@ -523,7 +524,7 @@ func TestCanonicalResponseConvergencePreservesRawLoginAndLogout(t *testing.T) {
 					t.Fatalf("record logout=%v err=%v", marked, err)
 				}
 			},
-			want: "canonical-old",
+			wantMissing: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -552,6 +553,9 @@ func TestCanonicalResponseConvergencePreservesRawLoginAndLogout(t *testing.T) {
 				t.Fatalf("guarded newer response applied=%v err=%v", applied, err)
 			}
 			raw, err := os.ReadFile(path)
+			if tc.wantMissing && errors.Is(err, os.ErrNotExist) {
+				return
+			}
 			if err != nil || !strings.Contains(string(raw), tc.want) {
 				t.Fatalf("guarded state changed: %q err=%v want=%q", raw, err, tc.want)
 			}

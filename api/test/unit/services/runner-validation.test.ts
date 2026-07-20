@@ -5,7 +5,7 @@ import {
 } from '../../../src/services/runner-validation.js';
 import { ValidationError } from '../../../src/http/errors.js';
 import { sha256 } from '../../../src/security/hash.js';
-import { authPayloads } from '../../../src/db/schema.js';
+import { authCanonicalHeads, authPayloads } from '../../../src/db/schema.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
@@ -277,6 +277,20 @@ describe('runner-validation: canonical resolution', () => {
     ]);
     const validation = createRunnerValidationService({ db: db as never, keyring: kr });
     expect((await validation.resolveCanonicalPayload('codex'))?.id).toBe(2);
+  });
+
+  it('does not bypass an invalid explicit canonical head with valid history', async () => {
+    const db = createDbFake();
+    const kr = keyring();
+    const valid = row({ id: 1, stamp: '2026-07-17T08:00:00Z', token: 'old', state: 'verified' }, kr);
+    const corruptHead = row({ id: 2, stamp: '2026-07-17T09:00:00Z', token: 'new', state: 'verified' }, kr);
+    corruptHead.sha256 = '0'.repeat(64);
+    db.tables.set(authPayloads, [valid, corruptHead]);
+    db.tables.set(authCanonicalHeads, [{ engine: 'codex', payloadId: 2, generation: 2 }]);
+    const validation = createRunnerValidationService({ db: db as never, keyring: kr });
+    const selected = await validation.resolveCanonicalPayload('codex');
+    expect(selected?.id).toBe(2);
+    expect(validation.validateCanonicalPayload(selected)).toBeNull();
   });
 
   it('keeps a newer pending upload visible instead of falling back to historical verified auth', async () => {

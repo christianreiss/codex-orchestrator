@@ -178,6 +178,7 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
         requireLastRefresh: false,
         logAction: 'auth.seed.v2.consume',
         logDetails: { token: token.slice(0, 8) + '…' },
+        sourceKind: 'seed',
       });
     } catch (err) {
       // An unsafe runner readback can mean the candidate's refresh token was

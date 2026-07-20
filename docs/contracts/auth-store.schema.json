@@ -55,6 +55,21 @@
             "null"
           ]
         },
+        "canonical_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidate_result": {
+          "enum": [
+            "accepted",
+            "current",
+            "historical_replay",
+            "older_internal"
+          ]
+        },
+        "candidate_rejected_definitive": {
+          "type": "boolean"
+        },
         "host": {
           "type": [
             "object",

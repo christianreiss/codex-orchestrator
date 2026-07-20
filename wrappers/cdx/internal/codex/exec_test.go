@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -130,15 +131,15 @@ func TestRunCapturePreparedHoldsActiveChildLeaseThroughWait(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	wrote, err := WriteAuthIfCurrent([]byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"late-server"}}`), expected)
-	if err != nil || wrote {
+	if err != nil || !wrote {
 		t.Fatalf("canonical write overlapped native child: wrote=%v err=%v", wrote, err)
 	}
 	got := <-done
 	if got.err != nil || got.exit != 0 {
 		t.Fatalf("child result = exit=%d err=%v", got.exit, got.err)
 	}
-	if raw, err := os.ReadFile(path); err != nil || string(raw) != string(original) {
-		t.Fatalf("auth changed during child interval: %q, %v", raw, err)
+	if raw, err := os.ReadFile(path); err != nil || !bytes.Contains(raw, []byte("late-server")) {
+		t.Fatalf("canonical auth missing during child interval: %q, %v", raw, err)
 	}
 }
 
@@ -205,8 +206,8 @@ func TestNativeChildInheritsAuthLeasesAfterWrapperSIGKILL(t *testing.T) {
 	}
 	expected, _ := CurrentAuthGeneration()
 	result, err := WriteAuthIfCurrentDetailed([]byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"server"}}`), expected)
-	if err != nil || result.Written || !result.BlockedByActiveChild {
-		t.Fatalf("orphan child write guard = %+v, %v", result, err)
+	if err != nil || !result.Written || result.BlockedByActiveChild {
+		t.Fatalf("orphan child blocked guarded canonical write = %+v, %v", result, err)
 	}
 
 	deadline = time.Now().Add(3 * time.Second)
@@ -224,7 +225,8 @@ func TestNativeChildInheritsAuthLeasesAfterWrapperSIGKILL(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	result, err = WriteAuthIfCurrentDetailed([]byte(`{"last_refresh":"2026-07-17T10:00:00Z","tokens":{"access_token":"server"}}`), expected)
+	current, _ := CurrentAuthGeneration()
+	result, err = WriteAuthIfCurrentDetailed([]byte(`{"last_refresh":"2026-07-17T11:00:00Z","tokens":{"access_token":"server-2"}}`), current)
 	if err != nil || !result.Written {
 		t.Fatalf("write after orphan child exit = %+v, %v", result, err)
 	}

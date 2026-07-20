@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { authPayloads } from '../db/schema.js';
+import { authCanonicalHeads, authPayloads } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { sha256 } from '../security/hash.js';
 import { decryptOrNull } from '../security/secret-box.js';
@@ -38,6 +38,9 @@ export interface CanonicalPayloadRow {
   verificationState: string;
   verificationCheckedAt: string | null;
   verificationReason?: string | null;
+  generation?: number | null;
+  fingerprintKid?: string | null;
+  pairFingerprint?: string | null;
 }
 
 export interface NormalizedAuthEntry {
@@ -79,6 +82,21 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const tokenMinLength = resolveTokenMinLength(deps.tokenMinLength);
   const service: RunnerValidationService = {
     async resolveCanonicalPayload(engine) {
+      const heads = await db
+        .select()
+        .from(authCanonicalHeads)
+        .where(eq(authCanonicalHeads.engine, engine));
+      const head = heads[0];
+      if (head) {
+        const selected = await db
+          .select()
+          .from(authPayloads)
+          .where(eq(authPayloads.id, head.payloadId));
+        // Once an explicit head exists it is the lineage authority. Returning
+        // null for a dangling pointer, or the selected invalid row for callers
+        // to fail closed on, prevents silent resurrection of older history.
+        return selected[0] ? toCanonicalPayloadRow(selected[0]) : null;
+      }
       // RFC3339 values can contain offsets, so VARCHAR ordering is not
       // chronological (`10:30+02:00` is older than `09:00Z`).  Resolve by the
       // parsed instant instead.  Do not prefer an older `verified` row over a
@@ -301,6 +319,9 @@ function toCanonicalPayloadRow(row: typeof authPayloads.$inferSelect): Canonical
     verificationState: row.verificationState,
     verificationCheckedAt: row.verificationCheckedAt ?? null,
     verificationReason: row.verificationReason ?? null,
+    generation: row.generation ?? null,
+    fingerprintKid: row.fingerprintKid ?? null,
+    pairFingerprint: row.pairFingerprint ?? null,
   };
 }
 

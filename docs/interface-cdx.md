@@ -222,9 +222,12 @@ logout orders wholly before or after server persistence. Every wrapper-launched
 Codex child holds a separate shared lease keyed to the effective `CODEX_HOME`
 from `Start` through `Wait`; duplicate session + active-child descriptors are
 inherited by the native child, including help, so the leases survive wrapper
-SIGKILL until Codex itself exits. Managed writers take the exclusive side before
-rename/remove/stabilization. A late startup, status, upload, or runner response
-is written only when `auth.json` still matches the request generation. If two
+SIGKILL until Codex itself exits. Destructive or unconditional writers take the
+exclusive side before rename/remove/stabilization. An authoritative conditional
+write may proceed alongside a native child because it still holds the auth-file
+lock and compares the exact pre-request content generation immediately before
+the atomic rename. A late startup, status, upload, or runner response is written
+only when `auth.json` still matches that request generation. If two
 verified canonical responses raced from the same generation, their
 `last_refresh` instants converge monotonically: newer wins in either completion
 order and older never rolls it back. Distinct payloads at the same instant are

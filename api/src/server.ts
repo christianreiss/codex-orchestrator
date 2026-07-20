@@ -7,6 +7,7 @@ import { createDb } from './db/client.js';
 import { Keyring } from './security/keyring.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
+import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
 
 import { envelopePlugin } from './http/plugins/envelope.js';
@@ -65,6 +66,7 @@ export async function buildServer() {
   await registerAllRoutes(app, { db, env, keyring });
   await registerWsServer(app, env);
   startAuthVerificationWorker(app, env, db, keyring);
+  startAuthRetentionWorker(app, db);
 
   attachShutdown(app, pool);
   return app;

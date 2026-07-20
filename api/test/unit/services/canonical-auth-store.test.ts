@@ -73,6 +73,109 @@ function makeStore(client: RunnerClient, seedState = 'pending') {
 }
 
 describe('CanonicalAuthStoreService', () => {
+  it('rejects an exact superseded Claude token pair before runner verification', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: live.client,
+    });
+    const old = {
+      ...CLAUDE_AUTH,
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-history-a',
+        refreshToken: 'history-r1',
+        expiresAt: Date.UTC(2026, 6, 20),
+        refreshTokenExpiresAt: Date.UTC(2026, 7, 20),
+      },
+    };
+    const newer = {
+      ...CLAUDE_AUTH,
+      last_refresh: '2026-05-20T10:00:00Z',
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-history-b',
+        refreshToken: 'history-r2',
+        expiresAt: Date.UTC(2026, 6, 21),
+        refreshTokenExpiresAt: Date.UTC(2026, 7, 21),
+      },
+    };
+    const first = await svc.storeCandidate({ auth: old, engine: 'claude', sourceHostId: null, requireLastRefresh: true, logAction: 'test', sourceKind: 'admin' });
+    const second = await svc.storeCandidate({ auth: newer, engine: 'claude', sourceHostId: null, requireLastRefresh: true, logAction: 'test', sourceKind: 'admin' });
+    expect(first.status).toBe('updated');
+    expect(second.status).toBe('updated');
+    const beforeReplay = live.calls();
+    const replay = await svc.storeCandidate({
+      auth: { ...old, last_refresh: '2026-05-20T11:00:00Z' },
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'test',
+      sourceKind: 'admin',
+    });
+    expect(replay.status).toBe('outdated');
+    expect(replay.candidate_result).toBe('historical_replay');
+    expect(replay.candidate_rejected_definitive).toBe(true);
+    expect(live.calls()).toBe(beforeReplay);
+  });
+
+  it('rejects an internally older host OAuth generation before runner verification', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: live.client,
+    });
+    const current = {
+      ...CLAUDE_AUTH,
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-current-generation',
+        refreshToken: 'current-refresh-token',
+        expiresAt: Date.UTC(2030, 0, 1),
+        refreshTokenExpiresAt: Date.UTC(2031, 0, 1),
+      },
+    };
+    await svc.storeCandidate({
+      auth: current,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'test',
+      sourceKind: 'admin',
+    });
+    const beforeOlder = live.calls();
+    const older = await svc.storeCandidate({
+      auth: {
+        ...CLAUDE_AUTH,
+        last_refresh: '2026-05-20T11:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-older-generation',
+          refreshToken: 'older-refresh-token',
+          expiresAt: Date.UTC(2029, 0, 1),
+          refreshTokenExpiresAt: Date.UTC(2030, 0, 1),
+        },
+      },
+      engine: 'claude',
+      sourceHostId: 42,
+      requireLastRefresh: true,
+      logAction: 'test',
+      sourceKind: 'host',
+    });
+    expect(older.status).toBe('outdated');
+    expect(older.candidate_result).toBe('older_internal');
+    expect(older.candidate_rejected_definitive).toBe(true);
+    expect(live.calls()).toBe(beforeOlder);
+  });
+
   it('touches first-seen host auth state with one atomic upsert', async () => {
     let upserts = 0;
     const db = {

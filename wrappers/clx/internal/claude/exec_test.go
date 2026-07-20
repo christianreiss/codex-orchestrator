@@ -77,12 +77,12 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	}
 	newer := json.RawMessage(`{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"new"}}`)
 	applied, err := WriteAuthIfCurrent(newer, before.Generation)
-	if err != nil || applied {
+	if err != nil || !applied {
 		t.Fatalf("write during active child applied=%v err=%v", applied, err)
 	}
 	current, err := ReadAuthSnapshot(false)
-	if err != nil || current.Generation != before.Generation {
-		t.Fatalf("active child auth changed: current=%+v err=%v", current, err)
+	if err != nil || current.Generation == before.Generation {
+		t.Fatalf("canonical auth did not advance: current=%+v err=%v", current, err)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,8 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	applied, err = WriteAuthIfCurrent(newer, before.Generation)
+	newest := json.RawMessage(`{"last_refresh":"2026-07-17T12:00:00Z","claudeAiOauth":{"accessToken":"newest"}}`)
+	applied, err = WriteAuthIfCurrent(newest, current.Generation)
 	if err != nil || !applied {
 		t.Fatalf("write after child wait applied=%v err=%v", applied, err)
 	}

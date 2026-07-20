@@ -3,6 +3,8 @@ name: codex-orchestrator
 services:
   api:
     build: .
+    env_file:
+      - ${ENV_FILE:-./.env}
     depends_on:
       mysql:
         condition: service_healthy
@@ -46,10 +48,8 @@ services:
       RUN_BACKFILLS_ON_BOOT: ${RUN_BACKFILLS_ON_BOOT:-0}
       ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
       ADMIN_WS_ENABLED: ${ADMIN_WS_ENABLED:-1}
-      ENV_FILE: /app/api/dist/.env
       DATA_ROOT: /app/storage
     volumes:
-      - ${ENV_FILE:-./.env}:/app/api/dist/.env:ro
       - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/app/storage
     networks:
       - codex_auth
@@ -103,6 +103,8 @@ services:
 
   quota-cron:
     build: .
+    env_file:
+      - ${ENV_FILE:-./.env}
     depends_on:
       mysql:
         condition: service_healthy
@@ -115,14 +117,11 @@ services:
       DB_DATABASE: ${DB_DATABASE:-codex_auth}
       DB_USERNAME: ${DB_USERNAME:-codex}
       DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      ENV_FILE: /app/api/dist/.env
       CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
       CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}
       CHATGPT_USAGE_TIMEOUT: ${CHATGPT_USAGE_TIMEOUT:-10}
       CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/chatgpt-usage-health.json}
       CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS: ${CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS:-}
-    volumes:
-      - ${ENV_FILE:-./.env}:/app/api/dist/.env:ro
     networks:
       - codex_auth
     read_only: true

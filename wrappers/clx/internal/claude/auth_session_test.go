@@ -410,8 +410,8 @@ while [ ! -e "$CLX_NATIVE_RELEASE" ]; do sleep 0.01; done
 		t.Fatalf("killed wrapper dropped inherited session lease: maintenance=%v err=%v", maintenance, err)
 	}
 	applied, err := WriteAuthIfCurrent(json.RawMessage(`{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"replacement"}}`), request.Generation)
-	if err != nil || applied {
-		t.Fatalf("canonical write crossed orphaned native child: applied=%v err=%v", applied, err)
+	if err != nil || !applied {
+		t.Fatalf("canonical write was blocked by orphaned native child: applied=%v err=%v", applied, err)
 	}
 	observer, err := StartAuthSession(false)
 	if err != nil {

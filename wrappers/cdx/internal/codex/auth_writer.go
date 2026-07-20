@@ -543,8 +543,9 @@ func WriteAuthIfCurrentDetailed(payload json.RawMessage, expected AuthGeneration
 // rolls back a fresher current generation. A small content-digest ledger marks
 // generations written from verified canonical responses; an unmarked changed
 // generation is conservatively a native/local write and wins regardless of
-// clocks. Logout intent still blocks writes, and an active child remains a
-// fail-closed blocked result.
+// clocks. Logout intent still blocks writes. A guarded canonical CAS may write
+// alongside an active child so new invocations can receive authoritative auth;
+// destructive/unconditional writers retain the exclusive child lease.
 func ConvergeAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (AuthConvergenceResult, error) {
 	path, err := AuthPath()
 	if err != nil {
@@ -657,6 +658,14 @@ func writeAuthPayload(payload json.RawMessage, expected *AuthGeneration) (AuthWr
 			return err
 		}
 		wroteNow := false
+		if expected != nil {
+			wroteNow, err = atomicWriteFileIfCurrent(path, payload, 0o600, expected)
+			if err != nil {
+				return err
+			}
+			result.Written = wroteNow
+			return nil
+		}
 		acquired, err := withAuthWriterLease(func() error {
 			var writeErr error
 			wroteNow, writeErr = atomicWriteFileIfCurrent(path, payload, 0o600, expected)

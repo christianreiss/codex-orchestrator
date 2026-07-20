@@ -235,16 +235,27 @@ func (s *AuthSession) CloseAndPurgeIfLast() (purged bool, err error) {
 		return false, err
 	}
 	defer unlock()
+	requests, err := readPurgeRequestsLocked(paths.purgeRequest)
+	if err != nil {
+		return false, err
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	if err != nil {
+		return false, err
+	}
+	// A secure session with no deferred destructive work does not need the
+	// active-child writer lease merely to close its bookkeeping lease. This is
+	// what lets a new status/bootstrap invocation converge canonical auth while
+	// an older Claude child continues running.
+	if len(requests.Requests) == 0 && !intent.Exists {
+		return false, nil
+	}
 	childLease, err := tryAcquireAuthChildWriter()
 	if err != nil {
 		return false, err
 	}
 	defer childLease.Close() //nolint:errcheck
 	if err := completeDeferredLogoutLocked(paths); err != nil {
-		return false, err
-	}
-	requests, err := readPurgeRequestsLocked(paths.purgeRequest)
-	if err != nil {
 		return false, err
 	}
 	if len(requests.Requests) == 0 {

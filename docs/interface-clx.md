@@ -229,18 +229,19 @@ An overlapping explicit logout therefore orders wholly before or after the
 upload. A separate shared lease beside native
 credentials spans every wrapper-launched Claude `Start`/`Wait` interval.
 Duplicate session and active-child lease descriptors are inherited by the
-native child, including help, so a wrapper `SIGKILL` cannot make uninstall,
-purge, or canonical writes race an orphaned Claude process. Managed writers
-acquire the exclusive side before rename/removal. Server/runner
-writeback commits only if the native generation is unchanged, with the native
+native child, including help, so a wrapper `SIGKILL` cannot make uninstall or
+purge race an orphaned Claude process. Destructive or unconditional writers
+acquire the exclusive side before rename/removal. Server/runner conditional
+writeback may proceed beside an active child: it holds the auth-file lock and
+commits only if the exact pre-request native generation is unchanged, with the native
 file as the final commit point after generation metadata and any existing
 compatibility mirror. Competing responses for the same request generation use
 the persisted canonical `last_refresh`: a strictly newer response can advance a
 prior wrapper-materialized response, an older response cannot roll it back, and
 equal-stamp/different-content responses fail closed as an ambiguous rotation.
-A raw newer login, logout marker, or active child is never overwritten. If a
-required write is blocked while the request generation is still unchanged, the
-invocation fails instead of consuming a credential the server replaced. A newer
+A raw newer login or logout marker is never overwritten. An active child alone
+does not block a generation-guarded canonical replacement; its later native
+refresh becomes a new candidate and is arbitrated by the server ledger. A newer
 usable local login otherwise wins every response-order race unless that exact
 candidate was definitively rejected and an older verified canonical is
 explicitly authorized. If an older logout marker exists, however,

@@ -1,3 +1,21 @@
+# 2026-07-20
+
+- Canonical Codex and Claude auth now has an explicit server-side generation
+  ledger. OAuth identity is compared with keyed fingerprints of the access and
+  refresh tokens, exact historical replays are rejected, and host uploads with
+  comparable internal expiry/issue metadata cannot roll canonical auth back.
+- Superseded auth generations are retained for replay detection for 180 days;
+  the current canonical generation has no age-based expiry. A boot backfill
+  records existing history and an always-on worker prunes only expired,
+  non-current generations.
+- cdx/clx can apply an authoritative canonical response while another managed
+  native child is active when the local credential bytes still match the
+  request snapshot. Logout, purge, uninstall, and unconditional writes still
+  require exclusive ownership.
+- Compose loads API/quota environment values through `env_file` instead of a
+  bind mount, so capability-dropped containers restart correctly while the
+  host `.env` remains mode `0600`.
+
 # 2026-07-19
 
 - The `#context` skill is now stored fleet-wide (`engine: null`), so it reaches

@@ -147,6 +147,19 @@ export const authPayloads = mysqlTable(
     verificationCheckedAt: varchar('verification_checked_at', { length: 100 }),
     verificationReason: varchar('verification_reason', { length: 500 }),
     engine: varchar('engine', { length: 16 }).notNull().default('codex'),
+    generation: bigint('generation', { mode: 'number', unsigned: true }),
+    sourceKind: varchar('source_kind', { length: 32 }).notNull().default('legacy'),
+    parentPayloadId: bigint('parent_payload_id', { mode: 'number', unsigned: true }),
+    credentialKind: varchar('credential_kind', { length: 32 }),
+    fingerprintKid: varchar('fingerprint_kid', { length: 191 }),
+    accessFingerprint: char('access_fingerprint', { length: 64 }),
+    refreshFingerprint: char('refresh_fingerprint', { length: 64 }),
+    pairFingerprint: char('pair_fingerprint', { length: 64 }),
+    credentialIssuedAt: varchar('credential_issued_at', { length: 100 }),
+    accessExpiresAt: varchar('access_expires_at', { length: 100 }),
+    refreshExpiresAt: varchar('refresh_expires_at', { length: 100 }),
+    supersededAt: varchar('superseded_at', { length: 100 }),
+    purgeAfter: varchar('purge_after', { length: 100 }),
   },
   (t) => ({
     lastRefreshIdx: index('idx_auth_payloads_last_refresh').on(t.lastRefresh),
@@ -156,8 +169,18 @@ export const authPayloads = mysqlTable(
       t.createdAt,
     ),
     engineIdx: index('idx_auth_payloads_engine').on(t.engine),
+    generationIdx: uniqueIndex('uq_auth_payloads_engine_generation').on(t.engine, t.generation),
+    pairFingerprintIdx: index('idx_auth_payloads_pair_fingerprint').on(t.engine, t.pairFingerprint),
+    purgeAfterIdx: index('idx_auth_payloads_purge_after').on(t.purgeAfter),
   }),
 );
+
+export const authCanonicalHeads = mysqlTable('auth_canonical_heads', {
+  engine: varchar('engine', { length: 16 }).primaryKey(),
+  payloadId: bigint('payload_id', { mode: 'number', unsigned: true }).notNull(),
+  generation: bigint('generation', { mode: 'number', unsigned: true }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
 
 export const authEntries = mysqlTable(
   'auth_entries',
