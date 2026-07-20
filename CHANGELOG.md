@@ -8,10 +8,13 @@
   the current canonical generation has no age-based expiry. A boot backfill
   records existing history and an always-on worker prunes only expired,
   non-current generations.
-- cdx/clx can apply an authoritative canonical response while another managed
-  native child is active when the local credential bytes still match the
-  request snapshot. Logout, purge, uninstall, and unconditional writes still
-  require exclusive ownership.
+- cdx/clx 0.6.51 can apply an authoritative canonical response while another
+  managed native child is active when the local credential bytes still match
+  the request snapshot. Logout, purge, uninstall, and unconditional writes
+  still require exclusive ownership. This fixes 0.6.50, where any invocation
+  overlapping a running native child failed its sync with `canonical auth was
+  required but the unchanged local generation is still owned by a native Codex
+  child` — concurrent runs were unusable on a host with an active child.
 - Compose loads API/quota environment values through `env_file` instead of a
   bind mount, so capability-dropped containers restart correctly while the
   host `.env` remains mode `0600`.
