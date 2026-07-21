@@ -12,6 +12,15 @@ type WorkerLog = {
   error: (...args: unknown[]) => void;
 };
 
+export const DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS = 900;
+
+export function resolveChatGptUsageWorkerIntervalSeconds(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS;
+  }
+  return Math.max(30, Math.trunc(value));
+}
+
 export interface ChatGptUsageWorkerTickDeps {
   usage: Pick<ChatGptUsageService, 'fetchLatest'>;
   healthPath: string;
@@ -73,7 +82,7 @@ async function main(): Promise<void> {
     env,
     keyring: Keyring.fromEnv(env),
   });
-  const intervalSeconds = Math.max(30, Number(env.CHATGPT_USAGE_CRON_INTERVAL ?? 3600));
+  const intervalSeconds = resolveChatGptUsageWorkerIntervalSeconds(env.CHATGPT_USAGE_CRON_INTERVAL);
   let running = false;
   let stopped = false;
 

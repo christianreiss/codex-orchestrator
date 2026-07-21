@@ -105,7 +105,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - Schema changes: apply the reviewable SQL under `api/src/db/migrations/` explicitly before starting the matching API version. There is no boot migration runner.
    - Token TTLs: `INSTALL_TOKEN_TTL_SECONDS` (default 1800) and `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
    - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
-  - Usage telemetry: `quota-cron` is a default Compose service. It performs one refresh at boot and then polls on `CHATGPT_USAGE_CRON_INTERVAL` (default 3600). Configure `CHATGPT_BASE_URL` and `CHATGPT_USAGE_TIMEOUT` as needed. Its healthcheck reads `CHATGPT_USAGE_HEALTH_PATH` and becomes unhealthy when no successful snapshot arrives within `CHATGPT_USAGE_CRON_INTERVAL + 300s`, unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides that limit.
+  - Usage telemetry: `quota-cron` is a default Compose service. It performs one refresh at boot and then polls on `CHATGPT_USAGE_CRON_INTERVAL` (default 900). Configure `CHATGPT_BASE_URL` and `CHATGPT_USAGE_TIMEOUT` as needed. Its healthcheck reads `CHATGPT_USAGE_HEALTH_PATH` and becomes unhealthy when no successful snapshot arrives within `CHATGPT_USAGE_CRON_INTERVAL + 300s`, unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides that limit.
    - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (runner/debug surfaces), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
 

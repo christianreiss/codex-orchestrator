@@ -1,3 +1,10 @@
+# 2026-07-21
+
+- ChatGPT quota telemetry now refreshes every 15 minutes by default instead of
+  hourly. The previous hourly schedule exceeded `cdx`'s 30-minute freshness
+  window, producing a false stale-telemetry warning for part of every hour even
+  though the quota worker was healthy.
+
 # 2026-07-20
 
 - An active-lane quota forecast is no longer stated three times in the `cdx`

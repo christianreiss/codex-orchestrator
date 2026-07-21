@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runChatGptUsageWorkerTick } from '../../../src/ops/chatgpt-usage-worker.js';
+import {
+  DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS,
+  resolveChatGptUsageWorkerIntervalSeconds,
+  runChatGptUsageWorkerTick,
+} from '../../../src/ops/chatgpt-usage-worker.js';
 
 const tempDirs: string[] = [];
 
@@ -11,6 +15,13 @@ afterEach(async () => {
 });
 
 describe('chatgpt usage worker tick', () => {
+  it('defaults to a 15-minute cadence, safely below the wrapper stale threshold', () => {
+    expect(resolveChatGptUsageWorkerIntervalSeconds(undefined)).toBe(
+      DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS,
+    );
+    expect(DEFAULT_CHATGPT_USAGE_CRON_INTERVAL_SECONDS).toBe(15 * 60);
+  });
+
   it('records a heartbeat only for a usable provider snapshot', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'codex-quota-worker-'));
     tempDirs.push(dir);

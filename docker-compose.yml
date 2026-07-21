@@ -117,7 +117,7 @@ services:
       DB_DATABASE: ${DB_DATABASE:-codex_auth}
       DB_USERNAME: ${DB_USERNAME:-codex}
       DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-3600}
+      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-900}
       CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}
       CHATGPT_USAGE_TIMEOUT: ${CHATGPT_USAGE_TIMEOUT:-10}
       CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/chatgpt-usage-health.json}
@@ -134,7 +134,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          node -e 'const fs=require("fs"); const path=process.env.CHATGPT_USAGE_HEALTH_PATH||"/tmp/chatgpt-usage-health.json"; const max=Number(process.env.CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS)||Number(process.env.CHATGPT_USAGE_CRON_INTERVAL||3600)+300; try { process.exit(Date.now()-fs.statSync(path).mtimeMs<=max*1000?0:1); } catch { process.exit(1); }'
+          node -e 'const fs=require("fs"); const path=process.env.CHATGPT_USAGE_HEALTH_PATH||"/tmp/chatgpt-usage-health.json"; const max=Number(process.env.CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS)||Number(process.env.CHATGPT_USAGE_CRON_INTERVAL||900)+300; try { process.exit(Date.now()-fs.statSync(path).mtimeMs<=max*1000?0:1); } catch { process.exit(1); }'
       interval: 30s
       timeout: 5s
       retries: 3

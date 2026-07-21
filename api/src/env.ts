@@ -165,7 +165,7 @@ const schema = z
     ANTHROPIC_API_KEY: z.string().optional(),
 
     // Quota cron
-    CHATGPT_USAGE_CRON_INTERVAL: intish(3600),
+    CHATGPT_USAGE_CRON_INTERVAL: intish(900),
     CHATGPT_BASE_URL: z.string().default('https://chatgpt.com/backend-api'),
     CHATGPT_USAGE_TIMEOUT: z
       .union([z.string(), z.number(), z.undefined()])
