@@ -334,7 +334,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		markOfflineHealth(state.Dots)
 	} else if dec.Allowed && concurrent && state.ResultTone != ui.ToneFail {
 		state.ResultLabel = "Managed content sync paused; auth freshness remains active."
-		state.ResultTone = ui.ToneWarn
 	}
 	printBoot := func() {
 		if !opts.SkipBoot {

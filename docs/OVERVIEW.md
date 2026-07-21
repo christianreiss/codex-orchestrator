@@ -141,7 +141,9 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      skips managed content/update writes and peer reconciliation, but performs
      the auth freshness check and keeps API/auth/runner health visible. The
      outcome says `SYNC PAUSED`, not the over-broad `READ ONLY`; an explicit
-     `--allow-concurrent-sync` remains the write-enabled escape hatch.
+     `--allow-concurrent-sync` remains the write-enabled escape hatch. This is
+     normal contention requiring no operator action, so its status is neutral;
+     warning colour is reserved for conditions that require attention.
    - Wrapper post-run auth upload now compares both `last_refresh` and local `auth.json` SHA-256; content changes with unchanged timestamps are still pushed so fleet hosts can consume updated auth promptly.
    - Wrapper self-update re-exec preserves original argv for subcommands (for example `cdx resume`) and snapshots original argc separately, so empty-argv restarts fall back cleanly without `set -u` empty-array crashes on older bash builds such as CentOS 7 / XCP-NG hosts.
    - `cdx` and `clx` share one responsive terminal dashboard: outcome, host/security/model context, local-to-target versions, semantic health glyphs, quota/activity, and the final result fit within the detected width. Redirects, dumb/narrow terminals, and `--minimal` use stable ANSI-free ASCII; explicit minimal mode also covers wrapper help, status, doctor, cron/peer-update progress, and the measured exit footer. Wrapper-only presentation flags are consumed before an upstream help passthrough. Boot/status result text is control-sequence stripped, width-bounded, and capped at three lines; diagnostic causes/paths are bounded separately, and narrow update rows preserve the outcome before version metadata.

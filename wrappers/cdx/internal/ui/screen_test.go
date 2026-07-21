@@ -151,6 +151,15 @@ func TestRichConcurrentScreenKeepsHealthAtAGlance(t *testing.T) {
 	}
 }
 
+func TestRichConcurrentScreenIsNeutralWhenNoActionIsRequired(t *testing.T) {
+	caps := screenCaps(64)
+	var buf bytes.Buffer
+	printBootScreen(&buf, ScreenInput{Concurrent: true}, caps)
+	if strings.Contains(buf.String(), "\x1b[33m\x1b[1m") {
+		t.Fatalf("normal concurrent state used warning styling:\n%s", buf.String())
+	}
+}
+
 func TestConcurrentScreenKeepsDistinctResultFooter(t *testing.T) {
 	caps := screenCaps(64)
 	var buf bytes.Buffer

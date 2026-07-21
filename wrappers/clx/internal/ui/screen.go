@@ -54,9 +54,6 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	if resultTone == "" {
 		resultTone = ToneOK
 	}
-	if in.Concurrent && resultTone != ToneFail {
-		resultTone = ToneWarn
-	}
 	if in.BypassPermissions && resultTone != ToneFail {
 		resultTone = ToneWarn
 	}
@@ -66,10 +63,11 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	reset := caps.Palette.Reset
 	brand := accent + "CLX" + reset + "  " + caps.Palette.Bold + "CODEX ORCHESTRATOR" + reset
 	outcome := strings.ToUpper(toneWord(resultTone))
-	if in.Concurrent && resultTone != ToneFail {
+	if in.Concurrent {
 		outcome = "SYNC PAUSED"
+	} else {
+		outcome = styleTone(caps, resultTone, outcome)
 	}
-	outcome = styleTone(caps, resultTone, outcome)
 
 	c.top()
 	c.line(joinSides(brand, outcome, c.inner, caps))
@@ -90,7 +88,7 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 		c.line(line)
 	}
 	if in.Concurrent {
-		renderToneText(c, ToneWarn, strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active."))
+		renderPlainText(c, strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active."))
 	}
 	health := make([]string, 0, len(in.Dots))
 	for _, dot := range in.Dots {
@@ -184,6 +182,12 @@ func renderToneText(c card, tone Tone, text string) {
 	renderToneTextLimited(c, tone, text, 0)
 }
 
+func renderPlainText(c card, text string) {
+	for _, line := range WrapText(CleanInline(text), c.inner) {
+		c.line(line)
+	}
+}
+
 func renderToneTextLimited(c card, tone Tone, text string, maxLines int) {
 	text = CleanInline(text)
 	if text == "" {
@@ -220,9 +224,6 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 	tone := in.ResultTone
 	if tone == "" {
 		tone = ToneOK
-	}
-	if in.Concurrent && tone != ToneFail {
-		tone = ToneWarn
 	}
 	if in.BypassPermissions && tone != ToneFail {
 		tone = ToneWarn
@@ -272,7 +273,7 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 		printPlainLine(w, caps, "warning | bypass permissions active (--dangerously-skip-permissions)")
 	}
 	if in.ConcurrentNote != "" && in.Concurrent {
-		printPlainLine(w, caps, "warning | "+PlainInline(in.ConcurrentNote))
+		printPlainLine(w, caps, "notice | "+PlainInline(in.ConcurrentNote))
 	}
 	if in.ResultLabel != "" {
 		printPlainLineLimited(w, caps, "result | "+PlainInline(in.ResultLabel), 3)

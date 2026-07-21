@@ -63,11 +63,10 @@ func buildDot(caps Caps, d HealthDot) string {
 // ConcurrentRow is the alternate single-row health display shown when the
 // wrapper detected another instance was active and paused managed sync writes.
 func PrintConcurrentRow(w io.Writer, caps Caps, note string) {
-	col := caps.Palette.Yellow + caps.Palette.Bold
 	if note == "" {
 		note = "Managed content sync paused; auth freshness remains active."
 	}
-	fmt.Fprintln(w, "  "+col+toneSymbol(caps, ToneWarn, false)+caps.Palette.Reset+" concurrent  "+CleanInline(note))
+	fmt.Fprintln(w, "  concurrent  "+CleanInline(note))
 }
 
 // Result tagline drawn under the boot screen.
