@@ -253,6 +253,63 @@ func TestBootstrapRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 	}
 }
 
+func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-21T12:00:00Z","claudeAiOauth":{"accessToken":"","refreshToken":""}}`)); err != nil {
+		t.Fatal(err)
+	}
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenEmptyDigest := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bundle request: %v", err)
+		}
+		digest, sentDigest := request["auth_digest"]
+		seenEmptyDigest = !sentDigest || string(digest) == `""`
+		if _, ok := request["auth_candidate"]; ok {
+			t.Error("unusable auth was sent as a candidate")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/auth" {
+			_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-21T12:01:00Z","auth":{"last_refresh":"2026-07-21T12:01:00Z","claudeAiOauth":{"accessToken":"healed","refreshToken":"fresh"}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-21T12:01:00Z","auth":{"last_refresh":"2026-07-21T12:01:00Z","claudeAiOauth":{"accessToken":"healed","refreshToken":"fresh"}}}}}`))
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, bootstrapErr, synced, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+	if bootstrapErr != nil || !synced || resp == nil {
+		t.Fatalf("concurrent unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, bootstrapErr)
+	}
+	if !seenEmptyDigest {
+		t.Fatal("unusable auth advertised a canonical digest instead of requesting repair")
+	}
+	if !claude.IsValidLocalAuth(authPath) {
+		t.Fatal("concurrent canonical repair did not leave usable Claude credentials")
+	}
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-21T12:02:00Z","claudeAiOauth":{"accessToken":"","refreshToken":""}}`)); err != nil {
+		t.Fatal(err)
+	}
+	seenEmptyDigest = false
+	resp, legacyErr, synced := syncAuthLegacy(context.Background(), client, logger, true)
+	if legacyErr != nil || !synced || resp == nil {
+		t.Fatalf("concurrent legacy unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, legacyErr)
+	}
+	if !seenEmptyDigest || !claude.IsValidLocalAuth(authPath) {
+		t.Fatal("legacy concurrent repair did not request and restore usable Claude credentials")
+	}
+}
+
 func TestBundleAndLegacyMaterializeRequiredCanonicalAlongsideActiveChild(t *testing.T) {
 	for _, mode := range []string{"bundle", "legacy"} {
 		t.Run(mode, func(t *testing.T) {

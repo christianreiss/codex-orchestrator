@@ -57,9 +57,10 @@ Health markers are evidence-based: a successful unchanged resource check is
 green, an actual local write adds the updated marker, a failed best-effort
 skills/config check warns, and an unperformed check is dim. Resource-sync
 failure remains non-fatal but changes the overall result to attention. In a
-concurrent launch, `SYNC PAUSED` replaces the misleading read-only headline;
-managed content/update writes pause, auth freshness remains active, and the
-API/auth/runner health markers stay visible. The pause explanation appears
+concurrent launch, neutral `SYNC PAUSED` replaces the misleading read-only
+headline; normal contention needs no operator action and warning colour is
+reserved for actionable conditions. Managed content/update writes pause, auth
+freshness remains active, and the API/auth/runner health markers stay visible. The pause explanation appears
 once in SYSTEM; a distinct result/error still receives the normal footer.
 
 The context line shows the effective Claude model and effort. A signed
@@ -195,7 +196,10 @@ API definitively rejects that candidate and serves a verified canonical, then
 require generation CAS plus the active-child writer lease. A blocked required
 write fails when no usable local credential remains, and the exact local
 generation named by `candidate_rejected_definitive` is treated as unusable even
-when its JSON still contains a token. `--allow-concurrent-sync` is the explicit
+when its JSON still contains a token. An absent or structurally unusable native
+credential suppresses its cached digest and candidate, forcing canonical repair
+even during a sync-paused run; only the server's insecure-host window policy
+may block that repair. `--allow-concurrent-sync` is the explicit
 escape hatch: it allows normal managed writes without the lock and announces
 that choice before startup. The boot card says `SYNC PAUSED` and keeps the
 probed health markers visible. Approval polling only repaints an interactive,

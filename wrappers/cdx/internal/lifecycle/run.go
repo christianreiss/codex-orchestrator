@@ -476,12 +476,15 @@ func bootstrap(
 		expected    codex.AuthGeneration
 		uploadLease *codex.AuthUploadLease
 	)
+	localUsable := false
 	if lease, readErr := codex.BeginAuthUpload(false); readErr == nil {
 		uploadLease = lease
-		// An invalid RawMessage makes BundleRequest itself impossible to marshal,
-		// preventing the retrieve that could heal the local file. Retain its
-		// digest generation for CAS, but omit it as an upload candidate.
-		if json.Valid(lease.Payload()) {
+		localUsable = codex.IsValidLocalAuth(authPath)
+		// An unusable local file must not advertise its sidecar's canonical
+		// digest: doing so returns `valid` without an auth payload and leaves a
+		// concurrent run blocked. Retain its generation for CAS, but omit both
+		// digest and candidate so the server returns verified canonical auth.
+		if localUsable && json.Valid(lease.Payload()) {
 			candidate = lease.Payload()
 		}
 		expected = lease.Generation()
@@ -506,7 +509,10 @@ func bootstrap(
 			_ = uploadLease.Close()
 		}()
 	}
-	digest := expected.Digest
+	digest := ""
+	if localUsable {
+		digest = expected.Digest
+	}
 
 	agentsFile, agentsPathErr := agentsPath()
 	if agentsPathErr != nil {
@@ -911,14 +917,20 @@ func applyQuotaHardFailOverride(state *ui.ScreenInput) string {
 }
 
 func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
+	localUsable := false
 	_, expected, err := codex.ReadAuthForUpload()
 	if err != nil {
 		expected, err = codex.CurrentAuthGeneration()
 		if err != nil {
 			return nil, fmt.Errorf("local digest: %w", err), false
 		}
+	} else if authPath, pathErr := codex.AuthPath(); pathErr == nil {
+		localUsable = codex.IsValidLocalAuth(authPath)
 	}
-	digest := expected.Digest
+	digest := ""
+	if localUsable {
+		digest = expected.Digest
+	}
 	resp, err := client.AuthRetrieve(ctx, digest)
 	if err != nil {
 		return &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}, err, false

@@ -429,8 +429,8 @@ func bootstrap(
 	)
 	if snap, err := claude.ReadAuthForRetrieveSnapshot(); err == nil {
 		authSnapshot = snap
-		digest = snap.DigestForServer()
 		if snap.Usable {
+			digest = snap.DigestForServer()
 			candidatePossible = true
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -867,7 +867,9 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 	digest := ""
 	if local, err := claude.ReadAuthForRetrieveSnapshot(); err == nil {
 		snap = local
-		digest = local.DigestForServer()
+		if local.Usable {
+			digest = local.DigestForServer()
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}, err, false
 	}

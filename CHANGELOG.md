@@ -1,5 +1,15 @@
 # 2026-07-21
 
+- A concurrent wrapper session now reports `SYNC PAUSED` as neutral status.
+  Safe, normal lock contention needs no operator action; orange/bold warning
+  treatment remains reserved for actionable conditions.
+
+- cdx/clx 0.6.52 no longer advertise a canonical digest for missing or
+  structurally unusable native credentials. A secure concurrent run therefore
+  requests and atomically repairs verified canonical auth instead of showing a
+  green API/auth state followed by `BLOCKED`; insecure hosts outside their
+  server-approved window remain the sole exception.
+
 - ChatGPT quota telemetry now refreshes every 15 minutes by default instead of
   hourly. The previous hourly schedule exceeded `cdx`'s 30-minute freshness
   window, producing a false stale-telemetry warning for part of every hour even

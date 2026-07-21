@@ -642,6 +642,62 @@ func TestBootstrapOmitsInvalidJSONCandidateAndHealsFromCanonical(t *testing.T) {
 	}
 }
 
+func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	path, err := codex.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codex.WriteAuth([]byte(`{"last_refresh":"2026-07-21T12:00:00Z","tokens":{"access_token":""}}`)); err != nil {
+		t.Fatal(err)
+	}
+	seenEmptyDigest := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode bundle request: %v", err)
+		}
+		digest, sentDigest := request["auth_digest"]
+		seenEmptyDigest = !sentDigest || string(digest) == `""`
+		if _, ok := request["auth_candidate"]; ok {
+			t.Error("unusable auth was sent as a candidate")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/auth" {
+			_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","auth":{"last_refresh":"2026-07-21T12:01:00Z","tokens":{"access_token":"healed"}},"host":{"secure":true}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok","auth":{"status":"outdated","verification_state":"verified","auth":{"last_refresh":"2026-07-21T12:01:00Z","tokens":{"access_token":"healed"}},"host":{"secure":true}}}`))
+	}))
+	defer server.Close()
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, authErr, synced, _, _, _ := bootstrap(context.Background(), client, slog.Default(), true, path)
+	if authErr != nil || !synced || resp == nil {
+		t.Fatalf("concurrent unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, authErr)
+	}
+	if !seenEmptyDigest {
+		t.Fatal("unusable auth advertised a canonical digest instead of requesting repair")
+	}
+	if !codex.IsValidLocalAuth(path) {
+		t.Fatal("concurrent canonical repair did not leave usable Codex credentials")
+	}
+	if err := codex.WriteAuth([]byte(`{"last_refresh":"2026-07-21T12:02:00Z","tokens":{"access_token":""}}`)); err != nil {
+		t.Fatal(err)
+	}
+	seenEmptyDigest = false
+	resp, legacyErr, synced := syncAuthLegacy(context.Background(), client, slog.Default(), true)
+	if legacyErr != nil || !synced || resp == nil {
+		t.Fatalf("concurrent legacy unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, legacyErr)
+	}
+	if !seenEmptyDigest || !codex.IsValidLocalAuth(path) {
+		t.Fatal("legacy concurrent repair did not request and restore usable Codex credentials")
+	}
+}
+
 func TestLegacySyncTwoWayAuthConvergencePolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
