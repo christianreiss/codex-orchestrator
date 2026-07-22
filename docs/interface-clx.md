@@ -159,9 +159,17 @@ single-instance flock on `$XDG_RUNTIME_DIR/clx.lock` (or
 before `CLAUDE.md` / `settings.json` writes), typed auth decision matrix
 including approval-pending polling, Claude CLI version
 reconciliation, and post-run generation reconciliation. A changed usable
-native generation is uploaded with compare-and-swap writeback; a removed or
-unusable generation records logout intent. Upload, writeback, marker, or
-last-session insecure-purge failures make an otherwise successful run non-zero.
+native generation is uploaded with compare-and-swap writeback; a native file
+that is now genuinely gone records logout intent, matching how Claude Code's
+own `/logout` behaves (it deletes the file rather than leaving damaged bytes
+behind). A native file that still exists but is structurally unusable
+(corruption, a partial write, external interference) is never recorded as a
+logout — it is left for the next run's ordinary canonical-repair path, which
+overwrites it with the server's verified canonical credential. Conflating the
+two would let incidental credential loss on one host become a durable,
+`clx auth login`-only lockout indistinguishable from an intentional sign-out.
+Upload, writeback, marker, or last-session insecure-purge failures make an
+otherwise successful run non-zero.
 The `clx`
 lock is deliberately independent from `cdx.lock`, so active Codex and Claude
 sessions can run side by side without pausing each other's managed sync. The

@@ -167,6 +167,43 @@ func TestLogoutIntentBlocksSidecarAndCanonicalResurrection(t *testing.T) {
 	}
 }
 
+func TestMarkLogoutIfCurrentIgnoresCorruptionThatLeavesNativeFilePresent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	payload := json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"old"}}`)
+	if err := WriteAuth(payload); err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the file surviving in a damaged state (e.g. a partial write or
+	// external interference) rather than being removed by a genuine `/logout`,
+	// which deletes it outright.
+	if err := os.WriteFile(before.Path, []byte(`not json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marked, err := MarkLogoutIfCurrent(before.Generation)
+	if err != nil || marked {
+		t.Fatalf("MarkLogoutIfCurrent marked=%v err=%v (corruption must not become durable logout intent)", marked, err)
+	}
+	if HasLogoutIntent() {
+		t.Fatal("present-but-corrupt native file recorded as logout intent")
+	}
+	corrupt, err := ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := WriteAuthIfCurrent(payload, corrupt.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied {
+		t.Fatal("canonical repair was blocked by corruption that was never an explicit logout")
+	}
+}
+
 func TestExplicitLoginClearsLogoutIntentForIdenticalCredentialDigest(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

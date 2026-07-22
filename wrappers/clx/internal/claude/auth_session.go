@@ -370,9 +370,15 @@ func syncExistingDir(dir string) error {
 }
 
 // MarkLogoutIfCurrent records an intentional logout only when the native file
-// is now missing or structurally unusable and the caller observed the supplied
-// generation before launching Claude. A newer usable login is preserved, but
-// any pre-existing intent remains until the server accepts that generation.
+// is now missing and the caller observed the supplied generation before
+// launching Claude. Claude Code's own `/logout` deletes the file outright; it
+// never leaves damaged bytes behind. A native file that still exists but is
+// structurally unusable is therefore treated as damage for the next run's
+// canonical repair to fix, not as durable logout intent — recording intent
+// here would otherwise permanently block that same repair (canonical retrieve
+// cannot clear intent) for a host that was never actually logged out. A newer
+// usable login is preserved, but any pre-existing intent remains until the
+// server accepts that generation.
 func MarkLogoutIfCurrent(before AuthGeneration) (bool, error) {
 	paths, unlock, err := lockAuthFiles()
 	if err != nil {
@@ -384,16 +390,7 @@ func MarkLogoutIfCurrent(before AuthGeneration) (bool, error) {
 		return false, err
 	}
 	if current.Exists {
-		raw, err := os.ReadFile(paths.claude)
-		if err != nil {
-			return false, err
-		}
-		if isUsableAuth(raw) {
-			if current != before {
-				return false, nil
-			}
-			return false, nil
-		}
+		return false, nil
 	}
 	if current == before {
 		return false, nil

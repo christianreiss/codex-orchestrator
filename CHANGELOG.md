@@ -1,3 +1,19 @@
+# 2026-07-22
+
+- clx no longer records durable logout intent when a native
+  `~/.claude/.credentials.json` merely goes corrupt or gets partially
+  overwritten while it still exists on disk. Only a genuinely missing native
+  file — how Claude Code's own `/logout` actually behaves — is treated as an
+  intentional sign-out. Previously, any post-run credential that failed the
+  usability check, corrupt-but-present included, was journaled as logout
+  intent, which is sticky and blocks canonical repair until an explicit
+  `clx auth login`. A host whose credential file was merely damaged by
+  something other than an explicit logout could therefore get silently and
+  permanently cut off from fleet auth sync even though the server held a
+  verified, current canonical credential the whole time. cdx's equivalent
+  post-run check already only fires on an unreadable file, so this brings clx
+  back in line with it.
+
 # 2026-07-21
 
 - A concurrent wrapper session now reports `SYNC PAUSED` as neutral status.
