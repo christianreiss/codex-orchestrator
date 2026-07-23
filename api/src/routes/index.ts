@@ -57,7 +57,11 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   if (!staticInstalled) {
     app.setNotFoundHandler((req, reply) => {
       const formatter = selectFormatter(req.url);
-      const err = new ApiError('Route not found', { status: 404, code: 'not_found' });
+      const err = new ApiError('Route not found', {
+        status: 404,
+        code: 'not_found',
+        type: 'not_found_error',
+      });
       reply.envelopeRaw = true;
       reply.status(404).header('content-type', 'application/json; charset=utf-8');
       return reply.send(JSON.stringify(formatter.failure(err)));
