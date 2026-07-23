@@ -44,7 +44,8 @@ Anthropic-compatible Messages API.
 |---|---|---|---|
 | `messages` | array | yes | Array of `{role, content}` objects. Roles: `user`, `assistant`, `system`. |
 | `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-5`). |
-| `max_tokens` | integer | no | Maximum tokens to generate. |
+| `system` | string \| array | no | System prompt. Accepts a plain string or an Anthropic block array (`[{type:"text", text:"..."}]`); block arrays are flattened by joining with a blank line. Per-block `cache_control` is accepted and ignored — this gateway has no prompt cache. |
+| `max_tokens` | integer | no | Maximum tokens to generate. Optional here (upstream requires it); when present it must be an integer ≥ 1, else 400 `invalid_max_tokens`. |
 | `temperature` | float | no | Sampling temperature (0-1). |
 | `top_p` | float | no | Nucleus sampling (0-1). |
 | `top_k` | integer | no | Top-k sampling. |
@@ -147,22 +148,29 @@ Responses API compatibility adapter (non-streaming only).
 
 #### `GET /anthropic/v1/models`
 
-List available Claude models.
+List available Claude models, in the Anthropic Models API shape (`type` / `display_name` / `created_at` per entry, `has_more` / `first_id` / `last_id` on the envelope) so `client.models.list()` in the official SDKs parses it.
 
 **Response:**
 ```json
 {
-  "object": "list",
   "data": [
-    {"id": "claude-fable-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-opus-4-8", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-sonnet-5", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-opus-4-7", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-sonnet-4-6", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"id": "claude-haiku-4-5-20251001", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
-  ]
+    {"type": "model", "id": "claude-fable-5", "display_name": "Claude Fable 5", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"type": "model", "id": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "object": "model", "created": 1234567890, "owned_by": "anthropic"}
+  ],
+  "has_more": false,
+  "first_id": "claude-fable-5",
+  "last_id": "claude-haiku-4-5-20251001",
+  "object": "list"
 }
 ```
+
+Full catalog: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` (admin-disabled models are omitted).
+
+`object` (envelope and per entry), `created`, and `owned_by` are **deprecated** OpenAI-shaped aliases retained for older clients of this gateway; they are not part of the Anthropic wire format. `created_at` is a fixed placeholder (`2026-01-01T00:00:00.000Z`) — this gateway does not track vendor release dates, but the value is stable across polls. The upstream `capabilities` tree is **not** served (it would have to be fabricated), so a client that indexes into `model.capabilities[...]` will fail.
+
+#### `GET /anthropic/v1/models/{model_id}`
+
+Retrieve one model. Returns a single model object in the shape shown above. Legacy ids (e.g. `claude-sonnet-4-5`) resolve to their current-generation replacement. Unknown or admin-disabled ids return `404 not_found_error` / `403 permission_error` respectively.
 
 #### `POST /anthropic/v1/embeddings`
 
@@ -188,13 +196,20 @@ All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"err
 }
 ```
 
+`error.type` is always one of the eight types Anthropic documents (`invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, `overloaded_error`) — the Anthropic envelope maps anything else onto the type matching the HTTP status. `code` is a gateway-specific extra.
+
 | Status | Error type | When |
 |---|---|---|
-| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream` |
+| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream`, `invalid_max_tokens` |
 | 401 | `authentication_error` | Missing or invalid API key |
+| 403 | `permission_error` | Model disabled by administrator (`model_disabled`) |
+| 404 | `not_found_error` | Unknown model id (`model_not_found`) |
 | 429 | `rate_limit_error` | Rate limit exceeded (includes `Retry-After` header) |
+| 501 | `invalid_request_error` | `/embeddings` (not an Anthropic capability) |
 | 502 | `api_error` | Backend/runner communication failure |
 | 503 | `api_error` | Backend not configured or API disabled by administrator |
+
+**Known deviations from upstream** (deliberate, so existing callers keep working): `max_tokens` and the `anthropic-version` header are optional here rather than required; `POST /v1/messages/count_tokens` is not implemented; model objects omit the `capabilities` tree; error bodies carry no top-level `request_id`; tool-use/tool-result content blocks are dropped during normalization (the runner backend has no tool support); streaming emits the full response as a single `content_block_delta`.
 
 #### CORS Preflight
 

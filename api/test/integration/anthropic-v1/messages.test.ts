@@ -105,21 +105,45 @@ function stubModels(): ClaudeModelsService {
         return v as (typeof CLAUDE_SUPPORTED_MODELS)[number];
       }
       throw new ApiError(`Unsupported model "${v}".`, {
-        status: 400,
+        status: 404,
         code: 'model_not_found',
-        type: 'invalid_request_error',
+        type: 'not_found_error',
         param: 'model',
       });
     },
     modelsResponse: async () => ({
-      data: CLAUDE_SUPPORTED_MODELS.map((id) => ({
-        id,
-        object: 'model' as const,
-        created: 1700000000,
-        owned_by: 'anthropic' as const,
-      })),
+      data: CLAUDE_SUPPORTED_MODELS.map(stubModelObject),
+      has_more: false,
+      first_id: CLAUDE_SUPPORTED_MODELS[0],
+      last_id: CLAUDE_SUPPORTED_MODELS[CLAUDE_SUPPORTED_MODELS.length - 1]!,
       object: 'list' as const,
     }),
+    modelResponse: async (value: unknown) => {
+      const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      if (!(CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(v)) {
+        throw new ApiError('Model not found', {
+          status: 404,
+          code: 'model_not_found',
+          type: 'not_found_error',
+          param: 'model_id',
+        });
+      }
+      return stubModelObject(v as (typeof CLAUDE_SUPPORTED_MODELS)[number]);
+    },
+  };
+}
+
+function stubModelObject(id: (typeof CLAUDE_SUPPORTED_MODELS)[number]) {
+  return {
+    type: 'model' as const,
+    id,
+    display_name: id,
+    created_at: '2023-11-14T22:13:20.000Z',
+    max_input_tokens: 1_000_000,
+    max_tokens: 128_000,
+    object: 'model' as const,
+    created: 1700000000,
+    owned_by: 'anthropic' as const,
   };
 }
 
@@ -314,7 +338,7 @@ describe('POST /anthropic/v1/messages', () => {
 });
 
 describe('GET /anthropic/v1/models', () => {
-  it('returns the model catalog', async () => {
+  it('returns the model catalog in the Anthropic Models API shape', async () => {
     const app = await buildApp();
     const r = await app.inject({
       method: 'GET',
@@ -323,13 +347,122 @@ describe('GET /anthropic/v1/models', () => {
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
-    expect(body.object).toBe('list');
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data.length).toBeGreaterThan(0);
+    expect(body.has_more).toBe(false);
+    expect(body.first_id).toBe(body.data[0].id);
+    expect(body.last_id).toBe(body.data[body.data.length - 1].id);
     for (const m of body.data) {
+      expect(m.type).toBe('model');
+      expect(typeof m.id).toBe('string');
+      expect(typeof m.display_name).toBe('string');
+      expect(Number.isNaN(Date.parse(m.created_at))).toBe(false);
+      // Legacy OpenAI-compat aliases are still served.
       expect(m.owned_by).toBe('anthropic');
       expect(m.object).toBe('model');
     }
+    expect(body.object).toBe('list');
+    await app.close();
+  });
+
+  it('retrieves a single model by id', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'GET',
+      url: '/anthropic/v1/models/claude-opus-4-8',
+      headers: { authorization: `Bearer ${VALID_KEY}` },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({ type: 'model', id: 'claude-opus-4-8' });
+    await app.close();
+  });
+
+  it('404s with not_found_error for an unknown model id', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'GET',
+      url: '/anthropic/v1/models/gpt-4o',
+      headers: { authorization: `Bearer ${VALID_KEY}` },
+    });
+    expect(r.statusCode).toBe(404);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'not_found_error', code: 'model_not_found' },
+    });
+    await app.close();
+  });
+});
+
+describe('POST /anthropic/v1/messages parameter conformance', () => {
+  it('accepts `system` as an array of text blocks and flattens it', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { authorization: `Bearer ${VALID_KEY}` },
+      payload: {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 64,
+        system: [
+          { type: 'text', text: 'You are terse.', cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: 'Answer in English.' },
+        ],
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    expect((adapter.lastCall?.params as { system?: string }).system).toBe(
+      'You are terse.\n\nAnswer in English.',
+    );
+    await app.close();
+  });
+
+  it('still accepts `system` as a plain string', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { authorization: `Bearer ${VALID_KEY}` },
+      payload: { system: '  You are terse.  ', messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(200);
+    expect((adapter.lastCall?.params as { system?: string }).system).toBe('You are terse.');
+    await app.close();
+  });
+
+  it('400s on a present-but-invalid max_tokens', async () => {
+    const app = await buildApp();
+    for (const bad of [0, -1, 1.5, '100']) {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/anthropic/v1/messages',
+        headers: { authorization: `Bearer ${VALID_KEY}` },
+        payload: { max_tokens: bad, messages: [{ role: 'user', content: 'hi' }] },
+      });
+      expect(r.statusCode).toBe(400);
+      expect(JSON.parse(r.payload)).toMatchObject({
+        type: 'error',
+        error: { type: 'invalid_request_error', code: 'invalid_max_tokens' },
+      });
+    }
+    await app.close();
+  });
+
+  it('404s with not_found_error for an unsupported model', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { authorization: `Bearer ${VALID_KEY}` },
+      payload: { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(404);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'not_found_error', code: 'model_not_found' },
+    });
     await app.close();
   });
 });

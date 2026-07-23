@@ -4,6 +4,7 @@ import {
   extractSystemMessages,
   normalizeChatMessages,
   normalizeResponsesInput,
+  normalizeSystemPrompt,
   responseFromMessage,
 } from '../../../src/services/anthropic-compat.js';
 
@@ -138,6 +139,43 @@ describe('extractParams', () => {
     expect(extractParams({ stop: 'END', stop_sequences: ['X'] })).toEqual({
       stop_sequences: ['X'],
     });
+  });
+
+  it('flattens a block-array system prompt', () => {
+    expect(
+      extractParams({
+        system: [
+          { type: 'text', text: ' A ', cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: 'B' },
+        ],
+      }),
+    ).toEqual({ system: 'A\n\nB' });
+  });
+
+  it('drops an empty or unusable system prompt', () => {
+    expect(extractParams({ system: '   ' })).toEqual({});
+    expect(extractParams({ system: [] })).toEqual({});
+    expect(extractParams({ system: [{ type: 'image', source: {} }] })).toEqual({});
+    expect(extractParams({ system: 42 })).toEqual({});
+  });
+
+  it('rejects a present-but-invalid max_tokens', () => {
+    for (const bad of [0, -3, 1.5, '10', null]) {
+      expect(() => extractParams({ max_tokens: bad })).toThrow(/max_tokens/);
+    }
+    expect(extractParams({})).toEqual({});
+    expect(extractParams({ max_tokens: 1 })).toEqual({ max_tokens: 1 });
+  });
+});
+
+describe('normalizeSystemPrompt', () => {
+  it('accepts both wire forms', () => {
+    expect(normalizeSystemPrompt('hi')).toBe('hi');
+    expect(normalizeSystemPrompt([{ type: 'text', text: 'hi' }])).toBe('hi');
+    // `type` is optional in practice; any block carrying text counts.
+    expect(normalizeSystemPrompt([{ text: 'hi' }])).toBe('hi');
+    expect(normalizeSystemPrompt(['a', 'b'])).toBe('a\n\nb');
+    expect(normalizeSystemPrompt(undefined)).toBeNull();
   });
 });
 

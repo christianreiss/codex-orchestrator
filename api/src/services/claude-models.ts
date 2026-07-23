@@ -46,10 +46,51 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 };
 
+/**
+ * Per-model metadata surfaced by the Models API: human-readable name, context
+ * window (`max_input_tokens`) and output cap (`max_tokens`). Values track the
+ * published vendor catalog. The `capabilities` tree the upstream API also
+ * returns is deliberately not synthesised here — see docs/API.md.
+ */
+export const CLAUDE_MODEL_METADATA: Record<
+  ClaudeModel,
+  { displayName: string; maxInputTokens: number; maxTokens: number }
+> = {
+  'claude-fable-5': { displayName: 'Claude Fable 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-4-7': { displayName: 'Claude Opus 4.7', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
+};
+
 export interface ClaudeModelInfo {
   id: ClaudeModel;
   enabled: boolean;
   ownedBy: 'anthropic';
+}
+
+/**
+ * A single entry of the Anthropic Models API response.
+ *
+ * `type` / `display_name` / `created_at` are the canonical Anthropic fields —
+ * the official SDKs (`client.models.list()` / `.retrieve()`) read these.
+ * `object` / `created` / `owned_by` are retained for the OpenAI-shaped clients
+ * that this gateway has always served; they are deprecated but harmless extras.
+ */
+export interface ClaudeModelObject {
+  type: 'model';
+  id: ClaudeModel;
+  display_name: string;
+  created_at: string;
+  max_input_tokens: number;
+  max_tokens: number;
+  /** @deprecated OpenAI-compat alias for `type`. */
+  object: 'model';
+  /** @deprecated OpenAI-compat unix-seconds alias for `created_at`. */
+  created: number;
+  /** @deprecated OpenAI-compat extra. */
+  owned_by: 'anthropic';
 }
 
 export interface ClaudeModelsService {
@@ -63,14 +104,21 @@ export interface ClaudeModelsService {
   setEnabled(model: ClaudeModel, enabled: boolean): Promise<void>;
   /**
    * Resolve a caller-supplied model string to a supported id. Empty/missing
-   * falls back to the default. Throws ApiError(400) for unsupported ids.
+   * falls back to the default. Throws ApiError(404) for unknown ids and
+   * ApiError(403) for admin-disabled ones, matching upstream semantics.
    */
   resolveRequestedModel(value: unknown): Promise<ClaudeModel>;
-  /** Anthropic-shaped /models response body. */
+  /** Anthropic-shaped `GET /models` response body. */
   modelsResponse(): Promise<{
-    data: Array<{ id: ClaudeModel; object: 'model'; created: number; owned_by: 'anthropic' }>;
+    data: ClaudeModelObject[];
+    has_more: boolean;
+    first_id: string | null;
+    last_id: string | null;
+    /** @deprecated OpenAI-compat extra. */
     object: 'list';
   }>;
+  /** Anthropic-shaped `GET /models/{id}` response body. */
+  modelResponse(value: unknown): Promise<ClaudeModelObject>;
 }
 
 const FLAG = 'claude_models_disabled';
@@ -138,17 +186,19 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
           ? (lower as ClaudeModel)
           : CLAUDE_LEGACY_MODEL_UPGRADES[lower];
       if (!canonical) {
+        // Upstream returns 404 not_found_error for an unknown/typo'd model id.
         throw new ApiError(
           `Unsupported model "${raw}". Supported models: ${CLAUDE_SUPPORTED_MODELS.join(', ')}`,
-          { status: 400, code: 'model_not_found', type: 'invalid_request_error', param: 'model' },
+          { status: 404, code: 'model_not_found', type: 'not_found_error', param: 'model' },
         );
       }
       const disabled = await loadDisabled();
       if (disabled.has(canonical)) {
+        // Same shape upstream uses when a key may not reach a model.
         throw new ApiError(`Model "${canonical}" is disabled by administrator`, {
-          status: 400,
+          status: 403,
           code: 'model_disabled',
-          type: 'invalid_request_error',
+          type: 'permission_error',
           param: 'model',
         });
       }
@@ -157,18 +207,52 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
 
     async modelsResponse() {
       const catalog = await this.catalog();
-      const created = Math.floor(Date.now() / 1000);
+      const enabled = catalog.filter((m) => m.enabled);
+      const data = enabled.map((m) => modelObject(m.id));
       return {
-        data: catalog
-          .filter((m) => m.enabled)
-          .map((m) => ({
-            id: m.id,
-            object: 'model' as const,
-            created,
-            owned_by: 'anthropic' as const,
-          })),
+        data,
+        has_more: false,
+        first_id: data[0]?.id ?? null,
+        last_id: data[data.length - 1]?.id ?? null,
         object: 'list' as const,
       };
     },
+
+    async modelResponse(value) {
+      // Unlike a generation request, a lookup has no sensible default: an empty
+      // id is a 404, not the fallback model.
+      if (typeof value !== 'string' || value.trim() === '') {
+        throw new ApiError('Model not found', {
+          status: 404,
+          code: 'model_not_found',
+          type: 'not_found_error',
+          param: 'model_id',
+        });
+      }
+      return modelObject(await this.resolveRequestedModel(value));
+    },
+  };
+}
+
+/**
+ * Stable placeholder creation time. This gateway does not track vendor release
+ * dates, but the field must not move between polls the way `Date.now()` would —
+ * upstream `created_at` is a fixed per-model release date.
+ */
+const CATALOG_CREATED_AT = Math.floor(Date.UTC(2026, 0, 1) / 1000);
+
+function modelObject(id: ClaudeModel): ClaudeModelObject {
+  const created = CATALOG_CREATED_AT;
+  const meta = CLAUDE_MODEL_METADATA[id];
+  return {
+    type: 'model',
+    id,
+    display_name: meta.displayName,
+    created_at: new Date(created * 1000).toISOString(),
+    max_input_tokens: meta.maxInputTokens,
+    max_tokens: meta.maxTokens,
+    object: 'model',
+    created,
+    owned_by: 'anthropic',
   };
 }

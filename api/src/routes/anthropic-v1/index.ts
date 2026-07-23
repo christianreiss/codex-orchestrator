@@ -122,10 +122,9 @@ export async function registerAnthropicCompatRoutes(
       const model = await models.resolveRequestedModel(payload.model);
       const params = extractParams(payload);
 
-      // Prefer top-level `system` over inline system messages.
-      if (typeof payload.system === 'string' && payload.system.trim() !== '') {
-        params.system = payload.system.trim();
-      } else {
+      // Prefer top-level `system` over inline system messages. `extractParams`
+      // already normalized the string-or-block-array form onto params.system.
+      if (params.system === undefined) {
         const extracted = extractSystemMessages(messages);
         if (extracted.system) {
           params.system = extracted.system;
@@ -203,6 +202,17 @@ export async function registerAnthropicCompatRoutes(
     preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
     handler: async () => {
       return models.modelsResponse();
+    },
+  });
+
+  // GET /anthropic/v1/models/:model_id — single-model lookup (Models API).
+  app.route({
+    method: 'GET',
+    url: '/anthropic/v1/models/:model_id',
+    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    handler: async (req) => {
+      const { model_id: modelId } = req.params as { model_id?: string };
+      return models.modelResponse(modelId ?? '');
     },
   });
 

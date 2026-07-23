@@ -18,6 +18,43 @@ describe('envelope selection', () => {
     expect(e).toMatchObject({ type: 'error', error: { type: 'authentication_error', message: 'nope' } });
   });
 
+  it('constrains Anthropic error.type to the documented set', () => {
+    const f = selectFormatter('/anthropic/v1/messages');
+    // Documented types pass through untouched.
+    for (const type of [
+      'invalid_request_error',
+      'authentication_error',
+      'permission_error',
+      'not_found_error',
+      'request_too_large',
+      'rate_limit_error',
+      'api_error',
+      'overloaded_error',
+    ]) {
+      const e = f.failure(new ApiError('x', { status: 400, type, code: 'c' }));
+      expect(e).toMatchObject({ error: { type } });
+    }
+    // Anything else falls back to the type matching the HTTP status. These
+    // come from the shared error classes (ServiceUnavailableError, ConflictError,
+    // LockedError), which are reachable from any route this envelope serves.
+    const cases: Array<[string, number, string]> = [
+      ['service_unavailable', 503, 'api_error'],
+      ['locked_error', 423, 'invalid_request_error'],
+      ['conflict_error', 409, 'invalid_request_error'],
+      ['whatever', 401, 'authentication_error'],
+      ['whatever', 403, 'permission_error'],
+      ['whatever', 404, 'not_found_error'],
+      ['whatever', 413, 'request_too_large'],
+      ['whatever', 429, 'rate_limit_error'],
+      ['whatever', 529, 'overloaded_error'],
+      ['whatever', 502, 'api_error'],
+    ];
+    for (const [type, status, expected] of cases) {
+      const e = f.failure(new ApiError('x', { status, type, code: 'c' }));
+      expect(e).toMatchObject({ type: 'error', error: { type: expected, message: 'x' } });
+    }
+  });
+
   it('routes everything else to the standard envelope', () => {
     const f = selectFormatter('/admin/overview');
     expect(f.kind).toBe('standard');

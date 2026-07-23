@@ -4,6 +4,7 @@
  *
  * Used by /anthropic/v1/messages, /anthropic/v1/completions, /anthropic/v1/responses.
  */
+import { ApiError } from '../http/errors.js';
 import type {
   ClaudeMessage,
   ClaudeContentBlock,
@@ -258,8 +259,46 @@ function deriveId(sourceId: string, prefix: string): string {
 }
 
 /**
+ * Normalize the Anthropic top-level `system` parameter. The wire format accepts
+ * either a plain string or an array of text content blocks (the shape every
+ * prompt-caching client and the official SDKs send). This backend flattens the
+ * prompt to a single string, so block arrays are joined and per-block metadata
+ * (`cache_control`) is dropped.
+ *
+ * Returns null when there is no usable system prompt.
+ */
+export function normalizeSystemPrompt(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const v = value.trim();
+    return v !== '' ? v : null;
+  }
+  if (!Array.isArray(value)) return null;
+  const parts: string[] = [];
+  for (const block of value) {
+    if (typeof block === 'string') {
+      const v = block.trim();
+      if (v) parts.push(v);
+      continue;
+    }
+    if (!block || typeof block !== 'object') continue;
+    const b = block as Record<string, unknown>;
+    const type = typeof b.type === 'string' ? b.type.toLowerCase().trim() : '';
+    // `type` is optional in practice; treat any block carrying text as text.
+    if (type !== '' && type !== 'text' && type !== 'input_text') continue;
+    if (typeof b.text !== 'string') continue;
+    const v = b.text.trim();
+    if (v) parts.push(v);
+  }
+  return parts.length > 0 ? parts.join('\n\n') : null;
+}
+
+/**
  * Pull the generation params subset from an Anthropic request body. Supports
- * OpenAI-style `stop` aliasing onto `stop_sequences`.
+ * OpenAI-style `stop` aliasing onto `stop_sequences`, and normalizes the
+ * string-or-block-array `system` parameter.
+ *
+ * Throws ApiError(400) for a present-but-invalid `max_tokens`, matching the
+ * upstream API (a missing `max_tokens` is accepted here — see docs/API.md).
  */
 export function extractParams(payload: Record<string, unknown>): {
   max_tokens?: number;
@@ -270,9 +309,22 @@ export function extractParams(payload: Record<string, unknown>): {
   system?: string;
 } {
   const out: Record<string, unknown> = {};
-  for (const k of ['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences', 'system'] as const) {
+  for (const k of ['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as const) {
     if (payload[k] !== undefined) out[k] = payload[k];
   }
+  if (out.max_tokens !== undefined) {
+    const v = out.max_tokens;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
+      throw new ApiError('max_tokens: Input should be a valid integer greater than 0', {
+        status: 400,
+        code: 'invalid_max_tokens',
+        type: 'invalid_request_error',
+        param: 'max_tokens',
+      });
+    }
+  }
+  const system = normalizeSystemPrompt(payload.system);
+  if (system !== null) out.system = system;
   if (payload.stop !== undefined && out.stop_sequences === undefined) {
     out.stop_sequences = Array.isArray(payload.stop) ? payload.stop : [payload.stop];
   }

@@ -1,3 +1,30 @@
+# 2026-07-23
+
+- The Anthropic-compatible `/anthropic/v1/*` gateway now matches the upstream
+  wire format in three places where an official Anthropic SDK client would
+  otherwise misbehave. `system` accepts the block-array form
+  (`[{type:"text", text:"..."}]`) that every SDK and prompt-caching client
+  sends — it was previously forwarded to the runner as a raw array where a
+  string was expected, so the system prompt was silently mangled;
+  `cache_control` on a block is accepted and ignored. `GET /models` now returns
+  the Anthropic Models API envelope (`data[].type`/`display_name`/`created_at`,
+  `has_more`/`first_id`/`last_id`) instead of an OpenAI-shaped list, so
+  `client.models.list()` parses it; the old `object`/`created`/`owned_by`
+  fields stay as deprecated aliases for existing callers. `GET /models/{model_id}`
+  was added, and model objects now carry `max_input_tokens`/`max_tokens` (the
+  upstream `capabilities` tree is deliberately not synthesised). An unknown model id now returns
+  404 `not_found_error` and an admin-disabled one 403 `permission_error`,
+  matching upstream, instead of 400 for both.
+
+- Anthropic-route errors are constrained to the eight `error.type` values
+  Anthropic documents. Shared error classes could previously leak undocumented
+  types (`service_unavailable`, `conflict_error`, `locked_error`) to
+  `/anthropic/v1/*` callers, which breaks SDK error classification; the
+  envelope now maps anything outside the documented set onto the type matching
+  the HTTP status. A present-but-invalid `max_tokens` (zero, negative,
+  fractional, or non-numeric) is also rejected with 400 `invalid_max_tokens`
+  rather than being forwarded verbatim.
+
 # 2026-07-22
 
 - clx no longer records durable logout intent when a native

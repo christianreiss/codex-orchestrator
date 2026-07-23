@@ -72,7 +72,7 @@ describe('claude-models', () => {
     expect(await svc.resolveRequestedModel('claude-haiku-4-5')).toBe('claude-haiku-4-5-20251001');
   });
 
-  it('throws Anthropic-shaped 400 for unsupported ids', async () => {
+  it('throws Anthropic-shaped 404 not_found_error for unsupported ids', async () => {
     const svc = createClaudeModelsService(fakeDb());
     let err: unknown = null;
     try {
@@ -82,8 +82,8 @@ describe('claude-models', () => {
     }
     expect(err).toBeInstanceOf(ApiError);
     const apiErr = err as ApiError;
-    expect(apiErr.status).toBe(400);
-    expect(apiErr.type).toBe('invalid_request_error');
+    expect(apiErr.status).toBe(404);
+    expect(apiErr.type).toBe('not_found_error');
     expect(apiErr.code).toBe('model_not_found');
     expect(apiErr.param).toBe('model');
   });
@@ -91,13 +91,46 @@ describe('claude-models', () => {
   it('builds an Anthropic-shaped models response body', async () => {
     const svc = createClaudeModelsService(fakeDb());
     const out = await svc.modelsResponse();
-    expect(out.object).toBe('list');
     expect(out.data.length).toBe(CLAUDE_SUPPORTED_MODELS.length);
+    // Canonical Anthropic Models API envelope.
+    expect(out.has_more).toBe(false);
+    expect(out.first_id).toBe(CLAUDE_SUPPORTED_MODELS[0]);
+    expect(out.last_id).toBe(CLAUDE_SUPPORTED_MODELS[CLAUDE_SUPPORTED_MODELS.length - 1]);
     for (const m of out.data) {
+      expect(m.type).toBe('model');
+      expect(typeof m.display_name).toBe('string');
+      expect(m.display_name.length).toBeGreaterThan(0);
+      expect(Number.isNaN(Date.parse(m.created_at))).toBe(false);
+      expect(m.max_input_tokens).toBeGreaterThan(0);
+      expect(m.max_tokens).toBeGreaterThan(0);
+      expect((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(m.id)).toBe(true);
+      // Retained OpenAI-compat aliases.
       expect(m.object).toBe('model');
       expect(m.owned_by).toBe('anthropic');
       expect(typeof m.created).toBe('number');
-      expect((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(m.id)).toBe(true);
+    }
+    expect(out.object).toBe('list');
+  });
+
+  it('retrieves a single model and 404s on an unknown or blank id', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    const m = await svc.modelResponse('claude-opus-4-8');
+    expect(m).toMatchObject({
+      type: 'model',
+      id: 'claude-opus-4-8',
+      display_name: 'Claude Opus 4.8',
+      max_input_tokens: 1_000_000,
+      max_tokens: 128_000,
+    });
+    expect((await svc.modelResponse('claude-haiku-4-5-20251001')).max_input_tokens).toBe(200_000);
+    // Legacy aliases resolve to their canonical replacement.
+    expect((await svc.modelResponse('claude-sonnet-4-5')).id).toBe('claude-sonnet-5');
+
+    for (const bad of ['gpt-4o', '', '   ']) {
+      await expect(svc.modelResponse(bad)).rejects.toMatchObject({
+        status: 404,
+        type: 'not_found_error',
+      });
     }
   });
 });
