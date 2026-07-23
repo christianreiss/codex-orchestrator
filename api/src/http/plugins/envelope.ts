@@ -88,12 +88,40 @@ function toApiError(err: unknown): ApiError {
     const fe = err as { statusCode: number; message?: string; code?: string };
     const status = fe.statusCode;
     if (status === 400) {
-      return new ApiError(fe.message ?? 'Bad request', { status, code: fe.code ?? 'bad_request' });
+      return new ApiError(fe.message ?? 'Bad request', {
+        status,
+        code: fe.code ?? 'bad_request',
+        type: 'invalid_request_error',
+      });
     }
-    if (status === 401) return new ApiError(fe.message ?? 'Unauthorized', { status, code: 'unauthorized' });
-    if (status === 404) return new ApiError(fe.message ?? 'Not found', { status, code: 'not_found' });
-    if (status === 415) return new ApiError(fe.message ?? 'Unsupported media type', { status, code: 'unsupported_media_type' });
-    if (status >= 500) return new ApiError('Internal server error', { status, code: fe.code ?? 'server_error' });
+    if (status === 401) {
+      return new ApiError(fe.message ?? 'Unauthorized', {
+        status,
+        code: 'unauthorized',
+        type: 'authentication_error',
+      });
+    }
+    if (status === 404) {
+      return new ApiError(fe.message ?? 'Not found', {
+        status,
+        code: 'not_found',
+        type: 'not_found_error',
+      });
+    }
+    if (status === 415) {
+      return new ApiError(fe.message ?? 'Unsupported media type', {
+        status,
+        code: 'unsupported_media_type',
+        type: 'invalid_request_error',
+      });
+    }
+    if (status >= 500) {
+      return new ApiError('Internal server error', {
+        status,
+        code: fe.code ?? 'server_error',
+        type: 'api_error',
+      });
+    }
     return new ApiError(fe.message ?? 'Error', { status });
   }
   return new ApiError('Internal server error', { status: 500, code: 'server_error' });

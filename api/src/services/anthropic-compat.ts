@@ -297,10 +297,16 @@ export function normalizeSystemPrompt(value: unknown): string | null {
  * OpenAI-style `stop` aliasing onto `stop_sequences`, and normalizes the
  * string-or-block-array `system` parameter.
  *
- * Throws ApiError(400) for a present-but-invalid `max_tokens`, matching the
- * upstream API (a missing `max_tokens` is accepted here — see docs/API.md).
+ * Throws ApiError(400) for a present-but-invalid `max_tokens` always; throws
+ * for a *missing* `max_tokens` only when `opts.requireMaxTokens` is set. The
+ * real Messages API requires it and every official SDK sends it, so
+ * `/anthropic/v1/messages` opts in — but the OpenAI-shaped `/completions` and
+ * `/responses` shims never advertised it as required, so they stay lenient.
  */
-export function extractParams(payload: Record<string, unknown>): {
+export function extractParams(
+  payload: Record<string, unknown>,
+  opts: { requireMaxTokens?: boolean } = {},
+): {
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
@@ -311,6 +317,14 @@ export function extractParams(payload: Record<string, unknown>): {
   const out: Record<string, unknown> = {};
   for (const k of ['max_tokens', 'temperature', 'top_p', 'top_k', 'stop_sequences'] as const) {
     if (payload[k] !== undefined) out[k] = payload[k];
+  }
+  if (out.max_tokens === undefined && opts.requireMaxTokens) {
+    throw new ApiError('max_tokens: Field required', {
+      status: 400,
+      code: 'missing_max_tokens',
+      type: 'invalid_request_error',
+      param: 'max_tokens',
+    });
   }
   if (out.max_tokens !== undefined) {
     const v = out.max_tokens;
@@ -329,4 +343,86 @@ export function extractParams(payload: Record<string, unknown>): {
     out.stop_sequences = Array.isArray(payload.stop) ? payload.stop : [payload.stop];
   }
   return out;
+}
+
+/**
+ * Validate the final (post system-hoist) conversation the way the real
+ * Messages API does: non-empty, only `user`/`assistant` roles, and roles must
+ * alternate. Throws ApiError(400) on the first violation.
+ */
+export function validateMessageSequence(messages: ClaudeMessage[]): void {
+  if (messages.length === 0) {
+    throw new ApiError('messages: at least one message is required', {
+      status: 400,
+      code: 'empty_messages',
+      type: 'invalid_request_error',
+      param: 'messages',
+    });
+  }
+  let prevRole: string | null = null;
+  for (let i = 0; i < messages.length; i++) {
+    const role = messages[i]!.role;
+    if (role !== 'user' && role !== 'assistant') {
+      throw new ApiError(
+        `messages.${i}.role: Input should be 'user' or 'assistant'`,
+        {
+          status: 400,
+          code: 'invalid_message_role',
+          type: 'invalid_request_error',
+          param: `messages.${i}.role`,
+        },
+      );
+    }
+    if (role === prevRole) {
+      throw new ApiError(
+        `messages: roles must alternate between "user" and "assistant" (consecutive "${role}" at index ${i})`,
+        {
+          status: 400,
+          code: 'invalid_message_role_sequence',
+          type: 'invalid_request_error',
+          param: 'messages',
+        },
+      );
+    }
+    prevRole = role;
+  }
+}
+
+/**
+ * Best-effort token estimate for `POST /messages/count_tokens`. This backend
+ * has no access to the real Anthropic tokenizer (the runner shells out to the
+ * `claude` CLI, not a raw model endpoint), so this is a character-based
+ * approximation (~4 chars/token, the commonly-cited English average) plus a
+ * small per-message and per-tool overhead. It will not match the exact count
+ * the real API returns — see docs/API.md.
+ */
+export function estimateTokenCount(
+  messages: ClaudeMessage[],
+  system: string | null,
+  tools: unknown[],
+): number {
+  const CHARS_PER_TOKEN = 4;
+  const PER_MESSAGE_OVERHEAD = 4;
+  let chars = 0;
+  let overhead = 0;
+  if (system) chars += system.length;
+  for (const message of messages) {
+    overhead += PER_MESSAGE_OVERHEAD;
+    chars += contentLength(message.content);
+  }
+  for (const tool of tools) {
+    overhead += PER_MESSAGE_OVERHEAD;
+    chars += JSON.stringify(tool ?? '').length;
+  }
+  return Math.max(1, Math.ceil(chars / CHARS_PER_TOKEN) + overhead);
+}
+
+function contentLength(content: string | ClaudeContentBlock[]): number {
+  if (typeof content === 'string') return content.length;
+  let total = 0;
+  for (const block of content) {
+    if (block.type === 'text') total += block.text.length;
+    else total += 256; // flat estimate for non-text blocks (images, etc.)
+  }
+  return total;
 }

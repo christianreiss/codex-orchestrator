@@ -26,6 +26,7 @@ import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js'
 
 const VALID_KEY = 'sk-ant-' + 'a'.repeat(64);
 const DISABLED_KEY = 'sk-ant-' + 'd'.repeat(64);
+const AV = { 'anthropic-version': '2023-06-01' };
 
 function stubKeyResolver(): ClaudeKeyResolver {
   const known: Record<string, ClaudeApiKeyContext | 'disabled'> = {
@@ -234,8 +235,8 @@ describe('POST /anthropic/v1/messages', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json' },
-      payload: { messages: [{ role: 'user', content: 'hi' }] },
+      headers: { 'content-type': 'application/json', ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
     });
     expect(r.statusCode).toBe(401);
     expect(JSON.parse(r.payload)).toMatchObject({
@@ -248,8 +249,12 @@ describe('POST /anthropic/v1/messages', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${DISABLED_KEY}` },
-      payload: { messages: [{ role: 'user', content: 'hi' }] },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${DISABLED_KEY}`,
+        ...AV,
+      },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
     });
     expect(r.statusCode).toBe(401);
     expect(JSON.parse(r.payload)).toMatchObject({
@@ -262,7 +267,7 @@ describe('POST /anthropic/v1/messages', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: {},
     });
     expect(r.statusCode).toBe(400);
@@ -272,12 +277,108 @@ describe('POST /anthropic/v1/messages', () => {
     });
   });
 
+  it('400s with the Anthropic envelope when max_tokens is missing', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'invalid_request_error', code: 'missing_max_tokens' },
+    });
+  });
+
+  it('400s when anthropic-version header is missing or unsupported', async () => {
+    const app2 = await buildApp();
+    for (const headers of [
+      { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}` },
+      {
+        'content-type': 'application/json',
+        authorization: `Bearer ${VALID_KEY}`,
+        'anthropic-version': 'not-a-real-version',
+      },
+    ]) {
+      const r = await app2.inject({
+        method: 'POST',
+        url: '/anthropic/v1/messages',
+        headers,
+        payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
+      });
+      expect(r.statusCode).toBe(400);
+      expect(JSON.parse(r.payload)).toMatchObject({
+        type: 'error',
+        error: { type: 'invalid_request_error', code: 'invalid_anthropic_version' },
+      });
+    }
+    await app2.close();
+  });
+
+  it('400s on consecutive same-role messages', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {
+        max_tokens: 64,
+        messages: [
+          { role: 'user', content: 'hi' },
+          { role: 'user', content: 'hi again' },
+        ],
+      },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'invalid_request_error', code: 'invalid_message_role_sequence' },
+    });
+  });
+
+  it('400s instead of leaking a runner 502 when role:system empties the conversation', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'system', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'invalid_request_error', code: 'empty_messages' },
+    });
+  });
+
+  it('400s when tools are supplied (not yet supported by this backend)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {
+        max_tokens: 64,
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [{ name: 'get_weather', input_schema: { type: 'object', properties: {} } }],
+        tool_choice: { type: 'tool', name: 'get_weather' },
+      },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      type: 'error',
+      error: { type: 'invalid_request_error', code: 'tools_not_supported' },
+    });
+  });
+
   it('returns a non-stream Claude message response', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}` },
-      payload: { messages: [{ role: 'user', content: 'hi' }], model: 'claude-sonnet-4-6' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {
+        max_tokens: 64,
+        messages: [{ role: 'user', content: 'hi' }],
+        model: 'claude-sonnet-4-6',
+      },
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
@@ -291,12 +392,26 @@ describe('POST /anthropic/v1/messages', () => {
     });
   });
 
+  it('sets Anthropic-shaped rate-limit and request-id headers', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['request-id']).toMatch(/^req_[0-9a-f]{32}$/);
+    expect(r.headers['anthropic-ratelimit-requests-limit']).toBeDefined();
+    expect(r.headers['anthropic-ratelimit-requests-remaining']).toBeDefined();
+    expect(r.headers['anthropic-ratelimit-requests-reset']).toBeDefined();
+  });
+
   it('also accepts the raw x-api-key header form', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json', 'x-api-key': VALID_KEY },
-      payload: { messages: [{ role: 'user', content: 'hi' }] },
+      headers: { 'content-type': 'application/json', 'x-api-key': VALID_KEY, ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
     });
     expect(r.statusCode).toBe(200);
   });
@@ -305,8 +420,9 @@ describe('POST /anthropic/v1/messages', () => {
     await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: {
+        max_tokens: 64,
         messages: [
           { role: 'system', content: 'be brief' },
           { role: 'user', content: 'hi' },
@@ -321,8 +437,8 @@ describe('POST /anthropic/v1/messages', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}` },
-      payload: { messages: [{ role: 'user', content: 'hi' }], stream: true },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }], stream: true },
     });
     expect(r.statusCode).toBe(200);
     expect(r.headers['content-type']).toMatch(/text\/event-stream/);
@@ -337,13 +453,54 @@ describe('POST /anthropic/v1/messages', () => {
   });
 });
 
+describe('POST /anthropic/v1/messages/count_tokens', () => {
+  it('returns a best-effort input_tokens estimate', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages/count_tokens',
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'hi there' }] },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(typeof body.input_tokens).toBe('number');
+    expect(body.input_tokens).toBeGreaterThan(0);
+    await app.close();
+  });
+
+  it('does not require max_tokens', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages/count_tokens',
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(r.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it('400s when messages is missing', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages/count_tokens',
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {},
+    });
+    expect(r.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
 describe('GET /anthropic/v1/models', () => {
   it('returns the model catalog in the Anthropic Models API shape', async () => {
     const app = await buildApp();
     const r = await app.inject({
       method: 'GET',
       url: '/anthropic/v1/models',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
@@ -370,7 +527,7 @@ describe('GET /anthropic/v1/models', () => {
     const r = await app.inject({
       method: 'GET',
       url: '/anthropic/v1/models/claude-opus-4-8',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
     });
     expect(r.statusCode).toBe(200);
     expect(JSON.parse(r.payload)).toMatchObject({ type: 'model', id: 'claude-opus-4-8' });
@@ -382,7 +539,7 @@ describe('GET /anthropic/v1/models', () => {
     const r = await app.inject({
       method: 'GET',
       url: '/anthropic/v1/models/gpt-4o',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
     });
     expect(r.statusCode).toBe(404);
     expect(JSON.parse(r.payload)).toMatchObject({
@@ -400,7 +557,7 @@ describe('POST /anthropic/v1/messages parameter conformance', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: {
         model: 'claude-sonnet-4-6',
         max_tokens: 64,
@@ -424,8 +581,12 @@ describe('POST /anthropic/v1/messages parameter conformance', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
-      payload: { system: '  You are terse.  ', messages: [{ role: 'user', content: 'hi' }] },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {
+        max_tokens: 64,
+        system: '  You are terse.  ',
+        messages: [{ role: 'user', content: 'hi' }],
+      },
     });
     expect(r.statusCode).toBe(200);
     expect((adapter.lastCall?.params as { system?: string }).system).toBe('You are terse.');
@@ -438,7 +599,7 @@ describe('POST /anthropic/v1/messages parameter conformance', () => {
       const r = await app.inject({
         method: 'POST',
         url: '/anthropic/v1/messages',
-        headers: { authorization: `Bearer ${VALID_KEY}` },
+        headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
         payload: { max_tokens: bad, messages: [{ role: 'user', content: 'hi' }] },
       });
       expect(r.statusCode).toBe(400);
@@ -455,8 +616,8 @@ describe('POST /anthropic/v1/messages parameter conformance', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
-      payload: { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { max_tokens: 64, model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }] },
     });
     expect(r.statusCode).toBe(404);
     expect(JSON.parse(r.payload)).toMatchObject({
@@ -473,7 +634,7 @@ describe('POST /anthropic/v1/embeddings', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/embeddings',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: { input: 'hi', model: 'claude-sonnet-4-6' },
     });
     expect(r.statusCode).toBe(501);
@@ -504,7 +665,7 @@ describe('POST /anthropic/v1/completions', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/completions',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: { prompt: 'tell me a joke', model: 'claude-sonnet-4-6' },
     });
     expect(r.statusCode).toBe(200);
@@ -524,7 +685,7 @@ describe('POST /anthropic/v1/completions', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/completions',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: {},
     });
     expect(r.statusCode).toBe(400);
@@ -542,7 +703,7 @@ describe('POST /anthropic/v1/responses', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/responses',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: { input: 'hi', model: 'claude-sonnet-4-6' },
     });
     expect(r.statusCode).toBe(200);
@@ -559,7 +720,7 @@ describe('POST /anthropic/v1/responses', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/responses',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: { input: 'hi', stream: true },
     });
     expect(r.statusCode).toBe(400);
@@ -577,8 +738,8 @@ describe('kill switch', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
-      headers: { authorization: `Bearer ${VALID_KEY}` },
-      payload: { messages: [{ role: 'user', content: 'hi' }] },
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
     });
     expect(r.statusCode).toBe(503);
     expect(JSON.parse(r.payload)).toMatchObject({

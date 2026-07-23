@@ -30,7 +30,9 @@ Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error enve
 
 **Authentication**: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-claude-` prefix.
 
-**Rate limiting**: per-key RPM using the `anthropic:{key_id}` bucket (default 60 RPM, configurable per key). Exceeding the limit returns HTTP 429 with a `Retry-After: 60` header.
+**Rate limiting**: per-key RPM using the `anthropic:{key_id}` bucket (default 60 RPM, configurable per key). Exceeding the limit returns HTTP 429 with a `Retry-After: 60` header. Every `/anthropic/v1/*` response (success or error) also carries `anthropic-ratelimit-requests-limit` / `-remaining` / `-reset` so SDK backoff logic has something to read before hitting a hard 429, plus a `request-id: req_<hex>` header (distinct from this gateway's own general-purpose `x-request-id`) for diagnostics.
+
+**Protocol requirements**: `anthropic-version` header is required on every request (one of `2023-06-01`, `2023-01-01`); missing or unrecognized values return 400 `invalid_anthropic_version`.
 
 **Supported models**: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to current catalog equivalents.
 
@@ -42,15 +44,16 @@ Anthropic-compatible Messages API.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `messages` | array | yes | Array of `{role, content}` objects. Roles: `user`, `assistant`, `system`. |
+| `messages` | array | yes | Array of `{role, content}` objects. `role` must be `user` or `assistant`, alternating (a `system`-role entry is hoisted into `system` instead — see below); an empty conversation, a non-`user`/`assistant` role, or two consecutive same-role messages return 400 (`empty_messages` / `invalid_message_role` / `invalid_message_role_sequence`). |
 | `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-5`). |
 | `system` | string \| array | no | System prompt. Accepts a plain string or an Anthropic block array (`[{type:"text", text:"..."}]`); block arrays are flattened by joining with a blank line. Per-block `cache_control` is accepted and ignored — this gateway has no prompt cache. |
-| `max_tokens` | integer | no | Maximum tokens to generate. Optional here (upstream requires it); when present it must be an integer ≥ 1, else 400 `invalid_max_tokens`. |
+| `max_tokens` | integer | **yes** | Maximum tokens to generate, matching upstream. Missing → 400 `missing_max_tokens`; present but not an integer ≥ 1 → 400 `invalid_max_tokens`. |
 | `temperature` | float | no | Sampling temperature (0-1). |
 | `top_p` | float | no | Nucleus sampling (0-1). |
 | `top_k` | integer | no | Top-k sampling. |
 | `stop_sequences` | string[] | no | Stop sequences. |
 | `stream` | boolean | no | Enable SSE streaming. |
+| `tools` / `tool_choice` | array / object | no | **Not supported.** A non-empty `tools` array returns 400 `tools_not_supported` rather than silently generating a text-only reply — see "Known deviations" below. |
 
 `messages[].content` may be a plain string or an array of content blocks:
 - `{type: "text", text: "..."}` for text
@@ -90,6 +93,17 @@ OpenAI-format image parts (`image_url`, `input_image`) are automatically convert
 | `message_stop` | Terminal event. |
 
 Currently the full response is emitted in a single `content_block_delta` (not incremental from the runner).
+
+#### `POST /anthropic/v1/messages/count_tokens`
+
+Token count estimate for a prospective request. Takes the same `messages` / `system` / `tools` shape as `/messages` but does **not** require `max_tokens`.
+
+**Response:**
+```json
+{"input_tokens": 42}
+```
+
+The runner has no access to the real Anthropic tokenizer (it shells out to the `claude` CLI, not a raw model endpoint), so this is a character-based estimate (~4 chars/token) plus a small per-message/per-tool overhead — it will not match the exact count the real API returns.
 
 #### `POST /anthropic/v1/completions`
 
@@ -200,16 +214,16 @@ All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"err
 
 | Status | Error type | When |
 |---|---|---|
-| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream`, `invalid_max_tokens` |
+| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream`, `invalid_max_tokens`, `missing_max_tokens`, `invalid_anthropic_version`, `empty_messages`, `invalid_message_role`, `invalid_message_role_sequence`, `tools_not_supported` |
 | 401 | `authentication_error` | Missing or invalid API key |
 | 403 | `permission_error` | Model disabled by administrator (`model_disabled`) |
-| 404 | `not_found_error` | Unknown model id (`model_not_found`) |
+| 404 | `not_found_error` | Unknown model id (`model_not_found`), unmatched route |
 | 429 | `rate_limit_error` | Rate limit exceeded (includes `Retry-After` header) |
 | 501 | `invalid_request_error` | `/embeddings` (not an Anthropic capability) |
 | 502 | `api_error` | Backend/runner communication failure |
 | 503 | `api_error` | Backend not configured or API disabled by administrator |
 
-**Known deviations from upstream** (deliberate, so existing callers keep working): `max_tokens` and the `anthropic-version` header are optional here rather than required; `POST /v1/messages/count_tokens` is not implemented; model objects omit the `capabilities` tree; error bodies carry no top-level `request_id`; tool-use/tool-result content blocks are dropped during normalization (the runner backend has no tool support); streaming emits the full response as a single `content_block_delta`.
+**Known deviations from upstream** (the runner backend shells out to the `claude` CLI rather than calling a raw model endpoint, which is the root constraint behind these): tool-use is not supported — a request with a non-empty `tools` array is rejected up front with 400 `tools_not_supported` rather than silently generating a tool-less text reply; `/messages/count_tokens` returns a character-based estimate, not an exact tokenizer count; model objects omit the `capabilities` tree; error bodies carry no top-level `request_id` field (though the `request-id` response header is set); streaming emits the full response as a single `content_block_delta` (the runner has no token-by-token stream). `max_tokens` and `anthropic-version` are now enforced as upstream requires — no longer a deviation.
 
 #### CORS Preflight
 

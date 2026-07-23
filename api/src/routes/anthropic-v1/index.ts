@@ -19,7 +19,8 @@
  * Streaming: synthesised SSE events from the completed runner response, same
  * shape as the legacy PHP `AnthropicCompat::messageStreamEvents`.
  */
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { randomBytes } from 'node:crypto';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import {
@@ -39,11 +40,14 @@ import {
   type RunnerClaudeAdapter,
 } from '../../services/adapters/runner-claude.js';
 import {
+  estimateTokenCount,
   extractParams,
   extractSystemMessages,
   normalizeChatMessages,
   normalizeResponsesInput,
+  normalizeSystemPrompt,
   responseFromMessage,
+  validateMessageSequence,
 } from '../../services/anthropic-compat.js';
 import { messageStreamEvents, writeSseResponse } from '../../http/stream/anthropic-sse.js';
 import { createRunnerValidationService } from '../../services/runner-validation.js';
@@ -107,7 +111,13 @@ export async function registerAnthropicCompatRoutes(
   app.route({
     method: 'POST',
     url: '/anthropic/v1/messages',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async (req, reply) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
       let messages = normalizeChatMessages(payload.messages);
@@ -119,8 +129,14 @@ export async function registerAnthropicCompatRoutes(
           param: 'messages',
         });
       }
+      if (Array.isArray(payload.tools) && payload.tools.length > 0) {
+        throw new ApiError(
+          'Tool use is not supported by this backend yet. Remove `tools`/`tool_choice` from the request.',
+          { status: 400, code: 'tools_not_supported', type: 'invalid_request_error', param: 'tools' },
+        );
+      }
       const model = await models.resolveRequestedModel(payload.model);
-      const params = extractParams(payload);
+      const params = extractParams(payload, { requireMaxTokens: true });
 
       // Prefer top-level `system` over inline system messages. `extractParams`
       // already normalized the string-or-block-array form onto params.system.
@@ -131,6 +147,7 @@ export async function registerAnthropicCompatRoutes(
           messages = extracted.messages;
         }
       }
+      validateMessageSequence(messages);
 
       ensureAdapter(deps);
       const result = await deps.adapter!.messages(messages, model, params);
@@ -143,12 +160,49 @@ export async function registerAnthropicCompatRoutes(
     },
   });
 
+  // POST /anthropic/v1/messages/count_tokens — best-effort token estimate.
+  // No real tokenizer is available server-side (see estimateTokenCount); this
+  // exists so SDK clients get a plausible answer instead of a 404.
+  app.route({
+    method: 'POST',
+    url: '/anthropic/v1/messages/count_tokens',
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
+    handler: async (req) => {
+      const payload = (req.body ?? {}) as Record<string, unknown>;
+      const messages = normalizeChatMessages(payload.messages);
+      if (!messages) {
+        throw new ApiError('Missing required parameter: messages', {
+          status: 400,
+          code: 'missing_messages',
+          type: 'invalid_request_error',
+          param: 'messages',
+        });
+      }
+      await models.resolveRequestedModel(payload.model);
+      const system = normalizeSystemPrompt(payload.system);
+      const tools = Array.isArray(payload.tools) ? payload.tools : [];
+      return { input_tokens: estimateTokenCount(messages, system, tools) };
+    },
+  });
+
   // POST /anthropic/v1/completions — text completion form. Build a single
   // user message from the prompt and run it through the messages backend.
   app.route({
     method: 'POST',
     url: '/anthropic/v1/completions',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async (req, reply) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
       const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
@@ -199,7 +253,13 @@ export async function registerAnthropicCompatRoutes(
   app.route({
     method: 'GET',
     url: '/anthropic/v1/models',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async () => {
       return models.modelsResponse();
     },
@@ -209,7 +269,13 @@ export async function registerAnthropicCompatRoutes(
   app.route({
     method: 'GET',
     url: '/anthropic/v1/models/:model_id',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async (req) => {
       const { model_id: modelId } = req.params as { model_id?: string };
       return models.modelResponse(modelId ?? '');
@@ -221,7 +287,13 @@ export async function registerAnthropicCompatRoutes(
   app.route({
     method: 'POST',
     url: '/anthropic/v1/responses',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async (req) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
       if (payload.stream === true) {
@@ -255,7 +327,13 @@ export async function registerAnthropicCompatRoutes(
   app.route({
     method: 'POST',
     url: '/anthropic/v1/embeddings',
-    preHandler: [killSwitchHook(deps), keyResolver.preHandler, rateLimitHook(app)],
+    preHandler: [
+      requestIdHook(),
+      versionHeaderHook(),
+      killSwitchHook(deps),
+      keyResolver.preHandler,
+      rateLimitHook(app),
+    ],
     handler: async () => {
       throw new ApiError('Anthropic API does not support embeddings', {
         status: 501,
@@ -273,18 +351,25 @@ function killSwitchHook(deps: AnthropicRouteDeps) {
 }
 
 function rateLimitHook(app: FastifyInstance) {
-  return async function perKeyRateLimit(req: FastifyRequest) {
+  return async function perKeyRateLimit(req: FastifyRequest, reply: FastifyReply) {
     const apiKey = req.claudeApiKey;
     if (!apiKey) return; // resolver ran first; if missing, request will already have failed
     const ip = req.clientIp || '0.0.0.0';
     const rpm = apiKey.rateLimitRpm > 0 ? apiKey.rateLimitRpm : 60;
     const bucket = `anthropic:${apiKey.id}`;
     const res = await app.rateLimiter.hit(ip, bucket, { limit: rpm, windowSeconds: 60 });
+    const remaining = Math.max(0, rpm - res.count);
+    const resetSeconds = Math.max(
+      0,
+      Math.ceil((new Date(res.resetAt).getTime() - Date.now()) / 1000),
+    );
+    // Anthropic-shaped rate-limit headers so SDK backoff logic has something
+    // to read, even on success — not just at the 429 boundary.
+    reply.header('anthropic-ratelimit-requests-limit', String(rpm));
+    reply.header('anthropic-ratelimit-requests-remaining', String(remaining));
+    reply.header('anthropic-ratelimit-requests-reset', new Date(res.resetAt).toISOString());
     if (!res.ok) {
-      const retryAfter = Math.max(
-        1,
-        Math.ceil((new Date(res.resetAt).getTime() - Date.now()) / 1000),
-      );
+      const retryAfter = Math.max(1, resetSeconds);
       throw new ApiError('Rate limit exceeded. Please retry after 60 seconds.', {
         status: 429,
         code: 'rate_limit_exceeded',
@@ -292,6 +377,29 @@ function rateLimitHook(app: FastifyInstance) {
         extra: { bucket, reset_at: res.resetAt },
         headers: { 'Retry-After': String(retryAfter) },
       });
+    }
+  };
+}
+
+/** Anthropic SDKs read this specific header for diagnostics/support requests —
+ * distinct from this gateway's own general-purpose `x-request-id`. */
+function requestIdHook() {
+  return async function anthropicRequestId(_req: FastifyRequest, reply: FastifyReply) {
+    reply.header('request-id', `req_${randomBytes(16).toString('hex')}`);
+  };
+}
+
+const SUPPORTED_ANTHROPIC_VERSIONS = new Set(['2023-06-01', '2023-01-01']);
+
+function versionHeaderHook() {
+  return async function checkAnthropicVersion(req: FastifyRequest) {
+    const raw = req.headers['anthropic-version'];
+    const version = Array.isArray(raw) ? raw[0] : raw;
+    if (!version || !SUPPORTED_ANTHROPIC_VERSIONS.has(version)) {
+      throw new ApiError(
+        `anthropic-version: "${version ?? ''}" is not a supported version. Use one of: ${Array.from(SUPPORTED_ANTHROPIC_VERSIONS).join(', ')}`,
+        { status: 400, code: 'invalid_anthropic_version', type: 'invalid_request_error' },
+      );
     }
   };
 }

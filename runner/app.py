@@ -577,6 +577,7 @@ def _build_claude_exec_cmd(
     image_paths: Optional[list[str]] = None,
     system: Optional[str] = None,
     max_tokens: Optional[int] = None,
+    output_format: Optional[str] = None,
 ) -> list[str]:
     cmd = [CLAUDE_CLI_PATH, "--print"]
     if isinstance(model, str) and model.strip():
@@ -585,6 +586,8 @@ def _build_claude_exec_cmd(
         cmd.extend(["--max-tokens", str(max_tokens)])
     if isinstance(system, str) and system.strip():
         cmd.extend(["--system-prompt", system.strip()])
+    if isinstance(output_format, str) and output_format.strip():
+        cmd.extend(["--output-format", output_format.strip()])
     # Claude Code CLI does not have an --image flag; embed file references in the prompt.
     effective_prompt = prompt
     if image_paths:
@@ -594,6 +597,38 @@ def _build_claude_exec_cmd(
     cmd.append("--")
     cmd.append(effective_prompt)
     return cmd
+
+
+def _parse_claude_json_result(stdout: str) -> Optional[dict]:
+    """Parse `claude --print --output-format json` stdout into output+usage.
+
+    Returns None if the output doesn't parse as the expected shape, so the
+    caller can fall back to treating stdout as plain text (today's behavior)
+    instead of raising — the exact JSON schema hasn't been verified against
+    the runner host's installed CLI version, so this must degrade safely.
+    """
+    try:
+        parsed = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict) or "result" not in parsed:
+        return None
+    usage = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else {}
+
+    def _num(key: str) -> int:
+        v = usage.get(key)
+        if isinstance(v, (int, float)):
+            return int(v)
+        return 0
+
+    return {
+        "output": parsed.get("result") or "",
+        "is_error": bool(parsed.get("is_error")),
+        "input_tokens": _num("input_tokens"),
+        "output_tokens": _num("output_tokens"),
+        "cache_creation_input_tokens": _num("cache_creation_input_tokens"),
+        "cache_read_input_tokens": _num("cache_read_input_tokens"),
+    }
 
 
 def _run_claude_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
@@ -1416,6 +1451,7 @@ def _exec_prompt(payload: ExecRequest) -> dict:
                 image_paths=image_paths,
                 system=payload.system,
                 max_tokens=payload.max_tokens,
+                output_format="json",
             )
         else:
             cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
@@ -1444,16 +1480,38 @@ def _exec_prompt(payload: ExecRequest) -> dict:
         if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
             result["updated_auth"] = updated_auth
 
+        parsed = _parse_claude_json_result(stdout) if engine == "claude" else None
+
         if proc.returncode != 0:
             result["status"] = "fail"
             parts = [p for p in [stderr, stdout] if p]
             message = "\n".join(parts).strip()
             result["output"] = ""
+            # `--output-format json` can still carry a usable error message.
+            if parsed is not None and parsed["output"]:
+                message = parsed["output"]
             result["error"] = message[:500] if message else f"{engine} exec failed"
             return result
 
+        # Claude Code CLI can report an application-level failure (is_error)
+        # inside a 0-exit JSON result, distinct from a nonzero process exit.
+        if parsed is not None and parsed["is_error"]:
+            result["status"] = "fail"
+            result["output"] = ""
+            result["error"] = (parsed["output"] or f"{engine} exec failed")[:500]
+            return result
+
         result["status"] = "ok"
-        result["output"] = stdout
+        if parsed is not None:
+            result["output"] = parsed["output"]
+            result["input_tokens"] = parsed["input_tokens"]
+            result["output_tokens"] = parsed["output_tokens"]
+            result["cache_creation_input_tokens"] = parsed["cache_creation_input_tokens"]
+            result["cache_read_input_tokens"] = parsed["cache_read_input_tokens"]
+        else:
+            # Not JSON (unexpected CLI output, or non-claude engine): fall
+            # back to raw stdout as text, same as before this change.
+            result["output"] = stdout
         return result
     finally:
         shutil.rmtree(home_dir, ignore_errors=True)
