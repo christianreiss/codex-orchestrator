@@ -113,9 +113,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/messages',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async (req, reply) => {
@@ -168,9 +168,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/messages/count_tokens',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async (req) => {
@@ -198,9 +198,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/completions',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async (req, reply) => {
@@ -255,9 +255,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/models',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async () => {
@@ -271,9 +271,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/models/:model_id',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async (req) => {
@@ -289,9 +289,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/responses',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async (req) => {
@@ -329,9 +329,9 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/embeddings',
     preHandler: [
       requestIdHook(),
-      versionHeaderHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      versionHeaderHook(),
       rateLimitHook(app),
     ],
     handler: async () => {

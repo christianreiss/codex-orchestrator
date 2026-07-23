@@ -602,10 +602,14 @@ def _build_claude_exec_cmd(
 def _parse_claude_json_result(stdout: str) -> Optional[dict]:
     """Parse `claude --print --output-format json` stdout into output+usage.
 
-    Returns None if the output doesn't parse as the expected shape, so the
-    caller can fall back to treating stdout as plain text (today's behavior)
-    instead of raising — the exact JSON schema hasn't been verified against
-    the runner host's installed CLI version, so this must degrade safely.
+    Returns None if `stdout` isn't the expected shape at all (unparseable, or
+    valid JSON missing a `result` field). The caller must NOT fall back to
+    treating raw `stdout` as reply text in that case: since this backend
+    always requests `--output-format json` for the claude engine, a 0-exit
+    process that didn't produce that shape is untrustworthy — passing it
+    through as-is risks dumping a raw JSON blob to the caller as if it were
+    the assistant's reply, which is worse than the bug this exists to fix.
+    Fail closed instead (see call site).
     """
     try:
         parsed = json.loads(stdout)
@@ -1493,25 +1497,33 @@ def _exec_prompt(payload: ExecRequest) -> dict:
             result["error"] = message[:500] if message else f"{engine} exec failed"
             return result
 
-        # Claude Code CLI can report an application-level failure (is_error)
-        # inside a 0-exit JSON result, distinct from a nonzero process exit.
-        if parsed is not None and parsed["is_error"]:
-            result["status"] = "fail"
-            result["output"] = ""
-            result["error"] = (parsed["output"] or f"{engine} exec failed")[:500]
-            return result
-
-        result["status"] = "ok"
-        if parsed is not None:
+        if engine == "claude":
+            if parsed is None:
+                # 0-exit but not the JSON shape we always request — see
+                # _parse_claude_json_result docstring for why this must not
+                # fall back to raw stdout as reply text.
+                result["status"] = "fail"
+                result["output"] = ""
+                result["error"] = "claude exec returned an unexpected output format"
+                return result
+            # Claude Code CLI can report an application-level failure
+            # (is_error) inside a 0-exit JSON result, distinct from a
+            # nonzero process exit.
+            if parsed["is_error"]:
+                result["status"] = "fail"
+                result["output"] = ""
+                result["error"] = (parsed["output"] or "claude exec failed")[:500]
+                return result
+            result["status"] = "ok"
             result["output"] = parsed["output"]
             result["input_tokens"] = parsed["input_tokens"]
             result["output_tokens"] = parsed["output_tokens"]
             result["cache_creation_input_tokens"] = parsed["cache_creation_input_tokens"]
             result["cache_read_input_tokens"] = parsed["cache_read_input_tokens"]
-        else:
-            # Not JSON (unexpected CLI output, or non-claude engine): fall
-            # back to raw stdout as text, same as before this change.
-            result["output"] = stdout
+            return result
+
+        result["status"] = "ok"
+        result["output"] = stdout
         return result
     finally:
         shutil.rmtree(home_dir, ignore_errors=True)
