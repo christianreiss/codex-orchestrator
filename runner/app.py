@@ -582,8 +582,10 @@ def _build_claude_exec_cmd(
     cmd = [CLAUDE_CLI_PATH, "--print"]
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
-    if isinstance(max_tokens, int) and max_tokens > 0:
-        cmd.extend(["--max-tokens", str(max_tokens)])
+    # Claude Code CLI has no --max-tokens flag (confirmed live: the process
+    # exits non-zero with "error: unknown option '--max-tokens'"). There is
+    # currently no CLI-level way to cap output length on this path, so
+    # max_tokens is accepted for wire-format validation but not forwarded.
     if isinstance(system, str) and system.strip():
         cmd.extend(["--system-prompt", system.strip()])
     if isinstance(output_format, str) and output_format.strip():

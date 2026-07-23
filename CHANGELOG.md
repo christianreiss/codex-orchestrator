@@ -25,6 +25,34 @@
   fractional, or non-numeric) is also rejected with 400 `invalid_max_tokens`
   rather than being forwarded verbatim.
 
+- A live SDK-based audit against `/anthropic/v1/*` turned up eight more wire-
+  format gaps beyond the fix above: an empty conversation, a non-`user`/
+  `assistant` role, or two consecutive same-role messages now 400 instead of
+  reaching the runner with an empty prompt and leaking its failure as a raw
+  502; `max_tokens` and `anthropic-version` are now required on `/messages`,
+  matching upstream (every official SDK sends both); `POST
+  /messages/count_tokens` is implemented as a character-based estimate (no
+  real tokenizer is available server-side); the runner now parses `claude
+  --print --output-format json`'s usage object instead of always reporting
+  zero tokens; every response carries `request-id` and
+  `anthropic-ratelimit-*` headers; a non-empty `tools` array now 400s with
+  `tools_not_supported` instead of silently generating a tool-less reply
+  (full tool-use support is out of scope — the runner has no tool-calling
+  capability at all); and the generic 404 handlers now report
+  `not_found_error` instead of defaulting to `api_error`.
+
+- **Fixed `POST /anthropic/v1/messages` 502ing on any request that sets
+  `max_tokens`** — which is essentially every real Anthropic client, since
+  upstream documents it as required. The runner built a `--max-tokens` flag
+  for the Claude Code CLI's `--print` invocation, but that flag doesn't
+  exist; the CLI exited non-zero and the runner reported `status: fail`,
+  which the gateway surfaces as a 502 `runner_failed`. Caught live during
+  this deploy (briefly reproduced in production, rolled back within
+  seconds) rather than in the fix above, which added the required-max_tokens
+  validation without knowing the CLI would reject the value downstream.
+  `max_tokens` is no longer forwarded to the CLI; there is currently no
+  CLI-level way to cap output tokens on this path.
+
 # 2026-07-22
 
 - clx no longer records durable logout intent when a native

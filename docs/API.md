@@ -47,7 +47,7 @@ Anthropic-compatible Messages API.
 | `messages` | array | yes | Array of `{role, content}` objects. `role` must be `user` or `assistant`, alternating (a `system`-role entry is hoisted into `system` instead — see below); an empty conversation, a non-`user`/`assistant` role, or two consecutive same-role messages return 400 (`empty_messages` / `invalid_message_role` / `invalid_message_role_sequence`). |
 | `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-5`). |
 | `system` | string \| array | no | System prompt. Accepts a plain string or an Anthropic block array (`[{type:"text", text:"..."}]`); block arrays are flattened by joining with a blank line. Per-block `cache_control` is accepted and ignored — this gateway has no prompt cache. |
-| `max_tokens` | integer | **yes** | Maximum tokens to generate, matching upstream. Missing → 400 `missing_max_tokens`; present but not an integer ≥ 1 → 400 `invalid_max_tokens`. |
+| `max_tokens` | integer | **yes** | Maximum tokens to generate, matching upstream. Missing → 400 `missing_max_tokens`; present but not an integer ≥ 1 → 400 `invalid_max_tokens`. Validated but **not enforced**: the Claude Code CLI this backend shells out to has no output-length flag, so an accepted value is not forwarded or bounded. |
 | `temperature` | float | no | Sampling temperature (0-1). |
 | `top_p` | float | no | Nucleus sampling (0-1). |
 | `top_k` | integer | no | Top-k sampling. |

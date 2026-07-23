@@ -94,6 +94,24 @@ class RunnerAppTest(unittest.TestCase):
         self.assertEqual([runner_app.CLAUDE_CLI_PATH, "--print", "--", "Reply Banana."], cmd)
         self.assertNotIn("--no-input", cmd)
 
+    def test_build_claude_exec_cmd_drops_unsupported_max_tokens_flag(self):
+        # Claude Code CLI has no --max-tokens flag; passing it makes the
+        # subprocess exit non-zero on every request that sets max_tokens
+        # (i.e. virtually every real Anthropic client request) — confirmed
+        # live via "error: unknown option '--max-tokens'".
+        cmd = runner_app._build_claude_exec_cmd("Reply Banana.", max_tokens=512)
+
+        self.assertNotIn("--max-tokens", cmd)
+        self.assertEqual([runner_app.CLAUDE_CLI_PATH, "--print", "--", "Reply Banana."], cmd)
+
+    def test_build_claude_exec_cmd_appends_output_format_flag(self):
+        cmd = runner_app._build_claude_exec_cmd("hi", output_format="json")
+
+        self.assertEqual(
+            [runner_app.CLAUDE_CLI_PATH, "--print", "--output-format", "json", "--", "hi"],
+            cmd,
+        )
+
     def test_prepare_codex_env_uses_non_tmp_home_and_sets_tmpdir(self):
         env, home_dir, auth_path = runner_app._prepare_codex_env(
             {"tokens": {"access_token": "tok_test_12345678901234567890"}}
