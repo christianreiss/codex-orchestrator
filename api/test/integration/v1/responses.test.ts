@@ -119,6 +119,25 @@ describe('/v1/responses', () => {
     expect(body.output[0].content[0].text).toBe('answer');
   });
 
+  it('carries the response fields openai-python reads without AttributeError', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/responses',
+      headers: { authorization: `Bearer ${key}` },
+      payload: { input: 'what is 2+2?' },
+    });
+    const body = JSON.parse(r.payload);
+    // Required-without-default fields on the typed Response object.
+    expect(body.tools).toEqual([]);
+    expect(body.tool_choice).toBe('auto');
+    expect(body.text).toEqual({ format: { type: 'text' } });
+    expect(body.usage.input_tokens_details).toEqual({ cached_tokens: 0 });
+    // Nullable-default fields.
+    expect(body.error).toBeNull();
+    expect(body.incomplete_details).toBeNull();
+    expect(body.metadata).toEqual({});
+  });
+
   it('rejects an empty input', async () => {
     const r = await app.inject({
       method: 'POST',

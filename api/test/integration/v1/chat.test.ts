@@ -183,7 +183,9 @@ describe('/v1/chat/completions', () => {
     expect(JSON.parse(r.payload)).toMatchObject({
       error: {
         message: 'Incorrect API key provided',
-        type: 'authentication_error',
+        // Upstream OpenAI 401 uses type invalid_request_error + invalid_api_key,
+        // NOT authentication_error (that's the Anthropic wire shape).
+        type: 'invalid_request_error',
         code: 'invalid_api_key',
       },
     });
@@ -226,16 +228,18 @@ describe('/v1/chat/completions', () => {
     });
   });
 
-  it('returns 400 for unsupported model', async () => {
+  it('returns 404 model_not_found for an unsupported model', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/v1/chat/completions',
       headers: { authorization: `Bearer ${validKey}` },
       payload: { model: 'not-a-real-model', messages: [{ role: 'user', content: 'x' }] },
     });
-    expect(r.statusCode).toBe(400);
+    // Upstream OpenAI: 404 with code model_not_found, type stays
+    // invalid_request_error (NOT the Anthropic not_found_error).
+    expect(r.statusCode).toBe(404);
     expect(JSON.parse(r.payload)).toMatchObject({
-      error: { type: 'invalid_request_error', param: 'model' },
+      error: { type: 'invalid_request_error', code: 'model_not_found' },
     });
   });
 
@@ -262,8 +266,10 @@ describe('/v1/chat/completions', () => {
       payload: { messages: [{ role: 'user', content: 'x' }] },
     });
     expect(r.statusCode).toBe(503);
+    // The internal `api_error` type is remapped to OpenAI's `server_error`
+    // (>=500) by the envelope; the code is preserved.
     expect(JSON.parse(r.payload)).toMatchObject({
-      error: { type: 'api_error', code: 'api_disabled' },
+      error: { type: 'server_error', code: 'api_disabled' },
     });
     await app2.close();
   });
@@ -297,7 +303,7 @@ describe('/v1/chat/completions', () => {
     });
     expect(r.statusCode).toBe(503);
     expect(JSON.parse(r.payload)).toMatchObject({
-      error: { type: 'api_error', code: 'backend_unavailable' },
+      error: { type: 'server_error', code: 'backend_unavailable' },
     });
     await app2.close();
   });
@@ -314,6 +320,153 @@ describe('/v1/chat/completions', () => {
     expect(body).toContain('data: ');
     expect(body).toContain('chat.completion.chunk');
     expect(body).toContain('data: [DONE]');
+  });
+
+  it('emits a final usage chunk when stream_options.include_usage is set', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${validKey}` },
+      payload: {
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    const chunks = r.payload
+      .split('\n\n')
+      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
+      .map((l) => JSON.parse(l.slice('data: '.length)));
+    const usageChunk = chunks.find((c) => c.usage);
+    expect(usageChunk).toBeDefined();
+    expect(usageChunk.choices).toEqual([]);
+    expect(usageChunk.usage).toMatchObject({ prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 });
+  });
+
+  it('omits the usage chunk without include_usage', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${validKey}` },
+      payload: { stream: true, messages: [{ role: 'user', content: 'hi' }] },
+    });
+    const chunks = r.payload
+      .split('\n\n')
+      .filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
+      .map((l) => JSON.parse(l.slice('data: '.length)));
+    expect(chunks.some((c) => c.usage)).toBe(false);
+  });
+
+  it('maps max_completion_tokens onto the runner output cap', async () => {
+    let seen: OpenAiGenerationParams | undefined;
+    const spy = {
+      chatCompletions: async (
+        _m: OpenAiMessage[],
+        model: string,
+        params: OpenAiGenerationParams,
+      ): Promise<ChatCompletionResult> => {
+        seen = params;
+        return {
+          id: 'chatcmpl-x',
+          object: 'chat.completion',
+          created: 1700000000,
+          model,
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        };
+      },
+    } as unknown as RunnerOpenAiAdapter;
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: spy });
+    await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: { messages: [{ role: 'user', content: 'hi' }], max_completion_tokens: 42 },
+    });
+    expect(seen?.max_tokens).toBe(42);
+    await app2.close();
+  });
+
+  it('400s on an out-of-range temperature', async () => {
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: fakeAdapter() });
+    const r = await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: { messages: [{ role: 'user', content: 'hi' }], temperature: 5 },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      error: { type: 'invalid_request_error', param: 'temperature' },
+    });
+    await app2.close();
+  });
+
+  it('accepts temperature 0 (a valid upstream value)', async () => {
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: fakeAdapter() });
+    const r = await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: { messages: [{ role: 'user', content: 'hi' }], temperature: 0 },
+    });
+    expect(r.statusCode).toBe(200);
+    await app2.close();
+  });
+
+  it('400s when tool_choice forces a call (required)', async () => {
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: fakeAdapter() });
+    const r = await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: {
+        messages: [{ role: 'user', content: 'weather?' }],
+        tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
+        tool_choice: 'required',
+      },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      error: { type: 'invalid_request_error', code: 'tools_not_supported', param: 'tool_choice' },
+    });
+    await app2.close();
+  });
+
+  it('400s when tool_choice names a specific function', async () => {
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: fakeAdapter() });
+    const r = await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: {
+        messages: [{ role: 'user', content: 'weather?' }],
+        tool_choice: { type: 'function', function: { name: 'get_weather' } },
+      },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      error: { code: 'tools_not_supported' },
+    });
+    await app2.close();
+  });
+
+  it('still returns text for tool_choice:auto with tools present (wire-legal)', async () => {
+    const { app: app2, validKey: vk2 } = await buildHarness({ adapter: fakeAdapter() });
+    const r = await app2.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${vk2}` },
+      payload: {
+        messages: [{ role: 'user', content: 'weather?' }],
+        tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
+        tool_choice: 'auto',
+      },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload).object).toBe('chat.completion');
+    await app2.close();
   });
 
   it('returns 204 for OPTIONS preflight', async () => {

@@ -95,4 +95,45 @@ describe('/v1/models', () => {
     const r = await app.inject({ method: 'GET', url: '/v1/models' });
     expect(r.statusCode).toBe(401);
   });
+
+  it('retrieves a single model (GET /v1/models/{id})', async () => {
+    const id = OPENAI_MODELS[0]!;
+    const r = await app.inject({
+      method: 'GET',
+      url: `/v1/models/${id}`,
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    expect(body).toMatchObject({ id, object: 'model', owned_by: 'codex-orchestrator' });
+    expect(typeof body.created).toBe('number');
+  });
+
+  it('returns 404 model_not_found for an unknown single-model id', async () => {
+    const r = await app.inject({
+      method: 'GET',
+      url: '/v1/models/not-a-real-model',
+      headers: { authorization: `Bearer ${key}` },
+    });
+    // Upstream: 404 + code model_not_found, type stays invalid_request_error.
+    expect(r.statusCode).toBe(404);
+    expect(JSON.parse(r.payload)).toMatchObject({
+      error: { type: 'invalid_request_error', code: 'model_not_found' },
+    });
+  });
+
+  it('single-model retrieve requires authentication', async () => {
+    const r = await app.inject({ method: 'GET', url: `/v1/models/${OPENAI_MODELS[0]}` });
+    expect(r.statusCode).toBe(401);
+  });
+
+  it('serves a stable `created` timestamp (not Date.now())', async () => {
+    const first = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/v1/models', headers: { authorization: `Bearer ${key}` } })).payload,
+    );
+    const second = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/v1/models', headers: { authorization: `Bearer ${key}` } })).payload,
+    );
+    expect(first.data[0].created).toBe(second.data[0].created);
+  });
 });

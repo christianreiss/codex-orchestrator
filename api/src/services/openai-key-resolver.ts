@@ -51,10 +51,14 @@ export function makeOpenAiKeyResolver(
 
     const token = extractBearer(req.headers as Record<string, string | string[] | undefined>);
     if (!token) {
+      // Upstream OpenAI returns type `invalid_request_error` (code
+      // `invalid_api_key`) for a missing/bad key — NOT `authentication_error`
+      // (that is the Anthropic wire shape). The 401 status is what the SDK
+      // classifies on; the type field must still match OpenAI's own vocabulary.
       throw new ApiError('Incorrect API key provided', {
         status: 401,
         code: 'invalid_api_key',
-        type: 'authentication_error',
+        type: 'invalid_request_error',
       });
     }
 
@@ -63,7 +67,7 @@ export function makeOpenAiKeyResolver(
       throw new ApiError('Incorrect API key provided', {
         status: 401,
         code: 'invalid_api_key',
-        type: 'authentication_error',
+        type: 'invalid_request_error',
       });
     }
 

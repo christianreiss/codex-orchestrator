@@ -24,8 +24,36 @@ function looksLikeSingleContentPart(c: Record<string, unknown>): boolean {
   return 'type' in c || 'text' in c || 'source' in c;
 }
 
+/**
+ * Content block types this text-only backend genuinely cannot process. They
+ * used to be silently dropped — a PDF request returned 200 with the document
+ * ignored — which is a wire lie. Mirror the top-level `tools` 400 gate and
+ * reject them explicitly instead.
+ */
+const UNSUPPORTED_CONTENT_BLOCK_TYPES = new Set([
+  'document',
+  'tool_use',
+  'tool_result',
+  'thinking',
+  'redacted_thinking',
+  'server_tool_use',
+  'web_search_tool_result',
+  'search_result',
+]);
+
 function normalizeContentPart(part: Record<string, unknown>): ClaudeContentBlock | null {
   const rawType = typeof part.type === 'string' ? part.type.toLowerCase().trim() : '';
+  if (UNSUPPORTED_CONTENT_BLOCK_TYPES.has(rawType)) {
+    throw new ApiError(
+      `messages: content block of type "${rawType}" is not supported by this backend`,
+      {
+        status: 400,
+        code: 'unsupported_content_block',
+        type: 'invalid_request_error',
+        param: 'messages',
+      },
+    );
+  }
   if (rawType === 'input_text' || rawType === 'text' || rawType === 'output_text') {
     const text = part.text;
     if (typeof text !== 'string') return null;
@@ -347,8 +375,14 @@ export function extractParams(
 
 /**
  * Validate the final (post system-hoist) conversation the way the real
- * Messages API does: non-empty, only `user`/`assistant` roles, and roles must
- * alternate. Throws ApiError(400) on the first violation.
+ * Messages API does: non-empty and only `user`/`assistant` roles. Throws
+ * ApiError(400) on the first violation.
+ *
+ * Note: consecutive same-role turns are NOT rejected. The real Messages API
+ * documents that "consecutive user or assistant turns in your request will be
+ * combined into a single turn" — see {@link mergeConsecutiveSameRole}, which the
+ * route applies before dispatch. A hard 400 here (as an earlier revision did)
+ * spuriously rejects requests the upstream API accepts.
  */
 export function validateMessageSequence(messages: ClaudeMessage[]): void {
   if (messages.length === 0) {
@@ -359,7 +393,6 @@ export function validateMessageSequence(messages: ClaudeMessage[]): void {
       param: 'messages',
     });
   }
-  let prevRole: string | null = null;
   for (let i = 0; i < messages.length; i++) {
     const role = messages[i]!.role;
     if (role !== 'user' && role !== 'assistant') {
@@ -373,19 +406,43 @@ export function validateMessageSequence(messages: ClaudeMessage[]): void {
         },
       );
     }
-    if (role === prevRole) {
-      throw new ApiError(
-        `messages: roles must alternate between "user" and "assistant" (consecutive "${role}" at index ${i})`,
-        {
-          status: 400,
-          code: 'invalid_message_role_sequence',
-          type: 'invalid_request_error',
-          param: 'messages',
-        },
-      );
-    }
-    prevRole = role;
   }
+}
+
+/**
+ * Collapse consecutive same-role turns into a single turn, matching the real
+ * Messages API ("consecutive user or assistant turns ... will be combined into
+ * a single turn"). This both restores conformance (the upstream API accepts
+ * these requests) and hands the downstream `claude` CLI a clean alternating
+ * sequence. Content blocks are concatenated; an all-text merge is flattened
+ * back to a joined string. The input array is not mutated.
+ */
+export function mergeConsecutiveSameRole(messages: ClaudeMessage[]): ClaudeMessage[] {
+  const out: ClaudeMessage[] = [];
+  for (const msg of messages) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === msg.role) {
+      out[out.length - 1] = { role: prev.role, content: mergeContent(prev.content, msg.content) };
+    } else {
+      out.push(msg);
+    }
+  }
+  return out;
+}
+
+function toBlocks(content: string | ClaudeContentBlock[]): ClaudeContentBlock[] {
+  return typeof content === 'string' ? [{ type: 'text', text: content }] : content;
+}
+
+function mergeContent(
+  a: string | ClaudeContentBlock[],
+  b: string | ClaudeContentBlock[],
+): string | ClaudeContentBlock[] {
+  const blocks = [...toBlocks(a), ...toBlocks(b)];
+  if (blocks.every((block) => block.type === 'text')) {
+    return blocks.map((block) => (block as { type: 'text'; text: string }).text).join('\n\n');
+  }
+  return blocks;
 }
 
 /**

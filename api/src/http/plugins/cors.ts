@@ -56,7 +56,18 @@ export const corsPlugin = fp(
             'openai-organization',
             'openai-project',
           ],
-          exposedHeaders: ['x-request-id', 'x-codex-version', 'retry-after'],
+          exposedHeaders: [
+            'x-request-id',
+            // Anthropic SDKs read `request-id` (distinct from x-request-id) to
+            // populate response._request_id — expose it for browser callers,
+            // matching the already-exposed OpenAI x-request-id.
+            'request-id',
+            'anthropic-ratelimit-requests-limit',
+            'anthropic-ratelimit-requests-remaining',
+            'anthropic-ratelimit-requests-reset',
+            'x-codex-version',
+            'retry-after',
+          ],
           credentials: true,
           maxAge: 86400,
         });

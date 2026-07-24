@@ -43,6 +43,7 @@ import {
   estimateTokenCount,
   extractParams,
   extractSystemMessages,
+  mergeConsecutiveSameRole,
   normalizeChatMessages,
   normalizeResponsesInput,
   normalizeSystemPrompt,
@@ -148,6 +149,8 @@ export async function registerAnthropicCompatRoutes(
         }
       }
       validateMessageSequence(messages);
+      // Upstream combines consecutive same-role turns into a single turn.
+      messages = mergeConsecutiveSameRole(messages);
 
       ensureAdapter(deps);
       const result = await deps.adapter!.messages(messages, model, params);
@@ -191,62 +194,75 @@ export async function registerAnthropicCompatRoutes(
     },
   });
 
-  // POST /anthropic/v1/completions — text completion form. Build a single
-  // user message from the prompt and run it through the messages backend.
+  // Legacy Text Completions. The official anthropic SDKs post to the singular
+  // `/complete`; the plural `/completions` is kept as a harmless extra alias.
+  const completionsPreHandler = [
+    requestIdHook(),
+    killSwitchHook(deps),
+    keyResolver.preHandler,
+    versionHeaderHook(),
+    rateLimitHook(app),
+  ];
+  const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => {
+    const payload = (req.body ?? {}) as Record<string, unknown>;
+    const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
+    if (!prompt.trim()) {
+      throw new ApiError('Missing required parameter: prompt', {
+        status: 400,
+        code: 'missing_prompt',
+        type: 'invalid_request_error',
+        param: 'prompt',
+      });
+    }
+    const model = await models.resolveRequestedModel(payload.model);
+    const params = extractParams(payload);
+    ensureAdapter(deps);
+    const result = await deps.adapter!.messages(
+      [{ role: 'user', content: prompt }],
+      model,
+      params,
+    );
+
+    let text = '';
+    for (const b of result.content ?? []) if (b.type === 'text') text += b.text;
+
+    if (payload.stream === true) {
+      // Re-shape as a Message before streaming so the event sequence matches.
+      await writeSseResponse(
+        reply,
+        messageStreamEvents({
+          ...result,
+          content: [{ type: 'text', text }],
+        }),
+      );
+      return reply;
+    }
+
+    // Text Completions uses `compl_` ids and its own stop_reason enum
+    // (stop_sequence | max_tokens) — not the Messages value `end_turn`.
+    const suffix = (result.id || '').replace(/^[^_]+_/, '');
+    const id = `compl_${suffix || randomBytes(16).toString('hex')}`;
+    const stopReason = result.stop_reason === 'max_tokens' ? 'max_tokens' : 'stop_sequence';
+    return {
+      id,
+      type: 'completion',
+      completion: text,
+      model: result.model || model,
+      stop_reason: stopReason,
+      usage: result.usage ?? { input_tokens: 0, output_tokens: 0 },
+    };
+  };
+  app.route({
+    method: 'POST',
+    url: '/anthropic/v1/complete',
+    preHandler: completionsPreHandler,
+    handler: completionsHandler,
+  });
   app.route({
     method: 'POST',
     url: '/anthropic/v1/completions',
-    preHandler: [
-      requestIdHook(),
-      killSwitchHook(deps),
-      keyResolver.preHandler,
-      versionHeaderHook(),
-      rateLimitHook(app),
-    ],
-    handler: async (req, reply) => {
-      const payload = (req.body ?? {}) as Record<string, unknown>;
-      const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
-      if (!prompt.trim()) {
-        throw new ApiError('Missing required parameter: prompt', {
-          status: 400,
-          code: 'missing_prompt',
-          type: 'invalid_request_error',
-          param: 'prompt',
-        });
-      }
-      const model = await models.resolveRequestedModel(payload.model);
-      const params = extractParams(payload);
-      ensureAdapter(deps);
-      const result = await deps.adapter!.messages(
-        [{ role: 'user', content: prompt }],
-        model,
-        params,
-      );
-
-      let text = '';
-      for (const b of result.content ?? []) if (b.type === 'text') text += b.text;
-
-      if (payload.stream === true) {
-        // Re-shape as a Message before streaming so the event sequence matches.
-        await writeSseResponse(
-          reply,
-          messageStreamEvents({
-            ...result,
-            content: [{ type: 'text', text }],
-          }),
-        );
-        return reply;
-      }
-
-      return {
-        id: result.id.startsWith('cmpl-') ? result.id : `cmpl-${result.id.replace(/^[^_]+_/, '')}`,
-        type: 'completion',
-        completion: text,
-        model: result.model || model,
-        stop_reason: result.stop_reason ?? 'end_turn',
-        usage: result.usage ?? { input_tokens: 0, output_tokens: 0 },
-      };
-    },
+    preHandler: completionsPreHandler,
+    handler: completionsHandler,
   });
 
   // GET /anthropic/v1/models — static catalog (filtered to enabled models).

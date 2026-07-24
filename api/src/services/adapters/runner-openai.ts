@@ -75,6 +75,16 @@ export interface ResponsesResult {
   created_at: number;
   status: 'completed';
   model: string;
+  // Nullable-default fields the upstream `response` object always carries.
+  // Required-without-default fields (`tools`, `tool_choice`, `text`) below
+  // otherwise AttributeError under openai-python's typed Response object.
+  error: null;
+  incomplete_details: null;
+  instructions: string | null;
+  metadata: Record<string, never>;
+  tools: never[];
+  tool_choice: 'auto';
+  text: { format: { type: 'text' } };
   output: Array<{
     id: string;
     type: 'message';
@@ -90,6 +100,7 @@ export interface ResponsesResult {
   parallel_tool_calls: false;
   usage: {
     input_tokens: number;
+    input_tokens_details: { cached_tokens: 0 };
     output_tokens: number;
     output_tokens_details: { reasoning_tokens: 0 };
     total_tokens: number;
@@ -380,6 +391,13 @@ export function responseFromChatCompletion(
     created_at: completion.created,
     status: 'completed',
     model: completion.model,
+    error: null,
+    incomplete_details: null,
+    instructions: null,
+    metadata: {},
+    tools: [],
+    tool_choice: 'auto',
+    text: { format: { type: 'text' } },
     output: [
       {
         id: messageId,
@@ -399,6 +417,7 @@ export function responseFromChatCompletion(
     parallel_tool_calls: false,
     usage: {
       input_tokens: usage.prompt_tokens,
+      input_tokens_details: { cached_tokens: 0 },
       output_tokens: usage.completion_tokens,
       output_tokens_details: { reasoning_tokens: 0 },
       total_tokens: usage.total_tokens,

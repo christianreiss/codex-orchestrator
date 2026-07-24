@@ -247,10 +247,16 @@ describe('runner-openai normalizers', () => {
     expect(resp.output[0]!.content[0]!.text).toBe('hi there');
     expect(resp.usage).toEqual({
       input_tokens: 1,
+      input_tokens_details: { cached_tokens: 0 },
       output_tokens: 2,
       output_tokens_details: { reasoning_tokens: 0 },
       total_tokens: 3,
     });
+    // Fields the typed openai-python Response object reads without AttributeError.
+    expect(resp.tools).toEqual([]);
+    expect(resp.tool_choice).toBe('auto');
+    expect(resp.text).toEqual({ format: { type: 'text' } });
+    expect(resp.error).toBeNull();
   });
 });
 

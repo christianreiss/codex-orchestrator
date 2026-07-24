@@ -59,9 +59,16 @@ export async function pipeOpenAiStream(
 /**
  * Build the chat.completion.chunk SSE event sequence from a fully-materialized
  * OpenAI chat-completion body. Mirrors `OpenAiCompat::chatCompletionStreamEvents`.
+ *
+ * When `includeUsage` is set (the caller passed `stream_options.include_usage`),
+ * every content chunk carries `usage: null` and a final chunk with an empty
+ * `choices` array and the populated `usage` object is appended before `[DONE]`,
+ * exactly as upstream OpenAI streams it. When unset, no usage is emitted (also
+ * matching upstream).
  */
 export function chatCompletionStreamEvents(
   completion: Record<string, unknown>,
+  opts: { includeUsage?: boolean } = {},
 ): SseEvent[] {
   const id =
     typeof completion.id === 'string' && completion.id
@@ -70,6 +77,7 @@ export function chatCompletionStreamEvents(
   const created = typeof completion.created === 'number' ? completion.created : Math.floor(Date.now() / 1000);
   const model = typeof completion.model === 'string' ? completion.model : '';
   const content = extractChatCompletionContent(completion);
+  const includeUsage = opts.includeUsage === true;
 
   const base = {
     id,
@@ -77,6 +85,9 @@ export function chatCompletionStreamEvents(
     created,
     model,
   };
+  // Upstream sets usage:null on the streamed content chunks and carries the
+  // real usage only on the trailing empty-choices chunk.
+  const usageField = includeUsage ? { usage: null } : {};
 
   const events: SseEvent[] = [
     {
@@ -89,6 +100,7 @@ export function chatCompletionStreamEvents(
             finish_reason: null,
           },
         ],
+        ...usageField,
       },
     },
   ];
@@ -100,6 +112,7 @@ export function chatCompletionStreamEvents(
         choices: [
           { index: 0, delta: { content }, finish_reason: null },
         ],
+        ...usageField,
       },
     });
   }
@@ -108,10 +121,38 @@ export function chatCompletionStreamEvents(
     data: {
       ...base,
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      ...usageField,
     },
   });
 
+  if (includeUsage) {
+    events.push({
+      data: {
+        ...base,
+        choices: [],
+        usage: extractUsage(completion),
+      },
+    });
+  }
+
   return events;
+}
+
+/** Pull the usage object off a materialized completion, defaulting to zeros. */
+function extractUsage(completion: Record<string, unknown>): {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+} {
+  const u = completion.usage;
+  if (u && typeof u === 'object') {
+    const r = u as Record<string, unknown>;
+    const prompt = typeof r.prompt_tokens === 'number' ? r.prompt_tokens : 0;
+    const completion_ = typeof r.completion_tokens === 'number' ? r.completion_tokens : 0;
+    const total = typeof r.total_tokens === 'number' ? r.total_tokens : prompt + completion_;
+    return { prompt_tokens: prompt, completion_tokens: completion_, total_tokens: total };
+  }
+  return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 }
 
 function extractChatCompletionContent(completion: Record<string, unknown>): string {

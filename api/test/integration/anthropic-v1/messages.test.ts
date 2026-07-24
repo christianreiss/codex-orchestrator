@@ -316,7 +316,7 @@ describe('POST /anthropic/v1/messages', () => {
     await app2.close();
   });
 
-  it('400s on consecutive same-role messages', async () => {
+  it('merges consecutive same-role messages into a single turn (upstream behavior)', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
@@ -329,10 +329,38 @@ describe('POST /anthropic/v1/messages', () => {
         ],
       },
     });
+    // Upstream combines consecutive user turns rather than 400-ing.
+    expect(r.statusCode).toBe(200);
+    expect(adapter.lastCall?.messages).toEqual([
+      { role: 'user', content: 'hi\n\nhi again' },
+    ]);
+  });
+
+  it('400s on an unsupported content block (document/PDF) instead of dropping it', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/messages',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: {
+        max_tokens: 64,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'summarize this' },
+              {
+                type: 'document',
+                source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' },
+              },
+            ],
+          },
+        ],
+      },
+    });
     expect(r.statusCode).toBe(400);
     expect(JSON.parse(r.payload)).toMatchObject({
       type: 'error',
-      error: { type: 'invalid_request_error', code: 'invalid_message_role_sequence' },
+      error: { type: 'invalid_request_error', code: 'unsupported_content_block' },
     });
   });
 
@@ -658,13 +686,14 @@ describe('OPTIONS /anthropic/v1/*', () => {
   });
 });
 
-describe('POST /anthropic/v1/completions', () => {
-  it('builds a single-user-message call and shapes a completion body', async () => {
+describe('POST /anthropic/v1/complete (+ /completions alias)', () => {
+  it('builds a single-user-message call and shapes a Text-Completions body', async () => {
     const adapter = stubAdapter();
     const app = await buildApp({ adapter });
     const r = await app.inject({
       method: 'POST',
-      url: '/anthropic/v1/completions',
+      // The official SDKs post to the singular /complete.
+      url: '/anthropic/v1/complete',
       headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
       payload: { prompt: 'tell me a joke', model: 'claude-sonnet-4-6' },
     });
@@ -674,9 +703,25 @@ describe('POST /anthropic/v1/completions', () => {
       type: 'completion',
       completion: 'Hello back.',
       model: 'claude-sonnet-4-6',
-      stop_reason: 'end_turn',
+      // Text Completions uses its own stop_reason enum, not the Messages
+      // value `end_turn`; ids carry the `compl_` prefix.
+      stop_reason: 'stop_sequence',
     });
+    expect(body.id).toMatch(/^compl_/);
     expect(adapter.lastCall?.messages).toEqual([{ role: 'user', content: 'tell me a joke' }]);
+    await app.close();
+  });
+
+  it('serves the same handler at the legacy /completions alias', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'POST',
+      url: '/anthropic/v1/completions',
+      headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
+      payload: { prompt: 'tell me a joke', model: 'claude-sonnet-4-6' },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.payload)).toMatchObject({ type: 'completion' });
     await app.close();
   });
 

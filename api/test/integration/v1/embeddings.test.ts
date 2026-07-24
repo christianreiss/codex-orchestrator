@@ -71,16 +71,18 @@ describe('/v1/embeddings', () => {
     key = h.key;
   });
 
-  it('returns 501 with feature_not_supported (runner has no embeddings)', async () => {
+  it('returns non-retriable 400 invalid_request_error (runner has no embeddings)', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/v1/embeddings',
       headers: { authorization: `Bearer ${key}` },
       payload: { input: 'hello', model: 'gpt-5.4' },
     });
-    expect(r.statusCode).toBe(501);
+    // A 501 (>=500) was retried by the OpenAI SDK against a permanently
+    // unsupported endpoint and leaked the non-OpenAI `not_implemented` type.
+    expect(r.statusCode).toBe(400);
     expect(JSON.parse(r.payload)).toMatchObject({
-      error: { code: 'feature_not_supported', type: 'not_implemented' },
+      error: { code: 'unsupported_endpoint', type: 'invalid_request_error' },
     });
   });
 });

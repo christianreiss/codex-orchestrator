@@ -58,6 +58,25 @@ export interface OpenAiModelList {
 }
 
 /**
+ * Stable placeholder creation time. Upstream `created` is a fixed per-model
+ * release timestamp, so it must not move between polls the way `Date.now()`
+ * would. This mirrors the Anthropic side's `CATALOG_CREATED_AT`.
+ */
+const CATALOG_CREATED_AT = Math.floor(Date.UTC(2026, 0, 1) / 1000);
+
+const MODEL_OWNER = 'codex-orchestrator';
+
+/** Build a single OpenAI-shape model object (used by `GET /v1/models/{id}`). */
+export function buildModelObject(id: string): OpenAiModelObject {
+  return {
+    id,
+    object: 'model',
+    created: CATALOG_CREATED_AT,
+    owned_by: MODEL_OWNER,
+  };
+}
+
+/**
  * Build the OpenAI-shape model catalog. Extra models can be passed in
  * (e.g. admin-curated additions); duplicates are deduped on `id`.
  */
@@ -70,14 +89,8 @@ export function buildModelList(extra: readonly string[] = []): OpenAiModelList {
       ids.push(id);
     }
   }
-  const createdAt = Math.floor(Date.now() / 1000);
   return {
     object: 'list',
-    data: ids.map((id) => ({
-      id,
-      object: 'model' as const,
-      created: createdAt,
-      owned_by: 'codex-orchestrator',
-    })),
+    data: ids.map((id) => buildModelObject(id)),
   };
 }
