@@ -1,5 +1,57 @@
 # 2026-07-24
 
+- The OpenAI-compatible `/v1/*` gateway got the same wire-format conformance
+  pass the Anthropic `/anthropic/v1/*` gateway received, closing a cluster of
+  places where an official OpenAI SDK client would misclassify or misbehave.
+  Unknown models now return HTTP 404 with `error.code "model_not_found"` (the
+  `type` correctly stays `invalid_request_error` — this is NOT the Anthropic
+  `not_found_error` shape) instead of a 400, so `NotFoundError` classification
+  and `code`-based model detection work. `GET /v1/models/{id}` was added —
+  `client.models.retrieve()` previously fell through to the SPA/404 handler and
+  404'd for every model. The `/v1/*` error envelope now constrains `error.type`
+  to the values OpenAI actually emits and remaps anything else (`api_error`,
+  `not_implemented`, `not_found_error`, `authentication_error`, …) onto the type
+  matching the HTTP status (`server_error` for 5xx, `rate_limit_error` for 429,
+  else `invalid_request_error`); a 401 for a missing/bad key now reports
+  `invalid_request_error`/`invalid_api_key` (OpenAI's own shape) rather than the
+  Anthropic `authentication_error`.
+
+- `/v1/chat/completions` and `/v1/completions` now honor `max_completion_tokens`
+  (with legacy `max_tokens` fallback) and `/v1/responses` honors
+  `max_output_tokens` — the modern output-cap params were previously read only
+  as `max_tokens` and silently dropped, so a client's cap never reached the
+  runner. `temperature`/`top_p` are range-validated against the upstream bounds
+  ([0,2] / [0,1]); valid values including `0` and fractions pass through.
+  `/v1/embeddings` returns a non-retriable 400 `invalid_request_error` instead
+  of a 501 that the SDK retried with backoff against a permanently unsupported
+  call. A request that FORCES a tool call the backend cannot emit
+  (`tool_choice:"required"`, a named `tool_choice`, or a named legacy
+  `function_call`) now fails closed with 400 `tools_not_supported` instead of
+  silently returning plain text and hanging agentic loops —
+  `tool_choice:"auto"`/absent still returns text, which is wire-legal. Streaming
+  chat completions honor `stream_options.include_usage` (a final
+  `choices:[]` chunk carrying real usage). The `/v1/responses` object now carries
+  the fields the typed `openai-python` Response reads without `AttributeError`
+  (`tools`, `tool_choice`, `text`, `usage.input_tokens_details`, plus
+  nullable-default `error`/`incomplete_details`/`metadata`). `/v1/models`
+  `created` is now a stable per-model timestamp rather than a moving
+  `Date.now()`, matching the Anthropic catalog.
+
+- The Anthropic `/anthropic/v1/messages` gateway no longer 400s on consecutive
+  same-role messages — the real Messages API documents that consecutive
+  user/assistant turns are combined into a single turn, and a hard rejection
+  spuriously failed requests that work against `api.anthropic.com`; those turns
+  are now merged before dispatch. Unsupported content blocks (document/PDF,
+  `tool_use`, `tool_result`, `thinking`, …) — previously dropped silently, so a
+  PDF request returned 200 with the document ignored — now 400 with
+  `unsupported_content_block`, mirroring the top-level `tools` gate. Legacy Text
+  Completions is served at
+  `/anthropic/v1/complete` (the path the official SDKs post to) in addition to
+  the existing `/completions` alias, and its body now uses a `compl_` id prefix
+  and a Text-Completions `stop_reason` (`stop_sequence`/`max_tokens`) rather than
+  the Messages value `end_turn`. CORS now exposes the Anthropic `request-id` and
+  `anthropic-ratelimit-*` response headers so browser SDK callers can read them.
+
 - Canonical Codex and Claude credentials now require a positive live runner
   verification before the server accepts them, advances the engine's canonical
   head, or returns their bytes to any host. Inconclusive, failed, malformed, or
