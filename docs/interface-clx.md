@@ -81,6 +81,13 @@ credential files with no usable Claude token. Only an HTTP 2xx API response is
 healthy; unreachable requests also fail the latency row instead of displaying
 a green dash.
 
+The wrapper strips any inherited `CLAUDE_CONFIG_DIR` so a foreign account cannot
+override the verified native credential, but it does not re-export the variable
+or put it into its temporary auth settings overlay. Claude's normal
+`~/.claude` location remains authoritative for credentials and interactive
+state, preventing an otherwise valid synchronized login from reopening the
+first-run theme or login flow.
+
 On normal startup, managed hosts install the server-advertised `clx` wrapper
 artifact first, finalize that invocation's auth session (including any final
 insecure purge), re-exec the original argv after a successful swap, then repair a

@@ -52,9 +52,8 @@ func TestBuildEnvOAuthStripsAmbientCredentialAndProviderOverrides(t *testing.T) 
 	env := BuildEnv(testRuntimeConfig())
 	for _, name := range runtimeAuthOverrideEnv {
 		if name == "CLAUDE_CONFIG_DIR" {
-			want := filepath.Join(os.Getenv("HOME"), ".claude")
-			if values := envValues(env, name); len(values) != 1 || values[0] != want {
-				t.Errorf("%s=%q want canonical %q", name, values, want)
+			if values := envValues(env, name); len(values) != 0 {
+				t.Errorf("%s=%q, want absent so Claude preserves its existing interactive state", name, values)
 			}
 			continue
 		}
@@ -97,16 +96,19 @@ func TestRuntimeAuthSettingsNeutralizeSettingsSources(t *testing.T) {
 	if settings.APIKeyHelper != "" {
 		t.Fatalf("apiKeyHelper=%q, want disabled", settings.APIKeyHelper)
 	}
+	if _, ok := settings.Env["CLAUDE_CONFIG_DIR"]; ok {
+		t.Fatal("runtime auth settings must not override CLAUDE_CONFIG_DIR")
+	}
 	for _, name := range runtimeAuthOverrideEnv {
+		if name == "CLAUDE_CONFIG_DIR" {
+			continue
+		}
 		want := ""
 		if _, provider := runtimeProviderSelectors[name]; provider {
 			want = "0"
 		}
 		if name == "ANTHROPIC_BASE_URL" {
 			want = officialAnthropicBaseURL
-		}
-		if name == "CLAUDE_CONFIG_DIR" {
-			want = filepath.Join(os.Getenv("HOME"), ".claude")
 		}
 		if got := settings.Env[name]; got != want {
 			t.Errorf("settings env %s=%q want %q", name, got, want)

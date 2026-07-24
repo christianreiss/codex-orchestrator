@@ -85,10 +85,6 @@ func buildEnv(cfg *config.Config, args []string) []string {
 	if mode, key := managedRuntimeAuth(); mode == "api_key" && !isInteractiveAuthLogin(args) {
 		put("ANTHROPIC_API_KEY", key)
 	}
-	if authDir, err := managedClaudeConfigDir(); err == nil {
-		put("CLAUDE_CONFIG_DIR", authDir)
-	}
-
 	if cfg.EngineOptions.ClaudeModelOverride != nil && *cfg.EngineOptions.ClaudeModelOverride != "" {
 		put("CLX_MODEL", *cfg.EngineOptions.ClaudeModelOverride)
 		put("ANTHROPIC_MODEL", *cfg.EngineOptions.ClaudeModelOverride)
@@ -118,14 +114,6 @@ func managedRuntimeAuth() (mode, key string) {
 		return "api_key", key
 	}
 	return "", ""
-}
-
-func managedClaudeConfigDir() (string, error) {
-	path, err := AuthPath()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(path), nil
 }
 
 func filterEnv(env, names []string) []string {

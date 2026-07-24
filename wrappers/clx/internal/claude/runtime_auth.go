@@ -116,17 +116,20 @@ func runtimeAuthSettingsDir() (string, error) {
 func runtimeAuthSettingsJSON(args []string) ([]byte, error) {
 	env := make(map[string]string, len(runtimeAuthOverrideEnv))
 	for _, name := range runtimeAuthOverrideEnv {
+		// CLAUDE_CONFIG_DIR has to be stripped from the inherited process so a
+		// foreign account cannot win. Do not put it into the temporary settings
+		// overlay, though: even the default ~/.claude value makes Claude Code
+		// create a separate interactive-state scope and repeat first-run UI.
+		// The verified native credential already lives at Claude's default path.
+		if name == "CLAUDE_CONFIG_DIR" {
+			continue
+		}
 		env[name] = ""
 	}
 	for name := range runtimeProviderSelectors {
 		env[name] = "0"
 	}
 	env["ANTHROPIC_BASE_URL"] = officialAnthropicBaseURL
-	authDir, err := managedClaudeConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("resolve managed Claude config directory: %w", err)
-	}
-	env["CLAUDE_CONFIG_DIR"] = authDir
 	if mode, key := managedRuntimeAuth(); mode == "api_key" && !isInteractiveAuthLogin(args) {
 		env["ANTHROPIC_API_KEY"] = key
 	}
