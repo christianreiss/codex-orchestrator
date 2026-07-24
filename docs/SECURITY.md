@@ -37,7 +37,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Data Handling
 
-- **Auth payloads**: Stored in `auth_payloads.body` encrypted; per-target tokens in `auth_entries.token` encrypted. Digests are SHA-256 of the canonical JSON. Canonical payloads are validated on read (timestamp bounds, digest match, token quality).
+- **Auth payloads**: Stored in `auth_payloads.body` encrypted; native-target tokens in `auth_entries.token` encrypted. Digests are SHA-256 of the canonical JSON. Every host, admin, seed, and bootstrap candidate must pass the engine's live runner before it can advance `auth_canonical_heads`; pending/failed generations remain encrypted quarantine and are never returned to hosts, admin body reads, or compatible gateways. Canonical payloads are also validated on read (timestamp bounds, digest match, native credential projection, token quality, and keyed credential-pair fingerprint where present).
 - **Token quality checks**: Tokens must meet entropy/length rules (`TOKEN_MIN_LENGTH` min 8, default 24), no whitespace, not placeholder strings, and must contain enough unique characters.
 - **API keys**: Lookups use SHA-256 hashes; encrypted copy kept for dashboard displays/downloads. Do not expose `api_key_enc`/`api_key_hash` outside trusted operators.
 - **Secrets**: `.env` and DB data/volumes contain encryption key material, API key ciphertexts/hashes, and encrypted auth/token snapshots. Installer and wrapper downloads also contain plaintext API keys for the target host; treat those responses/logging paths as sensitive.
@@ -45,10 +45,10 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 ## Authentication & Authorization
 
 - **Host-authenticated routes**: `POST/DELETE /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `/wrapper*`, `/host/users`, `/host/lane`, `/agents/retrieve`, `/config/retrieve`, `/skills*`, `/mcp/memories/*`, and `POST /mcp` require API key authentication and IP binding (subject to roaming/insecure overrides/runner CIDR bypass rules).
-- **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view/upload raw canonical auth and rotate keys—restrict to trusted operators only.
+- **Admin routes** (`/admin/*`): mTLS gate by default. Admins can view verified canonical auth, submit runner-gated auth candidates, and rotate keys—restrict to trusted operators only.
 - **Installer** (`/install/{token}`): public endpoint that returns a shell script; token is validated for expiry/one-time use and tags host/base URL plus installer mode. Returned script bakes API key/FQDN/base URL into the engine-appropriate wrapper(s).
 - **Installation binding**: If a client sends `installation_id` and it does not match server `INSTALLATION_ID`, auth calls are rejected with `403 installation_mismatch`. Omitted `installation_id` is accepted for legacy clients.
-- **Runner**: Optional external validator invoked by the background auth-verification worker and by store/admin triggers when configured (`AUTH_RUNNER_URL`). Runner requests can be authenticated with `AUTH_RUNNER_SHARED_SECRET`/`RUNNER_SHARED_SECRET` (`X-Runner-Auth` header).
+- **Runner**: External validator invoked by the background auth-verification worker and by store/admin triggers (`AUTH_RUNNER_URL`). Existing verified auth remains readable when it is unavailable, but every canonical-changing store requires a configured, reachable runner and a positive live verdict. Runner requests can be authenticated with `AUTH_RUNNER_SHARED_SECRET`/`RUNNER_SHARED_SECRET` (`X-Runner-Auth` header).
 
 ## Abuse Controls
 
@@ -60,7 +60,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 - Logs (`logs` table) capture action metadata (including digests/IP fields where provided). Token usage lines are sanitized to strip ANSI/control characters and capped to 1000 chars.
 - Full auth/API tokens are not intentionally logged in normal flows, but install/seed log entries include a short redacted token prefix (first 8 chars + ellipsis).
-- Admin endpoints can return canonical auth bodies when explicitly requested; avoid enabling this unless necessary and ensure transport security.
+- Admin endpoints can return the verified canonical auth body when explicitly requested; avoid enabling this unless necessary and ensure transport security.
 
 ## Backup & Recovery
 

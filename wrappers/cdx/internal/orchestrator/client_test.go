@@ -68,11 +68,15 @@ func TestAuthCandidateAcceptedDistinguishesStoreArbitration(t *testing.T) {
 		want bool
 	}{
 		{name: "nil"},
-		{name: "valid", resp: &AuthRetrieveResponse{Status: "valid"}, want: true},
-		{name: "updated", resp: &AuthRetrieveResponse{Status: "updated"}, want: true},
+		{name: "valid verified", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "verified"}, want: true},
+		{name: "updated verified", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "verified"}, want: true},
+		{name: "valid pending", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "pending"}},
+		{name: "updated unknown", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "unknown"}},
+		{name: "updated omitted verdict", resp: &AuthRetrieveResponse{Status: "updated"}},
 		{name: "outdated", resp: &AuthRetrieveResponse{Status: "outdated"}},
 		{name: "failed verification", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "failed"}},
-		{name: "definitive rejection", resp: &AuthRetrieveResponse{Status: "updated", CandidateRejectedDefinitive: true}},
+		{name: "definitive rejection", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "verified", CandidateRejectedDefinitive: true}},
+		{name: "exact candidate rejected", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "verified", CandidateCredentialRejected: true}},
 		{name: "retrieve-only status", resp: &AuthRetrieveResponse{Status: "current"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

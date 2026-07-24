@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -14,8 +15,7 @@ import (
 //
 //  0. Refuses launch if the runtime hostname does not match the FQDN baked
 //     into config (override with CLAUDE_ALLOW_FQDN_MISMATCH=1).
-//  1. Exports ANTHROPIC_API_KEY from credentials.json if present.
-//  2. Starts an IPv4-forcing local proxy when CLAUDE_FORCE_IPV4=1.
+//  1. Starts an IPv4-forcing local proxy when CLAUDE_FORCE_IPV4=1.
 //
 // Returns a teardown function the caller must defer.
 func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
@@ -23,10 +23,6 @@ func PreExec(ctx context.Context, cfg *config.Config) (func(), error) {
 
 	if err := GuardFQDN(cfg); err != nil {
 		return teardown, err
-	}
-
-	if err := exportAnthropicAPIKey(); err != nil {
-		fmt.Fprintln(os.Stderr, "clx: ANTHROPIC_API_KEY export failed:", err)
 	}
 
 	if os.Getenv("CLAUDE_FORCE_IPV4") == "1" || os.Getenv("CODEX_FORCE_IPV4") == "1" {
@@ -72,28 +68,6 @@ func GuardFQDN(cfg *config.Config) error {
 	return fmt.Errorf("clx: hostname %q does not match baked FQDN %q (set CLAUDE_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
 }
 
-// exportAnthropicAPIKey exports ANTHROPIC_API_KEY only for a GENUINE Anthropic
-// API key. It deliberately does NOT bridge a Claude.ai OAuth token: Claude Code
-// reads the `claudeAiOauth` account login from ~/.claude/.credentials.json
-// natively (1:1 with how cdx lets codex read ~/.codex/auth.json). Forcing an
-// OAuth access token (sk-ant-oat…) as an x-api-key pops the "detected custom API
-// key" prompt and does not authenticate.
-func exportAnthropicAPIKey() error {
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		return nil
-	}
-	raw, err := ReadAuth()
-	if err != nil || len(raw) == 0 {
-		return nil
-	}
-	key := extractAnthropicKey(raw)
-	if key == "" || strings.HasPrefix(key, "sk-ant-oat") {
-		return nil
-	}
-	_ = os.Setenv("ANTHROPIC_API_KEY", key)
-	return nil
-}
-
 // extractAnthropicKey accepts the four credential shapes the legacy wrapper
 // supports and returns the first usable key.
 func extractAnthropicKey(raw []byte) string {
@@ -101,9 +75,14 @@ func extractAnthropicKey(raw []byte) string {
 		AccessToken string `json:"accessToken"`
 	}
 	type creds struct {
-		APIKey          string `json:"api_key,omitempty"`
-		AnthropicAPIKey string `json:"anthropic_api_key,omitempty"`
-		Auths           map[string]struct {
+		APIKey             string `json:"api_key,omitempty"`
+		AnthropicAPIKey    string `json:"anthropic_api_key,omitempty"`
+		AnthropicAPIKeyEnv string `json:"ANTHROPIC_API_KEY,omitempty"`
+		Tokens             struct {
+			AnthropicAPIKey    string `json:"anthropic_api_key,omitempty"`
+			AnthropicAPIKeyEnv string `json:"ANTHROPIC_API_KEY,omitempty"`
+		} `json:"tokens,omitempty"`
+		Auths map[string]struct {
 			Token string `json:"token"`
 		} `json:"auths,omitempty"`
 		ClaudeAIOauth oauth `json:"claudeAiOauth,omitempty"`
@@ -112,17 +91,35 @@ func extractAnthropicKey(raw []byte) string {
 	if err := unmarshalLoose(raw, &c); err != nil {
 		return ""
 	}
-	if c.APIKey != "" {
-		return c.APIKey
-	}
-	if c.AnthropicAPIKey != "" {
-		return c.AnthropicAPIKey
-	}
-	if c.ClaudeAIOauth.AccessToken != "" {
+	if strings.TrimSpace(c.ClaudeAIOauth.AccessToken) != "" {
 		return c.ClaudeAIOauth.AccessToken
 	}
-	if a, ok := c.Auths["api.anthropic.com"]; ok && a.Token != "" {
+	if strings.TrimSpace(c.APIKey) != "" {
+		return c.APIKey
+	}
+	if strings.TrimSpace(c.AnthropicAPIKey) != "" {
+		return c.AnthropicAPIKey
+	}
+	if strings.TrimSpace(c.AnthropicAPIKeyEnv) != "" {
+		return c.AnthropicAPIKeyEnv
+	}
+	if strings.TrimSpace(c.Tokens.AnthropicAPIKey) != "" {
+		return c.Tokens.AnthropicAPIKey
+	}
+	if strings.TrimSpace(c.Tokens.AnthropicAPIKeyEnv) != "" {
+		return c.Tokens.AnthropicAPIKeyEnv
+	}
+	if a, ok := c.Auths["api.anthropic.com"]; ok && strings.TrimSpace(a.Token) != "" {
 		return a.Token
 	}
 	return ""
+}
+
+func hasNativeClaudeOAuth(raw []byte) bool {
+	var doc struct {
+		ClaudeAIOauth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	return json.Unmarshal(raw, &doc) == nil && strings.TrimSpace(doc.ClaudeAIOauth.AccessToken) != ""
 }

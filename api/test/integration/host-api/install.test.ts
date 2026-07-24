@@ -314,7 +314,20 @@ describe('POST /seed/auth/:token', () => {
     ]);
     db.tables.set(authPayloads, []);
     db.tables.set(authEntries, []);
-    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
+    );
+    const app = await buildHostApiTestApp({
+      db: db as any,
+      env: envWithRunner,
+      keyring: makeKeyring(),
+    });
     const r = await app.inject({
       method: 'POST',
       url: `/seed/auth/${seedToken}`,
@@ -352,7 +365,20 @@ describe('POST /seed/auth/:token', () => {
     ]);
     db.tables.set(authPayloads, []);
     db.tables.set(authEntries, []);
-    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
+    );
+    const app = await buildHostApiTestApp({
+      db: db as any,
+      env: envWithRunner,
+      keyring: makeKeyring(),
+    });
     const request = () =>
       app.inject({
         method: 'POST',

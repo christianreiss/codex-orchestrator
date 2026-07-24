@@ -306,7 +306,7 @@ func TestStatusAppliesReturnedCanonicalAuth(t *testing.T) {
 	t.Setenv("CLX_CLAUDE_BIN", bin)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"outdated","auth":{"last_refresh":"2026-07-15T12:00:00Z","claudeAiOauth":{"accessToken":"fresh"}},"host":{"fqdn":"status.test","secure":true},"versions":{"client_version":"2.1.175","wrapper_version":"0.6.44","runner_state":"ok"}}`))
+		_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","auth":{"last_refresh":"2026-07-15T12:00:00Z","claudeAiOauth":{"accessToken":"fresh"}},"host":{"fqdn":"status.test","secure":true},"versions":{"client_version":"2.1.175","wrapper_version":"0.6.44","runner_state":"ok"}}`))
 	}))
 	defer server.Close()
 	cfg := &config.Config{
@@ -621,7 +621,7 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"standalone-login"}}' > "$HOME/.cla
 		body, _ := io.ReadAll(r.Body)
 		requestBody <- string(body)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"updated","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"standalone-login"}}}`))
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","auth":{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"standalone-login"}}}`))
 	}))
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
@@ -639,15 +639,13 @@ printf '%s' '{"claudeAiOauth":{"accessToken":"standalone-login"}}' > "$HOME/.cla
 	}
 }
 
-func TestExplicitAuthUploadConvergesCanonicalWinButDoesNotClaimAcceptance(t *testing.T) {
+func TestExplicitAuthUploadCanonicalWinRecoversLogoutIntent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-17T08:00:00Z","claudeAiOauth":{"accessToken":"client-older"}}`)); err != nil {
-		t.Fatal(err)
-	}
+	seedSameDigestLogoutIntent(t, json.RawMessage(`{"last_refresh":"2026-07-17T08:00:00Z","claudeAiOauth":{"accessToken":"client-older"}}`))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"status":"outdated","verification_state":"verified","canonical_digest":%q,"canonical_last_refresh":"2026-07-17T09:00:00Z","auth":{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"server-newer"}}}`, strings.Repeat("a", 64))
+		_, _ = fmt.Fprintf(w, `{"status":"outdated","verification_state":"verified","candidate_credential_rejected":true,"candidate_rejected_definitive":true,"canonical_digest":%q,"canonical_last_refresh":"2026-07-17T09:00:00Z","auth":{"last_refresh":"2026-07-17T09:00:00Z","claudeAiOauth":{"accessToken":"server-newer"}}}`, strings.Repeat("a", 64))
 	}))
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
@@ -656,12 +654,84 @@ func TestExplicitAuthUploadConvergesCanonicalWinButDoesNotClaimAcceptance(t *tes
 		t.Fatal(err)
 	}
 	defer session.Close() //nolint:errcheck
-	if _, err := uploadCurrentClaudeAuth(context.Background(), cfg, session); err == nil || !strings.Contains(err.Error(), "did not accept") {
+	if _, err := uploadCurrentClaudeAuth(context.Background(), cfg, session); !errors.Is(err, errClaudeCanonicalWon) {
 		t.Fatalf("canonical-win upload error=%v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	if err != nil || !strings.Contains(string(raw), "server-newer") {
 		t.Fatalf("canonical-win upload did not converge: raw=%q err=%v", raw, err)
+	}
+	if claude.HasLogoutIntent() {
+		t.Fatal("different verified canonical did not clear prior logout intent")
+	}
+}
+
+func TestAuthMutationDirectAliasesNormalizeToCurrentClaudeCLI(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{in: []string{"login"}, want: "auth login"},
+		{in: []string{"login", "--method", "claudeai"}, want: "auth login --method claudeai"},
+		{in: []string{"logout"}, want: "auth logout"},
+		{in: []string{"auth", "login"}, want: "auth login"},
+	} {
+		if got := strings.Join(normalizeClaudeAuthMutationArgs(tc.in), " "); got != tc.want {
+			t.Fatalf("normalize %q=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestStandaloneAuthLoginDefersRetryableUploadAndClearsOldIntent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	seedSameDigestLogoutIntent(t, json.RawMessage(`{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh"}}`))
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nmkdir -p \"$HOME/.claude\"\nprintf '%s' '{\"claudeAiOauth\":{\"accessToken\":\"fresh\",\"refreshToken\":\"fresh-refresh\"}}' > \"$HOME/.claude/.credentials.json\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","code":"runner_unreachable","message":"retry"}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := runClaudeAuthMutation(context.Background(), cfg, []string{"login"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("deferred login code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "server upload deferred") {
+		t.Fatalf("deferred upload notice missing: %q", stdout.String())
+	}
+	if claude.HasLogoutIntent() || !claude.HasUsableAuth() {
+		t.Fatal("fresh explicit login remained blocked by prior logout intent")
+	}
+}
+
+func TestStandaloneAuthLoginMetadataRewriteCannotClearLogoutIntent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	seedSameDigestLogoutIntent(t, json.RawMessage(`{"claudeAiOauth":{"accessToken":"same","refreshToken":"same-refresh"}}`))
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nmkdir -p \"$HOME/.claude\"\nprintf '%s' '{\"metadata\":\"changed\",\"claudeAiOauth\":{\"refreshToken\":\"same-refresh\",\"accessToken\":\"same\"}}' > \"$HOME/.claude/.credentials.json\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","code":"runner_unreachable","message":"retry"}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := runClaudeAuthMutation(context.Background(), cfg, []string{"auth", "login"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("metadata-only login code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !claude.HasLogoutIntent() {
+		t.Fatal("metadata-only login cleared prior logout intent")
 	}
 }
 
@@ -724,7 +794,7 @@ func TestSameDigestExplicitLoginClearsOnlyAcceptedMarker(t *testing.T) {
 	t.Setenv("CLX_CLAUDE_BIN", bin)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"valid"}`))
+		_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified"}`))
 	}))
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
@@ -748,7 +818,7 @@ func TestConcurrentSameGenerationLogoutSurvivesExplicitUploadCAS(t *testing.T) {
 		close(requestSeen)
 		<-release
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"valid"}`))
+		_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified"}`))
 	}))
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
@@ -947,8 +1017,8 @@ while [ ! -e "$CLX_PEER_RELEASE" ]; do sleep 0.01; done
 	if _, err := os.Stat(invoked); !os.IsNotExist(err) {
 		t.Fatalf("destructive logout CLI ran beside peer: %v", err)
 	}
-	if !claude.HasUsableAuth() {
-		t.Fatal("deferred logout removed auth under peer child")
+	if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); err != nil {
+		t.Fatalf("deferred logout removed native auth under peer child: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "deferred") {
 		t.Fatalf("deferred logout was not reported: %q", stdout.String())

@@ -35,9 +35,9 @@ const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
  *   GET  /install/:token        → emits the wrapper-installer bash script
  *   GET  /install/v2/:token     → alias of /install/:token
  *   GET  /seed/auth/:token      → emits the auth-uploader bash script
- *   POST /seed/auth/:token      → host POSTs ~/.codex/auth.json here; we
- *                                 persist it as a canonical auth payload
- *                                 (skipping runner verification).
+ *   POST /seed/auth/:token      → host POSTs ~/.codex/auth.json here; the
+ *                                 shared live-runner gate must verify it before
+ *                                 it can become canonical.
  *   GET  /seed/v2/auth/:token   → alias of /seed/auth/:token
  *   POST /seed/v2/auth/:token   → alias of /seed/auth/:token
  *

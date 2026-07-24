@@ -12,9 +12,11 @@
 package codex
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,23 +46,25 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if !isValidAuthRaw(raw) {
+		return false, errors.New("auth.json: no credential runnable by native Codex")
+	}
+	now := time.Now().UTC()
+	if !authCanRunOrRefresh(raw, now) {
+		return false, nil
+	}
 	ts, err := lastRefreshFrom(raw)
 	if err != nil {
 		// Native `codex login` credentials intentionally have no orchestrator
 		// last_refresh. Treat the file mtime as that generation's freshness,
-		// but only after proving the token document is structurally usable; an
-		// arbitrary or corrupt recently-written file must not unlock offline
-		// fallback.
-		if !isValidAuthRaw(raw) {
-			return false, err
-		}
+		// after proving the token document is structurally usable; an arbitrary
+		// or corrupt recently-written file must not unlock offline fallback.
 		st, statErr := os.Stat(path)
 		if statErr != nil {
 			return false, statErr
 		}
 		ts = st.ModTime().UTC()
 	}
-	now := time.Now().UTC()
 	delta := now.Sub(ts)
 	if delta < -maxFutureSkew {
 		trusted, trustErr := trustedGenerationKnownAt(path, generationOf(raw))
@@ -83,9 +87,16 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 // login count as "invalid" (blocking concurrent runs and failed-verification
 // fallback right after the user re-authenticated).
 //
-//   - Parseable JSON object.
-//   - Either a non-empty `auths` map with per-entry tokens, OR a fallback
-//     token under `tokens.access_token`/`OPENAI_API_KEY`.
+// This follows native Codex AuthDotJson selection exactly:
+//
+//   - explicit `apikey` selects top-level `OPENAI_API_KEY`
+//   - explicit `chatgpt`/`chatgptAuthTokens` selects `tokens.access_token`
+//   - absent/null mode rejects non-null PAT/Bedrock selectors, then selects
+//     top-level `OPENAI_API_KEY` when present, otherwise ChatGPT tokens
+//
+// Legacy `auths` and nested API-key projections are server upload/normalization
+// shapes only. Native Codex does not consume them, so they cannot make a local
+// file launchable or eligible for offline fallback.
 func IsValidLocalAuth(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -99,29 +110,105 @@ func isValidAuthRaw(raw []byte) bool {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return false
 	}
-	if auths, ok := doc["auths"].(map[string]any); ok && len(auths) > 0 {
-		// Each auth entry must have a non-empty token string.
-		for _, v := range auths {
-			entry, ok := v.(map[string]any)
-			if !ok {
-				return false
-			}
-			tok, _ := entry["token"].(string)
-			if strings.TrimSpace(tok) == "" {
-				return false
-			}
+	_, ok := resolveNativeAuth(doc)
+	return ok
+}
+
+type nativeAuthCredential struct {
+	mode    string
+	access  string
+	refresh string
+}
+
+func resolveNativeAuth(doc map[string]any) (nativeAuthCredential, bool) {
+	if mode, present := doc["auth_mode"]; present && mode != nil {
+		modeName, ok := mode.(string)
+		if !ok {
+			return nativeAuthCredential{}, false
 		}
+		switch modeName {
+		case "apikey":
+			access, ok := authString(doc["OPENAI_API_KEY"])
+			return nativeAuthCredential{mode: "apikey", access: access}, ok
+		case "chatgpt", "chatgptAuthTokens":
+			return resolveChatGPTAuth(doc)
+		default:
+			return nativeAuthCredential{}, false
+		}
+	}
+
+	if value, present := doc["personal_access_token"]; present && value != nil {
+		return nativeAuthCredential{}, false
+	}
+	if value, present := doc["bedrock_api_key"]; present && value != nil {
+		return nativeAuthCredential{}, false
+	}
+	if value, present := doc["OPENAI_API_KEY"]; present && value != nil {
+		access, ok := authString(value)
+		return nativeAuthCredential{mode: "apikey", access: access}, ok
+	}
+	return resolveChatGPTAuth(doc)
+}
+
+func resolveChatGPTAuth(doc map[string]any) (nativeAuthCredential, bool) {
+	tokens, ok := doc["tokens"].(map[string]any)
+	if !ok {
+		return nativeAuthCredential{}, false
+	}
+	access, ok := authString(tokens["access_token"])
+	if !ok {
+		return nativeAuthCredential{}, false
+	}
+	refresh, _ := authString(tokens["refresh_token"])
+	return nativeAuthCredential{mode: "chatgpt", access: access, refresh: refresh}, true
+}
+
+func authString(value any) (string, bool) {
+	text, ok := value.(string)
+	text = strings.TrimSpace(text)
+	return text, ok && text != ""
+}
+
+// authCanRunOrRefresh rejects a definitively expired ChatGPT access JWT when
+// native Codex has no refresh token with which to renew it. Opaque access
+// tokens remain structurally usable because their expiry is unknowable; the
+// normal last_refresh/mtime window still bounds offline fallback.
+func authCanRunOrRefresh(raw []byte, now time.Time) bool {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	credential, ok := resolveNativeAuth(doc)
+	if !ok || credential.mode != "chatgpt" {
+		return ok
+	}
+	expiry, known := jwtExpiry(credential.access)
+	if !known || expiry.After(now) {
 		return true
 	}
-	if tokens, ok := doc["tokens"].(map[string]any); ok {
-		if at, _ := tokens["access_token"].(string); strings.TrimSpace(at) != "" {
-			return true
-		}
+	return credential.refresh != ""
+}
+
+func jwtExpiry(token string) (time.Time, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		return time.Time{}, false
 	}
-	if k, _ := doc["OPENAI_API_KEY"].(string); strings.TrimSpace(k) != "" {
-		return true
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return time.Time{}, false
 	}
-	return false
+	var claims struct {
+		ExpiresAt json.Number `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.ExpiresAt == "" {
+		return time.Time{}, false
+	}
+	seconds, err := strconv.ParseInt(claims.ExpiresAt.String(), 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Unix(seconds, 0).UTC(), true
 }
 
 // LastRefreshFromRaw parses the last_refresh stamp out of raw auth.json
@@ -142,6 +229,9 @@ func LastRefreshOfFile(path string) (time.Time, error) {
 	}
 	if err != nil {
 		return time.Time{}, err
+	}
+	if !isValidAuthRaw(raw) {
+		return time.Time{}, errors.New("auth.json: no credential runnable by native Codex")
 	}
 	if ts, perr := lastRefreshFrom(raw); perr == nil {
 		if reasonableAuthTimestamp(ts, time.Now()) {

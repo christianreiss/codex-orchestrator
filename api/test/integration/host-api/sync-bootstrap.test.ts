@@ -3,6 +3,7 @@ import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
 import {
+  authCanonicalHeads,
   authEntries,
   authPayloads,
   chatgptUsageSnapshots,
@@ -106,8 +107,55 @@ function seedVerifiedCodexCanonical(
       verificationCheckedAt: stamp,
       verificationReason: null,
       engine: 'codex',
+      generation: 1,
     },
   ]);
+  db.tables.set(authCanonicalHeads, [{ engine: 'codex', payloadId: 71, generation: 1, updatedAt: stamp }]);
+}
+
+function seedClaudeCanonical(
+  db: ReturnType<typeof createDbFake>,
+  keyring: Keyring,
+  verificationState: 'pending' | 'verified' | 'failed',
+): {
+  auth: Record<string, unknown>;
+  digest: string;
+  stamp: string;
+} {
+  const validation = createRunnerValidationService({ db: db as never, keyring });
+  const stamp = '2026-07-10T09:00:00Z';
+  const source = {
+    last_refresh: stamp,
+    claudeAiOauth: {
+      accessToken: 'sk-ant-oat01-canonical-access-token',
+      refreshToken: 'canonical-refresh-token',
+    },
+  };
+  const withFallback = validation.ensureAuthsFallback(source, 'claude');
+  const auth = validation.canonicalizeAuthPayload(
+    withFallback,
+    validation.normalizeAuthEntries(withFallback, 'claude'),
+    stamp,
+  );
+  const encoded = JSON.stringify(auth);
+  const digest = createHash('sha256').update(encoded).digest('hex');
+  db.tables.set(authPayloads, [
+    {
+      id: 30,
+      lastRefresh: stamp,
+      sha256: digest,
+      sourceHostId: null,
+      createdAt: stamp,
+      body: encrypt(encoded, keyring),
+      verificationState,
+      verificationCheckedAt: verificationState === 'pending' ? null : stamp,
+      verificationReason: verificationState === 'failed' ? 'provider rejected token' : null,
+      engine: 'claude',
+      generation: 3,
+    },
+  ]);
+  db.tables.set(authCanonicalHeads, [{ engine: 'claude', payloadId: 30, generation: 3, updatedAt: stamp }]);
+  return { auth, digest, stamp };
 }
 
 describe('POST /sync/bootstrap inlines agents + config', () => {
@@ -217,7 +265,20 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     db.tables.set(authPayloads, []);
     db.tables.set(authEntries, []);
 
-    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
+    );
+    const app = await buildHostApiTestApp({
+      db: db as any,
+      env: envWithRunner,
+      keyring: makeKeyring(),
+    });
     const r = await app.inject({
       method: 'POST',
       url: '/sync/bootstrap',
@@ -237,6 +298,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(db.tables.get(authPayloads)!).toHaveLength(1);
     expect(db.tables.get(authEntries)!).toHaveLength(1);
     await app.close();
+    vi.unstubAllGlobals();
   });
 
   it('treats stripped Claude credentials as valid when they canonicalize to server auth', async () => {
@@ -297,6 +359,82 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(body.auth.auth).toBeUndefined();
     expect(db.tables.get(authPayloads)!).toHaveLength(1);
     await app.close();
+  });
+
+  it('never returns credential bytes for a pending canonical head', async () => {
+    const apiKey = 'sk-auth-pending-no-bytes';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+    seedClaudeCanonical(db, keyring, 'pending');
+
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ command: 'retrieve', engine: 'claude' }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(body.status).toBe('outdated');
+    expect(body.verification_state).toBe('unknown');
+    expect(body.auth).toBeUndefined();
+    await app.close();
+  });
+
+  it('live-verifies an exact pending bootstrap candidate instead of using the warm-valid path', async () => {
+    const apiKey = 'sk-bootstrap-pending-live-verify';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+    const seeded = seedClaudeCanonical(db, keyring, 'pending');
+
+    const envWithRunner = {
+      ...(env as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof env;
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const app = await buildHostApiTestApp({
+      db: db as never,
+      env: envWithRunner,
+      keyring,
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        include_auth: true,
+        auth_candidate: seeded.auth,
+      }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(body.auth.status).toBe('updated');
+    expect(body.auth.verification_state).toBe('verified');
+    expect(body.auth.auth.claudeAiOauth.accessToken).toBe('sk-ant-oat01-canonical-access-token');
+    expect(db.tables.get(authCanonicalHeads)).toEqual([
+      expect.objectContaining({ engine: 'claude', payloadId: 2 }),
+    ]);
+    await app.close();
+    vi.unstubAllGlobals();
   });
 
   it('never serves a stale canonical to a host presenting fresher credentials when the store is gated', async () => {
@@ -381,6 +519,113 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    {
+      name: 'exact known-bad pair',
+      candidate: {
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-failed-head-access-token',
+          refreshToken: 'failed-head-refresh-token',
+        },
+      },
+      matches: true,
+    },
+    {
+      name: 'distinct local pair',
+      candidate: {
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-distinct-local-access-token',
+          refreshToken: 'distinct-local-refresh-token',
+        },
+      },
+      matches: false,
+    },
+  ])(
+    'reports failed-canonical credential identity for a $name during runner outage',
+    async ({ candidate, matches }) => {
+      const apiKey = `sk-bootstrap-failed-match-${matches}`;
+      const db = createDbFake();
+      const keyring = makeKeyring();
+      db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
+      db.tables.set(versionsTable, []);
+      db.tables.set(agentsDocuments, []);
+      db.tables.set(clientConfigDocuments, []);
+      db.tables.set(authEntries, []);
+
+      const validation = createRunnerValidationService({ db: db as never, keyring });
+      const stamp = '2026-07-10T09:00:00Z';
+      const source = {
+        last_refresh: stamp,
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-failed-head-access-token',
+          refreshToken: 'failed-head-refresh-token',
+        },
+      };
+      const withFallback = validation.ensureAuthsFallback(source, 'claude');
+      const canonical = validation.canonicalizeAuthPayload(
+        withFallback,
+        validation.normalizeAuthEntries(withFallback, 'claude'),
+        stamp,
+      );
+      const encoded = JSON.stringify(canonical);
+      db.tables.set(authPayloads, [
+        {
+          id: 40,
+          lastRefresh: stamp,
+          sha256: createHash('sha256').update(encoded).digest('hex'),
+          sourceHostId: null,
+          createdAt: stamp,
+          body: encrypt(encoded, keyring),
+          verificationState: 'failed',
+          verificationCheckedAt: stamp,
+          verificationReason: 'provider rejected token',
+          engine: 'claude',
+          generation: 4,
+        },
+      ]);
+      db.tables.set(authCanonicalHeads, [
+        { engine: 'claude', payloadId: 40, generation: 4, updatedAt: stamp },
+      ]);
+
+      const envWithRunner = {
+        ...(env as Record<string, unknown>),
+        AUTH_RUNNER_URL: 'https://runner.example/verify',
+        AUTH_RUNNER_TIMEOUT: 2,
+      } as typeof env;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new Error('connect ECONNREFUSED');
+        }),
+      );
+      const app = await buildHostApiTestApp({
+        db: db as never,
+        env: envWithRunner,
+        keyring,
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/sync/bootstrap',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          engine: 'claude',
+          include_auth: true,
+          auth_candidate: candidate,
+        }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+      expect(body.auth.status).toBe('outdated');
+      expect(body.auth.verification_state).toBe('failed');
+      expect(body.auth.candidate_matches_failed_canonical).toBe(matches);
+      expect(body.auth.candidate_credential_rejected).toBeUndefined();
+      expect(body.auth.auth).toBeUndefined();
+      await app.close();
+      vi.unstubAllGlobals();
+    },
+  );
+
   it('serves the verified canonical when the runner definitively rejects the candidate', async () => {
     // Regression for the dead-credentials loop: a host whose local
     // .credentials.json is CLI-native (claudeAiOauth only, no last_refresh)
@@ -442,8 +687,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
             status: 'fail',
             reachable: true,
             definitive: true,
-            reason:
-              'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+            reason: 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
           }),
       })),
     );
@@ -467,6 +711,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const body = JSON.parse(r.payload);
     assertContract('sync-bootstrap.schema.json', body);
     expect(body.auth.status).toBe('outdated');
+    expect(body.auth.candidate_credential_rejected).toBe(true);
     expect(body.auth.candidate_rejected_definitive).toBe(true);
     // The verified canonical blob rides along so the host can heal.
     expect(body.auth.auth).toBeDefined();
@@ -525,6 +770,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(body.auth).toMatchObject({
       status: 'outdated',
       verification_state: 'verified',
+      candidate_credential_rejected: true,
       candidate_rejected_definitive: true,
     });
     expect(body.auth.auth.auths['api.openai.com'].token).toBe('verified-token');
@@ -532,7 +778,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     await app.close();
   });
 
-  it('does not mark a deterministic rejection when no verified canonical is served', async () => {
+  it('signals deterministic rejection without authorizing overwrite when no canonical is served', async () => {
     const apiKey = 'sk-bootstrap-malformed-no-canonical';
     const db = createDbFake();
     db.tables.set(hostsTable, [hostRow(apiKey)]);
@@ -558,6 +804,7 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     const body = JSON.parse(r.payload);
     expect(body.auth.status).toBe('missing');
     expect(body.auth.auth).toBeUndefined();
+    expect(body.auth.candidate_credential_rejected).toBe(true);
     expect(body.auth.candidate_rejected_definitive).toBeUndefined();
     await app.close();
   });
@@ -597,7 +844,11 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         verificationCheckedAt: failedStamp,
         verificationReason: 'expired',
         engine: 'codex',
+        generation: 1,
       },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: failedStamp },
     ]);
     const envWithRunner = {
       ...(env as Record<string, unknown>),

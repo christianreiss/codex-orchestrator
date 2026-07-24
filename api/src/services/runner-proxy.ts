@@ -115,7 +115,8 @@ export class RunnerProxyService {
 
     const canonicalPayload = await validation.resolveCanonicalPayload(engine);
     const validated = validation.validateCanonicalPayload(canonicalPayload);
-    if (!canonicalPayload || !validated) {
+    const distributableAuth = canonicalPayload ? validation.canonicalAuthFromPayload(canonicalPayload) : null;
+    if (!canonicalPayload || !validated || !distributableAuth) {
       const engineLabel = engine === 'claude' ? 'Claude' : 'Codex';
       return {
         status: 'fail',
@@ -128,8 +129,8 @@ export class RunnerProxyService {
     const timeoutSeconds = typeof payload.timeout_seconds === 'number' ? payload.timeout_seconds : undefined;
     const verdict =
       engine === 'claude'
-        ? await this.runner.verifyClaude({ authJson: validated.auth, timeoutSeconds })
-        : await this.runner.verify({ authJson: validated.auth, timeoutSeconds });
+        ? await this.runner.verifyClaude({ authJson: distributableAuth, timeoutSeconds })
+        : await this.runner.verify({ authJson: distributableAuth, timeoutSeconds });
 
     return this.formatRunResult(verdict, canonicalPayload.id, validated.digest, validated.last_refresh);
   }

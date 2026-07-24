@@ -8,6 +8,12 @@ import { ValidationError } from '../http/errors.js';
 import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE } from '../util/engine.js';
+import {
+  fingerprintMatches,
+  inspectCredential,
+  pairFingerprints,
+  resolveCodexCredential,
+} from './auth-generation.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
@@ -55,6 +61,7 @@ export interface NormalizedAuthEntry {
 
 export interface RunnerValidationService {
   resolveCanonicalPayload(engine: Engine): Promise<CanonicalPayloadRow | null>;
+  resolvePendingQuarantine?(engine: Engine): Promise<CanonicalPayloadRow | null>;
   validateCanonicalPayload(
     row: CanonicalPayloadRow | null,
   ): { auth: Record<string, unknown>; digest: string; last_refresh: string } | null;
@@ -66,6 +73,7 @@ export interface RunnerValidationService {
     payload: Record<string, unknown>,
     entries: NormalizedAuthEntry[],
     lastRefresh: string,
+    engine?: Engine,
   ): Record<string, unknown>;
   calculateDigest(canonicalJson: string): string;
 }
@@ -82,32 +90,46 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const tokenMinLength = resolveTokenMinLength(deps.tokenMinLength);
   const service: RunnerValidationService = {
     async resolveCanonicalPayload(engine) {
-      const heads = await db
-        .select()
-        .from(authCanonicalHeads)
-        .where(eq(authCanonicalHeads.engine, engine));
+      const heads = await db.select().from(authCanonicalHeads).where(eq(authCanonicalHeads.engine, engine));
       const head = heads[0];
       if (head) {
-        const selected = await db
-          .select()
-          .from(authPayloads)
-          .where(eq(authPayloads.id, head.payloadId));
+        const selected = await db.select().from(authPayloads).where(eq(authPayloads.id, head.payloadId));
         // Once an explicit head exists it is the lineage authority. Returning
         // null for a dangling pointer, or the selected invalid row for callers
         // to fail closed on, prevents silent resurrection of older history.
         return selected[0] ? toCanonicalPayloadRow(selected[0]) : null;
       }
       // RFC3339 values can contain offsets, so VARCHAR ordering is not
-      // chronological (`10:30+02:00` is older than `09:00Z`).  Resolve by the
-      // parsed instant instead.  Do not prefer an older `verified` row over a
-      // newer `failed`/`pending` row: doing so resurrects rotated credentials
-      // after the current lineage has failed.
+      // chronological (`10:30+02:00` is older than `09:00Z`). Resolve by the
+      // parsed instant instead. Before explicit heads were introduced, only a
+      // verified row was distributable; pending/failed history is quarantine,
+      // not an implicit canonical head.
       const rows = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
       const ordered = rows.map(toCanonicalPayloadRow).sort(compareCanonicalRowsNewestFirst);
-      // Corrupt rows are not candidates for distribution. Fall back only past
-      // structurally corrupt rows; a structurally valid failed row remains the
-      // selected canonical and is surfaced as failed by the route layer.
-      return ordered.find((row) => service.validateCanonicalPayload(row) !== null) ?? null;
+      return (
+        ordered.find(
+          (row) => row.verificationState === 'verified' && service.validateCanonicalPayload(row) !== null,
+        ) ?? null
+      );
+    },
+
+    async resolvePendingQuarantine(engine) {
+      const current = await service.resolveCanonicalPayload(engine);
+      const currentGeneration = current?.generation ?? 0;
+      const rows = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+      const newestQuarantine = rows
+        .map(toCanonicalPayloadRow)
+        .filter(
+          (row) =>
+            row.verificationState !== 'verified' &&
+            (current === null || (row.generation ?? 0) > currentGeneration) &&
+            service.validateCanonicalPayload(row) !== null,
+        )
+        .sort((a, b) => {
+          const generationOrder = (b.generation ?? 0) - (a.generation ?? 0);
+          return generationOrder !== 0 ? generationOrder : compareCanonicalRowsNewestFirst(a, b);
+        });
+      return newestQuarantine[0]?.verificationState === 'pending' ? newestQuarantine[0] : null;
     },
 
     validateCanonicalPayload(row) {
@@ -136,8 +158,43 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
     },
 
     canonicalAuthFromPayload(row) {
-      if (row.verificationState === 'failed') return null;
-      return service.validateCanonicalPayload(row)?.auth ?? null;
+      if (row.verificationState !== 'verified') return null;
+      const validated = service.validateCanonicalPayload(row);
+      if (!validated) return null;
+      const engine =
+        row.engine === ENGINE_CODEX ? ENGINE_CODEX : row.engine === ENGINE_CLAUDE ? ENGINE_CLAUDE : null;
+      if (!engine) return null;
+
+      // Old rows may predate native credential-precedence normalization. They
+      // remain distributable only when the native/selected credential is also
+      // the exact derived bearer stored in the canonical body, and when its
+      // keyed identity still matches the live-verified row metadata.
+      if (engine === ENGINE_CODEX && !resolveCodexCredential(validated.auth, { allowLegacy: false })) {
+        return null;
+      }
+      const projected = service.ensureAuthsFallback(validated.auth, engine);
+      const normalized = service.canonicalizeAuthPayload(
+        projected,
+        service.normalizeAuthEntries(projected, engine),
+        validated.last_refresh,
+        engine,
+      );
+      // The selected bearer can match while legacy bytes still carry shadow
+      // credentials or unrelated auth targets the runner never verified.
+      // Serve only the exact projection that was live-probed. The background
+      // worker force-verifies and promotes this projection for older rows.
+      if (sha256(JSON.stringify(normalized)) !== row.sha256) return null;
+      const identity = inspectCredential(validated.auth, engine);
+      if (!identity) return null;
+      const derivedToken = nativeAuthsToken(validated.auth, engine);
+      if (!derivedToken || derivedToken !== identity.access) return null;
+      const hasFingerprintMetadata = Boolean(row.pairFingerprint || row.fingerprintKid);
+      if (hasFingerprintMetadata) {
+        if (!row.pairFingerprint || !row.fingerprintKid || !deps.keyring) return null;
+        const candidate = pairFingerprints(identity, deps.keyring).get(row.fingerprintKid);
+        if (!fingerprintMatches(row.pairFingerprint, candidate)) return null;
+      }
+      return validated.auth;
     },
 
     ensureAuthsFallback(payload, engine) {
@@ -147,50 +204,80 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       const hadAuths = isRecord(rawAuths);
       const auths = hadAuths ? { ...rawAuths } : {};
       const nativeEntry = isRecord(auths[nativeTarget]) ? auths[nativeTarget] : null;
-      const nativeToken = nativeEntry && typeof nativeEntry.token === 'string' ? nativeEntry.token : '';
+      let nativeToken = nativeEntry && typeof nativeEntry.token === 'string' ? nativeEntry.token : '';
+
+      if (engine === ENGINE_CLAUDE) {
+        const tokens = isRecord(out.tokens) ? out.tokens : null;
+        const oauth = isRecord(out.claudeAiOauth) ? out.claudeAiOauth : null;
+        const oauthAccess = typeof oauth?.accessToken === 'string' ? oauth.accessToken : '';
+        if (oauthAccess.trim()) {
+          if (!isTokenQualityValid(oauthAccess, tokenMinLength)) {
+            delete auths[nativeTarget];
+            out.auths = auths;
+            return out;
+          }
+          return projectNativeEntry(out, auths, nativeEntry, nativeTarget, oauthAccess);
+        }
+        // An `oat` bearer is a projection of the native OAuth object, never an
+        // independent API key. Without a usable native OAuth access token it
+        // cannot authenticate Claude Code or refresh itself.
+        if (nativeToken.trim().toLowerCase().startsWith('sk-ant-oat')) {
+          delete auths[nativeTarget];
+          nativeToken = '';
+        }
+        const configuredKey = firstConfiguredString(
+          out.api_key,
+          out.anthropic_api_key,
+          out.ANTHROPIC_API_KEY,
+          tokens?.anthropic_api_key,
+          tokens?.ANTHROPIC_API_KEY,
+        );
+        if (configuredKey !== null) {
+          if (
+            configuredKey.toLowerCase().startsWith('sk-ant-oat') ||
+            !isTokenQualityValid(configuredKey, tokenMinLength)
+          ) {
+            delete auths[nativeTarget];
+            out.auths = auths;
+            return out;
+          }
+          return projectNativeEntry(out, auths, nativeEntry, nativeTarget, configuredKey);
+        }
+      } else if (engine === ENGINE_CODEX) {
+        const selected = resolveCodexCredential(out);
+        if (selected) {
+          if (!isTokenQualityValid(selected.access, tokenMinLength)) {
+            delete auths[nativeTarget];
+            out.auths = auths;
+            return out;
+          }
+          return projectNativeEntry(out, auths, nativeEntry, nativeTarget, selected.access);
+        }
+        delete auths[nativeTarget];
+        nativeToken = '';
+      } else {
+        return out;
+      }
+
       if (isTokenQualityValid(nativeToken, tokenMinLength)) {
         out.auths = auths;
         return out;
       }
 
-      const candidates: unknown[] = [];
-      if (engine === ENGINE_CLAUDE) {
-        candidates.push(out.api_key, out.anthropic_api_key, out.ANTHROPIC_API_KEY);
-        const tokens = isRecord(out.tokens) ? out.tokens : null;
-        candidates.push(tokens?.anthropic_api_key, tokens?.ANTHROPIC_API_KEY);
-        const oauth = isRecord(out.claudeAiOauth) ? out.claudeAiOauth : null;
-        candidates.push(oauth?.accessToken);
-      } else if (engine === ENGINE_CODEX) {
-        const tokens = isRecord(out.tokens) ? out.tokens : null;
-        candidates.push(tokens?.access_token, tokens?.openai_api_key, out.OPENAI_API_KEY);
-      } else {
-        return out;
-      }
-
-      const token = candidates.find(
-        (candidate): candidate is string =>
-          typeof candidate === 'string' && isTokenQualityValid(candidate, tokenMinLength),
-      );
-      if (!token) {
-        if (hadAuths) out.auths = auths;
-        return out;
-      }
-      out.auths = {
-        ...auths,
-        [nativeTarget]: { token: token.trim(), token_type: 'bearer' },
-      };
+      if (hadAuths) out.auths = auths;
       return out;
     },
 
-    normalizeAuthEntries(payload, _engine) {
+    normalizeAuthEntries(payload, engine) {
       const auths = payload.auths;
       const out: NormalizedAuthEntry[] = [];
       if (!auths || typeof auths !== 'object' || Array.isArray(auths)) return out;
+      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
       const entries = Object.entries(auths as Record<string, unknown>);
       entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
       for (const [target, raw] of entries) {
         const normalizedTarget = target.trim();
-        if (!normalizedTarget) continue;
+        if (normalizedTarget !== nativeTarget) continue;
         if (!raw || typeof raw !== 'object') continue;
         const r = raw as Record<string, unknown>;
         const token = typeof r.token === 'string' ? r.token.trim() : '';
@@ -215,44 +302,65 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
     hasUsableEngineCredential(payload, engine) {
       const withFallback = service.ensureAuthsFallback(payload, engine);
       const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
-      return service.normalizeAuthEntries(withFallback, engine).some((entry) => entry.target === nativeTarget);
+      return service
+        .normalizeAuthEntries(withFallback, engine)
+        .some((entry) => entry.target === nativeTarget);
     },
 
-    canonicalizeAuthPayload(payload, entries, lastRefresh) {
+    canonicalizeAuthPayload(payload, entries, lastRefresh, requestedEngine) {
+      const engine = requestedEngine ?? inferCanonicalEngine(entries);
+      const nativeTarget = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
       const canonical: Record<string, unknown> = {
         last_refresh: lastRefresh,
         auths: Object.fromEntries(
-          entries.map((e) => [
-            e.target,
-            removeUndefined({
-              token: e.token,
-              token_type: e.tokenType ?? undefined,
-              organization: e.organization ?? undefined,
-              project: e.project ?? undefined,
-              api_base: e.apiBase ?? undefined,
-              ...(e.meta ?? {}),
-            }),
-          ]),
+          entries
+            .filter((entry) => entry.target === nativeTarget)
+            .map((e) => [
+              e.target,
+              removeUndefined({
+                token: e.token,
+                token_type: e.tokenType ?? undefined,
+                organization: e.organization ?? undefined,
+                project: e.project ?? undefined,
+                api_base: e.apiBase ?? undefined,
+                ...(e.meta ?? {}),
+              }),
+            ]),
         ),
       };
-      if (payload.tokens && typeof payload.tokens === 'object') canonical.tokens = payload.tokens;
-      if (typeof payload.OPENAI_API_KEY === 'string') canonical.OPENAI_API_KEY = payload.OPENAI_API_KEY;
-      for (const key of ['api_key', 'anthropic_api_key', 'ANTHROPIC_API_KEY'] as const) {
-        if (typeof payload[key] === 'string') canonical[key] = payload[key];
+      if (engine === ENGINE_CODEX) {
+        const selected = resolveCodexCredential(payload);
+        if (selected?.mode === 'chatgpt') {
+          canonical.auth_mode = 'chatgpt';
+          const tokens = isRecord(payload.tokens) ? { ...payload.tokens } : {};
+          delete tokens.openai_api_key;
+          delete tokens.OPENAI_API_KEY;
+          canonical.tokens = tokens;
+        } else if (selected?.mode === 'apikey') {
+          canonical.auth_mode = 'apikey';
+          canonical.OPENAI_API_KEY = selected.access.trim();
+        }
+      } else {
+        const selected = inspectCredential(payload, ENGINE_CLAUDE);
+        if (selected?.kind === 'claude_oauth') {
+          if (
+            payload.claudeAiOauth &&
+            typeof payload.claudeAiOauth === 'object' &&
+            !Array.isArray(payload.claudeAiOauth)
+          ) {
+            canonical.claudeAiOauth = payload.claudeAiOauth;
+          }
+        } else if (selected?.kind === 'api_key') {
+          canonical.api_key = selected.access;
+        }
       }
-      if (typeof payload.session_started_at === 'string') canonical.session_started_at = payload.session_started_at;
+      if (typeof payload.session_started_at === 'string')
+        canonical.session_started_at = payload.session_started_at;
       // Symmetric to codex's `tokens`: preserve Claude's native account-login
       // object so the canonical payload served to hosts is the real
       // `.credentials.json` shape (accessToken + refreshToken + expiresAt +
       // scopes), not just the derived `auths` bearer. Without this the host
       // could never refresh and Claude Code can't do native account login.
-      if (
-        payload.claudeAiOauth &&
-        typeof payload.claudeAiOauth === 'object' &&
-        !Array.isArray(payload.claudeAiOauth)
-      ) {
-        canonical.claudeAiOauth = payload.claudeAiOauth;
-      }
       return canonical;
     },
 
@@ -261,6 +369,46 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
     },
   };
   return service;
+}
+
+function projectNativeEntry(
+  payload: Record<string, unknown>,
+  auths: Record<string, unknown>,
+  nativeEntry: Record<string, unknown> | null,
+  nativeTarget: string,
+  token: string,
+): Record<string, unknown> {
+  return {
+    ...payload,
+    auths: {
+      ...auths,
+      [nativeTarget]: {
+        ...(nativeEntry ?? {}),
+        token: token.trim(),
+        token_type: nonEmptyString(nativeEntry?.token_type) ?? 'bearer',
+      },
+    },
+  };
+}
+
+function inferCanonicalEngine(entries: NormalizedAuthEntry[]): Engine {
+  const hasAnthropic = entries.some((entry) => entry.target === 'api.anthropic.com');
+  const hasOpenAi = entries.some((entry) => entry.target === 'api.openai.com');
+  return hasAnthropic && !hasOpenAi ? ENGINE_CLAUDE : ENGINE_CODEX;
+}
+
+function nativeAuthsToken(payload: Record<string, unknown>, engine: Engine): string {
+  const auths = isRecord(payload.auths) ? payload.auths : null;
+  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+  const entry = auths && isRecord(auths[target]) ? auths[target] : null;
+  return typeof entry?.token === 'string' ? entry.token.trim() : '';
+}
+
+function firstConfiguredString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
 }
 
 function resolveTokenMinLength(override?: number): number {
@@ -272,9 +420,7 @@ function resolveTokenMinLength(override?: number): number {
 function isReasonableLastRefresh(value: string): boolean {
   const timestamp = parseRfc3339Millis(value);
   return (
-    timestamp !== null &&
-    timestamp >= MIN_REFRESH_EPOCH_MS &&
-    timestamp <= Date.now() + MAX_FUTURE_SKEW_MS
+    timestamp !== null && timestamp >= MIN_REFRESH_EPOCH_MS && timestamp <= Date.now() + MAX_FUTURE_SKEW_MS
   );
 }
 

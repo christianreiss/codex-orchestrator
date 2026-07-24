@@ -2,17 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "POST /auth store response",
   "type": "object",
-  "required": [
-    "status",
-    "data"
-  ],
+  "required": ["status", "data"],
   "properties": {
     "status": {
-      "enum": [
-        "updated",
-        "valid",
-        "outdated"
-      ]
+      "enum": ["updated", "valid", "outdated"]
     },
     "data": {
       "type": "object",
@@ -34,47 +27,29 @@
       "properties": {
         "status": {
           "type": "string",
-          "enum": [
-            "updated",
-            "valid",
-            "outdated"
-          ]
+          "enum": ["updated", "valid", "outdated"]
         },
         "auth": {
           "type": "object"
         },
         "canonical_last_refresh": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "canonical_digest": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "canonical_generation": {
           "type": "integer",
           "minimum": 1
         },
         "candidate_result": {
-          "enum": [
-            "accepted",
-            "current",
-            "historical_replay",
-            "older_internal"
-          ]
+          "enum": ["accepted", "current", "historical_replay", "older_internal"]
         },
         "candidate_rejected_definitive": {
           "type": "boolean"
         },
         "host": {
-          "type": [
-            "object",
-            "null"
-          ],
+          "type": ["object", "null"],
           "required": [
             "fqdn",
             "status",
@@ -94,70 +69,37 @@
               "type": "string"
             },
             "last_refresh": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "updated_at": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "expires_at": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "claude_client_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "claude_client_version_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "wrapper_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "claude_wrapper_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "agents_document_id_override": {
-              "type": [
-                "integer",
-                "null"
-              ]
+              "type": ["integer", "null"]
             },
             "api_calls": {
-              "type": [
-                "integer",
-                "null"
-              ]
+              "type": ["integer", "null"]
             },
             "allow_roaming_ips": {
               "type": "boolean"
@@ -169,57 +111,29 @@
               "type": "boolean"
             },
             "insecure_enabled_until": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "insecure_grace_until": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "insecure_window_minutes": {
-              "type": [
-                "integer",
-                "null"
-              ]
+              "type": ["integer", "null"]
             },
             "lane_preference": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "enum": [
-                "normal",
-                "spark",
-                null
-              ]
+              "type": ["string", "null"],
+              "enum": ["normal", "spark", null]
             },
             "model_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "reasoning_effort_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "claude_model_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "claude_reasoning_effort_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             }
           },
           "additionalProperties": true
@@ -246,61 +160,34 @@
           ],
           "properties": {
             "client_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version_override": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version_checked_at": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version_source": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "client_version_enforce_exact": {
               "type": "boolean"
             },
             "wrapper_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "wrapper_sha256": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "wrapper_url": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "reported_client_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "reported_wrapper_version": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "quota_hard_fail": {
               "type": "boolean"
@@ -338,40 +225,22 @@
               "type": "boolean"
             },
             "runner_state": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "runner_last_ok": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "runner_last_fail": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "runner_last_check": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "installation_id": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             },
             "engine": {
-              "enum": [
-                "codex",
-                "claude"
-              ]
+              "enum": ["codex", "claude"]
             }
           },
           "additionalProperties": true
@@ -392,10 +261,7 @@
           "type": "object"
         },
         "validation": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "type": ["object", "null"]
         },
         "runner_applied": {
           "type": "boolean"
@@ -404,22 +270,14 @@
           "type": "string"
         },
         "verification_state": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "verified",
-            "failed"
-          ]
+          "enum": ["pending", "verified", "failed", "unknown"]
         },
         "pending_payload_id": {
           "type": "integer"
         },
         "engine": {
           "type": "string",
-          "enum": [
-            "codex",
-            "claude"
-          ]
+          "enum": ["codex", "claude"]
         }
       },
       "allOf": [
@@ -430,28 +288,67 @@
                 "const": "codex"
               }
             },
-            "required": [
-              "engine"
-            ]
+            "required": ["engine"]
           },
           "then": {
-            "required": [
-              "chatgpt"
-            ],
+            "required": ["chatgpt"],
             "properties": {
               "chatgpt": {
                 "type": "object"
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "auth": {
+                "type": "object"
+              }
+            },
+            "required": ["auth"]
+          },
+          "then": {
+            "properties": {
+              "verification_state": {
+                "const": "verified"
+              }
+            },
+            "required": ["verification_state"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verification_state": {
+                "const": "verified"
+              }
+            },
+            "required": ["verification_state"]
+          },
+          "then": {
+            "required": ["auth"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verification_state": {
+                "enum": ["pending", "failed", "unknown"]
+              }
+            },
+            "required": ["verification_state"]
+          },
+          "then": {
+            "not": {
+              "required": ["auth"]
+            }
+          }
         }
       ],
       "anyOf": [
         {
-          "required": [
-            "status",
-            "auth"
-          ],
+          "required": ["status", "auth"],
           "properties": {
             "status": {
               "const": "updated"
@@ -462,10 +359,7 @@
           }
         },
         {
-          "required": [
-            "status",
-            "auth"
-          ],
+          "required": ["status", "auth"],
           "properties": {
             "status": {
               "const": "valid"
@@ -476,16 +370,10 @@
           }
         },
         {
-          "required": [
-            "status",
-            "auth"
-          ],
+          "required": ["status"],
           "properties": {
             "status": {
               "const": "outdated"
-            },
-            "auth": {
-              "type": "object"
             }
           }
         }

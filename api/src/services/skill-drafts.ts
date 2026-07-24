@@ -63,10 +63,10 @@ export class SkillDraftsService {
         latency_ms: result.latency_ms ?? null,
         reachable: result.reachable ?? null,
       });
-      throw new ApiError(
-        `Skill generation failed: ${result.reason ?? 'runner returned non-ok status'}`,
-        { status: 502, code: 'runner_failed' },
-      );
+      throw new ApiError(`Skill generation failed: ${result.reason ?? 'runner returned non-ok status'}`, {
+        status: 502,
+        code: 'runner_failed',
+      });
     }
 
     let draft: SkillDraft;
@@ -137,10 +137,10 @@ export class SkillDraftsService {
         latency_ms: result.latency_ms ?? null,
         reachable: result.reachable ?? null,
       });
-      throw new ApiError(
-        `Skill assist failed: ${result.reason ?? 'runner returned non-ok status'}`,
-        { status: 502, code: 'runner_failed' },
-      );
+      throw new ApiError(`Skill assist failed: ${result.reason ?? 'runner returned non-ok status'}`, {
+        status: 502,
+        code: 'runner_failed',
+      });
     }
 
     const assistantMessage = normalizeAssistantMessage(result.assistant_message);
@@ -211,8 +211,8 @@ export class SkillDraftsService {
   ): Promise<Record<string, unknown>> {
     const validation = this.deps.runnerValidation!;
     const row = await validation.resolveCanonicalPayload(this.deps.engine ?? ENGINE_CODEX);
-    const validated = validation.validateCanonicalPayload(row);
-    if (!validated || !validated.auth) {
+    const auth = row ? validation.canonicalAuthFromPayload(row) : null;
+    if (!auth) {
       await this.recordLog(action, {
         status: 'skipped',
         reason: 'canonical auth missing',
@@ -223,7 +223,7 @@ export class SkillDraftsService {
         code: 'canonical_auth_missing',
       });
     }
-    return validated.auth;
+    return auth;
   }
 
   private async recordLog(action: string, details: Record<string, unknown>): Promise<void> {
@@ -328,13 +328,20 @@ function normalizeAssistantMessage(value: unknown): string | null {
 
 function diffDraftFields(before: SkillDraft, after: SkillDraft): string[] {
   const changed: string[] = [];
-  const keys: Array<keyof SkillDraft> = ['slug', 'display_name', 'description', 'tags', 'what', 'when', 'steps'];
+  const keys: Array<keyof SkillDraft> = [
+    'slug',
+    'display_name',
+    'description',
+    'tags',
+    'what',
+    'when',
+    'steps',
+  ];
   for (const key of keys) {
     const a = before[key];
     const b = after[key];
-    const equal = Array.isArray(a) && Array.isArray(b)
-      ? a.length === b.length && a.every((v, i) => v === b[i])
-      : a === b;
+    const equal =
+      Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((v, i) => v === b[i]) : a === b;
     if (!equal) changed.push(key);
   }
   return changed;

@@ -111,7 +111,12 @@ Both `/sync/status` and `/sync/bootstrap`:
 3. Call `syncService.collect`.
 4. Inline an auth check (unless `include_auth=false`) and embed the result in `out.auth`.
 
-The auth step differs between the two routes. `/sync/status` always inlines a plain `handleRetrieve`. `/sync/bootstrap` additionally accepts `auth_candidate`: a matching digest uses the stored verdict; a genuinely newer usable candidate enters the runner-validated store path; an older candidate yields to a newer verified canonical. A selected `pending`/`failed` lineage is never bypassed by older history. Deterministically malformed, unusable, or provider-rejected candidates may fall back to an older verified canonical only with `candidate_rejected_definitive:true`, `status:outdated`, and `verification_state:verified`. Transient runner/provider/CLI/HTTP failures omit that authority and preserve the locally newer generation for retry.
+The auth step differs between the two routes. `/sync/status` always inlines a plain `handleRetrieve`. `/sync/bootstrap` additionally accepts `auth_candidate`: a matching verified digest uses the stored verdict; a genuinely newer usable candidate enters the live-runner-validated store path; an older candidate yields to a newer verified canonical. Only verified canonical bytes are returned. `pending`/`failed` runner readbacks are quarantined history and never advance the head; a failed explicit head is withheld instead of bypassed by older history. Deterministically malformed, unusable, or provider-rejected candidates set `candidate_credential_rejected:true`, so the exact submitted generation is no longer runnable. Only a response that also carries `candidate_rejected_definitive:true`, `status:outdated`, and `verification_state:verified` may overwrite it with canonical bytes. Transient runner/provider/CLI/HTTP failures omit both signals and preserve the locally newer generation for retry.
+
+For a failed selected head, bootstrap additionally compares credential
+kind/access/refresh and may return `candidate_matches_failed_canonical`.
+Only explicit `false` proves the local candidate is distinct; native and
+canonical JSON digests are intentionally not compared.
 
 `/sync/bootstrap` additionally fetches agents, config, `claude_artifacts`, `claude_settings`, `claude_skills` (Claude engine only), and session counts. `status: ok` vs `update` is determined by whether `out.reasons` is empty.
 
@@ -142,10 +147,17 @@ There is no `/exec` endpoint in this client. All runner calls use the
 carry both `reachable` and `definitive`: provider contact or an HTTP-200 runner
 response alone does not make a failure definitive. Only a recognized
 authentication rejection can normally move canonical auth to `failed`. A
-replacement produced before that rejection is retained as the newest failed
-lineage. A successful runner rotation that returns unusable replacement bytes,
+replacement produced before that rejection is retained as quarantined failed
+history. A successful runner rotation that returns unusable replacement bytes,
 or whose refreshed payload cannot be persisted, instead fails the pre-rotation
 lineage closed because it may already have been consumed.
+
+Every Codex and Claude store source—host, bootstrap, admin, or seed—requires a
+configured runner and a positive live verdict before it can advance canonical
+auth. A changed readback must remain runnable, preserve credential kind, and
+retain any existing OAuth refresh token. Pending/failed replacements may be
+retained for diagnosis or retry but never flow to hosts, drafts, quota polling,
+or compatible API gateways.
 
 ## Background auth verification
 
@@ -154,11 +166,11 @@ Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verif
 - The first tick fires ~1 second after boot; subsequent ticks run every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s, floor 30s).
 - Each tick calls `canonical-auth-store.ts`'s `ensureServedVerification` for both engines, TTL-bounded by `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s): a payload verified within the TTL is left alone; otherwise the worker probes the runner live.
 - A `verified` verdict stamps `auth_payloads.verification_state` / `verification_checked_at`. A `failed` verdict (the runner reached the provider and the credentials don't work) also stamps `verification_reason` — this is what makes `/auth retrieve` refuse to serve that payload (`status: 'outdated'`, no `auth` blob).
-- If the runner returns a refreshed `updated_auth` with a newer digest, the worker persists it as a new canonical payload via the same `storeCandidate` path a `store` upload uses.
+- If the runner returns a refreshed `updated_auth` with a newer digest, the worker persists it as a new canonical payload via the same live-verification and credential-continuity gates a `store` upload uses.
 - Canonical-changing store and worker work is serialized per engine inside the API process, then compare-and-swapped after the runner call. Concurrent probes for the same canonical row are additionally collapsed by engine/payload id, so a fleet of hosts hitting an expired token at the same moment does not spawn a refresh-token race.
 - A transport failure (`reachable: false`) leaves the stored state untouched and is reported as `unknown`, not `failed` — an infrastructure blip does not lock hosts out.
 
-`/auth retrieve` and `/sync/bootstrap`'s warm-launch path only ever read this stored verdict via `servedVerificationSnapshot` (synchronous, no I/O) — they never call `ensureServedVerification` themselves. `store` (both a direct upload and this worker's refresh path) is the only caller that performs a live runner call, via `storeCandidate`.
+`/auth retrieve` and `/sync/bootstrap`'s warm-launch path only ever read this stored verdict via `servedVerificationSnapshot` (synchronous, no I/O) — they never call `ensureServedVerification` themselves. They include credential bytes only for `verification_state:verified`. `store` (both a direct upload and this worker's refresh path) is the only caller that performs a live runner call, via `storeCandidate`.
 
 ## Credentials file on the host
 

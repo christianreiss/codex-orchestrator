@@ -246,6 +246,7 @@ export async function registerAdminHostsRoutes(
     (async (host: Host, engine: Engine, includeBody: boolean): Promise<AdminHostAuthView> => {
       const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
       const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
+      const distributableAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
       const digests = await ctx.db
         .select({ digest: hostAuthDigests.digest })
         .from(hostAuthDigests)
@@ -253,14 +254,14 @@ export async function registerAdminHostsRoutes(
         .orderBy(desc(hostAuthDigests.lastSeen))
         .limit(3);
       const engineLastRefresh =
-        engine === ENGINE_CLAUDE ? host.claudeLastRefresh ?? null : host.lastRefresh ?? null;
+        engine === ENGINE_CLAUDE ? (host.claudeLastRefresh ?? null) : (host.lastRefresh ?? null);
       const engineDigest =
-        engine === ENGINE_CLAUDE ? host.claudeAuthDigest ?? null : host.authDigest ?? null;
+        engine === ENGINE_CLAUDE ? (host.claudeAuthDigest ?? null) : (host.authDigest ?? null);
       return {
         canonical_last_refresh: validated?.last_refresh ?? engineLastRefresh,
         canonical_digest: validated?.digest ?? engineDigest,
         recent_digests: digests.map((d) => d.digest),
-        auth: includeBody ? validated?.auth ?? null : null,
+        auth: includeBody ? distributableAuth : null,
       };
     });
 

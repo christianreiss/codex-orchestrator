@@ -476,8 +476,21 @@ func authMutationKind(args []string) string {
 	return ""
 }
 
+func normalizeClaudeAuthMutationArgs(args []string) []string {
+	if len(args) == 0 || (args[0] != "login" && args[0] != "logout") {
+		return args
+	}
+	out := make([]string, 0, len(args)+1)
+	out = append(out, "auth", args[0])
+	out = append(out, args[1:]...)
+	return out
+}
+
+var errClaudeCanonicalWon = errors.New("server verified canonical Claude credentials won upload arbitration")
+
 func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) (code int) {
 	kind := authMutationKind(args)
+	args = normalizeClaudeAuthMutationArgs(args)
 	var (
 		session     *claude.AuthSession
 		logoutPeers bool
@@ -499,11 +512,17 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 			code = 1
 		}
 	}()
-	before := claude.AuthGeneration{}
+	beforeSnap := claude.AuthSnapshot{}
 	if snap, err := claude.ReadAuthSnapshot(false); err == nil {
-		before = snap.Generation
+		beforeSnap = snap
 	} else if !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintln(stderr, "clx "+kind+":", err)
+		return 1
+	}
+	before := beforeSnap.Generation
+	beforeIntent, err := claude.CurrentLogoutIntentGeneration()
+	if err != nil {
+		fmt.Fprintln(stderr, "clx "+kind+": inspect logout intent:", err)
 		return 1
 	}
 
@@ -553,6 +572,28 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 	}
 	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
 	if err != nil {
+		if errors.Is(err, errClaudeCanonicalWon) {
+			fmt.Fprintln(stdout, "clx login: submitted login lost arbitration; restored the server's verified Claude credentials")
+			return 0
+		}
+		if isRetryableExplicitAuthSyncFailure(err) {
+			after, readErr := claude.ReadAuthSnapshot(false)
+			if readErr == nil &&
+				after.Usable &&
+				explicitLocalAuthFresh(after.Path, cfg.Host.Secure) &&
+				after.Generation != beforeSnap.Generation &&
+				(!beforeSnap.Usable || !claude.SameCredentialPair(after.Raw, beforeSnap.Raw)) {
+				acknowledged, clearErr := claude.ClearLogoutIntentIfUnchanged(after.Generation, beforeIntent)
+				if clearErr != nil {
+					fmt.Fprintln(stderr, "clx login: acknowledge deferred login:", clearErr)
+					return 1
+				}
+				if acknowledged && explicitLocalAuthFresh(after.Path, cfg.Host.Secure) {
+					fmt.Fprintln(stdout, "clx login: local credentials ready; server upload deferred until the next sync")
+					return 0
+				}
+			}
+		}
 		fmt.Fprintln(stderr, "clx login: upload:", err)
 		return 1
 	}
@@ -562,6 +603,43 @@ func runClaudeAuthMutation(ctx context.Context, cfg *config.Config, args []strin
 		fmt.Fprintln(stdout, "clx login: credentials uploaded")
 	}
 	return 0
+}
+
+func isRetryableExplicitAuthSyncFailure(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var httpErr *orchestrator.HTTPError
+	if errors.As(err, &httpErr) {
+		switch strings.ToLower(strings.TrimSpace(httpErr.Code)) {
+		case "api_disabled",
+			"engine_disabled",
+			"invalid_api_key",
+			"installation_id_mismatch",
+			"ip_mismatch",
+			"reverse_dns_mismatch",
+			"insecure_pending",
+			"insecure_denied",
+			"runner_updated_auth_invalid":
+			return false
+		}
+		return httpErr.StatusCode == 408 || httpErr.StatusCode == 429 || httpErr.StatusCode >= 500
+	}
+	return true
+}
+
+func explicitLocalAuthFresh(path string, secure bool) bool {
+	if fresh, err := claude.IsFresh(path, claude.MaxAge24h); err == nil && fresh {
+		return true
+	}
+	if secure {
+		fresh, err := claude.IsFresh(path, claude.MaxAge7d)
+		return err == nil && fresh
+	}
+	return false
 }
 
 func withInsecureAuthSession(cfg *config.Config, stderr io.Writer, fn func() int) (code int) {
@@ -612,17 +690,22 @@ func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *c
 	}
 	if !resp.AuthCandidateAccepted() {
 		// `outdated` is authoritative arbitration, not acknowledgement of the
-		// uploaded login. Converge to its verified canonical when no logout
-		// marker is pending, but still return a visible failure so the user is
-		// never told that the rejected login was accepted.
-		if !intent.Exists && resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
+		// uploaded login. Converge to a different verified canonical even when
+		// a prior logout marker exists; the writer rejects the exact logged-out
+		// generation and clears intent only after a different credential commits.
+		if resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
 			snap,
 			resp.Auth,
 			resp.CanonicalLastRefresh,
 			resp.VerificationState,
 			resp.CandidateRejectedDefinitive,
 		) {
-			applied, writeErr := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+			applied, writeErr := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+				resp.Auth,
+				resp.CanonicalDigest,
+				resp.VerificationState,
+				snap.Generation,
+			)
 			if writeErr != nil {
 				return false, fmt.Errorf("apply authoritative Claude credentials after rejected upload: %w", writeErr)
 			}
@@ -630,6 +713,9 @@ func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *c
 				if blockedErr := claude.BlockedCanonicalWriteError(snap, resp.Auth, resp.CandidateRejectedDefinitive); blockedErr != nil {
 					return false, fmt.Errorf("apply authoritative Claude credentials after rejected upload: %w", blockedErr)
 				}
+			}
+			if applied {
+				return false, errClaudeCanonicalWon
 			}
 		}
 		status := ""
@@ -651,7 +737,12 @@ func uploadCurrentClaudeAuth(ctx context.Context, cfg *config.Config, session *c
 	if !claude.ServerAuthMayReplace(snap, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive) {
 		return true, nil
 	}
-	applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+	applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+		resp.Auth,
+		resp.CanonicalDigest,
+		resp.VerificationState,
+		snap.Generation,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -1126,7 +1217,12 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 				resp.Status = "valid"
 				break
 			}
-			applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, requestGeneration)
+			applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+				resp.Auth,
+				resp.CanonicalDigest,
+				resp.VerificationState,
+				requestGeneration,
+			)
 			if err != nil {
 				authErr = fmt.Errorf("apply canonical auth: %w", err)
 			} else if applied {
@@ -1193,6 +1289,10 @@ func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Wr
 	}()
 	keptNewer, err := uploadCurrentClaudeAuth(ctx, cfg, session)
 	if err != nil {
+		if errors.Is(err, errClaudeCanonicalWon) {
+			fmt.Fprintln(stdout, "auth-upload: submitted credentials lost arbitration; restored the server's verified Claude credentials")
+			return 0
+		}
 		fmt.Fprintln(stderr, "auth-upload:", err)
 		return 1
 	}

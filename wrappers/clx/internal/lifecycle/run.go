@@ -4,7 +4,6 @@
 package lifecycle
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -58,8 +57,10 @@ var localProbe = orchestrator.LocalAuthProbe{
 var wrapperSelfUpdate = update.SelfUpdateFrom
 var wrapperReExec = update.ReExecAfterUpdate
 
-var errAuthRecoveryDeclined = errors.New("Claude authentication was not refreshed")
-var errAuthRecoveryNonInteractive = errors.New("Claude authentication refresh requires an interactive terminal")
+const authLoginRequiredReason = "Claude authentication required; run `clx auth login` interactively."
+
+var errAuthRecoveryNonInteractive = errors.New(authLoginRequiredReason)
+var lifecycleIsTerminal = term.IsTerminal
 
 type presentedError struct{ err error }
 
@@ -194,6 +195,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 						dec.Allowed = false
 						dec.Status = "invalid"
 						dec.Reason = "Runner returned unusable rotated Claude credentials; refusing the pre-refresh local token."
+					} else if orchestrator.IsDefinitiveAuthCandidateRejection(err) {
+						dec.Allowed = false
+						dec.Status = "credential_rejected"
+						dec.Reason = "Local Claude credentials were definitively rejected by live verification."
 					}
 				} else {
 					authResp, authErr, authSynced, agentsSync, configSync, nativeSkillsSync, fleetSessions = bootstrap(ctx, client, logger, concurrent, authPath)
@@ -207,11 +212,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 
-		if needsInteractiveAuthRecovery(dec, authCandidateErr) && !concurrent {
+		if needsInteractiveAuthRecovery(dec, authCandidateErr, localAuthFresh(authPath, cfg.Host.Secure)) {
 			reason := safeLifecycleText(recoveryReason(dec, authCandidateErr), opts.Minimal)
 			if opts.Headless {
 				dec.Allowed = false
-				dec.Reason = reason
+				dec.Reason = authLoginRequiredReason
 			} else if err := recoverClaudeAuth(ctx, cfg, client, logger, reason, authSession); err != nil {
 				logger.Warn("interactive Claude auth recovery failed", "err", err)
 				dec.Allowed = false
@@ -260,7 +265,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 	if dec.Allowed && !claude.IsValidLocalAuth(authPath) {
 		dec.Allowed = false
-		dec.Reason = "Authoritative ~/.claude/.credentials.json is invalid or absent; refusing to launch Claude Code."
+		dec.Reason = authLoginRequiredReason
 	}
 
 	// Build the boot-screen state once: even when SkipBoot suppresses the
@@ -389,10 +394,48 @@ func decideAuth(resp *orchestrator.AuthRetrieveResponse, authErr error, authPath
 		dec.Reason = "Claude is explicitly logged out on this host; run `clx auth login` to authenticate again."
 		return dec
 	}
+	if resp != nil && resp.CandidateCredentialRejected && !localMatchesVerifiedCanonical(resp, authPath) {
+		dec.Allowed = false
+		dec.LocalUsable = false
+		dec.Status = "credential_rejected"
+		dec.Reason = "Local Claude credentials were definitively rejected by live verification."
+		return dec
+	}
+	if resp != nil && resp.CandidateRejectedDefinitive && !localMatchesVerifiedCanonical(resp, authPath) {
+		dec.Allowed = false
+		dec.LocalUsable = false
+		dec.Status = "credential_rejected"
+		dec.Reason = "Local Claude credentials were definitively rejected by live verification, and verified canonical repair was not applied."
+		return dec
+	}
 	if orchestrator.IsUnsafeRunnerUpdatedAuthError(authErr) {
 		dec.Allowed = false
 		dec.LocalUsable = false
 		dec.Reason = "The auth runner rotated credentials but the replacement is not safe to use yet; refusing to launch with the superseded local token. Retry after the runner is healthy."
+		return dec
+	}
+	if failedCanonicalExplicitlyAllowsLocal(resp, authPath, secure) {
+		// verification_state=failed names the selected server head, not a
+		// different local candidate that the host just offered. A transient
+		// runner/control-plane outage cannot turn that distinct runnable local
+		// generation into a login prompt; keep it and retry the upload next run.
+		dec.Allowed = true
+		dec.LocalUsable = true
+		dec.Reason = "Server canonical credentials failed verification; using distinct valid local credentials while upload retries."
+		return dec
+	}
+	if authErr != nil && localAuthFresh(authPath, secure) &&
+		(errors.Is(authErr, claude.ErrUnusableServerAuth) || isRetryableAuthSyncFailure(authErr)) {
+		// A broken canonical envelope or temporary control-plane failure must not
+		// strand a locally runnable Claude login. Keep that exact local generation
+		// and retry fleet convergence after the session.
+		dec.Allowed = true
+		dec.LocalUsable = true
+		if errors.Is(authErr, claude.ErrUnusableServerAuth) {
+			dec.Reason = "Server returned unusable Claude credentials; using valid local credentials."
+		} else {
+			dec.Reason = "Auth sync temporarily unavailable; using valid local credentials."
+		}
 		return dec
 	}
 	if authErr != nil && resp != nil && !strings.EqualFold(strings.TrimSpace(resp.Status), "offline") {
@@ -400,6 +443,44 @@ func decideAuth(resp *orchestrator.AuthRetrieveResponse, authErr error, authPath
 		dec.Reason = "Failed to apply authoritative Claude credentials: " + authErr.Error()
 	}
 	return dec
+}
+
+func localMatchesVerifiedCanonical(resp *orchestrator.AuthRetrieveResponse, authPath string) bool {
+	if resp == nil || !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
+		return false
+	}
+	snap, err := claude.ReadAuthSnapshot(false)
+	if err != nil || !snap.Usable {
+		return false
+	}
+	if digest := strings.TrimSpace(resp.CanonicalDigest); digest != "" && snap.DigestForServer() == digest {
+		return true
+	}
+	return len(resp.Auth) > 0 && claude.AuthMatchesCanonical(authPath, resp.Auth)
+}
+
+func failedCanonicalExplicitlyAllowsLocal(resp *orchestrator.AuthRetrieveResponse, authPath string, secure bool) bool {
+	if resp == nil ||
+		resp.CandidateCredentialRejected ||
+		resp.CandidateRejectedDefinitive ||
+		!strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") ||
+		resp.CandidateMatchesFailedHead == nil ||
+		*resp.CandidateMatchesFailedHead ||
+		!localAuthFresh(authPath, secure) {
+		return false
+	}
+	return claude.HasUsableAuth()
+}
+
+func localAuthFresh(authPath string, secure bool) bool {
+	if fresh, err := claude.IsFresh(authPath, claude.MaxAge24h); err == nil && fresh {
+		return true
+	}
+	if secure {
+		fresh, err := claude.IsFresh(authPath, claude.MaxAge7d)
+		return err == nil && fresh
+	}
+	return false
 }
 
 func safeLifecycleText(value string, portable bool) string {
@@ -544,7 +625,12 @@ func bootstrap(
 		authResp.VerificationState,
 		authResp.CandidateRejectedDefinitive,
 	) {
-		applied, err := claude.WriteAuthIfCurrentWithDigest(authResp.Auth, authResp.CanonicalDigest, authSnapshot.Generation)
+		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			authResp.Auth,
+			authResp.CanonicalDigest,
+			authResp.VerificationState,
+			authSnapshot.Generation,
+		)
 		if err != nil {
 			logger.Warn("credentials.json write from bundle failed", "err", err)
 			return authResp, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
@@ -557,6 +643,11 @@ func bootstrap(
 				return authResp, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
 			}
 			markLogoutRecovery(authResp)
+		}
+	}
+	if bundleCandidateSent {
+		if err := neutralizeRejectedSupersededBundleCandidate(authResp, bundleCandidateSnapshot); err != nil {
+			return authResp, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
 		}
 	}
 
@@ -601,6 +692,44 @@ func bootstrap(
 		nativeSkillsSync = applyBundleClaudeSkills(resp.ClaudeSkills, logger)
 	}
 	return authResp, nil, authSynced, agentsSync, configSync, nativeSkillsSync, resp.Sessions
+}
+
+func neutralizeRejectedSupersededBundleCandidate(
+	resp *orchestrator.AuthRetrieveResponse,
+	submitted claude.AuthSnapshot,
+) error {
+	if resp == nil ||
+		(!resp.CandidateCredentialRejected &&
+			!resp.CandidateRejectedDefinitive &&
+			resp.CandidateMatchesFailedHead == nil) {
+		return nil
+	}
+	latest, err := claude.ReadAuthSnapshot(false)
+	if err != nil || !latest.Usable || latest.Generation == submitted.Generation {
+		return nil
+	}
+	intent, err := claude.CurrentLogoutIntentGeneration()
+	if err != nil {
+		return fmt.Errorf("inspect Claude logout intent after candidate response: %w", err)
+	}
+	if intent.Exists || claude.SameCredentialPair(latest.Raw, submitted.Raw) {
+		// Logout remains authoritative, and a byte-different rewrite of the same
+		// provider credential pair is still the exact rejected credential.
+		return nil
+	}
+
+	// Candidate verdicts are generation-bound. A different runnable native
+	// login completed while A was in flight, so neither A's rejection nor its
+	// comparison with the failed server head says anything about C.
+	resp.Status = "upload_required"
+	resp.Message = "Local Claude credentials changed while candidate verification was in flight; upload the newer generation."
+	resp.VerificationState = ""
+	resp.CandidateCredentialRejected = false
+	resp.CandidateRejectedDefinitive = false
+	resp.CandidateMatchesFailedHead = nil
+	resp.CandidateResult = ""
+	resp.Auth = nil
+	return nil
 }
 
 func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
@@ -695,7 +824,12 @@ func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, snap cl
 		resp.VerificationState,
 		resp.CandidateRejectedDefinitive,
 	) {
-		applied, werr := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+		applied, werr := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			resp.Auth,
+			resp.CanonicalDigest,
+			resp.VerificationState,
+			snap.Generation,
+		)
 		if werr != nil {
 			return fmt.Errorf("auth write-back after upload: %w", werr)
 		}
@@ -747,9 +881,14 @@ func storeChangedAuthCandidate(ctx context.Context, client *orchestrator.Client)
 	return resp, snap, nil
 }
 
-func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
+func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error, localUsable bool) bool {
 	if orchestrator.IsUnsafeRunnerUpdatedAuthError(uploadErr) {
-		return false
+		// The pre-refresh token may already be spent, so it must never launch.
+		// A fresh interactive provider login is nevertheless the safe recovery.
+		return true
+	}
+	if orchestrator.IsDefinitiveAuthCandidateRejection(uploadErr) {
+		return true
 	}
 	if strings.EqualFold(strings.TrimSpace(dec.Status), "valid") && strings.Contains(strings.ToLower(dec.Reason), "live verification") {
 		return true
@@ -757,11 +896,69 @@ func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error
 	if !dec.Allowed && strings.Contains(strings.ToLower(dec.Reason), "live verification") {
 		return true
 	}
+	if strings.Contains(strings.ToLower(dec.Reason), "explicitly logged out") {
+		return true
+	}
+	if localUsable {
+		// Upload/control-plane convergence is best-effort when Claude already has
+		// runnable local credentials. Do not turn a retryable store failure into
+		// an unnecessary second login.
+		return false
+	}
 	switch strings.ToLower(strings.TrimSpace(dec.Status)) {
-	case "missing", "upload_required":
-		return uploadErr != nil || !claude.HasUsableAuth()
+	case "valid", "current", "ok", "unchanged", "updated", "outdated", "missing", "upload_required", "offline", "error", "credential_rejected", "":
+		return !authDecisionIsPolicyDenial(dec)
 	}
 	return false
+}
+
+func authDecisionIsPolicyDenial(dec orchestrator.AuthDecision) bool {
+	if dec.NeedsApprovalPoll {
+		return true
+	}
+	reason := strings.ToLower(dec.Reason)
+	for _, marker := range []string{
+		"api disabled",
+		"invalid api key",
+		"engine disabled",
+		"installation id mismatch",
+		"ip binding mismatch",
+		"reverse dns mismatch",
+		"insecure host approval",
+	} {
+		if strings.Contains(reason, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRetryableAuthSyncFailure(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var httpErr *orchestrator.HTTPError
+	if errors.As(err, &httpErr) {
+		switch strings.ToLower(strings.TrimSpace(httpErr.Code)) {
+		case "api_disabled",
+			"engine_disabled",
+			"invalid_api_key",
+			"installation_id_mismatch",
+			"ip_mismatch",
+			"reverse_dns_mismatch",
+			"insecure_pending",
+			"insecure_denied",
+			"runner_updated_auth_invalid":
+			return false
+		}
+		return httpErr.StatusCode == 408 || httpErr.StatusCode == 429 || httpErr.StatusCode >= 500
+	}
+	// Transport/DNS/TLS failures have no HTTP response and are retryable. Stable
+	// host-policy denials arrive as typed HTTPError values above.
+	return true
 }
 
 func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
@@ -775,23 +972,23 @@ func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
 }
 
 func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestrator.Client, logger *slog.Logger, reason string, session *claude.AuthSession) error {
-	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
+	if !lifecycleIsTerminal(int(os.Stdin.Fd())) || !lifecycleIsTerminal(int(os.Stdout.Fd())) || !lifecycleIsTerminal(int(os.Stderr.Fd())) {
 		return errAuthRecoveryNonInteractive
 	}
 	fmt.Fprintln(os.Stderr)
 	if strings.TrimSpace(reason) != "" {
 		fmt.Fprintln(os.Stderr, "clx: "+reason)
 	}
-	fmt.Fprint(os.Stderr, "clx: Run `claude auth login`, upload credentials, and verify with the server now? [y/N] ")
-	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("read auth recovery answer: %w", err)
-	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
-	if answer != "y" && answer != "yes" {
-		return errAuthRecoveryDeclined
-	}
+	fmt.Fprintln(os.Stderr, "clx: Starting `claude auth login` to restore authentication.")
 
+	beforeLogin, beforeLoginErr := claude.ReadAuthSnapshot(false)
+	if beforeLoginErr != nil && !errors.Is(beforeLoginErr, os.ErrNotExist) {
+		return fmt.Errorf("snapshot Claude credentials before login: %w", beforeLoginErr)
+	}
+	beforeIntent, err := claude.CurrentLogoutIntentGeneration()
+	if err != nil {
+		return fmt.Errorf("snapshot Claude logout intent before login: %w", err)
+	}
 	exit, err := claude.RunWithAuthSession(ctx, cfg, []string{"auth", "login"}, session)
 	if err != nil {
 		return fmt.Errorf("claude auth login: %w", err)
@@ -804,9 +1001,31 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 		return fmt.Errorf("read Claude credentials after login: %w", err)
 	}
 	defer releaseUpload()
+	secureHost := cfg != nil && cfg.Host.Secure
+	if !snap.Usable || !localAuthFresh(snap.Path, secureHost) {
+		releaseUpload()
+		return errors.New("claude auth login completed without fresh runnable local credentials")
+	}
+	if beforeLoginErr == nil && beforeIntent.Blocks(beforeLogin) &&
+		(snap.Generation == beforeLogin.Generation || claude.SameCredentialPair(snap.Raw, beforeLogin.Raw)) {
+		releaseUpload()
+		return errors.New("claude auth login did not replace the explicitly logged-out credential pair")
+	}
 	resp, err := client.AuthStore(ctx, snap.Upload)
 	releaseUpload()
 	if err != nil {
+		if isRetryableAuthSyncFailure(err) {
+			acknowledged, clearErr := claude.ClearLogoutIntentIfUnchanged(snap.Generation, intent)
+			if clearErr != nil {
+				return fmt.Errorf("acknowledge fresh Claude login after deferred upload: %w", clearErr)
+			}
+			if !acknowledged || !localAuthFresh(snap.Path, secureHost) {
+				return errors.New("Claude credentials or logout intent changed while login upload was in flight")
+			}
+			logger.Warn("Claude login succeeded but server upload is deferred", "err", err)
+			fmt.Fprintln(os.Stderr, "clx: Local Claude login is ready; server upload will retry on the next sync.")
+			return nil
+		}
 		return fmt.Errorf("upload Claude credentials after login: %w", err)
 	}
 	if err := updateAuthSessionSecurity(session, resp); err != nil {
@@ -817,19 +1036,31 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 	}
 	if !resp.AuthCandidateAccepted() {
 		// Canonical-win arbitration still has to converge local auth even though
-		// it does not acknowledge this login. Keep any prior logout marker until
-		// an exact login candidate is accepted, and surface the rejected recovery
-		// attempt instead of claiming success.
-		if !intent.Exists && resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
+		// it does not acknowledge this login. A different verified canonical may
+		// safely clear a prior logout marker and continue; otherwise surface the
+		// rejected recovery attempt instead of claiming success.
+		if resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
 			snap,
 			resp.Auth,
 			resp.CanonicalLastRefresh,
 			resp.VerificationState,
 			resp.CandidateRejectedDefinitive,
 		) {
-			applied, writeErr := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+			applied, writeErr := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+				resp.Auth,
+				resp.CanonicalDigest,
+				resp.VerificationState,
+				snap.Generation,
+			)
 			if writeErr != nil {
+				if errors.Is(writeErr, claude.ErrUnusableServerAuth) && claude.HasUsableAuth() {
+					return errors.New("the server rejected the new login and returned unusable canonical Claude credentials")
+				}
 				return fmt.Errorf("apply authoritative Claude credentials after rejected login: %w", writeErr)
+			}
+			if applied {
+				fmt.Fprintln(os.Stderr, "clx: Submitted login was not accepted; restored the server's verified Claude credentials.")
+				return nil
 			}
 			if !applied {
 				if blockedErr := claude.BlockedCanonicalWriteError(snap, resp.Auth, resp.CandidateRejectedDefinitive); blockedErr != nil {
@@ -847,8 +1078,18 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 		return errors.New("Claude credentials or logout intent changed while login upload was in flight")
 	}
 	if resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(snap, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive) {
-		applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			resp.Auth,
+			resp.CanonicalDigest,
+			resp.VerificationState,
+			snap.Generation,
+		)
 		if err != nil {
+			if errors.Is(err, claude.ErrUnusableServerAuth) && claude.HasUsableAuth() {
+				logger.Warn("accepted login returned unusable canonical write-back; preserving local login", "err", err)
+				fmt.Fprintln(os.Stderr, "clx: Server write-back was unusable; keeping the accepted local Claude login.")
+				return nil
+			}
 			return fmt.Errorf("apply accepted Claude credentials: %w", err)
 		}
 		if !applied {
@@ -900,7 +1141,7 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 		}
 		mayReplace := claude.ServerAuthMayReplace(snap, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive)
 		if !mayReplace {
-			if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") || !snap.Usable || len(snap.Upload) == 0 {
+			if !snap.Usable || len(snap.Upload) == 0 {
 				return resp, nil, false
 			}
 			// Old /auth retrieve responses have no candidate-rejection signal.
@@ -921,6 +1162,11 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 			if orchestrator.IsUnsafeRunnerUpdatedAuthError(storeErr) {
 				return resp, storeErr, false
 			}
+			if orchestrator.IsDefinitiveAuthCandidateRejection(storeErr) && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
+				resp.Status = "credential_rejected"
+				resp.CandidateCredentialRejected = true
+				return resp, nil, false
+			}
 			if !orchestrator.IsDefinitiveAuthCandidateRejection(storeErr) || !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
 				logger.Warn("legacy auth candidate arbitration preserved newer local credentials", "err", storeErr)
 				return resp, nil, false
@@ -931,7 +1177,12 @@ func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *sl
 		if !mayReplace {
 			return resp, nil, false
 		}
-		applied, err := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			resp.Auth,
+			resp.CanonicalDigest,
+			resp.VerificationState,
+			snap.Generation,
+		)
 		if err != nil {
 			return resp, err, false
 		}
@@ -963,7 +1214,12 @@ func applyAcceptedLegacyStore(retrieveResp, storeResp *orchestrator.AuthRetrieve
 		storeResp.VerificationState,
 		storeResp.CandidateRejectedDefinitive,
 	) {
-		applied, err := claude.WriteAuthIfCurrentWithDigest(storeResp.Auth, storeResp.CanonicalDigest, snap.Generation)
+		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			storeResp.Auth,
+			storeResp.CanonicalDigest,
+			storeResp.VerificationState,
+			snap.Generation,
+		)
 		if err != nil {
 			return storeResp, err, false
 		}
@@ -1126,7 +1382,12 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 		resp.VerificationState,
 		resp.CandidateRejectedDefinitive,
 	) {
-		applied, werr := claude.WriteAuthIfCurrentWithDigest(resp.Auth, resp.CanonicalDigest, snap.Generation)
+		applied, werr := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+			resp.Auth,
+			resp.CanonicalDigest,
+			resp.VerificationState,
+			snap.Generation,
+		)
 		if werr != nil {
 			logger.Warn("post-run auth write-back failed", "err", werr)
 			return "write-back failed", ui.ToneFail

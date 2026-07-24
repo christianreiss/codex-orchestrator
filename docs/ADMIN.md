@@ -114,7 +114,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Management endpoints (session required): `GET /admin/passkeys`, `POST /admin/passkeys/{id}/name`, `DELETE /admin/passkeys/{id}`.
   - Login requires WebAuthn user verification. Normal login uses the entered username to scope `allowCredentials`; when exactly one active user exists and has passkeys, the login page can open that user's passkey prompt directly.
 - **Auth Upload & Seed**:
-  - Upload canonical auth (runner-validated when enabled): `POST /admin/auth/upload` (`settings.manage`).
+  - Upload canonical auth (requires a configured, reachable runner and a positive live verdict): `POST /admin/auth/upload` (`settings.manage`).
   - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.
   - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
 - **Global Settings**:
@@ -153,7 +153,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 
 ## Common Workflows
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command. For disposable VMs, use `POST /admin/hosts/quick-register` or the WebUI `Quick VM` button.
-- **Rotate canonical auth**: `POST /admin/auth/upload` (runner bypassed).
+- **Rotate canonical auth**: `POST /admin/auth/upload` (requires positive live runner validation).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` with `engine` (`codex` or `claude`) -> execute generated `curl | bash`.
 - **Recover a locked-out admin who lost all passkeys**: no equivalent currently shipped — passkey rows must be removed manually from the `admin_passkeys` table.
 - **Enable shared project coordination**: `POST /admin/projects/state` with `{"enabled":true}`.

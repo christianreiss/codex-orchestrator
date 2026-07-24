@@ -22,6 +22,7 @@ const (
 )
 
 var ErrAuthUploadBlockedByLogout = errors.New("explicit Claude logout became active before auth upload")
+var ErrUnusableServerAuth = errors.New("server returned Claude credentials that are not runnable")
 
 // AuthGeneration identifies the exact authoritative Claude-native credential
 // content observed before a network call. It deliberately excludes mtimes:
@@ -143,6 +144,18 @@ func ReadAuthForRetrieveSnapshot() (AuthSnapshot, error) {
 	snap, err := readAuthSnapshotLocked(paths, false)
 	if err != nil || !snap.Usable {
 		return snap, err
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	if err != nil {
+		return AuthSnapshot{}, err
+	}
+	if intent.Blocks(snap) {
+		// A deferred explicit logout can leave the old native file in place while
+		// another Claude child still has it open. It is not a launch candidate,
+		// and advertising its digest would let the server answer "valid" without
+		// returning a different verified canonical that can recover this host.
+		snap.Usable = false
+		return snap, nil
 	}
 	return readAuthSnapshotLocked(paths, true)
 }
@@ -278,12 +291,13 @@ func readAuthSnapshotLocked(paths authFileSet, forUpload bool) (AuthSnapshot, er
 }
 
 // ServerAuthMayReplace is the shared materialization gate for bundle, legacy,
-// status, and accepted store responses. A known-bad canonical is never written.
+// status, and accepted store responses. Only a runner-verified canonical may
+// be materialized; unknown/pending/failed lineages are never written.
 // A usable newer local login wins over an older canonical unless the API says
 // that exact candidate was definitively rejected and the canonical is verified.
 func ServerAuthMayReplace(local AuthSnapshot, canonical json.RawMessage, canonicalLastRefresh, verificationState string, candidateRejectedDefinitive bool) bool {
 	verificationState = strings.ToLower(strings.TrimSpace(verificationState))
-	if verificationState == "failed" {
+	if verificationState != "verified" {
 		return false
 	}
 	if !local.Generation.Exists || !local.Usable {
@@ -394,7 +408,7 @@ func readNative(path string) ([]byte, os.FileInfo, error) {
 }
 
 func WriteAuth(payload json.RawMessage) error {
-	_, err := writeAuth(payload, "", nil)
+	_, err := writeAuth(payload, "", nil, false)
 	return err
 }
 
@@ -404,16 +418,34 @@ func WriteAuth(payload json.RawMessage) error {
 // stable last_refresh is strictly newer. Raw native logins never have that
 // canonical provenance and therefore still win response-order races.
 func WriteAuthIfCurrent(payload json.RawMessage, expected AuthGeneration) (bool, error) {
-	return writeAuth(payload, "", &expected)
+	return writeAuth(payload, "", &expected, false)
 }
 
 // WriteAuthIfCurrentWithDigest is WriteAuthIfCurrent plus the API's canonical
 // digest, which is persisted only for the matching native generation.
 func WriteAuthIfCurrentWithDigest(payload json.RawMessage, canonicalDigest string, expected AuthGeneration) (bool, error) {
-	return writeAuth(payload, canonicalDigest, &expected)
+	return writeAuth(payload, canonicalDigest, &expected, false)
 }
 
-func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGeneration) (bool, error) {
+// WriteVerifiedServerAuthIfCurrentWithDigest applies a server canonical only
+// when its runner verification is explicit. Unlike the generic generation-CAS
+// writer, it may recover an explicit logout, but solely with native credentials
+// whose digest differs from the exact generation named by the logout marker.
+// This prevents a normal launch from resurrecting or re-uploading the bytes the
+// user explicitly logged out.
+func WriteVerifiedServerAuthIfCurrentWithDigest(
+	payload json.RawMessage,
+	canonicalDigest string,
+	verificationState string,
+	expected AuthGeneration,
+) (bool, error) {
+	if !strings.EqualFold(strings.TrimSpace(verificationState), "verified") {
+		return false, nil
+	}
+	return writeAuth(payload, canonicalDigest, &expected, true)
+}
+
+func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGeneration, allowLogoutRecovery bool) (bool, error) {
 	if len(payload) == 0 {
 		return false, errors.New("empty auth payload")
 	}
@@ -423,7 +455,13 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	// back to the legacy auth flow or show the login wizard.
 	toWrite, err := extractClaudeFormat(payload)
 	if err != nil {
+		if errors.Is(err, ErrUnusableServerAuth) {
+			return false, err
+		}
 		return false, fmt.Errorf("auth payload not valid JSON: %w", err)
+	}
+	if !isUsableAuth(toWrite) {
+		return false, ErrUnusableServerAuth
 	}
 	paths, unlock, err := lockAuthFiles()
 	if err != nil {
@@ -446,12 +484,15 @@ func writeAuth(payload json.RawMessage, canonicalDigest string, expected *AuthGe
 	}
 	commitExpected := expected
 	if expected != nil {
-		active, err := logoutIntentActiveLocked(paths, current)
+		intent, err := logoutIntentGenerationAt(paths.logout)
 		if err != nil {
 			return false, err
 		}
-		if active {
-			return false, nil
+		if intent.Exists {
+			incomingNativeDigest := digestBytes(toWrite)
+			if !allowLogoutRecovery || !validDigest(intent.PreviousDigest) || incomingNativeDigest == intent.PreviousDigest {
+				return false, nil
+			}
 		}
 		if current != *expected {
 			state := readGenerationState(paths.generation)
@@ -657,20 +698,34 @@ func AuthMatchesCanonical(path string, payload json.RawMessage) bool {
 	return reflect.DeepEqual(localDoc, canonicalDoc)
 }
 
-// extractClaudeFormat returns a credentials JSON that Claude Code accepts.
-// When the payload contains a claudeAiOauth block it returns just that block;
-// otherwise it returns the original payload unchanged (API-key-only setups).
+// extractClaudeFormat returns credentials that Claude Code can actually use.
+// A native OAuth block wins only when it has an access token. Canonical server
+// envelopes also contain a derived auths bearer; that bearer must never rescue
+// an empty claudeAiOauth block when it is itself an sk-ant-oat OAuth token,
+// because Claude Code cannot consume OAuth from auths or ANTHROPIC_API_KEY.
+// Genuine Anthropic API-key payloads remain supported through PreExec.
 func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
-	var raw struct {
-		ClaudeAIOauth json.RawMessage `json:"claudeAiOauth"`
-	}
-	if err := json.Unmarshal(payload, &raw); err != nil {
+	var doc map[string]any
+	if err := json.Unmarshal(payload, &doc); err != nil {
 		return nil, err
 	}
-	if len(raw.ClaudeAIOauth) == 0 {
-		return payload, nil
+	if oauth, ok := doc["claudeAiOauth"].(map[string]any); ok {
+		if token, _ := oauth["accessToken"].(string); strings.TrimSpace(token) != "" {
+			out, err := json.Marshal(map[string]any{"claudeAiOauth": oauth})
+			if err != nil {
+				return nil, err
+			}
+			return out, nil
+		}
 	}
-	out, err := json.Marshal(map[string]json.RawMessage{"claudeAiOauth": raw.ClaudeAIOauth})
+	// Remove a present-but-empty native OAuth object before considering a
+	// genuine API-key fallback. Leaving it in the native file can make upstream
+	// Claude prefer a known-logged-out account shape over the exported key.
+	delete(doc, "claudeAiOauth")
+	if !hasAnyClaudeToken(doc) {
+		return nil, ErrUnusableServerAuth
+	}
+	out, err := json.Marshal(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -678,10 +733,20 @@ func extractClaudeFormat(payload json.RawMessage) (json.RawMessage, error) {
 }
 
 // HasUsableAuth reports whether Claude Code's authoritative native credential
-// file exists and contains at least one structurally usable token.
+// file exists, contains a structurally usable token, and is not the exact
+// generation governed by an explicit logout marker.
 func HasUsableAuth() bool {
-	snap, err := ReadAuthSnapshot(false)
-	return err == nil && snap.Usable
+	paths, unlock, err := lockAuthFiles()
+	if err != nil {
+		return false
+	}
+	defer unlock()
+	snap, err := readAuthSnapshotLocked(paths, false)
+	if err != nil || !snap.Usable {
+		return false
+	}
+	intent, err := logoutIntentGenerationAt(paths.logout)
+	return err == nil && !intent.Blocks(snap)
 }
 
 func isUsableAuth(raw []byte) bool {

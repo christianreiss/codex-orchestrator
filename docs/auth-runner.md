@@ -45,7 +45,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 ## Probe lifecycle (runner/app.py)
 
 1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) only when all are true: `RUNNER_DEBUG_DUMP_AUTH=1`, `RUNNER_ALLOW_SECRET_DUMP=1`, and `APP_ENV!=production`.
-2. Require at least one usable token from `auths["api.openai.com"]["token"]`, `tokens["access_token"]`, or `tokens["openai_api_key"]`; otherwise return HTTP 400 (`detail: "no usable token in auth_json"`).
+2. Resolve the same credential native Codex will execute. Explicit `auth_mode:"apikey"` selects only top-level `OPENAI_API_KEY`; explicit `chatgpt` / `chatgptAuthTokens` selects only `tokens.access_token`. Without a mode, native inference selects personal-access-token/Bedrock first (unsupported by this runner), then a present top-level `OPENAI_API_KEY`, otherwise ChatGPT tokens. Unknown/unsupported modes or a missing selected credential return HTTP 400. Legacy nested/auths-only keys are normalized by the API to native `apikey` shape before this call, not reinterpreted by the runner.
 3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (the bundled runner image sets this to `/dev/shm`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from runner env when set (otherwise `http://api`), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 5. Run `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey).
@@ -56,6 +56,9 @@ Claude OAuth verification mirrors that isolated-home lifecycle with
 `~/.claude/.credentials.json` and the native Claude CLI. Genuine API keys use a
 direct Anthropic request; only HTTP 401/`authentication_error` is a definitive
 failure, while permission/model/server failures are not.
+Claude credential selection is `claudeAiOauth.accessToken`, top-level API-key
+aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
+`sk-ant-oat...` outside a non-empty native OAuth object is rejected.
 
 ## Skill summary lifecycle (runner/app.py)
 
@@ -99,21 +102,46 @@ failure, while permission/model/server failures are not.
 - Memory summary request payload includes `auth_json`, `memory_key`, `content`, and `timeout_seconds`. The API asks for summaries after memory create/update writes and may backfill them on unchanged writes when an older row still lacks `summary`.
 - Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Skill assist request payload includes `auth_json`, `messages`, `skill`, optional `mode`, optional `slug_locked`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/assist` conversational draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
-- `/auth` `store` with `skipRunner=false`:
-  - If the candidate payload would update canonical auth and the runner is configured, a positive live verdict is mandatory.
-  - With no configured runner, a new/newer lineage may be stored `pending`; it cannot repair a selected `failed` lineage.
+- Every canonical-auth store path:
+  - Every candidate that could update canonical auth requires a configured
+    runner and a positive live verdict. With no runner, the request fails 503
+    and no canonical pointer or served-host state changes.
   - If the runner is unreachable or returns a non-definitive failure without changing credentials, the update returns HTTP 503 and canonical state is unchanged.
-  - If a timeout/non-definitive probe changed the credential file, usable replacement bytes are stored as a new `pending` lineage before the request fails with the wrapper-recognized unsafe-refresh code `runner_updated_auth_invalid`. If a probe changed credentials before a definitive rejection, the replacement is retained as the newest `failed` lineage and the same unsafe-refresh 503 is returned, so neither the rejected replacement nor the possibly consumed pre-probe credential can be served. Missing, unreadable, malformed, older, or wrong-engine replacement bytes fail closed and mark an already-selected old lineage unsafe where applicable.
+  - If a timeout/non-definitive probe changed the credential file, replacement bytes may be retained as a quarantined `pending` lineage before the request fails with the wrapper-recognized unsafe-refresh code `runner_updated_auth_invalid`. If a probe changed credentials before a definitive rejection, the replacement is retained as quarantined `failed` history and the same unsafe-refresh 503 is returned. Neither state advances `auth_canonical_heads`, appears in an `auth` response, or feeds a compatible API gateway. Missing, unreadable, malformed, older, wrong-engine, credential-kind-changing, or refresh-token-losing replacement bytes fail closed and mark an already-selected old lineage unsafe where applicable.
+    When an upload probe for the selected credential lineage changes the file
+    before any non-OK final verdict, the transaction also marks that exact head
+    failed if it is still selected: the shared access/refresh credential may
+    have been consumed and is never served while the replacement waits in
+    quarantine. An unrelated login or a different head that wins the
+    post-probe compare-and-swap remains available.
   - A definitive provider-auth rejection with unchanged credentials returns HTTP 422. Generic provider/CLI failures never become credential verdicts.
   - If runner `updated_auth` omits `last_refresh`, it inherits the upload generation for validation. A supplied stamp must be RFC3339 and same/newer, and the payload must retain usable engine credentials. When its digest changes canonical auth without advancing that stamp, persistence assigns a bounded timestamp at least 1 ms after the selected lineage; it fails closed if no later millisecond fits below `now+300s`.
-  - A present `updated_auth` must be structurally usable and same/newer than the submitted generation. Older or malformed refreshed credentials fail the store closed; the pre-refresh candidate is never stamped verified after the runner reports a changed credential.
+  - A present `updated_auth` must be structurally runnable, same/newer than the
+    submitted generation, retain its credential kind, and preserve an existing
+    OAuth refresh token. In particular, an empty Claude `claudeAiOauth` block
+    cannot be rescued by a derived `sk-ant-oat` `auths` entry. Violations fail
+    the store closed; the pre-refresh candidate is never stamped verified after
+    the runner reports a changed credential.
+  - Codex candidates are canonicalized to exactly one native mode before live
+    verification: `auth_mode:"chatgpt"` with `tokens`, or
+    `auth_mode:"apikey"` with top-level `OPENAI_API_KEY`. The opposite/shadow
+    credential is stripped. Claude candidates receive the same single-selected
+    credential treatment. For either engine, only its native derived `auths`
+    target is retained in the canonical body and `auth_entries`; unrelated
+    targets are never sent fleet-wide. A verified row is distributable only
+    when its stored body is already byte-for-byte equal to this projection and
+    its complete fingerprint metadata matches. The background worker bypasses
+    its normal TTL for verified rows that need normalization or metadata
+    reissue, probes the projected bytes, and promotes only a fresh verified
+    replacement.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
 - **Background launch-gate verification (both engines).** The API starts an
   auth-verification worker when `AUTH_RUNNER_URL` is configured. It runs on boot
   and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default `300`),
   checking the latest Claude and Codex canonical payloads when their stored
-  verdict is older than `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`). `/auth
-  retrieve` and the `/sync/bootstrap` candidate-match path do not call the
+  verdict is older than `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default `900`), or
+  immediately when a nominally verified row is not safely distributable.
+  `/auth retrieve` and the `/sync/bootstrap` candidate-match path do not call the
   runner inline; they surface the latest stored `verification_state`
   (`verified` | `failed` | `unknown`) plus optional `verification_reason`:
   - `verified` — token chain proved live by the worker or a strict store path;
@@ -122,28 +150,33 @@ failure, while permission/model/server failures are not.
     known-bad blob is withheld and the wrapper refuses launch with a re-login
     prompt instead of a raw 401 (Claude) / `refresh token already used` (Codex).
     A probe that rotates credentials before definitively rejecting them retains
-    the replacement as the newest failed lineage. A successful probe that
+    the replacement as quarantined failed history. A successful probe that
     returned unusable replacement bytes, or whose refreshed writeback failed,
     instead marks the old lineage failed because it may already have been
     consumed.
   - `unknown` — runner not configured or unreachable; the response preserves the
     legacy digest-derived status and the wrapper keeps its offline/cached
     behaviour (a runner outage never downgrades a payload to `failed`).
-  All canonical-changing work is queued per engine inside the API process.
-  Worker/store probes for the same canonical payload are additionally
-  single-flighted (keyed by engine + payload id) so a fleet of checks cannot
-  race the refresh-token rotation into spurious `failed` verdicts. A final
-  canonical compare-and-swap runs after each probe. When the runner
-  refreshes the token during a worker probe, the refreshed blob is persisted as a
-  fresh canonical (rotation-safe) and picked up by the next retrieve. After a
-  stale live probe reaches the runner, the worker also updates the engine-scoped
-  runner telemetry (`runner_last_ok[_claude]` or `runner_last_fail[_claude]`),
-  so the admin runner card reflects the background auth-readiness check rather
-  than only boot-time or manual checks.
-- `store` responses always include `runner_applied` and `verification_state`.
+    All canonical-changing work is queued per engine inside the API process.
+    Worker/store probes for the same canonical payload are additionally
+    single-flighted (keyed by engine + payload id) so a fleet of checks cannot
+    race the refresh-token rotation into spurious `failed` verdicts. A final
+    canonical compare-and-swap runs after each probe. When the runner
+    refreshes the token during a worker probe, the refreshed blob is persisted as a
+    fresh canonical (rotation-safe) and picked up by the next retrieve. After a
+    stale live probe reaches the runner, the worker also updates the engine-scoped
+    runner telemetry (`runner_last_ok[_claude]` or `runner_last_fail[_claude]`),
+    so the admin runner card reflects the background auth-readiness check rather
+    than only boot-time or manual checks.
+- Successful `store` responses always include `runner_applied`,
+  `verification_state:"verified"`, and verified canonical `auth`. Quarantined
+  pending/failed payloads are internal history and are never returned as auth.
 - The auth-verification worker is timer-driven, not request-driven; wrapper
   startup does not wait for stale canonical auth to be re-probed.
-- Recovery behavior when `runner_state=fail`: retries are triggered on boot-id change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path). Recovery failures are logged and do not block serving auth.
+- Recovery behavior when `runner_state=fail`: retries are triggered on boot-id
+  change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path).
+  Recovery failures are logged; they block new stores but do not invalidate a
+  still-current verified head.
 - Manual trigger `POST /admin/runner/run` forces one Codex runner pass
   (`trigger=manual`) and returns whether canonical digest changed (`applied`).
   `POST /admin/runner/run-claude` verifies the latest Claude canonical payload
@@ -156,10 +189,10 @@ failure, while permission/model/server failures are not.
 
 - Runner-originated requests can bypass host-IP rebinding when `AUTH_RUNNER_IP_BYPASS` is truthy (`1`, `true`, `yes`, `on`) and caller IP matches a CIDR in `AUTH_RUNNER_BYPASS_SUBNETS`; those requests are logged as `auth.runner_ip_bypass`.
 - Code defaults: `AUTH_RUNNER_IP_BYPASS=0` and `AUTH_RUNNER_BYPASS_SUBNETS=''`. Compose/.env defaults keep bypass disabled unless explicitly enabled.
-- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports `runner_enabled=false`
-  in version snapshots. New/newer host, admin, seed, and bootstrap candidates may
-  enter `pending`; replacing a selected `failed` canonical still requires live
-  verification and returns 503 until the runner is restored.
+- Disabling runner (`AUTH_RUNNER_URL` empty/unset) reports
+  `runner_enabled=false` in version snapshots. All host, admin, seed, and
+  bootstrap stores return 503 without changing canonical auth until the runner
+  is restored; existing verified heads remain readable.
 
 ## Configuration quick reference
 

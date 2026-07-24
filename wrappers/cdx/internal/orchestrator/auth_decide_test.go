@@ -269,6 +269,26 @@ func TestDecideEngineDisabled(t *testing.T) {
 	}
 }
 
+func TestDecideExactCandidateRejectionOverridesLocalFreshness(t *testing.T) {
+	got := Decide(
+		&AuthRetrieveResponse{
+			Status:                      "missing",
+			CandidateCredentialRejected: true,
+			CanonicalLastRefresh:        time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339),
+		},
+		"/dev/null",
+		true,
+		LocalAuthProbe{
+			IsValid:     func(string) bool { return true },
+			IsFresh:     func(string, time.Duration) (bool, error) { return true, nil },
+			LastRefresh: func(string) (time.Time, error) { return time.Now().UTC(), nil },
+		},
+	)
+	if got.Allowed || !got.VerificationFailed || got.Status != "credential_rejected" {
+		t.Fatalf("exact candidate rejection decision = %+v", got)
+	}
+}
+
 // TestDecideIPMismatch pins the static-IP denial from /sync/bootstrap. The
 // client exposes that 401 as an offline response, but the API is reachable and
 // cached auth must not mask an IP-binding policy violation.

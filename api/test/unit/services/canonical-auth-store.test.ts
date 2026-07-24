@@ -10,10 +10,13 @@ import type {
   RunnerVerifyInput,
   RunnerVerifyResult,
 } from '../../../src/services/runner-client.js';
-import { authEntries, authPayloads, hostAuthStates } from '../../../src/db/schema.js';
+import { authCanonicalHeads, authEntries, authPayloads, hostAuthStates } from '../../../src/db/schema.js';
 import { decryptOrNull, encrypt } from '../../../src/security/secret-box.js';
+import { sha256 } from '../../../src/security/hash.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { createDbFake } from '../../helpers/db-fake.js';
+import { runAuthVerificationWorkerTick } from '../../../src/ops/auth-verification-worker.js';
+import { credentialMetadata, inspectCredential } from '../../../src/services/auth-generation.js';
 
 function makeKeyring(): Keyring {
   return Keyring.fromEnv({
@@ -49,6 +52,17 @@ const CLAUDE_AUTH = {
   auths: { 'api.anthropic.com': { token: 'sk-ant-oat01-base-token' } },
   claudeAiOauth: { accessToken: 'sk-ant-oat01-a', refreshToken: 'r1' },
 };
+const CLAUDE_CANONICAL_AUTH = {
+  ...CLAUDE_AUTH,
+  auths: {
+    'api.anthropic.com': {
+      token: CLAUDE_AUTH.claudeAiOauth.accessToken,
+      token_type: 'bearer',
+    },
+  },
+};
+const CLAUDE_CANONICAL_BODY = JSON.stringify(CLAUDE_CANONICAL_AUTH);
+const CLAUDE_CANONICAL_DIGEST = sha256(CLAUDE_CANONICAL_BODY);
 
 const CODEX_AUTH = {
   last_refresh: '2026-05-20T09:00:00Z',
@@ -59,7 +73,22 @@ const CODEX_AUTH = {
 function makeStore(client: RunnerClient, seedState = 'pending') {
   const db = createDbFake();
   db.tables.set(authPayloads, [
-    { id: 1, verificationState: seedState, verificationCheckedAt: null, verificationReason: null },
+    {
+      id: 1,
+      lastRefresh: CLAUDE_AUTH.last_refresh,
+      sha256: CLAUDE_CANONICAL_DIGEST,
+      sourceHostId: null,
+      createdAt: CLAUDE_AUTH.last_refresh,
+      body: encrypt(CLAUDE_CANONICAL_BODY, makeKeyring()),
+      verificationState: seedState,
+      verificationCheckedAt: null,
+      verificationReason: null,
+      engine: 'claude',
+      generation: 1,
+    },
+  ]);
+  db.tables.set(authCanonicalHeads, [
+    { engine: 'claude', payloadId: 1, generation: 1, updatedAt: CLAUDE_AUTH.last_refresh },
   ]);
   db.tables.set(authEntries, []);
   const keyring = makeKeyring();
@@ -73,6 +102,44 @@ function makeStore(client: RunnerClient, seedState = 'pending') {
 }
 
 describe('CanonicalAuthStoreService', () => {
+  it('persists only the runner-verified engine-native auth target', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: live.client,
+    });
+    const nativeToken = 'sk-openai-native-api-key-token-123';
+
+    const stored = await svc.storeCandidate({
+      auth: {
+        last_refresh: CODEX_AUTH.last_refresh,
+        OPENAI_API_KEY: nativeToken,
+        auths: {
+          'api.openai.com': { token: nativeToken },
+          'unverified.example': { token: 'unverified-extra-token-123' },
+        },
+      },
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+
+    expect(stored.status).toBe('updated');
+    expect(stored.auth?.auths).toEqual({
+      'api.openai.com': { token: nativeToken, token_type: 'bearer' },
+    });
+    expect(db.tables.get(authEntries)).toMatchObject([{ target: 'api.openai.com' }]);
+    expect(db.tables.get(authEntries)).toHaveLength(1);
+    expect(live.calls()).toBe(1);
+  });
+
   it('rejects an exact superseded Claude token pair before runner verification', async () => {
     const db = createDbFake();
     db.tables.set(authPayloads, []);
@@ -104,8 +171,22 @@ describe('CanonicalAuthStoreService', () => {
         refreshTokenExpiresAt: Date.UTC(2026, 7, 21),
       },
     };
-    const first = await svc.storeCandidate({ auth: old, engine: 'claude', sourceHostId: null, requireLastRefresh: true, logAction: 'test', sourceKind: 'admin' });
-    const second = await svc.storeCandidate({ auth: newer, engine: 'claude', sourceHostId: null, requireLastRefresh: true, logAction: 'test', sourceKind: 'admin' });
+    const first = await svc.storeCandidate({
+      auth: old,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'test',
+      sourceKind: 'admin',
+    });
+    const second = await svc.storeCandidate({
+      auth: newer,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'test',
+      sourceKind: 'admin',
+    });
     expect(first.status).toBe('updated');
     expect(second.status).toBe('updated');
     const beforeReplay = live.calls();
@@ -342,6 +423,255 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(0);
   });
 
+  it.each([
+    {
+      engine: 'claude' as const,
+      current: CLAUDE_AUTH,
+      candidate: {
+        ...CLAUDE_AUTH,
+        last_refresh: '2026-05-20T10:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-new-candidate-token',
+          refreshToken: 'new-candidate-refresh',
+        },
+      },
+      downgraded: {
+        claudeAiOauth: { accessToken: '', refreshToken: '' },
+        auths: { 'api.anthropic.com': { token: 'sk-ant-oat01-derived-only-token' } },
+      },
+    },
+    {
+      engine: 'codex' as const,
+      current: CODEX_AUTH,
+      candidate: {
+        ...CODEX_AUTH,
+        last_refresh: '2026-05-20T10:00:00Z',
+        tokens: {
+          access_token: 'sk-openai-new-candidate-token',
+          refresh_token: 'new-candidate-refresh',
+        },
+      },
+      downgraded: {
+        auths: { 'api.openai.com': { token: 'sk-openai-derived-only-token' } },
+      },
+    },
+  ])(
+    'rejects a $engine runner credential-kind downgrade without changing the verified head',
+    async ({ engine, current, candidate, downgraded }) => {
+      const db = createDbFake();
+      db.tables.set(authPayloads, []);
+      db.tables.set(authEntries, []);
+      const keyring = makeKeyring();
+      let verdict: RunnerVerifyResult = { ok: true, status: 'ok', reachable: true };
+      const probe = async () => verdict;
+      const validation = createRunnerValidationService({ db: db as never, keyring });
+      const svc = createCanonicalAuthStoreService({
+        db: db as never,
+        keyring,
+        runnerValidation: validation,
+        runner: { isConfigured: () => true, verify: probe, verifyClaude: probe },
+      });
+
+      const seeded = await svc.storeCandidate({
+        auth: current,
+        engine,
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+        sourceKind: 'admin',
+      });
+      verdict = {
+        ok: true,
+        status: 'ok',
+        reachable: true,
+        auth_readback: 'updated',
+        updated_auth: downgraded,
+      };
+
+      await expect(
+        svc.storeCandidate({
+          auth: candidate,
+          engine,
+          sourceHostId: null,
+          requireLastRefresh: true,
+          logAction: 'auth.store',
+          sourceKind: 'host',
+        }),
+      ).rejects.toMatchObject({ code: 'runner_updated_auth_invalid' });
+
+      expect(db.tables.get(authPayloads)).toHaveLength(1);
+      expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+      expect(db.tables.get(authCanonicalHeads)).toEqual([expect.objectContaining({ engine, payloadId: 1 })]);
+      expect((await validation.resolveCanonicalPayload(engine))?.sha256).toBe(seeded.canonical_digest);
+    },
+  );
+
+  it('rejects a Claude OAuth readback that loses the source refresh token', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: runner({
+        ok: true,
+        status: 'ok',
+        reachable: true,
+        updated_auth: {
+          claudeAiOauth: { accessToken: 'sk-ant-oat01-refreshed-without-refresh-token' },
+        },
+      }),
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: CLAUDE_AUTH,
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toThrow(/updated_auth_refresh_token_lost/);
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+  });
+
+  it('fails an initial store when live runner verification is not configured', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const unconfigured = countingRunner({ ok: true, status: 'ok', reachable: true }, false);
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: unconfigured.client,
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: CLAUDE_AUTH,
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toMatchObject({ code: 'runner_unreachable' });
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+    expect(db.tables.get(authCanonicalHeads) ?? []).toHaveLength(0);
+  });
+
+  it('never returns auth bytes or updates the head for an internal pending readback', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const unconfigured = countingRunner({ ok: true, status: 'ok', reachable: true }, false);
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: unconfigured.client,
+    });
+
+    const stored = await svc.storeCandidate({
+      auth: CLAUDE_AUTH,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.reverify_refresh_pending',
+      sourceKind: 'runner',
+      runnerPending: true,
+    });
+
+    expect(stored.status).toBe('outdated');
+    expect(stored.verification_state).toBe('pending');
+    expect(stored.auth).toBeUndefined();
+    expect(stored.candidate_result).toBeUndefined();
+    expect(db.tables.get(authCanonicalHeads) ?? []).toHaveLength(0);
+  });
+
+  it('returns outdated unknown without auth when a CAS observes an unsafe verified head', async () => {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    db.tables.set(hostAuthStates, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const unsafe = {
+      last_refresh: CLAUDE_AUTH.last_refresh,
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-native-head-token-123',
+        refreshToken: 'native-head-refresh-token-123',
+      },
+      auths: {
+        'api.anthropic.com': { token: 'sk-ant-oat01-stale-derived-token-123' },
+      },
+    };
+    const body = JSON.stringify(unsafe);
+    const digest = validation.calculateDigest(body);
+    const row = {
+      id: 1,
+      lastRefresh: CLAUDE_AUTH.last_refresh,
+      sha256: digest,
+      sourceHostId: null,
+      createdAt: CLAUDE_AUTH.last_refresh,
+      body: encrypt(body, keyring),
+      verificationState: 'verified',
+      verificationCheckedAt: CLAUDE_AUTH.last_refresh,
+      verificationReason: null,
+      engine: 'claude',
+      generation: 1,
+    };
+    db.tables.set(authPayloads, [row]);
+    db.tables.set(authCanonicalHeads, [
+      {
+        engine: 'claude',
+        payloadId: 1,
+        generation: 1,
+        updatedAt: CLAUDE_AUTH.last_refresh,
+      },
+    ]);
+    expect(validation.canonicalAuthFromPayload(row)).toBeNull();
+
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: countingRunner({ ok: true, status: 'ok', reachable: true }, false).client,
+    });
+    const out = await svc.storeCandidate({
+      auth: {
+        ...CLAUDE_AUTH,
+        last_refresh: '2026-05-20T10:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-worker-candidate-token-123',
+          refreshToken: 'worker-candidate-refresh-token-123',
+        },
+      },
+      engine: 'claude',
+      sourceHostId: 42,
+      requireLastRefresh: true,
+      logAction: 'auth.worker',
+      sourceKind: 'runner',
+      runnerVerified: true,
+      expectedCanonicalDigest: 'f'.repeat(64),
+    });
+
+    expect(out).toMatchObject({
+      status: 'outdated',
+      verification_state: 'unknown',
+      canonical_digest: digest,
+      canonical_generation: 1,
+    });
+    expect(out.auth).toBeUndefined();
+    expect(out.candidate_result).toBeUndefined();
+    expect(out.candidate_rejected_definitive).toBeUndefined();
+    expect(db.tables.get(authCanonicalHeads)).toHaveLength(1);
+    expect(db.tables.get(hostAuthStates)).toHaveLength(0);
+  });
+
   it('maps a malformed runner refresh timestamp to runner_updated_auth_invalid', async () => {
     const db = createDbFake();
     db.tables.set(authPayloads, []);
@@ -404,6 +734,68 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(0);
   });
 
+  it.each([
+    {
+      label: 'retryable',
+      verdict: {
+        ok: false,
+        status: 'fail',
+        reachable: false,
+        definitive: false,
+        reason: 'CLI timed out after rewriting the file',
+      } satisfies RunnerVerifyResult,
+      expected: { code: 'runner_unreachable', status: 503 },
+    },
+    {
+      label: 'definitive',
+      verdict: {
+        ok: false,
+        status: 'fail',
+        reachable: true,
+        definitive: true,
+        reason: 'provider rejected token',
+      } satisfies RunnerVerifyResult,
+      expected: { code: 'validation_failed', status: 422 },
+    },
+  ])(
+    'treats a $label raw readback rewrite with the same canonical digest as unchanged',
+    async ({ verdict, expected }) => {
+      const db = createDbFake();
+      db.tables.set(authPayloads, []);
+      db.tables.set(authEntries, []);
+      const keyring = makeKeyring();
+      const svc = createCanonicalAuthStoreService({
+        db: db as never,
+        keyring,
+        runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+        runner: runner({
+          ...verdict,
+          auth_readback: 'updated',
+          // Claude Code may drop wrapper-only last_refresh/auths fields while
+          // retaining the exact native credential pair.
+          updated_auth: {
+            claudeAiOauth: {
+              accessToken: CLAUDE_AUTH.claudeAiOauth.accessToken,
+              refreshToken: CLAUDE_AUTH.claudeAiOauth.refreshToken,
+            },
+          },
+        }),
+      });
+
+      await expect(
+        svc.storeCandidate({
+          auth: CLAUDE_AUTH,
+          engine: 'claude',
+          sourceHostId: null,
+          requireLastRefresh: true,
+          logAction: 'auth.store',
+        }),
+      ).rejects.toMatchObject(expected);
+      expect(db.tables.get(authPayloads)).toHaveLength(0);
+      expect(db.tables.get(authCanonicalHeads) ?? []).toHaveLength(0);
+    },
+  );
+
   it('preserves a changed runner file as pending when the final probe is non-definitive', async () => {
     const db = createDbFake();
     db.tables.set(authPayloads, []);
@@ -422,7 +814,10 @@ describe('CanonicalAuthStoreService', () => {
         auth_readback: 'updated',
         updated_auth: {
           last_refresh: '2026-05-20T10:00:00Z',
-          claudeAiOauth: { accessToken: 'sk-ant-oat01-pending-refresh-token' },
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-pending-refresh-token',
+            refreshToken: 'pending-refresh-r2',
+          },
         },
       }),
     });
@@ -440,6 +835,326 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('pending');
     const decoded = JSON.parse(decryptOrNull(db.tables.get(authPayloads)![0]!.body as string, keyring)!);
     expect(decoded.claudeAiOauth.accessToken).toBe('sk-ant-oat01-pending-refresh-token');
+  });
+
+  it('withholds a related selected head when an upload probe changes credentials before a non-OK verdict', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    let verdict: RunnerVerifyResult = { ok: true, status: 'ok', reachable: true };
+    const probe = async () => verdict;
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: { isConfigured: () => true, verify: probe, verifyClaude: probe },
+    });
+
+    const initial = await svc.storeCandidate({
+      auth: CLAUDE_AUTH,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    expect(initial.status).toBe('updated');
+    expect(
+      validation.canonicalAuthFromPayload((await validation.resolveCanonicalPayload('claude'))!),
+    ).not.toBeNull();
+
+    verdict = {
+      ok: false,
+      status: 'fail',
+      reachable: false,
+      definitive: false,
+      reason: 'CLI timed out after rotating credentials',
+      auth_readback: 'updated',
+      updated_auth: {
+        last_refresh: '2026-05-20T11:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-quarantined-replacement-token-123',
+          refreshToken: 'quarantined-replacement-refresh-token-123',
+        },
+      },
+    };
+    await expect(
+      svc.storeCandidate({
+        auth: {
+          last_refresh: '2026-05-20T10:00:00Z',
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-upload-candidate-token-123',
+            refreshToken: CLAUDE_AUTH.claudeAiOauth.refreshToken,
+          },
+        },
+        engine: 'claude',
+        sourceHostId: 42,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+        sourceKind: 'host',
+      }),
+    ).rejects.toMatchObject({ code: 'runner_updated_auth_invalid' });
+
+    const selected = await validation.resolveCanonicalPayload('claude');
+    expect(selected).toMatchObject({
+      id: initial.pending_payload_id,
+      verificationState: 'failed',
+      verificationReason: expect.stringContaining('prior selected credential may have been consumed'),
+    });
+    expect(validation.canonicalAuthFromPayload(selected!)).toBeNull();
+    const quarantined = await validation.resolvePendingQuarantine?.('claude');
+    expect(quarantined).toMatchObject({
+      verificationState: 'pending',
+      generation: 2,
+    });
+    expect(db.tables.get(authCanonicalHeads)).toEqual([
+      expect.objectContaining({ engine: 'claude', payloadId: initial.pending_payload_id }),
+    ]);
+  });
+
+  it('preserves an unrelated selected head when another login rotates before a non-OK verdict', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    let verdict: RunnerVerifyResult = { ok: true, status: 'ok', reachable: true };
+    const probe = async () => verdict;
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: { isConfigured: () => true, verify: probe, verifyClaude: probe },
+    });
+
+    const initial = await svc.storeCandidate({
+      auth: CLAUDE_AUTH,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    verdict = {
+      ok: false,
+      status: 'fail',
+      reachable: false,
+      definitive: false,
+      reason: 'unrelated login timed out after rotation',
+      auth_readback: 'updated',
+      updated_auth: {
+        last_refresh: '2026-05-20T11:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-unrelated-replacement-token-123',
+          refreshToken: 'unrelated-replacement-refresh-token-123',
+        },
+      },
+    };
+    await expect(
+      svc.storeCandidate({
+        auth: {
+          last_refresh: '2026-05-20T10:00:00Z',
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-unrelated-candidate-token-123',
+            refreshToken: 'unrelated-candidate-refresh-token-123',
+          },
+        },
+        engine: 'claude',
+        sourceHostId: 42,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+        sourceKind: 'host',
+      }),
+    ).rejects.toMatchObject({ code: 'runner_updated_auth_invalid' });
+
+    const selected = await validation.resolveCanonicalPayload('claude');
+    expect(selected).toMatchObject({
+      id: initial.pending_payload_id,
+      verificationState: 'verified',
+    });
+    expect(validation.canonicalAuthFromPayload(selected!)).not.toBeNull();
+    expect(await validation.resolvePendingQuarantine?.('claude')).toMatchObject({
+      verificationState: 'pending',
+      generation: 2,
+    });
+  });
+
+  it('never invalidates a different canonical head that wins during a slow rotating probe', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    let calls = 0;
+    const probe = async (): Promise<RunnerVerifyResult> => {
+      calls += 1;
+      if (calls === 1) return { ok: true, status: 'ok', reachable: true };
+
+      const winnerSource = {
+        last_refresh: '2026-05-20T10:30:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-concurrent-winner-token-123',
+          refreshToken: 'concurrent-winner-refresh-token-123',
+        },
+      };
+      const projected = validation.ensureAuthsFallback(winnerSource, 'claude');
+      const winner = validation.canonicalizeAuthPayload(
+        projected,
+        validation.normalizeAuthEntries(projected, 'claude'),
+        winnerSource.last_refresh,
+        'claude',
+      );
+      const body = JSON.stringify(winner);
+      const metadata = credentialMetadata(inspectCredential(winner, 'claude')!, keyring.active());
+      db.tables.get(authPayloads)!.push({
+        id: 2,
+        lastRefresh: winnerSource.last_refresh,
+        sha256: validation.calculateDigest(body),
+        sourceHostId: 99,
+        createdAt: winnerSource.last_refresh,
+        body: encrypt(body, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: winnerSource.last_refresh,
+        verificationReason: null,
+        engine: 'claude',
+        generation: 2,
+        ...metadata,
+      });
+      db.tables.set(authCanonicalHeads, [
+        {
+          engine: 'claude',
+          payloadId: 2,
+          generation: 2,
+          updatedAt: winnerSource.last_refresh,
+        },
+      ]);
+      return {
+        ok: false,
+        status: 'fail',
+        reachable: false,
+        definitive: false,
+        reason: 'original candidate timed out after rotation',
+        auth_readback: 'updated',
+        updated_auth: {
+          last_refresh: '2026-05-20T11:00:00Z',
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-original-replacement-token-123',
+            refreshToken: 'original-replacement-refresh-token-123',
+          },
+        },
+      };
+    };
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: { isConfigured: () => true, verify: probe, verifyClaude: probe },
+    });
+    await svc.storeCandidate({
+      auth: CLAUDE_AUTH,
+      engine: 'claude',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: {
+          last_refresh: '2026-05-20T10:00:00Z',
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-original-candidate-token-123',
+            refreshToken: CLAUDE_AUTH.claudeAiOauth.refreshToken,
+          },
+        },
+        engine: 'claude',
+        sourceHostId: 42,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+        sourceKind: 'host',
+      }),
+    ).rejects.toMatchObject({ code: 'runner_updated_auth_invalid' });
+
+    const selected = await validation.resolveCanonicalPayload('claude');
+    expect(selected).toMatchObject({ id: 2, generation: 2, verificationState: 'verified' });
+    expect(validation.canonicalAuthFromPayload(selected!)).not.toBeNull();
+    expect(db.tables.get(authPayloads)!.find((row) => row.id === 2)?.verificationState).toBe('verified');
+    expect(db.tables.get(authPayloads)!.find((row) => row.id === 3)?.verificationState).toBe('pending');
+  });
+
+  it('keeps a nonverified readback unheaded, then promotes it only after a live worker retry', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    let verdict: RunnerVerifyResult = {
+      ok: false,
+      status: 'fail',
+      reachable: false,
+      definitive: false,
+      reason: 'CLI timed out after refresh',
+      auth_readback: 'updated',
+      updated_auth: {
+        last_refresh: '2026-05-20T10:00:00Z',
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-quarantine-retry-access-token',
+          refreshToken: 'quarantine-retry-refresh-token',
+        },
+      },
+    };
+    const probe = async () => verdict;
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: { isConfigured: () => true, verify: probe, verifyClaude: probe },
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: CLAUDE_AUTH,
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toMatchObject({ code: 'runner_updated_auth_invalid' });
+
+    const quarantined = await validation.resolvePendingQuarantine?.('claude');
+    expect(quarantined?.verificationState).toBe('pending');
+    expect(db.tables.get(authCanonicalHeads) ?? []).toHaveLength(0);
+    expect(db.tables.get(authPayloads)![0]).toMatchObject({
+      supersededAt: expect.any(String),
+      purgeAfter: expect.any(String),
+    });
+    const validated = validation.validateCanonicalPayload(quarantined ?? null)!;
+
+    verdict = { ok: true, status: 'ok', reachable: true };
+    const retried = await svc.ensureServedVerification({
+      engine: 'claude',
+      hostId: null,
+      row: {
+        id: quarantined!.id,
+        verificationState: quarantined!.verificationState,
+        verificationCheckedAt: quarantined!.verificationCheckedAt,
+        verificationReason: quarantined!.verificationReason,
+      },
+      auth: validated.auth,
+      digest: validated.digest,
+      lastRefresh: validated.last_refresh,
+      ttlSeconds: 0,
+    });
+
+    expect(retried.state).toBe('verified');
+    expect(db.tables.get(authPayloads)![0]).toMatchObject({
+      verificationState: 'verified',
+      supersededAt: null,
+      purgeAfter: null,
+    });
+    expect(db.tables.get(authCanonicalHeads)).toEqual([
+      expect.objectContaining({ engine: 'claude', payloadId: quarantined!.id }),
+    ]);
   });
 
   it('preserves a changed runner file as failed before returning a definitive unsafe-refresh error', async () => {
@@ -873,7 +1588,11 @@ describe('CanonicalAuthStoreService', () => {
         verificationCheckedAt: '2026-01-01T00:00:00Z',
         verificationReason: null,
         engine: 'codex',
+        generation: 1,
       },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: '2026-07-17T09:00:00Z' },
     ]);
     let calls = 0;
     let active = 0;
@@ -968,9 +1687,7 @@ describe('CanonicalAuthStoreService', () => {
 
     expect(newer.status).toBe('updated');
     expect(tied.status).toBe('updated');
-    expect(Date.parse(tied.canonical_last_refresh)).toBeGreaterThan(
-      Date.parse(newer.canonical_last_refresh),
-    );
+    expect(Date.parse(tied.canonical_last_refresh)).toBeGreaterThan(Date.parse(newer.canonical_last_refresh));
     expect(tied.canonical_digest).not.toBe(newer.canonical_digest);
     expect(r.calls()).toBe(2);
     expect(db.tables.get(authPayloads)).toHaveLength(2);
@@ -999,7 +1716,11 @@ describe('CanonicalAuthStoreService', () => {
         verificationCheckedAt: '2026-07-17T09:00:00Z',
         verificationReason: 'expired',
         engine: 'codex',
+        generation: 1,
       },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: '2026-07-17T09:00:00Z' },
     ]);
     const svc = createCanonicalAuthStoreService({
       db: db as never,
@@ -1022,6 +1743,68 @@ describe('CanonicalAuthStoreService', () => {
     expect(repaired.status).toBe('updated');
     expect(repaired.canonical_last_refresh).toBe('2026-07-17T09:00:00.001Z');
     expect((await validation.resolveCanonicalPayload('codex'))?.id).toBe(2);
+  });
+
+  it('live-verifies historical local credentials to repair a failed explicit head', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+    const historical = {
+      ...CODEX_AUTH,
+      tokens: {
+        access_token: 'sk-openai-historical-repair-access-token',
+        refresh_token: 'historical-repair-refresh-token',
+      },
+    };
+    await svc.storeCandidate({
+      auth: historical,
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    await svc.storeCandidate({
+      auth: {
+        ...CODEX_AUTH,
+        last_refresh: '2026-05-20T10:00:00Z',
+        tokens: {
+          access_token: 'sk-openai-failed-head-access-token',
+          refresh_token: 'failed-head-refresh-token',
+        },
+      },
+      engine: 'codex',
+      sourceHostId: null,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+    });
+    db.tables.get(authPayloads)![1]!.verificationState = 'failed';
+    db.tables.get(authPayloads)![1]!.verificationReason = 'provider rejected token';
+
+    const repaired = await svc.storeCandidate({
+      auth: { ...historical, last_refresh: '2026-05-20T11:00:00Z' },
+      engine: 'codex',
+      sourceHostId: 42,
+      requireLastRefresh: true,
+      logAction: 'auth.store',
+      sourceKind: 'host',
+    });
+
+    expect(repaired.status).toBe('updated');
+    expect(repaired.verification_state).toBe('verified');
+    expect(repaired.auth?.tokens).toMatchObject({
+      access_token: 'sk-openai-historical-repair-access-token',
+    });
+    expect(live.calls()).toBe(3);
+    expect((await validation.resolveCanonicalPayload('codex'))?.id).toBe(3);
   });
 
   it('does not resurrect a failed canonical while live verification is unavailable', async () => {
@@ -1047,7 +1830,11 @@ describe('CanonicalAuthStoreService', () => {
         verificationCheckedAt: '2026-07-17T09:00:00Z',
         verificationReason: 'expired',
         engine: 'codex',
+        generation: 1,
       },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: '2026-07-17T09:00:00Z' },
     ]);
     const r = countingRunner({ ok: true, status: 'ok', reachable: true }, false);
     const svc = createCanonicalAuthStoreService({
@@ -1070,7 +1857,7 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(1);
   });
 
-  it('does not roll an authoritative pending lineage back to an older different candidate', async () => {
+  it('repairs a legacy pending head only after a different candidate passes live verification', async () => {
     const db = createDbFake();
     db.tables.set(authEntries, []);
     const keyring = makeKeyring();
@@ -1098,7 +1885,11 @@ describe('CanonicalAuthStoreService', () => {
         verificationCheckedAt: null,
         verificationReason: null,
         engine: 'codex',
+        generation: 1,
       },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: pendingSource.last_refresh },
     ]);
     const r = countingRunner({ ok: true, status: 'ok', reachable: true });
     const svc = createCanonicalAuthStoreService({
@@ -1119,23 +1910,19 @@ describe('CanonicalAuthStoreService', () => {
       logAction: 'auth.store',
     });
 
-    expect(result.status).toBe('outdated');
-    expect(result.canonical_digest).toBe(validation.calculateDigest(pendingBody));
-    expect(r.calls()).toBe(0);
-    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    expect(result.status).toBe('updated');
+    expect(result.verification_state).toBe('verified');
+    expect(result.auth).toBeDefined();
+    expect(r.calls()).toBe(1);
+    expect(db.tables.get(authPayloads)).toHaveLength(2);
   });
 
-  it('does not restamp a stale repair over a different newer lineage discovered after the probe', async () => {
+  it('does not let an unheaded quarantine block a separately live-verified repair', async () => {
     const db = createDbFake();
     db.tables.set(authEntries, []);
     const keyring = makeKeyring();
     const validation = createRunnerValidationService({ db: db as never, keyring });
-    const makeRow = (
-      id: number,
-      stamp: string,
-      token: string,
-      verificationState: 'failed' | 'pending',
-    ) => {
+    const makeRow = (id: number, stamp: string, token: string, verificationState: 'failed' | 'pending') => {
       const source = {
         last_refresh: stamp,
         tokens: { access_token: token, refresh_token: `${token}-refresh` },
@@ -1197,9 +1984,10 @@ describe('CanonicalAuthStoreService', () => {
     releaseProbe();
 
     const result = await storing;
-    expect(result.status).toBe('outdated');
-    expect(result.canonical_digest).toBe(newer.sha256);
-    expect(db.tables.get(authPayloads)).toHaveLength(2);
+    expect(result.status).toBe('updated');
+    expect(result.verification_state).toBe('verified');
+    expect(result.canonical_digest).not.toBe(newer.sha256);
+    expect(db.tables.get(authPayloads)).toHaveLength(3);
   });
 });
 
@@ -1207,8 +1995,8 @@ describe('ensureServedVerification (launch-gate proof)', () => {
   const base = {
     engine: 'claude' as const,
     hostId: null,
-    auth: CLAUDE_AUTH,
-    digest: 'dig',
+    auth: CLAUDE_CANONICAL_AUTH,
+    digest: CLAUDE_CANONICAL_DIGEST,
     lastRefresh: CLAUDE_AUTH.last_refresh,
     ttlSeconds: 900,
   };
@@ -1286,9 +2074,42 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       row: { id: 1, verificationState: 'pending', verificationCheckedAt: null },
     });
     expect(out.state).toBe('verified');
-    expect(out.digest).toBe('dig');
+    expect(out.digest).toBe(CLAUDE_CANONICAL_DIGEST);
     expect(r.calls()).toBe(1);
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
+  it('accepts a successful raw readback rewrite with the same canonical digest without a new generation', async () => {
+    const r = countingRunner({
+      ok: true,
+      status: 'ok',
+      reachable: true,
+      auth_readback: 'updated',
+      updated_auth: {
+        claudeAiOauth: {
+          accessToken: CLAUDE_AUTH.claudeAiOauth.accessToken,
+          refreshToken: CLAUDE_AUTH.claudeAiOauth.refreshToken,
+        },
+      },
+    });
+    const { db, svc } = makeStore(r.client);
+    const out = await svc.ensureServedVerification({
+      ...base,
+      ttlSeconds: 0,
+      row: { id: 1, verificationState: 'pending', verificationCheckedAt: null },
+    });
+
+    expect(out).toMatchObject({
+      state: 'verified',
+      digest: CLAUDE_CANONICAL_DIGEST,
+      refreshed: false,
+    });
+    expect(db.tables.get(authPayloads)).toHaveLength(1);
+    expect(db.tables.get(authPayloads)![0]).toMatchObject({
+      id: 1,
+      generation: 1,
+      verificationState: 'verified',
+    });
   });
 
   it('marks the payload failed when the runner reaches the provider and rejects', async () => {
@@ -1361,6 +2182,61 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
   });
 
+  it.each([
+    {
+      label: 'retryable',
+      verdict: {
+        ok: false,
+        status: 'fail',
+        reachable: false,
+        definitive: false,
+        reason: 'CLI timed out after rewriting the file',
+      } satisfies RunnerVerifyResult,
+      expectedState: 'unknown',
+      expectedStoredState: 'verified',
+    },
+    {
+      label: 'definitive',
+      verdict: {
+        ok: false,
+        status: 'fail',
+        reachable: true,
+        definitive: true,
+        reason: 'token expired',
+      } satisfies RunnerVerifyResult,
+      expectedState: 'failed',
+      expectedStoredState: 'failed',
+    },
+  ])(
+    'applies the ordinary $label reverify verdict when raw readback canonicalizes to the same digest',
+    async ({ verdict, expectedState, expectedStoredState }) => {
+      const r = countingRunner({
+        ...verdict,
+        auth_readback: 'updated',
+        updated_auth: {
+          claudeAiOauth: {
+            accessToken: CLAUDE_AUTH.claudeAiOauth.accessToken,
+            refreshToken: CLAUDE_AUTH.claudeAiOauth.refreshToken,
+          },
+        },
+      });
+      const { db, svc } = makeStore(r.client, 'verified');
+      const out = await svc.ensureServedVerification({
+        ...base,
+        ttlSeconds: 0,
+        row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+      });
+
+      expect(out.state).toBe(expectedState);
+      expect(db.tables.get(authPayloads)).toHaveLength(1);
+      expect(db.tables.get(authPayloads)![0]).toMatchObject({
+        id: 1,
+        generation: 1,
+        verificationState: expectedStoredState,
+      });
+    },
+  );
+
   it('persists and serves a runner-refreshed blob (rotation-safe)', async () => {
     const r = countingRunner({
       ok: true,
@@ -1398,7 +2274,7 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
     });
     expect(out.state).toBe('failed');
-    expect(out.reason).toContain('updated_auth_no_usable_tokens');
+    expect(out.reason).toContain('updated_auth_no_inspectable_credential');
     expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
   });
 
@@ -1410,7 +2286,10 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       auth_readback: 'updated',
       updated_auth: {
         last_refresh: 'malformed',
-        claudeAiOauth: { accessToken: 'sk-ant-oat01-refreshed-valid-token' },
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-refreshed-valid-token',
+          refreshToken: 'refreshed-valid-r2',
+        },
       },
     });
     const { db, svc } = makeStore(r.client, 'verified');
@@ -1453,7 +2332,10 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       reason: 'timed out after refresh',
       updated_auth: {
         last_refresh: '2026-05-20T10:00:00Z',
-        claudeAiOauth: { accessToken: 'sk-ant-oat01-pending-worker-token' },
+        claudeAiOauth: {
+          accessToken: 'sk-ant-oat01-pending-worker-token',
+          refreshToken: 'pending-worker-r2',
+        },
       },
     });
     const { db, svc } = makeStore(r.client, 'verified');
@@ -1462,9 +2344,10 @@ describe('ensureServedVerification (launch-gate proof)', () => {
       ttlSeconds: 0,
       row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
     });
-    expect(out.state).toBe('unknown');
+    expect(out.state).toBe('failed');
     expect(out.refreshed).toBe(false);
     expect(db.tables.get(authPayloads)).toHaveLength(2);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
     expect(db.tables.get(authPayloads)![1]!.verificationState).toBe('pending');
   });
 
@@ -1578,6 +2461,243 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(JSON.stringify(out.auth)).toContain('sk-ant-oat01-rotated');
     expect(r.calls()).toBe(1);
     expect((await validation.resolveCanonicalPayload('claude'))?.id).toBe(2);
+  });
+
+  it('persists the exact normalized Codex bytes after a live worker verdict', async () => {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const raw = {
+      last_refresh: CODEX_AUTH.last_refresh,
+      OPENAI_API_KEY: 'sk-native-api-key-winner-123',
+      tokens: { access_token: 'old-runner-oauth-winner-123', refresh_token: 'old-refresh-123' },
+      auths: { 'api.openai.com': { token: 'old-runner-oauth-winner-123', token_type: 'bearer' } },
+    };
+    const encoded = JSON.stringify(raw);
+    const digest = validation.calculateDigest(encoded);
+    db.tables.set(authPayloads, [
+      {
+        id: 1,
+        lastRefresh: CODEX_AUTH.last_refresh,
+        sha256: digest,
+        sourceHostId: null,
+        createdAt: CODEX_AUTH.last_refresh,
+        body: encrypt(encoded, keyring),
+        verificationState: 'verified',
+        verificationCheckedAt: new Date().toISOString(),
+        verificationReason: null,
+        engine: 'codex',
+        generation: 1,
+      },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      {
+        engine: 'codex',
+        payloadId: 1,
+        generation: 1,
+        updatedAt: CODEX_AUTH.last_refresh,
+      },
+    ]);
+    const projected = validation.ensureAuthsFallback(raw, 'codex');
+    const normalized = validation.canonicalizeAuthPayload(
+      projected,
+      validation.normalizeAuthEntries(projected, 'codex'),
+      CODEX_AUTH.last_refresh,
+      'codex',
+    );
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'codex',
+      hostId: null,
+      row: {
+        id: 1,
+        verificationState: 'verified',
+        verificationCheckedAt: new Date().toISOString(),
+      },
+      auth: normalized,
+      digest,
+      lastRefresh: CODEX_AUTH.last_refresh,
+      ttlSeconds: 1_000_000,
+      forceLive: true,
+    });
+
+    expect(out.state).toBe('verified');
+    expect(out.refreshed).toBe(true);
+    expect(out.auth).toMatchObject({
+      auth_mode: 'apikey',
+      OPENAI_API_KEY: 'sk-native-api-key-winner-123',
+    });
+    expect(out.auth.tokens).toBeUndefined();
+    expect(live.calls()).toBe(1);
+    expect((await validation.resolveCanonicalPayload('codex'))?.id).toBe(2);
+  });
+
+  it('withholds and live-normalizes conflicting verified Claude bytes before distribution', async () => {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const raw = {
+      last_refresh: CLAUDE_AUTH.last_refresh,
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-native-winner-token-123',
+        refreshToken: 'native-refresh-token-123',
+        expiresAt: 1_797_000_000_000,
+      },
+      api_key: 'sk-ant-api03-shadow-key-loser-token-123',
+      tokens: { anthropic_api_key: 'sk-ant-api03-nested-loser-token-123' },
+      auths: {
+        'api.anthropic.com': {
+          token: 'sk-ant-api03-stale-derived-loser-token-123',
+          token_type: 'bearer',
+        },
+      },
+    };
+    const encoded = JSON.stringify(raw);
+    const digest = validation.calculateDigest(encoded);
+    const checkedAt = new Date().toISOString();
+    const rawRow = {
+      id: 1,
+      lastRefresh: CLAUDE_AUTH.last_refresh,
+      sha256: digest,
+      sourceHostId: null,
+      createdAt: CLAUDE_AUTH.last_refresh,
+      body: encrypt(encoded, keyring),
+      verificationState: 'verified',
+      verificationCheckedAt: checkedAt,
+      verificationReason: null,
+      engine: 'claude',
+      generation: 1,
+    };
+    db.tables.set(authPayloads, [rawRow]);
+    db.tables.set(authCanonicalHeads, [
+      {
+        engine: 'claude',
+        payloadId: 1,
+        generation: 1,
+        updatedAt: CLAUDE_AUTH.last_refresh,
+      },
+    ]);
+    expect(validation.canonicalAuthFromPayload(rawRow)).toBeNull();
+
+    const projected = validation.ensureAuthsFallback(raw, 'claude');
+    const normalized = validation.canonicalizeAuthPayload(
+      projected,
+      validation.normalizeAuthEntries(projected, 'claude'),
+      CLAUDE_AUTH.last_refresh,
+      'claude',
+    );
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'claude',
+      hostId: null,
+      row: {
+        id: 1,
+        verificationState: 'verified',
+        verificationCheckedAt: checkedAt,
+      },
+      auth: normalized,
+      digest,
+      lastRefresh: CLAUDE_AUTH.last_refresh,
+      ttlSeconds: 1_000_000,
+      forceLive: true,
+    });
+
+    expect(out.state).toBe('verified');
+    expect(out.refreshed).toBe(true);
+    expect(out.auth).toMatchObject({
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-native-winner-token-123',
+        refreshToken: 'native-refresh-token-123',
+      },
+      auths: {
+        'api.anthropic.com': { token: 'sk-ant-oat01-native-winner-token-123' },
+      },
+    });
+    expect(out.auth.api_key).toBeUndefined();
+    expect(out.auth.tokens).toBeUndefined();
+    expect(live.calls()).toBe(1);
+    expect((await validation.resolveCanonicalPayload('claude'))?.id).toBe(2);
+  });
+
+  it('immediately reissues a fresh verified row with partial fingerprint metadata', async () => {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const projected = validation.ensureAuthsFallback(CODEX_AUTH, 'codex');
+    const canonical = validation.canonicalizeAuthPayload(
+      projected,
+      validation.normalizeAuthEntries(projected, 'codex'),
+      CODEX_AUTH.last_refresh,
+      'codex',
+    );
+    const body = JSON.stringify(canonical);
+    const digest = validation.calculateDigest(body);
+    const checkedAt = new Date().toISOString();
+    const brokenRow = {
+      id: 1,
+      lastRefresh: CODEX_AUTH.last_refresh,
+      sha256: digest,
+      sourceHostId: null,
+      createdAt: CODEX_AUTH.last_refresh,
+      body: encrypt(body, keyring),
+      verificationState: 'verified',
+      verificationCheckedAt: checkedAt,
+      verificationReason: null,
+      engine: 'codex',
+      generation: 1,
+      fingerprintKid: keyring.active().kid,
+      pairFingerprint: null,
+    };
+    db.tables.set(authPayloads, [brokenRow]);
+    db.tables.set(authCanonicalHeads, [
+      {
+        engine: 'codex',
+        payloadId: 1,
+        generation: 1,
+        updatedAt: CODEX_AUTH.last_refresh,
+      },
+    ]);
+    expect(validation.canonicalAuthFromPayload(brokenRow)).toBeNull();
+
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+    await runAuthVerificationWorkerTick({
+      runnerValidation: validation,
+      authStore: svc,
+      telemetry: { write: async () => undefined },
+      ttlSeconds: 1_000_000,
+      reason: 'interval',
+    });
+
+    const repaired = await validation.resolveCanonicalPayload('codex');
+    expect(live.calls()).toBe(1);
+    expect(repaired?.id).toBe(2);
+    expect(repaired?.generation).toBe(2);
+    expect(repaired?.fingerprintKid).toBe(keyring.active().kid);
+    expect(repaired?.pairFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(validation.canonicalAuthFromPayload(repaired!)).not.toBeNull();
   });
 
   it('verifies the codex engine via runner.verify and marks a dead token failed', async () => {

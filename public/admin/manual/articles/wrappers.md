@@ -121,12 +121,14 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    bundle paths, including when refreshed credentials were retained pending a
    conclusive provider retry.
 4. **Atomic writes** — server auth is first filtered through the shared
-   replacement policy: never materialize `verification_state=failed`, preserve
+   replacement policy: materialize only `verification_state=verified`, preserve
    newer usable local auth unless `candidate_rejected_definitive:true` arrives
    with an older verified canonical, then compare-and-swap against the exact
    local generation used by the request. A blocked native-child write is a safe
    skip only if usable local auth remains and that exact generation was not
-   definitively rejected. Then write the
+   definitively rejected. The separate `candidate_credential_rejected:true`
+   signal discards that exact generation without authorizing any overwrite.
+   Then write the
    agents document (cdx: effective `CODEX_HOME/AGENTS.md`; clx:
    `~/.claude/CLAUDE.md`), and the engine config file (cdx:
    effective `CODEX_HOME/config.toml`; clx: `~/.claude/settings.json`, also mirrored to
@@ -137,20 +139,21 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
    `versions.api_disabled` kill switch, an `installation_id` mismatch, a
    reverse-DNS mismatch, the peer/host's engine being disabled, and a
    `verification_state=failed` response (the background runner reached the
-   provider and the canonical token did not authenticate) — the last one sets
-   a distinct `VerificationFailed` flag and refuses with a re-login message.
+   provider and the canonical token did not authenticate). clx still gives a
+   distinct runnable local login the chance to replace a failed canonical; a
+   transient upload failure uses that local auth rather than forcing login.
    Otherwise: `valid`/`current`/`ok`/`unchanged`/`updated`/`outdated` allow the
    launch; `missing`/`upload_required` allow it and push the local file as an
    auth candidate for re-bundling; `insecure` opens the approval-pending poll;
    `insecure-denied`, `disabled`, and `invalid` refuse; `offline`/`error` fall
    back to a cached `auth.json`/`.credentials.json` within 24h (7d on secure
    hosts) if one is fresh enough.
-6. **Interactive auth recovery** — when the decision is `VerificationFailed`,
-   or `missing`/`upload_required` with no usable local recovery (including a
-   definitively rejected candidate), an interactive `run` prompts to launch
-   `codex login` / `claude auth login`, uploads the freshly minted
-   credentials, and re-checks with the server. Headless callers (cron,
-   `--execute`) fail closed instead of opening the prompt.
+6. **Interactive auth recovery** — when no runnable local or verified server
+   credential remains, an interactive run launches the engine login and then
+   uploads/re-checks the resulting credentials. clx starts
+   `claude auth login` directly, without an extra wrapper-owned `[y/N]`
+   question. Headless clx callers do not open a browser flow and instead print
+   the exact `clx auth login` action.
 7. **Self-update, engine update, and peer reconciliation** — if
    `dec.Allowed`: `maybeEnsureWrapper` compares the running wrapper binary
    version to the server-declared target; if they differ it downloads the new
@@ -184,11 +187,14 @@ clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
     version metadata.
 10. **Exec** — launch the upstream `codex` (or `claude`) CLI with the prepared
     env, forwarding stdio and signals. A separate auth-path-keyed shared
-    active-child lease spans `Start` through `Wait`; duplicate session and
-    child-lease descriptors are inherited by the native process (including
-    help), so a killed wrapper cannot release coordination under a surviving
-    child. Stdout is captured for token
-    extraction.
+    active-child lease is acquired before any credential is read or copied and
+    spans `Start` through `Wait`; duplicate session and child-lease descriptors
+    are inherited by the native process (including help), so a killed wrapper
+    cannot release coordination under a surviving child. For clx, ambient and
+    settings-sourced auth/provider overrides are neutralized by a protected
+    per-run settings overlay, `CLAUDE_CONFIG_DIR` is forced to the managed
+    `~/.claude`, and OAuth `--bare` is translated to `--safe-mode`. Stdout is
+    captured for token extraction.
 11. **Post-exec** — reconcile the native content generation: upload changed
     usable credentials with guarded writeback, or record logout intent when
     credentials were removed/unusable. As with bootstrap, pre-run, legacy,
@@ -335,7 +341,10 @@ overlapping explicit logout therefore orders wholly before or after the store.
 For both engines, a different usable login after an older logout marker remains
 pending until `updated`/`valid` accepts that exact candidate; an `outdated`
 canonical-win response cannot clear the marker or be reported as upload
-success.
+success. For clx, the exact stale native generation covered by a logout marker
+is never relaunched or re-uploaded merely because deferred logout left the file
+in place. A normal run can recover only from a different verified canonical or
+from a new accepted login.
 
 Every config-backed command plus managed run and standalone
 status/login/logout/auth-upload participates in a portable shared auth-session

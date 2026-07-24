@@ -107,11 +107,15 @@ func TestAuthCandidateAcceptedDistinguishesStoreArbitration(t *testing.T) {
 		resp *AuthRetrieveResponse
 		want bool
 	}{
-		{name: "valid", resp: &AuthRetrieveResponse{Status: "valid"}, want: true},
-		{name: "updated", resp: &AuthRetrieveResponse{Status: "updated"}, want: true},
+		{name: "valid verified", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "verified"}, want: true},
+		{name: "updated verified", resp: &AuthRetrieveResponse{Status: "updated", VerificationState: "verified"}, want: true},
 		{name: "outdated canonical won", resp: &AuthRetrieveResponse{Status: "outdated"}},
 		{name: "failed verification", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "failed"}},
+		{name: "pending verification", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "pending"}},
+		{name: "unknown verification", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "unknown"}},
+		{name: "empty verification", resp: &AuthRetrieveResponse{Status: "valid"}},
 		{name: "definitive rejection", resp: &AuthRetrieveResponse{Status: "valid", CandidateRejectedDefinitive: true}},
+		{name: "credential rejection", resp: &AuthRetrieveResponse{Status: "valid", VerificationState: "verified", CandidateCredentialRejected: true}},
 		{name: "nil", resp: nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

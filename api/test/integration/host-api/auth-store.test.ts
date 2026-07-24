@@ -110,7 +110,20 @@ describe('POST /auth command=store', () => {
         insecureGraceUntil: new Date(Date.now() - 60_000),
       }),
     ]);
-    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    const envWithRunner = {
+      ...(baseEnv as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof baseEnv;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'ok', reachable: true }), { status: 200 })),
+    );
+    const app = await buildHostApiTestApp({
+      db: db as any,
+      env: envWithRunner,
+      keyring: makeKeyring(),
+    });
 
     const r = await app.inject({
       method: 'POST',
@@ -178,10 +191,9 @@ describe('POST /auth command=store', () => {
       'fetch',
       vi.fn(
         async () =>
-          new Response(
-            JSON.stringify({ status: 'fail', definitive: true, reason: 'bad credentials' }),
-            { status: 200 },
-          ),
+          new Response(JSON.stringify({ status: 'fail', definitive: true, reason: 'bad credentials' }), {
+            status: 200,
+          }),
       ),
     );
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
@@ -334,9 +346,7 @@ describe('DELETE /auth uninstall scope', () => {
         claudeModelOverride: 'claude-test',
       }),
     ]);
-    db.tables.set(installTokens, [
-      { id: 8, hostId: 1, engine: 'codex', token: 'pending-codex-installer' },
-    ]);
+    db.tables.set(installTokens, [{ id: 8, hostId: 1, engine: 'codex', token: 'pending-codex-installer' }]);
     const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
 
     const r = await app.inject({
@@ -419,9 +429,12 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       AUTH_RUNNER_URL: 'https://runner.example/verify',
       AUTH_RUNNER_TIMEOUT: 2,
     } as typeof baseEnv;
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('runner unavailable');
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('runner unavailable');
+      }),
+    );
     const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
     const localStamp = '2026-07-17T09:00:00Z';
     const localDigest = 'b'.repeat(64);

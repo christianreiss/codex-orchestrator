@@ -83,8 +83,43 @@
           "properties": {
             "status": {
               "type": "string"
+            },
+            "auth": {
+              "type": "object"
+            },
+            "verification_state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ]
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "auth"
+                ],
+                "properties": {
+                  "auth": {
+                    "type": "object"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "verification_state"
+                ],
+                "properties": {
+                  "verification_state": {
+                    "const": "verified"
+                  }
+                }
+              }
+            }
+          ],
           "additionalProperties": true
         }
       },

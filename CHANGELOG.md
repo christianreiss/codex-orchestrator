@@ -1,3 +1,42 @@
+# 2026-07-24
+
+- Canonical Codex and Claude credentials now require a positive live runner
+  verification before the server accepts them, advances the engine's canonical
+  head, or returns their bytes to any host. Inconclusive, failed, malformed, or
+  credential-kind-changing runner readbacks are quarantined as history only;
+  they cannot supersede verified auth or enter `/auth`, `/sync/bootstrap`, or
+  the compatible API gateways. Runner refreshes must also preserve an existing
+  OAuth refresh token. Credential precedence is normalized to the same native
+  credential each Codex/Claude client will execute, so conflicting shadow fields
+  cannot validate one token and distribute another. This closes a Claude
+  failure where an empty native OAuth block plus a derived `sk-ant-oat` entry
+  was misclassified as an API key and distributed fleet-wide. Canonical rows
+  now retain only the verified engine-native target, must exactly match the
+  current canonical projection, and fail closed on incomplete/stale fingerprint
+  metadata; the worker immediately live-verifies and reissues such legacy rows
+  instead of leaving the fleet permanently auth-less. If a non-OK upload probe
+  has already rotated the selected credential lineage, that exact head is
+  atomically failed while the replacement is quarantined, so consumed
+  pre-refresh bytes cannot continue circulating; unrelated logins and a
+  concurrent canonical winner are left untouched.
+
+- cdx/clx 0.6.53 enforce verified-only server materialization, and clx now
+  follows a local-first recovery matrix. A runnable local credential launches
+  even when its upload is deferred by runner infrastructure; a verified
+  runnable server credential repairs a missing or corrupt local file
+  (and may repair logout state only when it is a different credential
+  generation); only the absence of both sends an interactive run directly into
+  `claude auth login`. Headless runs return that exact action instead of the
+  terminal “authoritative credentials invalid” refusal. Server materialization
+  validates the final Claude-native bytes before the atomic rename and never
+  treats an OAuth bearer as an API key. At exec time clx takes the active-child
+  lease before reading auth, strips ambient/settings credential and provider
+  overrides, forces the managed Claude config home, and uses a protected
+  per-run settings overlay; OAuth `--bare` is translated to `--safe-mode`.
+  Local OAuth freshness now accepts an expired access token only when a usable
+  refresh token remains. Codex applies the same rule to a known-expired
+  ChatGPT access JWT before allowing offline fallback.
+
 # 2026-07-23
 
 - The Anthropic-compatible `/anthropic/v1/*` gateway now matches the upstream

@@ -25,6 +25,82 @@ export interface CredentialMetadata {
   refreshExpiresAt: string | null;
 }
 
+export interface ResolvedCodexCredential {
+  mode: 'apikey' | 'chatgpt';
+  access: string;
+  refresh: string;
+}
+
+/**
+ * Resolve the credential exactly as native Codex does, with one deliberate
+ * compatibility extension: a legacy orchestrator-only nested/auths API key can
+ * be selected when no native credential is configured, so canonicalization can
+ * rewrite it to native `auth_mode=apikey` + `OPENAI_API_KEY`.
+ */
+export function resolveCodexCredential(
+  auth: Record<string, unknown>,
+  options: { allowLegacy?: boolean } = {},
+): ResolvedCodexCredential | null {
+  const modeValue = auth.auth_mode;
+  const explicitMode = modeValue === undefined || modeValue === null ? null : modeValue;
+  const tokens = record(auth.tokens);
+
+  if (explicitMode !== null) {
+    if (typeof explicitMode !== 'string') return null;
+    if (explicitMode === 'apikey') {
+      return {
+        mode: 'apikey',
+        access: configuredRawString(auth.OPENAI_API_KEY),
+        refresh: '',
+      };
+    }
+    if (explicitMode === 'chatgpt' || explicitMode === 'chatgptAuthTokens') {
+      return {
+        mode: 'chatgpt',
+        access: configuredRawString(tokens?.access_token),
+        refresh: configuredRawString(tokens?.refresh_token),
+      };
+    }
+    // Persisted runner auth does not support headers, agent identity, PAT, or
+    // Bedrock. Unknown modes would also make AuthDotJson deserialization fail.
+    return null;
+  }
+
+  // This is AuthDotJson::resolved_mode ordering. A present-but-null optional
+  // field is None; any other value selects that native mode.
+  if (auth.personal_access_token !== undefined && auth.personal_access_token !== null) return null;
+  if (auth.bedrock_api_key !== undefined && auth.bedrock_api_key !== null) return null;
+  if (auth.OPENAI_API_KEY !== undefined && auth.OPENAI_API_KEY !== null) {
+    return {
+      mode: 'apikey',
+      access: configuredRawString(auth.OPENAI_API_KEY),
+      refresh: '',
+    };
+  }
+
+  const oauthAccess = configuredRawString(tokens?.access_token);
+  if (oauthAccess.trim()) {
+    return {
+      mode: 'chatgpt',
+      access: oauthAccess,
+      refresh: configuredRawString(tokens?.refresh_token),
+    };
+  }
+  if (tokens?.access_token !== undefined && tokens.access_token !== null) {
+    // A malformed non-string native access token cannot be reinterpreted as a
+    // lower-priority shadow key.
+    if (typeof tokens.access_token !== 'string') return null;
+  }
+
+  if (options.allowLegacy === false) return null;
+  const legacyNested = firstText(tokens?.openai_api_key);
+  if (legacyNested) return { mode: 'apikey', access: legacyNested, refresh: '' };
+  const auths = record(auth.auths);
+  const entry = record(auths?.['api.openai.com']);
+  const legacyAuths = firstText(entry?.token);
+  return legacyAuths ? { mode: 'apikey', access: legacyAuths, refresh: '' } : null;
+}
+
 export function inspectCredential(auth: Record<string, unknown>, engine: Engine): CredentialIdentity | null {
   if (engine === ENGINE_CLAUDE) {
     const oauth = record(auth.claudeAiOauth);
@@ -40,22 +116,31 @@ export function inspectCredential(auth: Record<string, unknown>, engine: Engine)
       };
     }
   } else {
-    const tokens = record(auth.tokens);
-    const access = text(tokens?.access_token);
-    if (access) {
+    const selected = resolveCodexCredential(auth);
+    const access = text(selected?.access);
+    if (!selected || !access) return null;
+    if (selected.mode === 'chatgpt') {
       const claims = jwtClaims(access);
       return {
         kind: 'codex_oauth',
         access,
-        refresh: text(tokens?.refresh_token),
+        refresh: text(selected.refresh),
         issuedAt: epochSecondsIso(claims?.iat),
         accessExpiresAt: epochSecondsIso(claims?.exp),
         refreshExpiresAt: null,
       };
     }
+    return {
+      kind: 'api_key',
+      access,
+      refresh: '',
+      issuedAt: null,
+      accessExpiresAt: null,
+      refreshExpiresAt: null,
+    };
   }
 
-  const access = engine === ENGINE_CLAUDE ? anthropicKey(auth) : openAiKey(auth);
+  const access = anthropicKey(auth);
   if (!access) return null;
   return {
     kind: 'api_key',
@@ -84,11 +169,16 @@ export function credentialMetadata(identity: CredentialIdentity, key: KeyEntry):
 
 export function pairFingerprints(identity: CredentialIdentity, keyring: Keyring): Map<string, string> {
   return new Map(
-    keyring.all().map((key) => [key.kid, fingerprint(key, 'pair', identity.kind, identity.access, identity.refresh)]),
+    keyring
+      .all()
+      .map((key) => [key.kid, fingerprint(key, 'pair', identity.kind, identity.access, identity.refresh)]),
   );
 }
 
-export function fingerprintMatches(stored: string | null | undefined, candidate: string | undefined): boolean {
+export function fingerprintMatches(
+  stored: string | null | undefined,
+  candidate: string | undefined,
+): boolean {
   if (!stored || !candidate || !/^[a-f0-9]{64}$/i.test(stored) || !/^[a-f0-9]{64}$/i.test(candidate)) {
     return false;
   }
@@ -98,7 +188,10 @@ export function fingerprintMatches(stored: string | null | undefined, candidate:
 // Internal provider time is an admission gate, never proof: a candidate still
 // needs live runner verification. Claude exposes expiry directly; Codex access
 // JWTs expose issue/expiry claims. Missing data is intentionally incomparable.
-export function compareCredentialFreshness(candidate: CredentialIdentity, current: CredentialIdentity): number | null {
+export function compareCredentialFreshness(
+  candidate: CredentialIdentity,
+  current: CredentialIdentity,
+): number | null {
   if (candidate.kind !== current.kind || candidate.kind === 'api_key') return null;
   if (candidate.kind === 'claude_oauth') {
     return compareTuple(
@@ -162,13 +255,16 @@ function anthropicKey(auth: Record<string, unknown>): string {
   const auths = record(auth.auths);
   const entry = record(auths?.['api.anthropic.com']);
   const tokens = record(auth.tokens);
-  return firstText(entry?.token, auth.api_key, auth.anthropic_api_key, auth.ANTHROPIC_API_KEY, tokens?.anthropic_api_key);
-}
-
-function openAiKey(auth: Record<string, unknown>): string {
-  const auths = record(auth.auths);
-  const entry = record(auths?.['api.openai.com']);
-  return firstText(entry?.token, auth.OPENAI_API_KEY);
+  const explicit = firstText(
+    auth.api_key,
+    auth.anthropic_api_key,
+    auth.ANTHROPIC_API_KEY,
+    tokens?.anthropic_api_key,
+    tokens?.ANTHROPIC_API_KEY,
+  );
+  if (explicit) return explicit.toLowerCase().startsWith('sk-ant-oat') ? '' : explicit;
+  const derived = firstText(entry?.token);
+  return derived.toLowerCase().startsWith('sk-ant-oat') ? '' : derived;
 }
 
 function firstText(...values: unknown[]): string {
@@ -177,6 +273,10 @@ function firstText(...values: unknown[]): string {
     if (candidate) return candidate;
   }
   return '';
+}
+
+function configuredRawString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 function text(value: unknown): string {

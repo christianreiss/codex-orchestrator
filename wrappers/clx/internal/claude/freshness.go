@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -35,43 +36,78 @@ func IsFresh(path string, window time.Duration) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return false, errors.New("credentials.json: invalid JSON")
+	}
+	kind, _, usable := runnableCredentialIdentity(doc)
+	if !usable {
+		return false, errors.New("credentials.json: no runnable Claude credential")
+	}
+	if kind == "oauth" {
+		return oauthIsFresh(path, raw, doc, window)
+	}
 	ts, err := lastRefreshFrom(raw)
 	if err != nil {
-		// Fleet-written and claude-CLI-written OAuth credentials carry only a
-		// `claudeAiOauth` block with no `last_refresh` (WriteAuth strips it). Fall
-		// back to the OAuth token's own expiry: an access token that has not yet
-		// expired is directly usable for an offline launch. This is the fallback
-		// the package doc promises and the reason OAuth hosts must not be refused
-		// a launch during a brief orchestrator outage.
-		if exp, ok := oauthExpiry(raw); ok {
-			return time.Now().UTC().Before(exp), nil
+		// Direct API-key logins have no token expiry and normally no fleet
+		// last_refresh. Use the digest-bound wrapper generation when present,
+		// otherwise the native file mtime, with the same bounded 24h/7d windows.
+		ts, err = nativeCredentialRefresh(path, raw)
+		if err != nil {
+			return false, err
 		}
+	}
+	return withinRefreshWindow(ts, window), nil
+}
+
+func oauthIsFresh(path string, raw []byte, doc map[string]any, window time.Duration) (bool, error) {
+	oauth, _ := doc["claudeAiOauth"].(map[string]any)
+	now := time.Now().UTC()
+	if accessExpiry, known := epochMillis(oauth["expiresAt"]); known && accessExpiry.After(now) {
+		// The current access token is directly runnable. It needs no refresh or
+		// wrapper freshness proof until its own signed lifetime ends.
+		return true, nil
+	}
+
+	refresh, _ := oauth["refreshToken"].(string)
+	if strings.TrimSpace(refresh) == "" {
+		return false, nil
+	}
+	if refreshExpiry, known := epochMillis(oauth["refreshTokenExpiresAt"]); known && !refreshExpiry.After(now) {
+		return false, nil
+	}
+
+	// Expired or un-dated access plus a usable refresh token is still runnable:
+	// native Claude refreshes it itself. Bound that fallback to the exact
+	// wrapper generation or native file mtime so an indefinitely stale refresh
+	// token cannot unlock offline use.
+	ts, err := nativeCredentialRefresh(path, raw)
+	if err != nil {
 		return false, err
 	}
+	return withinRefreshWindow(ts, window), nil
+}
+
+func withinRefreshWindow(ts time.Time, window time.Duration) bool {
 	now := time.Now().UTC()
 	delta := now.Sub(ts)
 	if delta < -maxFutureSkew {
-		return false, nil
+		return false
 	}
-	return delta <= window, nil
+	return delta <= window
 }
 
-// oauthExpiry extracts claudeAiOauth.expiresAt (Unix epoch milliseconds, as
-// written by Claude Code) as a UTC time. Returns ok=false when absent or
-// non-positive.
-func oauthExpiry(raw []byte) (time.Time, bool) {
-	var doc struct {
-		ClaudeAIOauth struct {
-			ExpiresAt int64 `json:"expiresAt"`
-		} `json:"claudeAiOauth"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
+// epochMillis parses Claude Code's Unix epoch millisecond expiry fields.
+func epochMillis(value any) (time.Time, bool) {
+	number, ok := value.(float64)
+	if !ok || number <= 0 || number > float64(^uint64(0)>>1) {
 		return time.Time{}, false
 	}
-	if doc.ClaudeAIOauth.ExpiresAt <= 0 {
+	millis := int64(number)
+	if float64(millis) != number {
 		return time.Time{}, false
 	}
-	return time.UnixMilli(doc.ClaudeAIOauth.ExpiresAt).UTC(), true
+	return time.UnixMilli(millis).UTC(), true
 }
 
 // IsValidLocalAuth reports whether the file at path looks structurally usable.
@@ -124,33 +160,107 @@ func LastRefreshOfFile(path string) (time.Time, error) {
 	if ts, parseErr := lastRefreshFrom(raw); parseErr == nil {
 		return ts, nil
 	}
+	return nativeCredentialRefresh(path, raw)
+}
+
+func nativeCredentialRefresh(path string, raw []byte) (time.Time, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}, err
+	}
+	nativePath, pathErr := AuthPath()
+	if pathErr == nil && filepath.Clean(path) == filepath.Clean(nativePath) {
+		paths, pathsErr := authFiles()
+		if pathsErr == nil {
+			state := readGenerationState(paths.generation)
+			if state.Digest == digestBytes(raw) && validGenerationStateRefresh(state) {
+				if stamp, parseErr := time.Parse(time.RFC3339Nano, state.LastRefresh); parseErr == nil {
+					return stamp.UTC(), nil
+				}
+			}
+		}
 	}
 	return info.ModTime().UTC(), nil
 }
 
 func hasAnyClaudeToken(doc map[string]any) bool {
-	if k, _ := doc["api_key"].(string); strings.TrimSpace(k) != "" {
-		return true
+	_, _, ok := runnableCredentialIdentity(doc)
+	return ok
+}
+
+func hasRunnableAnthropicAPIKey(doc map[string]any) bool {
+	kind, _, ok := runnableCredentialIdentity(doc)
+	return ok && kind == "api_key"
+}
+
+func runnableCredentialIdentity(doc map[string]any) (kind, token string, ok bool) {
+	if oauth, present := doc["claudeAiOauth"].(map[string]any); present {
+		if value, _ := oauth["accessToken"].(string); strings.TrimSpace(value) != "" {
+			return "oauth", strings.TrimSpace(value), true
+		}
 	}
-	if k, _ := doc["anthropic_api_key"].(string); strings.TrimSpace(k) != "" {
-		return true
+	for _, key := range []string{"api_key", "anthropic_api_key", "ANTHROPIC_API_KEY"} {
+		if value, _ := doc[key].(string); isRunnableAnthropicAPIKey(value) {
+			return "api_key", strings.TrimSpace(value), true
+		}
 	}
-	if oauth, ok := doc["claudeAiOauth"].(map[string]any); ok {
-		if t, _ := oauth["accessToken"].(string); strings.TrimSpace(t) != "" {
-			return true
+	if tokens, present := doc["tokens"].(map[string]any); present {
+		for _, key := range []string{"anthropic_api_key", "ANTHROPIC_API_KEY"} {
+			if value, _ := tokens[key].(string); isRunnableAnthropicAPIKey(value) {
+				return "api_key", strings.TrimSpace(value), true
+			}
 		}
 	}
 	if auths, ok := doc["auths"].(map[string]any); ok && len(auths) > 0 {
 		if e, ok := auths["api.anthropic.com"].(map[string]any); ok {
-			if t, _ := e["token"].(string); strings.TrimSpace(t) != "" {
-				return true
+			// Claude Code cannot consume a Claude.ai OAuth bearer from the
+			// orchestrator-only auths map. OAuth is runnable only in its native
+			// claudeAiOauth shape; auths is a valid local fallback solely for a
+			// genuine Anthropic API key that PreExec can export.
+			if t, _ := e["token"].(string); isRunnableAnthropicAPIKey(t) {
+				return "api_key", strings.TrimSpace(t), true
 			}
 		}
 	}
-	return false
+	return "", "", false
+}
+
+func isRunnableAnthropicAPIKey(value string) bool {
+	token := strings.TrimSpace(value)
+	return token != "" && !strings.HasPrefix(strings.ToLower(token), "sk-ant-oat")
+}
+
+// SameCredentialPair compares the exact credential generation the runner
+// verifies under the shared precedence rules. OAuth identity includes both
+// access and refresh tokens: a rotated refresh token is a distinct generation
+// even when the short-lived access token happens to be unchanged. API-key
+// identity is the selected key alone. Wrapper timestamps, formatting, and
+// non-auth metadata do not create a new credential identity.
+func SameCredentialPair(left, right json.RawMessage) bool {
+	var leftDoc, rightDoc map[string]any
+	if json.Unmarshal(left, &leftDoc) != nil || json.Unmarshal(right, &rightDoc) != nil {
+		return false
+	}
+	leftKind, leftAccess, leftRefresh, leftOK := runnableCredentialPair(leftDoc)
+	rightKind, rightAccess, rightRefresh, rightOK := runnableCredentialPair(rightDoc)
+	return leftOK &&
+		rightOK &&
+		leftKind == rightKind &&
+		leftAccess == rightAccess &&
+		leftRefresh == rightRefresh
+}
+
+func runnableCredentialPair(doc map[string]any) (kind, access, refresh string, ok bool) {
+	kind, access, ok = runnableCredentialIdentity(doc)
+	if !ok {
+		return "", "", "", false
+	}
+	if kind != "oauth" {
+		return kind, access, "", true
+	}
+	oauth, _ := doc["claudeAiOauth"].(map[string]any)
+	refresh, _ = oauth["refreshToken"].(string)
+	return kind, access, strings.TrimSpace(refresh), true
 }
 
 func lastRefreshFrom(raw []byte) (time.Time, error) {

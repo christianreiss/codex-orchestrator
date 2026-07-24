@@ -255,7 +255,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// Offer to run `codex login` here, upload the freshly minted token, and
 		// re-verify — the only fix for a rotated/expired refresh token. Headless
 		// runs (cron, --execute) fail closed instead of opening a login flow.
-		switch decideAuthRecovery(concurrent, opts.Headless, needsInteractiveAuthRecovery(dec, authCandidateErr)) {
+		switch decideAuthRecovery(concurrent, opts.Headless, needsInteractiveAuthRecovery(dec, authCandidateErr, cfg.Host.Secure)) {
 		case authRecoveryFailClosed:
 			// Non-interactive callers (cron, --execute) must not open a
 			// `codex login` prompt — fail closed with the underlying reason.
@@ -639,8 +639,7 @@ func bootstrap(
 }
 
 func bundleAcceptedAuthCandidate(resp *orchestrator.BundleResponse) bool {
-	if resp == nil || resp.Auth == nil || resp.Auth.CandidateRejectedDefinitive ||
-		strings.EqualFold(strings.TrimSpace(resp.Auth.VerificationState), "failed") {
+	if resp == nil || resp.Auth == nil || !resp.Auth.AuthCandidateAccepted() {
 		return false
 	}
 	for _, reason := range resp.Reasons {
@@ -811,7 +810,7 @@ func decideAuthRecovery(concurrent, headless, recoveryNeeded bool) authRecoveryA
 	return authRecoveryInteractive
 }
 
-func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error) bool {
+func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error, hostSecure bool) bool {
 	if orchestrator.IsUnsafeRunnerUpdatedAuthError(uploadErr) {
 		return false
 	}
@@ -829,7 +828,7 @@ func needsInteractiveAuthRecovery(dec orchestrator.AuthDecision, uploadErr error
 			// local file instead; the next run re-attempts the upload.
 			return authUploadRejected(uploadErr)
 		}
-		return !localAuthUsable()
+		return !localAuthRunnableFresh(hostSecure)
 	}
 	return false
 }
@@ -851,13 +850,22 @@ func recoveryReason(dec orchestrator.AuthDecision, uploadErr error) string {
 	return "Codex credentials are missing from the orchestrator."
 }
 
-// localAuthUsable reports whether the on-disk auth.json is structurally valid.
-func localAuthUsable() bool {
+// localAuthRunnableFresh reports whether native Codex can either use the
+// selected credential directly or refresh it, within the same bounded cache
+// window used by the launch decision.
+func localAuthRunnableFresh(hostSecure bool) bool {
 	path, err := codex.AuthPath()
 	if err != nil || path == "" {
 		return false
 	}
-	return codex.IsValidLocalAuth(path)
+	if fresh, _ := codex.IsFresh(path, codex.MaxAge24h); fresh {
+		return true
+	}
+	if hostSecure {
+		fresh, _ := codex.IsFresh(path, codex.MaxAge7d)
+		return fresh
+	}
+	return false
 }
 
 // recoverCodexAuth runs the interactive `codex login` flow, uploads the freshly
@@ -1006,8 +1014,8 @@ func shouldWriteServerAuth(status string, auth []byte) bool {
 // ~/.codex/auth.json and writes it when allowed. Two refusal gates in front of
 // the legacy status check:
 //
-//  1. verification_state=failed — the server itself says this blob does not
-//     authenticate; materializing a known-bad credential is never right.
+//  1. verification_state must be exactly verified — unknown, pending, failed,
+//     or omitted server credentials are never materialized.
 //  2. the local file is FRESHER than the payload — a login the orchestrator
 //     has not adopted yet (runner outage gating the store, old server, …).
 //     Overwriting would destroy the only copy of the newer credential; this
@@ -1019,9 +1027,10 @@ func applyServerAuth(logger *slog.Logger, authPath string, resp *orchestrator.Au
 	if resp == nil || !shouldWriteServerAuth(resp.Status, resp.Auth) {
 		return false, false, nil
 	}
-	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
-		logger.Warn("server canonical auth failed live verification; keeping local auth.json")
-		return false, false, nil
+	if !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
+		logger.Warn("server canonical auth is not runner-verified; keeping local auth.json",
+			"verification_state", resp.VerificationState)
+		return false, authPath != "" && codex.IsValidLocalAuth(authPath), nil
 	}
 	logoutHold, err := codex.LogoutIntentActive()
 	if err != nil || logoutHold {

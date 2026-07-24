@@ -423,6 +423,28 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "auth"
+            ],
+            "properties": {
+              "auth": {
+                "type": "object"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "verification_state"
+            ],
+            "properties": {
+              "verification_state": {
+                "const": "verified"
+              }
+            }
+          }
         }
       ],
       "anyOf": [
@@ -490,7 +512,11 @@
               ],
               "properties": {
                 "verification_state": {
-                  "const": "failed"
+                  "enum": [
+                    "pending",
+                    "failed",
+                    "unknown"
+                  ]
                 }
               }
             }

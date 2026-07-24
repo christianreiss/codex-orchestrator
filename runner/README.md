@@ -65,13 +65,16 @@ Request body:
 
 ```json
 {
-  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "auth_json": {
+    "auth_mode": "chatgpt",
+    "tokens": { "access_token": "sk-..." }
+  },
   "timeout_seconds": 8.0
 }
 ```
 
 Fields:
-- `auth_json` (required object) — written to `~/.codex/auth.json` for the probe; must contain either `auths.api.openai.com.token` or `tokens.access_token` / `tokens.openai_api_key`, or the request fails with HTTP 400 (`"no usable token in auth_json"`).
+- `auth_json` (required object) — written to `~/.codex/auth.json` for the probe and resolved exactly like native Codex. Explicit `auth_mode:"apikey"` requires top-level `OPENAI_API_KEY`; explicit `chatgpt` / `chatgptAuthTokens` requires `tokens.access_token`. With no mode, native inference selects personal-access-token/Bedrock first (unsupported here), then a present top-level `OPENAI_API_KEY`, otherwise ChatGPT tokens. The API normalizes legacy `tokens.openai_api_key` / `auths.api.openai.com.token` inputs into one native mode before calling the runner.
 - `timeout_seconds` (optional float) — probe timeout in seconds; defaults to 8.0 when omitted.
 - `RUNNER_CODEX_PROBE_MODEL` (environment) — model used for the Codex “Reply Banana” probe; defaults to `gpt-5.6-terra`.
 
@@ -123,7 +126,7 @@ If the probe updates `~/.codex/auth.json` (for example by refreshing tokens), th
 Behavior details:
 - Uses a temporary `$HOME` and writes `~/.codex/auth.json` with mode 0600 for each probe.
 - The temporary `$HOME` is created under `RUNNER_HOME_PARENT` (the bundled image defaults this to `/dev/shm`), and the runner also points `TMPDIR`/`TMP`/`TEMP` at a writable subdirectory inside that home.
-- Token extraction order is `auths.api.openai.com.token` first, then `tokens.access_token`, then `tokens.openai_api_key`.
+- Credential selection matches native Codex: explicit `auth_mode` wins; otherwise a present top-level `OPENAI_API_KEY` wins over `tokens.access_token`. Unsupported/unknown modes and a missing credential for the selected mode fail with HTTP 400. The runner does not reinterpret `auths` or `tokens.openai_api_key` as native credentials.
 - Runs `/usr/local/bin/codex exec --model "${RUNNER_CODEX_PROBE_MODEL:-gpt-5.6-terra}" -s read-only --skip-git-repo-check "Reply Banana if this works."`.
 - Sets `CODEX_SYNC_BASE_URL` from the container env (default `http://api` when unset), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 - `status` is `ok` only when the command exits 0 and stdout contains `banana` (case-insensitive); otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
@@ -150,7 +153,7 @@ Request body:
 ```
 
 Fields:
-- `auth_json` (required object) — must contain `auths["api.anthropic.com"].token`, `tokens.anthropic_api_key`, top-level `api_key` / `anthropic_api_key` / `ANTHROPIC_API_KEY`, or Claude Code OAuth credentials at `claudeAiOauth.accessToken`; otherwise the request fails with HTTP 400 (`"no usable Anthropic token in auth_json"`).
+- `auth_json` (required object) — credential precedence is native `claudeAiOauth.accessToken`, then top-level `api_key` / `anthropic_api_key` / `ANTHROPIC_API_KEY`, then the same aliases under `tokens`, then `auths["api.anthropic.com"].token`. A `sk-ant-oat...` bearer outside a non-empty native `claudeAiOauth` object is rejected instead of being misclassified as an API key.
 - `timeout_seconds` (optional float) — probe timeout in seconds; defaults to 8.0 when omitted.
 
 Example:
@@ -212,7 +215,7 @@ The POST endpoints that generate or summarize content accept an optional `engine
 ```
 
 When `engine: "claude"`, the runner:
-1. Extracts the Anthropic token via `auths["api.anthropic.com"].token` → top-level API-key aliases → `tokens.anthropic_api_key` → `claudeAiOauth.accessToken` fallback.
+1. Resolves the Anthropic credential as native `claudeAiOauth.accessToken` → top-level API-key aliases → `tokens` API-key aliases → `auths["api.anthropic.com"].token`; OAuth bearers in API-key fallback fields are rejected.
 2. Creates a temp `$HOME` under `RUNNER_HOME_PARENT`, writes the auth JSON to
    `~/.claude/.credentials.json`, and exports `ANTHROPIC_API_KEY=<token>` only
    for genuine API-key credentials. Native Claude Code OAuth credentials run

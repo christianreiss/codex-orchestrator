@@ -97,6 +97,69 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	}
 }
 
+func TestRunCaptureAcquiresChildLeaseBeforeMaterializingAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath, err := AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const staleKey = "sk-ant-api03-must-not-survive-logout"
+	if err := os.WriteFile(authPath, []byte(`{"api_key":"`+staleKey+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	captured := filepath.Join(home, "captured-api-key")
+	t.Setenv("CLX_TEST_CAPTURE", captured)
+	bin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+printf '%s' "${ANTHROPIC_API_KEY-}" > "$CLX_TEST_CAPTURE"
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+
+	acquireStarted := make(chan struct{})
+	continueAcquire := make(chan struct{})
+	acquire := func() (*authChildLease, error) {
+		close(acquireStarted)
+		<-continueAcquire
+		return acquireAuthChildShared()
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, runErr := runCaptureWithHeldAuthLeaseUsing(
+			context.Background(),
+			&config.Config{},
+			nil,
+			nil,
+			nil,
+			acquire,
+		)
+		done <- runErr
+	}()
+
+	<-acquireStarted
+	if err := os.Remove(authPath); err != nil {
+		t.Fatal(err)
+	}
+	close(continueAcquire)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), staleKey) {
+		t.Fatalf("Claude child launched with API key copied before its auth lease: %q", got)
+	}
+}
+
 func TestIsWrapperSelf(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {

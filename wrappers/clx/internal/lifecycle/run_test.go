@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -256,11 +257,28 @@ func TestBootstrapRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-21T12:00:00Z","claudeAiOauth":{"accessToken":"","refreshToken":""}}`)); err != nil {
+	authPath := filepath.Join(home, ".claude", ".credentials.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	authPath, err := claude.AuthPath()
-	if err != nil {
+	writeUnusableAuthWithMatchingSidecar := func(stamp string) {
+		t.Helper()
+		raw := []byte(`{"claudeAiOauth":{"accessToken":"","refreshToken":""}}`)
+		if err := os.WriteFile(authPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		stateDir := filepath.Join(home, ".clx", "auth")
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		digest := fmt.Sprintf("%x", sha256.Sum256(raw))
+		state := fmt.Sprintf(`{"version":1,"digest":%q,"last_refresh":%q,"canonical_digest":%q}`, digest, stamp, strings.Repeat("a", 64))
+		if err := os.WriteFile(filepath.Join(stateDir, "generation.json"), []byte(state), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeUnusableAuthWithMatchingSidecar("2026-07-21T12:00:00Z")
+	if _, err := claude.AuthPath(); err != nil {
 		t.Fatal(err)
 	}
 	seenEmptyDigest := false
@@ -297,9 +315,7 @@ func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t
 	if !claude.IsValidLocalAuth(authPath) {
 		t.Fatal("concurrent canonical repair did not leave usable Claude credentials")
 	}
-	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-21T12:02:00Z","claudeAiOauth":{"accessToken":"","refreshToken":""}}`)); err != nil {
-		t.Fatal(err)
-	}
+	writeUnusableAuthWithMatchingSidecar("2026-07-21T12:02:00Z")
 	seenEmptyDigest = false
 	resp, legacyErr, synced := syncAuthLegacy(context.Background(), client, logger, true)
 	if legacyErr != nil || !synced || resp == nil {
@@ -467,7 +483,7 @@ func TestLegacyTwoWayAuthArbitration(t *testing.T) {
 		wantErr       bool
 		wantRespValid bool
 	}{
-		{name: "accepted local converges", storeStatus: http.StatusOK, storeBody: `{"status":"valid"}`, wantToken: "local", wantRespValid: true},
+		{name: "accepted local converges", storeStatus: http.StatusOK, storeBody: `{"status":"valid","verification_state":"verified"}`, wantToken: "local", wantRespValid: true},
 		{name: "transient preserves local", storeStatus: http.StatusServiceUnavailable, storeBody: `{"status":"error","code":"runner_unreachable","message":"later"}`, wantToken: "local"},
 		{name: "validation 422 heals verified canonical", storeStatus: http.StatusUnprocessableEntity, storeBody: `{"status":"error","code":"validation_failed","message":"bad candidate"}`, wantToken: "canonical"},
 		{name: "security 403 preserves local", storeStatus: http.StatusForbidden, storeBody: `{"status":"error","code":"engine_disabled","message":"disabled"}`, wantToken: "local"},
@@ -724,10 +740,11 @@ func TestWrapperAutoUpdateFinalizationDefersPurgeToPeer(t *testing.T) {
 
 func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 	cases := []struct {
-		name      string
-		decision  orchestrator.AuthDecision
-		uploadErr error
-		want      bool
+		name        string
+		decision    orchestrator.AuthDecision
+		uploadErr   error
+		localUsable bool
+		want        bool
 	}{
 		{
 			name: "live verification failure",
@@ -735,16 +752,26 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 				Status: "valid",
 				Reason: "Claude credentials failed live verification (login expired).",
 			},
-			want: true,
+			localUsable: true,
+			want:        true,
 		},
 		{
-			name: "missing with upload failure",
+			name: "missing with retryable upload failure keeps valid local",
 			decision: orchestrator.AuthDecision{
 				Allowed: true,
 				Status:  "missing",
 			},
-			uploadErr: errors.New("runner rejected token"),
-			want:      true,
+			uploadErr:   &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable},
+			localUsable: true,
+			want:        false,
+		},
+		{
+			name: "missing without local auth starts recovery",
+			decision: orchestrator.AuthDecision{
+				Allowed: true,
+				Status:  "missing",
+			},
+			want: true,
 		},
 		{
 			name: "normal valid auth",
@@ -752,7 +779,16 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 				Allowed: true,
 				Status:  "valid",
 			},
-			want: false,
+			localUsable: true,
+			want:        false,
+		},
+		{
+			name: "valid server status without runnable local starts recovery",
+			decision: orchestrator.AuthDecision{
+				Allowed: true,
+				Status:  "valid",
+			},
+			want: true,
 		},
 		{
 			name: "disabled host is not a login recovery",
@@ -763,19 +799,558 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "unsafe rotated runner writeback fails closed without login loop",
+			name: "unsafe rotated runner writeback starts a fresh login",
 			decision: orchestrator.AuthDecision{
 				Allowed: true,
 				Status:  "missing",
 			},
 			uploadErr: &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "runner_updated_auth_invalid"},
-			want:      false,
+			want:      true,
+		},
+		{
+			name: "definitive candidate rejection reauthenticates despite structural local token",
+			decision: orchestrator.AuthDecision{
+				Status: "credential_rejected",
+			},
+			uploadErr:   &orchestrator.HTTPError{StatusCode: http.StatusUnprocessableEntity, Code: "validation_failed"},
+			localUsable: true,
+			want:        true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := needsInteractiveAuthRecovery(tc.decision, tc.uploadErr); got != tc.want {
+			if got := needsInteractiveAuthRecovery(tc.decision, tc.uploadErr, tc.localUsable); got != tc.want {
 				t.Fatalf("needsInteractiveAuthRecovery() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFailedServerHeadWithExplicitlyDistinctLocalCandidateDefersWithoutLogin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T07:00:00Z","claudeAiOauth":{"accessToken":"distinct-local","refreshToken":"refresh"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateSeen := false
+	distinct := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req orchestrator.BundleRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode bundle request: %v", err)
+		}
+		candidateSeen = strings.Contains(string(req.AuthCandidate), "distinct-local")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"success","data":{"auth":{"status":"outdated","verification_state":"failed","candidate_matches_failed_canonical":%t}}}`, distinct)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+	if bootstrapErr != nil {
+		t.Fatal(bootstrapErr)
+	}
+	if !candidateSeen {
+		t.Fatal("distinct runnable local generation was not retried as bundle candidate")
+	}
+	dec := decideAuth(resp, nil, authPath, true)
+	if !dec.Allowed || !dec.LocalUsable {
+		t.Fatalf("failed server head blocked explicitly distinct local candidate: %+v", dec)
+	}
+	if needsInteractiveAuthRecovery(dec, nil, claude.HasUsableAuth()) {
+		t.Fatal("transient failed-head arbitration unnecessarily requested another login")
+	}
+
+	same := true
+	resp.CandidateMatchesFailedHead = &same
+	dec = decideAuth(resp, nil, authPath, true)
+	if dec.Allowed || !needsInteractiveAuthRecovery(dec, nil, claude.HasUsableAuth()) {
+		t.Fatalf("known matching failed candidate was allowed: %+v", dec)
+	}
+	resp.CandidateMatchesFailedHead = nil
+	dec = decideAuth(resp, nil, authPath, true)
+	if dec.Allowed {
+		t.Fatalf("absent candidate identity proof allowed failed canonical fallback: %+v", dec)
+	}
+}
+
+func TestDefinitivelyRejectedBundleCandidateRequiresLoginEvenWhenConcurrent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T07:00:00Z","claudeAiOauth":{"accessToken":"rejected-local"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := &orchestrator.AuthRetrieveResponse{
+		Status:                      "missing",
+		CandidateCredentialRejected: true,
+	}
+	dec := decideAuth(resp, nil, authPath, true)
+	if dec.Allowed || dec.Status != "credential_rejected" {
+		t.Fatalf("definitive bundle rejection decision=%+v", dec)
+	}
+	if concurrent := orchestrator.ApplyConcurrent(dec, authPath, localProbe); concurrent.Allowed {
+		t.Fatalf("concurrent mode upgraded definitive rejection: %+v", concurrent)
+	}
+	if !needsInteractiveAuthRecovery(dec, nil, claude.HasUsableAuth()) {
+		t.Fatal("definitively rejected candidate did not enter direct login recovery")
+	}
+}
+
+func TestTransientAuthErrorRequiresRunnableFreshLocalOAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().Add(-time.Hour).UnixMilli()
+	if err := os.WriteFile(
+		authPath,
+		[]byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"expired-no-refresh","expiresAt":%d}}`, expired)),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	resp := &orchestrator.AuthRetrieveResponse{Status: "error"}
+	dec := decideAuth(resp, errors.New("temporary network outage"), authPath, true)
+	if dec.Allowed || dec.LocalUsable {
+		t.Fatalf("expired OAuth bypassed transient-error freshness gate: %+v", dec)
+	}
+
+	refreshFuture := time.Now().Add(24 * time.Hour).UnixMilli()
+	if err := os.WriteFile(
+		authPath,
+		[]byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"expired-refreshable","refreshToken":"refresh","expiresAt":%d,"refreshTokenExpiresAt":%d}}`, expired, refreshFuture)),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	dec = decideAuth(resp, errors.New("temporary network outage"), authPath, true)
+	if !dec.Allowed || !dec.LocalUsable {
+		t.Fatalf("refreshable OAuth failed transient-error freshness gate: %+v", dec)
+	}
+}
+
+func TestExpiredStructuralOAuthStillRequestsInteractiveRecovery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().Add(-time.Hour).UnixMilli()
+	if err := os.WriteFile(
+		authPath,
+		[]byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"expired-no-refresh","expiresAt":%d}}`, expired)),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !claude.HasUsableAuth() {
+		t.Fatal("fixture must remain structurally usable")
+	}
+	dec := decideAuth(&orchestrator.AuthRetrieveResponse{Status: "missing"}, nil, authPath, true)
+	if !needsInteractiveAuthRecovery(dec, nil, localAuthFresh(authPath, true)) {
+		t.Fatalf("expired local plus missing server did not request login: %+v", dec)
+	}
+}
+
+func TestBundleRejectionIsBoundToSubmittedCredentialGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		replacement       string
+		wantRejected      bool
+		wantLoginRecovery bool
+	}{
+		{
+			name:        "different in-flight login survives",
+			replacement: `{"claudeAiOauth":{"accessToken":"candidate-c","refreshToken":"refresh-c"}}`,
+		},
+		{
+			name:        "same access with rotated refresh survives",
+			replacement: `{"claudeAiOauth":{"accessToken":"candidate-a","refreshToken":"changed-metadata"}}`,
+		},
+		{
+			name:              "byte-different same credential pair remains rejected",
+			replacement:       `{"metadata":"changed","claudeAiOauth":{"refreshToken":"refresh-a","accessToken":"candidate-a"}}`,
+			wantRejected:      true,
+			wantLoginRecovery: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T07:00:00Z","claudeAiOauth":{"accessToken":"candidate-a","refreshToken":"refresh-a"}}`)); err != nil {
+				t.Fatal(err)
+			}
+			authPath, err := claude.AuthPath()
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req orchestrator.BundleRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Errorf("decode bundle request: %v", err)
+				}
+				if !strings.Contains(string(req.AuthCandidate), "candidate-a") {
+					t.Errorf("submitted candidate missing: %s", req.AuthCandidate)
+				}
+				if err := os.WriteFile(authPath, []byte(tc.replacement), 0o600); err != nil {
+					t.Errorf("write in-flight native login: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"missing","candidate_credential_rejected":true}}}`))
+			}))
+			defer server.Close()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, bootstrapErr, _, _, _, _, _ := bootstrap(context.Background(), client, logger, true, authPath)
+			if bootstrapErr != nil {
+				t.Fatal(bootstrapErr)
+			}
+			if resp.CandidateCredentialRejected != tc.wantRejected {
+				t.Fatalf("candidate rejection=%v want=%v response=%+v", resp.CandidateCredentialRejected, tc.wantRejected, resp)
+			}
+			dec := decideAuth(resp, nil, authPath, true)
+			if tc.wantRejected == dec.Allowed {
+				t.Fatalf("decision after in-flight replacement=%+v", dec)
+			}
+			if got := needsInteractiveAuthRecovery(dec, nil, claude.HasUsableAuth()); got != tc.wantLoginRecovery {
+				t.Fatalf("login recovery=%v want=%v decision=%+v", got, tc.wantLoginRecovery, dec)
+			}
+			raw, err := os.ReadFile(authPath)
+			if err != nil || string(raw) != tc.replacement {
+				t.Fatalf("in-flight native credential changed: %q err=%v", raw, err)
+			}
+		})
+	}
+}
+
+func TestRecoverClaudeAuthRunsDirectLoginDuringConcurrentSessionWithoutPrompt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, `#!/bin/sh
+mkdir -p "$HOME/.claude"
+printf '%s' '{"claudeAiOauth":{"accessToken":"interactive-login","refreshToken":"refresh"}}' > "$HOME/.claude/.credentials.json"
+`)
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified"}`))
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := claude.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := claude.StartAuthSession(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = current.CloseAndPurgeIfLast()
+		_, _ = peer.CloseAndPurgeIfLast()
+	})
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return true }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+
+	var recoverErr error
+	stderr := captureStderr(t, func() {
+		recoverErr = recoverClaudeAuth(
+			context.Background(),
+			&config.Config{},
+			client,
+			logger,
+			"Claude credentials are missing.",
+			current,
+		)
+	})
+	if recoverErr != nil {
+		t.Fatal(recoverErr)
+	}
+	if strings.Contains(stderr, "[y/N]") {
+		t.Fatalf("direct recovery retained confirmation prompt: %q", stderr)
+	}
+	if !strings.Contains(stderr, "Starting `claude auth login`") {
+		t.Fatalf("direct login was not announced: %q", stderr)
+	}
+	if !claude.HasUsableAuth() {
+		t.Fatal("direct concurrent recovery did not leave runnable auth")
+	}
+}
+
+func TestRecoverClaudeAuthCanonicalWinContinuesWithVerifiedCredential(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T06:00:00Z","claudeAiOauth":{"accessToken":"logged-out"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	old, err := claude.ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := claude.RecordExplicitLogout(old.Generation); err != nil || !marked {
+		t.Fatalf("record explicit logout=%v err=%v", marked, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(old.Path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old.Path, old.Raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, `#!/bin/sh
+mkdir -p "$HOME/.claude"
+printf '%s' '{"claudeAiOauth":{"accessToken":"submitted-login","refreshToken":"refresh"}}' > "$HOME/.claude/.credentials.json"
+`)
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	canonicalDigest := strings.Repeat("c", 64)
+	canonicalStamp := time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(
+			w,
+			`{"status":"outdated","verification_state":"verified","candidate_credential_rejected":true,"candidate_rejected_definitive":true,"canonical_digest":%q,"canonical_last_refresh":%q,"auth":{"last_refresh":%q,"claudeAiOauth":{"accessToken":"verified-canonical","refreshToken":"canonical-refresh"}}}`,
+			canonicalDigest,
+			canonicalStamp,
+			canonicalStamp,
+		)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return true }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+
+	var recoverErr error
+	stderr := captureStderr(t, func() {
+		recoverErr = recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "logged out", nil)
+	})
+	if recoverErr != nil {
+		t.Fatal(recoverErr)
+	}
+	if !strings.Contains(stderr, "Submitted login was not accepted") {
+		t.Fatalf("canonical-win outcome was not reported accurately: %q", stderr)
+	}
+	if claude.HasLogoutIntent() {
+		t.Fatal("verified different canonical did not clear logout marker")
+	}
+	raw, err := claude.ReadAuth()
+	if err != nil || !strings.Contains(string(raw), "verified-canonical") {
+		t.Fatalf("canonical-win native auth=%q err=%v", raw, err)
+	}
+	authPath, _ := claude.AuthPath()
+	resp := &orchestrator.AuthRetrieveResponse{
+		Status:                      "outdated",
+		VerificationState:           "verified",
+		CandidateCredentialRejected: true,
+		CandidateRejectedDefinitive: true,
+		CanonicalDigest:             canonicalDigest,
+		CanonicalLastRefresh:        canonicalStamp,
+		Auth:                        json.RawMessage(fmt.Sprintf(`{"last_refresh":%q,"claudeAiOauth":{"accessToken":"verified-canonical","refreshToken":"canonical-refresh"}}`, canonicalStamp)),
+	}
+	if dec := decideAuth(resp, nil, authPath, true); !dec.Allowed {
+		t.Fatalf("installed verified canonical remained refused: %+v", dec)
+	}
+}
+
+func TestRecoverClaudeAuthTransientUploadUsesFreshLoginAndClearsOldMarker(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T06:00:00Z","claudeAiOauth":{"accessToken":"logged-out"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	old, err := claude.ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := claude.RecordExplicitLogout(old.Generation); err != nil || !marked {
+		t.Fatalf("record explicit logout=%v err=%v", marked, err)
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, `#!/bin/sh
+mkdir -p "$HOME/.claude"
+printf '%s' '{"claudeAiOauth":{"accessToken":"fresh-offline-login","refreshToken":"refresh"}}' > "$HOME/.claude/.credentials.json"
+`)
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"error","code":"runner_unreachable","message":"retry later"}`))
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return true }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+
+	if err := recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "logged out", nil); err != nil {
+		t.Fatal(err)
+	}
+	if claude.HasLogoutIntent() || !claude.HasUsableAuth() {
+		t.Fatal("fresh login was not authorized after transient upload deferral")
+	}
+}
+
+func TestRecoverClaudeAuthMetadataRewriteCannotClearOldMarker(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := claude.WriteAuth(json.RawMessage(`{"claudeAiOauth":{"accessToken":"same","refreshToken":"same-refresh"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	old, err := claude.ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := claude.RecordExplicitLogout(old.Generation); err != nil || !marked {
+		t.Fatalf("record explicit logout=%v err=%v", marked, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(old.Path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old.Path, old.Raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, `#!/bin/sh
+mkdir -p "$HOME/.claude"
+printf '%s' '{"metadata":"changed","claudeAiOauth":{"refreshToken":"same-refresh","accessToken":"same"}}' > "$HOME/.claude/.credentials.json"
+`)
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unexpected", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return true }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+
+	err = recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "logged out", nil)
+	if err == nil || !strings.Contains(err.Error(), "credential pair") {
+		t.Fatalf("metadata-only recovery error=%v", err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("metadata-only recovery reached server: %d requests", requests.Load())
+	}
+	if !claude.HasLogoutIntent() {
+		t.Fatal("metadata-only recovery cleared old logout marker")
+	}
+}
+
+func TestRecoverClaudeAuthNoOpLoginCannotBlessExpiredOAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Now().Add(-time.Hour).UnixMilli()
+	if err := os.WriteFile(
+		authPath,
+		[]byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"expired-no-refresh","expiresAt":%d}}`, expired)),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	writeTestScript(t, bin, "#!/bin/sh\nexit 0\n")
+	t.Setenv("CLX_CLAUDE_BIN", bin)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unexpected", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return true }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+
+	err = recoverClaudeAuth(context.Background(), &config.Config{}, client, logger, "expired", nil)
+	if err == nil || !strings.Contains(err.Error(), "without fresh runnable local credentials") {
+		t.Fatalf("no-op login error=%v", err)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("no-op expired login reached server: %d requests", requests.Load())
+	}
+}
+
+func TestHeadlessAuthRecoveryReturnsExactLoginAction(t *testing.T) {
+	previousTerminal := lifecycleIsTerminal
+	lifecycleIsTerminal = func(int) bool { return false }
+	t.Cleanup(func() { lifecycleIsTerminal = previousTerminal })
+	err := recoverClaudeAuth(context.Background(), nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), "", nil)
+	if !errors.Is(err, errAuthRecoveryNonInteractive) || err.Error() != "Claude authentication required; run `clx auth login` interactively." {
+		t.Fatalf("headless recovery error=%q", err)
+	}
+}
+
+func TestRetryableAuthSyncFailurePreservesPolicyAndUnsafeDenials(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "runner outage", err: &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "runner_unreachable"}, want: true},
+		{name: "rate limit", err: &orchestrator.HTTPError{StatusCode: http.StatusTooManyRequests, Code: "rate_limited"}, want: true},
+		{name: "deadline", err: context.DeadlineExceeded, want: true},
+		{name: "API kill switch", err: &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "api_disabled"}},
+		{name: "unsafe runner writeback", err: &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "runner_updated_auth_invalid"}},
+		{name: "engine disabled", err: &orchestrator.HTTPError{StatusCode: http.StatusForbidden, Code: "engine_disabled"}},
+		{name: "cancelled", err: context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRetryableAuthSyncFailure(tc.err); got != tc.want {
+				t.Fatalf("isRetryableAuthSyncFailure(%v)=%v want=%v", tc.err, got, tc.want)
 			}
 		})
 	}
@@ -1209,7 +1784,7 @@ func TestBundleCandidateSerializesOverlappingExplicitLogout(t *testing.T) {
 		close(requestSeen)
 		<-releaseStore
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"valid"}}}`))
+		_, _ = w.Write([]byte(`{"status":"success","data":{"auth":{"status":"valid","verification_state":"verified"}}}`))
 	}))
 	defer server.Close()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -1254,7 +1829,7 @@ func TestBundleClearsOldLogoutMarkerOnlyAfterDifferentLoginIsAccepted(t *testing
 		authReply string
 		wantHold  bool
 	}{
-		{name: "accepted", authReply: `{"status":"valid"}`},
+		{name: "accepted", authReply: `{"status":"valid","verification_state":"verified"}`},
 		{name: "canonical wins", authReply: `{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-17T11:00:00Z","auth":{"last_refresh":"2026-07-17T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}}`, wantHold: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

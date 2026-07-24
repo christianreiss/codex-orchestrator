@@ -132,6 +132,79 @@ func TestWriteAuthCreatesParentDirForClaudeFallback(t *testing.T) {
 	}
 }
 
+func TestWriteAuthRejectsEmptyNativeOAuthRescuedOnlyByDerivedBearer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	good := json.RawMessage(`{"last_refresh":"2026-07-24T06:00:00Z","claudeAiOauth":{"accessToken":"sk-ant-oat01-good","refreshToken":"refresh-good"}}`)
+	if err := WriteAuth(good); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeBefore, err := os.ReadFile(snap.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationPath := filepath.Join(home, ".clx", "auth", generationStateFile)
+	generationBefore, err := os.ReadFile(generationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	poisoned := json.RawMessage(`{
+		"last_refresh":"2026-07-24T07:00:00Z",
+		"auths":{"api.anthropic.com":{"token":"sk-ant-oat01-stale-derived-bearer"}},
+		"claudeAiOauth":{"accessToken":"","refreshToken":""}
+	}`)
+	applied, err := WriteAuthIfCurrentWithDigest(poisoned, strings.Repeat("a", 64), snap.Generation)
+	if applied || !errors.Is(err, ErrUnusableServerAuth) {
+		t.Fatalf("poisoned canonical applied=%v err=%v", applied, err)
+	}
+	nativeAfter, err := os.ReadFile(snap.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationAfter, err := os.ReadFile(generationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(nativeAfter) != string(nativeBefore) {
+		t.Fatalf("bad canonical changed native auth: before=%s after=%s", nativeBefore, nativeAfter)
+	}
+	if string(generationAfter) != string(generationBefore) {
+		t.Fatalf("bad canonical changed generation sidecar: before=%s after=%s", generationBefore, generationAfter)
+	}
+}
+
+func TestWriteAuthAllowsGenuineAPIKeyFallbackBesideEmptyOAuth(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	payload := json.RawMessage(`{
+		"last_refresh":"2026-07-24T07:00:00Z",
+		"auths":{"api.anthropic.com":{"token":"sk-ant-api03-genuine-key"}},
+		"claudeAiOauth":{"accessToken":"","refreshToken":""}
+	}`)
+	if err := WriteAuth(payload); err != nil {
+		t.Fatal(err)
+	}
+	path, err := AuthPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "claudeAiOauth") {
+		t.Fatalf("empty OAuth block survived API-key normalization: %s", raw)
+	}
+	if !IsValidLocalAuth(path) {
+		t.Fatalf("genuine API-key fallback is not runnable: %s", raw)
+	}
+}
+
 func TestWriteAuthHonoursClxPathWhenPreStaged(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -712,9 +785,63 @@ func TestServerAuthMayReplaceSharedPolicy(t *testing.T) {
 	if ServerAuthMayReplace(local, newer, "", "failed", true) {
 		t.Fatal("verification_state=failed canonical was allowed")
 	}
+	for _, state := range []string{"", "unknown", "pending"} {
+		if ServerAuthMayReplace(local, newer, "", state, true) {
+			t.Fatalf("verification_state=%q canonical was allowed", state)
+		}
+	}
 	local.Usable = false
 	if !ServerAuthMayReplace(local, older, "", "verified", false) {
 		t.Fatal("invalid local auth blocked verified canonical repair")
+	}
+}
+
+func TestVerifiedDifferentCanonicalCanRecoverButNeverResurrectLogoutGeneration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldPayload := json.RawMessage(`{"last_refresh":"2026-07-24T06:00:00Z","claudeAiOauth":{"accessToken":"logged-out"}}`)
+	if err := WriteAuth(oldPayload); err != nil {
+		t.Fatal(err)
+	}
+	old, err := ReadAuthSnapshot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := RecordDeferredExplicitLogout(old.Generation); err != nil || !marked {
+		t.Fatalf("deferred logout marked=%v err=%v", marked, err)
+	}
+	retrieve, err := ReadAuthForRetrieveSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrieve.Usable || HasUsableAuth() {
+		t.Fatal("deferred native logout generation was offered as runnable auth")
+	}
+
+	same := json.RawMessage(`{"last_refresh":"2026-07-24T07:00:00Z","claudeAiOauth":{"accessToken":"logged-out"}}`)
+	if applied, err := WriteVerifiedServerAuthIfCurrentWithDigest(same, strings.Repeat("a", 64), "verified", old.Generation); err != nil || applied {
+		t.Fatalf("same logged-out canonical applied=%v err=%v", applied, err)
+	}
+	if intent, err := CurrentLogoutIntentGeneration(); err != nil || !intent.Exists {
+		t.Fatal("same canonical cleared explicit logout")
+	}
+
+	different := json.RawMessage(`{"last_refresh":"2026-07-24T08:00:00Z","claudeAiOauth":{"accessToken":"verified-different"}}`)
+	if applied, err := WriteVerifiedServerAuthIfCurrentWithDigest(different, strings.Repeat("b", 64), "pending", old.Generation); err != nil || applied {
+		t.Fatalf("unverified different canonical applied=%v err=%v", applied, err)
+	}
+	if intent, err := CurrentLogoutIntentGeneration(); err != nil || !intent.Exists {
+		t.Fatal("unverified canonical cleared explicit logout")
+	}
+	if applied, err := WriteVerifiedServerAuthIfCurrentWithDigest(different, strings.Repeat("b", 64), "verified", old.Generation); err != nil || !applied {
+		t.Fatalf("verified different canonical applied=%v err=%v", applied, err)
+	}
+	if intent, err := CurrentLogoutIntentGeneration(); err != nil || intent.Exists {
+		t.Fatal("verified different canonical did not clear explicit logout")
+	}
+	raw, err := ReadAuth()
+	if err != nil || !strings.Contains(string(raw), "verified-different") {
+		t.Fatalf("recovered native auth=%q err=%v", raw, err)
 	}
 }
 
@@ -750,9 +877,13 @@ func TestExtractAnthropicKey(t *testing.T) {
 	}{
 		{"api_key_flat", `{"api_key":"sk-abc"}`, "sk-abc"},
 		{"anthropic_api_key", `{"anthropic_api_key":"sk-aap"}`, "sk-aap"},
+		{"uppercase_anthropic_api_key", `{"ANTHROPIC_API_KEY":"sk-upper"}`, "sk-upper"},
+		{"tokens_anthropic_api_key", `{"tokens":{"anthropic_api_key":"sk-token"}}`, "sk-token"},
 		{"oauth_access_token", `{"claudeAiOauth":{"accessToken":"oat-1"}}`, "oat-1"},
 		{"auths_map", `{"auths":{"api.anthropic.com":{"token":"tok-1"}}}`, "tok-1"},
 		{"precedence_api_key_first", `{"api_key":"first","anthropic_api_key":"second"}`, "first"},
+		{"precedence_oauth_first", `{"claudeAiOauth":{"accessToken":"native"},"api_key":"stale","auths":{"api.anthropic.com":{"token":"other"}}}`, "native"},
+		{"precedence_tokens_before_auths", `{"tokens":{"anthropic_api_key":"nested"},"auths":{"api.anthropic.com":{"token":"other"}}}`, "nested"},
 		{"empty_object", `{}`, ""},
 		{"malformed_json", `{not-json`, ""},
 	}

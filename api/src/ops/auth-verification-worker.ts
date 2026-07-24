@@ -83,21 +83,34 @@ export function startAuthVerificationWorker(
 }
 
 export async function runAuthVerificationWorkerTick(deps: AuthVerificationTickDeps): Promise<void> {
-  await Promise.all([
-    verifyEngine(ENGINE_CODEX, deps),
-    verifyEngine(ENGINE_CLAUDE, deps),
-  ]);
+  await Promise.all([verifyEngine(ENGINE_CODEX, deps), verifyEngine(ENGINE_CLAUDE, deps)]);
 }
 
-async function verifyEngine(
-  engine: Engine,
-  deps: AuthVerificationTickDeps,
-): Promise<void> {
+async function verifyEngine(engine: Engine, deps: AuthVerificationTickDeps): Promise<void> {
   const { runnerValidation, authStore, ttlSeconds, reason, log } = deps;
-  const row = await runnerValidation.resolveCanonicalPayload(engine);
+  const quarantine = await runnerValidation.resolvePendingQuarantine?.(engine);
+  const row = quarantine ?? (await runnerValidation.resolveCanonicalPayload(engine));
   const validated = runnerValidation.validateCanonicalPayload(row);
   if (!row || !validated) return;
-  if (!needsLiveVerification(row, ttlSeconds)) {
+  const withFallback = runnerValidation.ensureAuthsFallback(validated.auth, engine);
+  const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
+  const normalizedAuth = runnerValidation.canonicalizeAuthPayload(
+    withFallback,
+    entries,
+    validated.last_refresh,
+    engine,
+  );
+  const normalizedDigest = runnerValidation.calculateDigest(JSON.stringify(normalizedAuth));
+  const requiresNormalization = normalizedDigest !== validated.digest;
+  const requiresCanonicalReissue =
+    runnerValidation.canonicalAuthFromPayload({
+      ...row,
+      verificationState: 'verified',
+    }) === null;
+  const forceImmediateRepair =
+    row.verificationState === 'verified' &&
+    (requiresNormalization || requiresCanonicalReissue);
+  if (!forceImmediateRepair && !needsLiveVerification(row, ttlSeconds)) {
     // Still keep telemetry (runner_state_*, runner_last_check_*, ...) current
     // even on this probe-free fast path — otherwise a payload that
     // self-heals via a host upload (verified outside this worker) leaves the
@@ -118,10 +131,12 @@ async function verifyEngine(
       verificationCheckedAt: row.verificationCheckedAt,
       verificationReason: row.verificationReason,
     },
-    auth: validated.auth,
+    auth: requiresNormalization ? normalizedAuth : validated.auth,
     digest: validated.digest,
     lastRefresh: validated.last_refresh,
     ttlSeconds,
+    forceLive: forceImmediateRepair,
+    reissueCanonical: requiresCanonicalReissue,
   });
 
   if (verdict.state === 'failed') {

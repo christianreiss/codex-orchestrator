@@ -23,7 +23,11 @@ import {
 } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import type { RunnerClient } from './runner-client.js';
-import type { RunnerValidationService, NormalizedAuthEntry } from './runner-validation.js';
+import type {
+  CanonicalPayloadRow,
+  NormalizedAuthEntry,
+  RunnerValidationService,
+} from './runner-validation.js';
 import { ENGINE_CLAUDE } from '../util/engine.js';
 import {
   compareCredentialFreshness,
@@ -79,10 +83,11 @@ export interface StoreAuthCandidateInput {
 
 export interface StoreAuthCandidateResult {
   status: 'updated' | 'valid' | 'outdated';
-  auth: Record<string, unknown>;
+  /** Present only when the selected payload has a stored verified verdict. */
+  auth?: Record<string, unknown>;
   canonical_last_refresh: string;
   canonical_digest: string;
-  verification_state: 'pending' | 'verified' | 'failed';
+  verification_state: 'pending' | 'verified' | 'failed' | 'unknown';
   pending_payload_id: number;
   runner_applied: boolean;
   runner_skipped_reason?: string;
@@ -105,6 +110,10 @@ export interface EnsureServedVerificationInput {
   digest: string;
   lastRefresh: string;
   ttlSeconds: number;
+  /** Internal worker override when the exact stored bytes require normalization. */
+  forceLive?: boolean;
+  /** Reissue a live-verified generation whose body is safe but ledger metadata is not. */
+  reissueCanonical?: boolean;
 }
 
 export interface EnsureServedVerificationResult {
@@ -179,13 +188,15 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       throw new ValidationError('payload contains no usable auth tokens', { param: 'auth' });
     }
 
-    const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
+    const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh, engine);
     const encoded = JSON.stringify(canonical);
     const digest = runnerValidation.calculateDigest(encoded);
 
     const currentRow = await runnerValidation.resolveCanonicalPayload(engine);
     const current = runnerValidation.validateCanonicalPayload(currentRow);
+    const currentDistributable = currentRow ? runnerValidation.canonicalAuthFromPayload(currentRow) : null;
     const sourceKind = input.sourceKind ?? (input.sourceHostId === null ? 'legacy' : 'host');
+    const nonVerifiedRunnerReadback = input.runnerPending === true || input.runnerFailed === true;
     const candidateIdentity = inspectCredential(withFallback, engine);
     const currentIdentity = current ? inspectCredential(current.auth, engine) : null;
     if (!candidateIdentity) {
@@ -199,23 +210,48 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           candidateFingerprints.get(currentRow.fingerprintKid ?? ''),
         )
       : false;
-    const historicalIdentityMatch = history.find((row) =>
-      row.id !== currentRow?.id &&
-      fingerprintMatches(row.pairFingerprint, candidateFingerprints.get(row.fingerprintKid ?? '')),
+    const historicalIdentityMatch = history.find(
+      (row) =>
+        row.id !== currentRow?.id &&
+        row.verificationState === 'verified' &&
+        fingerprintMatches(row.pairFingerprint, candidateFingerprints.get(row.fingerprintKid ?? '')),
     );
+    const newestUnresolvedQuarantine = history
+      .filter(
+        (row) =>
+          row.verificationState !== 'verified' &&
+          (currentRow === null || (row.generation ?? 0) > (currentRow.generation ?? 0)),
+      )
+      .sort((a, b) => (b.generation ?? 0) - (a.generation ?? 0))[0];
+    const quarantinedIdentityMatch =
+      newestUnresolvedQuarantine?.verificationState === 'pending' &&
+      fingerprintMatches(
+        newestUnresolvedQuarantine.pairFingerprint,
+        candidateFingerprints.get(newestUnresolvedQuarantine.fingerprintKid ?? ''),
+      )
+        ? newestUnresolvedQuarantine
+        : undefined;
     if (
+      !nonVerifiedRunnerReadback &&
+      !input.runnerVerified &&
       currentIdentityMatches &&
       currentRow &&
       current &&
-      currentRow.verificationState !== 'failed' &&
-      currentRow.verificationState !== 'pending'
+      currentRow.verificationState === 'verified' &&
+      currentDistributable !== null
     ) {
       return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'valid', {
         generation: currentRow.generation ?? undefined,
         candidateResult: 'current',
       });
     }
-    if (historicalIdentityMatch && currentRow && current) {
+    if (
+      historicalIdentityMatch &&
+      !quarantinedIdentityMatch &&
+      currentRow?.verificationState === 'verified' &&
+      current &&
+      currentDistributable !== null
+    ) {
       return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
         generation: currentRow.generation ?? undefined,
         candidateResult: 'historical_replay',
@@ -223,7 +259,12 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       });
     }
     if (refreshCredentialExpired(candidateIdentity)) {
-      if (currentRow && current) {
+      if (
+        !quarantinedIdentityMatch &&
+        currentRow?.verificationState === 'verified' &&
+        current &&
+        currentDistributable !== null
+      ) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
           generation: currentRow.generation ?? undefined,
           candidateResult: 'older_internal',
@@ -232,8 +273,17 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       }
       throw new ValidationError('credential refresh token is expired', { param: 'auth' });
     }
-    const isExplicitDescendant = sourceKind === 'runner' || input.runnerVerified || input.runnerPending || input.runnerFailed;
-    if (sourceKind === 'host' && !isExplicitDescendant && currentIdentity && currentRow && current) {
+    const isExplicitDescendant =
+      sourceKind === 'runner' || input.runnerVerified || input.runnerPending || input.runnerFailed;
+    if (
+      sourceKind === 'host' &&
+      !isExplicitDescendant &&
+      !quarantinedIdentityMatch &&
+      currentIdentity &&
+      currentRow?.verificationState === 'verified' &&
+      current &&
+      currentDistributable !== null
+    ) {
       const freshness = compareCredentialFreshness(candidateIdentity, currentIdentity);
       if (freshness !== null && freshness <= 0) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
@@ -257,25 +307,29 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       typeof input.expectedCanonicalDigest === 'string' &&
       current?.digest === input.expectedCanonicalDigest;
     let mustAdvanceSelectedStamp = false;
-    const canLiveVerify =
-      input.runnerVerified === true ||
-      input.runnerPending === true ||
-      input.runnerFailed === true ||
-      runner.isConfigured();
+    const hasInternalRunnerVerdict =
+      input.runnerVerified === true || input.runnerPending === true || input.runnerFailed === true;
+    const canLiveVerify = hasInternalRunnerVerdict || runner.isConfigured();
     if (currentRow?.verificationState === 'failed' && !canLiveVerify) {
       throw new ServiceUnavailableError(
         'Auth runner unavailable; failed canonical cannot be replaced without live verification',
         'runner_unreachable',
       );
     }
-    // A pending newest lineage is still authoritative: only verifying that
-    // exact digest (or the worker's explicit refresh of it) may promote it.
-    // Letting an older, different candidate "repair" pending would silently
-    // roll back a login that has not received a provider verdict yet.
+    if (!hasInternalRunnerVerdict && !runner.isConfigured()) {
+      throw new ServiceUnavailableError(
+        'Auth runner unavailable; canonical store requires live verification',
+        'runner_unreachable',
+      );
+    }
+    // Pending/failed rows are quarantine, never distributable canonical
+    // credentials. Only a live-verified candidate may repair that state.
     const currentRepairable =
       runnerRefreshOfCurrent ||
+      (!nonVerifiedRunnerReadback && quarantinedIdentityMatch !== undefined && canLiveVerify) ||
       (currentRow?.verificationState === 'failed' && canLiveVerify) ||
-      (currentRow?.verificationState === 'pending' && canLiveVerify && digest === current?.digest);
+      (currentRow?.verificationState === 'pending' && canLiveVerify) ||
+      (currentRow?.verificationState === 'verified' && currentDistributable === null && canLiveVerify);
     if (currentRow && current) {
       if (digest === current.digest && !currentRepairable) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'valid');
@@ -308,6 +362,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     let runnerApplied = false;
     let runnerSkippedReason = input.runnerFailureReason?.slice(0, 500);
     let postPersistError: ServiceUnavailableError | undefined;
+    let invalidateSelectedReason: string | undefined;
 
     if (runner.isConfigured() && !input.runnerVerified && !input.runnerPending && !input.runnerFailed) {
       const verdict =
@@ -315,7 +370,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           ? await runner.verifyClaude({ authJson: canonical })
           : await runner.verify({ authJson: canonical });
       const readbackFailure = runnerReadbackFailure(verdict);
-      const applied = prepareRunnerUpdatedAuth(verdict.updated_auth, lastRefresh, engine, runnerValidation);
+      const applied = prepareRunnerUpdatedAuth(
+        verdict.updated_auth,
+        canonical,
+        lastRefresh,
+        engine,
+        runnerValidation,
+      );
       if (readbackFailure) {
         throw new ServiceUnavailableError(
           `Auth runner could not safely read refreshed credentials: ${readbackFailure}`,
@@ -330,7 +391,12 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         );
       }
       if (!verdict.ok) {
-        if (!applied.ok) {
+        // Native CLIs may rewrite formatting or drop wrapper-only fields while
+        // leaving the selected credential unchanged. Canonicalization collapses
+        // that harmless raw rewrite back to the submitted digest, so apply the
+        // ordinary verdict semantics instead of quarantining an identical
+        // credential generation as though a refresh had consumed it.
+        if (!applied.ok || applied.digest === digest) {
           if (verdict.definitive) {
             throw new ValidationError(
               `auth candidate failed live verification${verdict.reason ? `: ${verdict.reason}` : ''}`,
@@ -357,6 +423,19 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             ? 'runner refreshed credentials then definitively rejected them'
             : 'runner refresh pending retry'
         }${verdict.reason ? `: ${verdict.reason}` : ''}`.slice(0, 500);
+        if (
+          currentRow?.verificationState === 'verified' &&
+          currentIdentity &&
+          sharesConsumableCredentialLineage(candidateIdentity, currentIdentity)
+        ) {
+          invalidateSelectedReason = `${
+            verdict.definitive
+              ? 'runner changed credentials before definitive rejection'
+              : 'runner changed credentials before inconclusive verdict'
+          }; prior selected credential may have been consumed${
+            verdict.reason ? `: ${verdict.reason}` : ''
+          }`.slice(0, 500);
+        }
         postPersistError = new ServiceUnavailableError(
           verdict.definitive
             ? 'Auth runner refreshed credentials before rejecting them; replacement saved failed and requires login'
@@ -387,17 +466,16 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     // closed instead of minting an invalid future generation.
     if (
       current &&
-      compareCanonicalStamps(String(canonicalToStore.last_refresh ?? lastRefresh), current.last_refresh) <= 0 &&
+      compareCanonicalStamps(String(canonicalToStore.last_refresh ?? lastRefresh), current.last_refresh) <=
+        0 &&
       (mustAdvanceSelectedStamp || digestToStore !== current.digest)
     ) {
-      const advancedStamp = nextCanonicalStamp(
-        current.last_refresh,
-        runnerRefreshOfCurrent || runnerApplied,
-      );
+      const advancedStamp = nextCanonicalStamp(current.last_refresh, runnerRefreshOfCurrent || runnerApplied);
       canonicalToStore = runnerValidation.canonicalizeAuthPayload(
         canonicalToStore,
         entriesToStore,
         advancedStamp,
+        engine,
       );
       encodedToStore = JSON.stringify(canonicalToStore);
       digestToStore = runnerValidation.calculateDigest(encodedToStore);
@@ -431,6 +509,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     const maxKnownGeneration = history.reduce((max, row) => Math.max(max, row.generation ?? 0), 0);
     const parentRow = latestRow ?? currentRow;
     const nextGeneration = Math.max(parentRow?.generation ?? 0, maxKnownGeneration) + 1;
+    const promotesCanonical = verificationState === 'verified';
     let payloadId = 0;
     await db.transaction(async (tx) => {
       const ins = await tx.insert(authPayloads).values({
@@ -447,31 +526,55 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         sourceKind,
         parentPayloadId: parentRow?.id ?? null,
         ...finalMetadata,
+        supersededAt: promotesCanonical ? null : now,
+        purgeAfter: promotesCanonical ? null : retentionDeadline(now),
       });
       const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
       payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
 
-      if (parentRow) {
+      if (invalidateSelectedReason && currentRow?.verificationState === 'verified') {
+        // The native CLI already replaced the candidate before returning a
+        // non-OK verdict. Its predecessor may have been consumed; atomically
+        // fail the selected head while retaining the replacement in quarantine
+        // so no retrieve can fleet stale pre-refresh bytes.
+        const heads = await tx.select().from(authCanonicalHeads).where(eq(authCanonicalHeads.engine, engine));
+        if (heads[0]?.payloadId === currentRow.id) {
+          await tx
+            .update(authPayloads)
+            .set({
+              verificationState: 'failed',
+              verificationCheckedAt: now,
+              verificationReason: invalidateSelectedReason,
+            })
+            .where(eq(authPayloads.id, currentRow.id));
+        }
+      }
+
+      if (promotesCanonical && parentRow) {
         await tx
           .update(authPayloads)
           .set({ supersededAt: now, purgeAfter: retentionDeadline(now) })
           .where(eq(authPayloads.id, parentRow.id));
       }
-      const existingHead = await tx
-        .select()
-        .from(authCanonicalHeads)
-        .where(eq(authCanonicalHeads.engine, engine));
-      if (existingHead.length > 0) {
-        await tx
-          .update(authCanonicalHeads)
-          .set({ payloadId, generation: nextGeneration, updatedAt: now })
+      if (promotesCanonical) {
+        const existingHead = await tx
+          .select()
+          .from(authCanonicalHeads)
           .where(eq(authCanonicalHeads.engine, engine));
-      } else {
-        await tx.insert(authCanonicalHeads).values({ engine, payloadId, generation: nextGeneration, updatedAt: now });
+        if (existingHead.length > 0) {
+          await tx
+            .update(authCanonicalHeads)
+            .set({ payloadId, generation: nextGeneration, updatedAt: now })
+            .where(eq(authCanonicalHeads.engine, engine));
+        } else {
+          await tx
+            .insert(authCanonicalHeads)
+            .values({ engine, payloadId, generation: nextGeneration, updatedAt: now });
+        }
       }
 
       await persistEntries(tx, payloadId, entriesToStore, now);
-      if (input.sourceHostId !== null) {
+      if (promotesCanonical && input.sourceHostId !== null) {
         await recordHostCanonical(
           tx,
           input.sourceHostId,
@@ -482,19 +585,28 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           now,
         );
       }
-      await writeStoreLog(tx, input, 'updated', digestToStore, now, runnerApplied, runnerSkippedReason, 'accepted');
+      await writeStoreLog(
+        tx,
+        input,
+        promotesCanonical ? 'updated' : 'outdated',
+        digestToStore,
+        now,
+        runnerApplied,
+        runnerSkippedReason,
+        promotesCanonical ? 'accepted' : undefined,
+      );
     });
 
     const result: StoreAuthCandidateResult = {
-      status: 'updated',
-      auth: canonicalToStore,
+      status: promotesCanonical ? 'updated' : 'outdated',
+      ...(promotesCanonical ? { auth: canonicalToStore } : {}),
       canonical_last_refresh: finalLastRefresh,
       canonical_digest: digestToStore,
       verification_state: verificationState,
       pending_payload_id: payloadId,
       runner_applied: runnerApplied,
       canonical_generation: nextGeneration,
-      candidate_result: 'accepted',
+      ...(promotesCanonical ? { candidate_result: 'accepted' as const } : {}),
       ...(runnerSkippedReason ? { runner_skipped_reason: runnerSkippedReason } : {}),
       engine,
     };
@@ -515,13 +627,21 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     } = {},
   ): Promise<StoreAuthCandidateResult> {
     const now = nowIso();
-    let generation = options.generation;
-    if (generation === undefined) {
-      const rows = await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
-      generation = rows[0]?.generation ?? undefined;
-    }
+    const verificationState = normalizeVerificationState(rawState);
+    const rows = await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
+    const storedRow = rows[0];
+    const safeAuth =
+      verificationState === 'verified' && storedRow
+        ? runnerValidation.canonicalAuthFromPayload(storedRow as CanonicalPayloadRow)
+        : null;
+    const distributable = safeAuth !== null;
+    const responseVerificationState =
+      verificationState === 'verified' && !distributable ? 'unknown' : verificationState;
+    const responseStatus = distributable ? status : 'outdated';
+    const responseCandidateResult = distributable ? options.candidateResult : undefined;
+    const generation = options.generation ?? storedRow?.generation ?? undefined;
     await db.transaction(async (tx) => {
-      if (input.sourceHostId !== null) {
+      if (distributable && input.sourceHostId !== null) {
         await recordHostCanonical(
           tx,
           input.sourceHostId,
@@ -532,20 +652,29 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
           now,
         );
       }
-      await writeStoreLog(tx, input, status, canonical.digest, now, false, undefined, options.candidateResult);
+      await writeStoreLog(
+        tx,
+        input,
+        responseStatus,
+        canonical.digest,
+        now,
+        false,
+        undefined,
+        responseCandidateResult,
+      );
     });
     return {
-      status,
-      auth: canonical.auth,
+      status: responseStatus,
+      ...(distributable ? { auth: safeAuth } : {}),
       canonical_last_refresh: canonical.last_refresh,
       canonical_digest: canonical.digest,
-      verification_state: normalizeVerificationState(rawState),
+      verification_state: responseVerificationState,
       pending_payload_id: payloadId,
       runner_applied: false,
       engine: input.engine,
       ...(generation !== undefined ? { canonical_generation: generation } : {}),
-      ...(options.candidateResult ? { candidate_result: options.candidateResult } : {}),
-      ...(options.definitive ? { candidate_rejected_definitive: true } : {}),
+      ...(responseCandidateResult ? { candidate_result: responseCandidateResult } : {}),
+      ...(options.definitive && distributable ? { candidate_rejected_definitive: true } : {}),
     };
   }
 
@@ -617,9 +746,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   // with actually works, bounded by a TTL so the common path stays probe-free.
   // This is the launch-gate counterpart to storeCandidate's upload-gate verify:
   // uploads are checked before acceptance, retrieves before being reported green.
-  function servedVerificationSnapshot(
-    input: EnsureServedVerificationInput,
-  ): EnsureServedVerificationResult {
+  function servedVerificationSnapshot(input: EnsureServedVerificationInput): EnsureServedVerificationResult {
     const { row, auth, digest, lastRefresh } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
@@ -636,7 +763,6 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         reason: row.verificationReason ?? 'runner verification failed',
       };
     }
-    if (!runner.isConfigured()) return unchanged;
     if (row.verificationState === 'verified') return { ...unchanged, state: 'verified' };
     return unchanged;
   }
@@ -644,7 +770,17 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
   async function ensureServedVerification(
     input: EnsureServedVerificationInput,
   ): Promise<EnsureServedVerificationResult> {
-    const { engine, hostId, row, auth, digest, lastRefresh, ttlSeconds } = input;
+    const {
+      engine,
+      hostId,
+      row,
+      auth,
+      digest,
+      lastRefresh,
+      ttlSeconds,
+      forceLive = false,
+      reissueCanonical = false,
+    } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
       auth,
@@ -661,12 +797,11 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     // Trust a recent verdict: within the TTL a previously-verified payload is
     // served as-is, keeping the common launch path probe-free.
     const checkedMs = row.verificationCheckedAt ? Date.parse(row.verificationCheckedAt) : NaN;
-    const withinTtl =
-      Number.isFinite(checkedMs) && Date.now() - checkedMs <= Math.max(0, ttlSeconds) * 1000;
-    if (row.verificationState === 'verified' && withinTtl) {
+    const withinTtl = Number.isFinite(checkedMs) && Date.now() - checkedMs <= Math.max(0, ttlSeconds) * 1000;
+    if (!forceLive && row.verificationState === 'verified' && withinTtl) {
       return { ...unchanged, state: 'verified' };
     }
-    if (row.verificationState === 'failed' && withinTtl) {
+    if (!forceLive && row.verificationState === 'failed' && withinTtl) {
       return {
         ...unchanged,
         state: 'failed',
@@ -685,7 +820,27 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       // stale row supplied by the worker after another store became canonical.
       const selectedRow = await runnerValidation.resolveCanonicalPayload(engine);
       const selected = runnerValidation.validateCanonicalPayload(selectedRow);
-      if (selectedRow && selected && selected.digest !== digest) {
+      const retryingQuarantine = row.verificationState === 'pending' && selectedRow?.id !== row.id;
+      if (retryingQuarantine) {
+        const queuedRows = await db.select().from(authPayloads).where(eq(authPayloads.id, row.id));
+        const queued = queuedRows[0];
+        if (
+          !queued ||
+          queued.verificationState !== 'pending' ||
+          queued.sha256 !== digest ||
+          queued.engine !== engine
+        ) {
+          if (!selectedRow || !selected) return unchanged;
+          const snapshot = servedVerificationSnapshot({
+            ...input,
+            row: selectedRow,
+            auth: selected.auth,
+            digest: selected.digest,
+            lastRefresh: selected.last_refresh,
+          });
+          return { ...snapshot, refreshed: false };
+        }
+      } else if (selectedRow && selected && selected.digest !== digest) {
         const snapshot = servedVerificationSnapshot({
           ...input,
           row: selectedRow,
@@ -703,7 +858,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
 
       const now = nowIso();
       const readbackFailure = runnerReadbackFailure(verdict);
-      const refreshed = prepareRunnerUpdatedAuth(verdict.updated_auth, lastRefresh, engine, runnerValidation);
+      const refreshed = prepareRunnerUpdatedAuth(
+        verdict.updated_auth,
+        auth,
+        lastRefresh,
+        engine,
+        runnerValidation,
+      );
       let unsafeReason: string | null = readbackFailure
         ? `runner credential readback failed: ${readbackFailure}`
         : null;
@@ -718,13 +879,10 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         return { ...unchanged, state: 'failed', reason };
       }
 
-      // Any usable changed readback wins over the probe classification. The
-      // native CLI may rotate its refresh token before either a retryable
-      // provider failure or a definitive auth rejection. Persist that exact
-      // replacement lineage first; otherwise the spent pre-probe credential
-      // remains the only server copy. Definitively rejected replacements are
-      // stored failed so retrieve can never distribute them.
-      if (!verdict.ok && refreshed.ok) {
+      // A changed readback from a non-OK probe is useful forensic history, but
+      // it is not canonical proof. Quarantine it and fail the old head so no
+      // host receives either unverified credential set.
+      if (!verdict.ok && refreshed.ok && refreshed.digest !== digest) {
         const definitive = verdict.definitive === true;
         const failureReason = definitive
           ? `runner refreshed credentials then definitively rejected them${
@@ -732,7 +890,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             }`.slice(0, 500)
           : undefined;
         try {
-          const stored = await storeCandidateLocked({
+          await storeCandidateLocked({
             auth: verdict.updated_auth as Record<string, unknown>,
             engine,
             sourceHostId: hostId,
@@ -741,22 +899,17 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             runnerPending: !definitive,
             runnerFailed: definitive,
             runnerFailureReason: failureReason,
-            expectedCanonicalDigest: digest,
+            expectedCanonicalDigest: retryingQuarantine ? selected?.digest : digest,
             sourceKind: 'runner',
           });
-          return {
-            state:
-              stored.verification_state === 'verified'
-                ? 'verified'
-                : stored.verification_state === 'failed'
-                  ? 'failed'
-                  : 'unknown',
-            auth: stored.auth,
-            digest: stored.canonical_digest,
-            lastRefresh: stored.canonical_last_refresh,
-            refreshed: false,
-            ...(failureReason ? { reason: failureReason } : {}),
-          };
+          const reason = (
+            failureReason ??
+            `runner changed credentials but the final live probe was inconclusive${
+              verdict.reason ? `: ${verdict.reason}` : ''
+            }`
+          ).slice(0, 500);
+          await markPayloadFailed(db, row.id, now, reason);
+          return { ...unchanged, state: 'failed', reason };
         } catch {
           const reason = definitive
             ? 'runner refreshed auth before definitive rejection but failed replacement persistence'
@@ -770,11 +923,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
       // 'unknown' so the gate falls back to its offline/cached-credentials logic
       // instead of refusing launch during an infrastructure blip.
       if (!verdict.reachable) return unchanged;
-      // Reachable but non-definitive (empty/garbage body, runner-side HTTP
-      // error): equally infrastructure noise — marking the canonical `failed`
-      // here would withhold working credentials from the whole fleet.
+      // A reachable-but-inconclusive protocol/runner failure without changed
+      // credential bytes is not evidence that the known-good head is bad.
       if (!verdict.ok && !verdict.definitive) return unchanged;
-
       if (!verdict.ok) {
         await db
           .update(authPayloads)
@@ -799,9 +950,23 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
             requireLastRefresh: false,
             logAction: 'auth.reverify_refresh',
             runnerVerified: true,
-            expectedCanonicalDigest: digest,
+            expectedCanonicalDigest: retryingQuarantine ? selected?.digest : digest,
             sourceKind: 'runner',
           });
+          if (stored.verification_state !== 'verified' || !stored.auth) {
+            throw new ServiceUnavailableError(
+              'Runner-refreshed credentials were not promoted as verified',
+              'runner_updated_auth_invalid',
+            );
+          }
+          if (retryingQuarantine) {
+            await markPayloadFailed(
+              db,
+              row.id,
+              now,
+              'runner refreshed credential; verified replacement promoted',
+            );
+          }
           return {
             state: 'verified',
             auth: stored.auth,
@@ -822,10 +987,72 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         }
       }
 
-      await db
-        .update(authPayloads)
-        .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
-        .where(eq(authPayloads.id, row.id));
+      // Legacy rows may have been verified before canonical output matched the
+      // native Codex auth-mode selector. The worker probes the normalized bytes
+      // and must persist those exact bytes as a fresh verified generation; it
+      // must never merely restamp the old conflicting/raw shape as verified.
+      const probedDigest = runnerValidation.calculateDigest(JSON.stringify(auth));
+      if (probedDigest !== digest || reissueCanonical) {
+        try {
+          const stored = await storeCandidateLocked({
+            auth,
+            engine,
+            sourceHostId: hostId,
+            requireLastRefresh: false,
+            logAction: probedDigest !== digest ? 'auth.reverify_normalize' : 'auth.reverify_reissue',
+            runnerVerified: true,
+            expectedCanonicalDigest: retryingQuarantine ? selected?.digest : digest,
+            sourceKind: 'runner',
+          });
+          if (stored.verification_state !== 'verified' || !stored.auth) {
+            throw new ServiceUnavailableError(
+              'Runner-verified normalized credentials were not promoted',
+              'runner_updated_auth_invalid',
+            );
+          }
+          if (retryingQuarantine) {
+            await markPayloadFailed(
+              db,
+              row.id,
+              now,
+              'runner verified normalized credential; replacement promoted',
+            );
+          }
+          return {
+            state: 'verified',
+            auth: stored.auth,
+            digest: stored.canonical_digest,
+            lastRefresh: stored.canonical_last_refresh,
+            refreshed: true,
+          };
+        } catch {
+          const reason = 'runner verified normalized auth but canonical persistence failed';
+          await markPayloadFailed(db, row.id, now, reason);
+          return { ...unchanged, state: 'failed', reason };
+        }
+      }
+
+      if (retryingQuarantine) {
+        const promoted = await promotePendingQuarantine(row.id, engine, selectedRow, now);
+        if (!promoted) {
+          const currentRow = await runnerValidation.resolveCanonicalPayload(engine);
+          const current = runnerValidation.validateCanonicalPayload(currentRow);
+          if (!currentRow || !current) return unchanged;
+          const snapshot = servedVerificationSnapshot({
+            ...input,
+            row: currentRow,
+            auth: current.auth,
+            digest: current.digest,
+            lastRefresh: current.last_refresh,
+          });
+          return { ...snapshot, refreshed: false };
+        }
+      } else {
+        await db
+          .update(authPayloads)
+          .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
+          .where(eq(authPayloads.id, row.id));
+      }
       return { ...unchanged, state: 'verified' };
     });
 
@@ -835,6 +1062,60 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     } finally {
       verificationInflight.delete(inflightKey);
     }
+  }
+
+  async function promotePendingQuarantine(
+    payloadId: number,
+    engine: Engine,
+    expectedHead: Awaited<ReturnType<RunnerValidationService['resolveCanonicalPayload']>>,
+    now: string,
+  ): Promise<boolean> {
+    let promoted = false;
+    await db.transaction(async (tx) => {
+      const pendingRows = await tx.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
+      const pending = pendingRows[0];
+      if (!pending || pending.engine !== engine || pending.verificationState !== 'pending') return;
+
+      const heads = await tx.select().from(authCanonicalHeads).where(eq(authCanonicalHeads.engine, engine));
+      const head = heads[0];
+      if (
+        head &&
+        (!expectedHead ||
+          head.payloadId !== expectedHead.id ||
+          head.generation !== (expectedHead.generation ?? head.generation))
+      ) {
+        return;
+      }
+
+      if (expectedHead && expectedHead.id !== payloadId) {
+        await tx
+          .update(authPayloads)
+          .set({ supersededAt: now, purgeAfter: retentionDeadline(now) })
+          .where(eq(authPayloads.id, expectedHead.id));
+      }
+      await tx
+        .update(authPayloads)
+        .set({
+          verificationState: 'verified',
+          verificationCheckedAt: now,
+          verificationReason: null,
+          supersededAt: null,
+          purgeAfter: null,
+        })
+        .where(eq(authPayloads.id, payloadId));
+
+      const generation = pending.generation ?? Math.max(expectedHead?.generation ?? 0, 0) + 1;
+      if (head) {
+        await tx
+          .update(authCanonicalHeads)
+          .set({ payloadId, generation, updatedAt: now })
+          .where(eq(authCanonicalHeads.engine, engine));
+      } else {
+        await tx.insert(authCanonicalHeads).values({ engine, payloadId, generation, updatedAt: now });
+      }
+      promoted = true;
+    });
+    return promoted;
   }
 
   return { storeCandidate, servedVerificationSnapshot, ensureServedVerification };
@@ -877,11 +1158,13 @@ export function assertReasonableLastRefresh(value: string, field: string): void 
   const ts = parseRfc3339Millis(value);
   if (ts === null) throw new ValidationError(`${field} must be an RFC3339 timestamp`, { param: field });
   if (ts < MIN_REFRESH_EPOCH_MS) throw new ValidationError(`${field} is implausibly old`, { param: field });
-  if (ts > Date.now() + MAX_FUTURE_SKEW_MS) throw new ValidationError(`${field} is in the future`, { param: field });
+  if (ts > Date.now() + MAX_FUTURE_SKEW_MS)
+    throw new ValidationError(`${field} is in the future`, { param: field });
 }
 
 function prepareRunnerUpdatedAuth(
   updatedAuth: unknown,
+  sourceAuth: Record<string, unknown>,
   uploadLastRefresh: string,
   engine: Engine,
   runnerValidation: RunnerValidationService,
@@ -895,7 +1178,18 @@ function prepareRunnerUpdatedAuth(
     }
   | { ok: false; reason?: string } {
   if (!updatedAuth || typeof updatedAuth !== 'object' || Array.isArray(updatedAuth)) return { ok: false };
-  const updated = { ...(updatedAuth as Record<string, unknown>) };
+  const returned = { ...(updatedAuth as Record<string, unknown>) };
+  const sourceIdentity = inspectCredential(sourceAuth, engine);
+  const updatedIdentity = inspectCredential(returned, engine);
+  if (!sourceIdentity) return { ok: false, reason: 'updated_auth_source_credential_uninspectable' };
+  if (!updatedIdentity) return { ok: false, reason: 'updated_auth_no_inspectable_credential' };
+  if (updatedIdentity.kind !== sourceIdentity.kind) {
+    return { ok: false, reason: 'updated_auth_credential_kind_changed' };
+  }
+  if (sourceIdentity.refresh && !updatedIdentity.refresh) {
+    return { ok: false, reason: 'updated_auth_refresh_token_lost' };
+  }
+  const updated = projectNativeOauthBearer(returned, updatedIdentity, engine);
   // Codex and Claude own their native credential files and may rewrite them
   // without our wrapper-only generation field. The runner just observed that
   // rewrite during this verified probe, so inherit the upload generation
@@ -920,6 +1214,7 @@ function prepareRunnerUpdatedAuth(
     withFallback,
     entries,
     normalizeLastRefresh(updatedLast),
+    engine,
   );
   const encoded = JSON.stringify(canonical);
   return {
@@ -929,6 +1224,47 @@ function prepareRunnerUpdatedAuth(
     digest: runnerValidation.calculateDigest(encoded),
     entries,
   };
+}
+
+function projectNativeOauthBearer(
+  auth: Record<string, unknown>,
+  identity: NonNullable<ReturnType<typeof inspectCredential>>,
+  engine: Engine,
+): Record<string, unknown> {
+  if (identity.kind === 'api_key') return auth;
+  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : 'api.openai.com';
+  const rawAuths = isObjectRecord(auth.auths) ? auth.auths : {};
+  const rawNativeEntry = isObjectRecord(rawAuths[target]) ? rawAuths[target] : {};
+  return {
+    ...auth,
+    auths: {
+      ...rawAuths,
+      [target]: {
+        ...rawNativeEntry,
+        token: identity.access,
+        token_type:
+          typeof rawNativeEntry.token_type === 'string' && rawNativeEntry.token_type.trim()
+            ? rawNativeEntry.token_type
+            : 'bearer',
+      },
+    },
+  };
+}
+
+function sharesConsumableCredentialLineage(
+  candidate: NonNullable<ReturnType<typeof inspectCredential>>,
+  selected: NonNullable<ReturnType<typeof inspectCredential>>,
+): boolean {
+  if (candidate.kind !== selected.kind) return false;
+  if (candidate.kind === 'api_key') return candidate.access === selected.access;
+  return (
+    candidate.access === selected.access ||
+    (candidate.refresh !== '' && selected.refresh !== '' && candidate.refresh === selected.refresh)
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function runnerReadbackFailure(verdict: Awaited<ReturnType<RunnerClient['verify']>>): string | null {
@@ -965,7 +1301,8 @@ function normalizeVerificationState(value: string): 'pending' | 'verified' | 'fa
 
 function normalizeLastRefresh(value: string): string {
   const normalized = normalizeRfc3339Nanos(value);
-  if (!normalized) throw new ValidationError('last_refresh must be an RFC3339 timestamp', { param: 'last_refresh' });
+  if (!normalized)
+    throw new ValidationError('last_refresh must be an RFC3339 timestamp', { param: 'last_refresh' });
   return normalized;
 }
 

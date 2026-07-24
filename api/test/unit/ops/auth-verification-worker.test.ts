@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runAuthVerificationWorkerTick } from '../../../src/ops/auth-verification-worker.js';
 import type { CanonicalAuthStoreService } from '../../../src/services/canonical-auth-store.js';
-import type { RunnerValidationService, CanonicalPayloadRow } from '../../../src/services/runner-validation.js';
+import type {
+  RunnerValidationService,
+  CanonicalPayloadRow,
+} from '../../../src/services/runner-validation.js';
 import type { Engine } from '../../../src/util/engine.js';
 
 const DIGEST = 'a'.repeat(64);
@@ -43,6 +46,58 @@ function runnerValidation(rows: Partial<Record<Engine, CanonicalPayloadRow>>): R
 }
 
 describe('auth verification worker tick', () => {
+  it('live-verifies normalized Codex bytes even when the legacy row verdict is fresh', async () => {
+    const checkedAt = new Date().toISOString();
+    const row = canonicalRow('codex', 'verified', checkedAt);
+    const rawAuth = {
+      last_refresh: row.lastRefresh,
+      OPENAI_API_KEY: 'sk-native-api-key-winner-123',
+      tokens: { access_token: 'old-runner-oauth-winner-123' },
+      auths: { 'api.openai.com': { token: 'old-runner-oauth-winner-123' } },
+    };
+    const normalizedAuth = {
+      last_refresh: row.lastRefresh,
+      auths: { 'api.openai.com': { token: 'sk-native-api-key-winner-123' } },
+      auth_mode: 'apikey',
+      OPENAI_API_KEY: 'sk-native-api-key-winner-123',
+    };
+    const ensureServedVerification = vi.fn(async () => ({
+      state: 'verified' as const,
+      auth: normalizedAuth,
+      digest: 'b'.repeat(64),
+      lastRefresh: row.lastRefresh,
+      refreshed: true,
+    }));
+    const validation: RunnerValidationService = {
+      resolveCanonicalPayload: async (engine) => (engine === 'codex' ? row : null),
+      validateCanonicalPayload: (candidate) =>
+        candidate ? { auth: rawAuth, digest: DIGEST, last_refresh: row.lastRefresh } : null,
+      canonicalAuthFromPayload: () => null,
+      ensureAuthsFallback: () => rawAuth,
+      normalizeAuthEntries: () => [],
+      hasUsableEngineCredential: () => true,
+      canonicalizeAuthPayload: () => normalizedAuth,
+      calculateDigest: (body) => (body.includes('"auth_mode":"apikey"') ? 'b'.repeat(64) : DIGEST),
+    };
+
+    await runAuthVerificationWorkerTick({
+      runnerValidation: validation,
+      authStore: { ensureServedVerification } as unknown as CanonicalAuthStoreService,
+      telemetry: { write: async () => undefined },
+      ttlSeconds: 900,
+      reason: 'interval',
+    });
+
+    expect(ensureServedVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engine: 'codex',
+        auth: normalizedAuth,
+        digest: DIGEST,
+        forceLive: true,
+      }),
+    );
+  });
+
   it('updates Claude runner telemetry after a stale live verification succeeds', async () => {
     const writes: Array<{ engine: Engine; state: 'ok' | 'fail'; checkedAt: string }> = [];
     const ensureServedVerification = vi.fn(async () => ({

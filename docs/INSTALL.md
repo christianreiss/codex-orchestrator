@@ -14,7 +14,7 @@ This doc walks through setting up the Codex Auth stack with Docker, admin login,
   - `/var/docker_data/codex-auth.example.com/store` (wrapper, storage/sql exports)
   - When using the bundled Caddy frontend: `/var/docker_data/codex-auth.example.com/caddy/tls` for custom cert/key, `/var/docker_data/codex-auth.example.com/caddy/mtls` for the admin CA, plus named volumes `caddy_data` and `caddy_config` (ACME + Caddy state).
 - Optional internet egress for helper services:
-   - The auth runner pings Codex clients to validate auth.json (clear `AUTH_RUNNER_URL` to disable it).
+   - The auth runner pings Codex clients to validate auth.json. Leaving `AUTH_RUNNER_URL` blank makes live verification unavailable: existing verified auth can still be retrieved, but every canonical-changing store is blocked.
    - The quota cron fetches ChatGPT usage.
 
 ## Recommended: one-command setup
@@ -99,7 +99,7 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
     - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
     - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
     - Password recovery uses `PUBLIC_BASE_URL` for the emailed reset link and SMTP settings for delivery; reset tokens are single-use and expire after one hour.
-   - Runner knobs: `AUTH_RUNNER_URL` (blank disables API-side runner verification), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_MEMORY_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank leaves verification unavailable, so existing verified auth may still be served but every new canonical-auth store is blocked), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_MEMORY_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
    - Schema changes: apply the reviewable SQL under `api/src/db/migrations/` explicitly before starting the matching API version. There is no boot migration runner.
@@ -127,7 +127,7 @@ It checks the git worktree, fast-forwards from the configured upstream, optional
 - Starts `api`, `auth-runner`, and `mysql`. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
-- Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`); clear that env to disable API-side runner checks. The API keeps canonical Codex/Claude auth fresh from a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s) instead of blocking wrapper startup. Admin seed/admin upload paths still run through the same strict runner validation/update path as host `/auth` stores, so they require a reachable runner when enabled. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
+- Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`). Leaving that env blank keeps existing verified auth readable but blocks every canonical-changing store. The API keeps canonical Codex/Claude auth fresh from a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s) instead of blocking wrapper startup. Admin seed/admin upload paths run through the same strict runner validation/update path as host `/auth` stores, so all require a configured, reachable runner and a positive live verdict. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
 - Apply additive migrations before the matching deploy. For example: `docker compose exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < api/src/db/migrations/0004_add_claude_artifacts.sql`. API startup and the deploy helper fail closed if the required `claude_artifacts` table is absent.
 - Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
 

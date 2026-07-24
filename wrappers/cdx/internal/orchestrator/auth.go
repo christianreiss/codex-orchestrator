@@ -36,13 +36,20 @@ type AuthRetrieveResponse struct {
 	// its verified canonical fallback. It is the sole override for a newer
 	// locally usable generation.
 	CandidateRejectedDefinitive bool `json:"candidate_rejected_definitive,omitempty"`
+	// CandidateCredentialRejected says the exact submitted candidate failed
+	// live provider verification. Unlike CandidateRejectedDefinitive, this
+	// signal alone never authorizes an older canonical to overwrite local auth.
+	CandidateCredentialRejected bool `json:"candidate_credential_rejected,omitempty"`
 }
 
 // AuthCandidateAccepted reports whether the server accepted the exact auth
 // generation carried by an AuthStore request. An "outdated" response is a
 // successful arbitration response, but its canonical generation won instead.
 func (r *AuthRetrieveResponse) AuthCandidateAccepted() bool {
-	if r == nil || r.CandidateRejectedDefinitive || strings.EqualFold(strings.TrimSpace(r.VerificationState), "failed") {
+	if r == nil ||
+		r.CandidateRejectedDefinitive ||
+		r.CandidateCredentialRejected ||
+		!strings.EqualFold(strings.TrimSpace(r.VerificationState), "verified") {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(r.Status)) {

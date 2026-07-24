@@ -27,7 +27,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Per-host API keys are hashed/encrypted at rest, IP-bound on first use, and rotated when a host is re-registered.
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
-- Runner sidecar validates canonical auth from a background worker (default every 5m, TTL 15m) and after stores, auto-applies refreshed auth from Codex, and never blocks `/auth` **retrieve** when down (canonical-auth-changing uploads, including admin/seed uploads, require a reachable runner when enabled).
+- Runner sidecar validates canonical auth from a background worker (default every 5m, TTL 15m) and synchronously validates every store. Only a positive live verdict can advance canonical auth or make bytes distributable; unavailable/inconclusive runner results leave existing verified auth readable but block host, admin, seed, and bootstrap uploads.
 - Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), MCP memories, ChatGPT `/wham/usage` snapshots.
 
 ## Key components (code map)
@@ -60,13 +60,14 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Versions: reports the effective fleet Codex target (GitHub latest with stale fallback plus an internal minimum floor of `0.125.0`), `client_version_enforce_exact` downgrade policy, wrapper version/sha from server disk, runner state, quota policy (`quota_hard_fail`, `quota_limit_percent`, and optional `quota_week_partition` pacing), `auto_update_enabled` for managed update hosts, and the fleet-wide `cdx_silent` quiet flag. When auto-update is enabled, normal `cdx`/`clx` startup self-updates the wrapper from the API artifact, re-execs the original argv, then repairs a locally stale Codex or Claude CLI; `--cron` is only an optional scheduled trigger. When Codex self-management is skipped, the summary note still distinguishes active-run, unsupported-platform, and true privilege-skip cases; privilege skips still include the wrapper-detected UID to expose root/user-namespace mismatches directly in the output. VIP hosts force warn-only (`quota_hard_fail=false`) regardless of the global policy.
 - Wrapper self-update decisions are edge-triggered: matching wrapper version plus matching baked SHA stay `current`, so hosts do not redownload and restart into the same wrapper just because the decision helper returned the wrong shell status.
    - Retrieve path: compares client `last_refresh`/`digest` to canonical. Returns `valid`, `upload_required`, `outdated`, or `missing`, plus host stats (API calls, monthly token totals) and recent digests (remembered per host).
-   - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, and synthesizes entries from native engine tokens when needed. When the runner is configured, a positive live verdict is required before persistence; definitive credential rejection returns 422, while transient runner/provider failures return 503 without poisoning canonical auth. With no configured runner, a new lineage may be stored `pending`, but it cannot replace a selected `failed` lineage. The same path applies to admin and seed uploads. Store submissions remain candidates regardless of insecure-window state, but still require normal API-key/IP/reverse-DNS/installation checks. A usable runner `updated_auth` replaces the candidate; a present unusable or older refreshed payload fails closed. On success, the encrypted body, per-target entries, host sync state, and digest cache commit together.
+   - Store path: validates RFC3339 `last_refresh` (>= 2000‑01‑01, <= now+300s), enforces token entropy/length, normalizes/sorts auths, and synthesizes entries from native engine tokens when needed. Every host, admin, seed, and bootstrap candidate requires a configured runner and a positive live verdict before promotion; definitive credential rejection returns 422, while absent/transient runner failures return 503 without changing canonical auth. Store submissions remain candidates regardless of insecure-window state, but still require normal API-key/IP/reverse-DNS/installation checks. A runner `updated_auth` must remain runnable, preserve credential kind, and retain any OAuth refresh token. Inconclusive/failed readbacks may be kept as quarantined history, but never become a canonical head or response. On success, the encrypted body, per-target entries, host sync state, and digest cache commit together.
 
    - Canonical ordering is monotonic per engine. RFC3339 values are compared by
-     instant; a newer structurally valid pending/failed row is never bypassed
-     for historical verified auth. Store and worker operations serialize
-     runner work, re-resolve before commit, and return `updated`, `valid`, or
-     `outdated` with the authoritative payload. Every accepted canonical digest
+     instant; only live-verified rows advance the explicit head. Quarantined
+     pending/failed descendants never become distributable, while a failed
+     explicit head is withheld instead of falling back to older history. Store
+     and worker operations serialize runner work and re-resolve before commit.
+     Every accepted canonical digest
      change advances `last_refresh` by at least 1 ms, including same-stamp
      uploads and runner rotations, so delayed wrapper responses have a strict
      ordering key. An older client can repair a
@@ -88,7 +89,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (AGENTS/config in one flow). When local auth is already valid, that same bundle path now also carries auth metadata/refresh inline (`include_auth=true`), and `auth_candidate` is processed before canonical auth is returned so fresh local logins upload to canonical storage before launch. Native Claude credentials without `last_refresh` are compared against canonical form first and only stored when they actually differ, preventing a server copy from overwriting a fresh local OAuth credential. Older servers automatically fall back to legacy per-resource pull endpoints, but transient bundle failures do not trigger extra per-resource retries during startup.
 - Wrapper Codex updates now key off `/auth` `client_version_enforce_exact`: floor-only targets only trigger upgrades, while explicit above-floor pins can still downgrade to match.
   - When the Projects module is enabled, the managed `coco` skill is published through MCP `skill://coco`; there is no separate wrapper-side project bootstrap pass. When the module turns off again, the managed skill disappears from the MCP resource list, and wrapper cleanup removes stale local skill directories so old CoCo docs cannot shadow the project-only skill.
-- `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: when `auth_candidate` is provided, the server uses the same runner-validated canonical store path as `/auth store`, reports `auth_stored` on success, and returns store metadata including `runner_applied` / skipped-reason fields. A deterministic malformed/unusable/provider-rejected candidate may receive an older verified canonical only with `candidate_rejected_definitive:true`; transient failures omit the signal and preserve the newer local generation.
+- `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: when `auth_candidate` is provided, the server uses the same live-runner-validated canonical store path as `/auth store`, reports `auth_stored` on success, and returns store metadata including `runner_applied` / skipped-reason fields. Only `verification_state:verified` may include auth bytes. A deterministic malformed/unusable/provider-rejected candidate sets `candidate_credential_rejected:true`; if an older verified replacement is also returned, only `candidate_rejected_definitive:true` authorizes overwriting the newer local generation. Transient failures omit both signals and preserve local auth.
 - Wrapper boot health markers distinguish successful unchanged checks, actual
   local updates, best-effort resource failures, and deliberately skipped
   checks. The updated caret is reserved for a proven write; resource failures
@@ -133,6 +134,13 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      upload/materialization, marker, purge, or uninstall-auth removal failures
      return non-zero; a blocked canonical write is a safe skip only when usable
      local auth remains.
+   - clx applies a local-first launch matrix: runnable local auth survives
+     transient upload/runner infrastructure failures; verified runnable server
+     auth repairs missing or corrupt local state; and if neither exists an
+     interactive run starts `claude auth login` directly. Headless runs print
+     that interactive action. A logout marker makes its exact stale native
+     generation unusable—it is cleared only by an accepted new login or a
+     different verified canonical, never unconditionally.
    - The active-child guarantee covers processes launched through `cdx`/`clx`.
      A separately invoked raw `codex` or `claude` process does not participate
      in wrapper leases; operators needing race-safe fleet auth should use the

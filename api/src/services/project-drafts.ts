@@ -46,8 +46,8 @@ export class ProjectDraftsService {
 
     const validation = this.deps.runnerValidation;
     const row = await validation.resolveCanonicalPayload(this.deps.engine ?? ENGINE_CODEX);
-    const validated = validation.validateCanonicalPayload(row);
-    if (!validated || !validated.auth) {
+    const auth = row ? validation.canonicalAuthFromPayload(row) : null;
+    if (!auth) {
       await this.recordLog('project.assist', {
         status: 'skipped',
         reason: 'canonical auth missing',
@@ -72,7 +72,7 @@ export class ProjectDraftsService {
     const result = await this.deps.runner.assistProjectDraft({
       slug,
       project: runnerProject,
-      authJson: validated.auth,
+      authJson: auth,
     });
 
     const status = typeof result.status === 'string' ? result.status.toLowerCase().trim() : '';
@@ -84,10 +84,10 @@ export class ProjectDraftsService {
         latency_ms: result.latency_ms ?? null,
         reachable: result.reachable ?? null,
       });
-      throw new ApiError(
-        `Project assist failed: ${result.reason ?? 'runner returned non-ok status'}`,
-        { status: 502, code: 'runner_failed' },
-      );
+      throw new ApiError(`Project assist failed: ${result.reason ?? 'runner returned non-ok status'}`, {
+        status: 502,
+        code: 'runner_failed',
+      });
     }
 
     const assistantMessage = sanitizeLine(result.assistant_message, 240);
@@ -164,9 +164,19 @@ function buildRunnerProjectContext(detail: ProjectDetail): Record<string, unknow
     counts: detail.project.counts,
     notes: sliceItems(detail.notes, ['id', 'header', 'body', 'updatedAt'], 6, 800),
     todos: sliceItems(detail.todos, ['id', 'title', 'detail', 'done', 'updatedAt'], 8, 600),
-    files: sliceItems(detail.files, ['id', 'stored_name', 'description', 'mime_type', 'size_bytes', 'content'], 6, 900),
+    files: sliceItems(
+      detail.files,
+      ['id', 'stored_name', 'description', 'mime_type', 'size_bytes', 'content'],
+      6,
+      900,
+    ),
     feedback: sliceItems(detail.feedback, ['id', 'type', 'title', 'body', 'status', 'updatedAt'], 8, 700),
-    recent_changes: sliceItems(detail.recent_changes, ['seq', 'eventType', 'action', 'payloadJson', 'createdAt'], 10, 500),
+    recent_changes: sliceItems(
+      detail.recent_changes,
+      ['seq', 'eventType', 'action', 'payloadJson', 'createdAt'],
+      10,
+      500,
+    ),
   };
 }
 

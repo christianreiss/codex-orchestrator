@@ -73,13 +73,13 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 1. **Provision → install → seed**
    - `POST /admin/hosts/register` creates/rotates API keys, sets host flags (`secure`, `vip`, `temporary`, `curl_insecure`, `reverse_dns_mode`), and issues an installer token.
    - `GET /install/{token}` emits the `cdx` installer script (single-use token, base URL from `PUBLIC_BASE_URL` or forwarded host/proto). Missing/expired tokens return `text/x-shellscript` errors.
-   - `GET /seed/auth/{token}` emits an auth-seed script; `POST /seed/auth/{token}` ingests auth JSON directly into canonical store (`skipRunner=true`), then invalidates the token.
+   - `GET /seed/auth/{token}` emits an auth-seed script; `POST /seed/auth/{token}` sends auth JSON through the same live-runner validation gate as every other canonical store, then invalidates the token after successful acceptance.
 
 2. **`/auth` retrieve/store**
    - Requires API key header and passes through `global` + `auth-fail` limits, host/IP policy, insecure host windows, and the kill switch.
    - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. `/auth` response appends `chatgpt_usage`.
    - Store path (`command=store`) enforces RFC3339 `last_refresh` bounds (`>= 2000-01-01`, `<= now+300s`), token quality, canonical sort/digest, and secretbox persistence to `auth_payloads` + `auth_entries`.
-   - Runner validation runs before store writes (unless explicit admin/seed skip path). Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks store.
+   - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.
    - Host uninstall uses `DELETE /auth` (IP binding enforced unless `?force=1`).
 
 3. **Runner + preflight**

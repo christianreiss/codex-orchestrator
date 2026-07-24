@@ -242,39 +242,65 @@ Unified retrieve/store. Auth required; IP binding enforced.
 - `engine`: optional `codex` or `claude`. May also be supplied via query `?engine=...` or `X-Engine`; wrapper user-agent fallback (`clx`) also selects Claude. Default is `codex`.
 - `client_version` / `wrapper_version`: optional strings (also accepted from query params `client_version`/`cdx_version`/`wrapper_version`).
 - `retrieve` accepts optional `digest` (64-hex; accepts `digest`|`auth_digest`|`auth_sha`) and `last_refresh`; supplied values are validated (`last_refresh` must be RFC3339, `>=2000-01-01`, `<=now+300s`). Omitting them is the supported missing/fresh-install probe used by current wrappers.
-- `store` requires `auth` (or top-level auth object) with `last_refresh` and `auths`. If `auths` is missing/empty, Codex synthesizes `auths = {"api.openai.com": {token, token_type:"bearer"}}` from `tokens.access_token` or `OPENAI_API_KEY`; Claude synthesizes `auths = {"api.anthropic.com": {token, token_type:"bearer"}}` from `api_key`, `anthropic_api_key`, `ANTHROPIC_API_KEY`, or Claude Code OAuth credentials at `claudeAiOauth.accessToken`.
+- `store` requires `auth` (or a top-level auth object) with `last_refresh` and
+  one usable native engine credential; the API derives the corresponding
+  `auths` entry. Codex follows the CLI's persisted selection rules: an explicit
+  `auth_mode:"chatgpt"` uses `tokens.access_token`, an explicit
+  `auth_mode:"apikey"` uses top-level `OPENAI_API_KEY`, and without
+  `auth_mode` a non-null top-level API key wins over ChatGPT tokens.
+  Unsupported persisted modes fail closed. Accepted Codex payloads are
+  normalized to exactly one of those native shapes. Claude prefers a complete
+  `claudeAiOauth` object over API-key aliases, then top-level aliases over
+  nested token aliases and a legacy derived `auths` API key. An
+  `sk-ant-oat...` bearer is valid only as `claudeAiOauth.accessToken`; placing
+  one in an API-key or derived-only field is rejected. Accepted Claude
+  payloads retain only the selected native credential and its matching derived
+  bearer. For both engines, unrelated `auths` targets are discarded before
+  runner verification and are not persisted in `auth_entries`. A previously
+  verified row is returned only when its stored bytes exactly equal the current
+  canonical projection and its fingerprint metadata is complete and valid;
+  the background worker live-verifies and reissues older rows that fail that
+  distribution check.
 - Store candidates serialize per engine and are runner-validated before
   persistence, then compare-and-swapped against canonical again. Admin
   `/admin/auth/upload`, `/seed/auth/{uuid}`, and `/sync/bootstrap` inline
-  `auth_candidate` use the same path. A usable runner `updated_auth` becomes
-  canonical; a present but unusable/older rotated payload fails closed instead
-  of blessing the pre-refresh token. Transport/timeouts, provider 5xx,
+  `auth_candidate` use the same path. Every source requires a configured live
+  runner and a positive verdict before becoming canonical. A runnable runner
+  `updated_auth` may become canonical only when it retains the submitted
+  credential kind and any existing OAuth refresh token; an unusable, older, or
+  downgraded rotated payload fails closed instead of blessing the pre-refresh
+  token. Transport/timeouts, provider 5xx,
   quota/model errors, and unrecognized CLI failures are non-definitive 503
   outcomes; recognized provider authentication rejection with unchanged
   credentials is definitive 422. If the runner changed credentials first, the
-  validated replacement is retained as a newest `failed` lineage and the API
-  returns the wrapper-recognized unsafe-refresh 503 instead.
+  replacement may be retained as quarantined `pending`/`failed` history and the
+  API returns the wrapper-recognized unsafe-refresh 503 instead. Quarantine
+  never advances the canonical head or supplies auth to hosts/gateways. If the
+  native file changed before a non-OK upload verdict for the same selected
+  credential lineage, the same transaction marks that exact head failed if it
+  is still selected because its access/refresh token may already have been
+  consumed. An unrelated login or a different concurrently selected head is
+  not invalidated.
 - An insecure host may submit `command:"store"` even when its retrieve window
   and grace period are closed. The request still passes API-key, engine, IP,
   reverse-DNS, installation, token-quality, and runner checks; it does not open
   or extend the retrieve window.
-- If the runner is not configured, a new candidate can be stored `pending`, but
-  it cannot repair or supersede a selected `failed` lineage without a verified
-  runner result.
+- If the runner is not configured, every new candidate is rejected with 503
+  and canonical auth remains unchanged.
 - `installation_id` is optional; when present it must match server `INSTALLATION_ID` or request is rejected with HTTP 403 (`Installation ID mismatch`).
 - Tokens are rejected when too short (`TOKEN_MIN_LENGTH`, default 24 with minimum floor 8), containing whitespace, placeholder values, or low entropy.
 
 **Statuses**
 - Retrieve: `valid`, `upload_required`, `outdated`, `missing`.
-- Store: `updated`, `valid`, `outdated`. Every outcome returns the authoritative
-  payload/digest for guarded client writeback.
+- Store: `updated`, `valid`, `outdated`. Successful outcomes return only a
+  verified authoritative payload/digest for guarded client writeback.
 
 **Response fields (varies by status)**
-- `auth` (when a distributable server copy is newer, or after store),
+- `auth` (only when the selected canonical payload is `verified`),
   `canonical_last_refresh`, `canonical_digest`, plus `action:"store"` on
-  retrieve paths that require upload. A selected `verification_state:"failed"`
-  canonical returns `status:"outdated"` without `auth` so clients cannot
-  materialize credentials already proven bad.
+  retrieve paths that require upload. Pending, unknown, and failed bytes are
+  never returned. A failed explicit head returns `status:"outdated"` without
+  `auth`; the server does not resurrect older history behind it.
 - `host`: `fqdn`, `status`, `last_refresh`, `claude_last_refresh`, `updated_at`, `expires_at`, `client_version`, `client_version_override`, `claude_client_version`, `claude_client_version_override`, `agents_document_id_override`, `wrapper_version`, `claude_wrapper_version`, `api_calls`, `allow_roaming_ips`, `secure`, `vip`, insecure window fields, `engines`, `engines_list`, optional `lane_preference` (`normal|spark`), optional `model_override` / `reasoning_effort_override`, and optional `claude_model_override` / `claude_reasoning_effort_override`.
 - `api_calls`, `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
@@ -283,12 +309,18 @@ Unified retrieve/store. Auth required; IP binding enforced.
 
 `POST /sync/bootstrap` nests this response under `auth`. When an inline
 `auth_candidate` is deterministically malformed/unusable or receives a
-definitive provider-auth rejection, bootstrap may return
-`auth.candidate_rejected_definitive:true` only together with
-`status:"outdated"`, `verification_state:"verified"`, and a canonical `auth`
-object. That tuple is the sole authority for a wrapper to replace a locally
-newer candidate with the older verified canonical. Transient runner/provider
-failures omit the flag and preserve the local generation for retry.
+definitive provider-auth rejection, bootstrap returns
+`auth.candidate_credential_rejected:true`; the wrapper must stop using that
+exact local generation even if no server replacement exists. The separate
+`auth.candidate_rejected_definitive:true` replacement authority is returned
+only together with `status:"outdated"`, `verification_state:"verified"`, and a
+canonical `auth` object. Transient runner/provider failures omit both signals
+and preserve the local generation for retry.
+If the selected canonical head is already failed, bootstrap may also return
+`candidate_matches_failed_canonical:true|false`, computed from credential kind
+plus access/refresh identity rather than incomparable native/envelope digests.
+Only explicit `false` can prove a runnable local candidate is distinct enough
+to launch while its upload retries.
 
 ### `DELETE /auth`
 
@@ -407,10 +439,10 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke domain auto-allow.
 - `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests for both Codex and Claude.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
-- `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; runner-validated when the runner is enabled.
+- `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; requires positive live runner validation.
 - `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for `{engine:"codex"|"claude"}` (default Codex). Generated scripts read `~/.codex/auth.json` for Codex or `~/.claude/.credentials.json` for Claude, accept both API-key and Claude Code OAuth credential shapes, normalize plain credential files by adding `last_refresh` when missing, and print server validation errors on upload failure. TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
 - `GET /seed/auth/{uuid}` — serve engine-specific seed shell script.
-- `POST /seed/auth/{uuid}` — accept raw credential payload (or `{ "auth": ... }`), runner-validate/store canonical auth for the token engine when the runner is enabled, and consume the token after a successful store. Malformed, definitively rejected, and ordinary transient failures release the reservation so the same unexpired token can be retried. Unsafe runner-refresh/readback failures keep the one-time token consumed because the submitted refresh token may already have rotated and a replacement lineage may already be pending.
+- `POST /seed/auth/{uuid}` — accept raw credential payload (or `{ "auth": ... }`), require positive live runner validation, store verified canonical auth for the token engine, and consume the token after a successful store. Malformed, definitively rejected, and ordinary transient failures release the reservation so the same unexpired token can be retried. Unsafe runner-refresh/readback failures keep the one-time token consumed because the submitted refresh token may already have rotated; any retained replacement remains quarantined.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - `GET /admin/model-defaults/{engine}` — read the `codex` or `claude` fleet CLI default. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`. It is read-only: when no engine config row exists it reports the catalog default without persisting it.
@@ -442,21 +474,21 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 
 ## Runner & Versions
-- The auth-verification worker starts with the API and runs every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s), refreshing stale Codex/Claude canonical auth according to `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s). Stale live probes update per-engine runner telemetry, so the admin runner card follows the background auth-readiness checks. Wrapper startup reads the stored verdict and does not run runner validation inline.
+- The auth-verification worker starts with the API and runs every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s), refreshing stale Codex/Claude canonical auth according to `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s). It also bypasses that TTL when a nominally verified row is not safely distributable because its bytes need current canonical normalization or its fingerprint metadata needs reissue. Live probes update per-engine runner telemetry, so the admin runner card follows the background auth-readiness checks. Wrapper startup reads the stored verdict and does not run runner validation inline.
 - Runner state is recorded in `runner_state` / `runner_state_claude` (`ok|fail`) with timestamps (`runner_last_ok`, `runner_last_fail`, `runner_last_check`, and Claude-suffixed equivalents).
 - Runner failures do not block `/auth` retrieve. Failed worker/manual runner
   attempts still update runner last-check metadata. Store update candidates are
-  blocked when the runner cannot produce a positive or definitive credential
-  verdict. Only a recognized authentication rejection normally marks canonical
-  failed. A probe that rotates credentials before definitively rejecting them
-  retains the replacement as the newest failed lineage; a successful probe that
-  returns an unusable replacement, or whose refreshed credential cannot be
-  persisted, fails the old lineage closed. In every case the pre-rotation blob
-  is never served as verified.
+  blocked unless the runner produces a positive credential verdict. Only a
+  recognized authentication rejection normally marks the current head failed.
+  A probe that rotates credentials before definitively rejecting them retains
+  the replacement as quarantined failed history; a successful probe that
+  returns an unusable replacement, loses credential kind/refresh capability,
+  or cannot persist the refresh fails the old lineage closed. In every case
+  only a still-verified head is distributable.
   Manual `POST /admin/runner/run` and `POST /admin/runner/run-claude` bypass
   interval guards.
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage
-- Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude`), with per-target entries in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
+- Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude`), with exactly the selected engine-native target mirrored in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
 - Auth/register/runner events are logged in `logs`.

@@ -80,6 +80,7 @@ describe('RunnerProxyService', () => {
 
   it('verifies Claude with the latest canonical auth payload', async () => {
     let seenAuth: Record<string, unknown> | null = null;
+    const canonicalAuth = { auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } };
     const runner = {
       isConfigured: () => true,
       verify: async () => {
@@ -102,11 +103,11 @@ describe('RunnerProxyService', () => {
         verificationCheckedAt: '2026-05-20T10:00:00Z',
       }),
       validateCanonicalPayload: () => ({
-        auth: { auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } },
+        auth: canonicalAuth,
         digest: 'a'.repeat(64),
         last_refresh: '2026-05-20T10:00:00Z',
       }),
-      canonicalAuthFromPayload: () => null,
+      canonicalAuthFromPayload: () => canonicalAuth,
       ensureAuthsFallback: (payload) => payload,
       normalizeAuthEntries: () => [],
       hasUsableEngineCredential: () => true,
@@ -127,7 +128,7 @@ describe('RunnerProxyService', () => {
     expect(res.status).toBe('ok');
     expect(res.canonical_digest).toBe('a'.repeat(64));
     expect(res.payload_id).toBe(42);
-    expect(seenAuth).toEqual({ auths: { 'api.anthropic.com': { token: 'sk-ant-test' } } });
+    expect(seenAuth).toEqual(canonicalAuth);
   });
 
   it('returns queued=true from seedCommand stub', async () => {

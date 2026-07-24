@@ -121,6 +121,14 @@
                 "older_internal"
               ]
             },
+            "candidate_credential_rejected": {
+              "type": "boolean",
+              "description": "True when live validation definitively rejected the exact submitted credential generation. This does not by itself authorize a canonical overwrite."
+            },
+            "candidate_matches_failed_canonical": {
+              "type": "boolean",
+              "description": "Credential-identity comparison against a failed selected head. Only explicit false proves the submitted candidate is distinct."
+            },
             "candidate_rejected_definitive": {
               "type": "boolean",
               "description": "True only when a submitted auth candidate was definitively rejected and the response also serves verified canonical auth that may replace it."
@@ -141,15 +149,41 @@
               "then": {
                 "required": [
                   "auth",
+                  "candidate_credential_rejected",
                   "verification_state"
                 ],
                 "properties": {
                   "auth": {
                     "type": "object"
                   },
+                  "candidate_credential_rejected": {
+                    "const": true
+                  },
                   "status": {
                     "const": "outdated"
                   },
+                  "verification_state": {
+                    "const": "verified"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "auth"
+                ],
+                "properties": {
+                  "auth": {
+                    "type": "object"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "verification_state"
+                ],
+                "properties": {
                   "verification_state": {
                     "const": "verified"
                   }

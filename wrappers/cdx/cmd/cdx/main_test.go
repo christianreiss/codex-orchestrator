@@ -413,7 +413,7 @@ func TestAuthUploadPurgesAuthOnLastInsecureCommand(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"updated","host":{"secure":false}}`))
+		_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","host":{"secure":false}}`))
 	}))
 	defer server.Close()
 	cfg := &config.Config{Host: config.Host{Secure: false}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}

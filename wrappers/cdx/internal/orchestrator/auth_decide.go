@@ -108,6 +108,16 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 		d.Reason = "Engine disabled for this host by administrator."
 		return d
 	}
+	// The bootstrap store gate can reject the exact local candidate even when
+	// no verified canonical exists to return. This is provider evidence about
+	// the local bytes, so freshness must not rescue them. The separate signal
+	// intentionally grants no authority to overwrite local auth.
+	if resp.CandidateCredentialRejected {
+		d.Status = "credential_rejected"
+		d.Reason = "Local Codex credentials failed live verification. Re-authenticate with `codex login`, then re-run cdx."
+		d.VerificationFailed = true
+		return d
+	}
 
 	// Live launch-gate proof: when the server reached the provider and the
 	// canonical credentials did NOT authenticate, refuse the managed launch

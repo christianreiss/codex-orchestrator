@@ -135,6 +135,119 @@ class RunnerAppTest(unittest.TestCase):
 
         self.assertEqual("sk-ant-oat01-test-token", token)
 
+    def test_extract_openai_token_matches_native_codex_auth_mode_selection(self):
+        oauth = "ey-native-chatgpt-access-token"
+        api_key = "sk-native-openai-api-key"
+
+        self.assertEqual(
+            api_key,
+            runner_app._extract_openai_token(
+                {
+                    "OPENAI_API_KEY": api_key,
+                    "tokens": {"access_token": oauth},
+                    "auths": {"api.openai.com": {"token": oauth}},
+                }
+            ),
+        )
+        self.assertEqual(
+            oauth,
+            runner_app._extract_openai_token(
+                {
+                    "auth_mode": "chatgpt",
+                    "OPENAI_API_KEY": api_key,
+                    "tokens": {"access_token": oauth},
+                }
+            ),
+        )
+        self.assertEqual(
+            api_key,
+            runner_app._extract_openai_token(
+                {
+                    "auth_mode": "apikey",
+                    "OPENAI_API_KEY": api_key,
+                    "tokens": {"access_token": oauth},
+                }
+            ),
+        )
+
+    def test_extract_openai_token_rejects_non_native_and_unsupported_fallbacks(self):
+        self.assertIsNone(
+            runner_app._extract_openai_token(
+                {"auths": {"api.openai.com": {"token": "legacy-auths-only"}}}
+            )
+        )
+        self.assertIsNone(
+            runner_app._extract_openai_token(
+                {"tokens": {"openai_api_key": "legacy-nested-only"}}
+            )
+        )
+        self.assertIsNone(
+            runner_app._extract_openai_token(
+                {
+                    "auth_mode": "headers",
+                    "OPENAI_API_KEY": "sk-shadow-key",
+                    "tokens": {"access_token": "shadow-oauth"},
+                }
+            )
+        )
+        self.assertIsNone(
+            runner_app._extract_openai_token(
+                {
+                    "personal_access_token": "pat-selects-unsupported-mode",
+                    "OPENAI_API_KEY": "sk-shadow-key",
+                }
+            )
+        )
+
+    def test_extract_anthropic_token_uses_runtime_credential_precedence(self):
+        oauth = runner_app._extract_anthropic_token(
+            {
+                "claudeAiOauth": {"accessToken": "sk-ant-oat01-oauth-winner"},
+                "api_key": "sk-ant-api03-api-key-loser",
+                "auths": {
+                    "api.anthropic.com": {"token": "sk-ant-api03-auths-loser"}
+                },
+            }
+        )
+        api_key = runner_app._extract_anthropic_token(
+            {
+                "api_key": "sk-ant-api03-api-key-winner",
+                "anthropic_api_key": "sk-ant-api03-secondary-loser",
+                "auths": {
+                    "api.anthropic.com": {"token": "sk-ant-api03-auths-loser"}
+                },
+            }
+        )
+
+        self.assertEqual("sk-ant-oat01-oauth-winner", oauth)
+        self.assertEqual("sk-ant-api03-api-key-winner", api_key)
+
+    def test_extract_anthropic_token_rejects_auths_only_oauth_projection(self):
+        token = runner_app._extract_anthropic_token(
+            {
+                "auths": {
+                    "api.anthropic.com": {
+                        "token": "sk-ant-oat01-derived-without-native-oauth"
+                    }
+                }
+            }
+        )
+
+        self.assertIsNone(token)
+
+    def test_extract_anthropic_token_rejects_oauth_projection_in_api_key_fields(self):
+        credentials = (
+            {"api_key": "sk-ant-oat01-top-level-projection"},
+            {"anthropic_api_key": "sk-ant-oat01-top-level-projection"},
+            {"ANTHROPIC_API_KEY": "sk-ant-oat01-top-level-projection"},
+            {"tokens": {"anthropic_api_key": "sk-ant-oat01-nested-projection"}},
+            {"tokens": {"ANTHROPIC_API_KEY": "sk-ant-oat01-nested-projection"}},
+        )
+
+        for credential in credentials:
+            with self.subTest(credential=credential):
+                self.assertIsNone(runner_app._extract_anthropic_token(credential))
+
     def test_anthropic_api_keys_use_x_api_key_header(self):
         self.assertEqual(
             {"x-api-key": "sk-ant-api03-test-token"},

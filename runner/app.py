@@ -132,19 +132,31 @@ DATA_URL_RE = re.compile(
 
 
 def _extract_openai_token(auth_json: dict) -> Optional[str]:
-    auths = auth_json.get("auths", {})
-    if isinstance(auths, dict):
-        openai_entry = auths.get("api.openai.com")
-        if isinstance(openai_entry, dict):
-            token = openai_entry.get("token")
-            if isinstance(token, str) and token.strip():
-                return token.strip()
+    """Resolve the credential exactly as native Codex AuthDotJson does."""
+    mode = auth_json.get("auth_mode")
     tokens = auth_json.get("tokens", {})
-    if isinstance(tokens, dict):
-        candidate = tokens.get("access_token") or tokens.get("openai_api_key")
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    return None
+
+    if mode is not None:
+        if mode == "apikey":
+            candidate = auth_json.get("OPENAI_API_KEY")
+        elif mode in ("chatgpt", "chatgptAuthTokens"):
+            candidate = tokens.get("access_token") if isinstance(tokens, dict) else None
+        else:
+            return None
+        return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
+
+    # AuthDotJson::resolved_mode infers PAT and Bedrock before API key, then
+    # defaults to ChatGPT. Those non-fleet modes are deliberately unsupported.
+    if auth_json.get("personal_access_token") is not None:
+        return None
+    if auth_json.get("bedrock_api_key") is not None:
+        return None
+    if auth_json.get("OPENAI_API_KEY") is not None:
+        candidate = auth_json.get("OPENAI_API_KEY")
+        return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
+
+    candidate = tokens.get("access_token") if isinstance(tokens, dict) else None
+    return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
 
 
 def _codex_version(env: dict) -> str:
@@ -243,28 +255,32 @@ CLAUDE_CLI_PATH = shutil.which("claude") or "/usr/local/bin/claude"
 
 
 def _extract_anthropic_token(auth_json: dict) -> Optional[str]:
-    """Pull an Anthropic API key from the auth payload."""
+    """Resolve the same effective Claude credential the wrapper will use."""
+    oauth = auth_json.get("claudeAiOauth", {})
+    if isinstance(oauth, dict):
+        candidate = oauth.get("accessToken")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    for key in ("api_key", "anthropic_api_key", "ANTHROPIC_API_KEY"):
+        candidate = auth_json.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            resolved = candidate.strip()
+            return None if resolved.lower().startswith("sk-ant-oat") else resolved
+    tokens = auth_json.get("tokens", {})
+    if isinstance(tokens, dict):
+        for key in ("anthropic_api_key", "ANTHROPIC_API_KEY"):
+            candidate = tokens.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                resolved = candidate.strip()
+                return None if resolved.lower().startswith("sk-ant-oat") else resolved
     auths = auth_json.get("auths", {})
     if isinstance(auths, dict):
         anthropic_entry = auths.get("api.anthropic.com")
         if isinstance(anthropic_entry, dict):
             token = anthropic_entry.get("token")
             if isinstance(token, str) and token.strip():
-                return token.strip()
-    for key in ("api_key", "anthropic_api_key", "ANTHROPIC_API_KEY"):
-        candidate = auth_json.get(key)
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    tokens = auth_json.get("tokens", {})
-    if isinstance(tokens, dict):
-        candidate = tokens.get("anthropic_api_key")
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    oauth = auth_json.get("claudeAiOauth", {})
-    if isinstance(oauth, dict):
-        candidate = oauth.get("accessToken")
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
+                resolved = token.strip()
+                return None if resolved.lower().startswith("sk-ant-oat") else resolved
     return None
 
 

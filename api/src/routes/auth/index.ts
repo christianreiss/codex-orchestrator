@@ -26,10 +26,7 @@ import { HostClaudeArtifactsService, type ArtifactDigestMap } from '../../servic
 import { HostSkillsService } from '../../services/host-skills.js';
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { HostSessionsService } from '../../services/host-sessions.js';
-import {
-  createRunnerValidationService,
-  extractAuthPayload,
-} from '../../services/runner-validation.js';
+import { createRunnerValidationService, extractAuthPayload } from '../../services/runner-validation.js';
 import { createRunnerClient } from '../../services/runner-client.js';
 import {
   assertReasonableLastRefresh,
@@ -40,6 +37,7 @@ import {
 import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
+import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
 
 /**
@@ -204,7 +202,16 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
-      const authResult = await handleRetrieve(app, ctx, enforced, payload, engine, runnerValidation, versions, authStore);
+      const authResult = await handleRetrieve(
+        app,
+        ctx,
+        enforced,
+        payload,
+        engine,
+        runnerValidation,
+        versions,
+        authStore,
+      );
       out.auth = authResult;
       const authStatus = ((authResult as { status?: string }).status ?? '').toLowerCase();
       if (authStatus !== 'valid') {
@@ -270,7 +277,11 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     // COMPLETE live set so the wrapper can reconcile deletions against its
     // on-disk manifest. Older/codex hosts simply never see this block.
     if (engine === ENGINE_CLAUDE) {
-      out.claude_artifacts = await claudeArtifactsService.bundle(enforced, engine, readArtifactDigests(payload));
+      out.claude_artifacts = await claudeArtifactsService.bundle(
+        enforced,
+        engine,
+        readArtifactDigests(payload),
+      );
       out.claude_settings = await agentsService.retrieveClaudeSettings(enforced, {
         home: typeof payload.home === 'string' ? payload.home : null,
         username: typeof payload.username === 'string' ? payload.username : null,
@@ -365,7 +376,7 @@ async function handleRetrieve(
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
   const canonicalDigest = validated?.digest ?? null;
   const canonicalLast = validated?.last_refresh ?? null;
-  const canonicalAuth = validated?.auth ?? null;
+  const canonicalAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
 
   // Bump api_calls. Atomic SQL increment — avoids lost updates from concurrent
   // requests reading the same stale `host.apiCalls` snapshot.
@@ -402,6 +413,13 @@ async function handleRetrieve(
       action: 'store',
     };
   }
+  if (!canonicalAuth) {
+    baseResponse.verification_state = canonicalRow.verificationState === 'failed' ? 'failed' : 'unknown';
+    if (canonicalRow.verificationReason) {
+      baseResponse.verification_reason = canonicalRow.verificationReason;
+    }
+    return { ...baseResponse, status: 'outdated' };
+  }
 
   // Launch-gate state: host startup must not wait on the runner. The background
   // auth-verification worker keeps canonical payloads fresh; retrieve serves the
@@ -427,11 +445,9 @@ async function handleRetrieve(
     });
     baseResponse.verification_state = verdict.state;
     if (verdict.reason) baseResponse.verification_reason = verdict.reason;
-    if (verdict.state === 'failed') {
-      // Definitively bad credentials. Do not serve the known-bad blob; surface
-      // verification_state so the wrapper refuses launch with an actionable
-      // re-login message instead of dropping the user into a raw 401.
-      await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
+    if (verdict.state !== 'verified') {
+      // Pending, unknown, and failed rows are quarantine. Surface their
+      // verdict for diagnostics, but never distribute their credential bytes.
       return { ...baseResponse, status: 'outdated' };
     }
     servedAuth = verdict.auth;
@@ -514,23 +530,29 @@ async function handleBootstrapAuth(
   versionSvc: ReturnType<typeof createVersionSnapshotService>,
 ): Promise<Record<string, unknown>> {
   const candidate = readAuthCandidate(payload);
-  if (!candidate) return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+  if (!candidate)
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
 
   const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
   const canonicalDigest = validated?.digest ?? null;
   const canonicalLast = validated?.last_refresh ?? null;
+  const canonicalAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
   const candidateLast = typeof candidate.last_refresh === 'string' ? candidate.last_refresh.trim() : '';
+  const candidateMatchesFailedCanonical =
+    canonicalRow?.verificationState === 'failed' && validated
+      ? credentialPairMatches(runnerValidation.ensureAuthsFallback(candidate, engine), validated.auth, engine)
+      : null;
+  const annotateFailedCanonicalMatch = (response: Record<string, unknown>): Record<string, unknown> =>
+    candidateMatchesFailedCanonical === null
+      ? response
+      : {
+          ...response,
+          candidate_matches_failed_canonical: candidateMatchesFailedCanonical,
+        };
   const serveDefinitiveCandidateFallback = async (): Promise<Record<string, unknown>> => {
-    const fallback = await handleRetrieve(
-      app,
-      ctx,
-      host,
-      payload,
-      engine,
-      runnerValidation,
-      versionSvc,
-      authStore,
+    const fallback = annotateFailedCanonicalMatch(
+      await handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore),
     );
     // This signal authorizes the wrapper to replace a locally newer candidate
     // with the older canonical. Emit it only when the candidate failure was
@@ -538,8 +560,12 @@ async function handleBootstrapAuth(
     // blob. A failed/pending canonical or upload_required response must never
     // grant that authority.
     return servesVerifiedCanonicalAuth(fallback)
-      ? { ...fallback, candidate_rejected_definitive: true }
-      : fallback;
+      ? {
+          ...fallback,
+          candidate_credential_rejected: true,
+          candidate_rejected_definitive: true,
+        }
+      : { ...fallback, candidate_credential_rejected: true };
   };
   if (candidateLast) {
     try {
@@ -550,9 +576,14 @@ async function handleBootstrapAuth(
     }
   }
 
-  if (canonicalRow && canonicalDigest && canonicalLast && validated) {
-    const candidateDigest = canonicalizedCandidateDigest(candidate, candidateLast || canonicalLast, engine, runnerValidation);
-    if (candidateDigest === canonicalDigest && canonicalRow.verificationState !== 'failed') {
+  if (canonicalRow && canonicalDigest && canonicalLast && validated && canonicalAuth) {
+    const candidateDigest = canonicalizedCandidateDigest(
+      candidate,
+      candidateLast || canonicalLast,
+      engine,
+      runnerValidation,
+    );
+    if (candidateDigest === canonicalDigest && canonicalRow.verificationState === 'verified') {
       // Candidate already matches canonical: this is the common warm-launch
       // path. Startup must not wait on live runner probes; use the latest stored
       // verdict from the background auth-verification worker.
@@ -571,23 +602,32 @@ async function handleBootstrapAuth(
             verificationCheckedAt: canonicalRow.verificationCheckedAt,
             verificationReason: canonicalRow.verificationReason,
           },
-          auth: validated.auth,
+          auth: canonicalAuth,
           digest: canonicalDigest,
           lastRefresh: canonicalLast,
           ttlSeconds,
         });
         baseResponse.verification_state = verdict.state;
         if (verdict.reason) baseResponse.verification_reason = verdict.reason;
-        if (verdict.state === 'failed') {
-          await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
-          return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'outdated' };
+        if (verdict.state !== 'verified') {
+          return {
+            ...baseResponse,
+            canonical_last_refresh: servedLast,
+            canonical_digest: servedDigest,
+            status: 'outdated',
+          };
         }
         servedDigest = verdict.digest;
         servedLast = verdict.lastRefresh;
       }
       await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
       await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
-      return { ...baseResponse, canonical_last_refresh: servedLast, canonical_digest: servedDigest, status: 'valid' };
+      return {
+        ...baseResponse,
+        canonical_last_refresh: servedLast,
+        canonical_digest: servedDigest,
+        status: 'valid',
+      };
     }
     if (
       candidateLast &&
@@ -623,7 +663,10 @@ async function handleBootstrapAuth(
     const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
     return { ...baseResponse, ...stored };
   } catch (err) {
-    app.log.warn({ err, host: host.fqdn, engine }, 'bootstrap auth_candidate store failed; falling back to retrieve');
+    app.log.warn(
+      { err, host: host.fqdn, engine },
+      'bootstrap auth_candidate store failed; falling back to retrieve',
+    );
     // A successful runner probe may already have consumed/rotated the
     // candidate's refresh token. If its replacement bytes are unusable, the
     // pre-refresh candidate is no longer safe to launch and an ordinary
@@ -645,17 +688,34 @@ async function handleBootstrapAuth(
     // over the fresher local login the store just failed to accept. With the
     // stamp threaded through, retrieve answers `upload_required` (no blob)
     // and the host keeps its newer credentials.
-    return handleRetrieve(
-      app,
-      ctx,
-      host,
-      retrievePayloadWithCandidateFreshness(payload, candidateLast),
-      engine,
-      runnerValidation,
-      versionSvc,
-      authStore,
+    return annotateFailedCanonicalMatch(
+      await handleRetrieve(
+        app,
+        ctx,
+        host,
+        retrievePayloadWithCandidateFreshness(payload, candidateLast),
+        engine,
+        runnerValidation,
+        versionSvc,
+        authStore,
+      ),
     );
   }
+}
+
+function credentialPairMatches(
+  candidate: Record<string, unknown>,
+  canonical: Record<string, unknown>,
+  engine: Engine,
+): boolean | null {
+  const candidateIdentity = inspectCredential(candidate, engine);
+  const canonicalIdentity = inspectCredential(canonical, engine);
+  if (!candidateIdentity || !canonicalIdentity) return null;
+  return (
+    candidateIdentity.kind === canonicalIdentity.kind &&
+    candidateIdentity.access === canonicalIdentity.access &&
+    candidateIdentity.refresh === canonicalIdentity.refresh
+  );
 }
 
 function servesVerifiedCanonicalAuth(response: Record<string, unknown>): boolean {
@@ -703,7 +763,7 @@ function canonicalizedCandidateDigest(
   const withFallback = runnerValidation.ensureAuthsFallback(candidate, engine);
   const entries = runnerValidation.normalizeAuthEntries(withFallback, engine);
   if (entries.length === 0) return null;
-  const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh);
+  const canonical = runnerValidation.canonicalizeAuthPayload(withFallback, entries, lastRefresh, engine);
   return runnerValidation.calculateDigest(JSON.stringify(canonical));
 }
 
@@ -795,10 +855,23 @@ function extractDigest(payload: Record<string, unknown>, required: boolean): str
   return null;
 }
 
-function extractHostUserInput(payload: Record<string, unknown>): { username: string | null; hostname: string | null } {
+function extractHostUserInput(payload: Record<string, unknown>): {
+  username: string | null;
+  hostname: string | null;
+} {
   const sync = (payload.host_user ?? payload.sync_host_user ?? {}) as Record<string, unknown>;
-  const username = typeof sync.username === 'string' ? sync.username : typeof payload.username === 'string' ? (payload.username as string) : null;
-  const hostname = typeof sync.hostname === 'string' ? sync.hostname : typeof payload.hostname === 'string' ? (payload.hostname as string) : null;
+  const username =
+    typeof sync.username === 'string'
+      ? sync.username
+      : typeof payload.username === 'string'
+        ? (payload.username as string)
+        : null;
+  const hostname =
+    typeof sync.hostname === 'string'
+      ? sync.hostname
+      : typeof payload.hostname === 'string'
+        ? (payload.hostname as string)
+        : null;
   return { username, hostname };
 }
 
@@ -816,11 +889,18 @@ function normalizeBoolean(v: unknown): boolean | null {
 function uniqueNonEmpty(list: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const v of list) { if (v && !seen.has(v)) { seen.add(v); out.push(v); } }
+  for (const v of list) {
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
   return out;
 }
 
-async function assertApiNotDisabled(versions: ReturnType<typeof createVersionSnapshotService>): Promise<void> {
+async function assertApiNotDisabled(
+  versions: ReturnType<typeof createVersionSnapshotService>,
+): Promise<void> {
   if (await versions.flag('api_disabled', false)) {
     throw new ApiError('API disabled by administrator', { status: 503, code: 'api_disabled' });
   }
@@ -856,7 +936,10 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     lane_preference: host.lanePreference ?? null,
     model_override: host.modelOverride ?? null,
     reasoning_effort_override: host.reasoningEffortOverride ?? null,
-    auto_update_override: host.autoUpdateOverride === null || host.autoUpdateOverride === undefined ? null : host.autoUpdateOverride === 1,
+    auto_update_override:
+      host.autoUpdateOverride === null || host.autoUpdateOverride === undefined
+        ? null
+        : host.autoUpdateOverride === 1,
     last_cron_check: host.lastCronCheck ?? null,
     engines: host.engines,
     engines_list: hostEnginesList(host.engines),

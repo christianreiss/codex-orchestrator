@@ -147,7 +147,7 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
 
 4. **Apply bundle response**:
    - Consider `~/.claude/.credentials.json` only for distributable server auth:
-     never write `verification_state=failed`; preserve a newer usable local
+     write only `verification_state=verified`; preserve a newer usable local
      generation unless `candidate_rejected_definitive:true` accompanies an
      older verified canonical; require request-generation CAS and the separate
      active-child writer lease. A blocked required write fails when no usable
@@ -157,7 +157,17 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
      equal-stamp/different-content rotations fail closed. The exact generation
      named by a definitive rejection is not accepted merely because it still
      parses. The legacy clx credentials path is an optional
-     write-only mirror, never a read source.
+     write-only mirror, never a read source. Before rename, the final normalized
+     native JSON must contain non-empty Claude OAuth or a genuine
+     `sk-ant-api...` key; empty OAuth plus a derived `sk-ant-oat...` entry is
+     rejected as unrunnable.
+     `candidate_credential_rejected:true` separately marks the exact submitted
+     local generation unusable and starts recovery; it never grants overwrite
+     authority without the verified-canonical tuple above.
+     For a failed server head, only
+     `candidate_matches_failed_canonical:false` proves that usable local auth is
+     distinct enough to launch while upload retries. `true` or omission stays
+     fail-closed.
    - Write `~/.claude/CLAUDE.md` (agents/fleet instructions).
    - Deep-merge `~/.claude/settings.json` (fleet partial, preserving user keys;
      see [Settings merge](#settings-deep-merge) below).
@@ -174,9 +184,11 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
 5. **Auth decision** (`orchestrator.Decide`). A few conditions are hard stops
    ahead of the status table below: the server's `versions.api_disabled` kill
    switch, an `installation_id` mismatch, a reverse-DNS mismatch, the host's
-   Claude engine being disabled, and a `verification_state=failed` response
-   (the background runner reached Anthropic and the canonical token did not
-   authenticate) — the last one refuses with a re-login message. Otherwise,
+   Claude engine being disabled, and an explicit host security-policy denial.
+   A `verification_state=failed` canonical is not distributable, but a distinct
+   runnable local login is still uploaded and may launch through a transient
+   runner outage; login recovery starts only after the local candidate is
+   definitively rejected or no runnable local credential exists. Otherwise,
    possible statuses:
 
    | Status | Meaning |
@@ -192,12 +204,13 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    | `insecure` (HTTP 423 maps here) | Awaiting admin approval; polls `PollApproval` every 5 s |
    | `insecure-denied` (HTTP 403) | Admin denied; fleet settings + skills stripped |
 
-6. **Interactive credential recovery** — when the live-verification hard stop
-   fires, or `missing`/`upload_required` has no usable recovery (including a
-   definitively rejected candidate), an interactive `clx run` prompts to
-   launch `claude auth login`, uploads the resulting credentials, and
-   re-checks with the server. Non-interactive runs (cron, `--execute`) fail
-   closed instead of opening the prompt.
+6. **Interactive credential recovery** — when neither a runnable local
+   credential nor verified runnable server credential remains, an interactive
+   `clx run` launches `claude auth login` directly, uploads the resulting
+   credentials, and re-checks with the server. There is no extra wrapper-owned
+   confirmation prompt. Non-interactive runs (cron, `--execute`) do not open a
+   browser flow and instead direct the operator to run `clx auth login`
+   interactively.
 
 7. **Install target Claude CLI version** if allowed and `auto_update` is
    enabled (`claude.EnsureClaude`), then — unless this is a concurrent
@@ -235,6 +248,9 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    native removal is completed automatically by the last peer exit. Marker
    cleanup requires both the exact auth generation and exact marker bytes seen
    before an accepted store. Active children also defer insecure cleanup.
+   A normal run treats the exact stale native generation named by a logout
+   marker as unusable; it never clears the marker just to relaunch those bytes.
+   Recovery requires a different verified canonical generation or a new login.
    Upload/writeback/marker/purge failures make an otherwise successful wrapper
    invocation non-zero and are reflected in the footer. Uninstall requires an
    exclusive maintenance lease and refuses while another clx session targets
@@ -273,16 +289,26 @@ not launch or concurrency totals.
 
 ## Authentication model
 
-`clx` does **not unconditionally** set `ANTHROPIC_API_KEY`, and never sets
-`ANTHROPIC_BASE_URL`. The fleet keeps `~/.claude/.credentials.json` populated
-with the native `claudeAiOauth` object (refresh token + expiry intact); the
-orchestrator stores and serves this object verbatim.
+`clx` sets `ANTHROPIC_API_KEY` only for the selected native API-key mode. The
+fleet keeps `~/.claude/.credentials.json` populated with the native
+`claudeAiOauth` object (refresh token + expiry intact); the orchestrator stores
+and serves this object verbatim. Custom base URLs are removed and the protected
+runtime overlay pins the official Anthropic endpoint.
 
-The `PreExec` hook (`wrappers/clx/internal/claude/preexec.go`) conditionally
-exports `ANTHROPIC_API_KEY` — only when `.credentials.json` holds a genuine
-`sk-ant-api…` key — and never bridges an OAuth token (`sk-ant-oat…`), because
-an injected OAuth token would trigger Claude Code's "detected custom API key"
-prompt and override the native OAuth login.
+The runtime environment builder exports `ANTHROPIC_API_KEY` only when
+`.credentials.json` holds a genuine `sk-ant-api…` key, and never bridges an
+OAuth token (`sk-ant-oat…`), because an injected OAuth token would trigger
+Claude Code's custom-key path and override the native OAuth login.
+
+At launch, clx first acquires the active-child lease, then removes inherited
+credential/provider/endpoint selectors and forces `CLAUDE_CONFIG_DIR=~/.claude`.
+A protected mode-0600 per-run settings overlay disables `apiKeyHelper`,
+neutralizes the same selectors from user/project settings, and pins the official
+Anthropic endpoint. It is removed after the child exits. API-key mode exposes
+only the selected verified key; OAuth remains in `.credentials.json`. Since
+upstream `--bare` ignores subscription OAuth, clx transparently uses
+`--safe-mode` for OAuth launches and prints that substitution. Enterprise
+managed settings remain Claude Code's higher-precedence policy boundary.
 
 The `/anthropic/v1` proxy (for issued `sk-claude-*` keys) is a separate gateway
 and is not part of the host launch path.

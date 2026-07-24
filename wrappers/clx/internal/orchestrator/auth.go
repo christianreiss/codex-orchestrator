@@ -31,6 +31,8 @@ type AuthRetrieveResponse struct {
 	RunnerApplied               bool            `json:"runner_applied,omitempty"`
 	RunnerSkippedReason         string          `json:"runner_skipped_reason,omitempty"`
 	CandidateRejectedDefinitive bool            `json:"candidate_rejected_definitive,omitempty"`
+	CandidateCredentialRejected bool            `json:"candidate_credential_rejected,omitempty"`
+	CandidateMatchesFailedHead  *bool           `json:"candidate_matches_failed_canonical,omitempty"`
 }
 
 // HostSecurity reports API-authoritative host security when present. Insecure
@@ -56,7 +58,10 @@ func (r *AuthRetrieveResponse) HostSecurity() (secure bool, known bool) {
 // an "outdated" response is a successful arbitration response but does not
 // acknowledge the candidate: its canonical auth won instead.
 func (r *AuthRetrieveResponse) AuthCandidateAccepted() bool {
-	if r == nil || r.CandidateRejectedDefinitive || strings.EqualFold(strings.TrimSpace(r.VerificationState), "failed") {
+	if r == nil ||
+		r.CandidateRejectedDefinitive ||
+		r.CandidateCredentialRejected ||
+		!strings.EqualFold(strings.TrimSpace(r.VerificationState), "verified") {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(r.Status)) {

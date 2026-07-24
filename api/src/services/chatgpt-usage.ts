@@ -17,10 +17,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
 import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
-import {
-  createRunnerValidationService,
-  type RunnerValidationService,
-} from './runner-validation.js';
+import { createRunnerValidationService, type RunnerValidationService } from './runner-validation.js';
 import { ENGINE_CODEX } from '../util/engine.js';
 
 type Logger = {
@@ -171,15 +168,48 @@ export function buildChatGptHistorySeries(
 ): ChatGptHistorySeries[] {
   const lane = params.lane ?? 'both';
   const window = params.window ?? 'both';
-  const candidates: Array<{ key: string; label: string; lane: 'normal' | 'spark'; window: 'primary' | 'secondary'; field: keyof ChatGptHistoryPoint }> = [
-    { key: 'normal_primary', label: 'Normal 5-hour', lane: 'normal', window: 'primary', field: 'primary_used_percent' },
-    { key: 'normal_secondary', label: 'Normal weekly', lane: 'normal', window: 'secondary', field: 'secondary_used_percent' },
-    { key: 'spark_primary', label: 'Spark 5-hour', lane: 'spark', window: 'primary', field: 'spark_primary_used_percent' },
-    { key: 'spark_secondary', label: 'Spark weekly', lane: 'spark', window: 'secondary', field: 'spark_secondary_used_percent' },
+  const candidates: Array<{
+    key: string;
+    label: string;
+    lane: 'normal' | 'spark';
+    window: 'primary' | 'secondary';
+    field: keyof ChatGptHistoryPoint;
+  }> = [
+    {
+      key: 'normal_primary',
+      label: 'Normal 5-hour',
+      lane: 'normal',
+      window: 'primary',
+      field: 'primary_used_percent',
+    },
+    {
+      key: 'normal_secondary',
+      label: 'Normal weekly',
+      lane: 'normal',
+      window: 'secondary',
+      field: 'secondary_used_percent',
+    },
+    {
+      key: 'spark_primary',
+      label: 'Spark 5-hour',
+      lane: 'spark',
+      window: 'primary',
+      field: 'spark_primary_used_percent',
+    },
+    {
+      key: 'spark_secondary',
+      label: 'Spark weekly',
+      lane: 'spark',
+      window: 'secondary',
+      field: 'spark_secondary_used_percent',
+    },
   ];
 
   return candidates
-    .filter((candidate) => (lane === 'both' || lane === candidate.lane) && (window === 'both' || window === candidate.window))
+    .filter(
+      (candidate) =>
+        (lane === 'both' || lane === candidate.lane) && (window === 'both' || window === candidate.window),
+    )
     .map((candidate) => ({
       key: candidate.key,
       label: candidate.label,
@@ -215,7 +245,8 @@ export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<Ch
     secondaryResetAfterSeconds: normalizeInt(secondary['reset_after_seconds']),
     secondaryResetAt: typeof secondary['reset_at'] === 'string' ? secondary['reset_at'] : null,
     sparkLimitName: typeof spark['limit_name'] === 'string' ? spark['limit_name'].trim() : null,
-    sparkMeteredFeature: typeof spark['metered_feature'] === 'string' ? spark['metered_feature'].trim() : null,
+    sparkMeteredFeature:
+      typeof spark['metered_feature'] === 'string' ? spark['metered_feature'].trim() : null,
     sparkRateAllowed: boolToTinyint(sparkRate['allowed']),
     sparkRateLimitReached: boolToTinyint(sparkRate['limit_reached']),
     sparkPrimaryUsedPercent: normalizeInt(sparkPrimary['used_percent']),
@@ -228,7 +259,8 @@ export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<Ch
     sparkSecondaryResetAt: typeof sparkSecondary['reset_at'] === 'string' ? sparkSecondary['reset_at'] : null,
     hasCredits: boolToTinyint(credits['has_credits']),
     unlimited: boolToTinyint(credits['unlimited']),
-    creditBalance: credits['balance'] === undefined || credits['balance'] === null ? null : String(credits['balance']),
+    creditBalance:
+      credits['balance'] === undefined || credits['balance'] === null ? null : String(credits['balance']),
     approxLocalMessages: encodeJsonField(credits['approx_local_messages']),
     approxCloudMessages: encodeJsonField(credits['approx_cloud_messages']),
   };
@@ -248,7 +280,8 @@ export class ChatGptUsageService {
     this.validation = deps.runnerValidation ?? createRunnerValidationService({ db, keyring: deps.keyring });
     this.fetchImpl = deps.fetchImpl ?? fetch;
     this.baseUrl = deps.env?.CHATGPT_BASE_URL ?? DEFAULT_BASE_URL;
-    this.timeoutMs = Math.max(1000, Math.round((deps.env?.CHATGPT_USAGE_TIMEOUT ?? 10) * 1000)) || DEFAULT_TIMEOUT_MS;
+    this.timeoutMs =
+      Math.max(1000, Math.round((deps.env?.CHATGPT_USAGE_TIMEOUT ?? 10) * 1000)) || DEFAULT_TIMEOUT_MS;
   }
 
   async latest(): Promise<ChatGptSnapshotRow | null> {
@@ -264,7 +297,7 @@ export class ChatGptUsageService {
     const latest = await this.latest();
     const now = Date.now();
     const nextEligibleAt = latest?.nextEligibleAt ?? null;
-    const nextTs = nextEligibleAt ? parseIso(nextEligibleAt)?.getTime() ?? 0 : 0;
+    const nextTs = nextEligibleAt ? (parseIso(nextEligibleAt)?.getTime() ?? 0) : 0;
     if (!force && latest && nextTs > now) {
       return {
         status: 'ok',
@@ -329,10 +362,7 @@ export class ChatGptUsageService {
       })
       .from(chatgptUsageSnapshots)
       .where(
-        and(
-          gte(chatgptUsageSnapshots.fetchedAt, fromIso),
-          lte(chatgptUsageSnapshots.fetchedAt, untilIso),
-        ),
+        and(gte(chatgptUsageSnapshots.fetchedAt, fromIso), lte(chatgptUsageSnapshots.fetchedAt, untilIso)),
       )
       .orderBy(chatgptUsageSnapshots.fetchedAt);
 
@@ -389,19 +419,20 @@ export class ChatGptUsageService {
     const now = nowIso();
     const nextEligible = isoOffsetSeconds(MIN_REFRESH_SECONDS);
     const canonical = await this.validation.resolveCanonicalPayload(ENGINE_CODEX);
-    const validated = this.validation.validateCanonicalPayload(canonical);
-    if (!validated) {
+    const auth = canonical ? this.validation.canonicalAuthFromPayload(canonical) : null;
+    if (!auth) {
       return this.storeError('missing_canonical_auth', 'Canonical Codex auth.json not available');
     }
 
-    const tokens = isRecord(validated.auth['tokens']) ? validated.auth['tokens'] : null;
+    const tokens = isRecord(auth['tokens']) ? auth['tokens'] : null;
     const accessToken = typeof tokens?.['access_token'] === 'string' ? tokens['access_token'].trim() : '';
     if (!accessToken) {
       return this.storeError('missing_token', 'access_token missing or empty in canonical auth.json');
     }
-    const accountId = typeof tokens?.['account_id'] === 'string' && tokens['account_id'].trim()
-      ? tokens['account_id'].trim()
-      : null;
+    const accountId =
+      typeof tokens?.['account_id'] === 'string' && tokens['account_id'].trim()
+        ? tokens['account_id'].trim()
+        : null;
 
     const response = await this.requestUsage(accessToken, accountId);
     if (response.error) {
@@ -431,7 +462,10 @@ export class ChatGptUsageService {
   private async requestUsage(
     accessToken: string,
     accountId: string | null,
-  ): Promise<{ status: number; body: string; json: Record<string, unknown>; error: null } | { status: number; body: string; json: Record<string, unknown> | null; error: string }> {
+  ): Promise<
+    | { status: number; body: string; json: Record<string, unknown>; error: null }
+    | { status: number; body: string; json: Record<string, unknown> | null; error: string }
+  > {
     const url = `${this.baseUrl.replace(/\/+$/, '')}/wham/usage`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -491,7 +525,10 @@ export class ChatGptUsageService {
       createdAt: now,
     });
     await this.recordGraphSnapshot(row);
-    this.log?.warn?.({ reason, http_status: httpStatus, fetched_at: row.fetchedAt }, 'chatgpt.usage refresh failed');
+    this.log?.warn?.(
+      { reason, http_status: httpStatus, fetched_at: row.fetchedAt },
+      'chatgpt.usage refresh failed',
+    );
     return {
       status: 'error',
       snapshot: this.normalizeSnapshot(row),
@@ -572,9 +609,12 @@ function extractSparkRateLimit(limits: unknown): Record<string, unknown> {
     if (!isRecord(candidate)) continue;
     const rate = candidate['rate_limit'];
     if (!isRecord(rate)) continue;
-    const limitName = typeof candidate['limit_name'] === 'string' ? candidate['limit_name'].toLowerCase().trim() : '';
+    const limitName =
+      typeof candidate['limit_name'] === 'string' ? candidate['limit_name'].toLowerCase().trim() : '';
     const meteredFeature =
-      typeof candidate['metered_feature'] === 'string' ? candidate['metered_feature'].toLowerCase().trim() : '';
+      typeof candidate['metered_feature'] === 'string'
+        ? candidate['metered_feature'].toLowerCase().trim()
+        : '';
     let score = 0;
     if (limitName.includes('spark')) score = 3;
     else if (meteredFeature.includes('spark')) score = 2;

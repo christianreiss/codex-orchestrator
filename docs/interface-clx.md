@@ -178,19 +178,28 @@ request, so a cloned/mis-deployed host cannot paint green sync state first;
 `PreExec` repeats the check immediately before spawning Claude as
 defense-in-depth. `CLAUDE_ALLOW_FQDN_MISMATCH=1` remains the explicit override.
 Startup does not wait on live runner verification; `/auth` and
-`/sync/bootstrap` return the latest stored background-worker verdict, and a
-stored `verification_state=failed` still refuses launch with the interactive
-Claude login recovery path.
-Bootstrap `candidate_rejected_definitive:true` is honored only with
-`status:outdated`, `verification_state:verified`, and an auth object. Invalid
-native JSON is submitted as digest/state without raw candidate bytes so verified
-canonical auth can repair it. On 404/405/501, legacy fallback preserves a newer
+`/sync/bootstrap` return only a stored, verified canonical credential.
+Pending/unknown/failed bytes are never distributable. A failed canonical does
+not override a distinct runnable local login: clx attempts to upload it, keeps
+using it through transient runner infrastructure failures, and enters login
+recovery only when no runnable local or verified server credential remains.
+Bootstrap `candidate_credential_rejected:true` makes the exact submitted local
+generation unusable and triggers login when no replacement exists. The
+stronger `candidate_rejected_definitive:true` overwrite authority is honored
+only with `status:outdated`, `verification_state:verified`, and an auth object.
+Invalid native JSON is submitted as digest/state without raw candidate bytes so
+verified canonical auth can repair it. On 404/405/501, legacy fallback preserves a newer
 usable native generation and attempts store; only validation-shaped 400/422
 permits applying the already-retrieved verified canonical. Transient,
 security/policy, and rate failures preserve local auth, while unsafe runner
 rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
 retry) fails closed on initial and concurrent bundle paths instead of using the
 pre-refresh local token as an offline fallback.
+Against a failed server head, clx preserves local auth only when bootstrap
+explicitly returns `candidate_matches_failed_canonical:false`; the server makes
+that comparison from credential kind plus access/refresh identity. `true` or
+omission is fail-closed, so a raw native digest can never be mistaken for a
+distinct canonical envelope.
 An IP-binding denial (`ip_mismatch`) wrapped by `/sync/bootstrap` as an offline
 response is instead treated as a reachable hard policy denial: `clx` states
 that the current IP is not bound and directs the operator to **Admin → Host
@@ -199,15 +208,16 @@ are never used for this condition.
 When the `clx` lock is already held, the secondary run pauses writes for
 managed `CLAUDE.md`, settings, collections, skills, wrapper/CLI updates, and
 peer reconciliation, but auth still follows the full replacement gate: never
-write `verification_state=failed`, preserve newer usable native auth unless the
-API definitively rejects that candidate and serves a verified canonical, then
+write non-verified auth, preserve newer usable native auth unless the API
+definitively rejects that candidate and serves a verified canonical, then
 require generation CAS plus the active-child writer lease. A blocked required
 write fails when no usable local credential remains, and the exact local
 generation named by `candidate_rejected_definitive` is treated as unusable even
 when its JSON still contains a token. An absent or structurally unusable native
 credential suppresses its cached digest and candidate, forcing canonical repair
-even during a sync-paused run; only the server's insecure-host window policy
-may block that repair. `--allow-concurrent-sync` is the explicit
+even during a sync-paused run; auth repair and login recovery do not pause merely
+because the managed-content lock is held. Only the server's security policy may
+block that repair. `--allow-concurrent-sync` is the explicit
 escape hatch: it allows normal managed writes without the lock and announces
 that choice before startup. The boot card says `SYNC PAUSED` and keeps the
 probed health markers visible. Approval polling only repaints an interactive,
@@ -259,7 +269,11 @@ candidate was definitively rejected and an older verified canonical is
 explicitly authorized. If an older logout marker exists, however,
 that login is pending rather than immediately authoritative: only server
 acceptance of the exact uploaded generation permits an exact-marker CAS. A
-blocked write fails closed when native auth is missing/unusable.
+normal launch never clears intent merely because logout was deferred and stale
+native bytes still exist: those exact bytes are unusable for launch/upload. It
+may restore a verified canonical only when that canonical is a different
+credential generation; otherwise it starts login recovery. A blocked write
+fails closed when native auth is missing/unusable.
 Explicit `clx logout` / `clx auth logout`, plus logout detected inside a managed
 session, records nonce-bearing durable intent before native removal. A
 standalone wrapper-owned logout runs the upstream command only while it owns an
@@ -288,17 +302,35 @@ Engine-specific details:
 - Credentials are read only from `~/.claude/.credentials.json`. Server-accepted
   credentials are written there atomically and mirrored to
   `~/.clx/auth/credentials.json` only when that legacy sidecar already exists;
-  the sidecar is never a fallback source.
+  the sidecar is never a fallback source. Before commit, the normalized native
+  bytes are parsed again and must contain either a non-empty Claude OAuth access
+  token or a genuine `sk-ant-api...` key. Empty OAuth plus a derived
+  `sk-ant-oat...` bearer is not runnable and is rejected.
 - **Auth model is native account-login, 1:1 with cdx/`auth.json`.** The fleet
   keeps the host's `.credentials.json` current and Claude Code reads its
-  `claudeAiOauth` account login from it directly. clx deliberately does **not**
-  set `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`, and `preexec` only exports a
-  genuine API key (`sk-ant-api…`), never an OAuth token (`sk-ant-oat…`) — an
-  injected key pops Claude Code's "detected custom API key" prompt and overrides
-  the OAuth login. The orchestrator stores+serves the native `claudeAiOauth`
-  object (not just a derived `auths` bearer), so the refresh token/expiry survive
-  the round-trip. The `/anthropic/v1` proxy is a separate gateway for issued
+  `claudeAiOauth` account login from it directly. clx exports
+  `ANTHROPIC_API_KEY` only for a selected genuine API key (`sk-ant-api…`), never
+  for an OAuth token (`sk-ant-oat…`) — an injected OAuth token triggers Claude
+  Code's custom-key path and overrides native OAuth. Custom base URLs are
+  removed and the protected runtime overlay pins the official Anthropic
+  endpoint. The orchestrator stores+serves the native `claudeAiOauth` object
+  (not just a derived `auths` bearer), so the refresh token/expiry survive the
+  round-trip. The `/anthropic/v1` proxy is a separate gateway for issued
   `sk-claude-*` keys and is not part of the host launch path.
+- The selected credential remains authoritative at exec time. Before reading or
+  copying auth, clx acquires the shared active-child lease; explicit logout
+  therefore cannot race a key already copied into the child environment. clx
+  removes inherited credential, provider, endpoint, file-descriptor, and
+  token-file selectors, forces `CLAUDE_CONFIG_DIR=~/.claude`, and appends a
+  mode-0600 per-run settings overlay that disables `apiKeyHelper`, neutralizes
+  the same selectors from user/project settings, and pins the official
+  Anthropic endpoint. The overlay is deleted after Claude exits; stale crash
+  remnants are pruned. Native API-key mode exposes only the selected verified
+  key, while OAuth stays exclusively in `.credentials.json`. Because upstream
+  `--bare` ignores subscription OAuth, clx translates it to `--safe-mode` for
+  OAuth launches and reports the substitution. Enterprise managed settings are
+  an upstream higher-precedence policy boundary; a conflicting managed policy
+  must be corrected by the host administrator.
 - `clx auth-upload`, missing/upload-required pre-run upload, and post-run
   changed-credential upload reuse the digest-bound `last_refresh` stored in
   wrapper generation metadata. When the server returns canonical auth
@@ -316,11 +348,12 @@ Engine-specific details:
   replacement; transient, security/policy, and rate failures preserve local
   auth. Writeback or logout-marker failure exits non-zero.
 - Interactive `clx run` can recover missing or live-verification-failed
-  credentials: it prompts before launch, runs `claude auth login` on acceptance,
-  uploads the resulting local credentials through `/auth command=store`, and
-  re-runs the startup auth check. Launch proceeds only after the server accepts
-  and verifies the new credentials. Non-interactive runs fail closed instead of
-  opening a login flow.
+  credentials: when neither runnable local auth nor verified runnable server
+  auth exists, it directly runs `claude auth login`, uploads the resulting
+  native credentials through `/auth command=store`, and re-runs the startup
+  auth check. There is no extra wrapper-owned `[y/N]` prompt. Headless runs do
+  not open a browser flow; they fail with the actionable instruction to run
+  `clx auth login` interactively.
 - Settings file mirrored to `~/.clx/config/settings.json` after the canonical
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI

@@ -35,7 +35,9 @@ function fakeValidation(): RunnerValidationService {
         last_refresh: '2026-01-01T00:00:00Z',
       };
     },
-    canonicalAuthFromPayload: () => null,
+    canonicalAuthFromPayload: () => ({
+      auths: { 'api.openai.com': { token: 'verified-test-token' } },
+    }),
     ensureAuthsFallback: (payload) => payload,
     normalizeAuthEntries: () => [],
     hasUsableEngineCredential: () => true,

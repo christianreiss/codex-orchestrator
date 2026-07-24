@@ -155,6 +155,17 @@ func RunExplicitLogout(ctx context.Context, cfg *config.Config, args []string, b
 }
 
 func runCaptureWithHeldAuthLease(ctx context.Context, cfg *config.Config, args []string, heldLease *authChildLease, session *AuthSession) (int, []byte, error) {
+	return runCaptureWithHeldAuthLeaseUsing(ctx, cfg, args, heldLease, session, acquireAuthChildShared)
+}
+
+func runCaptureWithHeldAuthLeaseUsing(
+	ctx context.Context,
+	cfg *config.Config,
+	args []string,
+	heldLease *authChildLease,
+	session *AuthSession,
+	acquireShared func() (*authChildLease, error),
+) (int, []byte, error) {
 	cli, err := FindCLI()
 	if err != nil {
 		return 127, nil, err
@@ -168,14 +179,40 @@ func runCaptureWithHeldAuthLease(ctx context.Context, cfg *config.Config, args [
 	}
 	defer teardown()
 
+	// Hold the active-child lease before reading or copying any credential.
+	// Otherwise an explicit logout can win between managedRuntimeAuth and the
+	// eventual shared-lock acquisition, while this child still launches with a
+	// stale API key already copied into its environment/settings overlay.
+	childLease := heldLease
+	closeChildLease := false
+	if childLease == nil {
+		childLease, err = acquireShared()
+		if err != nil {
+			return 1, nil, fmt.Errorf("acquire Claude auth child lease: %w", err)
+		}
+		closeChildLease = true
+	}
+
 	stdoutIsTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	stdinIsTTY := term.IsTerminal(int(os.Stdin.Fd()))
 
-	env := BuildEnv(cfg)
+	args, replacedBare := normalizeRuntimeAuthArgs(args)
+	if replacedBare {
+		fmt.Fprintln(os.Stderr, "clx: --bare ignores subscription OAuth; using --safe-mode so verified Claude login remains active.")
+	}
+	env := buildEnv(cfg, args)
 	if !stdoutIsTTY || !stdinIsTTY {
 		env = append(env, "PROMPT_TOOLKIT_NO_CPR=1")
 	}
 
+	args, cleanupRuntimeAuth, err := prepareRuntimeAuthSettings(args)
+	if err != nil {
+		if closeChildLease {
+			_ = childLease.Close()
+		}
+		return 1, nil, err
+	}
+	defer cleanupRuntimeAuth()
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
@@ -189,15 +226,6 @@ func runCaptureWithHeldAuthLease(ctx context.Context, cfg *config.Config, args [
 		cmd.Stdout = io.MultiWriter(os.Stdout, capture)
 	}
 
-	childLease := heldLease
-	closeChildLease := false
-	if childLease == nil {
-		childLease, err = acquireAuthChildShared()
-		if err != nil {
-			return 1, nil, fmt.Errorf("acquire Claude auth child lease: %w", err)
-		}
-		closeChildLease = true
-	}
 	closeExtras, err := attachAuthLeaseFiles(cmd, session, childLease)
 	if err != nil {
 		if closeChildLease {
