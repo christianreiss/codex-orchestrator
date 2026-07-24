@@ -344,7 +344,7 @@ func TestApplyServerAuth(t *testing.T) {
 	}
 
 	t.Run("stale server auth must not clobber fresher stamped local", func(t *testing.T) {
-		local := writeLocal(t, `{"last_refresh":"`+freshStamp+`","auths":{"api.openai.com":{"token":"new"}}}`)
+		local := writeLocal(t, `{"last_refresh":"`+freshStamp+`","tokens":{"access_token":"new"}}`)
 		wrote, kept, err := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: staleServerAuth, CanonicalLastRefresh: staleStamp, VerificationState: "verified",
 		}, false, codex.AuthGeneration{})
@@ -359,7 +359,7 @@ func TestApplyServerAuth(t *testing.T) {
 
 	t.Run("stale server auth must not clobber fresher vanilla-login local (mtime)", func(t *testing.T) {
 		// Vanilla `codex login` output: no last_refresh — freshness comes from mtime.
-		local := writeLocal(t, `{"auths":{"api.openai.com":{"token":"new"}}}`)
+		local := writeLocal(t, `{"tokens":{"access_token":"new"}}`)
 		wrote, kept, err := applyServerAuth(logger, local, &orchestrator.AuthRetrieveResponse{
 			Status: "outdated", Auth: staleServerAuth, CanonicalLastRefresh: staleStamp, VerificationState: "verified",
 		}, false, codex.AuthGeneration{})
@@ -369,7 +369,7 @@ func TestApplyServerAuth(t *testing.T) {
 	})
 
 	t.Run("newer server auth still lands", func(t *testing.T) {
-		local := writeLocal(t, `{"last_refresh":"`+staleStamp+`","auths":{"api.openai.com":{"token":"old"}}}`)
+		local := writeLocal(t, `{"last_refresh":"`+staleStamp+`","tokens":{"access_token":"old"}}`)
 		// Point codex.WriteAuth at the temp HOME so the test never touches ~/.codex.
 		t.Setenv("HOME", filepath.Dir(filepath.Dir(local)))
 		home, _ := os.UserHomeDir()
@@ -377,7 +377,7 @@ func TestApplyServerAuth(t *testing.T) {
 			t.Fatalf("mkdir: %v", err)
 		}
 		realPath, _ := codex.AuthPath()
-		if err := os.WriteFile(realPath, []byte(`{"last_refresh":"`+staleStamp+`","auths":{"api.openai.com":{"token":"old"}}}`), 0o600); err != nil {
+		if err := os.WriteFile(realPath, []byte(`{"last_refresh":"`+staleStamp+`","tokens":{"access_token":"old"}}`), 0o600); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 		expected, _ := codex.CurrentAuthGeneration()
