@@ -80,7 +80,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
      engine and revoking the removed engine's pending installer credentials.
 
 3) **Runner validation**
-   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). The background worker keeps the latest Codex/Claude canonical payloads verified/refreshed; store paths still validate synchronously before accepting new auth. Runner failures are logged (`auth.validate`/`auth.runner_store`), do not block `/auth` retrieve, but **do** block canonical-auth-changing uploads, including admin uploads and seed uploads.
+   - Enabled when `AUTH_RUNNER_URL` is set (default in compose). The background worker keeps the latest Codex/Claude canonical payloads verified/refreshed; store paths still validate synchronously before accepting new auth. Claude OAuth probes project the server envelope onto the native `claudeAiOauth`-only `.credentials.json` shape and compare readback against that same projection, so server metadata cannot trigger a false credential rotation. Runner failures are logged (`auth.validate`/`auth.runner_store`), do not block `/auth` retrieve, but **do** block canonical-auth-changing uploads, including admin uploads and seed uploads.
 
 4) **Wrapper distribution**
    - `/wrapper/v2/meta` (and the legacy `/wrapper` alias) returns the per-platform binary manifest. `/wrapper/v2/download` returns the raw Go binary for v2-aware clients, and `/wrapper/download` remains the legacy shell-transition path for date-versioned wrappers. New wrapper versions roll out by publishing under `storage/wrapper/v2/bin/<engine>/<os>-<arch>/v<version>/<binary>` (CI does this from tagged releases); hosts pick up the new binary on next run via the signed config's `binary_sha256`.

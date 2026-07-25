@@ -194,8 +194,12 @@ Behavior details:
   "claude-sonnet-4-20250514"`, `max_tokens: 16`, and a one-line "Reply Banana"
   probe prompt.
 - Claude Code OAuth payloads create a temp `$HOME` under `RUNNER_HOME_PARENT`,
-  write `~/.claude/.credentials.json`, clear `ANTHROPIC_API_KEY`, and run
+  project the canonical envelope onto the native `claudeAiOauth`-only
+  `~/.claude/.credentials.json` shape, clear `ANTHROPIC_API_KEY`, and run
   `/usr/local/bin/claude --print "Reply Banana if this works."`.
+- Runner readback compares against that same native projection. Orchestrator
+  metadata such as `last_refresh` and derived `auths` entries therefore cannot
+  masquerade as a Claude credential rotation.
 - `status` is `ok` only when the API/CLI response contains `banana`
   (case-insensitive).
 - `claude_version` comes from `/usr/local/bin/claude --version`, or

@@ -292,6 +292,16 @@ def _has_claude_oauth(auth_json: dict) -> bool:
     return False
 
 
+def _claude_native_credentials(auth_json: dict) -> dict:
+    """Project an orchestrator envelope onto Claude Code's native file shape."""
+    oauth = auth_json.get("claudeAiOauth", {})
+    if isinstance(oauth, dict):
+        candidate = oauth.get("accessToken")
+        if isinstance(candidate, str) and candidate.strip():
+            return {"claudeAiOauth": dict(oauth)}
+    return auth_json
+
+
 def _is_definitive_auth_rejection(message: str) -> bool:
     """Classify only credential-specific CLI failures as definitive.
 
@@ -393,14 +403,16 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
 
     # Store the credentials so callers can detect rotation (same pattern as Codex).
     # Native Claude Code account-login credentials are *not* public Anthropic API
-    # keys. For those, write the upstream .credentials.json shape and let Claude
-    # Code read it natively instead of forcing ANTHROPIC_API_KEY.
+    # keys. The orchestrator envelope also carries last_refresh/auths metadata;
+    # never put those wrapper/server fields in Claude's native credential file.
+    # Current Claude versions may rewrite a non-native envelope to an empty
+    # object, which looks like a destructive token rotation to the API.
     claude_dir = os.path.join(home_dir, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
     auth_path = os.path.join(claude_dir, ".credentials.json")
     try:
         with open(auth_path, "w", encoding="utf-8") as fh:
-            json.dump(auth_json, fh)
+            json.dump(_claude_native_credentials(auth_json), fh)
         os.chmod(auth_path, 0o600)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"failed to write credentials.json: {exc}")
@@ -461,7 +473,12 @@ def _run_claude_probe(payload) -> dict:
                     "native_oauth": True,
                     "reason": "Claude CLI probe timed out",
                 }
-                result.update(_credential_readback(auth_path, payload.auth_json))
+                result.update(
+                    _credential_readback(
+                        auth_path,
+                        _claude_native_credentials(payload.auth_json),
+                    )
+                )
                 return result
             stdout = (proc.stdout or "").strip()
             stderr = (proc.stderr or "").strip()
@@ -476,7 +493,12 @@ def _run_claude_probe(payload) -> dict:
                 "claude_version": _claude_version(env),
                 "native_oauth": True,
             }
-            result.update(_credential_readback(auth_path, payload.auth_json))
+            result.update(
+                _credential_readback(
+                    auth_path,
+                    _claude_native_credentials(payload.auth_json),
+                )
+            )
             if not ok:
                 result["reason"] = message[:400] if message else "probe failed"
             return result
@@ -1499,7 +1521,12 @@ def _exec_prompt(payload: ExecRequest) -> dict:
                 updated_auth = json.load(fh)
         except Exception:
             updated_auth = None
-        if isinstance(updated_auth, dict) and updated_auth != payload.auth_json:
+        original_native_auth = (
+            _claude_native_credentials(payload.auth_json)
+            if engine == "claude"
+            else payload.auth_json
+        )
+        if isinstance(updated_auth, dict) and updated_auth != original_native_auth:
             result["updated_auth"] = updated_auth
 
         parsed = _parse_claude_json_result(stdout) if engine == "claude" else None

@@ -279,11 +279,23 @@ class RunnerAppTest(unittest.TestCase):
     def test_prepare_claude_env_writes_oauth_credentials_without_api_key_env(self):
         old_key = os.environ.get("ANTHROPIC_API_KEY")
         os.environ["ANTHROPIC_API_KEY"] = "ambient-key"
+        oauth = {
+            "accessToken": "sk-ant-oat01-test-token",
+            "refreshToken": "test-refresh-token",
+            "expiresAt": 123456789,
+            "scopes": ["user:inference"],
+        }
         try:
             env, home_dir, auth_path = runner_app._prepare_claude_env(
                 {
-                    "claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"},
+                    "claudeAiOauth": oauth,
                     "last_refresh": "2026-06-05T00:00:00Z",
+                    "auths": {
+                        "api.anthropic.com": {
+                            "token": "sk-ant-oat01-test-token",
+                            "token_type": "bearer",
+                        }
+                    },
                 }
             )
         finally:
@@ -296,6 +308,9 @@ class RunnerAppTest(unittest.TestCase):
             self.assertNotIn("ANTHROPIC_API_KEY", env)
             self.assertTrue(auth_path.endswith(os.path.join(".claude", ".credentials.json")))
             self.assertTrue(os.path.isfile(auth_path))
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                written = json.load(fh)
+            self.assertEqual({"claudeAiOauth": oauth}, written)
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
@@ -498,8 +513,17 @@ class RunnerAppTest(unittest.TestCase):
     def test_claude_oauth_probe_uses_native_cli(self):
         class Payload:
             auth_json = {
-                "claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"},
+                "claudeAiOauth": {
+                    "accessToken": "sk-ant-oat01-test-token",
+                    "refreshToken": "test-refresh-token",
+                },
                 "last_refresh": "2026-06-05T00:00:00Z",
+                "auths": {
+                    "api.anthropic.com": {
+                        "token": "sk-ant-oat01-test-token",
+                        "token_type": "bearer",
+                    }
+                },
             }
             timeout_seconds = 2.0
 
@@ -516,6 +540,12 @@ class RunnerAppTest(unittest.TestCase):
             captured["prompt"] = prompt
             captured["env"] = env
             captured["timeout"] = timeout
+            with open(
+                os.path.join(env["HOME"], ".claude", ".credentials.json"),
+                "r",
+                encoding="utf-8",
+            ) as fh:
+                captured["credentials"] = json.load(fh)
             return Result(), 123
 
         runner_app._run_claude_exec = fake_exec
@@ -534,6 +564,17 @@ class RunnerAppTest(unittest.TestCase):
         self.assertIsNotNone(version_calls[0])
         self.assertNotIn("ANTHROPIC_API_KEY", captured["env"])
         self.assertEqual("Reply Banana if this works.", captured["prompt"])
+        self.assertEqual(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "sk-ant-oat01-test-token",
+                    "refreshToken": "test-refresh-token",
+                }
+            },
+            captured["credentials"],
+        )
+        self.assertEqual("unchanged", result["auth_readback"])
+        self.assertNotIn("updated_auth", result)
 
     def test_claude_oauth_transient_cli_failure_is_not_definitive(self):
         class Payload:

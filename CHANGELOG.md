@@ -1,3 +1,14 @@
+# 2026-07-25
+
+- Claude OAuth runner probes now write the same native `claudeAiOauth`-only
+  `.credentials.json` shape that clx writes on hosts, instead of passing
+  server-only `last_refresh` and derived `auths` fields into Claude Code.
+  Post-probe rotation detection compares against that native projection. This
+  prevents current Claude versions from rewriting an expanded orchestrator
+  envelope into a credential-less object, which previously made clx refuse a
+  valid local login as a supposedly superseded token. Codex runner behavior is
+  unchanged.
+
 # 2026-07-24
 
 - The OpenAI-compatible `/v1/*` gateway got the same wire-format conformance

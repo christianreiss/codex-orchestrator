@@ -202,6 +202,11 @@ security/policy, and rate failures preserve local auth, while unsafe runner
 rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
 retry) fails closed on initial and concurrent bundle paths instead of using the
 pre-refresh local token as an offline fallback.
+The runner applies the same native-file boundary as clx itself: before invoking
+Claude Code it projects the canonical envelope onto the `claudeAiOauth`-only
+`.credentials.json` shape, then compares post-probe readback against that native
+projection. Server-only `last_refresh`/`auths` fields can therefore neither make
+Claude rewrite the temporary credential file nor masquerade as a token rotation.
 Against a failed server head, clx preserves local auth only when bootstrap
 explicitly returns `candidate_matches_failed_canonical:false`; the server makes
 that comparison from credential kind plus access/refresh identity. `true` or
