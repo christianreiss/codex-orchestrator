@@ -265,6 +265,11 @@ class RunnerAppTest(unittest.TestCase):
                 "OAuth token has expired. Please run /login"
             )
         )
+        self.assertTrue(
+            runner_app._is_definitive_auth_rejection(
+                "Failed to authenticate: OAuth session expired and could not be refreshed"
+            )
+        )
         self.assertFalse(
             runner_app._is_definitive_auth_rejection(
                 "service unavailable while contacting provider"

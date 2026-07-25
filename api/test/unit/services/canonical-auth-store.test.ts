@@ -423,6 +423,42 @@ describe('CanonicalAuthStoreService', () => {
     expect(db.tables.get(authPayloads)).toHaveLength(0);
   });
 
+  it('maps a definitive expired Claude session with cleared readback to credential rejection', async () => {
+    const db = createDbFake();
+    db.tables.set(authPayloads, []);
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
+      runner: runner({
+        ok: false,
+        status: 'fail',
+        reachable: true,
+        definitive: true,
+        reason: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+        auth_readback: 'updated',
+        updated_auth: {},
+      }),
+    });
+
+    await expect(
+      svc.storeCandidate({
+        auth: CLAUDE_AUTH,
+        engine: 'claude',
+        sourceHostId: null,
+        requireLastRefresh: true,
+        logAction: 'auth.store',
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'validation_failed',
+      message: expect.stringContaining('OAuth session expired'),
+    });
+    expect(db.tables.get(authPayloads)).toHaveLength(0);
+  });
+
   it.each([
     {
       engine: 'claude' as const,

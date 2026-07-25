@@ -3,11 +3,12 @@
 - Claude OAuth runner probes now write the same native `claudeAiOauth`-only
   `.credentials.json` shape that clx writes on hosts, instead of passing
   server-only `last_refresh` and derived `auths` fields into Claude Code.
-  Post-probe rotation detection compares against that native projection. This
-  prevents current Claude versions from rewriting an expanded orchestrator
-  envelope into a credential-less object, which previously made clx refuse a
-  valid local login as a supposedly superseded token. Codex runner behavior is
-  unchanged.
+  Post-probe rotation detection compares against that native projection.
+  Current Claude's `OAuth session expired and could not be refreshed` result is
+  now a definitive credential rejection; if Claude clears the temporary file,
+  bootstrap repairs from a different verified canonical or starts interactive
+  login instead of looping on a false unsafe-rotation refusal. Ambiguous
+  readbacks remain fail-closed. Codex runner behavior is unchanged.
 
 # 2026-07-24
 

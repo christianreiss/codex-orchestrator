@@ -687,7 +687,9 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
             status: 'fail',
             reachable: true,
             definitive: true,
-            reason: 'Failed to authenticate. API Error: 401 Invalid authentication credentials',
+            reason: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+            auth_readback: 'updated',
+            updated_auth: {},
           }),
       })),
     );

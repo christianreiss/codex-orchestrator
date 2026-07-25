@@ -377,6 +377,21 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         engine,
         runnerValidation,
       );
+      const definitiveUnusableReadback =
+        !verdict.ok &&
+        verdict.definitive === true &&
+        (readbackFailure !== null || (verdict.updated_auth !== undefined && !applied.ok));
+      if (definitiveUnusableReadback) {
+        // Current native CLIs may clear their temporary credential file after
+        // an explicit provider rejection. That is not a replacement lineage to
+        // quarantine: the submitted credential is simply dead, and wrappers
+        // must receive the normal 422 path so they can repair from canonical
+        // auth or enter login recovery.
+        throw new ValidationError(
+          `auth candidate failed live verification${verdict.reason ? `: ${verdict.reason}` : ''}`,
+          { param: 'auth' },
+        );
+      }
       if (readbackFailure) {
         throw new ServiceUnavailableError(
           `Auth runner could not safely read refreshed credentials: ${readbackFailure}`,
@@ -872,6 +887,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         unsafeReason = `runner refreshed auth but returned unusable credentials: ${
           refreshed.reason ?? 'updated_auth_invalid'
         }`;
+      }
+      if (!verdict.ok && verdict.definitive === true && unsafeReason) {
+        // An explicit provider rejection can make the native CLI clear its
+        // temporary file. Mark the selected head failed with the real reason;
+        // an empty/unreadable file is not a rotated credential generation.
+        const reason = (verdict.reason ?? 'runner verification failed').slice(0, 500);
+        await markPayloadFailed(db, row.id, now, reason);
+        return { ...unchanged, state: 'failed', reason };
       }
       if (unsafeReason) {
         const reason = unsafeReason;

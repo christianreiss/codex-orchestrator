@@ -200,6 +200,10 @@ Behavior details:
 - Runner readback compares against that same native projection. Orchestrator
   metadata such as `last_refresh` and derived `auths` entries therefore cannot
   masquerade as a Claude credential rotation.
+- Claude's `OAuth session expired and could not be refreshed` failure is a
+  definitive credential rejection. If Claude clears the temporary native file
+  while returning that error, the API routes the host into canonical repair or
+  interactive login instead of treating the empty file as an unsafe rotation.
 - `status` is `ok` only when the API/CLI response contains `banana`
   (case-insensitive).
 - `claude_version` comes from `/usr/local/bin/claude --version`, or
