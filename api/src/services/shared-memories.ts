@@ -66,6 +66,12 @@ const INCLUDE_CONTENT_MAX = 20;
  * which is an acceptable loss on a path that already reports `degraded: true`.
  */
 const FALLBACK_SCAN_DOCS = 200;
+/**
+ * Ceiling on how many pages a search will walk. Tag filtering runs in JS, so
+ * without this a tag matching nothing paged through every hit in the corpus,
+ * re-running the full MATCH for each page.
+ */
+const SEARCH_MAX_PAGES = 5;
 const FALLBACK_PREFIX_CHARS = 65_536;
 
 const SLUG_RE = /^[a-z0-9][a-z0-9._:-]*$/;
@@ -127,7 +133,9 @@ export class SharedMemoriesService {
   async list(payload: Record<string, unknown>, host: Host | null = null): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const limit = normalizeInt(payload['limit'], 50, 1, 200);
-    const offset = normalizeInt(payload['offset'], 0, 0, 1_000_000);
+    // Offsetting is applied in JS over the scanned window, so accepting an
+    // offset larger than that window would silently return an empty page.
+    const offset = normalizeInt(payload['offset'], 0, 0, LIST_SCAN_CAP);
     const tags = sortedLowercase(this.normalizeTags(payload['tags'], errors));
     const prefixRaw = payload['prefix'];
     const prefix = typeof prefixRaw === 'string' ? prefixRaw.trim().toLowerCase() : '';
@@ -268,9 +276,19 @@ export class SharedMemoriesService {
     };
 
     const hits: Array<Record<string, unknown>> = [];
+    const distinctDocs = new Set<string>();
     let offset = 0;
+    let truncated = false;
     const wanted = mode === 'documents' ? limit * 5 : limit;
-    for (;;) {
+    // Paging is capped. Tag filtering happens here rather than in SQL, so a tag
+    // that matches nothing used to walk the entire hit set one deepening OFFSET
+    // at a time — and each page re-runs the whole MATCH. A bounded number of
+    // pages turns that into a bounded cost with an honest `truncated` flag.
+    for (let page = 0; ; page++) {
+      if (page >= SEARCH_MAX_PAGES) {
+        truncated = true;
+        break;
+      }
       const batch = await fetchBatch(offset);
       for (const row of batch) {
         if (tags.length > 0) {
@@ -278,9 +296,14 @@ export class SharedMemoriesService {
           if (!tags.every((t) => rowTags.includes(t))) continue;
         }
         hits.push(row);
+        distinctDocs.add(String(row['slug'] ?? ''));
         if (hits.length >= wanted) break;
       }
-      if (hits.length >= wanted || batch.length < perFetch) break;
+      // In documents mode the goal is distinct documents, not raw hits: one
+      // chunk-heavy document can otherwise fill the whole window and starve
+      // every other match out of the results.
+      const satisfied = mode === 'documents' ? distinctDocs.size >= limit || hits.length >= wanted : hits.length >= wanted;
+      if (satisfied || batch.length < perFetch) break;
       offset += perFetch;
     }
 
@@ -293,8 +316,9 @@ export class SharedMemoriesService {
       returned: matches.length,
       tags: tags.length,
       degraded,
+      truncated,
     });
-    return { status: 'ok', query, mode, limit, degraded, count: matches.length, matches };
+    return { status: 'ok', query, mode, limit, degraded, truncated, count: matches.length, matches };
   }
 
   /**
@@ -404,13 +428,19 @@ export class SharedMemoriesService {
       }
     }
 
+    // `write` replaces the BODY. Labels the caller did not supply are carried
+    // over from the stored document rather than reset: the resource surface
+    // (`resources/update shared://{slug}`) can only send text, so blanking
+    // unsupplied fields there silently stripped a document's title, summary,
+    // tags and metadata.
+    const live = existing && existing.deletedAtIsNull ? existing.doc : null;
     return this.persist({
       slug,
-      title,
-      summary,
+      title: supplied(payload, 'title') ? title : (live?.title ?? title),
+      summary: supplied(payload, 'summary') ? summary : (live?.summary ?? summary),
       content,
-      tags,
-      metadata,
+      tags: supplied(payload, 'tags') ? tags : (live?.tags ?? tags),
+      metadata: supplied(payload, 'metadata') ? metadata : (live?.metadata ?? metadata),
       existing,
       op: 'write',
       host,
@@ -441,6 +471,35 @@ export class SharedMemoriesService {
       throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
     }
 
+    // Everything from here runs inside a transaction that first takes a row
+    // lock on the slug. Append is read-modify-write, so without serialization
+    // two hosts appending at the same time both read the same base, both merge
+    // onto it, and the second UPDATE overwrites the first — no error, one
+    // writer's text simply gone. That is precisely the failure `append` exists
+    // to prevent, and it is the behavior the tool description promises.
+    // On a slug that does not exist yet the SELECT ... FOR UPDATE takes a gap
+    // lock on the unique index, which serializes concurrent creates too.
+    return this.db.transaction(async (tx) => {
+      await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).for('update');
+      const scoped = new SharedMemoriesService(tx as unknown as Database);
+      return scoped.appendLocked({ slug, addition, heading, separator, tags, metadata, payload, host, engine });
+    });
+  }
+
+  /** The merge itself, already serialized by `appendOnce`'s row lock. */
+  private async appendLocked(input: {
+    slug: string;
+    addition: string;
+    heading: string | null;
+    separator: string;
+    tags: string[];
+    metadata: Record<string, unknown> | null;
+    payload: Record<string, unknown>;
+    host: Host | null;
+    engine: Engine | null;
+  }): Promise<Record<string, unknown>> {
+    const { slug, addition, heading, separator, tags, metadata, payload, host, engine } = input;
+    const errors: Record<string, string[]> = {};
     const existing = await this.findBySlug(slug, true);
     const block = heading ? `## ${heading}\n\n${addition}` : addition;
     const base = existing && existing.deletedAtIsNull ? existing.doc.content : '';
@@ -463,8 +522,8 @@ export class SharedMemoriesService {
 
     return this.persist({
       slug,
-      title: existing && existing.deletedAtIsNull && payload['title'] === undefined ? existing.doc.title : title,
-      summary: summary ?? (existing && existing.deletedAtIsNull ? existing.doc.summary : null),
+      title: existing && existing.deletedAtIsNull && !supplied(payload, 'title') ? existing.doc.title : title,
+      summary: supplied(payload, 'summary') ? summary : (existing && existing.deletedAtIsNull ? existing.doc.summary : null),
       content: merged,
       // Appends union tags rather than replacing them: an appending agent is
       // adding to someone else's document and should not be able to drop the
@@ -645,7 +704,13 @@ export class SharedMemoriesService {
 
     if (existing) {
       memoryId = existing.doc.id;
-      revision = existing.doc.revision + 1;
+      // The next revision has to clear every number already used anywhere, not
+      // just the one on the parent row. A write that died partway leaves chunk
+      // rows at a revision the parent never adopted, and the delete ledger can
+      // sit ahead of the row too; reusing either number collides on a unique
+      // key and — before this — wedged the slug so that EVERY later write to it
+      // failed forever.
+      revision = (await this.highestRevision(memoryId, existing.doc.revision)) + 1;
       status = live ? (op === 'append' ? 'appended' : 'updated') : 'created';
       // Chunks for the new revision go in BEFORE the parent flips to it: reads
       // join on `chunk.revision = memory.revision`, so until that update lands
@@ -727,6 +792,25 @@ export class SharedMemoriesService {
     };
   }
 
+  /**
+   * Highest revision number this document has ever used, across the parent row,
+   * any leftover chunk rows, and the revision ledger. Cheap: both children are
+   * indexed on `memory_id`, and a healthy document has one chunk revision and a
+   * short ledger.
+   */
+  private async highestRevision(memoryId: number, parentRevision: number): Promise<number> {
+    const [chunkRows, ledgerRows] = await Promise.all([
+      this.db.select({ revision: sharedMemoryChunks.revision }).from(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, memoryId)),
+      this.db.select({ revision: sharedMemoryRevisions.revision }).from(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, memoryId)),
+    ]);
+    let highest = parentRevision;
+    for (const row of [...chunkRows, ...ledgerRows]) {
+      const rev = Number((row as { revision?: unknown }).revision);
+      if (Number.isFinite(rev) && rev > highest) highest = rev;
+    }
+    return highest;
+  }
+
   private async writeChunks(memoryId: number, revision: number, chunks: Chunk[], tagsText: string | null, now: string): Promise<void> {
     const rows = chunks.map((c) => ({
       memoryId,
@@ -757,12 +841,16 @@ export class SharedMemoriesService {
    * duplicate means something other than a create race.
    */
   private async retryOnDuplicateSlug<T>(run: () => Promise<T>): Promise<T> {
-    try {
-      return await run();
-    } catch (err) {
-      if (!isDuplicateKey(err)) throw err;
-      return await run();
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await run();
+      } catch (err) {
+        if (!isDuplicateKey(err)) throw err;
+        lastErr = err;
+      }
     }
+    throw lastErr;
   }
 
   /**
@@ -793,7 +881,7 @@ export class SharedMemoriesService {
     // No orderBy/limit: the chunk set for one revision is small and bounded by
     // MAX_CHUNKS, and sorting here keeps the query to plain equality predicates.
     const rows = await this.db
-      .select()
+      .select({ ordinal: sharedMemoryChunks.ordinal, charStart: sharedMemoryChunks.charStart, charEnd: sharedMemoryChunks.charEnd })
       .from(sharedMemoryChunks)
       .where(and(eq(sharedMemoryChunks.memoryId, doc.id), eq(sharedMemoryChunks.revision, doc.revision)));
     const inRange = rows.filter((r) => r.ordinal >= from && r.ordinal <= to);
@@ -885,7 +973,10 @@ export class SharedMemoriesService {
       source_engine: doc.sourceEngine,
       created_at: doc.createdAt,
       updated_at: doc.updatedAt,
-      preview: doc.summary && doc.summary.trim() !== '' ? preview(doc.summary) : preview(doc.content),
+      // Slice before previewing: `read`/`write` paths hold the full body, and
+      // running a whole-document regex over 1 MiB to produce 240 characters is
+      // pure waste (it was measured at seconds of blocked event loop per list).
+      preview: doc.summary && doc.summary.trim() !== '' ? preview(doc.summary) : preview(doc.content.slice(0, PREVIEW_FETCH_CHARS)),
     };
     if (includeContent) (out as SharedMemorySummary & { content: string }).content = doc.content;
     return out;
@@ -1198,6 +1289,17 @@ function normalizeInt(value: unknown, fallback: number, min: number, max: number
   else return fallback;
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Whether the caller actually supplied a field, as opposed to omitting it or
+ * passing an explicit null. `title: null` used to fall through to "default the
+ * title to the slug", so an append that passed a null title renamed someone
+ * else's document.
+ */
+function supplied(payload: Record<string, unknown>, key: string): boolean {
+  const value = payload[key];
+  return value !== undefined && value !== null && value !== '';
 }
 
 function truthy(value: unknown): boolean {

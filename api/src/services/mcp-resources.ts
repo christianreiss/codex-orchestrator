@@ -118,6 +118,28 @@ function buildProjectFileUri(slug: string, storedName: string): string {
   return `project://${encodeURIComponent(slug)}/files/${segments.join('/')}`;
 }
 
+/**
+ * `shared://` addresses whole documents and has no sub-resources, so a URI with
+ * a path after the slug is a caller error. Without this it silently resolved to
+ * the parent document — meaning `resources/delete shared://runbook/section`
+ * deleted the entire runbook.
+ */
+function assertNoSharedSubPath(parsed: ParsedUri, uri: string): void {
+  if (parsed.subPath !== null && parsed.subPath !== '' && parsed.subPath !== '/') {
+    throw new Error(`shared:// addresses a whole document and has no sub-resources: ${uri}`);
+  }
+}
+
+/**
+ * `shared_memory_search` advertises `shared://{slug}#{ordinal}` so a hit points
+ * at its passage. Feeding that URI straight back in must resolve the document,
+ * not look for a slug with a `#2` on the end.
+ */
+function stripFragment(id: string): string {
+  const hash = id.indexOf('#');
+  return hash === -1 ? id : id.slice(0, hash);
+}
+
 function buildProjectMemoryUri(slug: string, key: string): string {
   return `project://${encodeURIComponent(slug)}/memory/${encodeURIComponent(key)}`;
 }
@@ -301,7 +323,8 @@ export class McpResourcesService {
     }
     if (scheme === 'shared') {
       if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
-      const found = await this.deps.sharedMemories.readForResource(id);
+      assertNoSharedSubPath(parsed, uri);
+      const found = await this.deps.sharedMemories.readForResource(stripFragment(id));
       if (!found) throw new Error('Shared memory not found: ' + id);
       return {
         contents: [{ uri, name: found.summary.title, mimeType: 'text/markdown', text: found.content }],
@@ -335,10 +358,13 @@ export class McpResourcesService {
     }
     if (parsed.scheme === 'shared') {
       if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
+      assertNoSharedSubPath(parsed, uri);
       // No engine here: the resource surface carries no engine hint, unlike
       // tools/call which threads the X-Engine header through. Provenance is
-      // recorded as host-only for this path.
-      return (await this.deps.sharedMemories.write({ slug: parsed.id, content: text }, host, null)) as Record<string, unknown>;
+      // recorded as host-only for this path. Title/summary/tags/metadata are
+      // omitted rather than blanked — `write` preserves what it is not given,
+      // so a text-only resource update cannot strip a document's labels.
+      return (await this.deps.sharedMemories.write({ slug: stripFragment(parsed.id), content: text }, host, null)) as Record<string, unknown>;
     }
     if (parsed.scheme !== 'memory') {
       throw new Error('Only memory://, shared://{slug} and project://{slug}/memory/{key} resources can be created');
@@ -357,7 +383,8 @@ export class McpResourcesService {
     }
     if (parsed.scheme === 'shared') {
       if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
-      return (await this.deps.sharedMemories.delete({ slug: parsed.id }, host, null)) as Record<string, unknown>;
+      assertNoSharedSubPath(parsed, uri);
+      return (await this.deps.sharedMemories.delete({ slug: stripFragment(parsed.id) }, host, null)) as Record<string, unknown>;
     }
     if (parsed.scheme !== 'memory') {
       throw new Error('Only memory://, shared://{slug} and project://{slug}/memory/{key} resources can be deleted');

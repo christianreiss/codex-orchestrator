@@ -59,6 +59,46 @@
   document that actually landed, so `shared_memory_append` re-merges onto the
   winner's text instead of discarding it and `expected_sha256` reports the
   conflict it exists to report.
+- Made the stores actually get used, rather than merely existing. Both engines
+  arrive with a local default that wins by default — Claude Code has native
+  on-disk memory (`~/.claude/projects/.../memory/` plus its `MEMORY.md` index)
+  and Codex reaches for scratch files — and a skill cannot displace that,
+  because skills only load once invoked. The served AGENTS.md / CLAUDE.md now
+  carries a managed **Memory (managed)** block that routes durable memory to
+  the MCP stores and names the engine's own local memory as the thing it
+  overrides. It is the only such instruction both engines read unprompted on
+  every session. Served `sha256` now covers base + managed block (`base_sha256`
+  stays canonical), so every host rewrites its agents document once on the next
+  sync, and `sections.memory_routing` reports the block's digest.
+- Hardening found by an adversarial review pass, each reproduced against real
+  MySQL before and after the fix:
+  - The chunker's overflow backstop handed the whole remainder back as one
+    final chunk, which blew past the 65,535-byte TEXT column storing it. A
+    heading-dense document of ~600 KB — legal, well under the 1 MiB limit —
+    could not be written at all. The budget now degrades to fixed-size slices,
+    so no chunk ever exceeds CHUNK_MAX_CHARS.
+  - A write that died partway left chunk rows at a revision the parent never
+    adopted, and every later write to that slug then collided on
+    uniq_shared_memory_chunk — wedging it permanently. The next revision is now
+    taken above every number used anywhere (row, chunks, ledger), so a wedged
+    slug self-heals on the next write.
+  - `append` was read-modify-write with no lock: two hosts appending at once
+    both read the same base and the second UPDATE silently discarded the
+    first's text — exactly the failure the tool promises to prevent. Appends
+    now serialize on a row lock, and the gap lock covers concurrent creates of
+    the same new slug too.
+  - A tag filter matching nothing walked the entire hit set one deepening
+    OFFSET at a time, re-running the whole MATCH per page. Paging is now capped
+    and reports `truncated`.
+  - `shared://slug/anything` silently resolved to the parent document, so a
+    resource delete on a sub-path deleted the whole document; sub-paths are now
+    rejected. The `shared://slug#3` URIs that search advertises are now
+    readable back.
+  - `write`/`append` preserve title, summary, tags and metadata they were not
+    given, instead of blanking them — a text-only `resources/update` used to
+    strip a document's labels, and `title: null` renamed it to its slug.
+  - Splits no longer land between the halves of a surrogate pair (MySQL stores
+    a lone surrogate as U+FFFD, corrupting the character).
 - The migration is not applied automatically (there is no runner). Apply
   `api/src/db/migrations/0006_add_shared_memories.sql` before the new tools
   are used; until then `shared_memory_*` calls fail rather than silently

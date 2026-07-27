@@ -27,8 +27,13 @@ export const CHUNK_MAX_CHARS = 4000;
  */
 export const CHUNK_MIN_CHARS = 512;
 /**
- * Backstop against pathological inputs (e.g. 200k single-character lines).
- * Once reached, the remainder of the document becomes the final chunk.
+ * Budget for *structural* splitting. Past this many chunks the splitter stops
+ * looking for heading boundaries and falls back to fixed-size slices, which
+ * bounds the cost of a pathological input (e.g. 200k single-character heading
+ * lines) without ever emitting an oversized chunk. It is deliberately NOT a cap
+ * on the number of chunks: an earlier version made the remainder one final
+ * chunk, which blew past CHUNK_MAX_CHARS and overflowed the TEXT column storing
+ * it, failing the write for a document well under the 1 MiB content limit.
  */
 export const MAX_CHUNKS = 1024;
 
@@ -74,22 +79,6 @@ function scan(content: string): { lineStarts: number[]; headings: HeadingMark[] 
     }
   }
   return { lineStarts, headings };
-}
-
-/** Heading breadcrumb in force at `offset`, capped to the column width. */
-function breadcrumbAt(headings: HeadingMark[], offset: number): string | null {
-  const stack: HeadingMark[] = [];
-  for (const h of headings) {
-    // A heading describes the text that follows it, so it applies from its own
-    // line onward — `<=` rather than `<`.
-    if (h.offset > offset) break;
-    while (stack.length > 0 && stack[stack.length - 1]!.level >= h.level) stack.pop();
-    stack.push(h);
-  }
-  if (stack.length === 0) return null;
-  let crumb = stack.map((h) => h.text).join(' > ');
-  if (crumb.length > MAX_HEADING_LEN) crumb = crumb.slice(0, MAX_HEADING_LEN - 1) + '…';
-  return crumb || null;
 }
 
 /**
@@ -154,29 +143,48 @@ export function chunkContent(content: string): Chunk[] {
   }
 
   let start = 0;
-  while (start < len) {
-    if (chunks.length === MAX_CHUNKS - 1) {
-      // Backstop: everything left becomes the final chunk rather than silently
-      // dropping the tail of the document.
-      chunks.push({ ordinal: chunks.length, heading: breadcrumbAt(headings, start), content: content.slice(start), charStart: start, charEnd: len });
-      start = len;
-      break;
+  // Cursors into `headings`, advanced monotonically as `start` moves forward.
+  // Rescanning the heading array from index 0 for every chunk (both to find the
+  // next break and to rebuild the breadcrumb) made a heading-dense 1 MiB
+  // document quadratic — ~285 ms of blocked event loop, measured.
+  let headingCursor = 0;
+  let crumbCursor = 0;
+  const crumbStack: HeadingMark[] = [];
+  const crumbAt = (offset: number): string | null => {
+    while (crumbCursor < headings.length && headings[crumbCursor]!.offset <= offset) {
+      const h = headings[crumbCursor]!;
+      while (crumbStack.length > 0 && crumbStack[crumbStack.length - 1]!.level >= h.level) crumbStack.pop();
+      crumbStack.push(h);
+      crumbCursor++;
     }
-
+    if (crumbStack.length === 0) return null;
+    let crumb = crumbStack.map((h) => h.text).join(' > ');
+    if (crumb.length > MAX_HEADING_LEN) crumb = crumb.slice(0, MAX_HEADING_LEN - 1) + '…';
+    return crumb || null;
+  };
+  while (start < len) {
     const softLimit = Math.min(start + CHUNK_TARGET_CHARS, len);
     const hardLimit = Math.min(start + CHUNK_MAX_CHARS, len);
 
-    // A heading past the minimum size wins over size-based splitting: sections
-    // are the most useful boundary a markdown document offers.
     let end: number | null = null;
-    for (const h of headings) {
-      if (h.offset <= start) continue;
-      if (h.offset > hardLimit) break;
-      if (h.offset - start >= CHUNK_MIN_CHARS) {
-        end = h.offset;
-        break;
+    if (chunks.length < MAX_CHUNKS - 1) {
+      // A heading past the minimum size wins over size-based splitting: sections
+      // are the most useful boundary a markdown document offers.
+      while (headingCursor < headings.length && headings[headingCursor]!.offset <= start) headingCursor++;
+      for (let i = headingCursor; i < headings.length; i++) {
+        const h = headings[i]!;
+        if (h.offset > hardLimit) break;
+        if (h.offset - start >= CHUNK_MIN_CHARS) {
+          end = h.offset;
+          break;
+        }
       }
     }
+    // Past the structural budget the loop keeps running, but only as fixed-size
+    // slices. Emitting "all the rest" as one chunk (the original backstop) blew
+    // past CHUNK_MAX_CHARS and overflowed the TEXT column that stores it, which
+    // failed the whole write for a document that was under the 1 MiB limit.
+    // Every chunk this function returns is <= CHUNK_MAX_CHARS, always.
 
     if (end === null) {
       if (hardLimit >= len) {
@@ -186,10 +194,19 @@ export function chunkContent(content: string): Chunk[] {
       }
     }
     if (end <= start) end = Math.min(start + CHUNK_MAX_CHARS, len);
+    // Never cut between the halves of a surrogate pair: the two chunks would
+    // each hold a lone surrogate, which MySQL stores as U+FFFD, silently
+    // corrupting the character on a round-trip through the chunk table.
+    // Move the split back so the pair travels together in the next chunk, which
+    // keeps the chunk at or under CHUNK_MAX_CHARS; only push it forward when
+    // moving back would produce an empty chunk.
+    if (end < len && isHighSurrogate(content.charCodeAt(end - 1)) && isLowSurrogate(content.charCodeAt(end))) {
+      end = end - 1 > start ? end - 1 : end + 1;
+    }
 
     chunks.push({
       ordinal: chunks.length,
-      heading: breadcrumbAt(headings, start),
+      heading: crumbAt(start),
       content: content.slice(start, end),
       charStart: start,
       charEnd: end,
@@ -198,6 +215,14 @@ export function chunkContent(content: string): Chunk[] {
   }
 
   return chunks;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 /**

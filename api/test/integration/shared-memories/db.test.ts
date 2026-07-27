@@ -283,6 +283,59 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
       expect(clamped.limit).toBe(20);
     });
 
+    // `append` promises multi-writer safety in its tool description, the skill
+    // text and the docs. Read-modify-write without a lock quietly breaks that:
+    // both writers read the same base, both merge, and the second UPDATE wins
+    // with no error and one writer's text simply gone.
+    it('keeps both writers’ text when two appends race', async () => {
+      await svc.write({ slug: 'ztest-race', content: 'base body' }, hostA);
+      const results = await Promise.allSettled([
+        svc.append({ slug: 'ztest-race', content: 'alpha addition' }, hostA),
+        svc.append({ slug: 'ztest-race', content: 'beta addition' }, hostB),
+      ]);
+      expect(results.filter((r) => r.status === 'rejected')).toHaveLength(0);
+
+      const body = String(rowsOf(await exec(`SELECT content FROM shared_memories WHERE slug = 'ztest-race'`))[0]!['content']);
+      expect(body).toContain('alpha addition');
+      expect(body).toContain('beta addition');
+    });
+
+    // Simulates a write that died after inserting chunks but before flipping the
+    // parent to that revision. Reusing the revision number collided on
+    // uniq_shared_memory_chunk, and since the leftover rows never go away that
+    // made EVERY later write to the slug fail — permanently.
+    it('recovers a slug wedged by orphan chunks at an unadopted revision', async () => {
+      await svc.write({ slug: 'ztest-wedge', content: 'body one' }, hostA);
+      const id = Number(rowsOf(await exec(`SELECT id FROM shared_memories WHERE slug = 'ztest-wedge'`))[0]!['id']);
+      await exec(
+        `INSERT INTO shared_memory_chunks (memory_id, revision, ordinal, heading, content, char_start, char_end, tags_text, created_at)
+         VALUES (${id}, 2, 0, NULL, 'orphan', 0, 6, NULL, '2026-07-27T00:00:00Z')`,
+      );
+
+      const out = (await svc.write({ slug: 'ztest-wedge', content: 'body two' }, hostA)) as Record<string, unknown>;
+      expect(out['status']).toBe('updated');
+      const revisions = rowsOf(await exec(`SELECT DISTINCT revision FROM shared_memory_chunks WHERE memory_id = ${id}`));
+      expect(revisions.map((r) => Number(r['revision']))).toEqual([3]);
+    });
+
+    // A heading-dense document is legal (under 1 MiB) but produces far more than
+    // the structural chunk budget. The chunker used to hand the whole remainder
+    // back as one final chunk, which overflowed chunks.content TEXT(65535) and
+    // failed the write outright.
+    it('stores a heading-dense document that overruns the structural chunk budget', async () => {
+      const body = Array.from({ length: 2016 }, () => '## S\n' + 'y'.repeat(515))
+        .join('\n')
+        .slice(0, 1_048_576)
+        .trim();
+      const out = (await svc.write({ slug: 'ztest-dense', content: body }, hostA)) as Record<string, unknown>;
+      expect(out['status']).toBe('created');
+
+      const chunks = rowsOf(await exec(`SELECT MAX(CHAR_LENGTH(content)) AS m, COUNT(*) AS c FROM shared_memory_chunks
+                                          WHERE memory_id = (SELECT id FROM shared_memories WHERE slug = 'ztest-dense')`));
+      expect(Number(chunks[0]!['m'])).toBeLessThanOrEqual(4000);
+      expect(Number(chunks[0]!['c'])).toBeGreaterThan(1000);
+    });
+
     it('stores a 1 MiB document and reads a window out of it', async () => {
       const body = 'lorem ipsum dolor sit amet consectetur. '.repeat(27_000).slice(0, 1_048_576);
       expect(body).toHaveLength(1_048_576);

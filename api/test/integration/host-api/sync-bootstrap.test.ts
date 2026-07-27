@@ -17,6 +17,7 @@ import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
 import { assertContract } from '../../helpers/contract-schema.js';
+import { appendManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -250,7 +251,16 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
-    expect(body.agents).toMatchObject({ status: 'updated', content: agentsBody, sha256: agentsSha });
+    // The served document is the canonical body PLUS the managed memory-routing
+    // block, so the returned sha256 covers both; `base_sha256` stays canonical.
+    const servedAgents = appendManagedMemoryBlock(agentsBody, 'codex');
+    expect(body.agents).toMatchObject({
+      status: 'updated',
+      content: servedAgents,
+      sha256: createHash('sha256').update(servedAgents).digest('hex'),
+      base_sha256: agentsSha,
+    });
+    expect(body.agents.content).toContain('shared_memory_list');
     expect(body.config).toMatchObject({ status: 'updated', content: configBody, sha256: configSha });
     await app.close();
   });
@@ -931,7 +941,9 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
       payload: JSON.stringify({
         engine: 'codex',
         include_auth: false,
-        agents: agentsSha,
+        // A host that already holds the served document (base + managed block)
+        // must be told `unchanged`; sending the canonical sha would not match.
+        agents: createHash('sha256').update(appendManagedMemoryBlock(agentsBody, 'codex')).digest('hex'),
         config: configSha,
       }),
     });

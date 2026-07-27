@@ -12,6 +12,7 @@ import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
 import { renderTomlForHost, renderClaudeSettingsPartialForHost } from './client-config.js';
+import { appendManagedMemoryBlock, managedMemoryBlockSha } from './managed-agents-memory.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -40,19 +41,32 @@ export class HostAgentsService {
 
     const body = row.body ?? '';
     const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
-    const status = providedSha && safeHashEquals(baseSha, providedSha) ? 'unchanged' : 'updated';
+    // The served document is the canonical body plus the managed memory-routing
+    // block. That block is the only thing both engines read on every session
+    // without being asked, so it is where the "durable memory lives in MCP, not
+    // in local files" rule has to live — a skill would only apply once invoked,
+    // and by then Claude Code has already reached for its native file memory.
+    const served = appendManagedMemoryBlock(body, engine);
+    const servedSha = createHash('sha256').update(served).digest('hex');
+    // Compare against the SERVED hash: comparing the canonical one would report
+    // `unchanged` to a host whose on-disk copy predates the managed block.
+    const status = providedSha && safeHashEquals(servedSha, providedSha) ? 'unchanged' : 'updated';
     const out: Record<string, unknown> = {
       status,
       version_id: Number(row.id),
-      sha256: baseSha,
+      sha256: servedSha,
       base_sha256: baseSha,
-      managed_sha256: null,
-      sections: { skills: { present: false }, memories: { present: false } },
+      managed_sha256: managedMemoryBlockSha(engine),
+      sections: {
+        skills: { present: false },
+        memories: { present: false },
+        memory_routing: { present: true, sha256: managedMemoryBlockSha(engine) },
+      },
       updated_at: row.updatedAt,
-      size_bytes: Buffer.byteLength(body, 'utf8'),
+      size_bytes: Buffer.byteLength(served, 'utf8'),
     };
-    if (status !== 'unchanged') out['content'] = body;
-    await this.recordLog(host.id, 'agents.retrieve', { status });
+    if (status !== 'unchanged') out['content'] = served;
+    await this.recordLog(host.id, 'agents.retrieve', { status, engine });
     return out;
   }
 
