@@ -20,3 +20,8 @@ __pycache__/
 # repo, mounted to /app/storage). A `make release OUTROOT=../store` run from
 # wrappers/ resolves HERE instead — never commit those binaries.
 /store/
+
+# Forge: local continuous-improvement tooling. Operates ON this repo but is not
+# part of the product that ships to the fleet — tool, runtime state, knowledge
+# and run transcripts all stay out of git.
+/improver/
