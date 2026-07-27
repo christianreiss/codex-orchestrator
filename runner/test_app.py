@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import shutil
@@ -5,6 +6,13 @@ import subprocess
 import unittest
 
 import app as runner_app
+
+# These tests are synchronous, but pytest plugins that happen to be installed in
+# the ambient environment run autouse fixtures around every test and some of
+# them call asyncio.get_event_loop(). On Python 3.12+ that no longer creates a
+# loop implicitly, so every test errors out during setup with "There is no
+# current event loop in thread 'MainThread'". Give the main thread a loop.
+asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 class RunnerAppTest(unittest.TestCase):
