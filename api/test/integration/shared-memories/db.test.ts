@@ -251,6 +251,38 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
       expect(chunks.map((c) => Number(c['revision']))).toEqual([3]);
     });
 
+    // Listings must not select the 1 MiB body — they select LEFT(content, n)
+    // instead. db-fake ignores projections and returns whole rows, so a
+    // projection mistake is invisible to the unit suite: only a real query can
+    // show an empty preview for a document that has no summary.
+    it('previews a summary-less document without selecting its body', async () => {
+      const body = ('PREVIEWMARKER opening sentence. ' + 'filler text. '.repeat(20_000)).trim();
+      await svc.write({ slug: 'ztest-preview', content: body }, hostA);
+
+      const out = (await svc.list({ prefix: 'ztest-preview', limit: 5 }, hostA)) as { memories: Array<Record<string, unknown>> };
+      const found = out.memories.find((m) => m['slug'] === 'ztest-preview')!;
+      expect(String(found['preview'])).toContain('PREVIEWMARKER');
+      expect(found).not.toHaveProperty('content');
+      expect(found['content_length']).toBe(body.length);
+
+      // resources/list uses the same projection.
+      const recent = await svc.listRecent(200);
+      const viaResource = recent.find((m) => m.slug === 'ztest-preview')!;
+      expect(viaResource.preview).toContain('PREVIEWMARKER');
+    });
+
+    it('returns bodies only for the requested page when include_content is set', async () => {
+      await svc.write({ slug: 'ztest-inline', content: 'inline body text' }, hostA);
+      const out = (await svc.list({ prefix: 'ztest-inline', limit: 5, include_content: true }, hostA)) as {
+        limit: number;
+        memories: Array<Record<string, unknown>>;
+      };
+      expect(out.memories[0]!['content']).toBe('inline body text');
+      // include_content clamps the page size hard.
+      const clamped = (await svc.list({ prefix: 'ztest-', limit: 200, include_content: true }, hostA)) as { limit: number };
+      expect(clamped.limit).toBe(20);
+    });
+
     it('stores a 1 MiB document and reads a window out of it', async () => {
       const body = 'lorem ipsum dolor sit amet consectetur. '.repeat(27_000).slice(0, 1_048_576);
       expect(body).toHaveLength(1_048_576);

@@ -46,9 +46,27 @@ export const MAX_TAG_LENGTH = 64;
 export const DEFAULT_READ_CHARS = 32_000;
 /** Ceiling on documents one `list` call will examine before filtering. */
 const LIST_SCAN_CAP = 2000;
-/** Caps for the degraded (no FULLTEXT index) search path. */
+/**
+ * How much of a body a listing reads. Listings never return content, so they
+ * select `LEFT(content, …)` instead of the column: at 1 MiB per document,
+ * scanning 2000 of them with `SELECT *` would pull 2 GB into Node to produce a
+ * 240-character preview each.
+ */
+const PREVIEW_FETCH_CHARS = 400;
+/**
+ * `include_content` is the one listing that does return bodies, so it is capped
+ * far lower than the ordinary page size — 20 × 1 MiB is already a large
+ * response, and 200 would be a denial of service against the API itself.
+ */
+const INCLUDE_CONTENT_MAX = 20;
+/**
+ * Caps for the degraded (no FULLTEXT index) search path. It has to substring-
+ * scan bodies, so it reads a bounded prefix of each rather than the whole
+ * document: 200 × 64 KiB, not 200 × 1 MiB. A match past the prefix is missed,
+ * which is an acceptable loss on a path that already reports `degraded: true`.
+ */
 const FALLBACK_SCAN_DOCS = 200;
-const FALLBACK_SCAN_BYTES = 8 * 1024 * 1024;
+const FALLBACK_PREFIX_CHARS = 65_536;
 
 const SLUG_RE = /^[a-z0-9][a-z0-9._:-]*$/;
 
@@ -115,6 +133,7 @@ export class SharedMemoriesService {
     const prefix = typeof prefixRaw === 'string' ? prefixRaw.trim().toLowerCase() : '';
     const includeContent = truthy(payload['include_content']);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
+    const effectiveLimit = includeContent ? Math.min(limit, INCLUDE_CONTENT_MAX) : limit;
 
     const conditions = [isNull(sharedMemories.deletedAt)];
     if (prefix !== '') conditions.push(like(sharedMemories.slug, `${escapeLike(prefix)}%`));
@@ -124,9 +143,9 @@ export class SharedMemoriesService {
     // that fall outside the page. One bounded fetch, filtered here — `scanCap`
     // is what the listing is willing to look at, and `scanned_all` tells the
     // caller when that bound was hit.
-    const scanCap = Math.min(LIST_SCAN_CAP, (offset + limit) * (tags.length > 0 ? 5 : 1) + limit);
+    const scanCap = Math.min(LIST_SCAN_CAP, (offset + effectiveLimit) * (tags.length > 0 ? 5 : 1) + effectiveLimit);
     const rows = await this.db
-      .select()
+      .select(listColumns())
       .from(sharedMemories)
       .where(and(...conditions))
       .orderBy(desc(sharedMemories.updatedAt), desc(sharedMemories.id))
@@ -144,15 +163,24 @@ export class SharedMemoriesService {
         skipped++;
         continue;
       }
-      items.push(this.summarize(doc, includeContent));
-      if (items.length >= limit) break;
+      items.push(this.summarize(doc, false));
+      if (items.length >= effectiveLimit) break;
+    }
+
+    // Bodies are fetched only for the page that is actually being returned, and
+    // only when asked for — never for the whole scanned window.
+    if (includeContent) {
+      for (const item of items) {
+        const full = await this.findBySlug(item.slug);
+        (item as SharedMemorySummary & { content: string }).content = full?.content ?? '';
+      }
     }
 
     const total = await this.countLive();
     await this.recordLog(host, 'shared_memory.list', { limit, offset, returned: items.length, tags: tags.length, prefix: prefix !== '' });
     return {
       status: 'ok',
-      limit,
+      limit: effectiveLimit,
       offset,
       count: items.length,
       total,
@@ -347,6 +375,10 @@ export class SharedMemoriesService {
    * meanwhile. Without it, last writer wins.
    */
   async write(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+    return this.retryOnDuplicateSlug(() => this.writeOnce(payload, host, engine));
+  }
+
+  private async writeOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     const content = this.normalizeContent(payload['content'] ?? payload['text'], errors);
@@ -392,6 +424,10 @@ export class SharedMemoriesService {
    * read-modify-write pair would silently drop one of them.
    */
   async append(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+    return this.retryOnDuplicateSlug(() => this.appendOnce(payload, host, engine));
+  }
+
+  private async appendOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     const addition = this.normalizeContent(payload['content'] ?? payload['text'], errors);
@@ -544,9 +580,15 @@ export class SharedMemoriesService {
   // Resource helpers (shared://{slug})
   // ──────────────────────────────────────────────────────────────────────
 
+  /**
+   * Backs the `shared://` entries in `resources/list`, which every `cdx`/`clx`
+   * MCP session calls on connect. Bodies are deliberately not selected here —
+   * fetching 50 × 1 MiB on every wrapper boot would be a fleet-wide spike to
+   * render 50 one-line descriptions.
+   */
   async listRecent(limit = 20): Promise<SharedMemorySummary[]> {
     const rows = await this.db
-      .select()
+      .select(listColumns())
       .from(sharedMemories)
       .where(isNull(sharedMemories.deletedAt))
       .orderBy(desc(sharedMemories.updatedAt), desc(sharedMemories.id))
@@ -705,6 +747,25 @@ export class SharedMemoriesService {
   }
 
   /**
+   * Two hosts creating the same new slug both see `findBySlug` miss and both
+   * INSERT; the loser gets `ER_DUP_ENTRY`, which is not an `ApiError` and would
+   * surface as a 500. Re-running the operation once is the right repair rather
+   * than translating the error: the retry re-reads the winner's document, so
+   * `append` re-merges onto the text that actually landed instead of dropping
+   * it, and a `write` carrying `expected_sha256` now compares against the
+   * winner and correctly reports a conflict. One retry only — a second
+   * duplicate means something other than a create race.
+   */
+  private async retryOnDuplicateSlug<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isDuplicateKey(err)) throw err;
+      return await run();
+    }
+  }
+
+  /**
    * Remove chunks left behind by earlier revisions. Deletes are issued one
    * revision at a time with plain equality predicates rather than a single
    * `revision <> current`, because equality is what both MySQL and the test
@@ -753,18 +814,15 @@ export class SharedMemoriesService {
   private async substringFallback(query: string, limit: number, offset: number): Promise<Array<Record<string, unknown>>> {
     const needle = query.toLowerCase();
     const docs = await this.db
-      .select()
+      .select(listColumns(FALLBACK_PREFIX_CHARS))
       .from(sharedMemories)
       .where(isNull(sharedMemories.deletedAt))
       .orderBy(desc(sharedMemories.updatedAt), desc(sharedMemories.id))
       .limit(FALLBACK_SCAN_DOCS);
 
     const out: Array<Record<string, unknown>> = [];
-    let scannedBytes = 0;
     for (const raw of docs) {
-      if (scannedBytes > FALLBACK_SCAN_BYTES) break;
       const doc = hydrate(raw as unknown as Record<string, unknown>);
-      scannedBytes += doc.content.length;
       const idx = doc.content.toLowerCase().indexOf(needle);
       const inTags = doc.tags.some((t) => t.toLowerCase().includes(needle));
       const inTitle = doc.title.toLowerCase().includes(needle);
@@ -989,6 +1047,38 @@ export class SharedMemoriesService {
 
 // ── module-local helpers ─────────────────────────────────────────────────
 
+/**
+ * Column list for any read that does not need the body. `content` is LONGTEXT
+ * capped at 1 MiB, so selecting it to build a preview is the difference between
+ * a few hundred kilobytes and a couple of gigabytes on a wide scan. The
+ * `content` alias carries a bounded prefix instead, which `hydrate` treats as
+ * the body — every consumer of these rows is preview-only.
+ *
+ * Note for the test fakes: `db-fake` ignores the projection argument entirely
+ * and hands back whole seeded rows, so unit tests see the full `content` and
+ * cannot detect a projection mistake here. The DB-gated suite asserts that a
+ * summary-less document still gets a non-empty preview.
+ */
+function listColumns(prefixChars: number = PREVIEW_FETCH_CHARS) {
+  return {
+    id: sharedMemories.id,
+    slug: sharedMemories.slug,
+    title: sharedMemories.title,
+    summary: sharedMemories.summary,
+    content: sql<string>`LEFT(${sharedMemories.content}, ${prefixChars})`,
+    contentSha256: sharedMemories.contentSha256,
+    contentLength: sharedMemories.contentLength,
+    chunkCount: sharedMemories.chunkCount,
+    revision: sharedMemories.revision,
+    metadata: sharedMemories.metadata,
+    tags: sharedMemories.tags,
+    sourceHostId: sharedMemories.sourceHostId,
+    sourceEngine: sharedMemories.sourceEngine,
+    createdAt: sharedMemories.createdAt,
+    updatedAt: sharedMemories.updatedAt,
+  };
+}
+
 function hydrate(row: Record<string, unknown>): DocRow {
   const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
   const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
@@ -1142,6 +1232,16 @@ function readInsertId(res: unknown): number | null {
     return null;
   }
   return pick(res);
+}
+
+/** Drizzle wraps driver errors, so walk the cause chain like the FULLTEXT probe. */
+function isDuplicateKey(err: unknown): boolean {
+  for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
+    const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
+    if (e.errno === 1062 || e.code === 'ER_DUP_ENTRY') return true;
+    cur = e.cause;
+  }
+  return false;
 }
 
 function isMissingFulltextIndex(err: unknown): boolean {

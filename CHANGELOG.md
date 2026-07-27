@@ -48,6 +48,17 @@
   missing — the project-scoped fallback it is modelled on is unbounded, which
   is safe only because a project has a natural size limit and this corpus
   does not.
+- Listings and the `resources/list` catalogue select a bounded content prefix
+  rather than the column, so building a preview never pulls 1 MiB bodies —
+  a tag-filtered `shared_memory_list` scans up to 2000 documents, and every
+  wrapper calls `resources/list` on connect. `include_content` clamps the page
+  to 20 and fetches bodies only for the page returned. The degraded search
+  path reads the first 64 KiB of each document rather than all of it.
+- A create race between two hosts on the same new slug used to surface the raw
+  `ER_DUP_ENTRY` as a 500. The losing call now re-runs once against the
+  document that actually landed, so `shared_memory_append` re-merges onto the
+  winner's text instead of discarding it and `expected_sha256` reports the
+  conflict it exists to report.
 - The migration is not applied automatically (there is no runner). Apply
   `api/src/db/migrations/0006_add_shared_memories.sql` before the new tools
   are used; until then `shared_memory_*` calls fail rather than silently
