@@ -23,7 +23,10 @@ describe('managed memory block', () => {
       expect(block).toContain('shared_memory_append');
       expect(block).toContain('project_memory_*');
       expect(block).toContain('memory_*');
-      expect(block.toLowerCase()).toContain('not in local files');
+      // The block must be directive about LOOKUP, not just storage: an agent
+      // that never thinks to search shared memory is the failure mode here.
+      expect(block).toMatch(/before searching the filesystem/i);
+      expect(block).toMatch(/host-local/i);
     }
   });
 

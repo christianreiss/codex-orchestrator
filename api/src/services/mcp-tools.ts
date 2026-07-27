@@ -242,7 +242,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'memory_store',
-      description: 'Store MCP memory content with optional tags and metadata',
+      description:
+        'Store HOST-LOCAL scratch memory on this machine only. Not visible to any other host and cannot be listed, so nobody else can discover it. For anything another agent or host should see, use shared_memory_write instead.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -259,7 +260,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'memory_retrieve',
-      description: 'Retrieve a stored memory by id',
+      description: 'Retrieve a host-local scratch memory by exact id. Only sees memories written on THIS host.',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'string' } },
@@ -271,7 +272,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'memory_search',
-      description: 'Search stored memories by full-text query and optional tags',
+      description:
+        'Search HOST-LOCAL scratch memories written on this machine only. This is NOT the place to look things up about the fleet, other hosts, or past decisions — use shared_memory_search for that.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -287,7 +289,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'memory_delete',
-      description: 'Delete a stored memory by id (soft delete)',
+      description: 'Delete a host-local scratch memory by id (soft delete).',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'string' } },
@@ -307,7 +309,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_list',
         description:
-          'List the fleet-wide shared memory index (no query needed). Start here: returns slug, title, summary, tags, size and a preview for every shared document, visible from any host and either engine.',
+          'THE place to look up what this fleet knows: hosts, conventions, runbooks, past decisions. Lists every shared document — no query or arguments needed, so call it first when you are asked about something you do not already know, BEFORE searching the filesystem. Returns slug, title, summary, tags, size and a preview. Visible from every host and either engine, unlike memory_*.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -325,7 +327,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_search',
         description:
-          'Full-text search across all shared memory documents. Returns ranked passages with their heading and chunk number; pass mode="documents" for one entry per document instead.',
+          'Search everything this fleet has written down — runbooks, host facts, architecture notes, past decisions — across every host. Use this, not memory_search, to look something up. Returns ranked passages with their heading and chunk number; pass mode="documents" for one entry per document. If it returns nothing, try shared_memory_list to see what exists.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -343,7 +345,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_read',
         description:
-          'Read a shared memory document by slug. Returns a bounded window (max_chars, default 32000) — use chunk/from_chunk/to_chunk or the returned next_offset to walk a large document.',
+          'Read a shared memory document by slug, after finding it with shared_memory_list or shared_memory_search. Returns a bounded window (max_chars, default 32000) — use chunk/from_chunk/to_chunk or the returned next_offset to walk a large document.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -363,7 +365,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_write',
         description:
-          'Create or replace a shared memory document (up to 1 MiB). Pass expected_sha256 from a prior read to fail instead of clobbering a concurrent write.',
+          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Up to 1 MiB; pass expected_sha256 from a prior read to fail instead of clobbering a concurrent write. To add to an existing document prefer shared_memory_append.',
         inputSchema: {
           type: 'object',
           properties: {

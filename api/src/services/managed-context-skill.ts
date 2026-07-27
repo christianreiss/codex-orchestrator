@@ -70,6 +70,14 @@ If the next agent on a *different* project would want it, it is a shared memory.
 you would tell the next agent on *this* work, it is a project memory. If it is something they would
 copy or run, it is a project file.
 
+# Looking something up
+
+If you are asked about this fleet, a host, a convention, a runbook, or a past decision and you do not
+already know the answer, call \`${MCP_TOOL_NAMES.sharedList}\` or \`${MCP_TOOL_NAMES.sharedSearch}\`
+**before searching the filesystem**. Answering "I could not find it" without having checked there is a
+wrong answer: that is where the answer lives. Host-scoped \`memory_*\` cannot be listed, so it can
+never tell you what exists — it is not a lookup surface.
+
 # On entry: bootstrap before acting
 
 1. \`${MCP_TOOL_NAMES.sharedList}\` — the fleet-wide index. It needs no query, so never guess search

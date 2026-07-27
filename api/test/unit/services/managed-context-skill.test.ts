@@ -53,6 +53,13 @@ describe('managed #context skill', () => {
     expect(managedContextManifest()).toMatch(/needs no query/i);
   });
 
+  // Retrieval, not just storage: an agent that never thinks to look is the
+  // failure this skill exists to prevent.
+  it('directs lookups at shared memory before the filesystem', () => {
+    expect(managedContextManifest()).toMatch(/before searching the filesystem/i);
+    expect(managedContextManifest()).toMatch(/not a lookup surface/i);
+  });
+
   it('carries valid frontmatter with the slug as name', () => {
     const manifest = managedContextManifest();
     expect(manifest.startsWith('---\n')).toBe(true);

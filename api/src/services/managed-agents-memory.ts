@@ -31,36 +31,35 @@ function localMemoryOverride(engine: Engine): string {
   if (engine === ENGINE_CLAUDE) {
     return [
       "Claude Code's built-in file memory (`~/.claude/projects/**/memory/*.md` and its `MEMORY.md`",
-      'index) is host-local. Do not use it for anything durable or shared, and do not mirror',
-      'orchestrator memory into it. Use it only for notes that are genuinely about this one machine.',
+      'index) is host-local: another host and a reinstalled workstation cannot see it. Do not use it',
+      'for anything durable or shared, and do not mirror orchestrator memory into it.',
     ].join(' ');
   }
   return [
-    'Local scratch files under the Codex home (and any ad-hoc notes file) are host-local.',
-    'Do not use them for anything durable or shared, and do not mirror orchestrator memory into them.',
+    'Codex\'s own local memories feature and any ad-hoc notes file under the Codex home are',
+    'host-local: another host and a reinstalled workstation cannot see them. Do not use them for',
+    'anything durable or shared, and do not mirror orchestrator memory into them.',
   ].join(' ');
 }
 
 export function buildManagedMemoryBlock(engine: Engine): string {
   return `${MANAGED_MEMORY_HEADING}
 
-Durable memory lives in the orchestrator over MCP, not in local files. ${localMemoryOverride(engine)}
+This fleet keeps what it knows in the orchestrator, reachable over MCP. It is shared across every
+host and both engines, and it is authoritative over your own assumptions.
 
-Three stores, and they are not interchangeable:
+**Looking something up.** If you are asked about this fleet, a host, a convention, a runbook, or any
+past decision — and you do not already know the answer — call \`shared_memory_list\` (it takes no
+arguments) or \`shared_memory_search\` **first, before searching the filesystem**. Read the hit with
+\`shared_memory_read\`. Saying "I could not find it" without having checked there is a wrong answer:
+that is where the answer lives. \`memory_*\` is host-local scratch and is NOT a lookup surface —
+it cannot be listed, so it can never tell you what exists.
 
-- \`shared_memory_*\` — **fleet-wide documents**. Runbooks, architecture notes, accumulated findings:
-  anything the next agent on a different host or a different project would want. Not scoped to a host
-  or a project. Start with \`shared_memory_list\` (it needs no query) to see what the fleet already
-  knows, narrow with \`shared_memory_search\`, read with \`shared_memory_read\`. Add to an existing
-  document with \`shared_memory_append\` rather than read-modify-write — other agents write here too.
-- \`project_memory_*\` — short facts about one workstream, keyed \`<area>.<topic>\`. Needs a project
-  slug. Enumerate with \`project_memory_list\`.
-- \`memory_*\` — host-local scratch, tied to this machine. It cannot be listed, so nobody else can
-  discover what it holds. Never use it for anything another agent needs.
+**Writing something down.** Anything the next agent — on another host, in another session — would
+want belongs in \`shared_memory_write\`, or \`shared_memory_append\` to add to a document that
+already exists. Facts about one workstream go in \`project_memory_*\`. ${localMemoryOverride(engine)}
 
-When work will outlive this session, check \`shared_memory_list\` before starting and record what you
-learned before finishing. Never store secrets — keys, tokens, credentials, customer data — in any of
-them.
+Never store secrets — keys, tokens, credentials, customer data — in any of them.
 `;
 }
 
