@@ -418,7 +418,18 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		return exit
 	case "execute":
 		// Headless one-shot via upstream codex exec.
-		argv := []string{"--sandbox", "read-only", "-a", "untrusted", "exec", "--skip-git-repo-check", f.executePrompt}
+		//
+		// Sandbox and approval policy are deliberately NOT forced here: they
+		// come from the fleet-baked config.toml, which the orchestrator owns
+		// centrally (`sandbox_mode`, `approval_policy`). Pinning
+		// `--sandbox read-only -a untrusted` locally used to override that, and
+		// it silently disabled the orchestrator's ENTIRE MCP surface for every
+		// headless run — memory, skills and projects alike. Codex requires
+		// approval for an MCP tool call under any active sandbox, and a headless
+		// run has nobody to approve, so every call came back
+		// "user cancelled MCP tool call" while the endpoint itself was healthy.
+		// Fleet policy belongs to the fleet config, not to a wrapper constant.
+		argv := []string{"exec", "--skip-git-repo-check", f.executePrompt}
 		argv = append(argv, append(subArgs, passthrough...)...)
 		opts := executeLifecycleOptions(f)
 		opts.Config = cfg

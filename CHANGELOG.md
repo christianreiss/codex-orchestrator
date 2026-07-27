@@ -1,5 +1,18 @@
 # 2026-07-27
 
+- **cdx 0.6.55**: `cdx --execute` no longer forces `--sandbox read-only -a untrusted`.
+  Sandbox and approval policy now come from the fleet-baked `config.toml`, which
+  the orchestrator owns centrally. The local override silently disabled the
+  orchestrator's ENTIRE MCP surface — memory, skills and projects — for every
+  headless run: Codex requires approval for an MCP tool call under any active
+  sandbox, and a headless run has nobody to approve, so every call returned
+  `user cancelled MCP tool call` while the endpoint itself was healthy and
+  `list_mcp_resources` still succeeded, which made MCP look fine. Fleet policy
+  belongs in the fleet config, not in a wrapper constant. clx never had this
+  override and needed no change.
+
+# 2026-07-27
+
 - Dual-engine hosts no longer run their auto-update twice at once. `cdx` and
   `clx` derived the daily cron slot from the same `crc32(hostname)` arithmetic,
   so both managed entries fired in the identical minute — and because each tick
