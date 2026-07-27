@@ -1,0 +1,36 @@
+name: runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner.yml'
+  pull_request:
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Keep in step with the runner image (runner/Dockerfile).
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: runner/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pytest
