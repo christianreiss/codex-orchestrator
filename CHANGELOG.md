@@ -1,3 +1,58 @@
+# 2026-07-27
+
+- Added a third memory substrate: **fleet-wide shared memory**. The two
+  existing stores could not hold "everything the fleet knows about X" —
+  `mcp_memories` is keyed `(host_id, memory_key)` so a fact written on one
+  host is invisible everywhere else, and `coord_project_memories` is
+  cross-host but needs a project and models one short fact per key. Neither
+  can be found by an agent that does not already know the key. The new
+  `shared_memories` / `shared_memory_chunks` / `shared_memory_revisions`
+  tables hold slug-addressed documents up to 1 MiB, scoped to neither host
+  nor project, chunked on markdown structure and FULLTEXT-indexed per chunk
+  so search returns ranked passages with their heading breadcrumb instead of
+  a blob. `source_host_id` / `source_engine` are recorded as provenance and
+  are never read filters — a document written by `cdx` on one host is found
+  by `clx` on another, by design.
+- New MCP tools for it, host-capability and visible to both engines:
+  `shared_memory_list` (the discovery entry point — it takes no required
+  argument, which is exactly what `memory_search` cannot do), plus
+  `shared_memory_search`, `_read`, `_write`, `_append`, and `_delete`. Reads
+  come back windowed (`max_chars`, `offset`, `chunk` ranges, `truncated` +
+  `next_offset`) so a 1 MiB document never lands in a context window whole.
+  `shared_memory_append` is the multi-writer-safe way to grow a document;
+  `expected_sha256` on `shared_memory_write` turns a lost update into a
+  `409 shared_memory_conflict` instead of a silent clobber.
+- Matching surfaces: `shared://{slug}` MCP resources (template, `resources/list`
+  of the 50 most recent, and `resources/read`/`create`/`update`/`delete`),
+  host REST helpers under `/shared-memories/*`, and admin
+  `GET|DELETE /admin/shared-memories[/{slug}]`. Admin delete is hard (frees the
+  slug); the host delete is soft (keeps it reserved). New `shared_memory.*`
+  WebSocket events invalidate the admin query cache.
+- The managed `coco` skill and the `#context` skill now name three substrates
+  instead of two and say which is for what: `project_memory_*` for facts about
+  a workstream, `shared_memory_*` for fleet-wide reference documents,
+  `memory_*` for host-local scratch. CoCo coordination handoffs stay
+  project-only — projects carry notes, todos, files and an event log that
+  shared memories do not. Note the fleet effect: changing the `coco` manifest
+  changes its sha256, so every host's next skill sync reports `updated` and
+  rewrites `~/.claude/skills/coco/SKILL.md` once. The `#context` skill text in
+  `docs/skills/` is the authoring source only — the DB copy is what runs, and
+  storing it is a separate manual step.
+- `0006_add_shared_memories.sql` back-fills both the FULLTEXT indexes and the
+  `ON DELETE CASCADE` foreign keys when the tables already exist, because
+  `drizzle-kit push` builds them from `schema.ts`, which can express neither.
+  Without the FK backstop a database built that way strands chunks and
+  revision rows in the index on every delete; this was caught by the
+  integration suite, not by review. Search degrades to a *bounded* substring
+  scan (200 documents / 8 MiB) with `degraded: true` when the chunk index is
+  missing — the project-scoped fallback it is modelled on is unbounded, which
+  is safe only because a project has a natural size limit and this corpus
+  does not.
+- The migration is not applied automatically (there is no runner). Apply
+  `api/src/db/migrations/0006_add_shared_memories.sql` before the new tools
+  are used; until then `shared_memory_*` calls fail rather than silently
+  returning nothing.
+
 # 2026-07-25
 
 - Claude OAuth runner probes now write the same native `claudeAiOauth`-only

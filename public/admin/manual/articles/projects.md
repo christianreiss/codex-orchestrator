@@ -1,8 +1,8 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-07-15
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql
+verified: 2026-07-27
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
 ---
 
 Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, todos, files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
@@ -107,7 +107,7 @@ The Feedback tab shows a create form with a Type selector (Feature / Bug / Issue
 
 Durable facts bound to the project rather than to a host (`coord_project_memories` table), addressed by a `memory_key` unique per project. This is the surface for context that must survive across sessions and be readable from any host — decisions and their reasons, constraints, gotchas, environment facts. It is host-facing only: there are no `/admin/projects/{slug}/memories` routes and no UI tab, so memories are reached over MCP (`project_memory_*`) or the host REST mirror (`/projects/{slug}/memories`).
 
-The contrast with host-scoped `mcp_memories` is the reason this exists: project memories are visible fleet-wide, can be enumerated without knowing a key (`project_memory_list`), hard-delete rather than soft-delete, and record every mutation in the activity log with `source_host_id` attribution. Host memories can do none of those. See [MCP server and tools](/admin/manual/mcp) for the full comparison and the validation rules.
+The contrast with host-scoped `mcp_memories` is the reason this exists: project memories are visible fleet-wide, can be enumerated without knowing a key (`project_memory_list`), hard-delete rather than soft-delete, and record every mutation in the activity log with `source_host_id` attribution. Host memories can do none of those. Project memories are not the only fleet-visible store any more, though: `shared_memory_*` holds documents up to 1 MiB that belong to no project at all. Use project memories for short facts about *this* workstream and shared memories for reference material that outlives it. See [MCP server and tools](/admin/manual/mcp) for the three-way comparison and the validation rules.
 
 `project_memory_upsert` is idempotent: an identical re-store reports `unchanged`, writes nothing, and deliberately records **no** event, so a no-op cannot bump `latest_event_seq` and force other hosts to re-sync.
 

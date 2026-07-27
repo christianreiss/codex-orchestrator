@@ -23,6 +23,7 @@ import { isEngine } from '../../util/engine.js';
 import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
+import { SharedMemoriesService } from '../../services/shared-memories.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
 import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
@@ -35,6 +36,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const sessions = new McpSessionService(ctx.db);
   const accessLog = new McpAccessLogService(ctx.db);
   const memories = new McpMemoriesService(ctx.db);
+  const sharedMemories = new SharedMemoriesService(ctx.db);
   const projects = new HostProjectsService(ctx.db);
   const skills = new HostSkillsService(ctx.db);
 
@@ -54,8 +56,8 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }
   }
 
-  const resources = new McpResourcesService({ memories, projects, skills });
-  const tools = new McpToolsRegistry({ memories, projects, skills, resources, fs: fsTools });
+  const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
+  const tools = new McpToolsRegistry({ memories, sharedMemories, projects, skills, resources, fs: fsTools });
   const server = new McpServer(tools, resources, accessLog);
 
   const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();

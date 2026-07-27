@@ -18,14 +18,17 @@ description: "${MANAGED_COCO_DESCRIPTION}"
 
 Use #coco when work needs shared multi-agent state across hosts or sessions.
 
-CoCo state is project-only:
+CoCo coordination state is project-only — projects carry notes, todos, files, feedback and an append-only event log, none of which shared memories have:
 - Start by reading project_bootstrap for the active slug.
 - Use project_list or project_create to find or create shared workspaces.
 - Use project_detail and project_changes to refresh context before acting.
 - Write durable handoffs with project_note_upsert, project_todo_create, project_todo_update, project_todo_done, project_todo_undone, project_file_upsert, project_memory_upsert, and project_feedback_create.
 - Read shared artifacts with project_file_list, project_file_read, project_memory_list, project_memory_get, project://{slug}, project://{slug}/files/{stored_name}, and project://{slug}/memory/{key}.
 
-Use project_memory_* for durable shared memory: those rows are project-scoped and visible from every host. Do not use memory:// resources or mcp_memories for cross-host CoCo handoffs; those remain host-scoped.
+Pick the right memory substrate — there are three and they are not interchangeable:
+- project_memory_* — short durable facts belonging to THIS workstream. Project-scoped, visible from every host, one fact per key.
+- shared_memory_* — fleet-wide reference documents that outlive any single project: runbooks, architecture notes, accumulated findings. Scoped to neither host nor project, up to 1 MiB each, chunked and searchable. Start with shared_memory_list (it needs no query), narrow with shared_memory_search, read with shared_memory_read, and grow one with shared_memory_append rather than read-modify-write.
+- memory_* / memory:// — host-scoped scratch. Never valid for cross-host handoffs, and it cannot be listed, so another agent cannot discover what it holds.
 `;
 
 export interface ManagedCocoSkill {
@@ -95,12 +98,13 @@ export function managedCocoBootstrapGuidance(): {
       managed: true,
     },
     instructions:
-      'Use #coco with project_* MCP tools and project:// resources only. Keep shared handoffs in project notes, todos, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state — use project_memory_* for durable memory that every host can see.',
+      'Use #coco with project_* MCP tools and project:// resources for coordination. Keep handoffs in project notes, todos, files, memories, feedback, and changes; host-scoped memory:// entries are not shared CoCo state. Use project_memory_* for facts about this workstream, and shared_memory_* for fleet-wide reference documents that outlive it.',
     quickstart: [
       'Read project_bootstrap for the slug before acting.',
       'Use project_changes since the last known seq to catch up.',
       'Use project_memory_list to enumerate durable project memory without guessing search terms.',
       'Write durable results with project_note_upsert, project_todo_* tools, project_file_upsert, project_memory_upsert, or project_feedback_create.',
+      'For knowledge that is not specific to this project, use shared_memory_list to see what the fleet already knows, then shared_memory_write or shared_memory_append.',
     ],
   };
 }

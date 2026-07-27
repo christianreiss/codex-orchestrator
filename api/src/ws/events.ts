@@ -42,6 +42,9 @@ export const WS_EVENT_TYPES = [
   'memory.changed',
   'memory.created',
   'memory.deleted',
+  'shared_memory.changed',
+  'shared_memory.created',
+  'shared_memory.deleted',
 
   // API keys
   'api-key.changed',

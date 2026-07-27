@@ -15,6 +15,9 @@
  *   DELETE /admin/agents/versions/:id
  *   GET    /admin/mcp/memories
  *   DELETE /admin/mcp/memories/:id
+ *   GET    /admin/shared-memories
+ *   GET    /admin/shared-memories/:slug
+ *   DELETE /admin/shared-memories/:slug
  *   GET    /admin/skills
  *   GET    /admin/skills/:slug
  *   POST   /admin/skills/generate
@@ -37,6 +40,7 @@ import type { RouteContext } from '../../index.js';
 import { AgentsService } from '../../../services/agents.js';
 import { ClientConfigService } from '../../../services/client-config.js';
 import { MemoriesService } from '../../../services/memories.js';
+import { SharedMemoriesService } from '../../../services/shared-memories.js';
 import { SkillDraftsService } from '../../../services/skill-drafts.js';
 import { SkillsService } from '../../../services/skills.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
@@ -79,6 +83,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       : { db },
   );
   const memories = new MemoriesService(db);
+  const sharedMemories = new SharedMemoriesService(db);
   const agents = new AgentsService(db, async () => {
     const rows = await db.select().from(versions).where(sql`name = ${AGENTS_BACKUP_LIMIT_KEY}`).limit(1);
     const v = rows[0]?.version;
@@ -235,6 +240,35 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       return await memories.adminDelete(id);
     },
+  );
+
+  // ── /admin/shared-memories ───────────────────────────────────────────────
+  // Fleet-wide corpus: no host_id filter exists here because the rows are not
+  // host-scoped. `q` switches from a recency listing to a relevance search.
+
+  app.get<{ Querystring: { q?: string; query?: string; tags?: string; prefix?: string; limit?: string; offset?: string } }>(
+    '/admin/shared-memories',
+    { preHandler: app.requireAdmin },
+    async (req) =>
+      await sharedMemories.adminList({
+        query: req.query.q ?? req.query.query ?? '',
+        tags: req.query.tags ?? '',
+        prefix: req.query.prefix ?? '',
+        limit: parseInteger(req.query.limit) ?? 50,
+        offset: parseInteger(req.query.offset) ?? 0,
+      }),
+  );
+
+  app.get<{ Params: { slug: string } }>(
+    '/admin/shared-memories/:slug',
+    { preHandler: app.requireAdmin },
+    async (req) => await sharedMemories.adminDetail(decodeURIComponent(req.params.slug)),
+  );
+
+  app.delete<{ Params: { slug: string } }>(
+    '/admin/shared-memories/:slug',
+    { preHandler: app.requireAdmin },
+    async (req) => await sharedMemories.adminDelete(decodeURIComponent(req.params.slug)),
   );
 
   // ── /admin/skills ────────────────────────────────────────────────────────

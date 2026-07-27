@@ -1,8 +1,8 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-07-15
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
+verified: 2026-07-27
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
@@ -76,33 +76,57 @@ Use `tools/list` at runtime for the authoritative set; what you see depends on w
 
 Limits enforced at the service layer:
 
-- `id` (the memory key): letters, digits, `.`, `_`, `:`, `-` only, 128 characters max. A key equal to `coco` or starting with `coco` followed by a separator (`coco.`, `coco_`, `coco:`, `coco-`) is rejected — that namespace is reserved for CoCo shared-project handoffs (use `project_*` tools instead of host-scoped memory).
+- `id` (the memory key): letters, digits, `.`, `_`, `:`, `-` only, 128 characters max. A key equal to `coco` or starting with `coco` followed by a separator (`coco.`, `coco_`, `coco:`, `coco-`) is rejected — that namespace is reserved for CoCo shared-project handoffs (use `project_*` tools for coordination state, or `shared_memory_*` for fleet-wide documents, instead of host-scoped memory).
 - `content`: required, 32,000 characters max.
 - `tags`: up to 32 tags, 64 characters each, case-insensitively deduplicated.
 
-Two limitations are worth knowing before you build on this surface. Host memories **cannot be enumerated over MCP**: there is no `memory_list` tool, `memory_search` marks `query` required (the tool layer rejects an empty string, so the service's own match-all branch is unreachable), and `resource_list` never lists `memory://`. A caller that does not already know a key can only guess search terms. And `memory_search` is lexical, not semantic — a query sharing no tokens with the stored text returns nothing, and the InnoDB full-text minimum token length silently drops very short terms. If you need memory a fresh agent can discover, or memory visible from more than one host, use the project-scoped store below.
+Two limitations are worth knowing before you build on this surface. Host memories **cannot be enumerated over MCP**: there is no `memory_list` tool, `memory_search` marks `query` required (the tool layer rejects an empty string, so the service's own match-all branch is unreachable), and `resource_list` never lists `memory://`. A caller that does not already know a key can only guess search terms. And `memory_search` is lexical, not semantic — a query sharing no tokens with the stored text returns nothing, and the InnoDB full-text minimum token length silently drops very short terms. If you need memory a fresh agent can discover, or memory visible from more than one host, use the project-scoped store or the fleet-wide store below.
 
 ## Project memory tools
 
 `HostProjectsService` (`api/src/services/host-projects.ts`) backs `project_memory_*`, stored in `coord_project_memories` with a unique `(project_id, memory_key)`. The contrast with `memory_*` is the whole point:
 
-| | `memory_*` | `project_memory_*` |
-| --- | --- | --- |
-| Scope | one host | one project, visible from every host |
-| Enumerable | no | yes — `project_memory_list`, `project_memory_search` with no query, and `resource_list` |
-| Deletes | soft (`deleted_at`); re-storing resurrects | hard; `coord_project_events` is the audit trail |
-| Audit log | none | every mutation records a `memory` event and bumps `latest_event_seq` |
-| Attribution | implicit (`host_id`) | `source_host_id` records the writing host |
+| | `memory_*` | `project_memory_*` | `shared_memory_*` |
+| --- | --- | --- | --- |
+| Scope | one host | one project, visible from every host | the whole fleet — no host, no project |
+| Shape | one short fact per key (32k cap) | one short fact per key (32k cap) | documents up to 1 MiB, chunked for retrieval |
+| Enumerable | no | yes — `project_memory_list`, `project_memory_search` with no query, and `resource_list` | yes — `shared_memory_list` takes no required argument at all |
+| Search | lexical over one host's rows | lexical over one project's rows | lexical over every chunk of every document, returning ranked passages |
+| Deletes | soft (`deleted_at`); re-storing resurrects | hard; `coord_project_events` is the audit trail | soft from a host (slug stays reserved, a later write revives it); hard from the admin surface |
+| Audit log | none | every mutation records a `memory` event and bumps `latest_event_seq` | `shared_memory_revisions` records op, digest, size delta and author per revision (metadata only, no bodies) |
+| Attribution | implicit (`host_id`) | `source_host_id` records the writing host | `source_host_id` + `source_engine` record the last writer — provenance only, never a read filter |
+| Concurrent writers | last write wins | last write wins | `shared_memory_append` keeps both writers' text; `expected_sha256` on write turns a lost update into a `409` |
 
 Validation matches `memory_*` (key charset and 128-char cap, 32,000-char content, 32 tags of 64 chars) with three deliberate differences:
 
-- **No reserved prefix.** `mcp_memories` rejects `coco*` keys precisely to redirect callers to project-scoped state; reserving it here too would reject the agent that complied.
+- **No reserved prefix.** `mcp_memories` rejects `coco*` keys precisely to redirect callers to a shared store; reserving it here (or in `shared_memories`) too would reject the agent that complied.
 - **`key` is required** and never auto-generated. `memory_store` falls back to a random UUID; in a shared namespace a UUID key is unaddressable, so "just dump text" belongs in project notes instead.
 - **`query` is optional on `project_memory_search`**, degrading to a recency-ordered listing rather than an error.
 
 `project_memory_upsert` is idempotent and reports `created`, `updated`, or `unchanged`. An `unchanged` re-store writes nothing and records **no** event — otherwise a no-op would bump `latest_event_seq` and make every other host re-sync for nothing. `project_memory_list` returns 280-character previews plus `content_length` by default (pass `include_content: true` for full rows), and `project_bootstrap` surfaces at most 8 previews under `recent_memories` plus a `counts.memories` total.
 
 Search is a project-scoped `MATCH() AGAINST() IN NATURAL LANGUAGE MODE` over `content`/`tags_text` with tag filters applied in application code. If the full-text index is missing — it ships in `api/src/db/migrations/0003_add_coord_project_memories.sql`, and nothing applies migrations automatically — search falls back to a substring scan and sets `degraded: true` in the response rather than failing.
+
+## Shared memory tools
+
+`SharedMemoriesService` (`api/src/services/shared-memories.ts`) backs `shared_memory_*`. It exists because neither store above can hold "everything the fleet knows about X": `mcp_memories` is keyed `(host_id, memory_key)` and `coord_project_memories` needs a project. Shared memories are slug-addressed documents with no host and no project scoping — anything written by `cdx` on one host is found by `clx` on another.
+
+| Tool | What it does |
+| --- | --- |
+| `shared_memory_list` | The discovery entry point. Needs no arguments; returns slug, title, summary, tags, size, revision and a preview for every document. Optional `prefix`, `tags`, `limit`, `offset`, `include_content`. |
+| `shared_memory_search` | Ranked passages across the whole corpus. `mode: "documents"` folds hits into one entry per document. Carries `degraded: true` when the chunk index is missing. |
+| `shared_memory_read` | A bounded window over one document — `max_chars` (default 32,000), `offset`, or a `chunk` / `from_chunk`–`to_chunk` range. `truncated` + `next_offset` let you walk a 1 MiB document without holding all of it. |
+| `shared_memory_write` | Create or replace, up to 1,048,576 characters. Pass `expected_sha256` from a prior read and a concurrent change fails with `409 shared_memory_conflict` instead of silently winning. |
+| `shared_memory_append` | Grow a document without reading it first. This is the multi-writer-safe path; tags are unioned rather than replaced. Creates the document when the slug is new. |
+| `shared_memory_delete` | Soft delete. The slug stays reserved and a later write revives it; the admin delete is the hard one. |
+
+Documents are split into chunks on markdown structure — headings first, then paragraph and line boundaries — and it is the chunk, not the document, that carries the full-text index. That is what makes a search hit point at a readable passage with its heading breadcrumb (`Ops > Deploy > Crane`) instead of at a 1 MiB blob. The chunks of one revision tile their document exactly, so a chunk range is also a character range.
+
+Validation: slug `^[a-z0-9][a-z0-9._:-]*$` (≤160 chars, lower-cased on write — the column collation is case-insensitive, so `Deploy` and `deploy` are one row), title ≤255, summary ≤1000, content ≤1,048,576, 32 tags of 64 characters. No reserved prefix applies.
+
+The same caveats as every other full-text search here: InnoDB's default minimum token length is 3 and the stopword list is on, so a two-character or stopword-only query matches nothing and looks identical to "no results". If the chunk index is missing — it ships in `api/src/db/migrations/0006_add_shared_memories.sql`, along with a backstop that adds it to a table `drizzle-kit push` created without it — search falls back to a bounded substring scan (200 documents, 8 MiB) and sets `degraded: true`. The bound matters: unlike the project-scoped fallback, this corpus has no natural size limit.
+
+Documents are also readable as resources: `shared://{slug}` returns the body as `text/markdown`, and the 50 most recently updated appear in `resource_list`.
 
 ## Access logging
 

@@ -6,6 +6,8 @@
  *   /skills, /skills/retrieve, /skills/store
  *   /agents/retrieve, /config/retrieve
  *   /mcp/memories/{store,delete,retrieve,search}, /mcp/memories/:id
+ *   /shared-memories, /shared-memories/{list,search,read,write,append,delete},
+ *     /shared-memories/:slug
  *
  * All endpoints require `app.requireHost` and source-host attribution is
  * carried into the underlying services via `req.authHost`.
@@ -19,6 +21,7 @@ import { HostAgentsService } from '../../services/host-agents.js';
 import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts.js';
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
+import { SharedMemoriesService } from '../../services/shared-memories.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, isEngine, type Engine } from '../../util/engine.js';
 import { UnauthorizedError, ValidationError } from '../../http/errors.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
@@ -29,6 +32,18 @@ function extractEngine(input: unknown): Engine {
     if (isEngine(e)) return e as Engine;
   }
   return ENGINE_CODEX;
+}
+
+/**
+ * Engine as provenance rather than routing: shared memories are engine-agnostic,
+ * so an absent/unknown engine records null instead of defaulting to Codex.
+ */
+function extractEngineOrNull(input: unknown): Engine | null {
+  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    const e = (input as Record<string, unknown>)['engine'];
+    if (isEngine(e)) return e as Engine;
+  }
+  return null;
 }
 
 function parseSlug(raw: string): string {
@@ -64,6 +79,7 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     keyring: ctx.keyring,
   });
   const memories = new McpMemoriesService(ctx.db);
+  const sharedMemories = new SharedMemoriesService(ctx.db);
   const claudeArtifacts = new HostClaudeArtifactsService(ctx.db);
   const auth = app.requireHost;
 
@@ -284,5 +300,40 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
   );
   app.post('/mcp/memories/search', { preHandler: auth }, async (req) =>
     ok(await memories.search((req.body as Record<string, unknown>) ?? {}, requireHost(req))),
+  );
+
+  // ─── Shared memories (host-key, fleet-wide) ───────────────────────────
+  // Deliberately not host-filtered: every host reads and writes the same
+  // corpus. `engine` is provenance only and comes from the request body the
+  // same way the other host routes take it.
+  app.post('/shared-memories/list', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.list((req.body as Record<string, unknown>) ?? {}, requireHost(req))),
+  );
+  app.get('/shared-memories', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.list((req.query as Record<string, unknown>) ?? {}, requireHost(req))),
+  );
+  app.post('/shared-memories/search', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.search((req.body as Record<string, unknown>) ?? {}, requireHost(req))),
+  );
+  app.post('/shared-memories/read', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.read((req.body as Record<string, unknown>) ?? {}, requireHost(req))),
+  );
+  app.get<{ Params: { slug: string } }>('/shared-memories/:slug', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.read({ ...((req.query as Record<string, unknown>) ?? {}), slug: parseSlug(req.params.slug) }, requireHost(req))),
+  );
+  app.post('/shared-memories/write', { preHandler: auth }, async (req) => {
+    const payload = (req.body as Record<string, unknown>) ?? {};
+    return ok(await sharedMemories.write(payload, requireHost(req), extractEngineOrNull(payload)));
+  });
+  app.post('/shared-memories/append', { preHandler: auth }, async (req) => {
+    const payload = (req.body as Record<string, unknown>) ?? {};
+    return ok(await sharedMemories.append(payload, requireHost(req), extractEngineOrNull(payload)));
+  });
+  app.post('/shared-memories/delete', { preHandler: auth }, async (req) => {
+    const payload = (req.body as Record<string, unknown>) ?? {};
+    return ok(await sharedMemories.delete(payload, requireHost(req), extractEngineOrNull(payload)));
+  });
+  app.delete<{ Params: { slug: string } }>('/shared-memories/:slug', { preHandler: auth }, async (req) =>
+    ok(await sharedMemories.delete({ slug: parseSlug(req.params.slug) }, requireHost(req), null)),
   );
 }

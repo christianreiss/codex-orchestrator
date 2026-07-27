@@ -3,6 +3,7 @@
  *
  * Supports the following URI families:
  *   - `memory://<key>`                          — host-scoped MCP memory
+ *   - `shared://<slug>`                         — fleet-wide shared memory document
  *   - `project://<slug>`                        — shared project bootstrap payload
  *   - `project://<slug>/files/<stored_name>`    — single project file (raw content)
  *   - `project://<slug>/memory/<key>`           — single project-scoped memory
@@ -10,11 +11,14 @@
  */
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
+import type { SharedMemoriesService } from './shared-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
 
 export interface ResourceDeps {
   memories: McpMemoriesService;
+  /** Optional; when absent the `shared://` scheme is not advertised or readable. */
+  sharedMemories?: SharedMemoriesService;
   projects: HostProjectsService;
   skills: HostSkillsService;
 }
@@ -43,6 +47,7 @@ const FILES_INFIX = '/files/';
 const MEMORY_INFIX = '/memory/';
 const PROJECT_FILES_LIST_CAP = 50;
 const PROJECT_MEMORIES_LIST_CAP = 50;
+const SHARED_MEMORIES_LIST_CAP = 50;
 
 interface ProjectFileSubResource {
   storedName: string;
@@ -121,7 +126,7 @@ export class McpResourcesService {
   constructor(private readonly deps: ResourceDeps) {}
 
   listTemplates(): Array<Record<string, unknown>> {
-    return [
+    const templates: Array<Record<string, unknown>> = [
       { uriTemplate: 'memory://{key}', name: 'memory', description: 'Host-scoped MCP memory by key', mimeType: 'application/json' },
       { uriTemplate: 'project://{slug}', name: 'project', description: 'Shared project (bootstrap payload)', mimeType: 'application/json' },
       {
@@ -138,6 +143,15 @@ export class McpResourcesService {
       },
       { uriTemplate: 'skill://{slug}', name: 'skill', description: 'Skill manifest by slug', mimeType: 'text/markdown' },
     ];
+    if (this.deps.sharedMemories) {
+      templates.push({
+        uriTemplate: 'shared://{slug}',
+        name: 'shared_memory',
+        description: 'Fleet-wide shared memory document by slug (visible from every host and either engine)',
+        mimeType: 'text/markdown',
+      });
+    }
+    return templates;
   }
 
   async list(host: Host): Promise<ResourceDescriptor[]> {
@@ -202,6 +216,22 @@ export class McpResourcesService {
         }
       } catch {
         // Skip projects whose memory listing fails — keep the top-level entry.
+      }
+    }
+    // Shared memories are fleet-wide, so unlike the project/skill listings above
+    // there is nothing host-specific to resolve first.
+    if (this.deps.sharedMemories) {
+      try {
+        for (const m of await this.deps.sharedMemories.listRecent(SHARED_MEMORIES_LIST_CAP)) {
+          resources.push({
+            uri: m.uri,
+            name: m.title,
+            description: m.summary ?? m.preview,
+            mimeType: 'text/markdown',
+          });
+        }
+      } catch {
+        // A failing shared-memory listing must not blank the whole catalogue.
       }
     }
     for (const s of skills.skills as Array<Record<string, unknown>>) {
@@ -269,6 +299,14 @@ export class McpResourcesService {
         ],
       };
     }
+    if (scheme === 'shared') {
+      if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
+      const found = await this.deps.sharedMemories.readForResource(id);
+      if (!found) throw new Error('Shared memory not found: ' + id);
+      return {
+        contents: [{ uri, name: found.summary.title, mimeType: 'text/markdown', text: found.content }],
+      };
+    }
     if (scheme === 'skill') {
       const skill = await this.deps.skills.retrieve(id, null, host);
       const manifest = typeof skill['manifest'] === 'string' ? (skill['manifest'] as string) : JSON.stringify(skill);
@@ -295,8 +333,15 @@ export class McpResourcesService {
         host,
       )) as Record<string, unknown>;
     }
+    if (parsed.scheme === 'shared') {
+      if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
+      // No engine here: the resource surface carries no engine hint, unlike
+      // tools/call which threads the X-Engine header through. Provenance is
+      // recorded as host-only for this path.
+      return (await this.deps.sharedMemories.write({ slug: parsed.id, content: text }, host, null)) as Record<string, unknown>;
+    }
     if (parsed.scheme !== 'memory') {
-      throw new Error('Only memory:// and project://{slug}/memory/{key} resources can be created');
+      throw new Error('Only memory://, shared://{slug} and project://{slug}/memory/{key} resources can be created');
     }
     return (await this.deps.memories.store({ id: parsed.id, content: text }, host)) as Record<string, unknown>;
   }
@@ -310,8 +355,12 @@ export class McpResourcesService {
     if (parsed.scheme === 'project' && parsed.projectMemory) {
       return (await this.deps.projects.deleteMemory(parsed.id, parsed.projectMemory.key, host)) as Record<string, unknown>;
     }
+    if (parsed.scheme === 'shared') {
+      if (!this.deps.sharedMemories) throw new Error('Shared memory is not available on this server');
+      return (await this.deps.sharedMemories.delete({ slug: parsed.id }, host, null)) as Record<string, unknown>;
+    }
     if (parsed.scheme !== 'memory') {
-      throw new Error('Only memory:// and project://{slug}/memory/{key} resources can be deleted');
+      throw new Error('Only memory://, shared://{slug} and project://{slug}/memory/{key} resources can be deleted');
     }
     return (await this.deps.memories.delete({ id: parsed.id }, host)) as Record<string, unknown>;
   }

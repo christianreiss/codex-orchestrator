@@ -5,6 +5,7 @@ import { McpServer, type DispatchContext } from '../../../src/services/mcp-serve
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
+import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import type { McpAccessLogService } from '../../../src/services/mcp-access-log.js';
 import type { Host } from '../../../src/db/schema.js';
 
@@ -479,5 +480,135 @@ describe('McpServer integration with project_file_* tools', () => {
     const text = (list as { result: { content: Array<{ text: string }> } }).result.content[0]!.text;
     expect(text).toContain('NEW.md');
     expect(text).toContain('fresh');
+  });
+});
+
+describe('McpResourcesService shared:// scheme', () => {
+  interface SharedDoc {
+    slug: string;
+    title: string;
+    summary: string | null;
+    content: string;
+  }
+
+  function makeStubSharedMemories(docs: SharedDoc[] = []) {
+    const store = new Map(docs.map((d) => [d.slug, d]));
+    const writes: Array<{ slug: string; content: string }> = [];
+    const deletes: string[] = [];
+    const service = {
+      listRecent: async (limit = 20) =>
+        Array.from(store.values())
+          .slice(0, limit)
+          .map((d) => ({
+            slug: d.slug,
+            title: d.title,
+            summary: d.summary,
+            preview: d.content.slice(0, 40),
+            uri: `shared://${encodeURIComponent(d.slug)}`,
+            tags: [],
+            metadata: null,
+            content_length: d.content.length,
+            chunk_count: 1,
+            revision: 1,
+            sha256: 'sha',
+            source_host_id: null,
+            source_engine: null,
+            created_at: null,
+            updated_at: null,
+          })),
+      readForResource: async (slug: string) => {
+        const found = store.get(slug);
+        return found ? { summary: { title: found.title }, content: found.content } : null;
+      },
+      write: async (args: Record<string, unknown>) => {
+        writes.push({ slug: String(args['slug']), content: String(args['content']) });
+        return { status: 'created', slug: args['slug'] };
+      },
+      delete: async (args: Record<string, unknown>) => {
+        deletes.push(String(args['slug']));
+        return { status: 'deleted', slug: args['slug'] };
+      },
+    } as unknown as SharedMemoriesService;
+    return { service, writes, deletes };
+  }
+
+  it('advertises the shared://{slug} template only when the service is wired', () => {
+    const { service: projects } = makeStubProjects();
+    const without = new McpResourcesService({ memories: stubMemories, projects, skills: stubSkills });
+    expect(without.listTemplates().some((t) => t['uriTemplate'] === 'shared://{slug}')).toBe(false);
+
+    const { service: shared } = makeStubSharedMemories();
+    const withShared = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+    expect(withShared.listTemplates().some((t) => t['uriTemplate'] === 'shared://{slug}')).toBe(true);
+  });
+
+  it('list() enumerates shared memories with no project or host scoping', async () => {
+    const { service: projects } = makeStubProjects();
+    const { service: shared } = makeStubSharedMemories([
+      { slug: 'ops.crane', title: 'Crane deploys', summary: 'how crane ships', content: '# Crane' },
+      { slug: 'auth.bootstrap', title: 'Auth bootstrap', summary: null, content: 'bootstrap notes' },
+    ]);
+    const res = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+
+    const list = await res.list(host);
+    const uris = list.map((r) => r.uri);
+    expect(uris).toContain('shared://ops.crane');
+    expect(uris).toContain('shared://auth.bootstrap');
+    expect(list.find((r) => r.uri === 'shared://ops.crane')).toMatchObject({
+      name: 'Crane deploys',
+      description: 'how crane ships',
+      mimeType: 'text/markdown',
+    });
+  });
+
+  it('read() returns the document body as markdown', async () => {
+    const { service: projects } = makeStubProjects();
+    const { service: shared } = makeStubSharedMemories([
+      { slug: 'ops.crane', title: 'Crane deploys', summary: null, content: '# Crane\n\nmanual' },
+    ]);
+    const res = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+
+    const out = await res.read('shared://ops.crane', host);
+    expect(out.contents[0]).toMatchObject({ mimeType: 'text/markdown', text: '# Crane\n\nmanual', name: 'Crane deploys' });
+  });
+
+  it('read() round-trips a URL-encoded slug', async () => {
+    const { service: projects } = makeStubProjects();
+    const { service: shared } = makeStubSharedMemories([{ slug: 'ops:crane', title: 'T', summary: null, content: 'body' }]);
+    const res = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+
+    const out = await res.read('shared://ops%3Acrane', host);
+    expect(out.contents[0]!.text).toBe('body');
+  });
+
+  it('read() reports a missing document rather than returning empty content', async () => {
+    const { service: projects } = makeStubProjects();
+    const { service: shared } = makeStubSharedMemories();
+    const res = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+    await expect(res.read('shared://nope', host)).rejects.toThrow(/not found/i);
+  });
+
+  it('create()/update() write and delete() removes', async () => {
+    const { service: projects } = makeStubProjects();
+    const { service: shared, writes, deletes } = makeStubSharedMemories();
+    const res = new McpResourcesService({ memories: stubMemories, sharedMemories: shared, projects, skills: stubSkills });
+
+    await res.create('shared://notes', { text: 'first' }, host);
+    await res.update('shared://notes', { text: 'second' }, host);
+    await res.delete('shared://notes', host);
+
+    expect(writes).toEqual([
+      { slug: 'notes', content: 'first' },
+      { slug: 'notes', content: 'second' },
+    ]);
+    expect(deletes).toEqual(['notes']);
+  });
+
+  it('fails clearly when shared:// is used on a server without the service', async () => {
+    const { service: projects } = makeStubProjects();
+    const res = new McpResourcesService({ memories: stubMemories, projects, skills: stubSkills });
+    await expect(res.read('shared://x', host)).rejects.toThrow(/not available/i);
+    await expect(res.create('shared://x', { text: 'y' }, host)).rejects.toThrow(/not available/i);
+    await expect(res.delete('shared://x', host)).rejects.toThrow(/not available/i);
   });
 });

@@ -65,7 +65,11 @@ describe('HostSkillsService managed CoCo skill', () => {
       uri: 'skill://coco',
     });
     expect(String(first['manifest'])).toContain('project_bootstrap');
-    expect(String(first['manifest'])).toContain('Do not use memory://');
+    // The manifest must keep steering agents away from host-scoped memory and
+    // must name all three substrates now that a fleet-wide one exists.
+    expect(String(first['manifest'])).toContain('Never valid for cross-host handoffs');
+    expect(String(first['manifest'])).toContain('shared_memory_list');
+    expect(String(first['manifest'])).toContain('project_memory_*');
 
     const unchanged = await service.retrieve(MANAGED_COCO_SKILL_SLUG, String(first['sha256']), host);
     expect(unchanged).toMatchObject({ status: 'unchanged', managed: true });

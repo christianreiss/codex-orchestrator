@@ -9,6 +9,7 @@
  */
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
+import type { SharedMemoriesService } from './shared-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
@@ -30,6 +31,12 @@ export interface ToolDefinition {
 
 export interface ToolDeps {
   memories: McpMemoriesService;
+  /**
+   * Fleet-wide shared memory. Optional so callers that build a registry for a
+   * narrower surface (tests, operator tooling) can leave it out; when omitted
+   * the shared_memory_* tools are neither listed nor callable.
+   */
+  sharedMemories?: SharedMemoriesService;
   projects: HostProjectsService;
   skills: HostSkillsService;
   resources?: McpResourcesService;
@@ -157,7 +164,15 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'memory_delete':
       return { id: scalar };
     case 'memory_search':
+    case 'shared_memory_search':
       return { query: scalar };
+    case 'shared_memory_read':
+    case 'shared_memory_delete':
+      return { slug: scalar };
+    case 'shared_memory_list':
+      // The only useful scalar for a listing is a slug prefix — a bare string
+      // is far more likely to be "show me everything under ops." than a tag.
+      return { prefix: scalar };
     case 'project_create':
     case 'project_detail':
     case 'project_bootstrap':
@@ -281,6 +296,125 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
     handler: async (args, host) => deps.memories.delete(args, host),
   });
+  // Fleet-wide shared memory. Unlike memory_* (host-scoped) and project_memory_*
+  // (project-scoped), these documents are visible to every host and both
+  // engines. `shared_memory_list` is the discovery entry point — it needs no
+  // query, so a fresh agent can see what the fleet knows before guessing search
+  // terms.
+  if (deps.sharedMemories) {
+    const shared = deps.sharedMemories;
+    inputs.push({
+      definition: {
+        name: 'shared_memory_list',
+        description:
+          'List the fleet-wide shared memory index (no query needed). Start here: returns slug, title, summary, tags, size and a preview for every shared document, visible from any host and either engine.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tags: { type: 'array', items: { type: 'string' } },
+            prefix: { type: 'string' },
+            limit: { type: 'integer' },
+            offset: { type: 'integer' },
+            include_content: { type: 'boolean' },
+          },
+        },
+      },
+      handler: async (args, host) => shared.list(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_search',
+        description:
+          'Full-text search across all shared memory documents. Returns ranked passages with their heading and chunk number; pass mode="documents" for one entry per document instead.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            mode: { type: 'string', enum: ['chunks', 'documents'] },
+            limit: { type: 'integer' },
+          },
+          required: ['query'],
+        },
+      },
+      handler: async (args, host) => shared.search(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_read',
+        description:
+          'Read a shared memory document by slug. Returns a bounded window (max_chars, default 32000) — use chunk/from_chunk/to_chunk or the returned next_offset to walk a large document.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            chunk: { type: 'integer' },
+            from_chunk: { type: 'integer' },
+            to_chunk: { type: 'integer' },
+            offset: { type: 'integer' },
+            max_chars: { type: 'integer' },
+          },
+          required: ['slug'],
+        },
+      },
+      handler: async (args, host) => shared.read(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_write',
+        description:
+          'Create or replace a shared memory document (up to 1 MiB). Pass expected_sha256 from a prior read to fail instead of clobbering a concurrent write.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            content: { type: 'string' },
+            title: { type: 'string' },
+            summary: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            metadata: { type: 'object' },
+            expected_sha256: { type: 'string' },
+          },
+          required: ['slug', 'content'],
+        },
+      },
+      handler: async (args, host, engine) => shared.write(args, host, engine ?? null),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_append',
+        description:
+          'Append to a shared memory document, creating it when absent. Safe for concurrent writers, unlike read-modify-write with shared_memory_write.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            content: { type: 'string' },
+            heading: { type: 'string' },
+            separator: { type: 'string' },
+            title: { type: 'string' },
+            summary: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            metadata: { type: 'object' },
+          },
+          required: ['slug', 'content'],
+        },
+      },
+      handler: async (args, host, engine) => shared.append(args, host, engine ?? null),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_delete',
+        description: 'Delete a shared memory document by slug (soft delete; the slug stays reserved).',
+        inputSchema: {
+          type: 'object',
+          properties: { slug: { type: 'string' } },
+          required: ['slug'],
+        },
+      },
+      handler: async (args, host, engine) => shared.delete(args, host, engine ?? null),
+    });
+  }
   inputs.push({
     definition: {
       name: 'project_list',

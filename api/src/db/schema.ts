@@ -596,6 +596,114 @@ export const coordProjectEvents = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// shared_memories + children
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fleet-wide shared memory documents. Deliberately NOT scoped by host or
+ * project: `mcp_memories` is keyed `(host_id, memory_key)` and
+ * `coord_project_memories` is keyed `(project_id, memory_key)`, so neither can
+ * hold a fact that every agent on every host should see. This table is the
+ * third substrate — one corpus, addressed by `slug`, readable and writable from
+ * any host and either engine. `source_host_id` / `source_engine` are provenance
+ * only; do not filter reads by them.
+ *
+ * Bodies are large (1 MiB cap), so retrieval is chunk-based: the indexed unit is
+ * `shared_memory_chunks`, not the document.
+ *
+ * As with `coord_project_memories`, the FULLTEXT indexes are NOT declared here
+ * — drizzle-orm's mysql-core cannot express FULLTEXT. They (and the FKs) live in
+ * `migrations/0006_add_shared_memories.sql`, which is the source of truth for
+ * this table's DDL and also back-fills the indexes onto tables created from this
+ * mirror by `drizzle-kit push`.
+ */
+export const sharedMemories = mysqlTable(
+  'shared_memories',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    slug: varchar('slug', { length: 160 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    summary: text('summary'),
+    content: longtext('content').notNull(),
+    contentSha256: char('content_sha256', { length: 64 }).notNull(),
+    contentLength: int('content_length', { unsigned: true }).notNull().default(0),
+    chunkCount: int('chunk_count', { unsigned: true }).notNull().default(0),
+    revision: int('revision', { unsigned: true }).notNull().default(1),
+    metadata: json('metadata'),
+    tags: json('tags'),
+    tagsText: text('tags_text'),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    sourceEngine: varchar('source_engine', { length: 16 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+    deletedAt: varchar('deleted_at', { length: 100 }),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex('uniq_shared_memories_slug').on(t.slug),
+    updatedAtIdx: index('idx_shared_memories_updated_at').on(t.updatedAt),
+    deletedAtIdx: index('idx_shared_memories_deleted_at').on(t.deletedAt),
+  }),
+);
+
+/**
+ * Retrieval units for `shared_memories`. Chunks carry the document `revision`
+ * they were derived from: a rewrite inserts the new revision's chunks and only
+ * then deletes the superseded ones, and every read joins on
+ * `chunk.revision = memory.revision`. That keeps a crash mid-rewrite from
+ * serving a mix of old and new text without needing a transaction around a
+ * potentially 500-row chunk rewrite.
+ *
+ * `char_start` / `char_end` are offsets into `shared_memories.content`, and the
+ * chunks of one revision tile the document exactly (chunk 0 starts at 0, the
+ * last ends at content_length), so a chunk range is also a byte range.
+ */
+export const sharedMemoryChunks = mysqlTable(
+  'shared_memory_chunks',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    memoryId: bigint('memory_id', { mode: 'number', unsigned: true }).notNull(),
+    revision: int('revision', { unsigned: true }).notNull(),
+    ordinal: int('ordinal', { unsigned: true }).notNull(),
+    heading: varchar('heading', { length: 255 }),
+    content: text('content').notNull(),
+    charStart: int('char_start', { unsigned: true }).notNull(),
+    charEnd: int('char_end', { unsigned: true }).notNull(),
+    tagsText: text('tags_text'),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    uniqChunk: uniqueIndex('uniq_shared_memory_chunk').on(t.memoryId, t.revision, t.ordinal),
+    memoryIdx: index('idx_shared_memory_chunks_memory').on(t.memoryId, t.revision),
+  }),
+);
+
+/**
+ * Metadata-only audit trail for `shared_memories`. Bodies are intentionally not
+ * copied here — at 1 MiB per document a full-body history would dwarf the corpus
+ * it describes. Rollback is not a feature of this table; attribution is.
+ */
+export const sharedMemoryRevisions = mysqlTable(
+  'shared_memory_revisions',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    memoryId: bigint('memory_id', { mode: 'number', unsigned: true }).notNull(),
+    revision: int('revision', { unsigned: true }).notNull(),
+    op: varchar('op', { length: 16 }).notNull(),
+    contentSha256: char('content_sha256', { length: 64 }).notNull(),
+    contentLength: int('content_length', { unsigned: true }).notNull().default(0),
+    deltaLength: int('delta_length').notNull().default(0),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    sourceEngine: varchar('source_engine', { length: 16 }),
+    note: varchar('note', { length: 255 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    uniqRevision: uniqueIndex('uniq_shared_memory_revision').on(t.memoryId, t.revision),
+    memoryIdx: index('idx_shared_memory_revisions_memory').on(t.memoryId),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // admin_*
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1007,6 +1115,9 @@ export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;
 export type CoordProject = typeof coordProjects.$inferSelect;
+export type SharedMemory = typeof sharedMemories.$inferSelect;
+export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
+export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;
 export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
 export type IpRateLimit = typeof ipRateLimits.$inferSelect;
 export type Log = typeof logs.$inferSelect;

@@ -53,6 +53,9 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "memory.changed": [["memories"], ["authoring", "memories"]],
   "memory.created": [["memories"], ["authoring", "memories"]],
   "memory.deleted": [["memories"], ["authoring", "memories"]],
+  "shared_memory.changed": [["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.created": [["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.deleted": [["shared-memories"], ["authoring", "shared-memories"]],
 
   // Claude artifacts (subagents / slash-commands / output-styles)
   "claude_artifact.stored": [["subagents"], ["commands"], ["output-styles"]],

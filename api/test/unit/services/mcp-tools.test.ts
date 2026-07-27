@@ -5,6 +5,7 @@ import type { HostProjectsService } from '../../../src/services/host-projects.js
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
 import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { McpResourcesService } from '../../../src/services/mcp-resources.js';
+import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -116,6 +117,40 @@ const stubResources = {
   delete: async (uri: string) => ({ status: 'deleted', uri }),
 } as unknown as McpResourcesService;
 
+interface SharedCall {
+  method: string;
+  args: Record<string, unknown>;
+  engine: unknown;
+}
+
+const sharedCalls: SharedCall[] = [];
+const stubSharedMemories = {
+  list: async (args: Record<string, unknown>) => {
+    sharedCalls.push({ method: 'list', args, engine: undefined });
+    return { status: 'ok', count: 0, memories: [] };
+  },
+  search: async (args: Record<string, unknown>) => {
+    sharedCalls.push({ method: 'search', args, engine: undefined });
+    return { status: 'ok', count: 0, degraded: false, matches: [] };
+  },
+  read: async (args: Record<string, unknown>) => {
+    sharedCalls.push({ method: 'read', args, engine: undefined });
+    return { status: 'found', slug: args['slug'], content: '# doc' };
+  },
+  write: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
+    sharedCalls.push({ method: 'write', args, engine });
+    return { status: 'created', slug: args['slug'] };
+  },
+  append: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
+    sharedCalls.push({ method: 'append', args, engine });
+    return { status: 'appended', slug: args['slug'] };
+  },
+  delete: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
+    sharedCalls.push({ method: 'delete', args, engine });
+    return { status: 'deleted', slug: args['slug'] };
+  },
+} as unknown as SharedMemoriesService;
+
 const host: Host = { id: 1, fqdn: 'example.com' } as unknown as Host;
 
 describe('McpToolsRegistry', () => {
@@ -137,6 +172,12 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_file_read');
     expect(list).toContain('project_file_upsert');
     expect(list).toContain('project_file_delete');
+  });
+
+  it('omits the shared_memory_* tools when no shared memory service is wired', () => {
+    const list = registry.list().map((t) => t.name);
+    expect(list).not.toContain('shared_memory_list');
+    expect(registry.has('shared_memory_list')).toBe(false);
   });
 
   it('registers the project_memory_* CRUD tools', () => {
@@ -399,5 +440,87 @@ describe('McpToolsRegistry', () => {
       const opNames = noFs.list('operator').map((t) => t.name);
       expect(opNames).not.toContain('fs_read_file');
     });
+  });
+});
+
+describe('shared_memory_* tools', () => {
+  const reg = new McpToolsRegistry({
+    memories: stubMemories,
+    sharedMemories: stubSharedMemories,
+    projects: stubProjects,
+    skills: stubSkills,
+  });
+
+  it('registers the full shared memory surface', () => {
+    const names = reg.list().map((t) => t.name);
+    expect(names).toContain('shared_memory_list');
+    expect(names).toContain('shared_memory_search');
+    expect(names).toContain('shared_memory_read');
+    expect(names).toContain('shared_memory_write');
+    expect(names).toContain('shared_memory_append');
+    expect(names).toContain('shared_memory_delete');
+  });
+
+  // The whole point of the substrate: a zero-knowledge agent must be able to
+  // enumerate it. `memory_search` requires a query and therefore cannot be
+  // listed at all -- shared_memory_list must never inherit that.
+  it('lets shared_memory_list run with no arguments at all', async () => {
+    const list = reg.list().find((t) => t.name === 'shared_memory_list');
+    expect(list?.inputSchema['required']).toBeUndefined();
+
+    const res = await reg.dispatch('shared_memory_list', {}, host);
+    expect(res).toMatchObject({ isError: false });
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'list' });
+  });
+
+  it('requires a query for search and a slug for read/write/append/delete', () => {
+    const required = (name: string) => reg.list().find((t) => t.name === name)?.inputSchema['required'];
+    expect(required('shared_memory_search')).toEqual(['query']);
+    expect(required('shared_memory_read')).toEqual(['slug']);
+    expect(required('shared_memory_write')).toEqual(['slug', 'content']);
+    expect(required('shared_memory_append')).toEqual(['slug', 'content']);
+    expect(required('shared_memory_delete')).toEqual(['slug']);
+  });
+
+  it('reports a missing required field instead of dispatching', async () => {
+    const res = await reg.dispatch('shared_memory_write', { slug: 'x' }, host);
+    expect((res as { isError: boolean }).isError).toBe(true);
+    expect((res as { content: Array<{ text: string }> }).content[0]!.text).toMatch(/content/);
+  });
+
+  it('normalizes bare scalars per tool', async () => {
+    await reg.dispatch('shared_memory_read', 'ops.crane' as unknown as Record<string, unknown>, host);
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'read', args: { slug: 'ops.crane' } });
+
+    await reg.dispatch('shared_memory_search', 'crane' as unknown as Record<string, unknown>, host);
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'search', args: { query: 'crane' } });
+
+    await reg.dispatch('shared_memory_delete', 'ops.crane' as unknown as Record<string, unknown>, host);
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'delete', args: { slug: 'ops.crane' } });
+
+    await reg.dispatch('shared_memory_list', 'ops.' as unknown as Record<string, unknown>, host);
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'list', args: { prefix: 'ops.' } });
+  });
+
+  it('accepts dot aliases like the rest of the surface', async () => {
+    const res = await reg.dispatch('shared.memory.read', { slug: 'a' }, host);
+    expect(res).toMatchObject({ isError: false });
+  });
+
+  it('threads the engine into writes as provenance', async () => {
+    await reg.dispatch('shared_memory_write', { slug: 'a', content: 'b' }, host, 'host', 'claude');
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'write', engine: 'claude' });
+
+    await reg.dispatch('shared_memory_append', { slug: 'a', content: 'b' }, host, 'host', 'codex');
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'append', engine: 'codex' });
+
+    // No X-Engine header on the request means null provenance, not a Codex default.
+    await reg.dispatch('shared_memory_write', { slug: 'a', content: 'b' }, host);
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'write', engine: null });
+  });
+
+  it('is visible to host callers, not operator-only', () => {
+    expect(reg.has('shared_memory_list', 'host')).toBe(true);
+    expect(reg.has('shared_memory_write', 'host')).toBe(true);
   });
 });
