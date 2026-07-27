@@ -457,11 +457,17 @@ export class SharedMemoriesService {
     }
 
     const now = nowIso();
-    await this.db.update(sharedMemories).set({ deletedAt: now, updatedAt: now }).where(eq(sharedMemories.id, doc.id));
+    const revision = doc.revision + 1;
+    // The revision counter has to advance on the row too, not just in the
+    // ledger: a soft delete leaves the slug in place, so the next write revives
+    // this same row and computes its revision from it. Leaving the row at N
+    // while the ledger already holds N+1 makes that revive collide on
+    // uniq_shared_memory_revision and fail the write outright.
+    await this.db.update(sharedMemories).set({ deletedAt: now, updatedAt: now, revision }).where(eq(sharedMemories.id, doc.id));
     // Chunks are pure derived data; drop them so a soft-deleted document stops
     // consuming FULLTEXT index space and can never surface in a search.
     await this.db.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, doc.id));
-    await this.recordRevision(doc.id, doc.revision + 1, 'delete', doc.contentSha256, 0, -doc.contentLength, host, engine);
+    await this.recordRevision(doc.id, revision, 'delete', doc.contentSha256, 0, -doc.contentLength, host, engine);
     await this.recordLog(host, 'shared_memory.delete', { slug, status: 'deleted' });
     wsPublisher.publish('shared_memory.deleted', { slug, id: doc.id });
     wsPublisher.publish('shared_memory.changed', { slug, id: doc.id });

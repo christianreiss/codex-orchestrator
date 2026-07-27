@@ -226,6 +226,31 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
       expect(rowsOf(await exec(`SELECT id FROM shared_memory_revisions WHERE memory_id = ${id}`))).toHaveLength(0);
     });
 
+    // Regression: a soft delete advances the revision ledger, so it must advance
+    // the row's own counter too. When it did not, the revive below recomputed a
+    // revision the ledger already held and the write died on
+    // uniq_shared_memory_revision. db-fake enforces no unique keys, so only a
+    // real database can catch this.
+    it('survives write -> soft delete -> write on the same slug', async () => {
+      await svc.write({ slug: 'ztest-revive', content: 'first body' }, hostA);
+      await svc.delete({ slug: 'ztest-revive' }, hostA);
+      const revived = (await svc.write({ slug: 'ztest-revive', content: 'second body' }, hostB)) as Record<string, unknown>;
+
+      expect(revived['status']).toBe('created');
+      const rows = rowsOf(await exec(`SELECT id, content, revision, deleted_at FROM shared_memories WHERE slug = 'ztest-revive'`));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!['content']).toBe('second body');
+      expect(rows[0]!['deleted_at']).toBeNull();
+
+      const ledger = rowsOf(await exec(`SELECT revision, op FROM shared_memory_revisions WHERE memory_id = ${Number(rows[0]!['id'])} ORDER BY revision`));
+      expect(ledger.map((r) => r['op'])).toEqual(['create', 'delete', 'create']);
+      expect(ledger.map((r) => Number(r['revision']))).toEqual([1, 2, 3]);
+
+      // And the revived document is searchable again, with only its new chunks.
+      const chunks = rowsOf(await exec(`SELECT DISTINCT revision FROM shared_memory_chunks WHERE memory_id = ${Number(rows[0]!['id'])}`));
+      expect(chunks.map((c) => Number(c['revision']))).toEqual([3]);
+    });
+
     it('stores a 1 MiB document and reads a window out of it', async () => {
       const body = 'lorem ipsum dolor sit amet consectetur. '.repeat(27_000).slice(0, 1_048_576);
       expect(body).toHaveLength(1_048_576);
