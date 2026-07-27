@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"encoding/json"
+	"hash/crc32"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,6 +40,81 @@ func TestBuildCronLineEscapesPercent(t *testing.T) {
 	}
 	if !strings.Contains(line, `\%`) {
 		t.Errorf("expected escaped percent: %q", line)
+	}
+}
+
+// clx and cdx share the crc32(hostname) derivation; the offset is the only
+// thing keeping a dual-engine host from running both ticks in the same minute.
+func TestDeterministicTimeStaggersAwayFromCdx(t *testing.T) {
+	for _, host := range []string{"", "amnesiac", "crane.alpha-labs.net", "h.test"} {
+		key := host
+		if key == "" {
+			key = "unknown"
+		}
+		sum := crc32.ChecksumIEEE([]byte(key))
+		cdxMin, cdxHr := int(sum%60), int((sum/60)%4)
+		min, hr := deterministicTime(host)
+		if min == cdxMin && hr == cdxHr {
+			t.Errorf("host %q: clx slot %d:%d collides with cdx", host, hr, min)
+		}
+		if want := (cdxMin + slotOffsetMinutes) % 60; min != want {
+			t.Errorf("host %q: min = %d, want %d", host, min, want)
+		}
+		if hr != cdxHr {
+			t.Errorf("host %q: hr = %d, want %d (hour must not move)", host, hr, cdxHr)
+		}
+		if min < 0 || min > 59 || hr < 0 || hr > 3 {
+			t.Errorf("host %q: slot %d:%d out of range", host, hr, min)
+		}
+	}
+}
+
+func TestRescheduleLineKeepsCommandByteIdentical(t *testing.T) {
+	line := buildCronLine(7, 3, "/usr/local/bin/clx", "/var/log/50% file.log")
+	got, changed := rescheduleLine(line, 37, 3)
+	if !changed {
+		t.Fatalf("expected reschedule; line = %q", line)
+	}
+	if !strings.HasPrefix(got, "37 3 * * * ") {
+		t.Errorf("schedule not rewritten: %q", got)
+	}
+	_, rest, ok := splitCronSchedule(line)
+	if !ok {
+		t.Fatalf("splitCronSchedule failed on %q", line)
+	}
+	if suffix := strings.TrimPrefix(got, "37 3 * * * "); suffix != rest {
+		t.Errorf("command mutated:\n got %q\nwant %q", suffix, rest)
+	}
+	if _, changed := rescheduleLine(got, 37, 3); changed {
+		t.Error("realign is not idempotent")
+	}
+}
+
+func TestRescheduleLineLeavesForeignLinesAlone(t *testing.T) {
+	cases := []string{
+		"# clx-managed — auto-update tick.",
+		"HOME=/root",
+		"CLX_CONFIG_PATH=/home/u/.config/codex-orchestrator/clx.json",
+		"*/15 3 * * * root /usr/local/bin/clx --cron run",
+		"",
+		"7 3 * * 1 root /usr/local/bin/clx --cron run",
+	}
+	for _, line := range cases {
+		if got, changed := rescheduleLine(line, 37, 3); changed {
+			t.Errorf("rescheduled %q -> %q", line, got)
+		}
+	}
+}
+
+func TestRescheduleLineRewritesSystemCronUserField(t *testing.T) {
+	line := "7 3 * * * root /usr/local/bin/clx --cron run >> '/home/u/.claude/cron.log' 2>&1"
+	got, changed := rescheduleLine(line, 37, 3)
+	if !changed {
+		t.Fatal("expected reschedule")
+	}
+	want := "37 3 * * * root /usr/local/bin/clx --cron run >> '/home/u/.claude/cron.log' 2>&1"
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
 	}
 }
 
@@ -104,7 +180,16 @@ func minimalCfg(baseURL string) *config.Config {
 	}
 }
 
+// stubRealign keeps Tick from reading or rewriting the developer's crontab.
+func stubRealign(t *testing.T) {
+	t.Helper()
+	prev := realignSchedule
+	realignSchedule = func() error { return nil }
+	t.Cleanup(func() { realignSchedule = prev })
+}
+
 func TestTickNoUpdateReportsAndReturns(t *testing.T) {
+	stubRealign(t)
 	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
 	t.Setenv("PATH", "")
 
@@ -146,6 +231,7 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 }
 
 func TestTickWrapperUpdateLoopGuard(t *testing.T) {
+	stubRealign(t)
 	t.Setenv("CLAUDE_WRAPPER_RESTARTED", "1")
 	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
 	t.Setenv("PATH", "")

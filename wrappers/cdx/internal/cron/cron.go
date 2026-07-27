@@ -637,6 +637,11 @@ func sha256File(p string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// deterministicTime owns the fleet's base slot: clx derives its own from this
+// exact arithmetic plus a fixed half-hour offset (see slotOffsetMinutes in the
+// clx package) so a dual-engine host never runs both auto-update ticks in the
+// same minute. Changing the formula here without changing it there re-creates
+// that collision.
 func deterministicTime(host string) (min, hr int) {
 	if host == "" {
 		host = "unknown"

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -232,6 +233,148 @@ func stripUserCronManaged() error {
 	return writeCrontab(body)
 }
 
+// realignSchedule is indirected so tests exercising Tick never touch the
+// developer's real crontab.
+var realignSchedule = realignManagedSchedule
+
+// realignManagedSchedule rewrites the schedule fields of an already-installed
+// managed entry when they no longer match the deterministic slot, leaving the
+// command byte-identical. Without it the clx/cdx stagger (see
+// slotOffsetMinutes) would only ever reach freshly minted hosts: Install runs
+// from `clx --cron install` alone and a wrapper self-update never re-asserts
+// the crontab, so every host installed before it would keep firing in the same
+// minute as cdx forever.
+//
+// It deliberately never switches mechanism (user crontab vs /etc/cron.d) —
+// that choice belongs to installCrontab, which makes it from the invoking
+// user's write access to the binary. A system tick runs as root, for whom the
+// binary IS writable, so healing via installCrontab would move the entry into
+// root's personal crontab and leave the /etc/cron.d file in place: two entries
+// where there was one.
+func realignManagedSchedule() error {
+	host, _ := os.Hostname()
+	min, hr := deterministicTime(host)
+	if _, err := os.Stat(systemCronPath); err == nil {
+		return realignSystemCron(min, hr)
+	}
+	return realignUserCron(min, hr)
+}
+
+func realignSystemCron(min, hr int) error {
+	raw, err := os.ReadFile(systemCronPath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	changed := false
+	for i, line := range lines {
+		next, ok := rescheduleLine(line, min, hr)
+		if !ok {
+			continue
+		}
+		lines[i] = next
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	if !passwordlessSudo() {
+		return fmt.Errorf(
+			"%s fires in a stale slot but passwordless sudo is unavailable; re-run `clx --cron install` as a user who has it",
+			systemCronPath,
+		)
+	}
+	return sudoWriteFile(systemCronPath, strings.Join(lines, "\n"), 0o644)
+}
+
+func realignUserCron(min, hr int) error {
+	cur, err := readCrontab()
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(cur, "\n")
+	changed := false
+	for i, line := range lines {
+		if !strings.Contains(line, marker) {
+			continue
+		}
+		next, ok := rescheduleLine(line, min, hr)
+		if !ok {
+			continue
+		}
+		lines[i] = next
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	body := strings.Join(lines, "\n")
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return writeCrontab(body)
+}
+
+// rescheduleLine swaps the leading minute and hour of a `M H * * *` entry and
+// leaves the remainder — user field, command, quoting, escaped `%` — byte
+// identical. It reports false when nothing needs changing, and refuses
+// anything that is not a plain numeric daily slot: comments, `KEY=value` env
+// lines and hand-written ranges/steps keep whatever an operator gave them.
+func rescheduleLine(line string, min, hr int) (string, bool) {
+	fields, rest, ok := splitCronSchedule(line)
+	if !ok || rest == "" {
+		return line, false
+	}
+	if !isCronNumber(fields[0]) || !isCronNumber(fields[1]) {
+		return line, false
+	}
+	for _, field := range fields[2:] {
+		if field != "*" {
+			return line, false
+		}
+	}
+	if fields[0] == strconv.Itoa(min) && fields[1] == strconv.Itoa(hr) {
+		return line, false
+	}
+	return fmt.Sprintf("%d %d * * * %s", min, hr, rest), true
+}
+
+// splitCronSchedule peels off the five schedule fields and returns the rest of
+// the line verbatim, so rewriting a schedule can never reflow a command whose
+// quoted paths contain whitespace.
+func splitCronSchedule(line string) (fields []string, rest string, ok bool) {
+	i := 0
+	for len(fields) < 5 {
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		start := i
+		for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+			i++
+		}
+		if start == i {
+			return nil, "", false
+		}
+		fields = append(fields, line[start:i])
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return fields, line[i:], true
+}
+
+func isCronNumber(field string) bool {
+	if field == "" {
+		return false
+	}
+	for _, r := range field {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // Result mirrors the cdx side: it lets cmdCron render a one-line summary of
 // what a tick actually did. A no-op tick produces WrapperAction/CodexAction
 // == "no_update".
@@ -349,6 +492,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	// entry. EnsureForCron no-ops when this tick was itself spawned by the
 	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
 	peer.EnsureForCron(ctx, cfg, minimal, logger)
+
+	// Hosts installed before clx staggered away from cdx still hold the
+	// colliding slot; nothing else ever rewrites it, so heal it here.
+	if err := realignSchedule(); err != nil {
+		logger.Warn("cron: schedule realign skipped", "err", err)
+	}
 
 	newVer := strings.TrimSpace(claude.Version(ctx))
 	res.CodexVersion = newVer
@@ -520,12 +669,23 @@ func sha256File(p string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// slotOffsetMinutes staggers this entry against the cdx one. Both wrappers
+// derive their slot from crc32(hostname) with identical arithmetic, so a
+// dual-engine host used to schedule `cdx --cron run` and `clx --cron run` in
+// the very same minute — and since each tick also reconciles the peer
+// (peer.EnsureForCron spawns the other wrapper's tick), the host ran two full
+// four-component update passes concurrently, racing each other's npm installs
+// to apply the identical pending update. Half an hour keeps the slot
+// deterministic while guaranteeing the two ticks never overlap. Only clx moves;
+// cdx keeps the unsalted slot so existing Codex-only hosts are undisturbed.
+const slotOffsetMinutes = 30
+
 func deterministicTime(host string) (min, hr int) {
 	if host == "" {
 		host = "unknown"
 	}
 	sum := crc32.ChecksumIEEE([]byte(host))
-	min = int(sum % 60)
+	min = (int(sum%60) + slotOffsetMinutes) % 60
 	hr = int((sum / 60) % 4)
 	return
 }
