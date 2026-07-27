@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -42,6 +42,25 @@ await esbuild.build({
   outfile: resolve(dist, 'chatgpt-usage-worker.js'),
 });
 
+await esbuild.build({
+  ...sharedBuildOptions,
+  entryPoints: [resolve(root, 'src/db/migrate-cli.ts')],
+  outfile: resolve(dist, 'migrate.js'),
+});
+
+// The migration runner reads its SQL from `migrations/` next to the bundle —
+// `src/db/migrations` under tsx, `dist/migrations` in the image. Copy by
+// directory listing, never by an enumerated list: a migration that gets left
+// out of the image is a schema change that silently never ships.
+const migrationsSrc = resolve(root, 'src/db/migrations');
+const migrationsDist = resolve(dist, 'migrations');
+mkdirSync(migrationsDist, { recursive: true });
+const migrations = readdirSync(migrationsSrc).filter((file) => file.endsWith('.sql'));
+if (migrations.length === 0) throw new Error(`no migrations found in ${migrationsSrc}`);
+for (const file of migrations) {
+  copyFileSync(resolve(migrationsSrc, file), resolve(migrationsDist, file));
+}
+
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const runtimePkg = {
   name: pkg.name,
@@ -71,4 +90,6 @@ try {
   // .env optional at build time
 }
 
-console.log('Build complete -> dist/server.js, dist/chatgpt-usage-worker.js');
+console.log(
+  `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/migrations/ (${migrations.length} files)`,
+);

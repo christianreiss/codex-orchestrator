@@ -1,5 +1,55 @@
 # 2026-07-27
 
+- Dual-engine hosts no longer run their auto-update twice at once. `cdx` and
+  `clx` derived the daily cron slot from the same `crc32(hostname)` arithmetic,
+  so both managed entries fired in the identical minute — and because each tick
+  also reconciles the peer (`peer.EnsureForCron` spawns the other wrapper's
+  `--cron run`), the host started two full four-component update passes
+  concurrently, racing each other's npm installs to apply the same pending
+  version. `clx` now offsets its slot by 30 minutes; `cdx` keeps the unsalted
+  one, so Codex-only hosts are untouched. Both entries stay in place by design —
+  each engine must be self-sufficient, since disabling an engine removes its
+  peer's cron with it.
+- Existing hosts heal themselves: a `clx` tick rewrites the schedule fields of
+  its already-installed entry in place when they no longer match the computed
+  slot, leaving the command byte-identical and never switching mechanism (user
+  crontab vs `/etc/cron.d/clx-managed`). Nothing else would have: `cron.Install`
+  runs only from `clx --cron install`, and a wrapper self-update never
+  re-asserts the crontab, so without this the stagger would have reached newly
+  minted hosts only.
+- Migrations now apply themselves. `api/src/db/migrator.ts` is a real runner:
+  it discovers `api/src/db/migrations/*.sql`, records applied versions in a new
+  `schema_migrations` ledger (sha256, statement count, duration, who applied
+  it), and serialises concurrent runners with a `GET_LOCK` advisory lock. It
+  runs on API boot (`RUN_MIGRATIONS_ON_BOOT` now defaults to **on** and is
+  actually read — it used to be parsed by `env.ts` and consumed by nothing) and
+  from `scripts/deploy.sh` between `compose build` and `compose up`, so a slow
+  `ALTER` can no longer eat the api healthcheck window. With the flag off, boot
+  still fails when a migration is pending: the failure mode this replaces was
+  `shared_memory_*` calls erroring in production because 0006 had never been
+  piped into the mysql container by hand.
+- New `dist/migrate.js` CLI (`npm run migrate`, `npm run migrate:check`) with
+  `--check`, `--list`, `--dry-run`, `--json`, `--baseline VERSION` (adopt the
+  runner on a database migrated by hand — records history as applied without
+  executing it), `--reapply VERSION`, and `--lock-timeout`. `scripts/deploy.sh`
+  replaces its hardcoded `claude_artifacts` probe with the runner plus a
+  post-`up` `--check`; the old probe failed *before* the thing that could have
+  fixed it ran.
+- Migrations run on one connection and without a transaction, both deliberately:
+  the files depend on session state (`SET @… :=`, `PREPARE`/`EXECUTE`), and
+  MySQL DDL commits implicitly, so a transaction would only pretend to protect
+  anything. The statement splitter (`api/src/db/migration-sql.ts`) honours
+  `DELIMITER`, quoting, and comments, which a `split(';')` cannot — 0005 defines
+  a stored procedure whose body is full of semicolons.
+- An edited migration that has already been applied is reported as drifted and
+  is **not** re-run automatically (a checksum flips on a comment edit, and 0001
+  is a `DROP TABLE`); `--reapply` makes that explicit. `0002_add_hosts_api_key_hash_index.sql`
+  gained the information_schema guard the other migrations already had, so it no
+  longer dies with ER_DUP_KEYNAME on a second pass, and
+  `test/integration/db-migrations/migrator.test.ts` now enforces the
+  "every migration is idempotent" contract by re-applying every shipped file
+  against an already-migrated MySQL 8.4.
+
 - `#context` is now derived from code, not stored as a `skills` row. It had two
   failure modes that both actually happened: the checked-in
   `docs/skills/context.SKILL.md` and the stored row drifted with no way to tell

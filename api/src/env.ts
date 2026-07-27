@@ -124,7 +124,17 @@ const schema = z
     STRICT_HOST_VALIDATION: boolish.default(true),
     MCP_ALLOW_REQUEST_HOST_ORIGIN: boolish.default(false),
     INSECURE_GRACE_MINUTES: intish(60),
-    RUN_MIGRATIONS_ON_BOOT: boolish.default(false),
+    // Schema convergence. On by default: the API applies every pending file in
+    // db/migrations before it opens a listener. Turning it off does not turn
+    // off the *check* — boot still fails when a migration is pending, because a
+    // schema the code does not expect is worse than a refused start.
+    RUN_MIGRATIONS_ON_BOOT: boolish.default(true),
+    // Seconds to wait for the migration advisory lock when several API
+    // instances boot at once. A FULLTEXT build on a populated table can take a
+    // while, so this is deliberately longer than a healthcheck window.
+    MIGRATIONS_LOCK_TIMEOUT: intish(120),
+    // Escape hatch for a non-standard layout; empty means "next to the bundle".
+    MIGRATIONS_DIR: z.string().optional(),
     RUN_BACKFILLS_ON_BOOT: boolish.default(false),
 
     // MCP operator-capability auth + filesystem tools.

@@ -1099,6 +1099,24 @@ export const wrapperV2Binaries = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// Migration ledger
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Written by `db/migrator.ts`, not by Drizzle. Mirrored here so the schema file
+ * stays a complete picture of the database; nothing queries it through Drizzle.
+ */
+export const schemaMigrations = mysqlTable('schema_migrations', {
+  version: varchar('version', { length: 32 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  checksum: char('checksum', { length: 64 }).notNull(),
+  statements: int('statements', { unsigned: true }).notNull().default(0),
+  durationMs: int('duration_ms', { unsigned: true }).notNull().default(0),
+  appliedAt: varchar('applied_at', { length: 100 }).notNull(),
+  appliedBy: varchar('applied_by', { length: 191 }),
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // Inferred types
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1122,4 +1140,5 @@ export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
 export type IpRateLimit = typeof ipRateLimits.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
+export type SchemaMigration = typeof schemaMigrations.$inferSelect;
 export type CliAuthRequest = typeof cliAuthRequests.$inferSelect;

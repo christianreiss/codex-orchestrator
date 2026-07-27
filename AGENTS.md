@@ -7,7 +7,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted at `api/`.
 
 - Entrypoint: `api/src/server.ts` (Fastify boot, plugin registration, `LISTEN_PORT`/`LISTEN_HOST`).
-- Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration).
+- Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration). Schema *changes* are hand-written SQL in `api/src/db/migrations/`, applied by the runner in `api/src/db/migrator.ts` — on API boot and from `scripts/deploy.sh`, never by `drizzle:push`. Every migration must be idempotent; see `api/src/db/README.md`.
 - Crypto: `api/src/security/secret-box.ts` reads/writes the `sbox:v1[:kid=…]:<b64>` envelope via `libsodium-wrappers`. Password verifier (`api/src/security/password.ts`) accepts bcrypt + phpass + argon2id and transparently rehashes to argon2id on next login.
 - Response envelopes: three formatters (`standard` / `openai` / `anthropic`) wired by `api/src/http/envelope/select.ts`; one `onSend` hook reshapes any handler's return value into the right shape based on URL prefix.
 - Routes live under `api/src/routes/<group>/` and are mounted by `api/src/routes/index.ts`. Services live under `api/src/services/` — no god services.
@@ -52,6 +52,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Do not push to `github` unless the user explicitly says so. Default remote for pushes is `origin`.
 - Update `CHANGELOG.md` (newest date first, grouped under `# YYYY-MM-DD` headers with items listed below each date) for any behavior visible to humans.
 - If a change requires Docker services or the baked wrapper binaries, rebuild + restart the stack.
+- Schema change ⇒ add `api/src/db/migrations/NNNN_*.sql` (idempotent) **and** update `schema.ts` in the same commit. The migration runner applies it on boot and in `scripts/deploy.sh`; never hand-pipe SQL into the mysql container, and never edit an already-applied migration when a new number will do.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
 - Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.

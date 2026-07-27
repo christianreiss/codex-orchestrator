@@ -31,7 +31,7 @@ docker compose --profile caddy up -d
 ## First boot
 
 1. **Clone and run setup.** `bin/setup.sh` prompts for `.env` values (public base URL, admin access mode, runner secret, TLS material), writes `.env` in the repo root, and calls `docker compose up -d`.
-2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` is the single source of truth. Migrations are applied manually with `drizzle-kit` (`npm run drizzle:generate` / `drizzle:push` from `api/`) outside the running app. `RUN_MIGRATIONS_ON_BOOT` and `RUN_BACKFILLS_ON_BOOT` are declared in `api/src/env.ts` but nothing in the current boot path (`api/src/server.ts`, `api/src/ops/boot-checks.ts`) reads either flag — setting them has no effect today, so always run migrations yourself before or after deploying.
+2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
 3. **No admins, no gating.** While `AdminAuthService.isEnforced()` returns false (i.e. `admin_users` is empty), the admin UI serves the first-run screens that let you create the initial admin. The moment you create one, session enforcement flips on for everyone.
 4. **Wrapper signing key.** Run `scripts/wrapper-v2-init-keys.sh` once per environment to generate the Ed25519 keypair used to sign per-host wrapper configs. The keypair is stored in the `wrapper_signing_keys` table by `wrapper-signing-key.ts`. Then `cd wrappers && make pubkey` embeds the public key into the Go binaries at build time.
 
@@ -92,8 +92,10 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### Boot behaviour
 
-- `RUN_MIGRATIONS_ON_BOOT` — bool, default `false`. Declared in `env.ts` but currently unread by the boot path (`server.ts`, `ops/boot-checks.ts`); has no effect. Apply migrations manually with `drizzle-kit`.
-- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Same status as above: declared but not currently consumed anywhere in `api/src`.
+- `RUN_MIGRATIONS_ON_BOOT` — bool, default `true`. Applies every pending file in `api/src/db/migrations/` before the listener opens (`api/src/ops/boot-migrations.ts`). Setting it to `0` does not disable the *check*: boot still fails when a migration is pending, so the API never serves against an unexpected schema.
+- `MIGRATIONS_LOCK_TIMEOUT` — int seconds, default `120`. How long to wait for the `GET_LOCK` migration lock when several API instances boot at once.
+- `MIGRATIONS_DIR` — optional path override for the migration directory. Empty means "next to the bundle" (`dist/migrations`), which is correct for the shipped image.
+- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Declared but not consumed anywhere in `api/src`; the auth-generation backfill in `ops/boot-checks.ts` runs unconditionally and is idempotent.
 
 ### MCP
 

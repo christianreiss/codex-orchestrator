@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import { SharedMemoriesService } from '../../../src/services/shared-memories.js';
 import { chunkContent } from '../../../src/services/shared-memory-chunker.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
+import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import type { Host } from '../../../src/db/schema.js';
 
 /**
@@ -17,32 +18,24 @@ import type { Host } from '../../../src/db/schema.js';
  * without a database, so this file skips there. Run it with:
  *
  *   npm run test:db          (TEST_USE_DB=1 + DB_* env)
- *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db npx vitest run test/integration
+ *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
+ *     npx vitest run test/integration --no-file-parallelism
+ *
+ * `--no-file-parallelism` matters: the index-drop test below races the migration
+ * suite, which applies the same DDL, when the files run in parallel.
  *
  * The suite applies `0006_add_shared_memories.sql` itself (the file is
  * idempotent), which both makes it self-sufficient and covers the migration —
  * including its backstop for tables created by `drizzle-kit push`, which cannot
- * express FULLTEXT.
+ * express FULLTEXT. It splits the file with the production splitter
+ * (`src/db/migration-sql.ts`) so this suite cannot pass against a cut of the SQL
+ * the real runner would never produce.
  *
  * Fixture vocabulary note: InnoDB's default `innodb_ft_min_token_size` is 3 and
  * the stopword list is on, so every searched term here is >= 3 characters and
  * not a stopword. A 2-character or stopword-only query returns zero rows with
  * no error, which is indistinguishable from "no matches".
  */
-
-/** Split a migration into statements; mysql2 rejects multi-statement by default. */
-function sqlStatements(text: string): string[] {
-  return text
-    .split(/;\s*$/m)
-    .map((s) =>
-      s
-        .split('\n')
-        .filter((line) => !line.trim().startsWith('--'))
-        .join('\n')
-        .trim(),
-    )
-    .filter((s) => s.length > 0);
-}
 
 const MIGRATION = join(dirname(fileURLToPath(import.meta.url)), '../../../src/db/migrations/0006_add_shared_memories.sql');
 
@@ -69,7 +62,7 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const stmt of sqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
+    for (const stmt of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
     await cleanup();
 
     const now = new Date().toISOString();
@@ -112,7 +105,7 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'shared_memor%'`,
         ),
       );
-      for (const stmt of sqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
+      for (const stmt of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
       const after = rowsOf(
         await exec(
           `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
@@ -133,7 +126,7 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
         );
         expect(Number(missing[0]!['c'])).toBe(0);
 
-        for (const stmt of sqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
+        for (const stmt of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
 
         const restored = rowsOf(
           await exec(

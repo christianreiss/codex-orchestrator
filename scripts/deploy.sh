@@ -152,17 +152,31 @@ if [[ "${backup}" -eq 1 ]]; then
   log "backup complete ($(wc -c < "${backup_file}") bytes)"
 fi
 
-log "checking required database schema before restart"
-# shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
-"${compose[@]}" exec -T mysql sh -lc \
-  'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT 1 FROM claude_artifacts LIMIT 0;" >/dev/null'
-
 build_args=(build)
 if [[ "${#services[@]}" -gt 0 ]]; then
   build_args+=("${services[@]}")
 fi
 log "building compose services"
 "${compose[@]}" "${build_args[@]}"
+
+# Migrate with the freshly built image, before any listener opens. The API also
+# migrates on boot (RUN_MIGRATIONS_ON_BOOT), but doing it here keeps a slow
+# ALTER out of the container healthcheck window, so `up --wait` cannot mark a
+# successfully-migrating api unhealthy.
+deploys_api=1
+if [[ "${#services[@]}" -gt 0 ]]; then
+  deploys_api=0
+  for service in "${services[@]}"; do
+    [[ "${service}" == "api" ]] && deploys_api=1
+  done
+fi
+
+if [[ "${deploys_api}" -eq 1 ]]; then
+  log "applying database migrations"
+  "${compose[@]}" run --rm -T api node migrate.js
+else
+  log "skipping database migrations (api not in --service list)"
+fi
 
 up_args=(up -d --remove-orphans)
 if [[ "${no_wait}" -eq 0 ]] && docker compose up --help | grep -q -- '--wait'; then
@@ -181,6 +195,11 @@ log "checking database"
 # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
 "${compose[@]}" exec -T mysql sh -lc \
   'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT 1;" >/dev/null'
+
+if [[ "${deploys_api}" -eq 1 ]]; then
+  log "verifying schema is fully migrated"
+  "${compose[@]}" exec -T api node migrate.js --check
+fi
 
 log "checking auth runner"
 "${compose[@]}" exec -T auth-runner python -c \

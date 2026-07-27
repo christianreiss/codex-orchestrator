@@ -5,6 +5,7 @@ import { loadEnv } from './env.js';
 import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
 import { Keyring } from './security/keyring.js';
+import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
@@ -26,6 +27,8 @@ export async function buildServer() {
   const env = loadEnv();
   const { db, pool } = createDb(env);
 
+  // Schema first: the boot checks below probe tables that migrations create.
+  await runBootMigrations(env, pool);
   await runBootChecks(env, db);
   const keyring = Keyring.fromEnv(env);
 
@@ -83,7 +86,16 @@ declare module 'fastify' {
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const env = loadEnv();
-  const app = await buildServer();
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  try {
+    app = await buildServer();
+  } catch (err) {
+    // Node prints the offending source line with the stack; for `dist/server.js`
+    // that is a screenful of minified bundle around the real reason. Boot
+    // failures (a migration that will not apply, most likely) get one line.
+    process.stderr.write(`[boot] fatal: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  }
   try {
     await app.listen({ host: env.LISTEN_HOST, port: env.LISTEN_PORT });
   } catch (err) {
