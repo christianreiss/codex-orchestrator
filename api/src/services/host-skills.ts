@@ -12,11 +12,7 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Engine } from '../util/engine.js';
 import { isEngine } from '../util/engine.js';
-import {
-  getManagedCocoSkillIfEnabled,
-  isManagedCocoSlug,
-  type ManagedCocoSkill,
-} from './managed-coco-skill.js';
+import { findManagedSkill, listManagedSkills, type ManagedSkillManifest } from './managed-skills.js';
 
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 const SHA_RE = /^[a-f0-9]{64}$/i;
@@ -107,8 +103,9 @@ export function renderSkillFile(row: typeof skills.$inferSelect): string {
 export class HostSkillsService {
   constructor(private readonly db: Database) {}
 
-  private async managedCocoSkill(): Promise<ManagedCocoSkill | null> {
-    return getManagedCocoSkillIfEnabled(this.db);
+  /** Every code-derived skill currently served (coco when enabled, context always). */
+  private async managedSkills(): Promise<ManagedSkillManifest[]> {
+    return listManagedSkills(this.db);
   }
 
   /**
@@ -120,18 +117,19 @@ export class HostSkillsService {
    * sha the MCP/retrieve path depends on).
    */
   async bundle(host: Host, engine: Engine, digests: Record<string, string> = {}): Promise<SkillEnvelope[]> {
-    const [rows, managedCoco] = await Promise.all([
+    const [rows, managed] = await Promise.all([
       this.db
       .select()
       .from(skills)
       .where(sql`${skills.deletedAt} IS NULL`)
         .orderBy(asc(skills.slug)),
-      this.managedCocoSkill(),
+      this.managedSkills(),
     ]);
+    const managedSlugs = new Set(managed.map((m) => m.slug));
     const out: SkillEnvelope[] = [];
     for (const row of rows) {
       if (row.deletedAt) continue; // db-fake ignores WHERE — filter in JS too
-      if (managedCoco && isManagedCocoSlug(row.slug)) continue;
+      if (managedSlugs.has(row.slug)) continue; // code-derived version wins
       const e = row.engine;
       const visible = e === null || e === undefined || e === '' || e === engine;
       if (!visible) continue;
@@ -145,15 +143,15 @@ export class HostSkillsService {
           : { slug: row.slug, sha256: sha, status: 'updated', content },
       );
     }
-    if (managedCoco) {
-      const content = managedCoco.manifest;
+    for (const m of managed) {
+      const content = m.manifest;
       const sha = createHash('sha256').update(content).digest('hex');
-      const have = digests[managedCoco.slug];
+      const have = digests[m.slug];
       const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
       out.push(
         unchanged
-          ? { slug: managedCoco.slug, sha256: sha, status: 'unchanged' }
-          : { slug: managedCoco.slug, sha256: sha, status: 'updated', content },
+          ? { slug: m.slug, sha256: sha, status: 'unchanged' }
+          : { slug: m.slug, sha256: sha, status: 'updated', content },
       );
     }
     await this.recordLog(host.id, 'skill.bundle', { count: out.length, engine });
@@ -161,14 +159,15 @@ export class HostSkillsService {
   }
 
   async listSkills(host: Host, engine: Engine | null): Promise<{ engine: Engine | null; skills: Record<string, unknown>[] }> {
-    const [rows, managedCoco] = await Promise.all([
+    const [rows, managed] = await Promise.all([
       this.db
       .select()
       .from(skills)
       .where(sql`${skills.deletedAt} IS NULL`)
         .orderBy(asc(skills.slug)),
-      this.managedCocoSkill(),
+      this.managedSkills(),
     ]);
+    const managedSlugs = new Set(managed.map((m) => m.slug));
     const filtered = engine && isEngine(engine)
       ? rows.filter((r) => {
           const e = r.engine;
@@ -176,9 +175,9 @@ export class HostSkillsService {
         })
       : rows;
     const decorated = filtered
-      .filter((r) => !(managedCoco && isManagedCocoSlug(r.slug)))
+      .filter((r) => !managedSlugs.has(r.slug))
       .map((r) => this.decorate(r));
-    if (managedCoco) decorated.push(this.decorateManaged(managedCoco));
+    for (const m of managed) decorated.push(this.decorateManaged(m));
     await this.recordLog(host.id, 'skill.list', { count: decorated.length, engine });
     return { engine, skills: decorated };
   }
@@ -189,21 +188,21 @@ export class HostSkillsService {
     assertSha256(providedSha, true, errors);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
-    const managedCoco = isManagedCocoSlug(normalized) ? await this.managedCocoSkill() : null;
-    if (managedCoco) {
-      const status = providedSha && safeHashEquals(managedCoco.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
+    const managed = await findManagedSkill(this.db, normalized);
+    if (managed) {
+      const status = providedSha && safeHashEquals(managed.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
       await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status, managed: true });
       return {
         status,
-        slug: managedCoco.slug,
-        uri: managedCoco.uri,
-        canonical_uri: managedCoco.canonical_uri,
-        sha256: managedCoco.sha256,
-        display_name: managedCoco.display_name,
-        description: managedCoco.description,
-        updated_at: managedCoco.updated_at,
+        slug: managed.slug,
+        uri: managed.uri,
+        canonical_uri: managed.canonical_uri,
+        sha256: managed.sha256,
+        display_name: managed.display_name,
+        description: managed.description,
+        updated_at: managed.updated_at,
         managed: true,
-        ...(status === 'unchanged' ? {} : { manifest: managedCoco.manifest }),
+        ...(status === 'unchanged' ? {} : { manifest: managed.manifest }),
       };
     }
 
@@ -257,7 +256,7 @@ export class HostSkillsService {
     const providedSha = payload['sha256'];
 
     const slug = normalizeSlug(String(slugRaw));
-    if (isManagedCocoSlug(slug) && await this.managedCocoSkill()) {
+    if (await findManagedSkill(this.db, slug)) {
       throw new ConflictError('managed skill cannot be overwritten directly', 'managed_skill');
     }
     const manifest = String(manifestRaw ?? '').trim() === '' ? '' : String(manifestRaw);
@@ -350,7 +349,7 @@ export class HostSkillsService {
     };
   }
 
-  private decorateManaged(skill: ManagedCocoSkill): Record<string, unknown> {
+  private decorateManaged(skill: ManagedSkillManifest): Record<string, unknown> {
     return {
       slug: skill.slug,
       sha256: skill.sha256,

@@ -1,5 +1,27 @@
 # 2026-07-27
 
+- `#context` is now derived from code, not stored as a `skills` row. It had two
+  failure modes that both actually happened: the checked-in
+  `docs/skills/context.SKILL.md` and the stored row drifted with no way to tell
+  which one hosts were running, and editing the file shipped nothing until
+  somebody remembered to `POST /admin/skills/store` it. The manifest now lives
+  in `api/src/services/managed-context-skill.ts`, is assembled by a new
+  `managed-skills.ts` registry alongside `coco`, and ships with the API image —
+  editing the constant IS the release. A managed slug shadows any same-named row
+  left over from before, so no migration is needed, and the admin store/delete
+  paths reject both managed slugs. `docs/skills/context.SKILL.md` was deleted:
+  a checked-in file that ships nothing is the drift this removes.
+- The rewritten `#context` manifest routes durable context at the MCP stores,
+  names Claude Code's native file memory as the thing it overrides, and pulls
+  the tool names from a shared constant so a rename breaks the build instead of
+  silently leaving the fleet with instructions pointing at tools that no longer
+  exist. `context` is unconditional (the memory tools always exist); `coco`
+  stays gated on `projects_module_enabled`.
+- `context` now rides the clx on-disk bundle for every Claude host, so
+  `~/.claude/skills/context/SKILL.md` appears without an admin storing anything.
+
+# 2026-07-27
+
 - Added a third memory substrate: **fleet-wide shared memory**. The two
   existing stores could not hold "everything the fleet knows about X" —
   `mcp_memories` is keyed `(host_id, memory_key)` so a fact written on one

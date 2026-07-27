@@ -91,7 +91,14 @@ describe('POST /sync/bootstrap claude_skills bundle', () => {
     const body = JSON.parse(r.payload);
     expect(body.claude_skills).toBeDefined();
     const slugs = body.claude_skills.map((s: { slug: string }) => s.slug).sort();
-    expect(slugs).toEqual(['git-commit', 'reviewer']); // codex-only + deleted excluded
+    // `context` is a MANAGED skill: derived from code, not a skills row, and
+    // unconditionally bundled so every Claude host gets the memory-routing
+    // instructions on disk without an admin ever storing it.
+    expect(slugs).toEqual(['context', 'git-commit', 'reviewer']); // codex-only + deleted excluded
+
+    const context = body.claude_skills.find((s: { slug: string }) => s.slug === 'context');
+    expect(context.content).toContain('shared_memory_list');
+    expect(context.content).toContain('~/.claude/projects');
 
     const git = body.claude_skills.find((s: { slug: string }) => s.slug === 'git-commit');
     expect(git.content.startsWith('---\n')).toBe(true);

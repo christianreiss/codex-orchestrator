@@ -29,20 +29,37 @@ curl -sc /tmp/cj -X POST http://127.0.0.1:8488/admin/auth/login \
   -d '{"username":"<user>","password":"<password>"}'
 
 # 2. Store, reading the manifest straight from the file
-jq -n --arg m "$(cat docs/skills/context.SKILL.md)" \
-  '{slug:"context", display_name:"Durable task context", engine:null,
-    description:"Use #context for work that spans sessions or weeks: bootstrap from durable project memory before acting, and review that memory for adds/updates/deletes after every task.",
+#    (`coco` and `context` are managed in code and are REJECTED here — see below)
+jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
+  '{slug:"<slug>", display_name:"<Display name>", engine:null,
+    description:"<one-line description>",
     manifest:$m}' \
 | curl -sb /tmp/cj -X POST http://127.0.0.1:8488/admin/skills/store \
     -H 'Content-Type: application/json' --data-binary @-
 ```
 
+## Managed skills (code-derived, never stored)
+
+`coco` and `context` are NOT rows in the `skills` table and must never be stored with
+`POST /admin/skills/store` — that endpoint rejects both slugs. Their manifests are constants in
+`api/src/services/managed-coco-skill.ts` and `api/src/services/managed-context-skill.ts`, assembled
+by `api/src/services/managed-skills.ts`, and served through the normal `/skills` list / retrieve /
+bundle paths. A managed slug shadows any same-named row left over from before, so an existing
+deployment needs no migration.
+
+Editing the constant and shipping the API image IS the release: the manifest sha changes, and every
+host picks it up on its next sync. `docs/skills/context.SKILL.md` used to be the authoring copy for
+`context` and was deleted when it moved into code — a checked-in file that ships nothing is exactly
+the drift this change removes. `coco` is served only while `projects_module_enabled = 1`; `context`
+is unconditional, because the memory tools it documents always exist.
+
 ## Current manifests
 
-- `context.SKILL.md` — `#context`. **Stored on 2026-07-19** (migration
-  `0003_add_coord_project_memories.sql` is applied and `project_memory_*` answers).
-  `engine` is `null`, so it serves codex over MCP *and* rides the clx bundle to
-  `~/.claude/skills/context/SKILL.md`.
+- `#context` — **no longer a file and no longer a row.** Moved into
+  `api/src/services/managed-context-skill.ts` on 2026-07-27; the checked-in
+  `context.SKILL.md` was deleted with it. `engine` is `null`, so it serves codex over
+  MCP *and* rides the clx bundle to `~/.claude/skills/context/SKILL.md` — that behaviour
+  is unchanged, only the source of truth moved.
 
   Its "The store is MCP, not local files" section is load-bearing, not boilerplate:
   Claude Code ships a native file-memory feature (`~/.claude/projects/**/memory/` +
