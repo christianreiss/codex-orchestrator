@@ -1300,7 +1300,12 @@ function normalizeInt(value: unknown, fallback: number, min: number, max: number
  */
 function supplied(payload: Record<string, unknown>, key: string): boolean {
   const value = payload[key];
-  return value !== undefined && value !== null && value !== '';
+  if (value === undefined || value === null) return false;
+  // A whitespace-only string is not a title. Treating it as supplied let it
+  // trim to '' and fall through to "default to the slug", renaming the document
+  // just as an explicit null used to.
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
 }
 
 function truthy(value: unknown): boolean {

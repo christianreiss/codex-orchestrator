@@ -208,6 +208,33 @@ describe('SharedMemoriesService.write', () => {
     );
   });
 
+  // `resources/update shared://{slug}` can only carry text. Blanking unsupplied
+  // fields there silently stripped a document's title, summary and tags.
+  it('preserves labels a replace did not supply', async () => {
+    const db = makeDb();
+    await service(db).write(
+      { slug: 'doc', content: 'v1', title: 'Crane deploy runbook', summary: 'how crane ships', tags: ['ops'], metadata: { owner: 'sre' } },
+      host,
+    );
+    await service(db).write({ slug: 'doc', content: 'v2' }, otherHost);
+
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['content']).toBe('v2');
+    expect(row['title']).toBe('Crane deploy runbook');
+    expect(row['summary']).toBe('how crane ships');
+    expect(row['tags']).toEqual(['ops']);
+    expect(row['metadata']).toEqual({ owner: 'sre' });
+  });
+
+  it('still replaces labels that ARE supplied', async () => {
+    const db = makeDb();
+    await service(db).write({ slug: 'doc', content: 'v1', title: 'Old', tags: ['ops'] }, host);
+    await service(db).write({ slug: 'doc', content: 'v2', title: 'New', tags: ['deploy'] }, otherHost);
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['title']).toBe('New');
+    expect(row['tags']).toEqual(['deploy']);
+  });
+
   it('does not reserve the coco namespace — this IS the shared substrate', async () => {
     const out = (await service(makeDb()).write({ slug: 'coco.handoff', content: 'body' }, host)) as Record<string, unknown>;
     expect(out['status']).toBe('created');
@@ -252,6 +279,30 @@ describe('SharedMemoriesService.append', () => {
     await service(db).write({ slug: 'log', content: 'body', title: 'Incident log' }, host);
     await service(db).append({ slug: 'log', content: 'more' }, otherHost);
     expect((db.tables.get(sharedMemories) ?? [])[0]!['title']).toBe('Incident log');
+  });
+
+  // `title: null` used to fall through to "default the title to the slug", so an
+  // append that passed an explicit null renamed someone else's document.
+  it.each([
+    ['omitted', {}],
+    ['explicit null', { title: null }],
+    ['empty string', { title: '' }],
+    ['whitespace only', { title: '   ' }],
+  ])('preserves the existing title when the appender supplies %s', async (_label, extra) => {
+    const db = makeDb();
+    await service(db).write({ slug: 'doc', content: 'body', title: 'Crane deploy runbook', summary: 'the summary' }, host);
+    await service(db).append({ slug: 'doc', content: 'more', ...extra }, otherHost);
+
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['title']).toBe('Crane deploy runbook');
+    expect(row['summary']).toBe('the summary');
+  });
+
+  it('adopts a title the appender does supply', async () => {
+    const db = makeDb();
+    await service(db).write({ slug: 'doc', content: 'body', title: 'Old' }, host);
+    await service(db).append({ slug: 'doc', content: 'more', title: 'New' }, otherHost);
+    expect((db.tables.get(sharedMemories) ?? [])[0]!['title']).toBe('New');
   });
 
   it('refuses an append that would push the document past the size limit', async () => {
