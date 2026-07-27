@@ -31,5 +31,5 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm test -- --no-coverage
+      - run: npm test -- --coverage
       - run: npm run build
