@@ -1,19 +1,28 @@
 # Auth Runner (Sidecar) Behavior
 
-The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, and revises skill drafts from a conversation by running `/usr/local/bin/codex` in an isolated temp `$HOME`.
+The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude CLI) in an isolated temp `$HOME`.
 
 ## HTTP surface (runner container)
 
+This is every route `runner/app.py` registers. `runner/test_app.py` walks
+`app.routes` and fails when a registered `METHOD /path` is missing from this
+file, so a new route has to be documented here before it can ship.
+
+- `GET /health` returns `{"status": "ok"}` plus per-engine `available` flags and is used by Docker health checks.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
-- `POST /verify-claude` validates Claude credentials. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
-- `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), and optional `timeout_seconds`.
-- `POST /memories/summarize` generates a short AGENTS-safe memory summary. Body: `auth_json` (required object), `memory_key` (required string), `content` (required string), and optional `timeout_seconds`.
-- `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, and optional `timeout_seconds`.
-- `POST /skills/assist` revises a structured skill draft from a conversation. Body: `auth_json` (required object), `messages` (required array), `skill` (required object), optional `mode`, optional `slug_locked`, and optional `timeout_seconds`.
-- `RUNNER_SHARED_SECRET` is mandatory. Every POST surface requires
+- `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
+- `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), optional `engine` (`codex` | `claude`, default `codex`), and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route.
+- `POST /memories/summarize` generates a short AGENTS-safe memory summary. Body: `auth_json` (required object), `memory_key` (required string), `content` (required string), optional `engine`, and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route either.
+- `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, optional `engine`, and optional `timeout_seconds`.
+- `POST /skills/assist` revises a structured skill draft from a conversation. Body: `auth_json` (required object), `messages` (required array), `skill` (required object), optional `mode`, optional `slug_locked`, optional `engine`, and optional `timeout_seconds`.
+- `POST /projects/assist` revises a project roster draft. Body: `auth_json` (required object), `slug` (required string), `project` (required object), optional `engine`, and optional `timeout_seconds`.
+- `POST /exec` runs one prompt through the engine CLI. Body: `auth_json` (required object) and `prompt` (required string), plus optional `images[]` (`url`, optional `detail`), `model`, `engine` (`codex` | `claude`, default `codex`), `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `system`, and `timeout_seconds` (default `30`). `temperature`, `top_p`, `top_k`, and `stop_sequences` are accepted for wire-format compatibility and reach neither CLI. `system` and `max_tokens` are read only on the `claude` path, and `max_tokens` is dropped there too because the Claude CLI has no such flag.
+- `RUNNER_SHARED_SECRET` is mandatory. Every POST — `/verify`, `/verify-claude`,
+  `/skills/summarize`, `/memories/summarize`, `/skills/generate`,
+  `/skills/assist`, `/projects/assist`, and `/exec` — requires
   `X-Runner-Auth` with an exact match; an unset runner secret fails closed with
-  HTTP 500 and a wrong/missing request secret returns 401.
-- `GET /health` returns `{"status": "ok"}` and is used by Docker health checks.
+  HTTP 500 and a wrong/missing request secret returns 401. The GET routes below
+  and `GET /health` answer without the secret.
 - `POST /verify` and `/verify-claude` probe responses include `status`,
   `latency_ms`, `reachable`, `definitive`, the engine version, optional
   `updated_auth`, and optional `reason`. Native probes also report
@@ -24,14 +33,17 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
   outages, quota/model errors, timeouts, and generic CLI failures remain
   retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
   `auth_limited:true`.
-- `GET /skills/summarize` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST summaries.
+- `GET /skills/summarize`, `GET /memories/summarize`, `GET /skills/generate`,
+  `GET /skills/assist`, `GET /projects/assist`, and `GET /exec` each return
+  `{"status": "ok"}` so API-side readiness probing can hit the same route used
+  for the matching POST.
 - `POST /skills/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
-- `GET /memories/summarize` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST summaries.
 - `POST /memories/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
-- `GET /skills/generate` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST generation.
 - `POST /skills/generate` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
-- `GET /skills/assist` returns `{"status": "ok"}` so API-side readiness probing can hit the same route used for POST assist calls.
 - `POST /skills/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
+- `POST /projects/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`title`, `name`, `description`, `roster_markdown`), and optional `reason`.
+- `POST /exec` responses include: `status`, `latency_ms`, `reachable`, `output`, optional `updated_auth`, and `error` on failure. The `claude` engine also reports `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
+- Every engine-aware route reports `claude_version` instead of `codex_version` when the request selects `engine:"claude"`.
 - CLI probe `status` is `ok` only when the command exits `0` and stdout contains
   `banana` (case-insensitive); otherwise it is `fail`. A non-zero CLI exit alone
   is not a credential verdict.
@@ -97,9 +109,9 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise the runner client is not created.
 - API boot checks probe the runner's derived `/health` endpoint once for per-engine telemetry. Credential verification itself sends one `POST` directly to `/verify` or `/verify-claude`; transport/parse/HTTP failures are non-definitive and report `reachable=false` only for an actual transport/provider-unreachable signal.
 - Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`. The API HTTP transport allows an additional bounded six-second response/readback grace beyond the native probe deadline; this lets a timed-out CLI return any rotated credential bytes safely instead of losing them at the transport boundary.
-- OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, optional `images[]`, optional `model`, and `timeout_seconds`; when `model` is present the runner invokes `codex --model <id> exec ...`, and each image is materialized to a temp file then passed through as `codex --image <file>`.
-- Skill summary request payload includes `auth_json`, `slug`, `manifest`, and `timeout_seconds`. The API only asks for summaries when a skill is created or its manifest changes and no explicit description was supplied.
-- Memory summary request payload includes `auth_json`, `memory_key`, `content`, and `timeout_seconds`. The API asks for summaries after memory create/update writes and may backfill them on unchanged writes when an older row still lacks `summary`.
+- OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, `images[]`, `model`, `engine`, `timeout_seconds`, and whichever of `max_tokens`, `temperature`, `top_p`, `system`, and `stop_sequences` the caller supplied; the Anthropic-compatible adapter can additionally send `top_k`. When `model` is present the runner invokes `codex --model <id> exec ...`, and each image is materialized to a temp file then passed through as `codex --image <file>`.
+- Project assist request payload includes `auth_json`, `slug`, `project`, and `timeout_seconds`. The API uses it for the admin-only project roster draft flow (`api/src/services/project-drafts.ts`).
+- `/skills/summarize` and `/memories/summarize` have **no API caller**: no code under `api/src` builds either URL or sends either payload. The routes are reachable on the runner but currently unused, so a summary only exists if something outside this repo posts to them.
 - Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Skill assist request payload includes `auth_json`, `messages`, `skill`, optional `mode`, optional `slug_locked`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/assist` conversational draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Every canonical-auth store path:
@@ -197,10 +209,8 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 ## Configuration quick reference
 
 - `AUTH_RUNNER_URL` (API): runner endpoint URL used for readiness GET + verification POST. Code default: empty (disabled). Compose default: `http://auth-runner:8080/verify`.
-- `AUTH_RUNNER_SKILL_SUMMARY_URL` (API): optional explicit runner skill-summary endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/summarize`.
-- `AUTH_RUNNER_MEMORY_SUMMARY_URL` (API): optional explicit runner memory-summary endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/memories/summarize`.
-- `AUTH_RUNNER_SKILL_GENERATE_URL` (API): optional explicit runner skill-generation endpoint. When unset, API derives it from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`.
-- Skill assist endpoint is derived from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/assist`.
+- `AUTH_RUNNER_SKILL_SUMMARY_URL`, `AUTH_RUNNER_MEMORY_SUMMARY_URL`, and `AUTH_RUNNER_SKILL_GENERATE_URL` (API): historical overrides. No API code reads them; setting one changes nothing.
+- Skill generate, skill assist, and project assist endpoints are derived from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`, `/skills/assist`, and `/projects/assist`; the `/exec` endpoint is derived the same way. The summary endpoints are not derived at all, because the API never calls them.
 - `AUTH_RUNNER_TIMEOUT` (API): native provider/CLI probe timeout passed to the verifier payload. The API verifier HTTP request adds a fixed six-second readback/response grace. Default probe timeout: `8` seconds.
 - `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
@@ -210,5 +220,5 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.
-- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for `/verify`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, and `/skills/assist`.
+- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for every POST — `/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.

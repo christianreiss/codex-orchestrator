@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import os
 import json
+import re
 import shutil
 import subprocess
 import typing
@@ -817,6 +818,47 @@ class RunnerRouteAuthTest(unittest.TestCase):
 
                 self.assertEqual(200, response.status_code)
                 self.assertEqual({"status": "ok"}, response.json())
+
+
+DOC_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "docs", "auth-runner.md"
+)
+
+# Matches a documented route written as a single backticked `METHOD /path`.
+# Matching the pair, not the bare path, keeps `POST /verify` from vouching for
+# `/verify-claude` (or any other route it happens to be a prefix of).
+DOCUMENTED_ROUTE_RE = re.compile(r"`(GET|POST|PUT|PATCH|DELETE) (/[^`\s]*)`")
+
+
+class RunnerDocSurfaceTest(unittest.TestCase):
+    """docs/auth-runner.md is the only description of this HTTP surface.
+
+    API and wrapper authors read the doc, not the router, so a route that
+    exists here and nowhere in the doc is a route nobody knows to call — or,
+    worse, one nobody knows to guard with the shared secret.
+    """
+
+    def test_every_registered_route_is_documented(self):
+        with open(DOC_PATH, encoding="utf-8") as fh:
+            documented = set(DOCUMENTED_ROUTE_RE.findall(fh.read()))
+
+        undocumented = []
+        registered = 0
+        for route in runner_app.app.routes:
+            # Skip FastAPI's own /docs and /openapi.json plumbing.
+            if not isinstance(route, APIRoute):
+                continue
+            for method in sorted(route.methods):
+                registered += 1
+                if (method, route.path) not in documented:
+                    undocumented.append(f"{method} {route.path}")
+
+        self.assertNotEqual(0, registered)
+        self.assertEqual(
+            [],
+            undocumented,
+            f"missing from docs/auth-runner.md: {', '.join(undocumented)}",
+        )
 
 
 class _FakeCompletedProcess:
