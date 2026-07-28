@@ -2,17 +2,17 @@
 
 ## Summary
 - Admin login uses a dedicated route at `/admin/login`.
-- Login/session enforcement starts when at least one **active** admin user exists (`access_level=admin`, `active=1`).
-- When no active admins exist, admin routes run in bootstrap mode (no login/session enforcement).
+- Login/session enforcement starts when at least one **active** admin user exists (`access_level` of `owner` or `admin`, `active=1`).
+- When no admin user exists at all, `POST /admin/users` runs in bootstrap mode (no session required) so the first admin can be created.
 - Login uses an HTTP-only session cookie with a configurable TTL.
 - Admin login is normally username-first: the page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry. When exactly one active user exists and has passkeys, it can open that user's passkey prompt directly.
 - With `ADMIN_ACCESS_MODE=mtls` (default), passkey login still sits inside the mTLS gate; it does not replace the outer client-cert boundary.
 - Password recovery is available from the login screen and completes on the standalone `/admin/password/reset` page.
-- Roles control which admin features each user can access.
+- Roles are stored per user, but only two route groups actually gate on them: admin user management and Memory Atlas writes.
 
 ## Bootstrap & Enforcement
 - Enforcement check is the `isEnforced()` helper in `api/src/services/admin-auth.ts` (`countAdmins(true) > 0`).
-- When `admin_users` has no active admins: session/capability checks are bypassed for admin API routes, and dashboard routes do not require a session.
+- When `admin_users` is empty: `POST /admin/users` accepts an unauthenticated request so the first admin can be created. No other admin API route has a bootstrap bypass; they still require a session.
 - Creating the first active admin user enables login enforcement for `/admin/*` in addition to any mTLS checks.
 - Wiping all users via the Users panel (`WIPE` confirmation) deletes every admin user and returns the system to userless mode (login no longer enforced until a new admin is created).
 - Redirect flow when login is enforced:
@@ -30,7 +30,7 @@
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, the app prefers `PUBLIC_BASE_URL` before deriving origin from the trusted request scheme/host.
 - Admin API endpoints:
-  - `GET /admin/auth/status` — returns `has_users`, `admin_count` (active admins), `enforced`, `authenticated`, `user`, and role labels.
+  - `GET /admin/auth/status` — returns `has_users`, `admin_count` (active owners/admins), `enforced`, `authenticated`, `passkeys_registered`, `passkey_login_available`, and `user`, whose `access_level` is the caller's role.
   - `POST /admin/auth/login/method` — `{username}`; returns the required next step for that active user (`passkey` or `password`).
   - `POST /admin/auth/login` — `{username, password}`; on success issues an HTTP-only session cookie and returns the sanitized user plus `expires_at`. Users with registered passkeys are rejected and must use passkey login.
   - `POST /admin/auth/logout` — clears the current session and expires the cookie.
@@ -62,36 +62,44 @@
 - Session tokens are 64-hex random values; only `sha256(token)` is stored in `admin_sessions.token_hash`.
 - Session resolution updates `last_seen_at` and deletes expired/invalid sessions.
 
-## Roles & Capabilities
-- Role values:
-  - `admin` — full access, including user management and wipe.
-  - `fleet_operator` — `settings.manage`, `hosts.manage`, `hosts.activate`.
-  - `trusted_user` — `hosts.activate`.
-  - `user` — no capabilities.
-- Capabilities checked in code:
-  - `users.manage` — manage admin users (create/update/delete/wipe).
-  - `settings.manage` — change admin settings.
-  - `hosts.manage` — add/remove hosts and change host properties.
-  - `hosts.activate` — open/close insecure host windows.
-- Enforcement:
-  - When `isEnforced` is false (no active admins): capabilities are not enforced.
-  - When enforced and no authenticated user: requests that require a capability fail with `401 Authentication required`.
-  - When enforced and the user’s role lacks the capability: requests fail with `403 Forbidden`.
-- Some admin routes are session-only (no capability check), including many read endpoints and `POST /admin/toasts`.
+## Roles & Role Gates
+- Role values are `VALID_ACCESS_LEVELS` in `api/src/services/admin-auth.ts`:
+  - `owner` — full access; counts toward login enforcement.
+  - `admin` — full access; counts toward login enforcement.
+  - `viewer` — nothing beyond what a session alone grants.
+  - `fleet_operator`, `trusted_user`, `user` — legacy values. They are still
+    accepted on create/update so existing rows keep loading, and they grant
+    exactly what `viewer` grants.
+- There are no named capabilities in the Node API. `requireAdmin`
+  (`api/src/http/plugins/auth-admin.ts`) only resolves the session cookie and
+  requires the user row to be active; it never reads `access_level`.
+- Role gates in the route tree — two, both `owner`-or-`admin`, both answering
+  every other role with `403` and code `admin_role_required`:
+  - `POST /admin/users`, `POST /admin/users/{id}`, `DELETE /admin/users/{id}`,
+    `POST /admin/users/wipe`.
+  - Memory Atlas writes: `POST /admin/memories/{scope}`,
+    `PATCH|DELETE /admin/memories/{scope}/{recordId}`, and
+    `POST /admin/memories/shared/{recordId}/append`.
+- Every other admin route is session-only. Any authenticated, active user — a
+  `viewer` or a legacy `user` included — can register and delete hosts, open
+  insecure windows, upload canonical auth, and change every global setting.
+- Without a valid session, guarded routes fail with `401` and code
+  `admin_required`; a disabled account fails with `403` and code
+  `admin_disabled`.
 
 ## Users & Bootstrap Flows
 - Admin users are stored in `admin_users` with: `name`, `username` (unique), `email` (unique), `password_hash`, `access_level`, `active`, `last_login_at`, `created_at`, `updated_at`.
-- User management endpoints (all require admin access and, once users exist, the `users.manage` capability):
+- User management endpoints (all require a session; once users exist, the mutating ones additionally require `owner` or `admin`):
   - `GET /admin/users` — list admin users.
   - `POST /admin/users` — create a user from the provided body.
   - `POST /admin/users/{id}` — update user by id.
   - `DELETE /admin/users/{id}` — delete user by id.
   - `POST /admin/users/wipe` — body must include `{"confirm": "WIPE"}`; on success deletes all users and disables login enforcement.
 - Bootstrap/user constraints from code:
-  - First created user must be `access_level=admin` and `active=true`.
+  - First created user must have `access_level` of `owner` or `admin`, and `active=true`.
   - Username is normalized to lowercase and must match `^[a-z0-9._-]{3,64}$`.
   - Email is normalized to lowercase and must be a valid email format.
-  - Last active admin cannot be demoted, deactivated, or deleted (except via `/admin/users/wipe`).
+  - Last active `owner`/`admin` cannot be demoted, deactivated, or deleted (except via `/admin/users/wipe`).
 - The admin UI shows an empty-state notice when no users exist and prompts you to create the first admin.
 
 ## Password Policy

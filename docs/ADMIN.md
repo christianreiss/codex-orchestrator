@@ -11,7 +11,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `/admin/` redirects to `/admin/login` when no valid session.
   - `/admin/login` redirects to `/admin/` when already authenticated.
   - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/login/method`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
-- If login is not enforced (fresh/userless install), auth/capability checks are bypassed so first admin can be created.
+- While no admin user exists at all (fresh/userless install), `POST /admin/users` accepts an unauthenticated request so the first admin can be created. That is the only bootstrap bypass; every other admin API route still requires a session.
 - Passkey login is implemented, but with `ADMIN_ACCESS_MODE=mtls` (default) it still sits behind the client-certificate gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
@@ -48,17 +48,29 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   Shared components use the theme tokens in `frontend/src/app.css`, including
   keyboard focus, reduced-motion, increased-contrast, and light/dark behavior.
 
-## Roles & Capabilities
-- Roles: `admin`, `fleet_operator`, `trusted_user`, `user`.
-- Capability matrix:
-  - `admin`: all capabilities.
-  - `fleet_operator`: `settings.manage`, `hosts.manage`, `hosts.activate`.
-  - `trusted_user`: `hosts.activate`.
-  - `user`: none.
-- Capability checks are only active when login enforcement is active.
-- Every authenticated role may read Memory Atlas. Create, update, shared
-  append, and delete are restricted to `owner` and the legacy `admin` role;
-  the API returns matching per-record capabilities for the UI.
+## Roles & Role Gates
+- Accepted `access_level` values are `VALID_ACCESS_LEVELS` in
+  `api/src/services/admin-auth.ts`: `owner`, `admin`, `viewer`, plus the legacy
+  values `fleet_operator`, `trusted_user`, and `user`, which are still accepted
+  so existing rows keep loading. Anything else is rejected on create/update.
+- There is no capability system in the Node API, and no per-route capability
+  names. `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) resolves the
+  session cookie and requires the user row to be active — it never reads the
+  role. Everything below marked as admin-authenticated is therefore open to any
+  authenticated, active user regardless of role, including host registration,
+  insecure windows, canonical auth upload, and every global setting.
+- The whole route tree contains exactly two role gates, both of which allow
+  `owner` and `admin` only and answer other roles with `403` and code
+  `admin_role_required`:
+  - Memory Atlas writes: create, update, delete, and shared append
+    (`api/src/routes/admin/memories/index.ts`).
+  - Admin user management: create, update, delete, and wipe
+    (`api/src/routes/admin/users/index.ts`).
+- Every authenticated role may read Memory Atlas and the user roster. Memory
+  reads carry a per-record `capabilities` object (`read`, `create`, `update`,
+  `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.
+- Login enforcement counts active `owner` and `admin` rows only, so a fleet of
+  `viewer` accounts never switches login on.
 
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.
@@ -87,69 +99,69 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - **Hosts**:
   - List: `GET /admin/hosts`.
   - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body; `engine` can be supplied via body/query/header and defaults to `codex`).
-  - Register/rotate host key + installer token: `POST /admin/hosts/register` (`hosts.manage`).
+  - Register/rotate host key + installer token: `POST /admin/hosts/register`.
     - Required: `fqdn`.
     - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
-  - Re-mint installer for existing host key: `POST /admin/hosts/{id}/installer` (`hosts.manage`).
-  - Quick throwaway host + installer token: `POST /admin/hosts/quick-register` (`hosts.manage`).
+  - Re-mint installer for existing host key: `POST /admin/hosts/{id}/installer`.
+  - Quick throwaway host + installer token: `POST /admin/hosts/quick-register`.
     - Required: `engines` (`codex`, `claude`, or both).
     - Always creates an insecure temporary `tmp-*` host with a 2-hour host expiry.
   - Host actions:
-    - Mint existing-key installer: `POST /admin/hosts/{id}/installer` (`hosts.manage`; replaces pending installer tokens for that host).
-    - Delete host: `DELETE /admin/hosts/{id}` (`hosts.manage`).
-    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (`hosts.manage`; clears both Codex and Claude host auth linkage/digests for that host).
-    - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool, `hosts.manage`).
-    - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool, `hosts.manage`).
-    - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool, `hosts.manage`).
-    - Toggle IPv4-only wrapper behavior: `POST /admin/hosts/{id}/ipv4` (`force` bool, clears pinned IPs, `hosts.manage`).
-    - Toggle curl insecure wrapper behavior: `POST /admin/hosts/{id}/curl-insecure` (`allow` bool, `hosts.manage`).
-    - Per-host reverse DNS mode: `POST /admin/hosts/{id}/reverse-dns` (`mode`, `hosts.manage`).
-    - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (`hosts.manage`; Codex model/reasoning plus Claude model override when the host supports Claude).
-    - Per-host codex version override: `POST /admin/hosts/{id}/codex-version` (`hosts.manage`).
-    - Per-host Claude Code version override: `POST /admin/hosts/{id}/claude-version` (`hosts.manage`).
-    - Per-host AGENTS version override: `POST /admin/hosts/{id}/agents-version` (`hosts.manage`).
+    - Mint existing-key installer: `POST /admin/hosts/{id}/installer` (replaces pending installer tokens for that host).
+    - Delete host: `DELETE /admin/hosts/{id}`.
+    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (clears both Codex and Claude host auth linkage/digests for that host).
+    - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool).
+    - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool).
+    - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool).
+    - Toggle IPv4-only wrapper behavior: `POST /admin/hosts/{id}/ipv4` (`force` bool, clears pinned IPs).
+    - Toggle curl insecure wrapper behavior: `POST /admin/hosts/{id}/curl-insecure` (`allow` bool).
+    - Per-host reverse DNS mode: `POST /admin/hosts/{id}/reverse-dns` (`mode`).
+    - Per-host model/reasoning override: `POST /admin/hosts/{id}/model` (Codex model/reasoning plus Claude model override when the host supports Claude).
+    - Per-host codex version override: `POST /admin/hosts/{id}/codex-version`.
+    - Per-host Claude Code version override: `POST /admin/hosts/{id}/claude-version`.
+    - Per-host AGENTS version override: `POST /admin/hosts/{id}/agents-version`.
 - **Insecure Windows & Approval**:
-  - Enable/disable per-host window: `POST /admin/hosts/{id}/insecure/enable|disable` (`hosts.activate`).
+  - Enable/disable per-host window: `POST /admin/hosts/{id}/insecure/enable|disable`.
   - List insecure hosts + domain auto-allows: `GET /admin/hosts/insecure`.
-  - Bulk extend active insecure windows: `POST /admin/hosts/insecure/extend` (`hosts.activate`).
-  - Bulk disable active insecure windows: `POST /admin/hosts/insecure/disable-all` (`hosts.activate`).
+  - Bulk extend active insecure windows: `POST /admin/hosts/insecure/extend`.
+  - Bulk disable active insecure windows: `POST /admin/hosts/insecure/disable-all`.
   - Approval queue actions:
-    - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny` (`hosts.activate`).
-    - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain` (`settings.manage`).
-    - Revoke domain allow: `POST /admin/insecure-domain-allows/{id}/revoke` (`settings.manage`).
+    - Approve/deny: `POST /admin/insecure-approvals/{id}/approve|deny`.
+    - Approve + allow parent domain: `POST /admin/insecure-approvals/{id}/allow-domain`.
+    - Revoke domain allow: `POST /admin/insecure-domain-allows/{id}/revoke`.
 - **Users**:
   - List/create/update/delete: `/admin/users`, `/admin/users/{id}`.
   - Wipe all users: `POST /admin/users/wipe` with `{"confirm":"WIPE"}`.
-  - `users.manage` required once any users exist.
+  - Create/update/delete/wipe require `owner` or `admin` once any users exist; every other role may still read the roster.
 - **Passkeys**:
   - Passkey login endpoints: `POST /admin/auth/passkey/login/options` with `{username}` (or `{}` for the unambiguous single-user shortcut) and `POST /admin/auth/passkey/login`.
   - Registration endpoints (session required): `POST /admin/auth/passkey/register/options` and `POST /admin/auth/passkey/register`.
   - Management endpoints (session required): `GET /admin/passkeys`, `POST /admin/passkeys/{id}/name`, `DELETE /admin/passkeys/{id}`.
   - Login requires WebAuthn user verification. Normal login uses the entered username to scope `allowCredentials`; when exactly one active user exists and has passkeys, the login page can open that user's passkey prompt directly.
 - **Auth Upload & Seed**:
-  - Upload canonical auth (requires a configured, reachable runner and a positive live verdict): `POST /admin/auth/upload` (`settings.manage`).
-  - Generate one-time seed command: `POST /admin/auth/seed-command` (`settings.manage`); body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.
+  - Upload canonical auth (requires a configured, reachable runner and a positive live verdict): `POST /admin/auth/upload`.
+  - Generate one-time seed command: `POST /admin/auth/seed-command`; body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.
   - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
 - **Global Settings**:
-  - cdx silent: `GET/POST /admin/cdx-silent` (`settings.manage` for POST).
-  - Reverse DNS global flag: `GET/POST /admin/reverse-dns` (`settings.manage` for POST).
-  - Insecure-approval global flag: `GET/POST /admin/insecure-approval` (`settings.manage` for POST).
-  - Projects module: `GET/POST /admin/projects/state` (`settings.manage` for POST). Enabling it also publishes the managed `coco` skill with embedded toolkit/help through MCP `skill://coco`; disabling it withdraws that managed skill from the MCP resource list.
-  - Quota mode: `GET/POST /admin/quota-mode` (`settings.manage` for POST).
+  - cdx silent: `GET/POST /admin/cdx-silent`.
+  - Reverse DNS global flag: `GET/POST /admin/reverse-dns`.
+  - Insecure-approval global flag: `GET/POST /admin/insecure-approval`.
+  - Projects module: `GET/POST /admin/projects/state`. Enabling it also publishes the managed `coco` skill with embedded toolkit/help through MCP `skill://coco`; disabling it withdraws that managed skill from the MCP resource list.
+  - Quota mode: `GET/POST /admin/quota-mode`.
     - `hard_fail` boolean.
     - `limit_percent` normalized to `50..100` (default `100`).
     - `week_partition` one of `off|5|7` (stored as `0|5|7`, default `0`).
-  - Prune policy: `POST /admin/prune-policy` (`inactivity_days` clamped `0..60`, `settings.manage`).
-  - Fleet codex version lock: `POST /admin/codex-version` (`latest|auto` clears lock, or strict `x.y.z`, `settings.manage`).
-  - Version refresh: `POST /admin/versions/check` (`settings.manage`).
+  - Prune policy: `POST /admin/prune-policy` (`inactivity_days` clamped `0..60`).
+  - Fleet codex version lock: `POST /admin/codex-version` (`latest|auto` clears lock, or strict `x.y.z`).
+  - Version refresh: `POST /admin/versions/check`.
 - **Runner**:
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
-  - Manual Codex run: `POST /admin/runner/run` (`settings.manage`).
-  - Manual Claude run: `POST /admin/runner/run-claude` (`settings.manage`).
+  - Manual Codex run: `POST /admin/runner/run`.
+  - Manual Claude run: `POST /admin/runner/run-claude`.
 - **ChatGPT, Logs**:
   - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
   - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
-  - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh` (`settings.manage`).
+  - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh`.
   - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
   - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:
@@ -162,7 +174,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Memory activity: `GET /admin/memories/audit?node_id=...` normalizes body-free admin logs, project events, and shared revision metadata. It is retention-bound operational history, not immutable compliance history and not a restore source.
   - Deprecated compatibility reads/deletes remain unchanged under `/admin/mcp/memories` and `/admin/shared-memories`; they do not inherit the unified ETag/role/response contract, and new UI code uses `/admin/memories/*`.
 - **Toasts**:
-  - Manual toast endpoint: `POST /admin/toasts` (admin-auth protected, no extra capability gate).
+  - Manual toast endpoint: `POST /admin/toasts` (admin-auth protected, no role gate).
   - Automatic auth toasts are emitted from log actions:
     - `auth.retrieve` => `CDX authorized` (success).
     - `auth.denied` / `auth.insecure.denied` => `CDX refused` (warn/error).
