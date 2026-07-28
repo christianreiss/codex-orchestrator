@@ -8,7 +8,7 @@
     "build": "vite build && node scripts/copy-build.mjs",
     "preview": "vite preview",
     "test": "node --test 'src/**/*.test.ts'",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
   },
   "devDependencies": {
