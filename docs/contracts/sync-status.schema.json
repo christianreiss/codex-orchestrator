@@ -8,16 +8,21 @@
   ],
   "properties": {
     "status": {
-      "const": "ok"
+      "enum": [
+        "ok",
+        "update"
+      ]
     },
     "data": {
       "type": "object",
       "required": [
         "status",
         "reasons",
-        "agents",
-        "config",
-        "host_users"
+        "engine",
+        "versions",
+        "api_calls",
+        "host_users",
+        "bootstrap"
       ],
       "properties": {
         "status": {
@@ -32,48 +37,25 @@
             "type": "string"
           }
         },
-        "agents": {
-          "type": "object",
-          "required": [
-            "status",
-            "changed"
-          ],
-          "properties": {
-            "status": {
-              "enum": [
-                "missing",
-                "unchanged",
-                "updated"
-              ]
-            },
-            "changed": {
-              "type": "boolean"
-            }
-          },
-          "additionalProperties": true
+        "engine": {
+          "enum": [
+            "codex",
+            "claude"
+          ]
         },
-        "config": {
+        "versions": {
           "type": "object",
-          "required": [
-            "status",
-            "changed"
-          ],
-          "properties": {
-            "status": {
-              "enum": [
-                "missing",
-                "unchanged",
-                "updated"
-              ]
-            },
-            "changed": {
-              "type": "boolean"
-            }
-          },
-          "additionalProperties": true
+          "description": "Version snapshot for the requested engine; same shape as `data` in versions.schema.json."
+        },
+        "api_calls": {
+          "type": "integer"
         },
         "host_users": {
           "type": "array"
+        },
+        "bootstrap": {
+          "const": false,
+          "description": "Always false on the check-in route. Agents/config rendering is served by /sync/bootstrap only."
         },
         "auth": {
           "type": "object",

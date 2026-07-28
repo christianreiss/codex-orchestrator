@@ -14,26 +14,18 @@
       "type": "object",
       "required": [
         "client_version",
-        "client_version_checked_at",
-        "client_version_source",
+        "client_version_override",
         "client_version_enforce_exact",
         "wrapper_version",
         "wrapper_sha256",
         "wrapper_url",
-        "reported_client_version",
-        "reported_wrapper_version",
-        "quota_hard_fail",
-        "quota_limit_percent",
-        "quota_week_partition",
-        "cdx_silent",
-        "admin_theme",
-        "auto_update_enabled",
-        "runner_enabled",
         "runner_state",
-        "runner_last_ok",
-        "runner_last_fail",
-        "runner_last_check",
-        "installation_id"
+        "api_disabled",
+        "auto_update_enabled",
+        "cdx_silent",
+        "clx_silent",
+        "installation_id",
+        "engine"
       ],
       "properties": {
         "client_version": {
@@ -42,13 +34,7 @@
             "null"
           ]
         },
-        "client_version_checked_at": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "client_version_source": {
+        "client_version_override": {
           "type": [
             "string",
             "null"
@@ -75,75 +61,34 @@
             "null"
           ]
         },
-        "reported_client_version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reported_wrapper_version": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "quota_hard_fail": {
-          "type": "boolean"
-        },
-        "quota_limit_percent": {
-          "type": "integer"
-        },
-        "quota_week_partition": {
-          "type": "integer"
-        },
-        "cdx_silent": {
-          "type": "boolean"
-        },
-        "admin_theme": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "auto-pink",
-            "light",
-            "dark",
-            "bright-pink",
-            "dark-pink"
-          ]
-        },
-        "auto_update_enabled": {
-          "type": "boolean"
-        },
-        "runner_enabled": {
-          "type": "boolean"
-        },
         "runner_state": {
           "type": [
             "string",
             "null"
           ]
         },
-        "runner_last_ok": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "api_disabled": {
+          "type": "boolean"
         },
-        "runner_last_fail": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "auto_update_enabled": {
+          "type": "boolean"
         },
-        "runner_last_check": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "cdx_silent": {
+          "type": "boolean"
+        },
+        "clx_silent": {
+          "type": "boolean"
         },
         "installation_id": {
           "type": [
             "string",
             "null"
+          ]
+        },
+        "engine": {
+          "enum": [
+            "codex",
+            "claude"
           ]
         }
       },

@@ -17,4 +17,5 @@ Contract guardrails:
 - Every schema is checked against a representative live response body via `assertContract` (`api/test/helpers/contract-schema.ts`):
   - `auth-retrieve.schema.json`, `auth-store.schema.json` — `auth-store.test.ts`
   - `sync-bootstrap.schema.json` — `sync-bootstrap.test.ts`
-  - `sync-status.schema.json` (`sync-bootstrap.test.ts`) and `versions.schema.json` (`versions.test.ts`) do **not** match what the Node server serves: both still describe the PHP-era payloads. `/sync/status` omits the `agents`/`config` blocks (the port leaves document rendering to `/sync/bootstrap`), and `/versions` omits the settings/runner-telemetry keys (`admin_theme`, `quota_*`, `runner_last_*`, `reported_*`, `client_version_checked_at`, `client_version_source`). No wrapper reads the missing fields. Those two suites pin the divergence against the live body instead of asserting conformance; correcting the schemas turns each pin back into a plain `assertContract` call.
+  - `sync-status.schema.json` — `sync-bootstrap.test.ts`
+  - `versions.schema.json` — `versions.test.ts`
