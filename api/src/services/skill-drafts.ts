@@ -30,6 +30,11 @@ export interface SkillDraftsServiceDeps {
 export class SkillDraftsService {
   constructor(private readonly deps: SkillDraftsServiceDeps = {}) {}
 
+  /** The engine the canonical auth is resolved for; the runner must run the same one. */
+  private get engine(): Engine {
+    return this.deps.engine ?? ENGINE_CODEX;
+  }
+
   async generate(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
     const slugHintRaw = typeof input?.slug_hint === 'string' ? input.slug_hint.trim() : '';
@@ -52,6 +57,7 @@ export class SkillDraftsService {
     const result = await this.deps.runner.generateSkillDraft({
       prompt,
       authJson: auth,
+      engine: this.engine,
       slugHint: slugHintRaw !== '' ? slugHintRaw : null,
     });
 
@@ -123,6 +129,7 @@ export class SkillDraftsService {
       messages,
       skill: currentSkill as unknown as Record<string, unknown>,
       authJson: auth,
+      engine: this.engine,
       mode,
       slugLocked: mode === 'edit',
     });
@@ -210,7 +217,7 @@ export class SkillDraftsService {
     extras: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
     const validation = this.deps.runnerValidation!;
-    const row = await validation.resolveCanonicalPayload(this.deps.engine ?? ENGINE_CODEX);
+    const row = await validation.resolveCanonicalPayload(this.engine);
     const auth = row ? validation.canonicalAuthFromPayload(row) : null;
     if (!auth) {
       await this.recordLog(action, {

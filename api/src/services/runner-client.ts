@@ -1,4 +1,5 @@
 import type { Env } from '../env.js';
+import type { Engine } from '../util/engine.js';
 
 /**
  * Port of RunnerVerifier.php. POSTs canonical auth payloads to the runner's
@@ -40,9 +41,15 @@ export interface RunnerVerifyResult {
   [key: string]: unknown;
 }
 
+/**
+ * `engine` is mandatory on the draft inputs: it selects the runner's auth
+ * preparation, so a Claude canonical blob posted without it is rejected by
+ * `_prepare_codex_env` as "no usable token in auth_json".
+ */
 export interface RunnerSkillGenerateInput {
   prompt: string;
   authJson: Record<string, unknown>;
+  engine: Engine;
   slugHint?: string | null;
   timeoutSeconds?: number;
 }
@@ -51,6 +58,7 @@ export interface RunnerSkillAssistInput {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   skill: Record<string, unknown>;
   authJson: Record<string, unknown>;
+  engine: Engine;
   mode?: 'new' | 'edit';
   slugLocked?: boolean;
   timeoutSeconds?: number;
@@ -60,6 +68,7 @@ export interface RunnerProjectAssistInput {
   slug: string;
   project: Record<string, unknown>;
   authJson: Record<string, unknown>;
+  engine: Engine;
   timeoutSeconds?: number;
 }
 
@@ -251,6 +260,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
       const body: Record<string, unknown> = {
         auth_json: input.authJson,
         prompt: input.prompt,
+        engine: input.engine,
         timeout_seconds: timeout / 1000,
       };
       const hint = typeof input.slugHint === 'string' ? input.slugHint.trim() : '';
@@ -277,6 +287,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           skill: input.skill,
           mode,
           slug_locked: Boolean(input.slugLocked),
+          engine: input.engine,
           timeout_seconds: timeout / 1000,
         },
         timeout || defaultTimeout,
@@ -299,6 +310,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
           auth_json: input.authJson,
           slug: input.slug,
           project: input.project,
+          engine: input.engine,
           timeout_seconds: timeout / 1000,
         },
         timeout || defaultTimeout,

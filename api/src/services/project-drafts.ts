@@ -45,7 +45,8 @@ export class ProjectDraftsService {
     }
 
     const validation = this.deps.runnerValidation;
-    const row = await validation.resolveCanonicalPayload(this.deps.engine ?? ENGINE_CODEX);
+    const engine = this.deps.engine ?? ENGINE_CODEX;
+    const row = await validation.resolveCanonicalPayload(engine);
     const auth = row ? validation.canonicalAuthFromPayload(row) : null;
     if (!auth) {
       await this.recordLog('project.assist', {
@@ -73,6 +74,7 @@ export class ProjectDraftsService {
       slug,
       project: runnerProject,
       authJson: auth,
+      engine,
     });
 
     const status = typeof result.status === 'string' ? result.status.toLowerCase().trim() : '';

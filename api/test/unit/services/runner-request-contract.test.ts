@@ -396,6 +396,7 @@ describe('runner request contract', () => {
       'skill',
       'mode',
       'slug_locked',
+      'engine',
       'timeout_seconds',
     ]);
     expect(routes.get('/skills/assist')).toBe('SkillAssistRequest');
