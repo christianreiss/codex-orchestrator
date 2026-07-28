@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { buildPromptPayload } from '../../../src/services/adapters/runner-claude.js';
+import {
+  buildPromptPayload,
+  createRunnerClaudeAdapter,
+} from '../../../src/services/adapters/runner-claude.js';
+
+const baseEnv = {
+  AUTH_RUNNER_URL: '',
+  AUTH_RUNNER_SHARED_SECRET: 'secret',
+  AUTH_RUNNER_TIMEOUT: 1,
+} as unknown as Parameters<typeof createRunnerClaudeAdapter>[0]['env'];
 
 describe('buildPromptPayload', () => {
   it('flattens a simple user/assistant transcript', () => {
@@ -46,5 +55,33 @@ describe('buildPromptPayload', () => {
       { role: 'user', content: 'real' },
     ]);
     expect(out.prompt).toBe('user: real');
+  });
+});
+
+describe('createRunnerClaudeAdapter', () => {
+  // The runner only registers POST /exec, so every AUTH_RUNNER_URL form has to
+  // land there — not just the `/verify` endpoint the deployment docs use.
+  it.each([
+    'https://runner.example',
+    'https://runner.example/verify',
+    'https://runner.example/verify/',
+    'https://runner.example/exec',
+  ])('posts to the runner exec route for AUTH_RUNNER_URL %s', async (url) => {
+    const targets: string[] = [];
+    const fakeFetch = (async (target: string) => {
+      targets.push(target);
+      return new Response(JSON.stringify({ status: 'ok', output: 'pong' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const adapter = createRunnerClaudeAdapter({
+      env: { ...baseEnv, AUTH_RUNNER_URL: url },
+      getAuthSnapshot: async () => ({ token: 't' }),
+      fetcher: fakeFetch,
+    });
+    if (!adapter) throw new Error('adapter should be configured');
+
+    const res = await adapter.messages([{ role: 'user', content: 'ping' }], 'claude-sonnet-4', {});
+
+    expect(targets).toEqual(['https://runner.example/exec']);
+    expect(res.content).toEqual([{ type: 'text', text: 'pong' }]);
   });
 });

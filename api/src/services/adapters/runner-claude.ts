@@ -26,6 +26,7 @@
 import { ApiError } from '../../http/errors.js';
 import type { Env } from '../../env.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
+import { runnerExecUrl } from './runner-openai.js';
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant' | 'system';
@@ -92,7 +93,9 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
   const url = deps.env.AUTH_RUNNER_URL?.trim();
   const secret = deps.env.AUTH_RUNNER_SHARED_SECRET?.trim();
   if (!url) return null;
-  const execUrl = url.replace(/\/verify$/, '/exec');
+  // Any AUTH_RUNNER_URL form — the bare base, the `/verify` endpoint it usually
+  // points at, or `/exec` itself — normalises onto the runner's one POST route.
+  const execUrl = runnerExecUrl(url) as `${string}/exec`;
   const timeoutSeconds = deps.env.AUTH_RUNNER_TIMEOUT ?? 30;
   const fetcher = deps.fetcher ?? fetch;
   const getAuth = deps.getAuthSnapshot ?? (async () => null);
