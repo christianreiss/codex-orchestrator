@@ -819,5 +819,277 @@ class RunnerRouteAuthTest(unittest.TestCase):
                 self.assertEqual({"status": "ok"}, response.json())
 
 
+class _FakeCompletedProcess:
+    """Stand-in for subprocess.CompletedProcess; the runner reads only these."""
+
+    def __init__(self, returncode, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _codex_auth_path(env):
+    return os.path.join(env["HOME"], ".codex", "auth.json")
+
+
+def _claude_auth_path(env):
+    return os.path.join(env["HOME"], ".claude", ".credentials.json")
+
+
+def _write_credentials(path, credentials):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(credentials, fh)
+
+
+class RunnerResponseContractTest(unittest.TestCase):
+    """Response bodies must keep every key the API reads off them.
+
+    api/src/services/runner-client.ts is the consumer: its send() spreads the
+    whole runner body into RunnerVerifyResult and reads `status`, `reachable`,
+    `definitive`, `reason` and `latency_ms` by name; canonical-auth-store.ts then
+    reads `auth_readback`, `auth_readback_error` and `updated_auth` off that
+    result, and the /exec adapters beside it (adapters/runner-openai.ts,
+    adapters/runner-claude.ts) read `output` plus the token counts. The API suite
+    mocks the runner, so renaming one of these keys in runner/app.py leaves both
+    suites green while the API silently loses rotated credential bytes or token
+    accounting. These tests drive the real handlers and require each body to stay
+    a superset of the key sets below.
+    """
+
+    # Verdict fields every /verify and /verify-claude body carries.
+    VERDICT_KEYS = frozenset({"status", "reachable", "definitive", "latency_ms", "auth_readback"})
+
+    CODEX_VERIFY_OK_KEYS = VERDICT_KEYS | {"codex_version", "updated_auth"}
+    CODEX_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"codex_version", "reason", "auth_readback_error"}
+    CODEX_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"codex_version", "reason", "updated_auth"}
+
+    CLAUDE_VERIFY_OK_KEYS = VERDICT_KEYS | {"claude_version", "updated_auth"}
+    CLAUDE_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"claude_version", "reason", "auth_readback_error"}
+    CLAUDE_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"claude_version", "reason", "updated_auth"}
+
+    # The Anthropic HTTP probe replaces the CLI for genuine API keys, and is the
+    # only path that reports auth_limited.
+    CLAUDE_HTTP_OK_KEYS = VERDICT_KEYS | {"claude_version"}
+    CLAUDE_HTTP_FAIL_KEYS = CLAUDE_HTTP_OK_KEYS | {"reason"}
+    CLAUDE_HTTP_LIMITED_KEYS = CLAUDE_HTTP_FAIL_KEYS | {"auth_limited"}
+
+    EXEC_OK_KEYS = frozenset({"status", "output", "latency_ms", "reachable", "updated_auth"})
+    EXEC_FAILED_KEYS = frozenset({"status", "output", "error", "latency_ms", "reachable"})
+    # An exec timeout answers 504 with FastAPI's {"detail": ...}, which send()
+    # lifts into `reason`.
+    EXEC_TIMEOUT_KEYS = frozenset({"detail"})
+    EXEC_CLAUDE_OK_KEYS = EXEC_OK_KEYS | {
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    }
+
+    CODEX_AUTH = {"tokens": {"access_token": "sk-openai-test-token"}}
+    ROTATED_CODEX_AUTH = {"tokens": {"access_token": "sk-openai-rotated-token"}}
+    CLAUDE_AUTH = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
+    ROTATED_CLAUDE_AUTH = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-rotated-token"}}
+    CLAUDE_API_KEY_AUTH = {"api_key": "sk-ant-api03-test-token"}
+
+    def setUp(self):
+        self.client = TestClient(runner_app.app)
+        self._original_secret = runner_app.RUNNER_SHARED_SECRET
+        self._original_run = runner_app.subprocess.run
+        self._original_post = runner_app.httpx.post
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+    def tearDown(self):
+        runner_app.RUNNER_SHARED_SECRET = self._original_secret
+        runner_app.subprocess.run = self._original_run
+        runner_app.httpx.post = self._original_post
+
+    def stub_subprocess(self, on_exec):
+        """Answer every spawned process: the version probes, then `on_exec(env)`."""
+
+        def fake_run(cmd, env=None, capture_output=False, text=False, timeout=None):
+            if "--version" in cmd:
+                return _FakeCompletedProcess(0, stdout="1.2.3")
+            return on_exec(env)
+
+        runner_app.subprocess.run = fake_run
+
+    def stub_anthropic(self, outcome):
+        """Answer the Anthropic HTTP probe with `outcome`, or raise it."""
+
+        def fake_post(url, headers, json, timeout):
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        runner_app.httpx.post = fake_post
+
+    def post(self, path, body):
+        return self.client.post(path, json=body, headers={"x-runner-auth": "runner-secret"})
+
+    def assertBodyCarries(self, response, expected_keys, status_code=200):
+        self.assertEqual(status_code, response.status_code, response.text)
+        missing = sorted(set(expected_keys) - set(response.json()))
+        self.assertEqual(
+            [],
+            missing,
+            f"runner/app.py dropped response keys the API reads: {missing}",
+        )
+
+    def test_verify_body_carries_every_key_the_api_reads(self):
+        def ok(env):
+            _write_credentials(_codex_auth_path(env), self.ROTATED_CODEX_AUTH)
+            return _FakeCompletedProcess(0, stdout="Banana")
+
+        def rejected(env):
+            # An unreadable credential file is the only source of
+            # auth_readback_error.
+            os.unlink(_codex_auth_path(env))
+            return _FakeCompletedProcess(1, stderr="Authentication failed: unauthorized")
+
+        def timed_out(env):
+            _write_credentials(_codex_auth_path(env), self.ROTATED_CODEX_AUTH)
+            raise subprocess.TimeoutExpired("codex", 2.0)
+
+        for label, on_exec, expected in (
+            ("ok", ok, self.CODEX_VERIFY_OK_KEYS),
+            ("non-zero exit", rejected, self.CODEX_VERIFY_REJECTED_KEYS),
+            ("timeout", timed_out, self.CODEX_VERIFY_TIMEOUT_KEYS),
+        ):
+            with self.subTest(probe=label):
+                self.stub_subprocess(on_exec)
+
+                response = self.post(
+                    "/verify",
+                    {"auth_json": self.CODEX_AUTH, "timeout_seconds": 2.0},
+                )
+
+                self.assertBodyCarries(response, expected)
+
+    def test_verify_claude_cli_body_carries_every_key_the_api_reads(self):
+        def ok(env):
+            _write_credentials(_claude_auth_path(env), self.ROTATED_CLAUDE_AUTH)
+            return _FakeCompletedProcess(0, stdout="Banana")
+
+        def rejected(env):
+            os.unlink(_claude_auth_path(env))
+            return _FakeCompletedProcess(1, stderr="Authentication failed: unauthorized")
+
+        def timed_out(env):
+            _write_credentials(_claude_auth_path(env), self.ROTATED_CLAUDE_AUTH)
+            raise subprocess.TimeoutExpired("claude", 2.0)
+
+        for label, on_exec, expected in (
+            ("ok", ok, self.CLAUDE_VERIFY_OK_KEYS),
+            ("non-zero exit", rejected, self.CLAUDE_VERIFY_REJECTED_KEYS),
+            ("timeout", timed_out, self.CLAUDE_VERIFY_TIMEOUT_KEYS),
+        ):
+            with self.subTest(probe=label):
+                self.stub_subprocess(on_exec)
+
+                response = self.post(
+                    "/verify-claude",
+                    {"auth_json": self.CLAUDE_AUTH, "timeout_seconds": 2.0},
+                )
+
+                self.assertBodyCarries(response, expected)
+
+    def test_verify_claude_http_body_carries_every_key_the_api_reads(self):
+        class Response:
+            def __init__(self, status_code, payload):
+                self.status_code = status_code
+                self.payload = payload
+                self.text = json.dumps(payload)
+
+            def json(self):
+                return self.payload
+
+        def no_cli(env):
+            raise AssertionError("the API-key probe must not launch the Claude CLI")
+
+        for label, outcome, expected in (
+            ("ok", Response(200, {"content": [{"type": "text", "text": "Banana"}]}), self.CLAUDE_HTTP_OK_KEYS),
+            (
+                "rate limited",
+                Response(429, {"error": {"type": "rate_limit_error", "message": "slow down"}}),
+                self.CLAUDE_HTTP_LIMITED_KEYS,
+            ),
+            (
+                "rejected",
+                Response(401, {"error": {"type": "authentication_error", "message": "bad key"}}),
+                self.CLAUDE_HTTP_FAIL_KEYS,
+            ),
+            ("timeout", runner_app.httpx.TimeoutException("probe timed out"), self.CLAUDE_HTTP_FAIL_KEYS),
+        ):
+            with self.subTest(probe=label):
+                self.stub_subprocess(no_cli)
+                self.stub_anthropic(outcome)
+
+                response = self.post(
+                    "/verify-claude",
+                    {"auth_json": self.CLAUDE_API_KEY_AUTH, "timeout_seconds": 2.0},
+                )
+
+                self.assertBodyCarries(response, expected)
+
+    def test_exec_body_carries_every_key_the_api_reads(self):
+        def ok(env):
+            _write_credentials(_codex_auth_path(env), self.ROTATED_CODEX_AUTH)
+            return _FakeCompletedProcess(0, stdout="Banana")
+
+        def failed(env):
+            return _FakeCompletedProcess(1, stderr="codex exec failed")
+
+        def timed_out(env):
+            raise subprocess.TimeoutExpired("codex", 2.0)
+
+        for label, on_exec, expected, status_code in (
+            ("ok", ok, self.EXEC_OK_KEYS, 200),
+            ("non-zero exit", failed, self.EXEC_FAILED_KEYS, 200),
+            ("timeout", timed_out, self.EXEC_TIMEOUT_KEYS, 504),
+        ):
+            with self.subTest(call=label):
+                self.stub_subprocess(on_exec)
+
+                response = self.post(
+                    "/exec",
+                    {
+                        "auth_json": self.CODEX_AUTH,
+                        "prompt": "Reply Banana if this works.",
+                        "timeout_seconds": 2.0,
+                    },
+                )
+
+                self.assertBodyCarries(response, expected, status_code)
+
+    def test_claude_exec_body_carries_token_accounting(self):
+        result = {
+            "result": "Banana",
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 3,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 7,
+            },
+        }
+
+        def ok(env):
+            _write_credentials(_claude_auth_path(env), self.ROTATED_CLAUDE_AUTH)
+            return _FakeCompletedProcess(0, stdout=json.dumps(result))
+
+        self.stub_subprocess(ok)
+
+        response = self.post(
+            "/exec",
+            {
+                "auth_json": self.CLAUDE_AUTH,
+                "prompt": "Reply Banana if this works.",
+                "engine": "claude",
+                "timeout_seconds": 2.0,
+            },
+        )
+
+        self.assertBodyCarries(response, self.EXEC_CLAUDE_OK_KEYS)
+
+
 if __name__ == "__main__":
     unittest.main()
