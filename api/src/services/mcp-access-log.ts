@@ -5,6 +5,7 @@
  */
 import type { Database } from '../db/client.js';
 import { mcpAccessLogs } from '../db/schema.js';
+import type { Engine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 
@@ -16,6 +17,8 @@ export interface McpAccessLogEntry {
   success: boolean;
   errorCode: number | null;
   errorMessage: string | null;
+  /** Dispatching engine from the caller's `x-engine` header, null when absent. */
+  engine: Engine | null;
 }
 
 export class McpAccessLogService {
@@ -32,7 +35,7 @@ export class McpAccessLogService {
       errorCode: entry.errorCode,
       errorMessage: entry.errorMessage,
       createdAt: now,
-      engine: null,
+      engine: entry.engine,
     });
     wsPublisher.publish('mcp.invoked', {
       host_id: entry.hostId,

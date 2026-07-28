@@ -246,6 +246,7 @@ export class McpServer {
         success: logSuccess,
         errorCode: logErrorCode,
         errorMessage: logErrorMessage,
+        engine: ctx.engine ?? null,
       });
     } catch {
       /* swallow */

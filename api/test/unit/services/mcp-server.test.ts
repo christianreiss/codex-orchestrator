@@ -5,10 +5,19 @@ import { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
-import type { McpAccessLogService } from '../../../src/services/mcp-access-log.js';
+import type { McpAccessLogEntry, McpAccessLogService } from '../../../src/services/mcp-access-log.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const noopAccess = { log: async () => undefined } as unknown as McpAccessLogService;
+
+/** Access-log stub that keeps the entries the dispatcher wrote. */
+function recordingAccess(entries: McpAccessLogEntry[]): McpAccessLogService {
+  return {
+    log: async (entry: McpAccessLogEntry) => {
+      entries.push(entry);
+    },
+  } as unknown as McpAccessLogService;
+}
 const stubMemories = {
   store: async () => ({}),
   retrieve: async () => ({}),
@@ -92,5 +101,33 @@ describe('McpServer.handlePayload', () => {
   it('returns empty prompts/list', async () => {
     const r = await server.handlePayload({ jsonrpc: '2.0', id: 5, method: 'prompts/list' }, ctx);
     expect((r as { result: { prompts: unknown[] } }).result.prompts).toEqual([]);
+  });
+});
+
+describe('McpServer access logging', () => {
+  const call = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'memory_store', arguments: { content: 'note' } },
+  };
+
+  it('logs the engine the caller dispatched with', async () => {
+    const entries: McpAccessLogEntry[] = [];
+    const logging = new McpServer(tools, resources, recordingAccess(entries));
+
+    await logging.handlePayload(call, { ...ctx, engine: 'claude' });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ hostId: 1, method: 'tools/call', name: 'memory_store', engine: 'claude' });
+  });
+
+  it('logs a null engine when the caller announced none', async () => {
+    const entries: McpAccessLogEntry[] = [];
+    const logging = new McpServer(tools, resources, recordingAccess(entries));
+
+    await logging.handlePayload(call, { ...ctx, engine: null });
+
+    expect(entries[0]!.engine).toBeNull();
   });
 });
