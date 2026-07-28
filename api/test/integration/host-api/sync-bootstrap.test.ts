@@ -981,3 +981,49 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     await app.close();
   });
 });
+
+describe('POST /sync/status periodic check-in', () => {
+  it('reports an in-sync host against the published check-in contract', async () => {
+    const apiKey = 'sk-status-in-sync';
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    const stamp = '2026-06-08T15:26:33Z';
+    db.tables.set(hostsTable, [hostRow(apiKey, { lastRefresh: stamp })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(authEntries, []);
+    seedVerifiedCodexCanonical(db, keyring, stamp);
+    const canonicalDigest = db.tables.get(authPayloads)![0]!.sha256 as string;
+
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/status',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: true,
+        last_refresh: stamp,
+        auth_digest: canonicalDigest,
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    // `sync-status.schema.json` still documents the PHP StartupSyncService
+    // payload. The Node port (`host-sync.ts`) deliberately returns the
+    // minimal check-in body and leaves agents/config rendering to
+    // `/sync/bootstrap`, so the published `agents`/`config` blocks are absent
+    // here. Pin the divergence against the live body so the published schema
+    // and the route cannot drift further apart unnoticed; once the schema is
+    // corrected this becomes a plain `assertContract` call.
+    expect(() => assertContract('sync-status.schema.json', body)).toThrow(
+      /must have required property 'agents'/,
+    );
+    expect(body).toMatchObject({ status: 'ok', reasons: [], engine: 'codex', bootstrap: false });
+    expect(body.auth.status).toBe('valid');
+    expect(body.host_users).toEqual([]);
+    await app.close();
+  });
+});

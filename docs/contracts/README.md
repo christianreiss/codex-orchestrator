@@ -12,5 +12,9 @@ Current schemas:
 
 Contract guardrails:
 - `api/test/contract/contract.test.ts` replays recorded fixtures through the running Node server and asserts the response shape stays consistent with the captured baseline.
-- The same suite compiles every published schema with Ajv in strict JSON Schema 2020-12 mode. Host-API integration tests additionally validate representative live responses against these schemas.
-- `api/test/integration/host-api/*` exercises the live host-facing routes (`/auth`, `/sync/status`, `/sync/bootstrap`, `/versions`) against a real database.
+- The same suite compiles every published schema with Ajv in strict JSON Schema 2020-12 mode.
+- `api/test/integration/host-api/*` exercises the live host-facing routes (`/auth`, `/sync/status`, `/sync/bootstrap`, `/versions`) on the db-fake, so the checks below run under a plain `npm test` with no database.
+- Every schema is checked against a representative live response body via `assertContract` (`api/test/helpers/contract-schema.ts`):
+  - `auth-retrieve.schema.json`, `auth-store.schema.json` — `auth-store.test.ts`
+  - `sync-bootstrap.schema.json` — `sync-bootstrap.test.ts`
+  - `sync-status.schema.json` (`sync-bootstrap.test.ts`) and `versions.schema.json` (`versions.test.ts`) do **not** match what the Node server serves: both still describe the PHP-era payloads. `/sync/status` omits the `agents`/`config` blocks (the port leaves document rendering to `/sync/bootstrap`), and `/versions` omits the settings/runner-telemetry keys (`admin_theme`, `quota_*`, `runner_last_*`, `reported_*`, `client_version_checked_at`, `client_version_source`). No wrapper reads the missing fields. Those two suites pin the divergence against the live body instead of asserting conformance; correcting the schemas turns each pin back into a plain `assertContract` call.

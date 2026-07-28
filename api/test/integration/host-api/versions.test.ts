@@ -7,6 +7,7 @@ import { createDbFake } from '../../helpers/db-fake.js';
 import { hosts as hostsTable, versions as versionsTable } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
+import { assertContract } from '../../helpers/contract-schema.js';
 
 const env = {
   INSTALLATION_ID: 'inst-test',
@@ -30,6 +31,17 @@ describe('GET /versions', () => {
     const r = await app.inject({ method: 'GET', url: '/versions' });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
+    // `versions.schema.json` still documents the PHP-era `/versions` payload.
+    // The Node route serves `VersionSnapshot`, which never carried the
+    // settings/runner-telemetry keys (`admin_theme`, `quota_*`, `runner_last_*`,
+    // `reported_*`, `client_version_checked_at`, `client_version_source`), and
+    // no wrapper reads them — cdx/clx only use `/versions` as a reachability
+    // probe. Pin the divergence against the live body so the published schema
+    // and the route cannot drift further apart unnoticed; once the schema is
+    // corrected this becomes a plain `assertContract` call.
+    expect(() => assertContract('versions.schema.json', body)).toThrow(
+      /must have required property 'admin_theme'/,
+    );
     expect(body.status).toBe('ok');
     expect(body.client_version).toBe('0.42.0');
     expect(body.wrapper_version).toBe('1.0.0');
