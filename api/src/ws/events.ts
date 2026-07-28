@@ -24,6 +24,7 @@ export const WS_EVENT_TYPES = [
   'user.updated',
   'user.created',
   'user.deleted',
+  'admin.user.wipe',
 
   // Projects
   'project.changed',

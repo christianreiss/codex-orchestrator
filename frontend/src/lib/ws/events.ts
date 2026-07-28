@@ -33,6 +33,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "user.updated": [["users"]],
   "user.created": [["users"]],
   "user.deleted": [["users"]],
+  // Bulk delete of every admin user except the actor.
+  "admin.user.wipe": [["users"]],
 
   // Projects (both list and project-scoped detail; per-project keys handled in wireWsToQueryClient)
   "project.changed": [["projects"]],

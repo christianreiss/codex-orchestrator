@@ -17,6 +17,12 @@ import { WS_EVENT_TYPES } from '../../../src/ws/events.js';
  * The same scan also holds `WS_EVENT_TYPES` in `api/src/ws/events.ts` to its
  * own claim of being the canonical catalog: nothing enforced it, so it drifted
  * in both directions (missing published types, declaring types nobody emits).
+ *
+ * Most admin mutations never call `wsPublisher.publish` themselves: they hand a
+ * type to one of the two audit writers, which persists an `admin_events` row and
+ * rebroadcasts it. Those call sites pass string literals, so the scan resolves
+ * them too — otherwise the writers look like one dynamic publisher and the ~20
+ * types behind them go unchecked.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -32,13 +38,22 @@ const UNMAPPED_EVENT_TYPES: Record<string, string> = {
 
 /** Files that publish a type computed at runtime, and what feeds that type. */
 const RUNTIME_TYPED_PUBLISHERS: Record<string, string> = {
-  'services/admin-events.ts': 'audit writer — rebroadcasts the type of whatever admin event was recorded',
-  'services/admin-events-writer.ts':
-    'same writer, functional form — the type is the wsType the caller passes',
   'services/shared-memories.ts': 'private publish() indirection — its callers pass shared_memory.* literals',
 };
 
-const NEEDLE = 'wsPublisher.publish(';
+const PUBLISH_NEEDLE = 'wsPublisher.publish(';
+/** `AdminEventsService.record({ type }, { broadcast })`. */
+const RECORD_NEEDLE = '.record(';
+/** `AdminEventsWriter.appendAndPublish(type, payload, { wsType })`. */
+const APPEND_NEEDLE = '.appendAndPublish(';
+const NEEDLES = [PUBLISH_NEEDLE, RECORD_NEEDLE, APPEND_NEEDLE];
+
+/**
+ * The two audit writers. Their own `wsPublisher.publish(` forwards whatever type
+ * the caller handed them, so it is dynamic by construction; the scan resolves
+ * those types at the call sites above and skips the forwarding publish itself.
+ */
+const INDIRECT_PUBLISHERS = ['services/admin-events.ts', 'services/admin-events-writer.ts'];
 
 interface PublishSite {
   /** Path relative to `api/src`. */
@@ -69,12 +84,14 @@ function matchingBracket(source: string, open: number): number {
   return -1;
 }
 
-/** Source text of the first call argument, given the index of the `(`. */
-function firstArgument(source: string, open: number): string | null {
+/** Split on the top-level commas of a call or object-literal body. */
+function splitTopLevel(body: string): string[] {
+  const parts: string[] = [];
   let depth = 0;
   let quote: string | null = null;
-  for (let i = open; i < source.length; i++) {
-    const c = source[i]!;
+  let start = 0;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!;
     if (quote) {
       if (c === '\\') i++;
       else if (c === quote) quote = null;
@@ -82,10 +99,34 @@ function firstArgument(source: string, open: number): string | null {
     }
     if (c === "'" || c === '"' || c === '`') quote = c;
     else if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') {
-      depth--;
-      if (depth === 0) return source.slice(open + 1, i);
-    } else if (c === ',' && depth === 1) return source.slice(open + 1, i);
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (depth === 0 && c === ',') {
+      parts.push(body.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(body.slice(start));
+  return parts.filter((part) => part.trim() !== '');
+}
+
+/** Source text of each call argument, given the index of the `(`. */
+function callArguments(source: string, open: number): string[] | null {
+  const close = matchingBracket(source, open);
+  if (close === -1) return null;
+  return splitTopLevel(source.slice(open + 1, close));
+}
+
+const PROPERTY_KEY = /^\s*(?:(['"])([^'"]+)\1|([A-Za-z_$][\w$]*))\s*:/;
+
+/** Value expression of `key` in an object-literal expression, or null. */
+function objectProperty(text: string, key: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  const close = matchingBracket(trimmed, 0);
+  if (close === -1) return null;
+  for (const entry of splitTopLevel(trimmed.slice(1, close))) {
+    const named = PROPERTY_KEY.exec(entry);
+    if (named && (named[2] ?? named[3]) === key) return entry.slice(named[0].length);
   }
   return null;
 }
@@ -164,6 +205,25 @@ function eventTypesOf(expression: string): string[] | null {
   return [...consequent, ...alternate];
 }
 
+/** Every type a call through `needle` broadcasts, or null when it is dynamic. */
+function broadcastTypes(needle: string, args: string[]): string[] | null {
+  if (needle === PUBLISH_NEEDLE) return args[0] === undefined ? null : eventTypesOf(args[0]);
+  if (needle === RECORD_NEEDLE) {
+    // The audit row is always written; the WS event only when `broadcast` is
+    // not explicitly false.
+    const input = args[0];
+    if (input === undefined) return null;
+    const broadcast = args[1] === undefined ? null : objectProperty(args[1], 'broadcast');
+    if (broadcast !== null && broadcast.trim() === 'false') return [];
+    const type = objectProperty(input, 'type');
+    return type === null ? null : eventTypesOf(type);
+  }
+  // `wsType` overrides the audit type for the broadcast only.
+  const wsType = args[2] === undefined ? null : objectProperty(args[2], 'wsType');
+  const expression = wsType ?? args[0];
+  return expression === undefined ? null : eventTypesOf(expression);
+}
+
 function collectPublishSites(): PublishSite[] {
   const sites: PublishSite[] = [];
   const files = readdirSync(API_SRC, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts'));
@@ -176,11 +236,18 @@ function collectPublishSites(): PublishSite[] {
       // Doc comments mention `wsPublisher.publish(type, payload)` in prose.
       const trimmed = line.trimStart();
       const isComment = trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*');
-      let at = isComment ? -1 : line.indexOf(NEEDLE);
-      while (at !== -1) {
-        const argument = firstArgument(source, lineStart + at + NEEDLE.length - 1);
-        sites.push({ file, line: index + 1, types: argument === null ? null : eventTypesOf(argument) });
-        at = line.indexOf(NEEDLE, at + 1);
+      for (const needle of NEEDLES) {
+        if (needle === PUBLISH_NEEDLE && INDIRECT_PUBLISHERS.includes(file)) continue;
+        let at = isComment ? -1 : line.indexOf(needle);
+        while (at !== -1) {
+          const args = callArguments(source, lineStart + at + needle.length - 1);
+          sites.push({
+            file,
+            line: index + 1,
+            types: args === null ? null : broadcastTypes(needle, args),
+          });
+          at = line.indexOf(needle, at + 1);
+        }
       }
       lineStart += line.length + 1;
     }
@@ -230,6 +297,19 @@ describe('WS event invalidation coverage', () => {
     expect(publishedTypes.has('project.note.updated')).toBe(true);
     // Ternary conditions are not event types.
     expect(publishedTypes.has('created')).toBe(false);
+  });
+
+  it('resolves the types the audit writers rebroadcast for their callers', () => {
+    // Both reach the socket only through a writer: `record({ type })` in
+    // admin-users.ts and the `wsType` override in insecure-window-admin.ts.
+    expect(publishedTypes.has('user.created')).toBe(true);
+    expect(publishedTypes.has('insecure.domain.revoked')).toBe(true);
+    // `record(..., { broadcast: false })` writes an audit row and nothing else.
+    expect(publishedTypes.has('admin.auth.password.change')).toBe(false);
+    // The writers still forward — without that, the scan above guards nothing.
+    for (const file of INDIRECT_PUBLISHERS) {
+      expect(readFileSync(join(API_SRC, file), 'utf8')).toContain(PUBLISH_NEEDLE);
+    }
   });
 
   it('routes every published event type to a frontend invalidation entry', () => {
