@@ -10,7 +10,10 @@
   layers above a safe density threshold; the list keeps the complete page.
   High-cardinality host, project, and tag facets are capped to their top 200
   values with explicit truncation metadata and an in-product disclosure. Empty
-  graph filters remain valid when aggregating tag facets across all scopes.
+  graph filters remain valid when aggregating tag facets across all scopes, and
+  the canvas reserves an explicit viewport so nodes and controls render instead
+  of collapsing inside an auto-height page section. Topology changes re-fit the
+  viewport without disturbing selection-only interactions.
 - Added the unified admin lifecycle API under `/admin/memories`: graph, detail,
   create, optimistic-concurrency update/delete, shared-document append, and
   retention-bound audit endpoints. Detail responses carry a full-state ETag;

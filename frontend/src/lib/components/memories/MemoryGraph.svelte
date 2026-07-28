@@ -171,9 +171,15 @@
       selected: node.id === selectedNodeId,
     })),
   );
+  const layoutKey = $derived(JSON.stringify([
+    showTags,
+    showProvenance,
+    layouted.nodes.map((node) => node.id),
+    layouted.edges.map((edge) => edge.id),
+  ]));
 </script>
 
-<div class="memory-flow h-full min-h-[520px] w-full overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_18%_12%,hsl(var(--primary)/0.10),transparent_34%),radial-gradient(circle_at_88%_78%,hsl(var(--accent)/0.18),transparent_36%),hsl(var(--muted)/0.28)]">
+<div class="memory-flow h-[560px] w-full overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_18%_12%,hsl(var(--primary)/0.10),transparent_34%),radial-gradient(circle_at_88%_78%,hsl(var(--accent)/0.18),transparent_36%),hsl(var(--muted)/0.28)] md:h-[640px]">
   {#if layouted.tooDense}
     <div class="grid min-h-[520px] place-items-center p-8 text-center">
       <div class="max-w-md rounded-2xl border border-amber-400/30 bg-background/85 p-6 shadow-sm backdrop-blur">
@@ -184,48 +190,50 @@
       </div>
     </div>
   {:else}
-  <SvelteFlow
-    nodes={flowNodes}
-    edges={layouted.edges}
-    {nodeTypes}
-    fitView
-    fitViewOptions={{ padding: 0.18, minZoom: 0.18, maxZoom: 1.15, duration: reducedMotion ? 0 : 350 }}
-    minZoom={0.12}
-    maxZoom={1.8}
-    nodesDraggable={false}
-    nodesConnectable={false}
-    deleteKey={null}
-    selectionKey={null}
-    multiSelectionKey={null}
-    panOnScroll
-    zoomOnScroll={false}
-    zoomOnPinch
-    onlyRenderVisibleElements
-  >
-    <Background variant={BackgroundVariant.Dots} gap={24} size={1.25} patternColor="hsl(var(--muted-foreground) / 0.22)" />
-    <Controls position="bottom-left" showLock={false} fitViewOptions={{ padding: 0.18, duration: reducedMotion ? 0 : 300 }} />
-    {#if layouted.nodes.length <= 250}
-      <MiniMap
-        position="bottom-right"
-        pannable
-        zoomable
-        nodeColor={(node) => {
-          const scope = (node.data as { memory?: MemoryGraphNode })?.memory?.scope;
-          if (scope === "shared") return "#8b5cf6";
-          if (scope === "project") return "#06b6d4";
-          if (scope === "host") return "#f59e0b";
-          return "#64748b";
-        }}
-        maskColor="hsl(var(--background) / 0.72)"
-      />
-    {/if}
-    <Panel position="top-left" class="!m-3">
-      <div class="rounded-xl border border-border/70 bg-background/85 px-3 py-2 text-[10px] text-muted-foreground shadow-sm backdrop-blur-md">
-        <p class="font-semibold text-foreground">Memory topology</p>
-        <p>Pan to explore · scroll to move · use controls to zoom</p>
-      </div>
-    </Panel>
-  </SvelteFlow>
+    {#key layoutKey}
+      <SvelteFlow
+        nodes={flowNodes}
+        edges={layouted.edges}
+        {nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.18, minZoom: 0.18, maxZoom: 1.15, duration: reducedMotion ? 0 : 350 }}
+        minZoom={0.12}
+        maxZoom={1.8}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        deleteKey={null}
+        selectionKey={null}
+        multiSelectionKey={null}
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
+        onlyRenderVisibleElements
+      >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.25} patternColor="hsl(var(--muted-foreground) / 0.22)" />
+        <Controls position="bottom-left" showLock={false} fitViewOptions={{ padding: 0.18, duration: reducedMotion ? 0 : 300 }} />
+        {#if layouted.nodes.length <= 250}
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor={(node) => {
+              const scope = (node.data as { memory?: MemoryGraphNode })?.memory?.scope;
+              if (scope === "shared") return "#8b5cf6";
+              if (scope === "project") return "#06b6d4";
+              if (scope === "host") return "#f59e0b";
+              return "#64748b";
+            }}
+            maskColor="hsl(var(--background) / 0.72)"
+          />
+        {/if}
+        <Panel position="top-left" class="!m-3">
+          <div class="rounded-xl border border-border/70 bg-background/85 px-3 py-2 text-[10px] text-muted-foreground shadow-sm backdrop-blur-md">
+            <p class="font-semibold text-foreground">Memory topology</p>
+            <p>Pan to explore · scroll to move · use controls to zoom</p>
+          </div>
+        </Panel>
+      </SvelteFlow>
+    {/key}
   {/if}
 </div>
 
