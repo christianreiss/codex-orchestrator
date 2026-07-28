@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
  * paths the app serves.
  *
  * Shared by the checks that hold a second source of truth against the app:
- * the admin UI call sites (`frontend-path-coverage.test.ts`) and the route
- * catalog in `docs/API.md` (`docs-api-catalog.test.ts`).
+ * the admin UI call sites (`frontend-path-coverage.test.ts`), the route
+ * catalog in `docs/API.md` (`docs-api-catalog.test.ts`) and the in-app API
+ * reference the admin manual ships
+ * (`manual-shortcuts-api-routes.test.ts`).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));

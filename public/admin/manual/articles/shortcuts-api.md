@@ -117,7 +117,7 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 | POST | `/admin/hosts/quick-register` | api/src/routes/admin/hosts/index.ts |
 | GET | `/admin/hosts/:id/detail` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/hosts/:id/auth` | api/src/routes/admin/hosts/index.ts |
-| GET | `/admin/hosts/:id/installer` | api/src/routes/admin/hosts/index.ts |
+| POST | `/admin/hosts/:id/installer` | api/src/routes/admin/hosts/index.ts |
 | DELETE | `/admin/hosts/:id` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/engines` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/clear` | api/src/routes/admin/hosts/index.ts |
