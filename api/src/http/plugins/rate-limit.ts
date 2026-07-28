@@ -4,7 +4,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { ipRateLimits } from '../../db/schema.js';
 import type { Database } from '../../db/client.js';
 import { RateLimitedError } from '../errors.js';
-import type { Env } from '../../env.js';
+import { loadEnv, type Env } from '../../env.js';
 
 /**
  * Reads/writes the existing `ip_rate_limits` table verbatim. Per-IP per-bucket
@@ -20,10 +20,22 @@ export interface RateLimitConfig {
   windowSeconds: number;
 }
 
-const DEFAULTS: Record<string, RateLimitConfig> = {
-  global: { limit: 120, windowSeconds: 60 },
-  'auth-fail': { limit: 20, windowSeconds: 600 },
-};
+/**
+ * Bucket configuration as the operator tuned it. Unknown buckets fall back to
+ * the global one.
+ */
+export function rateLimitBuckets(env: Env): Record<string, RateLimitConfig> {
+  return {
+    global: {
+      limit: env.RATE_LIMIT_GLOBAL_PER_MINUTE,
+      windowSeconds: env.RATE_LIMIT_GLOBAL_WINDOW,
+    },
+    'auth-fail': {
+      limit: env.RATE_LIMIT_AUTH_FAIL_COUNT,
+      windowSeconds: env.RATE_LIMIT_AUTH_FAIL_WINDOW,
+    },
+  };
+}
 
 export interface RateLimiter {
   hit(
@@ -33,10 +45,11 @@ export interface RateLimiter {
   ): Promise<{ ok: boolean; resetAt: string; count: number }>;
 }
 
-export function makeRateLimiter(db: Database): RateLimiter {
+export function makeRateLimiter(db: Database, env: Env = loadEnv()): RateLimiter {
+  const buckets = rateLimitBuckets(env);
   return {
     async hit(ip, bucket, overrides) {
-      const cfg = { ...(DEFAULTS[bucket] ?? DEFAULTS.global!), ...overrides };
+      const cfg = { ...(buckets[bucket] ?? buckets.global!), ...overrides };
       const now = new Date();
       const nowIso = now.toISOString();
       const windowResetAt = new Date(now.getTime() + cfg.windowSeconds * 1000).toISOString();
@@ -78,14 +91,15 @@ declare module 'fastify' {
 
 const BYPASS_PREFIXES = ['/admin/_app/', '/admin/manual/articles/', '/admin/favicon'];
 
-export function makeRateLimitPlugin(_env: Env) {
+export function makeRateLimitPlugin(env: Env) {
+  const global = rateLimitBuckets(env).global!;
   return fp(
     async function rateLimitPlugin(app: FastifyInstance) {
       app.addHook('preHandler', async (req: FastifyRequest) => {
         if (req.method === 'OPTIONS') return;
         if (req.url === '/healthz' || req.url.startsWith('/admin/ws')) return;
         for (const p of BYPASS_PREFIXES) if (req.url.startsWith(p)) return;
-        const res = await app.rateLimiter.hit(req.clientIp || '0.0.0.0', 'global');
+        const res = await app.rateLimiter.hit(req.clientIp || '0.0.0.0', 'global', global);
         if (!res.ok) {
           const retryAfter = Math.max(1, Math.ceil((new Date(res.resetAt).getTime() - Date.now()) / 1000));
           throw new RateLimitedError('Rate limit exceeded', {

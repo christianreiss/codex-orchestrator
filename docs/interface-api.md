@@ -370,9 +370,9 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 
 ## Rate limiting
 
-- Global throttle for non-admin paths: per-IP `global` bucket defaults to `RATE_LIMIT_GLOBAL_PER_MINUTE=120` over `RATE_LIMIT_GLOBAL_WINDOW=60` seconds. Exceeding the limit returns HTTP 429 with `{ bucket: "global", reset_at, limit }`.
-- Brute-force guard: repeated missing/invalid API keys are counted per IP in the `auth-fail` bucket. Defaults: `RATE_LIMIT_AUTH_FAIL_COUNT=20` failures within `RATE_LIMIT_AUTH_FAIL_WINDOW=600` seconds, extending the block for `RATE_LIMIT_AUTH_FAIL_BLOCK=1800` seconds once tripped. Limit hits return HTTP 429 `Too many failed authentication attempts` with `reset_at` + `bucket`.
-- Admin routes are exempt; when no client IP can be resolved the request proceeds without throttling. Tune the env vars above to tighten or disable the windows (zero/negative disables the guard).
+- Global throttle: per-IP `global` bucket defaults to `RATE_LIMIT_GLOBAL_PER_MINUTE=120` over `RATE_LIMIT_GLOBAL_WINDOW=60` seconds. Exceeding the limit returns HTTP 429 with `{ bucket: "global", reset_at, limit }`.
+- Brute-force guard: repeated missing/invalid API keys are counted per IP in the `auth-fail` bucket. Defaults: `RATE_LIMIT_AUTH_FAIL_COUNT=20` failures within `RATE_LIMIT_AUTH_FAIL_WINDOW=600` seconds; there is no extra block window, so the guard clears when that window expires. Limit hits return HTTP 429 `Too many failed authentication attempts` with `reset_at` + `bucket`.
+- The global bucket runs on every non-OPTIONS request, `/admin/*` included; the only bypasses are `/healthz`, `/admin/ws`, `/admin/_app/`, `/admin/manual/articles/` and `/admin/favicon`. Requests with no resolvable client IP are counted against `0.0.0.0`. Tune the env vars above to tighten the windows; they must be positive integers, so the guard cannot be switched off that way.
 
 ## Anthropic-compatible API
 
