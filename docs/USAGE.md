@@ -272,7 +272,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 
 ### Update the wrapper / Codex CLI on a host
 
-`cdx` auto-updates in normal operation (using `/wrapper/download` and the server-reported wrapper metadata) when it can manage install locations, but you can force an update check/run:
+`cdx` auto-updates in normal operation when it can manage install locations: it installs the Go binary its signed config and the server-reported wrapper metadata name — a versioned `/wrapper/v2/bin/{engine}/{platform}/v{version}/{binary}` artifact, the same build `/wrapper/v2/download` streams for the calling host's platform. `/wrapper/download` is not part of that path; it serves the legacy transition launcher that date-versioned shell wrappers update through. You can force an update check/run:
 
 ```bash
 cdx --update
