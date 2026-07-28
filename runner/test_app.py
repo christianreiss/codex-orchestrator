@@ -5,6 +5,8 @@ import shutil
 import subprocess
 import unittest
 
+from fastapi.testclient import TestClient
+
 import app as runner_app
 
 # These tests are synchronous, but pytest plugins that happen to be installed in
@@ -614,6 +616,89 @@ class RunnerAppTest(unittest.TestCase):
 
         self.assertEqual("fail", result["status"])
         self.assertFalse(result["definitive"])
+
+
+class RunnerRouteAuthTest(unittest.TestCase):
+    """X-Runner-Auth is the runner's only access control on the compose network."""
+
+    VERIFY_BODY = {"auth_json": {"tokens": {"access_token": "sk-openai-test-token"}}}
+
+    def setUp(self):
+        self.client = TestClient(runner_app.app)
+        self.probe_payloads = []
+        self._original_secret = runner_app.RUNNER_SHARED_SECRET
+        self._original_probe = runner_app._run_probe
+        runner_app._run_probe = lambda payload: (
+            self.probe_payloads.append(payload) or {"status": "ok", "reachable": True}
+        )
+
+    def tearDown(self):
+        runner_app.RUNNER_SHARED_SECRET = self._original_secret
+        runner_app._run_probe = self._original_probe
+
+    def test_health_needs_no_secret(self):
+        runner_app.RUNNER_SHARED_SECRET = ""
+
+        response = self.client.get("/health")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("ok", response.json()["status"])
+
+    def test_verify_fails_closed_when_secret_is_unset(self):
+        runner_app.RUNNER_SHARED_SECRET = ""
+
+        for headers in ({}, {"x-runner-auth": ""}, {"x-runner-auth": "any-guess"}):
+            with self.subTest(headers=headers):
+                response = self.client.post("/verify", json=self.VERIFY_BODY, headers=headers)
+
+                self.assertEqual(500, response.status_code)
+                self.assertEqual(
+                    "RUNNER_SHARED_SECRET is not configured", response.json()["detail"]
+                )
+
+        self.assertEqual([], self.probe_payloads)
+
+    def test_verify_rejects_missing_or_wrong_secret(self):
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+        for headers in (
+            {},
+            {"x-runner-auth": ""},
+            {"x-runner-auth": "runner-secre"},
+            {"x-runner-auth": "runner-secret-extra"},
+            {"x-runner-auth": "RUNNER-SECRET"},
+        ):
+            with self.subTest(headers=headers):
+                response = self.client.post("/verify", json=self.VERIFY_BODY, headers=headers)
+
+                self.assertEqual(401, response.status_code)
+                self.assertEqual("unauthorized", response.json()["detail"])
+
+        self.assertEqual([], self.probe_payloads)
+
+    def test_verify_with_correct_secret_reaches_the_handler(self):
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+        response = self.client.post(
+            "/verify",
+            json=self.VERIFY_BODY,
+            headers={"x-runner-auth": "runner-secret"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"status": "ok", "reachable": True}, response.json())
+        self.assertEqual(1, len(self.probe_payloads))
+        self.assertEqual(self.VERIFY_BODY["auth_json"], self.probe_payloads[0].auth_json)
+
+    def test_get_on_post_only_routes_returns_readiness_hint(self):
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+        for path in ("/skills/summarize", "/exec"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+
+                self.assertEqual(200, response.status_code)
+                self.assertEqual({"status": "ok"}, response.json())
 
 
 if __name__ == "__main__":
