@@ -38,10 +38,16 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
-- Host-authenticated tools: `memory_store`, `memory_retrieve`, `memory_search`, `memory_append`, `memory_query`, `memory_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete`, `resource_list`.
-- Fleet-wide shared memory: `shared_memory_list`, `shared_memory_search`, `shared_memory_read`, `shared_memory_write`, `shared_memory_append`, `shared_memory_delete`. Visible to every host and both engines; `shared_memory_list` takes no required argument, which is what makes the corpus discoverable to an agent that knows nothing yet. Documents cap at 1 MiB; reads return a bounded window with `next_offset` for paging.
-- Projects module enabled: `project_list`, `project_create`, `project_detail`, `project_bootstrap`, `project_changes`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_file_upsert`, `project_feedback_create`.
-- Operator/internal filesystem helpers still exist in `McpServer` (`fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`) but are not exposed on the public host-authenticated `/mcp` route.
+The four `group: names` bullets below are the tool catalog: everything after the colon is backticked tool names and nothing else. `api/test/unit/services/mcp-doc-catalog.test.ts` compares them against the `name:` registrations in `api/src/services/mcp-tools.ts` and fails on any name that is in one and not the other, so notes about a group go on the indented bullet under it.
+
+- Host-authenticated tools: `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete`, `skill_list`, `skill_retrieve`, `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete`.
+  - `memory_*` is host-scoped scratch state — one row per host per key, invisible to other hosts. `skill_list`/`skill_retrieve` read synced Skills, which are also readable as `skill://{slug}` resources.
+- Fleet-wide shared memory: `shared_memory_list`, `shared_memory_search`, `shared_memory_read`, `shared_memory_write`, `shared_memory_append`, `shared_memory_delete`.
+  - Visible to every host and both engines; `shared_memory_list` takes no required argument, which is what makes the corpus discoverable to an agent that knows nothing yet. Documents cap at 1 MiB; reads return a bounded window with `next_offset` for paging.
+- Projects module enabled: `project_list`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`, `project_note_create`, `project_note_upsert`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_feedback_create`, `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`, `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search`.
+  - `project_memory_*` is project-scoped coordination state, separate from host-scoped `memory_*` and from the fleet-wide corpus.
+- Operator/internal filesystem helpers: `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
+  - Registered with `capability: 'operator'`, and only when `MCP_FS_ROOT` points at an existing directory; they are not listed on the public host-authenticated `/mcp` route and return “method not found” if called there.
 - Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
 - `resources/templates/list` exposes templates `memory_by_id` (`memory://{id}`), `memory_store` (`memory://{scope}:{name}`), `skill_manifest` (`skill://{slug}`), and `shared_memory` (`shared://{slug}`); when the Projects module is enabled it also exposes `project_bootstrap` (`project://{slug}`).
 - Memory/resource/project tool responses are wrapped in `CallToolResult.content` blocks.
