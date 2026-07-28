@@ -104,6 +104,29 @@ verifies that the Claude executable is runnable. If npm left the package's
 postinstall fallback stub in place, `clx` runs the package's documented
 `install.cjs` recovery hook and fails the update if no usable CLI results.
 
+## Environment variables
+
+Every `CLX_*` / `CDX_*` variable the `clx` binary reads. The list is enforced
+against the wrapper sources by
+`api/test/unit/contract/wrapper-env-surface.test.ts`; a knob the binary reads
+but this table omits fails the API suite.
+
+| Variable | Effect |
+|---|---|
+| `CLX_CONFIG_PATH` | Absolute path of the signed host config, ahead of `$XDG_CONFIG_HOME/codex-orchestrator/clx.json` and the `~/.config/...` default. The detached signature is still read from `<path>.sig` |
+| `CLX_CLAUDE_BIN` | Absolute path of the upstream `claude` CLI, used ahead of the path cache and the `claude` / `claude-code` `PATH` lookup. An inaccessible value is an error, not a fallback |
+| `CLX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
+| `CDX_CONFIG_PATH` | Peer reconciliation reads the same override as `cdx` when deciding where to write the peer's signed `cdx.json` |
+
+There is no `CLX_CLAUDE_INSTALL_DIR` counterpart to cdx's
+`CDX_CODEX_INSTALL_DIR`: Claude Code is installed through `npm install -g`, so
+its location follows the npm prefix. Other variables affecting a run are
+engine-level rather than wrapper-owned: `CLAUDE_ALLOW_FQDN_MISMATCH`,
+`CLAUDE_FORCE_IPV4` / `CODEX_FORCE_IPV4`, `ANTHROPIC_MODEL` (runtime model
+fallback), the inherited `CLAUDE_CONFIG_DIR` the wrapper strips,
+`CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` / `COLUMNS`
+presentation variables.
+
 ## Per-host config (typed, signed)
 
 Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with

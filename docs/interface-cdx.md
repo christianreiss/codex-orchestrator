@@ -185,6 +185,27 @@ duration, engine version, and auth-upload outcome drive its overall tone. A
 successful engine process with a failed canonical credential upload is shown as
 `EXIT 0 · AUTH FAILED`, not green. `--minimal` keeps this footer compact.
 
+## Environment variables
+
+Every `CDX_*` / `CLX_*` variable the `cdx` binary reads. The list is enforced
+against the wrapper sources by
+`api/test/unit/contract/wrapper-env-surface.test.ts`; a knob the binary reads
+but this table omits fails the API suite.
+
+| Variable | Effect |
+|---|---|
+| `CDX_CONFIG_PATH` | Absolute path of the signed host config, ahead of `$XDG_CONFIG_HOME/codex-orchestrator/cdx.json` and the `~/.config/...` default. The detached signature is still read from `<path>.sig` |
+| `CDX_CODEX_BIN` | Absolute path of the upstream `codex` CLI, used ahead of the path cache and `PATH`. An inaccessible value is an error, not a fallback |
+| `CDX_CODEX_INSTALL_DIR` | Directory that managed Codex CLI installs/updates write `codex` into, instead of `/usr/local/bin` (or the `~/.local/bin` fallback) |
+| `CDX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
+| `CDX_AUTH_SESSION_HANDOFF` | Internal, wrapper-set: the encoded session + purge-request leases handed to the re-exec'd binary after a self-update. It is consumed and unset on startup; operators do not set it |
+| `CLX_CONFIG_PATH` | Peer reconciliation reads the same override as `clx` when deciding where to write the peer's signed `clx.json` |
+
+Other variables affecting a run are engine-level rather than wrapper-owned and
+are documented where they apply: `CODEX_HOME`, `CODEX_ALLOW_FQDN_MISMATCH`,
+`QUOTA_HARD_FAIL`, `CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` /
+`COLUMNS` presentation variables.
+
 ## Peer engine reconciliation
 
 The host installer does not rely on runtime peer reconciliation for initial
