@@ -951,6 +951,11 @@ class RunnerResponseContractTest(unittest.TestCase):
     suites green while the API silently loses rotated credential bytes or token
     accounting. These tests drive the real handlers and require each body to stay
     a superset of the key sets below.
+
+    The LLM-draft endpoints are read the same way by api/src/services/
+    skill-drafts.ts and project-drafts.ts, and every one of their bodies carries
+    the engine-dependent version key from _engine_version_key(), so each draft
+    contract below is asserted for engine=codex and engine=claude.
     """
 
     # Verdict fields every /verify and /verify-claude body carries.
@@ -982,6 +987,43 @@ class RunnerResponseContractTest(unittest.TestCase):
         "cache_read_input_tokens",
     }
 
+    # Fields every draft body carries, next to the engine's `*_version` key.
+    DRAFT_KEYS = frozenset({"status", "latency_ms", "reachable"})
+    # Every draft handler reports its failure the same way.
+    DRAFT_FAIL_KEYS = DRAFT_KEYS | {"reason"}
+
+    SUMMARY_OK_KEYS = DRAFT_KEYS | {"summary"}
+    SKILL_DRAFT_KEYS = frozenset(
+        {"slug", "display_name", "description", "tags", "what", "when", "steps"}
+    )
+    SKILL_GENERATE_OK_KEYS = DRAFT_KEYS | SKILL_DRAFT_KEYS
+    SKILL_ASSIST_OK_KEYS = SKILL_GENERATE_OK_KEYS | {"assistant_message"}
+    PROJECT_ASSIST_OK_KEYS = DRAFT_KEYS | {
+        "assistant_message",
+        "title",
+        "name",
+        "description",
+        "roster_markdown",
+    }
+
+    GENERATED_SKILL = {
+        "slug": "banana-drill",
+        "display_name": "Banana Drill",
+        "description": "Runs the banana drill.",
+        "tags": ["banana"],
+        "what": "Runs the banana drill end to end.",
+        "when": "When an operator asks for a banana drill.",
+        "steps": "1. Peel the banana.\n2. Drill.",
+    }
+    ASSISTED_SKILL = {**GENERATED_SKILL, "assistant_message": "Drafted the banana drill."}
+    ASSISTED_PROJECT = {
+        "assistant_message": "Filled in what the snapshot supports.",
+        "title": "Banana Drill",
+        "name": "banana-drill",
+        "description": "Keeps the banana drill running.",
+        "roster_markdown": "- Owner: the banana team",
+    }
+
     CODEX_AUTH = {"tokens": {"access_token": "sk-openai-test-token"}}
     ROTATED_CODEX_AUTH = {"tokens": {"access_token": "sk-openai-rotated-token"}}
     CLAUDE_AUTH = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
@@ -993,12 +1035,14 @@ class RunnerResponseContractTest(unittest.TestCase):
         self._original_secret = runner_app.RUNNER_SHARED_SECRET
         self._original_run = runner_app.subprocess.run
         self._original_post = runner_app.httpx.post
+        self._original_engine_exec = runner_app._run_engine_exec
         runner_app.RUNNER_SHARED_SECRET = "runner-secret"
 
     def tearDown(self):
         runner_app.RUNNER_SHARED_SECRET = self._original_secret
         runner_app.subprocess.run = self._original_run
         runner_app.httpx.post = self._original_post
+        runner_app._run_engine_exec = self._original_engine_exec
 
     def stub_subprocess(self, on_exec):
         """Answer every spawned process: the version probes, then `on_exec(env)`."""
@@ -1020,6 +1064,19 @@ class RunnerResponseContractTest(unittest.TestCase):
 
         runner_app.httpx.post = fake_post
 
+    def stub_engine_exec(self, returncode, stdout):
+        """Answer the drafting exec with `stdout`; the version probe stays stubbed."""
+
+        def no_cli(env):
+            raise AssertionError("the drafting call must go through _run_engine_exec")
+
+        self.stub_subprocess(no_cli)
+
+        def fake_engine_exec(prompt, env, timeout, engine="codex"):
+            return _FakeCompletedProcess(returncode, stdout=stdout), 12
+
+        runner_app._run_engine_exec = fake_engine_exec
+
     def post(self, path, body):
         return self.client.post(path, json=body, headers={"x-runner-auth": "runner-secret"})
 
@@ -1031,6 +1088,33 @@ class RunnerResponseContractTest(unittest.TestCase):
             missing,
             f"runner/app.py dropped response keys the API reads: {missing}",
         )
+
+    def assertDraftContract(self, path, body, ok_stdout, ok_keys):
+        """Drive a draft endpoint on both engines, once per exec outcome.
+
+        A failed drafting exec still answers 200 with `reason`, so both outcomes
+        are pinned against the same engine-specific version key.
+        """
+        for engine, auth in (("codex", self.CODEX_AUTH), ("claude", self.CLAUDE_AUTH)):
+            version_key = f"{engine}_version"
+            for label, returncode, stdout, expected in (
+                ("ok", 0, ok_stdout, ok_keys),
+                ("non-zero exit", 1, "", self.DRAFT_FAIL_KEYS),
+            ):
+                with self.subTest(engine=engine, call=label):
+                    self.stub_engine_exec(returncode, stdout)
+
+                    response = self.post(
+                        path,
+                        {
+                            **body,
+                            "auth_json": auth,
+                            "engine": engine,
+                            "timeout_seconds": 2.0,
+                        },
+                    )
+
+                    self.assertBodyCarries(response, expected | {version_key})
 
     def test_verify_body_carries_every_key_the_api_reads(self):
         def ok(env):
@@ -1186,6 +1270,72 @@ class RunnerResponseContractTest(unittest.TestCase):
         )
 
         self.assertBodyCarries(response, self.EXEC_CLAUDE_OK_KEYS)
+
+    def test_skill_summary_body_carries_every_key_a_consumer_reads(self):
+        """No caller under api/src posts here yet (docs/auth-runner.md records
+        that), so this body's shape — `summary` on ok, `reason` on failure,
+        beside the engine version key — is pinned here for whoever posts to it.
+        """
+        self.assertDraftContract(
+            "/skills/summarize",
+            {"slug": "banana-drill", "manifest": "# Banana Drill\n\nPeel, then drill."},
+            "Runs the banana drill for operators who ask for one.",
+            self.SUMMARY_OK_KEYS,
+        )
+
+    def test_memory_summary_body_carries_every_key_a_consumer_reads(self):
+        """Same shape as /skills/summarize and, like it, without an api/src
+        caller today; the key set is pinned so the two stay interchangeable.
+        """
+        self.assertDraftContract(
+            "/memories/summarize",
+            {"memory_key": "banana-drill", "content": "Peel the banana before drilling."},
+            "Records how the banana drill is run.",
+            self.SUMMARY_OK_KEYS,
+        )
+
+    def test_skill_generate_body_carries_every_key_the_api_reads(self):
+        """SkillDraftsService.generate (api/src/services/skill-drafts.ts) reads
+        `status`, `reason`, `latency_ms`, `reachable` and `codex_version` off
+        this body and hands the whole thing to normalizeSkillDraft, which reads
+        `slug`, `display_name`, `description`, `tags`, `what`, `when` and
+        `steps`.
+        """
+        self.assertDraftContract(
+            "/skills/generate",
+            {"prompt": "Draft a skill for the banana drill."},
+            json.dumps(self.GENERATED_SKILL),
+            self.SKILL_GENERATE_OK_KEYS,
+        )
+
+    def test_skill_assist_body_carries_every_key_the_api_reads(self):
+        """SkillDraftsService.assist (api/src/services/skill-drafts.ts) reads the
+        generate keys field by field off this body and additionally requires
+        `assistant_message`; an absent one is a 502 runner_invalid_payload.
+        """
+        self.assertDraftContract(
+            "/skills/assist",
+            {
+                "messages": [{"role": "user", "content": "Draft a banana drill skill."}],
+                "skill": {},
+                "mode": "new",
+            },
+            json.dumps(self.ASSISTED_SKILL),
+            self.SKILL_ASSIST_OK_KEYS,
+        )
+
+    def test_project_assist_body_carries_every_key_the_api_reads(self):
+        """ProjectDraftsService.assist (api/src/services/project-drafts.ts) reads
+        `status`, `reason`, `latency_ms`, `reachable`, `codex_version` and
+        `assistant_message`, then buildDraftPayload beside it reads `title`,
+        `name`, `description` and `roster_markdown` to decide changed_fields.
+        """
+        self.assertDraftContract(
+            "/projects/assist",
+            {"slug": "banana-drill", "project": {"title": "Banana Drill"}},
+            json.dumps(self.ASSISTED_PROJECT),
+            self.PROJECT_ASSIST_OK_KEYS,
+        )
 
 
 if __name__ == "__main__":
