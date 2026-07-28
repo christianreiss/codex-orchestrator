@@ -6,14 +6,14 @@
 - When no admin user exists at all, `POST /admin/users` runs in bootstrap mode (no session required) so the first admin can be created.
 - Login uses an HTTP-only session cookie with a configurable TTL.
 - Admin login is normally username-first: the page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry. When exactly one active user exists and has passkeys, it can open that user's passkey prompt directly.
-- With `ADMIN_ACCESS_MODE=mtls` (default), passkey login still sits inside the mTLS gate; it does not replace the outer client-cert boundary.
+- Passkey login issues the same session cookie as password login; the API wraps neither in a client-certificate check. Only the optional Caddy proxy in front of the app does that.
 - Password recovery is available from the login screen and completes on the standalone `/admin/password/reset` page.
 - Roles are stored per user, but only two route groups actually gate on them: admin user management and Memory Atlas writes.
 
 ## Bootstrap & Enforcement
 - Enforcement check is the `isEnforced()` helper in `api/src/services/admin-auth.ts` (`countAdmins(true) > 0`).
 - When `admin_users` is empty: `POST /admin/users` accepts an unauthenticated request so the first admin can be created. No other admin API route has a bootstrap bypass; they still require a session.
-- Creating the first active admin user enables login enforcement for `/admin/*` in addition to any mTLS checks.
+- Creating the first active admin user enables login enforcement for `/admin/*`. That session check is the only admin gate the API applies; any certificate check is the proxy's.
 - Wiping all users via the Users panel (`WIPE` confirmation) deletes every admin user and returns the system to userless mode (login no longer enforced until a new admin is created).
 - Redirect flow when login is enforced:
   - Visiting dashboard routes (`/admin/`, `/admin/hosts/{id}`) without a valid session redirects to `/admin/login`.
@@ -21,10 +21,9 @@
   - Visiting `/admin/login` while login is not enforced also redirects to `/admin/`.
 
 ## Access Model
-- `ADMIN_ACCESS_MODE` controls mTLS:
-  - `mtls` (default): mTLS is required for `/admin/*` and login sits behind that TLS gate.
-  - `none`: mTLS headers are optional; protect `/admin/` using another control (VPN/firewall) and rely on admin login for user-level access.
-  - Any value other than `none` is treated as `mtls`.
+- `/admin/*` is gated by the admin session cookie only (`requireAdmin` in `api/src/http/plugins/auth-admin.ts`). The API never inspects a client certificate: `auth-mtls` parses `X-MTLS-*` into `req.mtls` and no route reads it.
+- Client certificates are enforced a layer out, by the optional `caddy` compose profile, which answers `/admin*` without a validated cert with `403 Client certificate required for /admin`. It is not started by a plain `docker compose up`, so without it protect `/admin/` with another control (VPN/firewall) and rely on admin login for user-level access.
+- `ADMIN_ACCESS_MODE` accepts `mtls` (default), `cookie`, or `open`. Despite the name it configures neither TLS nor `/admin/*`: `api/src/routes/cli-auth/index.ts` is the only reader, and it uses the value to decide whether the `/cli/auth/verify` device-approval page demands an admin session (anything but `open` does).
 - WebAuthn/passkey settings:
   - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).

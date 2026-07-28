@@ -4,15 +4,17 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 
 ## Access & Auth
 - UI shell served by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`. Admin session state is hydrated client-side via `/admin/auth/status`.
-- `ADMIN_ACCESS_MODE` defaults to `mtls`. Any value except `none` is treated as `mtls`.
-- mTLS is considered present only when `X-MTLS-Fingerprint` (or `X-MTLS-Present`) contains at least 64 hex chars.
+- Every guarded `/admin/*` route is gated by the admin session cookie through `requireAdmin` (`api/src/http/plugins/auth-admin.ts`). No admin route checks a client certificate.
+- `ADMIN_ACCESS_MODE` accepts `mtls` (default), `cookie`, or `open`, and `api/src/routes/cli-auth/index.ts` is the only file that reads it: any value except `open` makes `/cli/auth/verify` require an admin session. It has no effect on `/admin/*`.
+- The client-certificate gate is proxy-layer, in the optional `caddy` compose profile (`caddy/Caddyfile`): it answers `/admin*` without a validated cert with `403 Client certificate required for /admin` and injects `X-MTLS-*` on what it forwards. A plain `docker compose up` does not start that profile.
+- `authMtlsPlugin` (`api/src/http/plugins/auth-mtls.ts`) parses those headers into `req.mtls` — `present` is just a non-empty `X-MTLS-Fingerprint`, `X-MTLS-Present` is not read at all — and nothing else in `api/src` consults `req.mtls`.
 - Admin login enforcement starts only after at least one active admin exists (`countAdmins(true) > 0`).
 - If login is enforced:
   - `/admin/` redirects to `/admin/login` when no valid session.
   - `/admin/login` redirects to `/admin/` when already authenticated.
   - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/login/method`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
 - While no admin user exists at all (fresh/userless install), `POST /admin/users` accepts an unauthenticated request so the first admin can be created. That is the only bootstrap bypass; every other admin API route still requires a session.
-- Passkey login is implemented, but with `ADMIN_ACCESS_MODE=mtls` (default) it still sits behind the client-certificate gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
+- Passkey login is implemented and issues the same session cookie as password login; the API adds no certificate check around it, though a deployment running the bundled Caddy reaches the login page through that proxy's cert gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
   - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).
@@ -84,7 +86,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `last_event_id`, `heartbeat_seconds` (`ADMIN_WS_PING_INTERVAL`, min `5`), `backlog_limit` (`ADMIN_WS_BACKLOG_LIMIT`, clamped `1..500`).
 - WebSocket server: in-process Fastify plugin (`api/src/ws/server.ts`) registered at `/admin/ws`.
   - Toggle: `ADMIN_WS_ENABLED`.
-  - Enforces mTLS unless `ADMIN_ACCESS_MODE=none`.
+  - Requires an admin session: both the upgrade and `/admin/ws/info` call `resolveAdmin`, and neither looks at a certificate.
   - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
 - Besides push events, the socket now supports targeted request/response hydration for slow host-detail metadata. Current request: `host-detail-support`, returning compact `runner` plus full AGENTS admin metadata for the active host page.
 - Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
@@ -94,7 +96,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 
 ## Page-by-Page (Code-Backed)
 - **Theme**: Auto/Light/Dark plus optional Auto Pink/Bright Pink/Dark Pink choices. The client stores mode in `localStorage["codex.theme"]` and an optional palette in `localStorage["codex.theme.palette"]`; the selected account theme is mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
-- **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, mTLS metadata, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
+- **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
 - **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota and usage history store rather than raw verbose logs.
 - **Hosts**:
   - List: `GET /admin/hosts`.

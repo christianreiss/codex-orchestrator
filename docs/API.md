@@ -4,8 +4,10 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 
 ## Auth & Transport
 - **Host auth**: supply the per-host API key via `X-API-Key` or `Authorization: Bearer <key>`.
-- **Admin TLS**: `/admin/*` requires mTLS while `ADMIN_ACCESS_MODE=mtls` (default). With `ADMIN_ACCESS_MODE=none`, secure the path via VPN/firewall.
-  - Admin passkey login exists, but in the default `mtls` mode it still sits behind the client-certificate boundary.
+- **Admin auth**: `/admin/*` is gated by the admin session cookie (`requireAdmin` in `api/src/http/plugins/auth-admin.ts`). The API performs no client-certificate check of its own: `auth-mtls` only parses `X-MTLS-*` into `req.mtls`, and no route reads it.
+  - **Client certificates** are a proxy-layer control. The optional `caddy` compose profile (`docker compose --profile caddy up`) answers `/admin*` requests without a validated client certificate with `403 Client certificate required for /admin` and injects the `X-MTLS-*` headers on the ones it forwards. A plain `docker compose up` does not start it, so without that profile (or an equivalent proxy) `/admin/*` is reachable with a session cookie alone — put it behind VPN/firewall.
+  - `ADMIN_ACCESS_MODE` (`mtls` default, `cookie`, `open`) is read in exactly one place, `/cli/auth/verify`: any value except `open` makes that CLI device-approval page require an admin session. It does not gate `/admin/*` and does not require a certificate.
+  - Admin passkey login exists and issues the same session cookie; nothing in the API layers it behind a certificate check.
 - **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and `REMOTE_ADDR` matches `TRUSTED_PROXY_CIDRS`. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` marks the host insecure. New insecure hosts get a provisioning window (default 30 minutes, or `/admin/hosts/register` `duration_minutes`). Admins can open/extend a 0–480 minute sliding window with `POST /admin/hosts/{id}/insecure/enable` (default stored window 10). Window checks are enforced for `/auth` retrieve (non-`store`), `/host/lane`, and `/mcp`; `POST /auth` with `command=store` is currently not gated by the insecure window in code. Closed-window requests return `403 Insecure host API access disabled`, or `423 Insecure host approval pending` when insecure approvals are enabled and admin websocket presence is active.
 - **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
@@ -435,8 +437,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/versions/check` — force fresh GitHub release lookup (bypass cache) and return `{available_client, versions}`.
 - `POST /admin/codex-version` — set fleet Codex version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`.
 
-## Admin Endpoints (mTLS)
-- `GET /admin/overview` — host totals, refresh stats, `versions`, canonical-auth/seed status, token totals (`tokens_day`/`tokens_week`/`tokens_month`), ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, optional client-version lock metadata, and mTLS metadata.
+## Admin Endpoints (admin session cookie)
+- `GET /admin/overview` — host totals, refresh stats, `versions`, canonical-auth/seed status, token totals (`tokens_day`/`tokens_week`/`tokens_month`), ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, and optional client-version lock metadata.
 - `GET /admin/ws/info` — websocket bootstrap (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
 - Admin auth + users:
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).

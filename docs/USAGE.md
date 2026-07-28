@@ -51,9 +51,9 @@ If you prefer provisioning via API (CI, inventory tooling), the admin endpoint i
 
 - `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false,"engines":["codex","claude"]}`
 
-Preferred: use admin login + session cookie for `/admin/*` calls. mTLS is an advanced hardening layer; only required when `ADMIN_ACCESS_MODE=mtls`.
+Use admin login + session cookie: that is the only admin check the API itself makes, whatever `ADMIN_ACCESS_MODE` says (it is read only by the `/cli/auth/verify` CLI-approval page).
 
-Example with mTLS (paths are placeholders; adapt to your CA/certs) when `ADMIN_ACCESS_MODE=mtls`:
+Client certificates are an extra proxy-layer hardening step, and needed only when the deployment runs the optional `caddy` profile — that proxy rejects `/admin*` without a validated cert before the API sees the request. Example against such a deployment (paths are placeholders; adapt to your CA/certs). The certificate only gets you past the proxy; add the admin session cookie once admin users exist, because the route itself is session-gated:
 
 ```bash
 BASE_URL="https://codex-auth.example.com"
@@ -68,7 +68,7 @@ curl --fail-with-body -sS \
 ```
 
 The response includes `data.installer.url`, `data.installer.command`, and installer mode metadata (`data.installer.mode`, `data.installer.label`) so callers can tell whether the command installs Codex, Claude, or both.
-If `ADMIN_ACCESS_MODE=none`, log in via `/admin` and reuse the session cookie for API automation (see `LOGIN.md`).
+Without that proxy in front, drop the `--cert`/`--key`/`--cacert` flags: log in via `/admin` and reuse the session cookie for API automation (see `LOGIN.md`).
 
 For an already registered host, prefer the non-rotating mint endpoint:
 
