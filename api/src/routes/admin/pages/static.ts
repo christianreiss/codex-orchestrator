@@ -3,8 +3,7 @@ import fastifyStatic from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { RouteContext } from '../../index.js';
-import { selectFormatter } from '../../../http/envelope/select.js';
-import { ApiError } from '../../../http/errors.js';
+import { notFoundHandler } from '../../../http/not-found.js';
 
 const indexHtmlCache = new Map<string, string | null>();
 
@@ -97,15 +96,7 @@ export async function registerStaticAdminRoutes(
       reply.header('cache-control', 'no-cache');
       return reply.send(indexHtml);
     }
-    const formatter = selectFormatter(req.url);
-    const err = new ApiError('Route not found', {
-      status: 404,
-      code: 'not_found',
-      type: 'not_found_error',
-    });
-    reply.envelopeRaw = true;
-    reply.status(404).header('content-type', 'application/json; charset=utf-8');
-    return reply.send(JSON.stringify(formatter.failure(err)));
+    return notFoundHandler(req, reply);
   });
   return true;
 }

@@ -9,8 +9,7 @@ import { makeAuthHostPlugin } from '../../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../../src/http/plugins/auth-admin.js';
 import { authMtlsPlugin } from '../../src/http/plugins/auth-mtls.js';
 import { corsPlugin } from '../../src/http/plugins/cors.js';
-import { selectFormatter } from '../../src/http/envelope/select.js';
-import { ApiError } from '../../src/http/errors.js';
+import { notFoundHandler } from '../../src/http/not-found.js';
 import type { Database } from '../../src/db/client.js';
 import type { Env } from '../../src/env.js';
 import { loadTestEnv, testKeyring } from './test-keyring.js';
@@ -18,17 +17,12 @@ import type { Keyring } from '../../src/security/keyring.js';
 
 /**
  * Tests use this to mirror the production 404 envelope behavior. In a real
- * server, `registerAllRoutes` installs a not-found handler after the static
- * plugin; test apps don't run route registration so they need their own.
+ * server, `registerAllRoutes` installs the shared not-found handler after the
+ * static plugin; test apps don't run route registration, so they mount the
+ * same handler here.
  */
 function installTestNotFoundHandler(app: FastifyInstance): void {
-  app.setNotFoundHandler((req, reply) => {
-    const formatter = selectFormatter(req.url);
-    const err = new ApiError('Route not found', { status: 404, code: 'not_found' });
-    reply.envelopeRaw = true;
-    reply.status(404).header('content-type', 'application/json; charset=utf-8');
-    return reply.send(JSON.stringify(formatter.failure(err)));
-  });
+  app.setNotFoundHandler(notFoundHandler);
 }
 
 /**

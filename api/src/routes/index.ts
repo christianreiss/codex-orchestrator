@@ -5,8 +5,7 @@ import { Keyring } from '../security/keyring.js';
 
 import { registerHealthRoutes } from './health.js';
 import { registerStaticAdminRoutes } from './admin/pages/static.js';
-import { selectFormatter } from '../http/envelope/select.js';
-import { ApiError } from '../http/errors.js';
+import { notFoundHandler } from '../http/not-found.js';
 
 import { registerHostApiRoutes } from './host-api/index.js';
 import { registerProjectsMcpRoutes } from './projects-mcp/index.js';
@@ -57,16 +56,6 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   // when STATIC_ROOT is present; otherwise we install a default JSON one.
   const staticInstalled = await registerStaticAdminRoutes(app, ctx);
   if (!staticInstalled) {
-    app.setNotFoundHandler((req, reply) => {
-      const formatter = selectFormatter(req.url);
-      const err = new ApiError('Route not found', {
-        status: 404,
-        code: 'not_found',
-        type: 'not_found_error',
-      });
-      reply.envelopeRaw = true;
-      reply.status(404).header('content-type', 'application/json; charset=utf-8');
-      return reply.send(JSON.stringify(formatter.failure(err)));
-    });
+    app.setNotFoundHandler(notFoundHandler);
   }
 }
