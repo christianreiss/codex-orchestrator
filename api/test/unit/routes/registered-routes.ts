@@ -11,9 +11,9 @@ import { fileURLToPath } from 'node:url';
  *
  * Shared by the checks that hold a second source of truth against the app:
  * the admin UI call sites (`frontend-path-coverage.test.ts`), the route
- * catalog in `docs/API.md` (`docs-api-catalog.test.ts`) and the in-app API
- * reference the admin manual ships
- * (`manual-shortcuts-api-routes.test.ts`).
+ * catalog in `docs/API.md` (`docs-api-catalog.test.ts`), the in-app API
+ * reference the admin manual ships (`manual-shortcuts-api-routes.test.ts`)
+ * and the `/admin` guard policy (`admin-route-auth-guard.test.ts`).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -113,7 +113,7 @@ export function skipTypeArguments(source: string, index: number): number {
  * as an unterminated string literal and swallows the rest of the block, which
  * silently dropped `POST /admin/hosts/register` from this index.
  */
-function stripComments(source: string): string {
+export function stripComments(source: string): string {
   const out = source.split('');
   let quote: string | null = null;
   let i = 0;
