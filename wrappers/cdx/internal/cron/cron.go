@@ -42,8 +42,9 @@ import (
 
 // Indirected for tests.
 var (
-	userCurrent = user.Current
-	userLookup  = user.Lookup
+	userCurrent    = user.Current
+	userLookup     = user.Lookup
+	removeSchedule = Remove
 )
 
 const (
@@ -336,7 +337,7 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 
 	if check.Action == "disable" {
 		logger.Info("cron: auto-update disabled by server; removing cron job")
-		_ = Remove()
+		_ = removeSchedule()
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
 		return res, nil

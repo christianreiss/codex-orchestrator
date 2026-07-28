@@ -1,5 +1,9 @@
 # 2026-07-28
 
+- Made wrapper cron and uninstall tests host-side-effect-free: cdx/clx disable
+  coverage now injects schedule removal instead of rewriting the invoking
+  user's real crontab, and privilege-gate coverage injects UID/sudo probes
+  instead of executing `sudo -n true` or skipping based on the host policy.
 - Added **Memory Atlas**, a graph-first admin workspace for the three deliberate
   memory scopes: host-local scratch, project-scoped facts, and fleet-wide shared
   documents. The full-body-free graph exposes explicit scope, ownership, project,

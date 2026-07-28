@@ -179,6 +179,13 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 func TestTickDisableRemovesCron(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
 	t.Setenv("PATH", "")
+	previousRemoveSchedule := removeSchedule
+	removeCalls := 0
+	removeSchedule = func() error {
+		removeCalls++
+		return nil
+	}
+	t.Cleanup(func() { removeSchedule = previousRemoveSchedule })
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, r *http.Request) {
@@ -195,17 +202,16 @@ func TestTickDisableRemovesCron(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	// Tick will try to call Remove() which invokes the `crontab` binary; that
-	// may or may not be present in CI. Either outcome is fine for this test:
-	// the important assertion is that Tick returns nil and doesn't attempt
-	// the codex install / report path.
 	cfg := minimalCfg(srv.URL)
 	res, err := Tick(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Tick disable: %v", err)
 	}
-	if res.WrapperAction != "disable" {
-		t.Errorf("expected WrapperAction=disable; got %+v", res)
+	if res.WrapperAction != "disable" || res.CodexAction != "disable" {
+		t.Errorf("expected disabled actions; got %+v", res)
+	}
+	if removeCalls != 1 {
+		t.Errorf("remove calls = %d, want 1", removeCalls)
 	}
 }
 

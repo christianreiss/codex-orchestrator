@@ -230,6 +230,44 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	}
 }
 
+func TestTickDisableRemovesCron(t *testing.T) {
+	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
+	t.Setenv("PATH", "")
+	previousRemoveSchedule := removeSchedule
+	removeCalls := 0
+	removeSchedule = func() error {
+		removeCalls++
+		return nil
+	}
+	t.Cleanup(func() { removeSchedule = previousRemoveSchedule })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"action": "disable",
+			"wrapper": map[string]any{
+				"action": "no_update",
+			},
+		})
+	})
+	mux.HandleFunc("/cron/report", func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("report should not be called when disabled")
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := Tick(context.Background(), minimalCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("Tick disable: %v", err)
+	}
+	if res.WrapperAction != "disable" || res.CodexAction != "disable" {
+		t.Errorf("expected disabled actions; got %+v", res)
+	}
+	if removeCalls != 1 {
+		t.Errorf("remove calls = %d, want 1", removeCalls)
+	}
+}
+
 func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 	stubRealign(t)
 	t.Setenv("CLAUDE_WRAPPER_RESTARTED", "1")

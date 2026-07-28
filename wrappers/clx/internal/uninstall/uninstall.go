@@ -42,6 +42,12 @@ var collectionDirs = map[string]string{"agents": "agents", "commands": "commands
 
 const probeTimeout = 5 * time.Second
 
+// Indirected so privilege-gate tests never probe the host's real sudo policy.
+var (
+	effectiveUID = os.Geteuid
+	sudoProbe    = sudoWorksNonInteractively
+)
+
 // removeFleetCollections deletes only the collection files the fleet wrote, per
 // the manifests under ~/.clx/state/collections/. Must run BEFORE ~/.clx is
 // removed (that drops the manifests). User-authored files are never touched.
@@ -257,10 +263,10 @@ func ensureCanDestructivelyTouchOtherUsers(ctx context.Context, stderr io.Writer
 }
 
 func requireRootOrSudo(ctx context.Context, stderr io.Writer, reason string) error {
-	if os.Geteuid() == 0 {
+	if effectiveUID() == 0 {
 		return nil
 	}
-	if sudoWorksNonInteractively(ctx) {
+	if sudoProbe(ctx) {
 		return nil
 	}
 	fmt.Fprintf(stderr,

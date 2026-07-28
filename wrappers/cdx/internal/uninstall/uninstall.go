@@ -39,6 +39,12 @@ import (
 // stalled npm registry lookup can't wedge cdx --uninstall indefinitely.
 const probeTimeout = 5 * time.Second
 
+// Indirected so privilege-gate tests never probe the host's real sudo policy.
+var (
+	effectiveUID = os.Geteuid
+	sudoProbe    = sudoWorksNonInteractively
+)
+
 // hostUsersResponse models POST /host/users. The envelope plugin spreads the
 // `{users}` payload to both the root and a nested `data` block, so accept
 // either shape for forward/back compatibility with the bash wrapper.
@@ -234,10 +240,10 @@ func ensureCanDestructivelyTouchOtherUsers(ctx context.Context, stderr io.Writer
 // requireRootOrSudo refuses the uninstall unless the current process is root
 // or has passwordless sudo, printing reason as the justification.
 func requireRootOrSudo(ctx context.Context, stderr io.Writer, reason string) error {
-	if os.Geteuid() == 0 {
+	if effectiveUID() == 0 {
 		return nil
 	}
-	if sudoWorksNonInteractively(ctx) {
+	if sudoProbe(ctx) {
 		return nil
 	}
 	fmt.Fprintf(stderr,

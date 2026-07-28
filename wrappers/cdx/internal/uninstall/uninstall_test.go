@@ -155,26 +155,61 @@ func TestRequiredAuthStateTargetsIncludeCanonicalProvenance(t *testing.T) {
 }
 
 func TestEnsureCanDestructivelyTouchOtherUsersRefusesWhenNonRootAndNoSudo(t *testing.T) {
-	// Skip when running as root (CI containers): the refusal path is what
-	// we're verifying, but root would short-circuit it.
-	if isRoot() {
-		t.Skip("test relies on non-root euid")
-	}
-	// We can't reliably guarantee sudo is unavailable in every CI; if the
-	// test runner has passwordless sudo, the refusal won't fire.
-	if sudoWorksNonInteractively(context.Background()) {
-		t.Skip("passwordless sudo available — refusal path skipped")
-	}
+	probeCalls := stubPrivilegeGate(t, 1000, false)
 	var buf bytes.Buffer
 	err := ensureCanDestructivelyTouchOtherUsers(context.Background(), &buf, []string{"bob"})
 	if err == nil {
 		t.Fatal("expected refusal error, got nil")
 	}
-	if buf.Len() == 0 {
-		t.Errorf("expected message on stderr, got empty")
+	if !strings.Contains(buf.String(), "cdx --uninstall refused") || !strings.Contains(buf.String(), "bob") {
+		t.Errorf("unexpected stderr: %q", buf.String())
+	}
+	if *probeCalls != 1 {
+		t.Errorf("sudo probe calls = %d, want 1", *probeCalls)
 	}
 }
 
-func isRoot() bool {
-	return os.Geteuid() == 0
+func TestRequireRootOrSudoAllowsPasswordlessSudo(t *testing.T) {
+	probeCalls := stubPrivilegeGate(t, 1000, true)
+	var buf bytes.Buffer
+	if err := requireRootOrSudo(context.Background(), &buf, "test reason"); err != nil {
+		t.Fatalf("requireRootOrSudo: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("unexpected stderr: %q", buf.String())
+	}
+	if *probeCalls != 1 {
+		t.Errorf("sudo probe calls = %d, want 1", *probeCalls)
+	}
+}
+
+func TestRequireRootOrSudoAllowsRootWithoutSudoProbe(t *testing.T) {
+	probeCalls := stubPrivilegeGate(t, 0, false)
+	var buf bytes.Buffer
+	if err := requireRootOrSudo(context.Background(), &buf, "test reason"); err != nil {
+		t.Fatalf("requireRootOrSudo: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("unexpected stderr: %q", buf.String())
+	}
+	if *probeCalls != 0 {
+		t.Errorf("sudo probe calls = %d, want 0", *probeCalls)
+	}
+}
+
+func stubPrivilegeGate(t *testing.T, uid int, sudoAvailable bool) *int {
+	t.Helper()
+	previousEffectiveUID := effectiveUID
+	previousSudoProbe := sudoProbe
+	probeCalls := 0
+	effectiveUID = func() int { return uid }
+	sudoProbe = func(context.Context) bool {
+		probeCalls++
+		return sudoAvailable
+	}
+	t.Cleanup(func() {
+		effectiveUID = previousEffectiveUID
+		sudoProbe = previousSudoProbe
+	})
+	return &probeCalls
 }

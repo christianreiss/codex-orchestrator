@@ -233,9 +233,12 @@ func stripUserCronManaged() error {
 	return writeCrontab(body)
 }
 
-// realignSchedule is indirected so tests exercising Tick never touch the
+// Schedule mutations are indirected so tests exercising Tick never touch the
 // developer's real crontab.
-var realignSchedule = realignManagedSchedule
+var (
+	realignSchedule = realignManagedSchedule
+	removeSchedule  = Remove
+)
 
 // realignManagedSchedule rewrites the schedule fields of an already-installed
 // managed entry when they no longer match the deterministic slot, leaving the
@@ -428,7 +431,7 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 
 	if check.Action == "disable" {
 		logger.Info("cron: auto-update disabled by server; removing cron job")
-		if err := Remove(); err != nil {
+		if err := removeSchedule(); err != nil {
 			logger.Warn("cron: failed to fully remove cron job", "err", err)
 		}
 		res.WrapperAction = "disable"
