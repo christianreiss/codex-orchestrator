@@ -35,6 +35,7 @@
   - `POST /admin/auth/logout` — clears the current session and expires the cookie.
   - `POST /admin/auth/passkey/login/options` — `{username}`; returns WebAuthn request options for that user’s registered passkeys only.
   - `POST /admin/auth/passkey/login` — completes passkey login and issues the same admin session cookie as password login.
+  - `POST /admin/auth/password/change` — `{current_password, new_password, confirm_password}`; requires a session, verifies the caller's current password, applies password policy, then expires the caller's other sessions and any outstanding reset tokens.
   - `POST /admin/auth/password/request` — `{username}` or `{email}`; always returns the same success shape and sends a one-hour, single-use reset link when an active account matches.
   - `POST /admin/auth/password/reset` — `{token, new_password, confirm_password}`; consumes the token, applies password policy, expires existing sessions, and invalidates outstanding reset tokens.
 
