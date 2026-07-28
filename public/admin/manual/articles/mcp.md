@@ -1,7 +1,7 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-07-27
+verified: 2026-07-28
 sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
 ---
 
@@ -37,6 +37,9 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 
 **Memory** (both capabilities)
 - `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete` — host-scoped (see *Memory tools* below)
+
+**Shared memory** (both capabilities — only when the shared-memory service is wired)
+- `shared_memory_list`, `shared_memory_search`, `shared_memory_read`, `shared_memory_write`, `shared_memory_append`, `shared_memory_delete` — fleet-wide, neither host- nor project-scoped; registered only when `sharedMemories` is passed to `McpToolsRegistry` (the API wires it, a registry built for a narrower surface may not) — see *Shared memory tools* below
 
 **Filesystem (operator only)**
 - `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files` — only registered when `MCP_FS_ROOT` points at an existing directory; every path argument is resolved beneath that root after symlink follow.
@@ -226,7 +229,7 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 ## Source references
 
 - api/src/services/mcp-server.ts (JSON-RPC dispatch, capability constants)
-- api/src/services/mcp-tools.ts (tool registry, capability filter, full project_*/memory_*/skill_*/fs_* tool list)
+- api/src/services/mcp-tools.ts (tool registry, capability filter, full project_*/memory_*/shared_memory_*/skill_*/fs_* tool list)
 - api/src/services/mcp-resources.ts (URI-scheme routing, resource_* CRUD restricted to the memory:// and project://{slug}/memory/{key} schemes)
 - api/src/services/mcp-fs.ts (fs_* tools, root sandboxing)
 - api/src/services/mcp-session.ts (mcp_session_tokens)
