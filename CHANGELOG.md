@@ -1,3 +1,30 @@
+# 2026-07-28
+
+- Added **Memory Atlas**, a graph-first admin workspace for the three deliberate
+  memory scopes: host-local scratch, project-scoped facts, and fleet-wide shared
+  documents. The full-body-free graph exposes explicit scope, ownership, project,
+  tag, and provenance relationships with search, facets, cursor pagination, and
+  a synchronized accessible list view; selecting a memory opens its full detail
+  and operational activity in an inspector. The canvas renders the newest 150
+  memories from each loaded server page and declines optional relationship
+  layers above a safe density threshold; the list keeps the complete page.
+  High-cardinality host, project, and tag facets are capped to their top 200
+  values with explicit truncation metadata and an in-product disclosure.
+- Added the unified admin lifecycle API under `/admin/memories`: graph, detail,
+  create, optimistic-concurrency update/delete, shared-document append, and
+  retention-bound audit endpoints. Detail responses carry a full-state ETag;
+  stale update/delete requests return `409 memory_conflict` without discarding
+  the caller's draft. Shared append keeps the existing serialized multi-writer
+  behavior. Existing host/shared admin routes remain unchanged as deprecated
+  compatibility surfaces rather than adopting the unified ETag contract.
+- Memory identities and their host/project ownership are immutable after
+  creation. Reads are available to every authenticated admin role, while only
+  owner/admin accounts may create, update, append, or delete. Admin deletes are
+  hard and permanent in every scope: there is no trash, restore, or historical
+  body rollback. The Activity tab normalizes existing body-free logs, project
+  events, and shared revision metadata; it is operational, retention-bound
+  history rather than an immutable compliance ledger.
+
 # 2026-07-27
 
 - **cdx 0.6.55**: `cdx --execute` no longer forces `--sandbox read-only -a untrusted`.

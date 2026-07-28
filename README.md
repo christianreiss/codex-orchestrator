@@ -206,13 +206,24 @@ For the full API surface, MCP details, and architecture deep-dive, check the doc
 
 ## Memory management
 
-Every host gets its own scoped memory store, exposed through MCP tools so agents can persist and recall knowledge across sessions.
+Memory is split into three intentional scopes so scratch notes, workstream facts,
+and fleet knowledge do not blur together:
 
-- **Store, search, retrieve** — agents use `memory_store`, `memory_search`, and `memory_retrieve` MCP tools. Content is full-text indexed and taggable.
-- **Scoped by host** — each host's memories are isolated. Admins can search across all hosts from the dashboard.
-- **Auto-summarized** — when a memory changes, the runner generates a one-line summary so agents can scan what's available without reading every entry.
-- **Injected into AGENTS.md** — recent memories (up to 50) are dynamically injected into each host's synced AGENTS.md, giving agents instant context on what they've previously stored.
-- **Admin dashboard** — browse, search, and delete memories at `/admin/mcp/memories`.
+- **Host** — host-local scratch through `memory_*` / `memory://`; isolated per
+  host and summarized into that host's managed AGENTS.md inventory.
+- **Project** — short durable facts for one workstream through
+  `project_memory_*` / `project://{slug}/memory/{key}`; discoverable by every
+  host participating in that project.
+- **Shared** — fleet-wide reference documents through `shared_memory_*` /
+  `shared://{slug}`; chunked, full-text indexed, and safe for concurrent append.
+- **Memory Atlas** — `/admin/authoring/memories` visualizes all three stores as
+  an explicit relationship graph or accessible list, with search and scope,
+  host, project, tag, and engine filters. Its inspector supports create, read,
+  edit, shared append, permanent delete, and retention-bound operational
+  activity. Updates and deletes use ETags so stale edits fail with a conflict
+  instead of silently overwriting newer state; only owner/admin accounts can
+  mutate memories. The canvas stays bounded to the newest 150 memories from a
+  loaded page while the synchronized list retains the complete page.
 
 ## Skill management
 

@@ -1,0 +1,1 @@
+import{o as e,s as t}from"./Dqbbk3fc.js";import"./xihTtKlq.js";import{t as n}from"./BiY6hucH.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`m18 15-6-6-6 6`}]];n(r,t({name:`chevron-up`},()=>a,{get iconNode(){return o}}))}export{r as t};

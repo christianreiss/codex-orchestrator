@@ -32,6 +32,14 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - Authoring separates shared fleet content (Skills, Agents, Memories) from
   Claude-native content (Subagents, Commands, Output styles). Settings exposes
   Fleet configuration and Users & access as sibling views.
+- Authoring → Memories opens **Memory Atlas** at
+  `/admin/authoring/memories`. The default graph and equivalent paginated list
+  cover host, project, and shared memory in one filterable workspace; selecting
+  a memory opens its Overview, Content, Metadata, and Activity inspector. The
+  canvas shows the newest 150 memories from the loaded page and refuses optional
+  relationship layers above its density guard; the list retains the complete
+  loaded page. Host, project, and tag filter choices are capped to the top 200
+  values and disclose when that cap is active.
 - Desktop uses grouped sidebar navigation. Mobile keeps Overview, Hosts,
   Projects, and Authoring in the persistent bottom bar; its Menu sheet contains
   all remaining workspace, help, appearance, password, passkey, and sign-out
@@ -48,6 +56,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `trusted_user`: `hosts.activate`.
   - `user`: none.
 - Capability checks are only active when login enforcement is active.
+- Every authenticated role may read Memory Atlas. Create, update, shared
+  append, and delete are restricted to `owner` and the legacy `admin` role;
+  the API returns matching per-record capabilities for the UI.
 
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.
@@ -65,6 +76,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
 - Besides push events, the socket now supports targeted request/response hydration for slow host-detail metadata. Current request: `host-detail-support`, returning compact `runner` plus full AGENTS admin metadata for the active host page.
 - Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
+- Host, project, and shared memory mutations invalidate the shared `memories`
+  query root, so both Atlas views and an open inspector refresh together.
 - Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
 
 ## Page-by-Page (Code-Backed)
@@ -144,7 +157,10 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Projects: `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/feedback`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes, and `GET/POST /admin/projects/state`.
   - AGENTS docs: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
   - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
-  - MCP memories: `GET /admin/mcp/memories` (`limit` clamped `1..200`), `DELETE /admin/mcp/memories/{id}`.
+  - Memory Atlas graph: `GET /admin/memories/graph` with scope/search/tag/host/project/engine filters plus filter-bound opaque cursor pagination (500 records by default, 2,000 maximum). It omits full bodies and returns stable nodes, explicit relationship edges, facets, totals, and truncation metadata.
+  - Unified memory lifecycle: `GET /admin/memories/{scope}/{recordId}`, `POST /admin/memories/{scope}`, `PATCH|DELETE /admin/memories/{scope}/{recordId}`, and `POST /admin/memories/shared/{recordId}/append`, where `scope` is `host`, `project`, or `shared`. Detail returns the full-state ETag in JSON and the HTTP `ETag` header; PATCH and DELETE accept `expected_etag` (or `If-Match`) and return `409 memory_conflict` with `current_etag` when stale. Keys/slugs and host/project ownership cannot be changed after creation.
+  - Memory activity: `GET /admin/memories/audit?node_id=...` normalizes body-free admin logs, project events, and shared revision metadata. It is retention-bound operational history, not immutable compliance history and not a restore source.
+  - Deprecated compatibility reads/deletes remain unchanged under `/admin/mcp/memories` and `/admin/shared-memories`; they do not inherit the unified ETag/role/response contract, and new UI code uses `/admin/memories/*`.
 - **Toasts**:
   - Manual toast endpoint: `POST /admin/toasts` (admin-auth protected, no extra capability gate).
   - Automatic auth toasts are emitted from log actions:
@@ -161,6 +177,10 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.
 - **Force runner validation now**: `POST /admin/runner/run` for Codex, `POST /admin/runner/run-claude` for Claude.
 - **Freeze/unfreeze fleet codex version**: `POST /admin/codex-version` with `selection` (`latest` or pinned semver).
+- **Manage memory lifecycle**: Authoring → Memories → choose graph or list,
+  create in the intended scope, then inspect/edit/append/delete from the detail
+  panel. Shared append is the concurrency-safe operation for adding content;
+  PATCH/DELETE conflicts require reloading the latest ETag before retrying.
 
 ## Notes & Gotchas
 - Installer tokens are single-use and expire (`INSTALL_TOKEN_TTL_SECONDS`, default `1800`, fallback to `1800` if invalid).
@@ -175,5 +195,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - A live `auth.insecure.pending` event now rings a short synthesized bell in the admin dashboard when a genuinely new insecure approval request arrives. Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
 - The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `/admin/projects/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row, doubles as the operator-facing CoCo toolkit/help document, and now tells operators to keep shared CoCo handoffs in Projects rather than host-scoped MCP memories.
 - Project creation remains API-driven for now; the admin UI intentionally focuses on browsing, opening, and deleting existing projects.
+- Memory Atlas delete is a hard, permanent delete in every scope. There is no
+  trash, restore, revision-body diff, or rollback action; the confirmation
+  dialog is the final safety boundary.
 - Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
 - Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).

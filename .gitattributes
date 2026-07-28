@@ -1,0 +1,2 @@
+# Bundled dependencies can contain intentional whitespace inside multiline JS strings.
+public/admin/_app/immutable/** -whitespace

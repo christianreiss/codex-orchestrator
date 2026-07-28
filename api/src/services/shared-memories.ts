@@ -118,7 +118,10 @@ export function sharedMemoryUri(slug: string, ordinal: number | null = null): st
 }
 
 export class SharedMemoriesService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly options: { publishEvents?: boolean } = {},
+  ) {}
 
   // ──────────────────────────────────────────────────────────────────────
   // Reads
@@ -487,6 +490,34 @@ export class SharedMemoriesService {
     });
   }
 
+  /**
+   * Transaction seam for callers that already hold `shared_memories.slug`'s
+   * row/gap lock. Keeping the merge here means admin lifecycle writes use the
+   * exact same chunk/revision machinery as MCP append without nesting another
+   * transaction or publishing before the outer transaction commits.
+   */
+  async appendAlreadyLocked(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
+    const errors: Record<string, string[]> = {};
+    const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
+    const addition = this.normalizeContent(payload['content'] ?? payload['text'], errors);
+    const tags = this.normalizeTags(payload['tags'], errors);
+    const metadata = this.normalizeMetadata(payload['metadata'], errors);
+    const headingRaw = payload['heading'];
+    const heading = typeof headingRaw === 'string' && headingRaw.trim() !== '' ? headingRaw.trim() : null;
+    const separatorRaw = payload['separator'];
+    const separator = typeof separatorRaw === 'string' ? separatorRaw : '\n\n';
+    if (Object.keys(errors).length || slug === null || addition === null) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
+    }
+    return this.appendLocked({ slug, addition, heading, separator, tags, metadata, payload, host, engine });
+  }
+
   /** The merge itself, already serialized by `appendOnce`'s row lock. */
   private async appendLocked(input: {
     slug: string;
@@ -565,8 +596,8 @@ export class SharedMemoriesService {
     await this.db.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, doc.id));
     await this.recordRevision(doc.id, revision, 'delete', doc.contentSha256, 0, -doc.contentLength, host, engine);
     await this.recordLog(host, 'shared_memory.delete', { slug, status: 'deleted' });
-    wsPublisher.publish('shared_memory.deleted', { slug, id: doc.id });
-    wsPublisher.publish('shared_memory.changed', { slug, id: doc.id });
+    this.publish('shared_memory.deleted', { slug, id: doc.id });
+    this.publish('shared_memory.changed', { slug, id: doc.id });
     return { status: 'deleted', slug };
   }
 
@@ -631,8 +662,8 @@ export class SharedMemoriesService {
     await this.db.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, row.id));
     await this.db.delete(sharedMemories).where(eq(sharedMemories.id, row.id));
     await this.recordLog(null, 'shared_memory.admin.delete', { slug: normalized, id: row.id });
-    wsPublisher.publish('shared_memory.deleted', { slug: normalized, id: row.id });
-    wsPublisher.publish('shared_memory.changed', { slug: normalized, id: row.id });
+    this.publish('shared_memory.deleted', { slug: normalized, id: row.id });
+    this.publish('shared_memory.changed', { slug: normalized, id: row.id });
     return { deleted: normalized };
   }
 
@@ -781,7 +812,7 @@ export class SharedMemoriesService {
       chunks: chunks.length,
       tags: tags.length,
     });
-    wsPublisher.publish(status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', { slug, id: memoryId });
+    this.publish(status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', { slug, id: memoryId });
 
     const saved = await this.findBySlug(slug);
     return {
@@ -1015,6 +1046,11 @@ export class SharedMemoriesService {
       createdAt: nowIso(),
       engine: null,
     });
+  }
+
+  private publish(type: string, payload: Record<string, unknown>): void {
+    if (this.options.publishEvents === false) return;
+    wsPublisher.publish(type, payload);
   }
 
   // ── validation ────────────────────────────────────────────────────────

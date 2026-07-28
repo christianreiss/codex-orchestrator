@@ -69,8 +69,8 @@ export class NotFoundError extends ApiError {
 }
 
 export class ConflictError extends ApiError {
-  constructor(message = 'Conflict', code = 'conflict') {
-    super(message, { status: 409, code, type: 'conflict_error' });
+  constructor(message = 'Conflict', code = 'conflict', extra?: Record<string, unknown>) {
+    super(message, { status: 409, code, type: 'conflict_error', extra });
   }
 }
 

@@ -52,10 +52,17 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "skill.deleted": [["skills"], ["authoring", "skills"]],
   "memory.changed": [["memories"], ["authoring", "memories"]],
   "memory.created": [["memories"], ["authoring", "memories"]],
+  "memory.updated": [["memories"], ["authoring", "memories"]],
+  "memory.appended": [["memories"], ["authoring", "memories"]],
   "memory.deleted": [["memories"], ["authoring", "memories"]],
-  "shared_memory.changed": [["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.created": [["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.deleted": [["shared-memories"], ["authoring", "shared-memories"]],
+  "project.memory.created": [["memories"], ["projects"]],
+  "project.memory.updated": [["memories"], ["projects"]],
+  "project.memory.deleted": [["memories"], ["projects"]],
+  "shared_memory.changed": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.created": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.updated": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.appended": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.deleted": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
 
   // Claude artifacts (subagents / slash-commands / output-styles)
   "claude_artifact.stored": [["subagents"], ["commands"], ["output-styles"]],
@@ -229,4 +236,3 @@ export function wireWsToQueryClient(
     }
   });
 }
-

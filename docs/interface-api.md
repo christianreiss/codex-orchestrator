@@ -279,11 +279,72 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 - `GET /admin/config` — fetch canonical `config.toml` metadata + `content` + `settings` (the structured builder payload). Returns `status` (`missing` when unset), `sha256`, `updated_at`, `size_bytes`. Normalized settings include root `personality` (`friendly|pragmatic|none`, default `friendly`), default-on feature flags `features.apps`, `features.fast_mode`, `features.memories`, and `features.multi_agent` when unset, and builder-default disabled flags `features.guardian_approval`, `features.js_repl`, `features.tui_app_server`, and `features.prevent_idle_sleep` unless explicitly enabled.
 - `POST /admin/config/render` — render a `settings` payload into TOML without persisting it. Returns `content`, `sha256`, `size_bytes`, and the normalized `settings` (including root `personality`, default `friendly`, default-on `features.apps` / `features.fast_mode` / `features.memories` / `features.multi_agent` when unset, and builder-default disabled `features.guardian_approval` / `features.js_repl` / `features.tui_app_server` / `features.prevent_idle_sleep` unless explicitly enabled).
 - `POST /admin/config/store` — persist canonical `config.toml` built from the provided `settings` payload. Optional `sha256` acts like an optimistic concurrency check: when a config already exists, the provided sha must match the currently saved config sha (reload before saving when it doesn’t). Returns `status` (`created` | `updated` | `unchanged`), `sha256`, `updated_at`, `size_bytes`, `content`, and normalized `settings` (including root `personality`, default `friendly`, default-on `features.apps` / `features.fast_mode` / `features.memories` / `features.multi_agent` when unset, and builder-default disabled `features.guardian_approval` / `features.js_repl` / `features.tui_app_server` / `features.prevent_idle_sleep` unless explicitly enabled).
-- `GET /admin/mcp/memories` — browse MCP memories. Query: `q`/`query` (optional text), `host_id` (optional), `tags` (comma/space separated), `limit` (1–200, default 50). Returns `matches` with host, id (memory key), `record_id` (numeric database id for admin deletes), content, metadata, tags, nullable `summary`, timestamps, and optional search `score`.
-- `DELETE /admin/mcp/memories/{id}` — delete a memory by numeric id (as returned via `record_id`). Soft-deletes the entry and logs `memory.admin.delete`.
-- `GET /admin/shared-memories` — browse the fleet-wide shared memory corpus. Query: `q`/`query` (optional; when present the response switches to a relevance search with `view: "search"` and `mode: "documents"` matches, otherwise a recency listing with `view: "list"`), `tags` (comma/space separated), `prefix` (slug prefix), `limit` (1–200, default 50), `offset`. There is deliberately no `host_id` filter — these rows are not host-scoped.
-- `GET /admin/shared-memories/{slug}` — full document: `memory` (metadata plus inline `content`) and up to 20 `revisions` (`revision`, `op`, `sha256`, `content_length`, `delta_length`, `source_host_id`, `source_engine`, `note`, `created_at`). 404 `shared_memory_not_found` when absent or soft-deleted.
-- `DELETE /admin/shared-memories/{slug}` — hard-deletes the document, its chunks and its revision trail, freeing the slug for reuse (the host-facing delete is a soft delete that keeps the slug reserved). Logs `shared_memory.admin.delete`.
+- Unified Memory Atlas uses three scopes: `host` for per-host scratch,
+  `project` for workstream facts, and `shared` for fleet-wide documents. All
+  authenticated admin roles can read these endpoints. Mutations require an
+  authenticated `owner` or legacy `admin` account.
+- `GET /admin/memories/graph` — full-body-free graph/list feed. Query accepts
+  comma-separated `scopes` (`host,project,shared`), `q`, comma-separated `tags`,
+  `host_id`, `project_slug`, `engine`, `limit`, and opaque `cursor`. Returns
+  `{nodes, edges, facets, facets_truncated, totals, count, next_cursor,
+  truncated}`. Pages default
+  to 500 records and clamp `limit` to 2,000; cursors are bound to the filter set
+  that produced them and are rejected when reused with different filters.
+  Host, project, and tag facet arrays expose their top 200 values by count;
+  `facets_truncated` flags each capped dimension. Scope and engine facets are
+  inherently bounded.
+  Memory nodes use canonical `node_id` values (`memory:{scope}:{record_id}`),
+  expose the immutable key/slug separately from numeric `record_id`, and never
+  include full content or metadata. Relationships are explicit only:
+  `in_scope`, `owned_by`, `in_project`, `tagged_with`, `written_by`, and
+  `from_engine`; there are no inferred content-similarity edges.
+- `GET /admin/memories/{scope}/{recordId}` — fetch one normalized memory with
+  body, metadata, tags, scope ownership/provenance, timestamps, capabilities,
+  and a full-state hex `etag`. The same value is sent as a quoted HTTP `ETag`
+  header. A missing row returns 404 `memory_not_found`.
+- `POST /admin/memories/{scope}` — create one memory. Every scope requires
+  `id` (immutable key/slug) and `content`; `key` is accepted as an identity
+  alias, as is `slug` for shared documents. Host scope additionally requires
+  `host_id` and accepts `metadata`, `tags`, `summary`, and `engine`; project
+  scope requires `project_slug` and accepts `metadata` and `tags`; shared scope
+  accepts `title`, `summary`, `metadata`, `tags`, and `engine`. Duplicate
+  identities return `409 memory_conflict`; validation failures return 422.
+  Success returns 201 `{status:"created", memory}` plus the new HTTP `ETag`.
+- `PATCH /admin/memories/{scope}/{recordId}` — update mutable body/metadata
+  fields. Supply `expected_etag` in the body or an `If-Match` header; the
+  key/slug and host/project ownership are immutable. The write locks and
+  re-checks current state, then returns `{status:"updated"|"unchanged", memory}`
+  plus its HTTP `ETag`. A stale ETag returns `409 memory_conflict` with
+  `current_etag` and `node_id` and leaves the stored row unchanged.
+- `DELETE /admin/memories/{scope}/{recordId}` — permanent delete. Body must
+  supply `expected_etag` (the query string and `If-Match` header are accepted
+  alternatives); a stale value returns `409 memory_conflict`. Success returns
+  `{status:"deleted", node_id, scope, record_id}`. Every admin-scope delete is
+  hard, including host and project memories. There is no trash, restore, or
+  body rollback.
+- `POST /admin/memories/shared/{recordId}/append` — append to a shared document
+  through the same row-lock/chunk/revision path as `shared_memory_append`, so
+  concurrent additions are serialized rather than lost. The strict body is
+  `{content:string}`; other keys fail validation. Returns the updated normalized
+  memory with `status:"appended"` and the new HTTP `ETag`.
+- `GET /admin/memories/audit` — normalized operational activity for required
+  `node_id`; optional `limit` (default 50, maximum 200) and opaque cursor page
+  the response. It returns
+  `{status:"ok", node_id, activities, next_cursor, truncated, retention}` and
+  combines body-free admin logs, project events, and shared revision metadata.
+  This feed follows source-log retention, is not immutable compliance history,
+  and cannot restore prior bodies.
+- Deprecated host-memory compatibility endpoints remain unchanged:
+  `GET /admin/mcp/memories` accepts `q`/`query`, `host_id`, `tags`, and `limit`
+  (1–200, default 50) and returns body-bearing `matches`; numeric
+  `DELETE /admin/mcp/memories/{id}` soft-deletes that row. They do not
+  gain the unified ETag, role, or response contract.
+- Deprecated shared-memory compatibility endpoints also remain unchanged:
+  `GET /admin/shared-memories` accepts `q`/`query`, `tags`, `prefix`, `limit`,
+  and `offset`; `GET /admin/shared-memories/{slug}` returns full content plus up
+  to 20 revision metadata rows; and `DELETE /admin/shared-memories/{slug}`
+  permanently deletes the document, chunks, and revision trail. New clients
+  should use `/admin/memories/*`.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. When the Projects module is enabled, the managed `coco` skill appears here with `managed:true` and carries project-only CoCo guidance.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

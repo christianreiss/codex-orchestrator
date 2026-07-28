@@ -274,6 +274,26 @@ describe('SharedMemoriesService.append', () => {
     expect((db.tables.get(sharedMemories) ?? [])[0]!['tags']).toEqual(['ops', 'incident']);
   });
 
+  it('preserves labels and metadata through the admin already-locked content-only seam', async () => {
+    const db = makeDb();
+    await service(db).write(
+      { slug: 'log', content: 'body', title: 'Incident log', summary: 'timeline', tags: ['ops'], metadata: { owner: 'sre' } },
+      host,
+    );
+    await new SharedMemoriesService(db as never, { publishEvents: false }).appendAlreadyLocked(
+      { slug: 'log', content: 'more' },
+      null,
+      'codex',
+    );
+
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['content']).toBe('body\n\nmore');
+    expect(row['title']).toBe('Incident log');
+    expect(row['summary']).toBe('timeline');
+    expect(row['tags']).toEqual(['ops']);
+    expect(row['metadata']).toEqual({ owner: 'sre' });
+  });
+
   it('preserves the existing title when the appender does not supply one', async () => {
     const db = makeDb();
     await service(db).write({ slug: 'log', content: 'body', title: 'Incident log' }, host);
