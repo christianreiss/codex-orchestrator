@@ -44,11 +44,12 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).
 - `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
-- Additional feature flags may be passed through from the UI `extraFeatures` textarea, but only currently supported Codex feature flags are kept in normalized/rendered output.
+- Additional feature flags may be passed through from the UI `extraFeatures` textarea. The normalizer is a denylist, not an allowlist: every key that is not dropped below survives into normalized `features` and is rendered under `[features]`, so a typo reaches the host verbatim.
+- Feature values are coerced to booleans (`true`/`1`/`"yes"`/`"on"` and their negatives). A value that is not boolean-ish normalizes to `null` and that key is then omitted from the rendered `[features]` block.
 
 Legacy compatibility:
-- `features.web_search_request` and `features.web_search_cached` are normalized into root `web_search`.
-- Removed feature keys (`steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`) are accepted for ingest compatibility but dropped from normalized/rendered output.
+- Dropped feature keys: `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`.
+- Those keys are accepted for ingest compatibility but removed from normalized/rendered output — they are discarded, not migrated onto any other field. `features.web_search` is dropped the same way; root `web_search` is the only source for the web search toggle.
 
 ## Security toggles
 
@@ -58,14 +59,20 @@ The builder also supports a small set of `cdx` wrapper toggles under a `[securit
 
 ## Approval policy values
 
-`approval_policy` should use `untrusted`, `on-request`, or `never`.
+`approval_policy` is rendered at the root of `config.toml`.
 
-- Legacy `on-failure` inputs are accepted for backward compatibility but normalized to `on-request` on render/store.
-- The admin UI intentionally omits `on-failure` because upstream Codex marks it deprecated.
+- Accepted values: `untrusted`, `on-request`, `on-failure`, `never`.
+- Input is lowercased and otherwise kept verbatim — `on-failure` is stored and rendered as `on-failure`, not rewritten to `on-request`. Upstream Codex marks it deprecated, so prefer `on-request` for new configs.
+- Any other value normalizes to `null` and the `approval_policy` line is omitted from the rendered config, leaving the host on its own default.
 
 ## Web search toggle
 
-`web_search` controls web search tool calls and is rendered at the root of `config.toml` (not under `[features]`): `live`, `cached`, or `disabled`. Legacy configs using `features.web_search_request` or `features.web_search` are normalized to the root field on save.
+`web_search` is a boolean and is rendered at the root of `config.toml` (not under `[features]`).
+
+- Accepted values: `true`, `false`.
+- Boolean-ish inputs are coerced: `1`/`0`, `"true"`/`"false"`, `"yes"`/`"no"`, `"on"`/`"off"`.
+- Anything else — including an absent key and the legacy `live`/`cached`/`disabled` strings — normalizes to `null`, and the root `web_search` line is then omitted from the rendered config.
+- `features.web_search`, `features.web_search_request` and `features.web_search_cached` are dropped on normalize; they do not set the root field. Configs still carrying them must set root `web_search` explicitly.
 
 ## OTEL wiring
 
@@ -119,7 +126,7 @@ The builder can also set:
 
 `personality` is rendered at the root of `config.toml` and controls the default Codex communication style exposed by `/personality`.
 
-- Allowed values: `friendly`, `pragmatic`, `none`.
-- The builder defaults to `friendly`.
+- Accepted values: `friendly`, `pragmatic`, `none`.
+- Input is lowercased; anything outside that set (including a blank or missing value) falls back to `friendly`, so the root key is always rendered.
 - Profiles may optionally override `personality`; leaving the profile field blank inherits the root value.
 - The separate `features.personality` gate remains available through the advanced feature textarea for hosts that need to disable the chooser while keeping a root default in place.
