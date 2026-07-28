@@ -1,0 +1,48 @@
+{
+  "name": "GET /versions — client/wrapper version snapshot",
+  "expectShape": "standard",
+  "request": {
+    "method": "GET",
+    "url": "/versions",
+    "headers": {
+      "authorization": "Bearer sk-contract-fixture"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "status": "ok",
+      "data": {
+        "client_version": "0.42.0",
+        "client_version_override": null,
+        "client_version_enforce_exact": false,
+        "wrapper_version": "1.0.0",
+        "wrapper_sha256": null,
+        "wrapper_url": null,
+        "runner_state": null,
+        "api_disabled": false,
+        "auto_update_enabled": true,
+        "cdx_silent": false,
+        "clx_silent": false,
+        "installation_id": "inst-contract",
+        "engine": "codex"
+      },
+      "client_version": "0.42.0",
+      "client_version_override": null,
+      "client_version_enforce_exact": false,
+      "wrapper_version": "1.0.0",
+      "wrapper_sha256": null,
+      "wrapper_url": null,
+      "runner_state": null,
+      "api_disabled": false,
+      "auto_update_enabled": true,
+      "cdx_silent": false,
+      "clx_silent": false,
+      "installation_id": "inst-contract",
+      "engine": "codex"
+    }
+  }
+}

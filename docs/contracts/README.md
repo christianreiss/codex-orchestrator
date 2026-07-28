@@ -11,7 +11,7 @@ Current schemas:
 - `sync-bootstrap.schema.json` - `POST /sync/bootstrap` (`api/src/services/host-sync.ts` with `bootstrap=true`), including the guarded candidate-rejection replacement signal
 
 Contract guardrails:
-- `api/test/contract/contract.test.ts` replays recorded fixtures through the running Node server and asserts the response shape stays consistent with the captured baseline.
+- `api/test/contract/contract.test.ts` replays the recorded fixtures under `api/test/contract/fixtures/` — one per schema above — through the host-api app on the db-fake and asserts the response shape stays consistent with the captured baseline.
 - The same suite compiles every published schema with Ajv in strict JSON Schema 2020-12 mode.
 - `api/test/integration/host-api/*` exercises the live host-facing routes (`/auth`, `/sync/status`, `/sync/bootstrap`, `/versions`) on the db-fake, so the checks below run under a plain `npm test` with no database.
 - Every schema is checked against a representative live response body via `assertContract` (`api/test/helpers/contract-schema.ts`):

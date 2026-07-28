@@ -1,4 +1,3 @@
-# This directory is populated by running tests/contract/record.sh against the
-# legacy PHP backend, then committed once before the legacy backend is deleted.
-# Empty in the repo by default; CI uses the meta-test in ../contract.test.ts
-# to detect the empty case and skip cleanly.
+# Fixtures live beside this file, one directory per route group. They are
+# checked in alongside the API change that moves the contract; ../contract.test.ts
+# replays each one against the db-fake host-api app. See ../README.md.

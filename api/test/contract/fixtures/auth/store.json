@@ -1,0 +1,197 @@
+{
+  "name": "POST /auth command=store — accepted candidate becomes canonical",
+  "expectShape": "raw",
+  "request": {
+    "method": "POST",
+    "url": "/auth",
+    "headers": {
+      "authorization": "Bearer sk-contract-fixture",
+      "content-type": "application/json"
+    },
+    "body": {
+      "command": "store",
+      "engine": "codex",
+      "auth": {
+        "last_refresh": "2026-07-20T10:00:00Z",
+        "tokens": {
+          "access_token": "sk-openai-contract-fixture-token",
+          "refresh_token": "refresh-contract"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "status": "updated",
+      "data": {
+        "status": "updated",
+        "auth": {
+          "last_refresh": "2026-07-20T10:00:00Z",
+          "auths": {
+            "api.openai.com": {
+              "token": "sk-openai-contract-fixture-token",
+              "token_type": "bearer"
+            }
+          },
+          "auth_mode": "chatgpt",
+          "tokens": {
+            "access_token": "sk-openai-contract-fixture-token",
+            "refresh_token": "refresh-contract"
+          }
+        },
+        "canonical_last_refresh": "2026-07-20T10:00:00Z",
+        "canonical_digest": "a45f298a5831558cf2789ddc262c6a306e1fe23421d001ed83b08c285bc19a5b",
+        "verification_state": "verified",
+        "pending_payload_id": 2,
+        "runner_applied": false,
+        "canonical_generation": 2,
+        "candidate_result": "accepted",
+        "engine": "codex",
+        "api_calls": 1,
+        "versions": {
+          "client_version": "0.42.0",
+          "client_version_override": null,
+          "client_version_enforce_exact": false,
+          "wrapper_version": "1.0.0",
+          "wrapper_sha256": null,
+          "wrapper_url": null,
+          "runner_state": null,
+          "api_disabled": false,
+          "auto_update_enabled": true,
+          "cdx_silent": false,
+          "clx_silent": false,
+          "installation_id": "inst-contract",
+          "engine": "codex"
+        },
+        "quota_hard_fail": true,
+        "quota_limit_percent": 95,
+        "quota_week_partition": 0,
+        "cdx_silent": false,
+        "host": {
+          "fqdn": "contract.example",
+          "status": "active",
+          "last_refresh": null,
+          "claude_last_refresh": null,
+          "updated_at": "2026-07-28T20:23:52Z",
+          "expires_at": null,
+          "client_version": null,
+          "client_version_override": null,
+          "wrapper_version": null,
+          "api_calls": 0,
+          "allow_roaming_ips": false,
+          "secure": true,
+          "vip": false,
+          "insecure_enabled_until": null,
+          "insecure_grace_until": null,
+          "insecure_window_minutes": null,
+          "browseros_mcp_enabled": false,
+          "lane_preference": null,
+          "model_override": null,
+          "reasoning_effort_override": null,
+          "auto_update_override": false,
+          "last_cron_check": null,
+          "engines": "codex,claude",
+          "engines_list": [
+            "codex",
+            "claude"
+          ],
+          "claude_client_version": null,
+          "claude_client_version_override": null,
+          "claude_wrapper_version": null,
+          "claude_auth_digest": null,
+          "claude_model_override": null,
+          "claude_reasoning_effort_override": null
+        },
+        "chatgpt": {
+          "status": "unavailable",
+          "active_quota_lane": "normal"
+        }
+      },
+      "auth": {
+        "last_refresh": "2026-07-20T10:00:00Z",
+        "auths": {
+          "api.openai.com": {
+            "token": "sk-openai-contract-fixture-token",
+            "token_type": "bearer"
+          }
+        },
+        "auth_mode": "chatgpt",
+        "tokens": {
+          "access_token": "sk-openai-contract-fixture-token",
+          "refresh_token": "refresh-contract"
+        }
+      },
+      "canonical_last_refresh": "2026-07-20T10:00:00Z",
+      "canonical_digest": "a45f298a5831558cf2789ddc262c6a306e1fe23421d001ed83b08c285bc19a5b",
+      "verification_state": "verified",
+      "pending_payload_id": 2,
+      "runner_applied": false,
+      "canonical_generation": 2,
+      "candidate_result": "accepted",
+      "engine": "codex",
+      "api_calls": 1,
+      "versions": {
+        "client_version": "0.42.0",
+        "client_version_override": null,
+        "client_version_enforce_exact": false,
+        "wrapper_version": "1.0.0",
+        "wrapper_sha256": null,
+        "wrapper_url": null,
+        "runner_state": null,
+        "api_disabled": false,
+        "auto_update_enabled": true,
+        "cdx_silent": false,
+        "clx_silent": false,
+        "installation_id": "inst-contract",
+        "engine": "codex"
+      },
+      "quota_hard_fail": true,
+      "quota_limit_percent": 95,
+      "quota_week_partition": 0,
+      "cdx_silent": false,
+      "host": {
+        "fqdn": "contract.example",
+        "status": "active",
+        "last_refresh": null,
+        "claude_last_refresh": null,
+        "updated_at": "2026-07-28T20:23:52Z",
+        "expires_at": null,
+        "client_version": null,
+        "client_version_override": null,
+        "wrapper_version": null,
+        "api_calls": 0,
+        "allow_roaming_ips": false,
+        "secure": true,
+        "vip": false,
+        "insecure_enabled_until": null,
+        "insecure_grace_until": null,
+        "insecure_window_minutes": null,
+        "browseros_mcp_enabled": false,
+        "lane_preference": null,
+        "model_override": null,
+        "reasoning_effort_override": null,
+        "auto_update_override": false,
+        "last_cron_check": null,
+        "engines": "codex,claude",
+        "engines_list": [
+          "codex",
+          "claude"
+        ],
+        "claude_client_version": null,
+        "claude_client_version_override": null,
+        "claude_wrapper_version": null,
+        "claude_auth_digest": null,
+        "claude_model_override": null,
+        "claude_reasoning_effort_override": null
+      },
+      "chatgpt": {
+        "status": "unavailable",
+        "active_quota_lane": "normal"
+      }
+    }
+  }
+}

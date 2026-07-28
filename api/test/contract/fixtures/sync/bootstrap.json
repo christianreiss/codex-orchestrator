@@ -1,0 +1,264 @@
+{
+  "name": "POST /sync/bootstrap — first-run sync with auth included",
+  "expectShape": "raw",
+  "request": {
+    "method": "POST",
+    "url": "/sync/bootstrap",
+    "headers": {
+      "authorization": "Bearer sk-contract-fixture",
+      "content-type": "application/json"
+    },
+    "body": {
+      "engine": "codex",
+      "include_auth": true,
+      "username": "ops",
+      "hostname": "contract.example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+      "status": "update",
+      "data": {
+        "status": "update",
+        "reasons": [
+          "auth_outdated"
+        ],
+        "engine": "codex",
+        "versions": {
+          "client_version": "0.42.0",
+          "client_version_override": null,
+          "client_version_enforce_exact": false,
+          "wrapper_version": "1.0.0",
+          "wrapper_sha256": null,
+          "wrapper_url": null,
+          "runner_state": null,
+          "api_disabled": false,
+          "auto_update_enabled": true,
+          "cdx_silent": false,
+          "clx_silent": false,
+          "installation_id": "inst-contract",
+          "engine": "codex"
+        },
+        "api_calls": 0,
+        "host_users": [
+          {
+            "username": "ops",
+            "hostname": "contract.example",
+            "last_seen": "2026-07-28T20:23:52Z"
+          }
+        ],
+        "bootstrap": true,
+        "auth": {
+          "canonical_last_refresh": "2026-06-08T15:26:33Z",
+          "canonical_digest": "d527e80989a2e27223d82dbfd850b35adffaa48adc675b966488cd03b730eebf",
+          "canonical_generation": 1,
+          "host": {
+            "fqdn": "contract.example",
+            "status": "active",
+            "last_refresh": null,
+            "claude_last_refresh": null,
+            "updated_at": "2026-07-28T20:23:52Z",
+            "expires_at": null,
+            "client_version": null,
+            "client_version_override": null,
+            "wrapper_version": null,
+            "api_calls": 0,
+            "allow_roaming_ips": false,
+            "secure": true,
+            "vip": false,
+            "insecure_enabled_until": null,
+            "insecure_grace_until": null,
+            "insecure_window_minutes": null,
+            "browseros_mcp_enabled": false,
+            "lane_preference": null,
+            "model_override": null,
+            "reasoning_effort_override": null,
+            "auto_update_override": false,
+            "last_cron_check": null,
+            "engines": "codex,claude",
+            "engines_list": [
+              "codex",
+              "claude"
+            ],
+            "claude_client_version": null,
+            "claude_client_version_override": null,
+            "claude_wrapper_version": null,
+            "claude_auth_digest": null,
+            "claude_model_override": null,
+            "claude_reasoning_effort_override": null
+          },
+          "api_calls": 1,
+          "versions": {
+            "client_version": "0.42.0",
+            "client_version_override": null,
+            "client_version_enforce_exact": false,
+            "wrapper_version": "1.0.0",
+            "wrapper_sha256": null,
+            "wrapper_url": null,
+            "runner_state": null,
+            "api_disabled": false,
+            "auto_update_enabled": true,
+            "cdx_silent": false,
+            "clx_silent": false,
+            "installation_id": "inst-contract",
+            "engine": "codex"
+          },
+          "quota_hard_fail": true,
+          "quota_limit_percent": 95,
+          "quota_week_partition": 0,
+          "cdx_silent": false,
+          "engine": "codex",
+          "chatgpt": {
+            "status": "unavailable",
+            "active_quota_lane": "normal"
+          },
+          "verification_state": "verified",
+          "status": "outdated",
+          "auth": {
+            "last_refresh": "2026-06-08T15:26:33Z",
+            "auths": {
+              "api.openai.com": {
+                "token": "verified-token",
+                "token_type": "bearer"
+              }
+            },
+            "auth_mode": "apikey",
+            "OPENAI_API_KEY": "verified-token"
+          }
+        },
+        "agents": {
+          "status": "missing"
+        },
+        "config": {
+          "status": "missing"
+        },
+        "sessions": {
+          "now": 0,
+          "today": 0,
+          "month": 0
+        }
+      },
+      "reasons": [
+        "auth_outdated"
+      ],
+      "engine": "codex",
+      "versions": {
+        "client_version": "0.42.0",
+        "client_version_override": null,
+        "client_version_enforce_exact": false,
+        "wrapper_version": "1.0.0",
+        "wrapper_sha256": null,
+        "wrapper_url": null,
+        "runner_state": null,
+        "api_disabled": false,
+        "auto_update_enabled": true,
+        "cdx_silent": false,
+        "clx_silent": false,
+        "installation_id": "inst-contract",
+        "engine": "codex"
+      },
+      "api_calls": 0,
+      "host_users": [
+        {
+          "username": "ops",
+          "hostname": "contract.example",
+          "last_seen": "2026-07-28T20:23:52Z"
+        }
+      ],
+      "bootstrap": true,
+      "auth": {
+        "canonical_last_refresh": "2026-06-08T15:26:33Z",
+        "canonical_digest": "d527e80989a2e27223d82dbfd850b35adffaa48adc675b966488cd03b730eebf",
+        "canonical_generation": 1,
+        "host": {
+          "fqdn": "contract.example",
+          "status": "active",
+          "last_refresh": null,
+          "claude_last_refresh": null,
+          "updated_at": "2026-07-28T20:23:52Z",
+          "expires_at": null,
+          "client_version": null,
+          "client_version_override": null,
+          "wrapper_version": null,
+          "api_calls": 0,
+          "allow_roaming_ips": false,
+          "secure": true,
+          "vip": false,
+          "insecure_enabled_until": null,
+          "insecure_grace_until": null,
+          "insecure_window_minutes": null,
+          "browseros_mcp_enabled": false,
+          "lane_preference": null,
+          "model_override": null,
+          "reasoning_effort_override": null,
+          "auto_update_override": false,
+          "last_cron_check": null,
+          "engines": "codex,claude",
+          "engines_list": [
+            "codex",
+            "claude"
+          ],
+          "claude_client_version": null,
+          "claude_client_version_override": null,
+          "claude_wrapper_version": null,
+          "claude_auth_digest": null,
+          "claude_model_override": null,
+          "claude_reasoning_effort_override": null
+        },
+        "api_calls": 1,
+        "versions": {
+          "client_version": "0.42.0",
+          "client_version_override": null,
+          "client_version_enforce_exact": false,
+          "wrapper_version": "1.0.0",
+          "wrapper_sha256": null,
+          "wrapper_url": null,
+          "runner_state": null,
+          "api_disabled": false,
+          "auto_update_enabled": true,
+          "cdx_silent": false,
+          "clx_silent": false,
+          "installation_id": "inst-contract",
+          "engine": "codex"
+        },
+        "quota_hard_fail": true,
+        "quota_limit_percent": 95,
+        "quota_week_partition": 0,
+        "cdx_silent": false,
+        "engine": "codex",
+        "chatgpt": {
+          "status": "unavailable",
+          "active_quota_lane": "normal"
+        },
+        "verification_state": "verified",
+        "status": "outdated",
+        "auth": {
+          "last_refresh": "2026-06-08T15:26:33Z",
+          "auths": {
+            "api.openai.com": {
+              "token": "verified-token",
+              "token_type": "bearer"
+            }
+          },
+          "auth_mode": "apikey",
+          "OPENAI_API_KEY": "verified-token"
+        }
+      },
+      "agents": {
+        "status": "missing"
+      },
+      "config": {
+        "status": "missing"
+      },
+      "sessions": {
+        "now": 0,
+        "today": 0,
+        "month": 0
+      }
+    }
+  }
+}

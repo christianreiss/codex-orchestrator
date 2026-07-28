@@ -19,7 +19,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   - `versions.schema.json`
   - `sync-status.schema.json`
   - `sync-bootstrap.schema.json`
-- CI validates contract coverage by replaying recorded fixtures through the running Node server (`api/test/contract/contract.test.ts`) and through integration suites under `api/test/integration/`.
+- CI validates contract coverage by replaying the recorded fixtures under `api/test/contract/fixtures/` (one per schema above) through the host-api app on the in-memory db-fake (`api/test/contract/contract.test.ts`) and through the integration suites under `api/test/integration/`. The host-facing ones (`api/test/integration/host-api/`) run on the same fake, so a plain `npm test` covers them without a database.
 
 ## Why teams use it
 

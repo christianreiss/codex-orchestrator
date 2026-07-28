@@ -1,8 +1,8 @@
 # Contract suite
 
-Forward-looking shape-assertion runner. Walks every `.json` file under
-`fixtures/`, replays the recorded request against the Node app via
-`inject()`, and asserts:
+Shape-assertion runner. Walks every `.json` file under `fixtures/`, replays the
+recorded request against the host-api app built on the db-fake (no MySQL
+needed) via `inject()`, and asserts:
 
 - HTTP status code matches.
 - For JSON responses, the top-level *shape* matches (same keys, same JS
@@ -19,8 +19,16 @@ commit as the route change.
 ## Running
 
 ```bash
-cd api && pnpm test:contract
+cd api && npm run test:contract
 ```
+
+## Seeded world
+
+Every fixture replays against the same state, seeded by `seedContractWorld()`
+in `contract.test.ts`: one active dual-engine host `contract.example` holding
+the API key `sk-contract-fixture`, a published version snapshot, and a verified
+Codex canonical auth payload newer than the host's (absent) local copy. A
+fixture request therefore only needs `Authorization: Bearer sk-contract-fixture`.
 
 ## Fixture format
 
@@ -30,9 +38,9 @@ cd api && pnpm test:contract
   "expectShape": "standard", // optional; inferred from URL prefix when absent
   "request": {
     "method": "POST",
-    "url": "/admin/auth/login",
+    "url": "/auth",
     "headers": { "content-type": "application/json" },
-    "body": { "username": "owner", "password": "..." }
+    "body": { "command": "retrieve", "engine": "codex" }
   },
   "response": {
     "status": 200,
@@ -42,7 +50,18 @@ cd api && pnpm test:contract
 }
 ```
 
-## Empty state
+The host-facing routes replace the standard envelope's `status: "ok"` marker
+with a domain status (`valid`, `outdated`, `updated`, `update`), so their
+fixtures record `"expectShape": "raw"` — the recorded body still carries both
+the root fields and the legacy `data` mirror, so envelope drift is caught by
+the shape check.
 
-When `fixtures/` is empty the suite skips with a clear message and CI passes.
-Add fixtures under `fixtures/<route>/` named after the endpoint they exercise.
+## Current coverage
+
+| Fixture | Endpoint | Published schema |
+| --- | --- | --- |
+| `auth/retrieve.json` | `POST /auth` (`command=retrieve`) | `auth-retrieve.schema.json` |
+| `auth/store.json` | `POST /auth` (`command=store`) | `auth-store.schema.json` |
+| `sync/status.json` | `POST /sync/status` | `sync-status.schema.json` |
+| `sync/bootstrap.json` | `POST /sync/bootstrap` | `sync-bootstrap.schema.json` |
+| `versions/snapshot.json` | `GET /versions` | `versions.schema.json` |
