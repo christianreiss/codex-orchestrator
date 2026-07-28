@@ -8,6 +8,7 @@ import {
   firstArgument,
   inComment,
   matchingBracket,
+  type RegisteredRoute,
   skipTypeArguments,
   sourceFiles,
   STRING_LITERAL,
@@ -24,20 +25,22 @@ import {
  *
  * This scan resolves each call's path argument (module-local `const` paths and
  * path builders included), turns `${…}` segments into `:param`, and fails when
- * no registered route can serve the result. `*.test.ts` files under that tree
- * are skipped: the paths a spec hands its fetch stub are fixtures, not calls the
- * admin UI makes.
+ * no route registered with the called verb can serve the result — an `api.post`
+ * to a GET-only route 404s in the browser just as loudly as a dropped path.
+ * `*.test.ts` files under that tree are skipped: the paths a spec hands its
+ * fetch stub are fixtures, not calls the admin UI makes.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTEND_LIB = resolve(HERE, '../../../../frontend/src/lib');
 
 /**
- * Called paths that deliberately reach no Fastify route, and why — static
- * assets and the like. Empty today: `/admin/manual/*` looks like a static file
- * tree but is served by `registerAdminManualRoutes`.
+ * Called endpoints — `METHOD /path`, `ANY_METHOD` for `apiFetch` — that
+ * deliberately reach no Fastify route, and why: static assets and the like.
+ * Empty today: `/admin/manual/*` looks like a static file tree but is served by
+ * `registerAdminManualRoutes`.
  */
-const NON_ROUTE_PATHS: Record<string, string> = {};
+const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
@@ -52,13 +55,25 @@ const RUNTIME_PATH_CALLERS: Record<string, string> = {
 const UNKNOWN = '\u0000';
 /** A path segment that is a resolved `${…}` — it matches any route segment. */
 const PARAM = ':param';
+/**
+ * The verb of an `apiFetch` call: its caller picks the method through `init`,
+ * so the scan cannot read one off the call and matches any registered verb.
+ */
+const ANY_METHOD = '*';
 
 interface CallSite {
   /** Path relative to the repository root. */
   file: string;
   line: number;
+  /** Uppercase HTTP method the call issues, or `ANY_METHOD`. */
+  method: string;
   /** Every path the call can request, or null when it is not statically known. */
   paths: string[] | null;
+}
+
+/** The `METHOD /path` key a call site's path is reported and allowlisted under. */
+function endpointOf(method: string, path: string): string {
+  return `${method} ${path}`;
 }
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -183,7 +198,7 @@ function normalizePath(raw: string): string | null {
   return normalized.join('/');
 }
 
-const CALLER = /\b(?:api\.(?:get|post|put|patch|delete)|apiFetch)\b/g;
+const CALLER = /\b(?:api\.(get|post|put|patch|delete)|apiFetch)\b/g;
 
 function collectCallSites(): CallSite[] {
   const sites: CallSite[] = [];
@@ -203,6 +218,7 @@ function collectCallSites(): CallSite[] {
       sites.push({
         file: `frontend/src/lib/${file}`,
         line: source.slice(0, at).split('\n').length,
+        method: match[1] ? match[1].toUpperCase() : ANY_METHOD,
         paths: normalized?.some((path) => path === null) ? null : (normalized as string[] | null),
       });
     }
@@ -210,10 +226,15 @@ function collectCallSites(): CallSite[] {
   return sites;
 }
 
-/** True when `route` can serve `called`; `:param` on either side matches any segment. */
-function servedBy(called: string, route: string): boolean {
+/**
+ * True when `route` can serve a `method` call to `called`: the verbs must agree
+ * (`ANY_METHOD` agrees with all of them) and `:param` on either side matches
+ * any segment.
+ */
+function servedBy(method: string, called: string, route: RegisteredRoute): boolean {
+  if (method !== ANY_METHOD && method !== route.method) return false;
   const call = called.split('/');
-  const registered = route.split('/');
+  const registered = route.path.split('/');
   if (call.length !== registered.length) return false;
   return call.every(
     (segment, index) =>
@@ -222,8 +243,12 @@ function servedBy(called: string, route: string): boolean {
 }
 
 const sites = collectCallSites();
-const routePaths = collectRegisteredRoutes().map((route) => route.path);
+const routes = collectRegisteredRoutes();
+const routePaths = routes.map((route) => route.path);
 const calledPaths = new Set(sites.flatMap((site) => site.paths ?? []));
+const calledEndpoints = new Set(
+  sites.flatMap((site) => (site.paths ?? []).map((path) => endpointOf(site.method, path))),
+);
 
 describe('frontend API path coverage', () => {
   it('extracts the calls and routes it is meant to compare', () => {
@@ -239,21 +264,25 @@ describe('frontend API path coverage', () => {
     expect(calledPaths.has('/admin/manual/article/:param')).toBe(true);
     // Query strings are not path segments.
     expect(calledPaths.has('/admin/memories/audit')).toBe(true);
+    // The verb travels with the path, so a GET-only route cannot absorb a POST.
+    expect(calledEndpoints.has('DELETE /admin/agents/versions/:param')).toBe(true);
+    expect(calledEndpoints.has('DELETE /admin/users/:param')).toBe(true);
   });
 
-  it('registers a route for every path the admin UI calls', () => {
+  it('registers a route for every method and path the admin UI calls', () => {
     const missing = sites.flatMap((site) =>
       (site.paths ?? [])
         .filter(
           (path) =>
-            !(path in NON_ROUTE_PATHS) && !routePaths.some((route) => servedBy(path, route)),
+            !(endpointOf(site.method, path) in NON_ROUTE_ENDPOINTS) &&
+            !routes.some((route) => servedBy(site.method, path, route)),
         )
-        .map((path) => `${site.file}:${site.line} calls ${path}`),
+        .map((path) => `${site.file}:${site.line} calls ${endpointOf(site.method, path)}`),
     );
     expect(
       missing,
-      'register the path under api/src/routes, fix the call, ' +
-        'or record it in NON_ROUTE_PATHS here with a reason',
+      'register the method and path under api/src/routes, fix the call, ' +
+        'or record it in NON_ROUTE_ENDPOINTS here with a reason',
     ).toEqual([]);
   });
 
@@ -273,15 +302,19 @@ describe('frontend API path coverage', () => {
 
   it('keeps both allowlists free of stale entries', () => {
     const stale = [
-      ...Object.keys(NON_ROUTE_PATHS).filter(
-        (path) => !calledPaths.has(path) || routePaths.some((route) => servedBy(path, route)),
-      ),
+      ...Object.keys(NON_ROUTE_ENDPOINTS).filter((endpoint) => {
+        const space = endpoint.indexOf(' ');
+        const [method, path] = [endpoint.slice(0, space), endpoint.slice(space + 1)];
+        return (
+          !calledEndpoints.has(endpoint) || routes.some((route) => servedBy(method, path, route))
+        );
+      }),
       ...Object.keys(RUNTIME_PATH_CALLERS).filter(
         (file) => !sites.some((site) => site.file === `frontend/src/lib/${file}` && site.paths === null),
       ),
     ];
     expect(stale).toEqual([]);
-    for (const reason of [...Object.values(NON_ROUTE_PATHS), ...Object.values(RUNTIME_PATH_CALLERS)]) {
+    for (const reason of [...Object.values(NON_ROUTE_ENDPOINTS), ...Object.values(RUNTIME_PATH_CALLERS)]) {
       expect(reason.trim()).not.toBe('');
       expect(reason).not.toContain('\n');
     }
