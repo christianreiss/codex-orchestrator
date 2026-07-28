@@ -24,8 +24,12 @@ let cached: TestDbHandle | null | undefined = undefined;
 /**
  * Parse TEST_DATABASE_URL if present; otherwise fall back to DB_HOST/DB_PORT/…
  * vars. Returns null if no DB config is available — tests should skip.
+ *
+ * Exported so `test/fixtures/apply-schema-baseline.ts` resolves the target the
+ * same way the suites do; a setup script that picked a different database than
+ * the tests would be worse than none.
  */
-function readDbConfig(): mysql.PoolOptions | null {
+export function readDbConfig(): mysql.PoolOptions | null {
   const url = process.env.TEST_DATABASE_URL;
   if (url) {
     try {

@@ -88,11 +88,39 @@ a `DROP TABLE` and three FULLTEXT rebuilds against a populated production
 database is not a good surprise. `crane` had 0001–0006 applied by hand as of
 2026-07-27, so `--baseline 0006` is its correct starting point.
 
+## The test baseline
+
+`test/fixtures/schema-baseline.sql` is how an empty MySQL becomes something the
+runner can migrate. It is **test-only and never a migration**: the runner does
+not read it, it carries no ledger version, and it must never be moved into
+`migrations/` or applied to a deployment. Production databases get their schema
+from `migrations/`, in order, and nowhere else.
+
+```sh
+cd api
+npm run test:db:setup   # apply the baseline to TEST_DATABASE_URL / DB_*
+npm run migrate         # then evolve it like any other database
+npm run test:db
+```
+
+`.github/workflows/api.yml` runs exactly that sequence in its `db` job against a
+`services: mysql` container — the real-DB tier is not optional coverage.
+
+The file is generated from `schema.ts`, not hand-written; regenerate it after a
+schema change with the `drizzle-kit generate` command in its own header. Because
+it is drizzle output it has the mirror's blind spots — no FULLTEXT indexes, no
+foreign keys — so a database built from it is precisely the `drizzle-kit push`
+shape that 0003 and 0006 carry their backstops for. That is a feature: the
+real-DB suites then exercise those backstops rather than asserting against a
+schema that was already correct. `test:db:setup` expects an empty database and
+fails naming the first statement that collides.
+
 ## Limits
 
 - There is no `0000_baseline.sql`. 0003 and 0006 carry foreign keys to
   `coord_projects`/`hosts`, so the runner evolves an existing schema; it cannot
-  build one from an empty database.
+  build one from an empty database. The test baseline above supplies that
+  starting schema for tests only, and is not part of the migration sequence.
 - Do not use `drizzle:push` against a real database. It reconciles the whole
   hand-maintained mirror instead of applying `migrations/`, and can express
   neither FULLTEXT indexes nor foreign keys — which is exactly why 0003 and 0006
