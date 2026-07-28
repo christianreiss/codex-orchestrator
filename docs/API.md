@@ -22,7 +22,9 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - `POST /v1/responses` — minimal non-streaming Responses API compatibility adapter. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, reuses the backend chat flow, and returns a `response` object with assistant text under `output[0].content[0].text`. Text parts plus `image_url` / `input_image` parts are supported, including `data:` URLs. `stream:true` is currently rejected with `400 unsupported_stream`. `model` follows the same validation and default-resolution rules as chat completions.
 - `POST /v1/completions` — legacy text completion route. Accepts `prompt`, optional `model`, and optional `stream`. `model` follows the same validation and default-resolution rules as chat completions.
 - `GET /v1/models` — list the supported Codex model ids from the shared config/model allowlist.
+- `GET /v1/models/{model}` — retrieve one model object. Legacy aliases resolve to their current id; an empty or unknown id returns `404 model_not_found`.
 - `POST /v1/embeddings` — currently returns `501 not_implemented` for the bundled backend.
+- `OPTIONS /v1/*` — CORS preflight catch-all for every OpenAI-compatible route; answered before the kill switch and key resolution.
 
 ### Anthropic-compatible API
 
@@ -107,7 +109,7 @@ The runner has no access to the real Anthropic tokenizer (it shells out to the `
 
 #### `POST /anthropic/v1/completions`
 
-Legacy text completion endpoint.
+Legacy text completion endpoint. `POST /anthropic/v1/complete` is the upstream spelling of the same route and shares its handler.
 
 **Request body:**
 
@@ -227,7 +229,7 @@ All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"err
 
 #### CORS Preflight
 
-`OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses`, `OPTIONS /anthropic/v1/embeddings` -- returns 204 with headers:
+Registered as the single catch-all `OPTIONS /anthropic/v1/*`, so `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses` and `OPTIONS /anthropic/v1/embeddings` all return 204 with headers:
 ```
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Headers: Content-Type, Authorization, x-api-key, anthropic-version
@@ -339,6 +341,28 @@ Returns lane metadata for the calling host. Auth + IP binding required; insecure
 ### `POST /host/lane`
 Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` (`null` clears). Auth + IP binding required; insecure-window checks apply.
 
+### Sync & cron
+- `POST /sync/status` — periodic check-in. Records `username`/`hostname`, returns `status` (`ok` | `update`), `reasons[]`, `versions`, `host_users`, and — unless `include_auth:false` — the `/auth` retrieve result under `auth`. Auth + IP binding required; insecure-window checks apply.
+- `POST /cron/check` — auto-update probe for the host cron entry. Optional `engine`, `client_version`, `wrapper_version`. Returns `action` (`update` | `no_update` | `disable`), `target_version` / `tag` / `enforce_exact` when the CLI is behind, and a `wrapper` block (`action`, `target_version`, `sha256`, `url`) resolved for the caller's platform. Updates `last_cron_check`; the insecure window is neither enforced nor rolled here.
+- `POST /cron/report` — host reports its installed versions. Requires `client_version` or `wrapper_version`; optional `engine`.
+
+### Claude artifacts
+`{kind}` is `subagent`, `command`, or `output-style` (plural and alias spellings are accepted). Auth required.
+- `GET /claude/{kind}` — list served artifacts of that kind: `slug`, `sha256`, `display_name`, `description`, `model`, `updated_at`, `engine`.
+- `POST /claude/{kind}/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256` (64-hex). Returns `status` `missing` | `deleted` | `unchanged` | `updated`, plus the artifact body when updated.
+
+### Shared memories
+Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: every host reads and writes the same documents, and `engine` is recorded as provenance only. Auth required.
+- `GET /shared-memories` — recency listing; query `limit` (1–200, default 50), `offset`, `prefix`, `tags`, `include_content`. Response reports `scanned_all` when the bounded scan was exhausted.
+- `POST /shared-memories/list` — same listing with the parameters in the body.
+- `POST /shared-memories/search` — body: `query`/`q` (empty lists by recency), optional `limit` (1–50, default 10), `tags`, and `mode` (`chunks` default, or `documents`).
+- `POST /shared-memories/read` — body: `slug` (aliases `id`/`key`) plus optional windowing (`max_chars`, default 32000; `offset`; `chunk` / `from_chunk` / `to_chunk`). Returns `status:missing` when the slug is absent or soft-deleted.
+- `GET /shared-memories/{slug}` — same read with the slug in the path and the window in the query string.
+- `POST /shared-memories/write` — replaces the body of `slug`. Requires `content` (or `text`); optional `title`, `summary`, `tags`, `metadata`, and `expected_sha256` for compare-and-swap (mismatch returns `409 shared_memory_conflict`). Labels the caller omits are carried over from the stored document.
+- `POST /shared-memories/append` — row-locked read-modify-write so concurrent appends cannot lose text. Requires `content` (or `text`); optional `heading`, `separator` (default blank line), `tags`, `metadata`.
+- `POST /shared-memories/delete` — soft-deletes `slug` (aliases `id`/`key`); returns `status` `deleted` | `missing`.
+- `DELETE /shared-memories/{slug}` — same soft delete with the slug in the path.
+
 - `GET /skills` — list skills (`slug`, canonical `uri` as `skill://{slug}`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`). Auth required. When the Projects module is enabled, the list also includes a managed `coco` skill published through MCP.
 - `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated`, canonical `uri`, and `manifest` when updated.
 - `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`. The reserved slug `coco` is rejected while the Projects module is enabled.
@@ -383,13 +407,30 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 ### Wrapper
 - `GET /wrapper` — metadata for baked `cdx` wrapper for this host (`version`, per-host `sha256`, `size_bytes`, `updated_at`, `url`). Auth required.
 - `GET /wrapper/download` — downloads baked wrapper; includes `X-SHA256` and `ETag` when available. Auth required.
+- `GET /wrapper/v2/meta` — per-engine wrapper version, sha256 and active signing key id; `GET /wrapper` is an alias. Engine comes from `?engine=`.
+- `GET /wrapper/v2/config` — signed per-host wrapper config JSON (`{payload, signature}`); `?sig=1` returns the detached signature as `text/plain`.
+- `GET /wrapper/v2/download` — streams the binary built for the calling host's platform; `GET /wrapper/download` instead serves the transition script date-versioned shell wrappers update through.
+- `GET /wrapper/v2/manifest/{engine}` — per-platform manifest for `codex` or `claude`; an unknown engine returns `404 unknown_engine`.
+- `GET /wrapper/v2/bin/{engine}/{platform}/v:version/{binary}` — static binary download. `{platform}` is `os-arch` (e.g. `linux-amd64`), `{binary}` is `cdx` or `clx`, and the version segment is a literal `v` followed by the version (`v0.6.55`).
+- Platform is taken from `X-Wrapper-Platform: os-arch` when present, else inferred from the user agent (default `linux-amd64`). All wrapper routes require host auth, and every one of them returns `503 wrapper_v2_unavailable` while no active wrapper signing key is configured.
+
+### CLI device auth
+- `POST /cli/auth/start` — wrapper begins a device-code login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, user code, and `verify_url`. Exempt from the API kill switch; rate-limited per IP.
+- `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
+- `POST /cli/auth/lookup` — admin session required; `{user_code}` resolves a pending request (`404` when unknown or expired).
+- `POST /cli/auth/approve` — admin session required; `{user_code}` approves the request and registers the host.
+- `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
 
 ## Provisioning & Installer
 - `POST /admin/hosts/register` — create/rotate host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; `true` enables sliding 2-hour idle expiry via `expires_at` refresh on authenticated contact), optional `curl_insecure` (boolean; bakes `CODEX_SYNC_ALLOW_INSECURE=1`, returns a `curl -k` installer command, and makes the installer reuse `curl -k` for its own downloads), optional `reverse_dns_mode` (`global` | `enabled` | `disabled`), optional `duration_minutes` (`0..480`, used when `secure=false` for initial + stored insecure window), and optional `engines` (`codex`, `claude`, or both). Returns host payload (with API key) and single-use installer metadata: `token`, `url`, `command`, `mode`, `label`, `expires_at`. If `duration_minutes` omitted for insecure hosts, initial window is 30 minutes with stored extension window 10 minutes. Base URL prefers `PUBLIC_BASE_URL`, else validated trusted forwarded host/proto; unresolved base URL returns 500. Existing-host installer mints can also include `curl_insecure` so the returned command reflects the Host Detail toggle state atomically.
 - `POST /admin/hosts/quick-register` — create an insecure temporary throwaway host with an auto-generated short `tmp-YYYYMMDD-HHMMSS-xxxxxx` name, `secure=false`, `temporary=true`, `vip=false`, and a 2-hour host expiry. Body requires `engines` (`codex`, `claude`, or both) and accepts optional `duration_minutes` (`0..480`) for the initial insecure window. Returns the same host + installer metadata shape as `/admin/hosts/register`.
 - `GET /install/{token}` — public single-use installer (TTL `INSTALL_TOKEN_TTL_SECONDS`, default 1800). Marks the token used before emit. The script is token-mode aware: Codex hosts install `cdx` + Codex, Claude hosts install `clx` + Claude Code, and dual-engine hosts install all four components. Claude-capable installs prepare Node.js/npm first (OS Node package, pinned Corepack npm 10.9.2 when available, OS npm fallback), run each engine's cron/bootstrap path once with peer recursion suppressed, and use compact terminal-aware progress. `READY` is gated on every requested wrapper, CLI, and cron entry; any missing/failed component yields `INCOMPLETE` and a non-zero exit. Codex installs still resolve the effective fleet version before downloading from GitHub releases. Fetch/token errors also return shell-script output with non-zero exit.
+- `GET /install/v2/{token}` — alias of `GET /install/{token}`; wrappers minted against the v2 URL keep working unchanged.
+- `GET /seed/v2/auth/{uuid}` / `POST /seed/v2/auth/{uuid}` — aliases of the `/seed/auth/{uuid}` pair below.
 
 ## Observability
+- `GET /healthz` — unauthenticated liveness probe: `{ok:true, ts}`. One of the paths that bypasses the global rate-limit bucket.
+- `GET /readyz` — unauthenticated readiness probe with the same `{ok:true, ts}` body.
 - `GET /versions` — same versions block as `/auth` (`status:ok`, `data:{...}`) when API kill switch is off.
 - `POST /admin/versions/check` — force fresh GitHub release lookup (bypass cache) and return `{available_client, versions}`.
 - `POST /admin/codex-version` — set fleet Codex version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`.
@@ -406,6 +447,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/auth/passkey/login` — completes passkey login and sets the admin session cookie.
   - `POST /admin/auth/passkey/register/options` / `POST /admin/auth/passkey/register` — register a passkey for the authenticated admin user.
   - `GET /admin/login` — admin login HTML. Not an API route: the built admin SPA is mounted at `/admin/` and its HTML fallback answers browser navigations, so a request that prefers `application/json` gets `404 Route not found`.
+  - `POST /admin/auth/password/change` — change the authenticated admin user's own password with `{current_password, new_password, confirm_password}`.
   - `POST /admin/auth/password/request` — request a one-hour reset link by username or email; response does not disclose whether an account matched.
   - `POST /admin/auth/password/reset` — consume a reset token with `{token, new_password, confirm_password}`.
   - `GET /admin/passkeys` / `POST /admin/passkeys/{id}/name` / `DELETE /admin/passkeys/{id}` — list, rename, and delete the authenticated admin user’s passkeys.
@@ -417,6 +459,13 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/toasts` — emit admin toast event (body: `message`, optional `title`, `level`, `timeout_ms`; aliases `body`/`text`, `tone`).
 - `GET /admin/hosts` — list hosts with digest/history, versions, API calls, IPs, roaming flag, `secure`, `vip`, optional `expires_at`, insecure-window fields, `curl_insecure`, overrides (`client_version_override`, `claude_client_version_override`, `agents_document_id_override`, `lane_preference`, `model_override`, `reasoning_effort_override`, `claude_model_override`, `reverse_dns_mode`, `auto_update_override`), `auth_source`, recorded users, and derived auto-update status fields (`effective_auto_update_enabled`, `auto_update_state`, `auto_update_label`, `auto_update_emoji`, `auto_update_rank`, `auto_update_last_event_at`, `auto_update_target_version`).
 - `GET /admin/hosts/insecure` — insecure-host view with `{count, active, hosts[], domains[], domains_active}`.
+- `GET /admin/hosts/{id}/detail` — single-host detail card: the host row plus per-engine version summaries, available client versions, canonical auth metadata, and the global `auto_update_enabled` / `reverse_dns_enabled` / `inactivity_window_days` context. Unknown ids return `404 host_not_found`.
+- `POST /admin/hosts/{id}/installer` — mint a fresh single-use installer for an existing host. Optional `engines` and `curl_insecure`; returns `{host, installer}` in the same shape as `/admin/hosts/register`.
+- `POST /admin/hosts/{id}/engines` — set the host's enabled engines (`engines`, at least one of `codex` / `claude`).
+- `POST /admin/hosts/{id}/release-ip-binding` — clear the pinned `ip4`/`ip6` so the next authenticated request re-pins.
+- `POST /admin/hosts/{id}/scaling-exempt` — toggle `scaling_exempt` so the host is ignored by the scaling rules.
+- `POST /admin/hosts/{id}/auto-update` — set the per-host auto-update override (`override`: `true` | `false` | `null` to follow the fleet setting).
+- `POST /admin/hosts/{id}/browseros-mcp` — toggle the BrowserOS MCP server in the host's baked config (`browseros_mcp` boolean).
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests for the selected engine; optional auth body via `?include_body=1`. Engine can be supplied via body/query/header and defaults to `codex`; the response includes `engine` plus both Codex and Claude host-side fields.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure/insecure mode.
@@ -445,6 +494,11 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /seed/auth/{uuid}` — accept raw credential payload (or `{ "auth": ... }`), require positive live runner validation, store verified canonical auth for the token engine, and consume the token after a successful store. Malformed, definitively rejected, and ordinary transient failures release the reservation so the same unexpired token can be retried. Unsafe runner-refresh/readback failures keep the one-time token consumed because the submitted refresh token may already have rotated; any retained replacement remains quarantined.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
+- OpenAI-compatible API keys (Codex-scoped; Claude-scoped keys live under `/admin/claude/keys`):
+  - `GET /admin/openai/keys` — list keys (`id`, `name`, `key_prefix`, `rate_limit_rpm`, `is_active`, `use_count`, `last_used_at`, `expires_at`, timestamps).
+  - `POST /admin/openai/keys` — issue a key. Body: `{name, rate_limit_rpm? (default 60), expires_at?}`. Returns the full key once, alongside the record.
+  - `POST /admin/openai/keys/{id}/toggle` — enable/disable a key (`active` boolean).
+  - `DELETE /admin/openai/keys/{id}` — delete a key. Unknown ids return `404 not_found`.
 - `GET /admin/model-defaults/{engine}` — read the `codex` or `claude` fleet CLI default. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`. It is read-only: when no engine config row exists it reports the catalog default without persisting it.
 - `POST /admin/model-defaults/{engine}` — strict body `{model, reasoning_effort?: string|null}`. Omitted/null effort selects the model default; invalid engine/model/effort or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; its model-specific effort sets/defaults match the per-host contract above. Claude persists `model` / `effortLevel`. Claude capabilities: Fable 5, Opus 4.8, and Sonnet 5 support persistent `low|medium|high|xhigh` (default `high`); Opus 4.7 supports the same set with default `xhigh`; Sonnet 4.6 supports `low|medium|high` (default `high`); Haiku 4.5 has no persistent effort (`null`). Claude Code documents `max` as session-only, so it is deliberately excluded from this fleet-persistent API.
 - Claude admin endpoints:
@@ -454,9 +508,22 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). Requires `settings` capability.
   - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
+  - `GET /admin/claude/version` — Claude Code fleet version summary (same shape the Codex version card uses).
+  - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`; `latest`/`auto` clear the lock and refresh from upstream.
+  - `GET /admin/claude/config` — Claude `settings.json` builder state (stored sub-blocks plus the baked document).
+  - `POST /admin/claude/config/render` — render `{settings}` to the baked `settings.json` without storing it.
+  - `POST /admin/claude/config/store` — store `{settings}` (optional `sha256` for compare-and-swap) as the served Claude config.
+  - `GET /admin/claude/{kind}` — list Claude artifacts of `kind` (`subagent` | `command` | `output-style`), deleted entries included.
+  - `GET /admin/claude/{kind}/{slug}` — one artifact with its frontmatter and body.
+  - `POST /admin/claude/{kind}/store` — create/update an artifact; the kind's required frontmatter keys (`name`/`description` for subagents, `description` for commands) are enforced.
+  - `DELETE /admin/claude/{kind}/{slug}` — soft-delete an artifact so hosts retrieve `status:deleted`.
   - `POST /admin/claude/settings` — update the separate Anthropic-compatible API proxy defaults. Body: `{default_model?, max_tokens? (256-200000)}`. Requires `settings` capability. Supported models: `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
+- `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
+- `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
+- `GET /admin/log-retention` / `POST /admin/log-retention` — read/set log pruning: `enabled` plus `days_logs` (default 90), `days_mcp` (90), `days_events` (30), `days_graph_stats` (180), each clamped to `1..365`.
+- `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `POST /admin/prune-policy` — set inactivity prune days `{inactivity_days:0..60}`.
 - Runner: `GET /admin/runner` (config/telemetry/state/timestamps/counts/canonical metadata), `POST /admin/runner/run` (force Codex runner validation), `POST /admin/runner/run-claude` (force Claude runner validation).
@@ -467,10 +534,24 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/chatgpt/usage[?force=1]`
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
   - `POST /admin/chatgpt/usage/refresh`
-- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/generate` is an admin-only runner-backed draft helper that fills the skill editor but does not persist anything until `store` is called. When the Projects module is enabled, the list includes the managed `coco` skill and direct store/delete attempts against that slug are rejected.
-- Projects module: `GET /admin/projects/state`, `POST /admin/projects/state`, `GET /admin/projects/feedback`, `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes mirroring the host `/projects` surface.
-- Agents: `GET /admin/agents`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `DELETE /admin/agents/versions/{id}`.
+- Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/assist`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/assist` is the conversational variant of `generate`: body `{messages[], mode: "new"|"edit", skill?}` (an `edit` mode carries the current skill), and it returns `503 runner_unavailable` without a configured runner and canonical auth. `POST /admin/skills/generate` is an admin-only runner-backed draft helper that fills the skill editor but does not persist anything until `store` is called. When the Projects module is enabled, the list includes the managed `coco` skill and direct store/delete attempts against that slug are rejected.
+- Projects module: `GET /admin/projects/state`, `POST /admin/projects/state`, `GET /admin/projects/feedback`, `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, plus `POST /admin/projects/{slug}/assist` (runner-backed draft helper; `503 runner_unavailable` without a runner and canonical auth) and the note/todo/file/feedback subroutes mirroring the host `/projects` surface:
+  - Notes: `GET /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes/{id}`, `DELETE /admin/projects/{slug}/notes/{id}`.
+  - Todos: `GET /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos/{id}`, `POST /admin/projects/{slug}/todos/{id}/done`, `POST /admin/projects/{slug}/todos/{id}/undone`, `DELETE /admin/projects/{slug}/todos/{id}`.
+  - Files: `GET /admin/projects/{slug}/files`, `POST /admin/projects/{slug}/files`, `DELETE /admin/projects/{slug}/files/{id}`.
+  - Feedback: `GET /admin/projects/{slug}/feedback`, `POST /admin/projects/{slug}/feedback`.
+- Agents: `GET /admin/agents`, `GET /admin/agents/versions/{id}`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `POST /admin/agents/revert`, `POST /admin/agents/retention`, `DELETE /admin/agents/versions/{id}`. `revert` takes `{version_id, engine?}` and republishes that version; `retention` sets `{backup_limit}` (null clears the stored limit).
 - MCP memories: `GET /admin/mcp/memories`, `DELETE /admin/mcp/memories/{id}` (numeric record id).
+- Shared memories: `GET /admin/shared-memories` (recency listing; `q` switches to relevance search, plus `tags`, `prefix`, `limit`, `offset`), `GET /admin/shared-memories/{slug}`, `DELETE /admin/shared-memories/{slug}`. Fleet-wide, so there is no host filter.
+- Memory lifecycle (`{scope}` is `host`, `project`, or `shared`; mutations require the owner or admin role and carry an `ETag`):
+  - `GET /admin/memories/graph` — cross-scope memory graph.
+  - `GET /admin/memories/audit` — memory audit trail.
+  - `GET /admin/memories/{scope}/{recordId}` — one memory record.
+  - `POST /admin/memories/{scope}` — create a record; responds `201`.
+  - `POST /admin/memories/shared/{recordId}/append` — append to a shared memory; the body accepts `content` and nothing else.
+  - `PATCH /admin/memories/{scope}/{recordId}` — update a record; `expected_etag` (or `If-Match`) guards the write.
+  - `DELETE /admin/memories/{scope}/{recordId}` — delete a record; `expected_etag` may come from the body, query, or `If-Match`.
+- Manual: `GET /admin/manual/manifest`, `GET /admin/manual/search?q=`, `GET /admin/manual/article/{slug}` — the admin UI's in-app manual (article set bundled under `STATIC_ROOT`). Unknown slugs return `404`.
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 
 ## Runner & Versions
