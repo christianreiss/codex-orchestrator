@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  collectRegisteredRoutes,
+  expressionAt,
+  firstArgument,
+  inComment,
+  matchingBracket,
+  skipTypeArguments,
+  sourceFiles,
+  STRING_LITERAL,
+} from './registered-routes.js';
 
 /**
  * The admin UI reaches the backend through literal path strings in
@@ -18,7 +28,6 @@ import { fileURLToPath } from 'node:url';
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const API_ROUTES = resolve(HERE, '../../../src/routes');
 const FRONTEND_LIB = resolve(HERE, '../../../../frontend/src/lib');
 
 /**
@@ -50,93 +59,6 @@ interface CallSite {
   paths: string[] | null;
 }
 
-/** Index of the `}`/`)`/`]` closing the bracket at `open`, or -1. */
-function matchingBracket(source: string, open: number): number {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = open; i < source.length; i++) {
-    const c = source[i]!;
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = null;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') quote = c;
-    else if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/** Source text of the first call argument, given the index of the `(`. */
-function firstArgument(source: string, open: number): string | null {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = open; i < source.length; i++) {
-    const c = source[i]!;
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = null;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') quote = c;
-    else if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') {
-      depth--;
-      if (depth === 0) return source.slice(open + 1, i);
-    } else if (c === ',' && depth === 1) return source.slice(open + 1, i);
-  }
-  return null;
-}
-
-/** Expression text starting at `start`, up to the `;`/newline that ends it. */
-function expressionAt(source: string, start: number): string {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = start; i < source.length; i++) {
-    const c = source[i]!;
-    if (quote) {
-      if (c === '\\') i++;
-      else if (c === quote) quote = null;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') quote = c;
-    else if (c === '(' || c === '[' || c === '{') depth++;
-    else if (c === ')' || c === ']' || c === '}') depth--;
-    else if (depth === 0 && (c === ';' || c === '\n')) return source.slice(start, i);
-  }
-  return source.slice(start);
-}
-
-/** Index just past the `<…>` type arguments at `index`, if any. */
-function skipTypeArguments(source: string, index: number): number {
-  let i = index;
-  while (/\s/.test(source[i] ?? '')) i++;
-  if (source[i] !== '<') return i;
-  let depth = 0;
-  for (; i < source.length; i++) {
-    const c = source[i]!;
-    if (c === '<') depth++;
-    else if (c === '>' && --depth === 0) {
-      i++;
-      break;
-    }
-  }
-  while (/\s/.test(source[i] ?? '')) i++;
-  return i;
-}
-
-/** True when the line holding `index` is a comment. */
-function inComment(source: string, index: number): boolean {
-  const start = source.lastIndexOf('\n', index) + 1;
-  const trimmed = source.slice(start, index).trimStart();
-  return trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*');
-}
-
-const STRING_LITERAL = /^(['"])((?:\\.|(?!\1).)*)\1$/;
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const ARROW_BODY = /^(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]*)?=>/;
 
@@ -259,12 +181,6 @@ function normalizePath(raw: string): string | null {
   return normalized.join('/');
 }
 
-function sourceFiles(root: string, extensions: string[]): string[] {
-  return readdirSync(root, { recursive: true, encoding: 'utf8' })
-    .filter((file) => extensions.some((extension) => file.endsWith(extension)))
-    .sort();
-}
-
 const CALLER = /\b(?:api\.(?:get|post|put|patch|delete)|apiFetch)\b/g;
 
 function collectCallSites(): CallSite[] {
@@ -290,31 +206,6 @@ function collectCallSites(): CallSite[] {
   return sites;
 }
 
-const REGISTRAR = /\bapp\.(?:get|post|put|patch|delete)\b/g;
-const ROUTE_OBJECT = /\bapp\.route\b/g;
-const URL_PROPERTY = /\burl:\s*(['"`])([^'"`]*)\1/;
-
-function collectRoutePaths(): string[] {
-  const paths: string[] = [];
-  for (const file of sourceFiles(API_ROUTES, ['.ts'])) {
-    const source = readFileSync(join(API_ROUTES, file), 'utf8');
-    for (const match of source.matchAll(REGISTRAR)) {
-      if (inComment(source, match.index)) continue;
-      const open = skipTypeArguments(source, match.index + match[0].length);
-      if (source[open] !== '(') continue;
-      const literal = STRING_LITERAL.exec((firstArgument(source, open) ?? '').trim());
-      if (literal) paths.push(literal[2]!);
-    }
-    for (const match of source.matchAll(ROUTE_OBJECT)) {
-      if (inComment(source, match.index)) continue;
-      const options = firstArgument(source, match.index + match[0].length);
-      const url = options === null ? null : URL_PROPERTY.exec(options);
-      if (url) paths.push(url[2]!);
-    }
-  }
-  return paths;
-}
-
 /** True when `route` can serve `called`; `:param` on either side matches any segment. */
 function servedBy(called: string, route: string): boolean {
   const call = called.split('/');
@@ -327,7 +218,7 @@ function servedBy(called: string, route: string): boolean {
 }
 
 const sites = collectCallSites();
-const routePaths = collectRoutePaths();
+const routePaths = collectRegisteredRoutes().map((route) => route.path);
 const calledPaths = new Set(sites.flatMap((site) => site.paths ?? []));
 
 describe('frontend API path coverage', () => {

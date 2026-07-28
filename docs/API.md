@@ -405,7 +405,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/auth/passkey/login/options` — `{username}`; returns passkey login options for that user.
   - `POST /admin/auth/passkey/login` — completes passkey login and sets the admin session cookie.
   - `POST /admin/auth/passkey/register/options` / `POST /admin/auth/passkey/register` — register a passkey for the authenticated admin user.
-  - `GET /admin/login` — admin login HTML.
+  - `GET /admin/login` — admin login HTML. Not an API route: the built admin SPA is mounted at `/admin/` and its HTML fallback answers browser navigations, so a request that prefers `application/json` gets `404 Route not found`.
   - `POST /admin/auth/password/request` — request a one-hour reset link by username or email; response does not disclose whether an account matched.
   - `POST /admin/auth/password/reset` — consume a reset token with `{token, new_password, confirm_password}`.
   - `GET /admin/passkeys` / `POST /admin/passkeys/{id}/name` / `DELETE /admin/passkeys/{id}` — list, rename, and delete the authenticated admin user’s passkeys.
