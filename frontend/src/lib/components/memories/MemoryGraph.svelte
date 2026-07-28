@@ -14,6 +14,7 @@
   import "@xyflow/svelte/dist/style.css";
   import type { MemoryGraphEdge, MemoryGraphNode } from "$lib/api/memories";
   import MemoryGraphNodeComponent from "./MemoryGraphNode.svelte";
+  import MemoryGraphViewportSync from "./MemoryGraphViewportSync.svelte";
   import {
     MEMORY_NODE_HEIGHT,
     MEMORY_NODE_WIDTH,
@@ -190,50 +191,49 @@
       </div>
     </div>
   {:else}
-    {#key layoutKey}
-      <SvelteFlow
-        nodes={flowNodes}
-        edges={layouted.edges}
-        {nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.18, minZoom: 0.18, maxZoom: 1.15, duration: reducedMotion ? 0 : 350 }}
-        minZoom={0.12}
-        maxZoom={1.8}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        deleteKey={null}
-        selectionKey={null}
-        multiSelectionKey={null}
-        panOnScroll
-        zoomOnScroll={false}
-        zoomOnPinch
-        onlyRenderVisibleElements
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.25} patternColor="hsl(var(--muted-foreground) / 0.22)" />
-        <Controls position="bottom-left" showLock={false} fitViewOptions={{ padding: 0.18, duration: reducedMotion ? 0 : 300 }} />
-        {#if layouted.nodes.length <= 250}
-          <MiniMap
-            position="bottom-right"
-            pannable
-            zoomable
-            nodeColor={(node) => {
-              const scope = (node.data as { memory?: MemoryGraphNode })?.memory?.scope;
-              if (scope === "shared") return "#8b5cf6";
-              if (scope === "project") return "#06b6d4";
-              if (scope === "host") return "#f59e0b";
-              return "#64748b";
-            }}
-            maskColor="hsl(var(--background) / 0.72)"
-          />
-        {/if}
-        <Panel position="top-left" class="!m-3">
-          <div class="rounded-xl border border-border/70 bg-background/85 px-3 py-2 text-[10px] text-muted-foreground shadow-sm backdrop-blur-md">
-            <p class="font-semibold text-foreground">Memory topology</p>
-            <p>Pan to explore · scroll to move · use controls to zoom</p>
-          </div>
-        </Panel>
-      </SvelteFlow>
-    {/key}
+    <SvelteFlow
+      nodes={flowNodes}
+      edges={layouted.edges}
+      {nodeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.18, minZoom: 0.18, maxZoom: 1.15, duration: reducedMotion ? 0 : 350 }}
+      minZoom={0.12}
+      maxZoom={1.8}
+      nodesDraggable={false}
+      nodesConnectable={false}
+      deleteKey={null}
+      selectionKey={null}
+      multiSelectionKey={null}
+      panOnScroll
+      zoomOnScroll={false}
+      zoomOnPinch
+      onlyRenderVisibleElements
+    >
+      <MemoryGraphViewportSync topologyKey={layoutKey} {reducedMotion} />
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1.25} patternColor="hsl(var(--muted-foreground) / 0.22)" />
+      <Controls position="bottom-left" showLock={false} fitViewOptions={{ padding: 0.18, duration: reducedMotion ? 0 : 300 }} />
+      {#if layouted.nodes.length <= 250}
+        <MiniMap
+          position="bottom-right"
+          pannable
+          zoomable
+          nodeColor={(node) => {
+            const scope = (node.data as { memory?: MemoryGraphNode })?.memory?.scope;
+            if (scope === "shared") return "#8b5cf6";
+            if (scope === "project") return "#06b6d4";
+            if (scope === "host") return "#f59e0b";
+            return "#64748b";
+          }}
+          maskColor="hsl(var(--background) / 0.72)"
+        />
+      {/if}
+      <Panel position="top-left" class="!m-3">
+        <div class="rounded-xl border border-border/70 bg-background/85 px-3 py-2 text-[10px] text-muted-foreground shadow-sm backdrop-blur-md">
+          <p class="font-semibold text-foreground">Memory topology</p>
+          <p>Pan to explore · scroll to move · use controls to zoom</p>
+        </div>
+      </Panel>
+    </SvelteFlow>
   {/if}
 </div>
 
