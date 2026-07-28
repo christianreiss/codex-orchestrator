@@ -7,7 +7,7 @@ import type { ApiError as ApiErrorInstance } from "./client";
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const clientModule: string = "./client.ts";
-const { ApiError, apiFetch } = (await import(clientModule)) as typeof import("./client");
+const { ApiError, api, apiFetch } = (await import(clientModule)) as typeof import("./client");
 
 const realFetch = globalThis.fetch;
 
@@ -25,6 +25,29 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 function textResponse(body: string, init: ResponseInit = {}): Response {
   return new Response(body, { ...init, headers: { "content-type": "text/plain" } });
+}
+
+interface CapturedCall {
+  url: string;
+  init: RequestInit;
+}
+
+/**
+ * Record the `(url, init)` of every `fetch` call, answering each with a fresh
+ * empty ok envelope so several requests can share one stub.
+ */
+function captureFetch(): CapturedCall[] {
+  const calls: CapturedCall[] = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    return jsonResponse({ status: "ok", data: null }, { status: 200 });
+  };
+  return calls;
+}
+
+/** The headers `apiFetch` built for a captured call. */
+function headersOf(call: CapturedCall): Headers {
+  return new Headers(call.init.headers);
 }
 
 /** Await a rejecting `apiFetch` and hand back the `ApiError` it threw. */
@@ -181,5 +204,128 @@ describe("apiFetch success bodies", () => {
     stubFetch(new Response(null, { status: 204 }));
 
     assert.equal(await apiFetch("/admin/api/hosts/h1", { method: "DELETE" }), undefined);
+  });
+});
+
+describe("apiFetch request shaping", () => {
+  it("passes an absolute URL through and gives a bare path a leading slash", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("https://crane.example/admin/api/hosts");
+    await apiFetch("admin/api/hosts");
+
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      ["https://crane.example/admin/api/hosts", "/admin/api/hosts"],
+    );
+  });
+
+  it("defaults the method to GET and upper-cases the caller's", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts");
+    await apiFetch("/admin/api/hosts", { method: "post", body: { id: "h1" } });
+
+    assert.deepEqual(
+      calls.map((call) => call.init.method),
+      ["GET", "POST"],
+    );
+  });
+
+  it("sets a JSON Accept header unless the caller supplies one", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts");
+    await apiFetch("/admin/api/events", { headers: { Accept: "text/event-stream" } });
+
+    assert.equal(headersOf(calls[0]).get("Accept"), "application/json");
+    assert.equal(headersOf(calls[1]).get("Accept"), "text/event-stream");
+  });
+
+  it("serializes a body as JSON and adds the JSON content-type", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts", { method: "POST", body: { id: "h1", tags: ["edge"] } });
+
+    assert.equal(calls[0].init.body, JSON.stringify({ id: "h1", tags: ["edge"] }));
+    assert.equal(headersOf(calls[0]).get("Content-Type"), "application/json");
+  });
+
+  it("keeps a caller-supplied content-type on a serialized body", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts/h1", {
+      method: "PATCH",
+      body: { label: "edge" },
+      headers: { "Content-Type": "application/merge-patch+json" },
+    });
+
+    assert.equal(calls[0].init.body, JSON.stringify({ label: "edge" }));
+    assert.equal(headersOf(calls[0]).get("Content-Type"), "application/merge-patch+json");
+  });
+
+  it("leaves a rawBody unserialized and adds no content-type", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts/import", {
+      method: "POST",
+      body: "id,label\nh1,edge",
+      rawBody: true,
+    });
+
+    assert.equal(calls[0].init.body, "id,label\nh1,edge");
+    assert.equal(headersOf(calls[0]).has("Content-Type"), false);
+  });
+
+  it("sends no body at all for an undefined or null body", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts/h1/restart", { method: "POST", body: undefined });
+    await apiFetch("/admin/api/hosts/h1/restart", { method: "POST", body: null });
+
+    assert.equal(calls[0].init.body, undefined);
+    assert.equal(calls[1].init.body, undefined);
+  });
+
+  it("defaults credentials to same-origin and honours an explicit value", async () => {
+    const calls = captureFetch();
+
+    await apiFetch("/admin/api/hosts");
+    await apiFetch("https://crane.example/v1/models", { credentials: "include" });
+
+    assert.deepEqual(
+      calls.map((call) => call.init.credentials),
+      ["same-origin", "include"],
+    );
+  });
+
+  it("sends no body from api.delete", async () => {
+    const calls = captureFetch();
+
+    await api.delete("/admin/api/hosts/h1");
+
+    assert.equal(calls[0].init.method, "DELETE");
+    assert.equal(calls[0].init.body, undefined);
+  });
+
+  it("sends the body from api.post, api.put and api.patch under the matching method", async () => {
+    const calls = captureFetch();
+
+    await api.post("/admin/api/hosts", { via: "post" });
+    await api.put("/admin/api/hosts/h1", { via: "put" });
+    await api.patch("/admin/api/hosts/h1", { via: "patch" });
+
+    assert.deepEqual(
+      calls.map((call) => call.init.method),
+      ["POST", "PUT", "PATCH"],
+    );
+    assert.deepEqual(
+      calls.map((call) => call.init.body),
+      [
+        JSON.stringify({ via: "post" }),
+        JSON.stringify({ via: "put" }),
+        JSON.stringify({ via: "patch" }),
+      ],
+    );
   });
 });

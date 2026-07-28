@@ -31,7 +31,7 @@ export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   raw?: boolean;
 }
 
-/** Returns the absolute admin-prefixed URL for a request path. */
+/** Passes absolute URLs through; gives any other path a leading slash. */
 function buildUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   if (!path.startsWith("/")) path = "/" + path;
