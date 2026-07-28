@@ -41,7 +41,7 @@ Use the admin dashboard:
 
 Operational reality:
 
-- Installer tokens are **single-use**, expire based on `INSTALL_TOKEN_TTL_SECONDS` (default 1800 seconds), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
+- Installer tokens are **single-use**, expire after a TTL fixed at 1800 seconds in the API (there is no env knob for it), and capture the baked base URL (`Host`/`X-Forwarded-Proto` or `PUBLIC_BASE_URL`).
 - Re-registering the same host rotates its API key; older wrappers/tokens keep the old key and then fail authenticated API calls.
 - Existing hosts can mint a fresh installer from the host detail page with **Mint installer**. That keeps the current API key, replaces any pending installer token for that host, and copies the new command automatically.
 
@@ -100,7 +100,7 @@ curl -k -fsSL "https://codex-auth.example.com/install/00000000-0000-0000-0000-00
 
 The `CODEX_INSTALL_CURL_INSECURE=1` part tells the installer to reuse `curl -k` for the wrapper + Codex downloads, matching the `-k` you used to fetch the script itself.
 
-If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” before issuing or re-minting the host installer. The generated installer command then includes the `curl -k` / `CODEX_INSTALL_CURL_INSECURE=1` form automatically, and the baked wrapper gets `CODEX_SYNC_ALLOW_INSECURE=1` for future sync. This is a last resort — trusting the correct CA is strongly preferred.
+If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” before issuing or re-minting the host installer. The generated installer command then includes the `curl -k` / `CODEX_INSTALL_CURL_INSECURE=1` form automatically, and the host's signed wrapper config carries `allow_insecure: true` so future sync skips verification too. This is a last resort — trusting the correct CA is strongly preferred.
 
 What the installer does:
 - Downloads each signed host config from `/wrapper/v2/config`, downloads the
@@ -321,7 +321,7 @@ This is the fastest way to confirm the baked base URL, wrapper version, and that
 - **HTTP 503 / “API disabled”**: the admin kill switch is on (`/admin/api/state`). Only an operator can clear it.
 - **HTTP 401/403**: usually a bad API key (wrong wrapper) or an IP-binding mismatch. Operators can re-register the host (rotates API key) or enable roaming IPs.
 - **HTTP 429**: you hit a rate limit bucket (global or auth-fail). Back off until the server-provided `reset_at`.
-- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). `CODEX_SYNC_ALLOW_INSECURE=1` exists as an emergency lever but should not be the steady state; when set, sync/wrapper-update HTTPS calls bypass TLS verification.
+- **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). The per-host “Allow insecure curl (-k)” toggle exists as an emergency lever but should not be the steady state; when it is on, the signed wrapper config carries `allow_insecure: true` and sync/wrapper-update HTTPS calls bypass TLS verification.
 
 ### What to collect for an operator
 

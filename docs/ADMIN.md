@@ -17,7 +17,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - Passkey login is implemented and issues the same session cookie as password login; the API adds no certificate check around it, though a deployment running the bundled Caddy reaches the login page through that proxy's cert gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
-  - TTL: `ADMIN_SESSION_TTL_SECONDS` (default `28800`, clamped to `300..604800`).
+  - TTL: `ADMIN_SESSION_TTL_MINUTES` (default `43200`), converted to seconds and clamped to `300..604800`, so the default lands on the seven-day cap.
   - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
 - Password recovery is available from `/admin/login`: the request endpoint accepts a username or email without disclosing whether it matched, sends a one-hour single-use link to `/admin/password/reset`, and the reset endpoint rotates the password while expiring existing sessions and outstanding reset tokens.
 - WebAuthn settings:
@@ -83,7 +83,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - `GET /admin/ws/info` (admin-auth protected) returns:
   - `enabled` from `ADMIN_WS_ENABLED`.
   - `url` from `ADMIN_WS_PUBLIC_URL` or derived from base URL as `/admin/ws`.
-  - `last_event_id`, `heartbeat_seconds` (`ADMIN_WS_PING_INTERVAL`, min `5`), `backlog_limit` (`ADMIN_WS_BACKLOG_LIMIT`, clamped `1..500`).
+  - `last_event_id`, `heartbeat_seconds` (`ADMIN_WS_HEARTBEAT_SECONDS`, min `5`), `backlog_limit` (`ADMIN_WS_BACKLOG_LIMIT`, clamped `1..500`).
 - WebSocket server: in-process Fastify plugin (`api/src/ws/server.ts`) registered at `/admin/ws`.
   - Toggle: `ADMIN_WS_ENABLED`.
   - Requires an admin session: both the upgrade and `/admin/ws/info` call `resolveAdmin`, and neither looks at a certificate.
@@ -197,7 +197,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   PATCH/DELETE conflicts require reloading the latest ETag before retrying.
 
 ## Notes & Gotchas
-- Installer tokens are single-use and expire (`INSTALL_TOKEN_TTL_SECONDS`, default `1800`, fallback to `1800` if invalid).
+- Installer tokens are single-use and expire after a TTL fixed at `1800` seconds in `api/src/services/host-management.ts`; it is a constant, not an env knob.
 - Insecure host registration opens an initial window:
   - Initial open window defaults to `30` minutes.
   - Stored sliding window defaults to `10` minutes unless `duration_minutes` is provided.
