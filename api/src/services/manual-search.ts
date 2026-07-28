@@ -3,9 +3,12 @@ import type { ArticleBody, ManualStore } from './manual-articles.js';
 /**
  * Naive in-process search across the manual articles.
  *
- * Algorithm: lowercase substring match on title (weight 10), category (weight
- * 3), and body (weight 1). Title matches always win. Returns at most 20 hits;
- * each hit ships a short snippet of body context around the first match.
+ * Algorithm: lowercase substring match on title, category (weight 3) and body
+ * (weight 1 per occurrence, capped). Title matches always win: the title
+ * weights are derived from the other weights so that any title match outscores
+ * the best achievable category+body score, and an exact title outscores any
+ * title substring. Returns at most 20 hits; each hit ships a short snippet of
+ * body context around the first match.
  */
 
 export interface SearchHit {
@@ -18,6 +21,12 @@ export interface SearchHit {
 
 const MAX_RESULTS = 20;
 const SNIPPET_RADIUS = 80;
+const CATEGORY_WEIGHT = 3;
+const MAX_BODY_MATCHES = 10;
+/** One more than the best a non-title match can score, so titles always win. */
+const TITLE_WEIGHT = CATEGORY_WEIGHT + MAX_BODY_MATCHES + 1;
+/** Likewise one more than the best a title substring match can score. */
+const EXACT_TITLE_WEIGHT = TITLE_WEIGHT + CATEGORY_WEIGHT + MAX_BODY_MATCHES + 1;
 
 export function searchManual(store: ManualStore, query: string): SearchHit[] {
   const q = query.trim().toLowerCase();
@@ -44,9 +53,9 @@ function scoreArticle(article: ArticleBody, q: string): number {
   const title = article.meta.title.toLowerCase();
   const category = article.meta.category.toLowerCase();
   const body = article.body.toLowerCase();
-  if (title === q) score += 100;
-  else if (title.includes(q)) score += 10;
-  if (category.includes(q)) score += 3;
+  if (title === q) score += EXACT_TITLE_WEIGHT;
+  else if (title.includes(q)) score += TITLE_WEIGHT;
+  if (category.includes(q)) score += CATEGORY_WEIGHT;
   let bodyMatches = 0;
   let from = 0;
   while (from < body.length) {
@@ -54,7 +63,7 @@ function scoreArticle(article: ArticleBody, q: string): number {
     if (idx === -1) break;
     bodyMatches += 1;
     from = idx + q.length;
-    if (bodyMatches > 10) break;
+    if (bodyMatches >= MAX_BODY_MATCHES) break;
   }
   score += bodyMatches;
   return score;
