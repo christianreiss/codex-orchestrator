@@ -5,7 +5,9 @@
  * WS event types. Consolidated after Phase 2 feature merges.
  *
  * `api/test/unit/ws/event-invalidation-coverage.test.ts` reads this map and
- * fails when the API publishes an event type that has no entry here.
+ * fails when the API publishes an event type that has no entry here;
+ * `api/test/unit/routes/ws-invalidation-key-liveness.test.ts` fails when an
+ * entry names a query key root nothing under `frontend/src` queries.
  */
 import type { QueryClient, QueryKey } from "@tanstack/svelte-query";
 import type { Readable } from "svelte/store";
@@ -48,24 +50,24 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.file.deleted": [["projects"]],
   "project.feedback.created": [["projects"]],
 
-  // Authoring
-  "agents.stored": [["agents"], ["authoring", "agents"]],
-  "skill.updated": [["skills"], ["authoring", "skills"]],
-  "skill.stored": [["skills"], ["authoring", "skills"]],
-  "skill.deleted": [["skills"], ["authoring", "skills"]],
-  "memory.changed": [["memories"], ["authoring", "memories"]],
-  "memory.created": [["memories"], ["authoring", "memories"]],
-  "memory.updated": [["memories"], ["authoring", "memories"]],
-  "memory.appended": [["memories"], ["authoring", "memories"]],
-  "memory.deleted": [["memories"], ["authoring", "memories"]],
+  // Authoring (the authoring pages query the bare ["agents"]/["skills"]/["memories"] keys)
+  "agents.stored": [["agents"]],
+  "skill.updated": [["skills"]],
+  "skill.stored": [["skills"]],
+  "skill.deleted": [["skills"]],
+  "memory.changed": [["memories"]],
+  "memory.created": [["memories"]],
+  "memory.updated": [["memories"]],
+  "memory.appended": [["memories"]],
+  "memory.deleted": [["memories"]],
   "project.memory.created": [["memories"], ["projects"]],
   "project.memory.updated": [["memories"], ["projects"]],
   "project.memory.deleted": [["memories"], ["projects"]],
-  "shared_memory.changed": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.created": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.updated": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.appended": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
-  "shared_memory.deleted": [["memories"], ["shared-memories"], ["authoring", "shared-memories"]],
+  "shared_memory.changed": [["memories"]],
+  "shared_memory.created": [["memories"]],
+  "shared_memory.updated": [["memories"]],
+  "shared_memory.appended": [["memories"]],
+  "shared_memory.deleted": [["memories"]],
 
   // Claude artifacts (subagents / slash-commands / output-styles)
   "claude_artifact.stored": [["subagents"], ["commands"], ["output-styles"]],
@@ -73,7 +75,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "claude_artifact.deleted": [["subagents"], ["commands"], ["output-styles"]],
 
   // API keys
-  "api-key.changed": [["api-keys"]],
+  "api-key.changed": [
+    ["keys", "openai"],
+    ["keys", "claude"],
+  ],
   "apikey.created": [
     ["keys", "openai"],
     ["keys", "claude"],
