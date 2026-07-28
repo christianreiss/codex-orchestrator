@@ -67,6 +67,17 @@ const SESSION_TTL_MIN_SECONDS = 300;
 const SESSION_TTL_MAX_SECONDS = 7 * 24 * 60 * 60;
 const PASSWORD_MIN_LENGTH = 12;
 
+/**
+ * Single source of truth for the admin session lifetime: login mints sessions
+ * with it and the auth-admin plugin rolls them forward with it, so a rolled
+ * session can never outlive the cap it was issued under.
+ */
+export function adminSessionTtlSeconds(env: Env): number {
+  const minutes = env.ADMIN_SESSION_TTL_MINUTES ?? 12 * 60;
+  const seconds = Math.max(0, minutes) * 60;
+  return Math.min(SESSION_TTL_MAX_SECONDS, Math.max(SESSION_TTL_MIN_SECONDS, seconds));
+}
+
 export class AdminAuthService {
   constructor(
     private readonly db: Database,
@@ -81,9 +92,7 @@ export class AdminAuthService {
   }
 
   sessionTtlSeconds(): number {
-    const minutes = this.env.ADMIN_SESSION_TTL_MINUTES ?? 12 * 60;
-    const seconds = Math.max(0, minutes) * 60;
-    return Math.min(SESSION_TTL_MAX_SECONDS, Math.max(SESSION_TTL_MIN_SECONDS, seconds));
+    return adminSessionTtlSeconds(this.env);
   }
 
   passwordMinLength(): number {
