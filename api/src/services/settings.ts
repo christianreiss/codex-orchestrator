@@ -13,6 +13,21 @@ import { versions } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { nowIso } from '../util/timestamp.js';
 
+const TRUTHY_FLAG_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+/**
+ * Single source of truth for reading a `versions` row value as a boolean.
+ * Values are trimmed and case-folded; a missing or blank value means "unset"
+ * and yields `defaultValue`. Both proxy kill switches parse their flag through
+ * here so the admin API and the running proxy can never disagree.
+ */
+export function isTruthyFlagValue(raw: string | null | undefined, defaultValue = false): boolean {
+  if (raw == null) return defaultValue;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === '') return defaultValue;
+  return TRUTHY_FLAG_VALUES.has(normalized);
+}
+
 export class SettingsService {
   constructor(private readonly db: Database) {}
 
@@ -39,9 +54,7 @@ export class SettingsService {
   }
 
   async getFlag(key: string, defaultValue = false): Promise<boolean> {
-    const raw = await this.getRaw(key);
-    if (raw === null || raw === '') return defaultValue;
-    return raw === '1' || raw.toLowerCase() === 'true' || raw.toLowerCase() === 'yes';
+    return isTruthyFlagValue(await this.getRaw(key), defaultValue);
   }
 
   async getInt(key: string, defaultValue: number): Promise<number> {

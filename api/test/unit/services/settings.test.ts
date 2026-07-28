@@ -58,13 +58,24 @@ describe('reads', () => {
 });
 
 describe('coercion', () => {
-  it('treats 1/true/yes as true regardless of case and anything else as false', async () => {
-    const h = harness({ one: '1', lower: 'true', upper: 'TRUE', yes: 'yes', zero: '0', no: 'no' });
+  it('treats 1/true/yes/on as true regardless of case or padding and anything else as false', async () => {
+    const h = harness({
+      one: '1',
+      lower: 'true',
+      upper: 'TRUE',
+      yes: 'yes',
+      on: 'on',
+      padded: ' ON ',
+      zero: '0',
+      no: 'no',
+    });
 
     await expect(h.svc.getFlag('one')).resolves.toBe(true);
     await expect(h.svc.getFlag('lower')).resolves.toBe(true);
     await expect(h.svc.getFlag('upper')).resolves.toBe(true);
     await expect(h.svc.getFlag('yes')).resolves.toBe(true);
+    await expect(h.svc.getFlag('on')).resolves.toBe(true);
+    await expect(h.svc.getFlag('padded')).resolves.toBe(true);
     await expect(h.svc.getFlag('zero')).resolves.toBe(false);
     await expect(h.svc.getFlag('no')).resolves.toBe(false);
     // A set value wins over the default even when they disagree.

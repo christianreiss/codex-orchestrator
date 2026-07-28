@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { versions } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
+import { isTruthyFlagValue } from './settings.js';
 
 const FLAG = 'claude_api_disabled';
 
@@ -24,8 +25,6 @@ export interface ClaudeKillSwitch {
   setDisabled(disabled: boolean): Promise<void>;
 }
 
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
 export function createClaudeKillSwitch(db: Database): ClaudeKillSwitch {
   // Tiny TTL cache to keep the hot path off the DB for SSE streams that hit it
   // multiple times in a single request span (e.g. ensureEnabled then auth).
@@ -36,8 +35,7 @@ export function createClaudeKillSwitch(db: Database): ClaudeKillSwitch {
     if (cache && Date.now() - cache.ts < TTL_MS) return cache.value;
     try {
       const rows = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);
-      const raw = rows[0]?.version?.trim().toLowerCase() ?? '';
-      const value = TRUE_VALUES.has(raw);
+      const value = isTruthyFlagValue(rows[0]?.version);
       cache = { value, ts: Date.now() };
       return value;
     } catch {

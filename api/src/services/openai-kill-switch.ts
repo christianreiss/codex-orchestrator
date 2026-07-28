@@ -2,11 +2,12 @@ import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
 import { ApiError } from '../http/errors.js';
+import { isTruthyFlagValue } from './settings.js';
 
 /**
  * Reads the `versions` table for the `openai_api_disabled` row. When the value
- * is truthy ("1", "true", "yes", "on") all `/v1/*` non-OPTIONS routes refuse
- * to run with an OpenAI-shape 503.
+ * is truthy (see `isTruthyFlagValue`) all `/v1/*` non-OPTIONS routes refuse to
+ * run with an OpenAI-shape 503.
  *
  * The flag is consulted on every request — admins flip it via
  * `/admin/settings/openai/state`, which is owned by the admin-settings
@@ -14,7 +15,6 @@ import { ApiError } from '../http/errors.js';
  */
 
 const FLAG_NAME = 'openai_api_disabled';
-const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
 
 export interface KillSwitch {
   isDisabled(): Promise<boolean>;
@@ -30,9 +30,7 @@ export function makeOpenAiKillSwitch(db: Database): KillSwitch {
           .from(versions)
           .where(eq(versions.name, FLAG_NAME))
           .limit(1);
-        const raw = rows[0]?.value;
-        if (raw == null) return false;
-        return TRUTHY.has(String(raw).toLowerCase().trim());
+        return isTruthyFlagValue(rows[0]?.value);
       } catch {
         // If the version table is unreachable we fail open — refusing every
         // request because the metadata table glitched is worse than serving.
