@@ -785,7 +785,7 @@ export class AdminMemoryCatalog {
           FROM ${mcpMemories}
           LEFT JOIN ${hosts} ON ${hosts.id} = ${mcpMemories.hostId}
           JOIN JSON_TABLE(COALESCE(${mcpMemories.tags}, JSON_ARRAY()), '$[*]' COLUMNS(tag VARCHAR(64) PATH '$')) AS jt ON TRUE
-          WHERE ${and(...this.hostConditions(filters, false))}
+          WHERE ${and(sql`TRUE`, ...this.hostConditions(filters, false))}
           GROUP BY LOWER(jt.tag)
           ORDER BY count DESC, tag_key ASC
           LIMIT ${MEMORY_FACET_QUERY_LIMIT}
@@ -800,7 +800,7 @@ export class AdminMemoryCatalog {
           JOIN ${coordProjects} ON ${coordProjects.id} = ${coordProjectMemories.projectId}
           LEFT JOIN ${hosts} ON ${hosts.id} = ${coordProjectMemories.sourceHostId}
           JOIN JSON_TABLE(COALESCE(${coordProjectMemories.tags}, JSON_ARRAY()), '$[*]' COLUMNS(tag VARCHAR(64) PATH '$')) AS jt ON TRUE
-          WHERE ${and(...this.projectConditions(filters, false))}
+          WHERE ${and(sql`TRUE`, ...this.projectConditions(filters, false))}
           GROUP BY LOWER(jt.tag)
           ORDER BY count DESC, tag_key ASC
           LIMIT ${MEMORY_FACET_QUERY_LIMIT}
@@ -814,7 +814,7 @@ export class AdminMemoryCatalog {
           FROM ${sharedMemories}
           LEFT JOIN ${hosts} ON ${hosts.id} = ${sharedMemories.sourceHostId}
           JOIN JSON_TABLE(COALESCE(${sharedMemories.tags}, JSON_ARRAY()), '$[*]' COLUMNS(tag VARCHAR(64) PATH '$')) AS jt ON TRUE
-          WHERE ${and(...this.sharedConditions(filters, false))}
+          WHERE ${and(sql`TRUE`, ...this.sharedConditions(filters, false))}
           GROUP BY LOWER(jt.tag)
           ORDER BY count DESC, tag_key ASC
           LIMIT ${MEMORY_FACET_QUERY_LIMIT}

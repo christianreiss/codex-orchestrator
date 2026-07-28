@@ -246,6 +246,17 @@ describe.skipIf(!handle)('admin memory atlas against a real database', { timeout
       expect(serializedGraph).not.toContain(fixture.metadataMarker);
     }
 
+    const unfilteredGraph = (await service.graph({ limit: 20 }, true)) as {
+      nodes: Array<Record<string, unknown>>;
+      totals: Record<string, number>;
+      facets: { tags: Array<{ value: string; count: number }> };
+    };
+    expect(unfilteredGraph.nodes.filter((node) => node['kind'] === 'memory')).toHaveLength(3);
+    expect(unfilteredGraph.totals).toEqual({ all: 3, host: 1, project: 1, shared: 1 });
+    expect(unfilteredGraph.facets.tags).toEqual(
+      expect.arrayContaining([expect.objectContaining({ value: COMMON_TAG, count: 3 })]),
+    );
+
     const updated = new Map<MemoryScope, MemoryDetail>();
     for (const fixture of fixtures) {
       const fresh = await service.update(
