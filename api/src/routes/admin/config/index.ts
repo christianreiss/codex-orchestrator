@@ -32,8 +32,8 @@
  * Every route is gated by `app.requireAdmin` from the auth-admin plugin.
  */
 import type { FastifyInstance } from 'fastify';
-import { desc, sql } from 'drizzle-orm';
-import { mcpAccessLogs, versions } from '../../../db/schema.js';
+import { desc, eq, sql } from 'drizzle-orm';
+import { hosts, mcpAccessLogs, versions } from '../../../db/schema.js';
 import { NotFoundError, ValidationError } from '../../../http/errors.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
@@ -123,9 +123,24 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     { preHandler: app.requireAdmin },
     async (req) => {
       const limit = Math.max(1, Math.min(parseInteger(req.query.limit) ?? 200, 500));
+      // Left join so rows whose host has been pruned (or that were never bound
+      // to one) still list, with a null Host column instead of dropping out.
       const rows = await db
-        .select()
+        .select({
+          id: mcpAccessLogs.id,
+          hostId: mcpAccessLogs.hostId,
+          host_fqdn: hosts.fqdn,
+          clientIp: mcpAccessLogs.clientIp,
+          method: mcpAccessLogs.method,
+          name: mcpAccessLogs.name,
+          success: mcpAccessLogs.success,
+          errorCode: mcpAccessLogs.errorCode,
+          errorMessage: mcpAccessLogs.errorMessage,
+          createdAt: mcpAccessLogs.createdAt,
+          engine: mcpAccessLogs.engine,
+        })
         .from(mcpAccessLogs)
+        .leftJoin(hosts, eq(hosts.id, mcpAccessLogs.hostId))
         .orderBy(desc(mcpAccessLogs.createdAt))
         .limit(limit);
       return { logs: rows };
