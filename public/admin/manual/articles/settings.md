@@ -69,7 +69,7 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 #### Fleet model and effort
 
-`GET /admin/model-defaults/codex`, `POST /admin/model-defaults/codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `medium`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
+`GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=codex` — read or set the fleet-wide Codex CLI model together with its model-dependent persistent effort. POST accepts strict `{ model, reasoning_effort? }`; leaving effort unset selects the model default. The canonical config uses Codex's native `model` and `model_reasoning_effort` keys. The default is `gpt-5.6-terra` at `medium`; the endpoint's returned `catalog` supplies the allowed efforts for every model.
 
 | Model | Persistent effort choices | Default |
 |---|---|---|
@@ -111,7 +111,7 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 #### Fleet model and effort
 
-`GET /admin/model-defaults/claude`, `POST /admin/model-defaults/claude` — read or set the fleet-wide Claude Code model and persistent effort. The shared request field is named `reasoning_effort`, but the canonical Claude `settings.json` partial uses the native `model` and `effortLevel` keys.
+`GET /admin/model-defaults/{engine}`, `POST /admin/model-defaults/{engine}` with `engine=claude` — read or set the fleet-wide Claude Code model and persistent effort. The shared request field is named `reasoning_effort`, but the canonical Claude `settings.json` partial uses the native `model` and `effortLevel` keys.
 
 | Model | Persistent effort choices | Default |
 |---|---|---|

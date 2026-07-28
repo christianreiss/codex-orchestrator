@@ -162,7 +162,7 @@ Review endpoints:
 ## Source references
 
 - `api/src/routes/admin/hosts/index.ts` — every `/admin/hosts/*` mutation, insecure approvals
-- `api/src/routes/admin/overview/index.ts` — `GET /admin/hosts` (fleet list), `GET /admin/hosts/{id}/detail`, `GET /admin/hosts/insecure`, `POST /admin/hosts/insecure/{extend,disable-all}`
+- `api/src/routes/admin/overview/index.ts` — `GET /admin/hosts` (fleet list), `GET /admin/hosts/{id}/detail`, `GET /admin/hosts/insecure`, `POST /admin/hosts/insecure/extend`, `POST /admin/hosts/insecure/disable-all`
 - `api/src/routes/admin/settings/index.ts` — `POST /admin/prune-policy`
 - `api/src/services/host-auth.ts` — `authenticate`, IP binding, `pruneInactiveHosts`
 - `api/src/services/host-management.ts` — registration, mutations, insecure-window clamps

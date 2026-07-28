@@ -58,7 +58,7 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
   `/wrapper/download?engine=<engine>` for the transition launcher rather than a
   versioned binary URL. `wrapper-download.ts` is unrelated to either script —
   it is a thin binary-stream facade backing `GET /wrapper/v2/download` and
-  `GET /wrapper/v2/bin/...`.
+  `GET /wrapper/v2/bin/:engine/:platform/v:version/:binary`.
 
 ## Public endpoints
 
@@ -78,8 +78,9 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
   the legacy transition-launcher shell script for pre-v2 (date-versioned)
   hosts (see `buildLegacyWrapperTransitionScript` above).
 - `GET /wrapper/v2/manifest/:engine` — full per-platform manifest for an engine.
-- `GET /wrapper/v2/bin/{engine}/{os}-{arch}/v{version}/{binary}` — serves the
-  static binary. The response is cacheable (ETag = SHA256).
+- `GET /wrapper/v2/bin/:engine/:platform/v:version/:binary` — serves the static
+  binary; `:platform` is `<os>-<arch>`. The response is cacheable
+  (ETag = SHA256).
 - `GET /install/{token}` (alias `GET /install/v2/{token}`) — emits the
   installer script.
 - `GET /seed/auth/{token}` (alias `GET /seed/v2/auth/{token}`) /
