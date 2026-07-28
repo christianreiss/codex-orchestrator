@@ -1706,5 +1706,199 @@ class RunnerExecImageGuardTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(expected_dir))
 
 
+class RunnerSkillDraftSanitizerTest(unittest.TestCase):
+    """The draft sanitizers are the only thing between a model's JSON and the
+    columns the api writes it to.
+
+    Each max_len passed to _sanitize_skill_line is a column width, not a
+    suggestion: the slug call site passes 255 because skills.slug is
+    varchar(255), so a return value of max_len + len("...") characters is a row
+    MySQL truncates or rejects.
+    """
+
+    GENERATED_DRAFT = {
+        "slug": "deploy-crane",
+        "display_name": "Deploy crane",
+        "description": "How to ship the api to crane.",
+        "tags": ["deploy", "crane"],
+        "what": "\n\nWhat it does  \n",
+        "when": "When to reach for it",
+        "steps": "1. build\n2. ship",
+    }
+
+    def test_sanitize_skill_line_bounds_its_default_max_len(self):
+        line = runner_app._sanitize_skill_line("z" * 500)
+
+        self.assertEqual(200, len(line))
+        self.assertTrue(line.endswith("..."))
+
+    def test_sanitize_skill_line_never_exceeds_max_len_at_any_call_site(self):
+        # 60 tags, 120 display_name/title/name, 180 description, 220 project
+        # description, 240 assistant_message, 255 slug.
+        for max_len in (60, 120, 180, 220, 240, 255):
+            for label, value in (
+                ("one under", "a" * (max_len - 1)),
+                ("exactly max_len", "a" * max_len),
+                ("one over", "a" * (max_len + 1)),
+                ("far over", "a" * (max_len * 3)),
+                ("punctuated tail", "b" * (max_len - 8) + " ,;:." * 20),
+                ("whitespace to collapse", "  " + "c \n" * (max_len * 2) + "  "),
+            ):
+                with self.subTest(max_len=max_len, value=label):
+                    self.assertLessEqual(
+                        len(runner_app._sanitize_skill_line(value, max_len=max_len)),
+                        max_len,
+                    )
+
+    def test_sanitize_skill_line_leaves_short_values_untruncated(self):
+        self.assertEqual(
+            "Deploy the api to crane",
+            runner_app._sanitize_skill_line("  `Deploy the\n api   to crane`  "),
+        )
+
+    def test_sanitize_skill_section_trims_blank_edges_and_trailing_space(self):
+        section = runner_app._sanitize_skill_section(
+            "\r\n\n  \n1. build  \r\n\n2. ship\t\n\n   \n"
+        )
+
+        self.assertEqual("1. build\n\n2. ship", section)
+
+    def test_sanitize_skill_tags_ignores_anything_that_is_not_a_list(self):
+        for value in ("deploy", {"tags": ["deploy"]}, None, 7):
+            with self.subTest(value=value):
+                self.assertEqual([], runner_app._sanitize_skill_tags(value))
+
+    def test_sanitize_skill_tags_drops_non_strings_dedupes_and_caps_each_tag(self):
+        tags = runner_app._sanitize_skill_tags(
+            ["deploy", 7, None, {"tag": "x"}, "  deploy  ", "", "-", "x" * 90, ["crane"]]
+        )
+
+        self.assertEqual(["deploy", "x" * 57 + "..."], tags)
+        self.assertTrue(all(len(tag) <= 60 for tag in tags))
+
+    def test_extract_json_payload_unwraps_a_fenced_block(self):
+        self.assertEqual(
+            {"slug": "deploy", "steps": 2},
+            runner_app._extract_json_payload('  ```json\n{"slug": "deploy", "steps": 2}\n```  '),
+        )
+
+    def test_extract_json_payload_reads_a_bare_object(self):
+        self.assertEqual(
+            {"slug": "deploy"},
+            runner_app._extract_json_payload('\n{"slug": "deploy"}\n'),
+        )
+
+    def test_extract_json_payload_rejects_json_that_is_not_an_object(self):
+        for label, text in (("array", "[1, 2]"), ("string", '"deploy"'), ("number", "12")):
+            with self.subTest(payload=label):
+                with self.assertRaises(ValueError) as caught:
+                    runner_app._extract_json_payload(text)
+                self.assertEqual("runner response was not a JSON object", str(caught.exception))
+
+    def test_normalize_generated_skill_requires_every_field(self):
+        for key in ("slug", "display_name", "description", "what", "when", "steps"):
+            for label, replacement in (("missing", None), ("blank", "   "), ("non-string", 7)):
+                with self.subTest(key=key, value=label):
+                    data = dict(self.GENERATED_DRAFT)
+                    if replacement is None:
+                        data.pop(key)
+                    else:
+                        data[key] = replacement
+
+                    with self.assertRaises(ValueError) as caught:
+                        runner_app._normalize_generated_skill(data)
+                    self.assertEqual(f"missing required field: {key}", str(caught.exception))
+
+    def test_normalize_generated_skill_returns_the_skill_keys(self):
+        normalized = runner_app._normalize_generated_skill(dict(self.GENERATED_DRAFT))
+
+        self.assertEqual(
+            {"slug", "display_name", "description", "tags", "what", "when", "steps"},
+            set(normalized),
+        )
+        self.assertEqual("deploy-crane", normalized["slug"])
+        self.assertEqual(["deploy", "crane"], normalized["tags"])
+        self.assertEqual("What it does", normalized["what"])
+
+    def test_normalize_generated_skill_keeps_the_slug_inside_the_column_width(self):
+        normalized = runner_app._normalize_generated_skill(
+            {**self.GENERATED_DRAFT, "slug": "s" * 400}
+        )
+
+        # skills.slug is varchar('slug', { length: 255 }).
+        self.assertLessEqual(len(normalized["slug"]), 255)
+
+    def test_normalize_assisted_skill_requires_an_assistant_message(self):
+        for label, data in (
+            ("missing", dict(self.GENERATED_DRAFT)),
+            ("blank", {**self.GENERATED_DRAFT, "assistant_message": "  `` "}),
+        ):
+            with self.subTest(value=label):
+                with self.assertRaises(ValueError) as caught:
+                    runner_app._normalize_assisted_skill(data)
+                self.assertEqual(
+                    "missing required field: assistant_message", str(caught.exception)
+                )
+
+    def test_normalize_assisted_skill_still_requires_the_skill_fields(self):
+        data = {**self.GENERATED_DRAFT, "assistant_message": "Drafted it."}
+        data.pop("slug")
+
+        with self.assertRaises(ValueError) as caught:
+            runner_app._normalize_assisted_skill(data)
+        self.assertEqual("missing required field: slug", str(caught.exception))
+
+    def test_normalize_assisted_skill_adds_assistant_message_to_the_skill_keys(self):
+        normalized = runner_app._normalize_assisted_skill(
+            {**self.GENERATED_DRAFT, "assistant_message": "Drafted the skill."}
+        )
+
+        self.assertEqual(
+            {
+                "slug",
+                "display_name",
+                "description",
+                "tags",
+                "what",
+                "when",
+                "steps",
+                "assistant_message",
+            },
+            set(normalized),
+        )
+        self.assertEqual("Drafted the skill.", normalized["assistant_message"])
+
+    def test_normalize_assisted_project_requires_an_assistant_message(self):
+        for label, data in (("missing", {}), ("blank", {"assistant_message": " '' "})):
+            with self.subTest(value=label):
+                with self.assertRaises(ValueError) as caught:
+                    runner_app._normalize_assisted_project(data)
+                self.assertEqual(
+                    "missing required field: assistant_message", str(caught.exception)
+                )
+
+    def test_normalize_assisted_project_returns_the_project_keys(self):
+        normalized = runner_app._normalize_assisted_project(
+            {
+                "assistant_message": "Drafted the project.",
+                "title": "Crane rollout",
+                "name": None,
+                "description": 7,
+                "roster_markdown": "\n\n- alice\n- bob  \n\n",
+            }
+        )
+
+        self.assertEqual(
+            {"assistant_message", "title", "name", "description", "roster_markdown"},
+            set(normalized),
+        )
+        self.assertEqual("Crane rollout", normalized["title"])
+        # Non-string fields are optional, so they fall back to empty rather than
+        # failing the whole draft.
+        self.assertEqual("", normalized["name"])
+        self.assertEqual("", normalized["description"])
+        self.assertEqual("- alice\n- bob", normalized["roster_markdown"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -786,7 +786,7 @@ def _sanitize_skill_summary(text: str) -> str:
 def _sanitize_skill_line(value: str, *, max_len: int = 200) -> str:
     sanitized = " ".join(value.replace("\r", "\n").split()).strip(" \t\n\r`\"'-")
     if len(sanitized) > max_len:
-        sanitized = sanitized[:max_len].rstrip(" ,;:.") + "..."
+        sanitized = sanitized[: max_len - 3].rstrip(" ,;:.") + "..."
     return sanitized
 
 
