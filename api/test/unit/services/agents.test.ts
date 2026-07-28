@@ -11,6 +11,7 @@ import { agentsDocuments, agentsDocumentState } from '../../../src/db/schema.js'
 import { ApiError, NotFoundError, ValidationError } from '../../../src/http/errors.js';
 import { AgentsService } from '../../../src/services/agents.js';
 import type { Engine } from '../../../src/util/engine.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 
 const TS = '2026-07-28T09:00:00Z';
@@ -57,6 +58,8 @@ interface DocSeed {
   id: number;
   body: string;
   engine?: Engine;
+  /** Rows written before the column existed carry a null digest. */
+  sha256?: string | null;
 }
 
 function seedDocs(db: DbFake, docs: DocSeed[]): void {
@@ -67,7 +70,7 @@ function seedDocs(db: DbFake, docs: DocSeed[]): void {
       .sort((a, b) => b.id - a.id)
       .map((doc) => ({
         id: doc.id,
-        sha256: sha256Hex(doc.body),
+        sha256: doc.sha256 === undefined ? sha256Hex(doc.body) : doc.sha256,
         body: doc.body,
         sourceHostId: null,
         engine: doc.engine ?? 'codex',
@@ -179,6 +182,21 @@ describe('agents admin view', () => {
     expect(missing).toBeInstanceOf(ValidationError);
     expect(missing.message).toBe('version_id not found');
   });
+
+  it('digests the body of a row that stored no sha256', async () => {
+    const db = makeDb();
+    seedDocs(db, [{ id: 1, body: 'légacy', sha256: null }]);
+    const svc = makeService(db);
+
+    // size_bytes is the utf8 length, not the string length.
+    const view = await svc.adminFetch();
+    expect(view).toMatchObject({ status: 'ok', sha256: sha256Hex('légacy'), size_bytes: 7 });
+    expect(view.versions).toEqual([
+      expect.objectContaining({ id: 1, sha256: sha256Hex('légacy'), size_bytes: 7 }),
+    ]);
+
+    expect(await svc.adminFetchVersion(1)).toMatchObject({ sha256: sha256Hex('légacy'), size_bytes: 7 });
+  });
 });
 
 describe('agents served-version resolution', () => {
@@ -287,6 +305,23 @@ describe('agents store', () => {
     // Unknown engines fall back to codex rather than rejecting.
     await svc.store('beta', null, null, 'gemini');
     expect((db.tables.get(agentsDocuments) ?? [])[0]).toMatchObject({ engine: 'codex' });
+  });
+
+  it('publishes agents.stored for a new version and stays quiet on a dedup', async () => {
+    const svc = makeService(makeDb());
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const unsubscribe = wsPublisher.subscribe((e) => events.push({ type: e.type, payload: e.payload }));
+
+    try {
+      await svc.store('alpha', null, null, 'claude');
+      await svc.store('alpha', null, null, 'claude');
+    } finally {
+      unsubscribe();
+    }
+
+    expect(events).toEqual([
+      { type: 'agents.stored', payload: { engine: 'claude', version_id: 1, sha256: sha256Hex('alpha') } },
+    ]);
   });
 });
 
