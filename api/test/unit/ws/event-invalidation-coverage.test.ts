@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WS_EVENT_TYPES } from '../../../src/ws/events.js';
 
 /**
  * `AGENTS.md` requires every WS event the API publishes to be routed to query
@@ -12,6 +13,10 @@ import { fileURLToPath } from 'node:url';
  *
  * This test reads both sides as text — no imports across the package boundary —
  * and fails when a publish site has no matching entry and no allowlist reason.
+ *
+ * The same scan also holds `WS_EVENT_TYPES` in `api/src/ws/events.ts` to its
+ * own claim of being the canonical catalog: nothing enforced it, so it drifted
+ * in both directions (missing published types, declaring types nobody emits).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -211,12 +216,14 @@ function invalidationKeys(source: string): string[] {
 const sites = collectPublishSites();
 const publishedTypes = new Set(sites.flatMap((site) => site.types ?? []));
 const mappedTypes = new Set(invalidationKeys(readFileSync(FRONTEND_EVENTS, 'utf8')));
+const catalogedTypes = new Set<string>(WS_EVENT_TYPES);
 
 describe('WS event invalidation coverage', () => {
   it('extracts the publish sites it is meant to guard', () => {
     // A scan that silently matches nothing would pass every other assertion.
     expect(sites.length).toBeGreaterThan(80);
     expect(mappedTypes.size).toBeGreaterThan(50);
+    expect(catalogedTypes.size).toBeGreaterThan(50);
     expect(publishedTypes.has('host.updated')).toBe(true);
     // Resolved through a ternary and a template literal respectively.
     expect(publishedTypes.has('skill.stored')).toBe(true);
@@ -235,6 +242,26 @@ describe('WS event invalidation coverage', () => {
       drift,
       'add the event type to DEFAULT_INVALIDATIONS in frontend/src/lib/ws/events.ts, ' +
         'or to UNMAPPED_EVENT_TYPES here with a reason',
+    ).toEqual([]);
+  });
+
+  it('lists every published event type in the WS_EVENT_TYPES catalog', () => {
+    const missing = sites.flatMap((site) =>
+      (site.types ?? [])
+        .filter((type) => !catalogedTypes.has(type))
+        .map((type) => `${site.file}:${site.line} publishes "${type}"`),
+    );
+    expect(missing, 'add the event type to WS_EVENT_TYPES in api/src/ws/events.ts').toEqual([]);
+  });
+
+  it('catalogs no event type that is neither published nor consumed', () => {
+    const orphaned = WS_EVENT_TYPES.filter(
+      (type) => !publishedTypes.has(type) && !mappedTypes.has(type),
+    ).map((type) => `WS_EVENT_TYPES declares "${type}"`);
+    expect(
+      orphaned,
+      'nothing under api/src publishes it and DEFAULT_INVALIDATIONS does not route it — ' +
+        'drop it from WS_EVENT_TYPES in api/src/ws/events.ts',
     ).toEqual([]);
   });
 
