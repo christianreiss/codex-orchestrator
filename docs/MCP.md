@@ -23,8 +23,8 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 
 - Endpoints that authenticate (`POST /mcp` and `/mcp/memories/*`) accept MCP credentials via `X-API-Key` or `Authorization: Bearer ...`. Secure hosts typically use the host API key; insecure hosts receive a short-lived MCP bearer token in baked config.
 - `GET /mcp` does not authenticate hosts.
-- `/mcp/memories/*` uses normal host IP checks from `AuthService::authenticate` (including `allow_roaming_ips` and insecure-window IP override behavior).
-- `POST /mcp` authenticates through `AuthService::authenticateMcpCredential(...)`, then enforces insecure-host sliding-window access via `enforceInsecureWindow($host, 'mcp')`.
+- `/mcp/memories/*` authenticates through `app.requireHost` (`api/src/http/plugins/auth-host.ts`): the API key is matched by hash (legacy plaintext keys still resolve) and the host must be `active`. The IP-binding path of `hostAuth.authenticate` (`api/src/services/host-auth.ts`) — `allow_roaming_ips`, reverse DNS, insecure-window IP overrides — is what `/auth` and `/host/*` run, and it does not run here.
+- `POST /mcp` authenticates in `resolveHost()` (`api/src/routes/mcp/index.ts`): the credential is verified as a short-lived MCP session token first (`McpSessionService.verify`, 8h TTL) and otherwise resolved as a host API key (`app.resolveHostFromKey`); non-`active` hosts are then rejected. No sliding-window check runs on this route — for insecure hosts the session token's own expiry is the window.
 - Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Missing `Origin` is allowed.
 - Rate limits: global per-IP bucket applies to `/mcp*` (same non-admin bucket; defaults `120` requests per `60` seconds).
 - MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.

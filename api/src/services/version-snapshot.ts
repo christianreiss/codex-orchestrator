@@ -12,6 +12,10 @@ import { isSemanticVersion, normalizeVersion } from './client-versions.js';
  *
  * Engine-aware: keys are looked up with a `_codex` or `_claude` suffix first,
  * falling back to unsuffixed keys for legacy rows.
+ *
+ * `VersionSnapshot` is what `GET /versions` serves, so its keys are mirrored in
+ * the `GET /versions` bullet of `docs/interface-api.md`; changing them here
+ * without changing the doc fails `test/unit/contract/versions-doc-keys.test.ts`.
  */
 
 export interface VersionSnapshot {
