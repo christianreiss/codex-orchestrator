@@ -96,15 +96,15 @@ Prefer the installer (`bin/setup.sh`) to generate `.env` and secrets. If you nee
    - When using bundled Caddy, `/admin*` still requires a valid client certificate at the proxy layer.
    - Admin login (recommended):
     - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
-    - `ADMIN_SESSION_TTL_SECONDS` (default 28800)
-    - `ADMIN_PASSWORD_MIN_LENGTH` (default 12)
+    - `ADMIN_SESSION_TTL_MINUTES` (default 43200; an issued session is clamped to 7 days regardless)
+    - Admin passwords must be at least 12 characters. That floor is fixed in the API and has no env knob.
     - Password recovery uses `PUBLIC_BASE_URL` for the emailed reset link and SMTP settings for delivery; reset tokens are single-use and expire after one hour.
-   - Runner knobs: `AUTH_RUNNER_URL` (blank leaves verification unavailable, so existing verified auth may still be served but every new canonical-auth store is blocked), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, optional `AUTH_RUNNER_SKILL_SUMMARY_URL`, optional `AUTH_RUNNER_MEMORY_SUMMARY_URL`, optional `AUTH_RUNNER_SKILL_GENERATE_URL`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
+   - Runner knobs: `AUTH_RUNNER_URL` (blank leaves verification unavailable, so existing verified auth may still be served but every new canonical-auth store is blocked), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`, `AUTH_RUNNER_VERIFY_TTL_SECONDS`, `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, optional `AUTH_RUNNER_SHARED_SECRET`, and `AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS` (allow runner probes to bypass host IP pinning on internal CIDRs).
    - Proxy/origin hardening: `TRUST_X_FORWARDED`, `TRUSTED_PROXY_CIDRS`, `MCP_ALLOW_REQUEST_HOST_ORIGIN`.
    - Base-URL policy: `APP_ENV`, `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
-   - Schema changes: apply the reviewable SQL under `api/src/db/migrations/` explicitly before starting the matching API version. There is no boot migration runner.
-   - Token TTLs: `INSTALL_TOKEN_TTL_SECONDS` (default 1800) and `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
-   - Rate limits: `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (per-IP global bucket; defaults 120 req / 60s for non-admin routes).
+   - Schema changes: `RUN_MIGRATIONS_ON_BOOT` (default on) applies every pending file under `api/src/db/migrations/` before the API opens a listener. Turning it off does not turn off the *check* — boot still fails while a migration is pending. `MIGRATIONS_LOCK_TIMEOUT` (default 120) bounds the wait for the advisory lock when several instances boot at once, `MIGRATIONS_DIR` overrides the migration directory for a non-standard layout, and `RUN_BACKFILLS_ON_BOOT` (default off) runs the data backfills.
+   - Token TTLs: `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900). One-time installer tokens are fixed at 1800s in the API and have no env knob.
+   - Rate limits: the per-IP global bucket (120 req / 60s) is fixed in the API and has no env knob.
   - Usage telemetry: `quota-cron` is a default Compose service. It performs one refresh at boot and then polls on `CHATGPT_USAGE_CRON_INTERVAL` (default 900). Configure `CHATGPT_BASE_URL` and `CHATGPT_USAGE_TIMEOUT` as needed. Its healthcheck reads `CHATGPT_USAGE_HEALTH_PATH` and becomes unhealthy when no successful snapshot arrives within `CHATGPT_USAGE_CRON_INTERVAL + 300s`, unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides that limit.
    - Debug/ops: `PUBLIC_BASE_URL` (explicit host-facing base URL for installers/wrapper), `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG` (runner/debug surfaces), `ENV_FILE` if you keep `.env` elsewhere.
 3. Ensure `.env` is kept out of git and treated as a secret.
@@ -128,8 +128,8 @@ It checks the git worktree, fast-forwards from the configured upstream, optional
 - API defaults to `http://localhost:8488`.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
 - Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`). Leaving that env blank keeps existing verified auth readable but blocks every canonical-changing store. The API keeps canonical Codex/Claude auth fresh from a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s) instead of blocking wrapper startup. Admin seed/admin upload paths run through the same strict runner validation/update path as host `/auth` stores, so all require a configured, reachable runner and a positive live verdict. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
-- Apply additive migrations before the matching deploy. For example: `docker compose exec -T mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < api/src/db/migrations/0004_add_claude_artifacts.sql`. API startup and the deploy helper fail closed if the required `claude_artifacts` table is absent.
-- Global rate limit for non-admin routes defaults to 120 req/min/IP (`RATE_LIMIT_GLOBAL_PER_MINUTE` + `RATE_LIMIT_GLOBAL_WINDOW`).
+- Pending migrations are applied at boot (`RUN_MIGRATIONS_ON_BOOT`, default on), so a deploy of a version that adds schema needs no separate step. Set it to `0` only when you apply them out of band with `node dist/migrate.js`; startup still fails closed while a migration is pending. API startup also fails closed if the required `claude_artifacts` table is absent.
+- Global rate limit is 120 req/min/IP.
 
 ## Optional: bundled Caddy frontend (no existing proxy)
 
@@ -162,4 +162,4 @@ It checks the git worktree, fast-forwards from the configured upstream, optional
 - Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and caller IP matches `TRUSTED_PROXY_CIDRS`; scope those CIDRs tightly.
 - In production, keep `PUBLIC_BASE_URL` set and `STRICT_HOST_VALIDATION=1`.
 - If you enable `AUTH_RUNNER_IP_BYPASS`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to internal CIDRs only.
-- Global rate limiting is off for admin routes but on for everything else; tune or disable with `RATE_LIMIT_GLOBAL_PER_MINUTE`/`RATE_LIMIT_GLOBAL_WINDOW` if your proxy already rate-limits.
+- Global rate limiting covers every route except `/healthz`, the admin WS upgrade, and static admin assets. It is not configurable, so put your own limits at the proxy if you need different numbers.
