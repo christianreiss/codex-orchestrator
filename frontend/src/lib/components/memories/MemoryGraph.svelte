@@ -14,7 +14,6 @@
   import "@xyflow/svelte/dist/style.css";
   import type { MemoryGraphEdge, MemoryGraphNode } from "$lib/api/memories";
   import MemoryGraphNodeComponent from "./MemoryGraphNode.svelte";
-  import MemoryGraphViewportSync from "./MemoryGraphViewportSync.svelte";
   import {
     MEMORY_NODE_HEIGHT,
     MEMORY_NODE_WIDTH,
@@ -172,12 +171,6 @@
       selected: node.id === selectedNodeId,
     })),
   );
-  const layoutKey = $derived(JSON.stringify([
-    showTags,
-    showProvenance,
-    layouted.nodes.map((node) => node.id),
-    layouted.edges.map((edge) => edge.id),
-  ]));
 </script>
 
 <div class="memory-flow h-[560px] w-full overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_18%_12%,hsl(var(--primary)/0.10),transparent_34%),radial-gradient(circle_at_88%_78%,hsl(var(--accent)/0.18),transparent_36%),hsl(var(--muted)/0.28)] md:h-[640px]">
@@ -209,7 +202,6 @@
       zoomOnPinch
       onlyRenderVisibleElements
     >
-      <MemoryGraphViewportSync topologyKey={layoutKey} {reducedMotion} />
       <Background variant={BackgroundVariant.Dots} gap={24} size={1.25} patternColor="hsl(var(--muted-foreground) / 0.22)" />
       <Controls position="bottom-left" showLock={false} fitViewOptions={{ padding: 0.18, duration: reducedMotion ? 0 : 300 }} />
       {#if layouted.nodes.length <= 250}
