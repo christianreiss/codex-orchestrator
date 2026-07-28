@@ -30,13 +30,14 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
+| `execute` / `--execute "<prompt>"` | Headless one-shot via `claude -p`; the boot screen is suppressed but auth + resource sync still run. `--execute` is the spelling that carries the prompt; the bare `execute` token dispatches the same path with an empty prompt and its own trailing arguments appended |
 | `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. It skips the managed run lock but keeps a neutral auth session plus the native-auth active-child lease until the help child exits, so another insecure invocation's final purge cannot be stranded. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
-| `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
+| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
-| `--update` | Self-update now (verifies SHA256 before swapping) |
-| `--uninstall` | Take the native-auth exclusive maintenance lease, then remove credentials + local state + cron entry; refuses while another clx auth session is active, on a known multi-user host without sudo, or when the user lookup fails without root/passwordless-sudo fallback |
+| `update` / `--update` | Self-update now (verifies SHA256 before swapping) |
+| `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, then remove credentials + local state + cron entry; refuses while another clx auth session is active, on a known multi-user host without sudo, or when the user lookup fails without root/passwordless-sudo fallback |
 
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
 

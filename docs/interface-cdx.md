@@ -109,11 +109,11 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
 | `--resume[=<session>]` | Alias for the `resume` subcommand above — upstream `codex` has no `--resume` flag, so the wrapper re-spells it as `codex resume [session]`; a following option is not consumed as a session id |
-| `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run |
-| `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
+| `execute` / `--execute "<prompt>"` | Headless one-shot via `codex exec`; the boot screen is suppressed but auth + resource sync still run. `--execute` is the spelling that carries the prompt; the bare `execute` token dispatches the same path with an empty prompt and its own trailing arguments appended |
+| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Manage the optional host auto-update crontab entry (`run` is the action fired by cron itself); reports the upstream Codex CLI as a normalized semantic version even when `codex --version` prints a label such as `codex-cli 0.130.0`; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Codex and, on dual-engine hosts, force one guarded `clx --cron run` peer tick so Claude Code is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
-| `--update` | Self-update now (verifies SHA256 before swapping) |
-| `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, then remove auth + local state + cron entry; refuses while another cdx auth session is active and on multi-user hosts without sudo |
+| `update` / `--update` | Self-update now (verifies SHA256 before swapping) |
+| `uninstall` / `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, then remove auth + local state + cron entry; refuses while another cdx auth session is active and on multi-user hosts without sudo |
 
 ### Terminal presentation
 
