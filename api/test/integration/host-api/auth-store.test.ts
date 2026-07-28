@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import {
+  authCanonicalHeads,
   authEntries,
   authPayloads,
   chatgptUsageSnapshots,
@@ -564,6 +565,82 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
 
     expect(r.statusCode).toBe(200);
     expect(JSON.parse(r.payload).chatgpt.active_quota_lane).toBe('spark');
+    await app.close();
+  });
+
+  it('keeps the retrieve contract when the fallback reports failed-canonical credential identity', async () => {
+    const apiKey = 'sk-retrieve-failed-canonical-identity';
+    const db = seedDb(apiKey);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const stamp = '2026-07-10T09:00:00Z';
+    const source = {
+      last_refresh: stamp,
+      claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-failed-head-access-token',
+        refreshToken: 'failed-head-refresh-token',
+      },
+    };
+    const withFallback = validation.ensureAuthsFallback(source, 'claude');
+    const canonical = validation.canonicalizeAuthPayload(
+      withFallback,
+      validation.normalizeAuthEntries(withFallback, 'claude'),
+      stamp,
+    );
+    const encoded = JSON.stringify(canonical);
+    db.tables.set(authPayloads, [
+      {
+        id: 40,
+        lastRefresh: stamp,
+        sha256: validation.calculateDigest(encoded),
+        sourceHostId: null,
+        createdAt: stamp,
+        body: encrypt(encoded, keyring),
+        verificationState: 'failed',
+        verificationCheckedAt: stamp,
+        verificationReason: 'provider rejected token',
+        engine: 'claude',
+        generation: 4,
+      },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'claude', payloadId: 40, generation: 4, updatedAt: stamp },
+    ]);
+    const envWithRunner = {
+      ...(baseEnv as Record<string, unknown>),
+      AUTH_RUNNER_URL: 'https://runner.example/verify',
+      AUTH_RUNNER_TIMEOUT: 2,
+    } as typeof baseEnv;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      }),
+    );
+    const app = await buildHostApiTestApp({ db: db as any, env: envWithRunner, keyring });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'claude',
+        include_auth: true,
+        auth_candidate: {
+          claudeAiOauth: {
+            accessToken: 'sk-ant-oat01-distinct-local-access-token',
+            refreshToken: 'distinct-local-refresh-token',
+          },
+        },
+      }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const auth = JSON.parse(r.payload).auth;
+    expect(auth.candidate_matches_failed_canonical).toBe(false);
+    // Bootstrap nests the /auth retrieve body under `auth`; re-apply the
+    // envelope the standalone route adds so the same contract judges it.
+    assertContract('auth-retrieve.schema.json', { status: auth.status, data: auth });
     await app.close();
   });
 });

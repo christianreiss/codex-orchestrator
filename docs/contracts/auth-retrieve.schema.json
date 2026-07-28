@@ -73,6 +73,10 @@
         "verification_reason": {
           "type": "string"
         },
+        "candidate_matches_failed_canonical": {
+          "type": "boolean",
+          "description": "Credential-identity comparison against a failed selected head. Only explicit false proves the submitted candidate is distinct."
+        },
         "engine": {
           "enum": [
             "codex",
@@ -247,9 +251,9 @@
             "wrapper_url",
             "runner_state",
             "api_disabled",
+            "auto_update_enabled",
             "cdx_silent",
             "clx_silent",
-            "auto_update_enabled",
             "installation_id",
             "engine"
           ],
@@ -261,18 +265,6 @@
               ]
             },
             "client_version_override": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "client_version_checked_at": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "client_version_source": {
               "type": [
                 "string",
                 "null"
@@ -299,76 +291,23 @@
                 "null"
               ]
             },
-            "reported_client_version": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "reported_wrapper_version": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "quota_hard_fail": {
-              "type": "boolean"
-            },
-            "quota_limit_percent": {
-              "type": "integer"
-            },
-            "quota_week_partition": {
-              "type": "integer"
-            },
-            "cdx_silent": {
-              "type": "boolean"
-            },
-            "admin_theme": {
-              "type": "string",
-              "enum": [
-                "auto",
-                "auto-pink",
-                "light",
-                "dark",
-                "bright-pink",
-                "dark-pink"
-              ]
-            },
-            "auto_update_enabled": {
-              "type": "boolean"
-            },
-            "api_disabled": {
-              "type": "boolean"
-            },
-            "clx_silent": {
-              "type": "boolean"
-            },
-            "runner_enabled": {
-              "type": "boolean"
-            },
             "runner_state": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "runner_last_ok": {
-              "type": [
-                "string",
-                "null"
-              ]
+            "api_disabled": {
+              "type": "boolean"
             },
-            "runner_last_fail": {
-              "type": [
-                "string",
-                "null"
-              ]
+            "auto_update_enabled": {
+              "type": "boolean"
             },
-            "runner_last_check": {
-              "type": [
-                "string",
-                "null"
-              ]
+            "cdx_silent": {
+              "type": "boolean"
+            },
+            "clx_silent": {
+              "type": "boolean"
             },
             "installation_id": {
               "type": [
