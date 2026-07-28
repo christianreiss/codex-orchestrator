@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,146 @@ func TestDecideExactCandidateRejectionOverridesLocalFreshness(t *testing.T) {
 		t.Fatalf("exact candidate rejection decision = %+v", got)
 	}
 }
+
+// TestDecideCandidateMatchesFailedCanonical pins the three states of the
+// server's credential-identity verdict on a failed canonical. The local file is
+// fresh but NOT strictly newer than the canonical, so the last_refresh heuristic
+// refuses on its own — only an explicit false may authorize the launch.
+func TestDecideCandidateMatchesFailedCanonical(t *testing.T) {
+	yes, no := true, false
+	probe := LocalAuthProbe{
+		IsValid:     func(string) bool { return true },
+		IsFresh:     func(_ string, w time.Duration) (bool, error) { return w <= MaxLocalAuthAge, nil },
+		LastRefresh: func(string) (time.Time, error) { return time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC), nil },
+	}
+	cases := []struct {
+		name    string
+		match   *bool
+		allowed bool
+	}{
+		{name: "nil keeps the timestamp-only refusal", match: nil, allowed: false},
+		{name: "false authorizes launch from fresh local auth", match: &no, allowed: true},
+		{name: "true keeps the refusal", match: &yes, allowed: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Decide(&AuthRetrieveResponse{
+				Status:                     "outdated",
+				VerificationState:          "failed",
+				CanonicalLastRefresh:       "2026-06-08T15:26:33Z",
+				CandidateMatchesFailedHead: tc.match,
+			}, "/dev/null", false, probe)
+			if got.Allowed != tc.allowed {
+				t.Fatalf("Allowed = %v, want %v (reason=%q)", got.Allowed, tc.allowed, got.Reason)
+			}
+			if tc.allowed {
+				if !got.LocalUsable || got.VerificationFailed {
+					t.Fatalf("launch decision = %+v, want LocalUsable without VerificationFailed", got)
+				}
+				return
+			}
+			if !got.VerificationFailed {
+				t.Fatalf("refusal decision = %+v, want VerificationFailed", got)
+			}
+		})
+	}
+}
+
+// TestDecideCandidateMismatchStillNeedsUsableLocalAuth pins that the server's
+// "different credential" verdict authorizes nothing on its own: a stale or
+// structurally broken auth.json cannot launch Codex.
+func TestDecideCandidateMismatchStillNeedsUsableLocalAuth(t *testing.T) {
+	no := false
+	resp := &AuthRetrieveResponse{
+		Status:                     "outdated",
+		VerificationState:          "failed",
+		CanonicalLastRefresh:       "2026-06-08T15:26:33Z",
+		CandidateMatchesFailedHead: &no,
+	}
+	stale := LocalAuthProbe{
+		IsValid:     func(string) bool { return true },
+		IsFresh:     func(string, time.Duration) (bool, error) { return false, nil },
+		LastRefresh: func(string) (time.Time, error) { return time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC), nil },
+	}
+	if got := Decide(resp, "/dev/null", true, stale); got.Allowed || !got.VerificationFailed {
+		t.Fatalf("stale local decision = %+v, want refusal", got)
+	}
+	invalid := LocalAuthProbe{
+		IsValid:     func(string) bool { return false },
+		IsFresh:     func(string, time.Duration) (bool, error) { return true, nil },
+		LastRefresh: func(string) (time.Time, error) { return time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC), nil },
+	}
+	if got := Decide(resp, "/dev/null", false, invalid); got.Allowed || !got.VerificationFailed {
+		t.Fatalf("invalid local decision = %+v, want refusal", got)
+	}
+}
+
+// TestDecideCandidateMismatchOnSecureHostStretchesWindow pins that the 7d
+// secure-host cached-auth window applies here too, exactly as it does offline.
+func TestDecideCandidateMismatchOnSecureHostStretchesWindow(t *testing.T) {
+	no := false
+	got := Decide(&AuthRetrieveResponse{
+		Status:                     "outdated",
+		VerificationState:          "failed",
+		CanonicalLastRefresh:       "2026-06-08T15:26:33Z",
+		CandidateMatchesFailedHead: &no,
+	}, "/dev/null", true, LocalAuthProbe{
+		IsValid:     func(string) bool { return true },
+		IsFresh:     func(_ string, w time.Duration) (bool, error) { return w == MaxLocalAuthRecent, nil },
+		LastRefresh: func(string) (time.Time, error) { return time.Date(2026, 6, 8, 15, 26, 33, 0, time.UTC), nil },
+	})
+	if !got.Allowed || !got.LocalUsable {
+		t.Fatalf("secure-host decision = %+v, want launch from cached auth", got)
+	}
+}
+
+// TestDecideCandidateMismatchDoesNotRescueRejectedCandidate pins precedence: an
+// exact-candidate rejection is provider evidence about the local bytes, so it
+// still refuses even alongside a "different credential" verdict.
+func TestDecideCandidateMismatchDoesNotRescueRejectedCandidate(t *testing.T) {
+	no := false
+	got := Decide(&AuthRetrieveResponse{
+		Status:                      "outdated",
+		VerificationState:           "failed",
+		CandidateCredentialRejected: true,
+		CandidateMatchesFailedHead:  &no,
+	}, "/dev/null", true, LocalAuthProbe{
+		IsValid: func(string) bool { return true },
+		IsFresh: func(string, time.Duration) (bool, error) { return true, nil },
+	})
+	if got.Allowed || !got.VerificationFailed || got.Status != "credential_rejected" {
+		t.Fatalf("rejected-candidate decision = %+v", got)
+	}
+}
+
+// TestAuthRetrieveResponseDecodesCandidateMatchesFailedCanonical pins the wire
+// key, since the whole gate hinges on distinguishing an absent field from an
+// explicit false.
+func TestAuthRetrieveResponseDecodesCandidateMatchesFailedCanonical(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want *bool
+	}{
+		{body: `{"status":"outdated","verification_state":"failed"}`, want: nil},
+		{body: `{"status":"outdated","candidate_matches_failed_canonical":false}`, want: boolPtr(false)},
+		{body: `{"status":"outdated","candidate_matches_failed_canonical":true}`, want: boolPtr(true)},
+	} {
+		var resp AuthRetrieveResponse
+		if err := json.Unmarshal([]byte(tc.body), &resp); err != nil {
+			t.Fatalf("unmarshal %s: %v", tc.body, err)
+		}
+		switch {
+		case tc.want == nil && resp.CandidateMatchesFailedHead != nil:
+			t.Fatalf("%s: got %v, want nil", tc.body, *resp.CandidateMatchesFailedHead)
+		case tc.want != nil && resp.CandidateMatchesFailedHead == nil:
+			t.Fatalf("%s: got nil, want %v", tc.body, *tc.want)
+		case tc.want != nil && *resp.CandidateMatchesFailedHead != *tc.want:
+			t.Fatalf("%s: got %v, want %v", tc.body, *resp.CandidateMatchesFailedHead, *tc.want)
+		}
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
 
 // TestDecideIPMismatch pins the static-IP denial from /sync/bootstrap. The
 // client exposes that 401 as an offline response, but the API is reachable and

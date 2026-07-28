@@ -40,6 +40,12 @@ type AuthRetrieveResponse struct {
 	// live provider verification. Unlike CandidateRejectedDefinitive, this
 	// signal alone never authorizes an older canonical to overwrite local auth.
 	CandidateCredentialRejected bool `json:"candidate_credential_rejected,omitempty"`
+	// CandidateMatchesFailedHead is the server's credential-identity verdict on
+	// a failed canonical: false proves the submitted candidate is a *different*
+	// credential than the one that failed verification, true proves it is the
+	// same one. Nil means the server made no comparison (no failed canonical, or
+	// an older server), so the timestamp heuristic remains the only evidence.
+	CandidateMatchesFailedHead *bool `json:"candidate_matches_failed_canonical,omitempty"`
 }
 
 // AuthCandidateAccepted reports whether the server accepted the exact auth

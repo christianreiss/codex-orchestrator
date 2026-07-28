@@ -129,6 +129,19 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// open the interactive `codex login` recovery, rather than matching on
 	// this prose.
 	if strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		// The server compared the submitted candidate against the failed
+		// canonical and reported they are different credentials. That identity
+		// proof beats the last_refresh heuristic below: the failed verdict
+		// demonstrably does not describe the local file, so a fresh, structurally
+		// usable auth.json may launch instead of forcing an interactive
+		// `codex login`. A nil verdict (no comparison made) or true (the local
+		// credential IS the one that failed) leaves the refusal untouched.
+		if failedCanonicalExcludesLocal(resp, localAuthPath, hostSecure, probe) {
+			d.Allowed = true
+			d.LocalUsable = true
+			d.Reason = "Fleet credentials failed verification; local auth.json is a different credential."
+			return d
+		}
 		// The failed verdict is about the SERVER's canonical blob. When the
 		// local auth.json is strictly newer (a fresh `codex login` the
 		// orchestrator has not adopted yet — e.g. the runner outage gated the
@@ -240,6 +253,35 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// wrapper update, not a silent launch).
 	d.Reason = "Unknown auth status " + status + "; refusing to start Codex."
 	return d
+}
+
+// failedCanonicalExcludesLocal reports whether the server explicitly proved the
+// local credential is not the one whose verification failed, AND the on-disk
+// auth.json is structurally usable and still inside the cached-auth window
+// (secure hosts stretch to 7d, as everywhere else).
+func failedCanonicalExcludesLocal(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, probe LocalAuthProbe) bool {
+	if resp.CandidateMatchesFailedHead == nil || *resp.CandidateMatchesFailedHead {
+		return false
+	}
+	if localAuthPath == "" || probe.IsValid == nil || !probe.IsValid(localAuthPath) {
+		return false
+	}
+	return localAuthFresh(localAuthPath, hostSecure, probe)
+}
+
+// localAuthFresh applies the standard cached-auth windows to the local file.
+func localAuthFresh(localAuthPath string, hostSecure bool, probe LocalAuthProbe) bool {
+	if probe.IsFresh == nil {
+		return false
+	}
+	if fresh, err := probe.IsFresh(localAuthPath, MaxLocalAuthAge); err == nil && fresh {
+		return true
+	}
+	if hostSecure {
+		fresh, err := probe.IsFresh(localAuthPath, MaxLocalAuthRecent)
+		return err == nil && fresh
+	}
+	return false
 }
 
 // localNewerThanCanonical reports whether the on-disk auth.json is structurally
