@@ -831,7 +831,7 @@ DOCUMENTED_ROUTE_RE = re.compile(r"`(GET|POST|PUT|PATCH|DELETE) (/[^`\s]*)`")
 
 
 class RunnerDocSurfaceTest(unittest.TestCase):
-    """docs/auth-runner.md is the only description of this HTTP surface.
+    """docs/auth-runner.md is the API-side description of this HTTP surface.
 
     API and wrapper authors read the doc, not the router, so a route that
     exists here and nowhere in the doc is a route nobody knows to call — or,
@@ -858,6 +858,61 @@ class RunnerDocSurfaceTest(unittest.TestCase):
             [],
             undocumented,
             f"missing from docs/auth-runner.md: {', '.join(undocumented)}",
+        )
+
+
+README_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+
+
+class RunnerReadmeSurfaceTest(unittest.TestCase):
+    """runner/README.md is the operator-facing description of the same surface.
+
+    It drifted from the router once already — five registered routes went
+    unmentioned and the shared-secret list left out /exec — so this checks both
+    directions: the README has to name every registered route, and every
+    `METHOD /path` it names has to be a route the runner actually serves.
+    """
+
+    def readme_routes(self):
+        with open(README_PATH, encoding="utf-8") as fh:
+            return set(DOCUMENTED_ROUTE_RE.findall(fh.read()))
+
+    def registered_routes(self):
+        return {
+            (method, route.path)
+            for route in runner_app.app.routes
+            # Skip FastAPI's own /docs and /openapi.json plumbing.
+            if isinstance(route, APIRoute)
+            for method in route.methods
+        }
+
+    def test_every_registered_route_is_in_the_readme(self):
+        registered = self.registered_routes()
+        self.assertNotEqual(set(), registered)
+
+        undocumented = sorted(
+            f"{method} {path}" for method, path in registered - self.readme_routes()
+        )
+
+        self.assertEqual(
+            [],
+            undocumented,
+            f"missing from runner/README.md: {', '.join(undocumented)}",
+        )
+
+    def test_every_readme_route_is_registered(self):
+        # A backticked `METHOD /path` in the README claims a route on this
+        # runner; endpoints owned by Anthropic or the API service are written
+        # without a method so they cannot be mistaken for one.
+        unregistered = sorted(
+            f"{method} {path}"
+            for method, path in self.readme_routes() - self.registered_routes()
+        )
+
+        self.assertEqual(
+            [],
+            unregistered,
+            f"documented in runner/README.md but not registered: {', '.join(unregistered)}",
         )
 
 

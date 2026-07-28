@@ -20,7 +20,7 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
-- The Codex CLI (default `rust-v0.125.0`, musl builds). Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- The Codex CLI (default `rust-v0.144.1`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so the probe runs the same model catalog as real hosts — an older CLI without the default probe model fails every valid fresh login. Override via build args `CODEX_TAG`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22 plus the `@anthropic-ai/claude-code` npm package (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 ## Run (standalone)
@@ -35,13 +35,28 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `ANTHROPIC_API_BASE` (optional) — Anthropic API base URL used by `POST /verify-claude`; defaults to `https://api.anthropic.com`.
-- `RUNNER_SHARED_SECRET` (optional, recommended) — when set, `/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, and `/projects/assist` require header `X-Runner-Auth` with an exact secret match.
+- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`. Dumps land at `/tmp/last-auth.json` (Codex) and `/tmp/last-claude-auth.json` (Claude).
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for debug secret dumps.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
 
 ## HTTP API
+
+Every route `runner/app.py` registers, and nothing else. `runner/test_app.py`
+walks `app.routes` and fails both ways — a registered route missing from this
+file, and a `METHOD /path` documented here that the router does not serve — so
+this list cannot drift from the code.
+
+- `GET /health` — per-engine CLI availability.
+- `POST /verify` — Codex credential probe.
+- `POST /verify-claude` — Claude credential probe.
+- `GET /skills/summarize` / `POST /skills/summarize` — readiness probe / skill summary.
+- `GET /memories/summarize` / `POST /memories/summarize` — readiness probe / memory summary.
+- `GET /skills/generate` / `POST /skills/generate` — readiness probe / structured skill draft.
+- `GET /skills/assist` / `POST /skills/assist` — readiness probe / skill draft revision.
+- `GET /projects/assist` / `POST /projects/assist` — readiness probe / project draft revision.
+- `GET /exec` / `POST /exec` — readiness probe / one-shot prompt execution.
 
 ### `GET /health`
 
@@ -135,8 +150,8 @@ Behavior details:
 
 ### `POST /verify-claude`
 
-Claude credential probe. API-key credentials use a small `POST /v1/messages`
-call to Anthropic directly. Claude Code OAuth credentials (`claudeAiOauth` /
+Claude credential probe. API-key credentials use a small Anthropic
+`/v1/messages` call directly. Claude Code OAuth credentials (`claudeAiOauth` /
 `sk-ant-oat...`) are validated by writing the native
 `~/.claude/.credentials.json` shape into a temporary HOME and running a lightweight
 Claude CLI print probe, because those tokens are not public Anthropic API keys.
@@ -233,6 +248,14 @@ When `engine: "claude"`, the runner:
 
 When `engine` is omitted or set to `"codex"`, the runner uses the existing Codex path unchanged.
 
+### `GET /skills/summarize`
+
+Readiness probe for the skill summary path:
+
+```json
+{ "status": "ok" }
+```
+
 ### `POST /skills/summarize`
 
 Request body:
@@ -268,6 +291,14 @@ Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
 - Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+
+### `GET /memories/summarize`
+
+Readiness probe for the memory summary path:
+
+```json
+{ "status": "ok" }
+```
 
 ### `POST /memories/summarize`
 
@@ -313,6 +344,14 @@ Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
 - Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+
+### `GET /skills/generate`
+
+Readiness probe for the skill draft path:
+
+```json
+{ "status": "ok" }
+```
 
 ### `POST /skills/generate`
 
@@ -421,7 +460,7 @@ Response (success):
 Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with the current draft, full conversation, and slug-lock guidance, and requires strict JSON output.
-- Returns an `assistant_message` plus a complete updated draft; the API/admin app still validates, normalizes, and persists later via `POST /admin/skills/store`.
+- Returns an `assistant_message` plus a complete updated draft; the API/admin app still validates, normalizes, and persists later via its own `/admin/skills/store` endpoint.
 
 ### `GET /projects/assist`
 
@@ -483,3 +522,67 @@ Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict JSON prompt that is explicitly limited to the provided project snapshot.
 - Returns draft fields only; the admin API/UI remains responsible for deciding what to persist.
+
+### `GET /exec`
+
+Readiness probe for the one-shot prompt path:
+
+```json
+{ "status": "ok" }
+```
+
+### `POST /exec`
+
+Run a single prompt through the engine CLI. This is the route the API uses to serve OpenAI/Anthropic-style completions from a host's stored credentials.
+
+Request body:
+
+```json
+{
+  "auth_json": { "tokens": { "access_token": "sk-..." } },
+  "prompt": "Summarize the rollout plan in one paragraph.",
+  "engine": "codex",
+  "model": "gpt-5.6-terra",
+  "timeout_seconds": 30
+}
+```
+
+Fields:
+- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token for the selected engine.
+- `prompt` (required string) — the prompt to execute.
+- `images` (optional array) — attachments with `url` (http(s) or `data:` URL) and optional `detail`; materialized into the temp `$HOME` and passed to the CLI as image paths.
+- `model` (optional string) — model passed to the CLI.
+- `engine` (optional string) — `codex` or `claude`; defaults to `codex`.
+- `system` (optional string) — system prompt; read only on the `claude` path.
+- `max_tokens` (optional int) — read only on the `claude` path, and dropped there too because the Claude CLI has no such flag.
+- `temperature`, `top_p`, `top_k`, `stop_sequences` (optional) — accepted for wire-format compatibility and passed to neither CLI.
+- `timeout_seconds` (optional float) — exec timeout in seconds; defaults to 30.0 when omitted.
+
+Response (success):
+
+```json
+{
+  "status": "ok",
+  "latency_ms": 1234,
+  "reachable": true,
+  "output": "The rollout proceeds in three stages..."
+}
+```
+
+Response (failure):
+
+```json
+{
+  "status": "fail",
+  "latency_ms": 1234,
+  "reachable": true,
+  "output": "",
+  "error": "codex exec failed"
+}
+```
+
+Behavior details:
+- Uses the same temporary `$HOME` flow as `/verify`, writing `~/.codex/auth.json` or `~/.claude/.credentials.json` depending on `engine`, and includes `updated_auth` when the CLI rewrites the credential file.
+- The `claude` path runs with `--output-format json`; a 0-exit response that is not that JSON shape is reported as `status:"fail"` rather than being passed through as reply text, and an `is_error` result inside a 0-exit response is a failure too.
+- The `claude` path also returns `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
+- HTTP 504 on exec timeout (`"exec timeout"`); HTTP 500 on runner exceptions.
