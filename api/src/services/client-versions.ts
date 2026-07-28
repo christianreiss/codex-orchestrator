@@ -37,6 +37,12 @@ export interface AvailableRelease {
 
 const CACHE_TTL_SECONDS = 3600;
 
+/**
+ * Oldest Codex CLI the server supports: canonical config.toml renders
+ * `[features].memories = true` by default, which older CLIs reject.
+ */
+export const CODEX_MIN_CLIENT_VERSION = '0.125.0';
+
 export class ClientVersionsService {
   constructor(
     private readonly settings: SettingsService,
@@ -202,6 +208,26 @@ export class ClientVersionsService {
 
 export function isSemanticVersion(s: string): boolean {
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(s);
+}
+
+/**
+ * Raises an explicit Codex pin below CODEX_MIN_CLIENT_VERSION up to it; pins
+ * at or above the floor are returned unchanged. Expects an already-normalized
+ * semver (prerelease/build tails are ignored for the comparison).
+ */
+export function coerceCodexVersionToMinimum(normalized: string): string {
+  return comparableVersion(normalized) < comparableVersion(CODEX_MIN_CLIENT_VERSION)
+    ? CODEX_MIN_CLIENT_VERSION
+    : normalized;
+}
+
+// Zero-pads each numeric segment so plain string compare orders versions.
+function comparableVersion(version: string): string {
+  return version
+    .replace(/[-+].*$/, '')
+    .split('.')
+    .map((part) => part.padStart(6, '0'))
+    .join('.');
 }
 
 export function normalizeVersion(s: string | null | undefined): string | null {

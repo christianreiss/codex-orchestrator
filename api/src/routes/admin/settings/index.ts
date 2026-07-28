@@ -14,6 +14,7 @@ import type { RouteContext } from '../../index.js';
 import { SettingsService } from '../../../services/settings.js';
 import {
   ClientVersionsService,
+  coerceCodexVersionToMinimum,
   isSemanticVersion,
   normalizeVersion,
 } from '../../../services/client-versions.js';
@@ -213,8 +214,10 @@ export async function registerAdminSettingsRoutes(
           param: 'selection',
         });
       }
-      lock = await clientVersions.setCodexVersionLock(normalized);
-      logSelection = normalized;
+      // Pins below the supported floor are coerced upward, not rejected.
+      const pinned = coerceCodexVersionToMinimum(normalized);
+      lock = await clientVersions.setCodexVersionLock(pinned);
+      logSelection = pinned;
     }
     await recordLog(ctx, 'admin.codex_version', {
       selection: logSelection,

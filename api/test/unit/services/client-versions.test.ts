@@ -1,5 +1,11 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { ClientVersionsService, isSemanticVersion, normalizeVersion } from '../../../src/services/client-versions.js';
+import {
+  ClientVersionsService,
+  CODEX_MIN_CLIENT_VERSION,
+  coerceCodexVersionToMinimum,
+  isSemanticVersion,
+  normalizeVersion,
+} from '../../../src/services/client-versions.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -26,6 +32,22 @@ describe('client-versions helpers', () => {
     expect(normalizeVersion('codex-cli 0.130.0')).toBe('0.130.0');
     expect(normalizeVersion(null)).toBeNull();
     expect(normalizeVersion('')).toBeNull();
+  });
+
+  it('raises Codex pins below the supported minimum up to the floor', () => {
+    expect(CODEX_MIN_CLIENT_VERSION).toBe('0.125.0');
+    expect(coerceCodexVersionToMinimum('0.9.0')).toBe('0.125.0');
+    expect(coerceCodexVersionToMinimum('0.1.0')).toBe('0.125.0');
+    expect(coerceCodexVersionToMinimum('0.124.99')).toBe('0.125.0');
+    expect(coerceCodexVersionToMinimum('0.124.0-rc.1')).toBe('0.125.0');
+  });
+
+  it('leaves Codex pins at or above the supported minimum unchanged', () => {
+    expect(coerceCodexVersionToMinimum('0.125.0')).toBe('0.125.0');
+    expect(coerceCodexVersionToMinimum('0.125.0-rc.1')).toBe('0.125.0-rc.1');
+    expect(coerceCodexVersionToMinimum('0.137.0')).toBe('0.137.0');
+    expect(coerceCodexVersionToMinimum('1.0.0')).toBe('1.0.0');
+    expect(coerceCodexVersionToMinimum('0.130.0+build.7')).toBe('0.130.0+build.7');
   });
 
   it('fetches the current Claude Code release from npm', async () => {
