@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { discoverFixtures, FIXTURE_ROOT, fixtureLabel, loadFixture, replayFixture } from './helpers/replay.js';
 import { buildHostApiTestApp } from '../helpers/build-host-api-app.js';
 import { createDbFake } from '../helpers/db-fake.js';
-import { compileContract } from '../helpers/contract-schema.js';
+import { assertContract, compileContract } from '../helpers/contract-schema.js';
 import {
   authCanonicalHeads,
   authPayloads,
@@ -37,6 +37,20 @@ const contractSchemas = [
   'sync-status.schema.json',
   'versions.schema.json',
 ] as const;
+
+/**
+ * Fixture label (path under `fixtures/`, no extension) → published schema. The
+ * schema is validated against the *replayed* body, not the recorded one, so a
+ * schema that describes a body the route no longer serves fails here even with
+ * TEST_USE_DB unset.
+ */
+const fixtureContracts: Record<string, (typeof contractSchemas)[number]> = {
+  'auth/retrieve': 'auth-retrieve.schema.json',
+  'auth/store': 'auth-store.schema.json',
+  'sync/bootstrap': 'sync-bootstrap.schema.json',
+  'sync/status': 'sync-status.schema.json',
+  'versions/snapshot': 'versions.schema.json',
+};
 
 const CONTRACT_API_KEY = 'sk-contract-fixture';
 const CANONICAL_STAMP = '2026-06-08T15:26:33Z';
@@ -165,8 +179,13 @@ describe('contract suite', () => {
     vi.unstubAllGlobals();
   });
 
-  it('has a fixture checked in for every published contract', () => {
-    expect(fixtures.length).toBeGreaterThanOrEqual(contractSchemas.length);
+  it('has exactly one checked-in fixture for every published contract', () => {
+    const labels = fixtures.map(fixtureLabel);
+    for (const schema of contractSchemas) {
+      const mapped = Object.keys(fixtureContracts).filter((label) => fixtureContracts[label] === schema);
+      expect(mapped, `${schema} must map to exactly one fixture`).toHaveLength(1);
+      expect(labels, `${schema} maps to a fixture that is not checked in`).toContain(mapped[0]);
+    }
   });
 
   for (const fixturePath of fixtures) {
@@ -176,7 +195,9 @@ describe('contract suite', () => {
       const { db, keyring } = seedContractWorld();
       const app = await buildHostApiTestApp({ db: db as never, env, keyring });
       try {
-        await replayFixture(app, fixture);
+        const body = await replayFixture(app, fixture);
+        const schema = fixtureContracts[label];
+        if (schema) assertContract(schema, body);
       } finally {
         await app.close();
       }

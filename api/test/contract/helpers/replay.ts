@@ -90,11 +90,14 @@ export function fixtureLabel(absolutePath: string): string {
  *   3. The recorded body conforms to the expected envelope shape
  *      (`standard` / `openai` / `anthropic`). This catches accidental envelope
  *      drift the inner-payload shape check would otherwise miss.
+ *
+ * Returns the parsed response body for JSON responses (so callers can validate
+ * it against a published schema), `undefined` otherwise.
  */
 export async function replayFixture(
   app: FastifyInstance,
   fixture: ContractFixture,
-): Promise<void> {
+): Promise<unknown> {
   const headers = { ...(fixture.request.headers ?? {}) };
   const payload = fixture.request.body;
   const method = fixture.request.method.toUpperCase();
@@ -132,7 +135,9 @@ export async function replayFixture(
         `${fixture.request.method} ${fixture.request.url}`,
       );
     }
+    return actualBody;
   }
+  return undefined;
 }
 
 /**
