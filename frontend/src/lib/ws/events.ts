@@ -3,6 +3,9 @@
  *
  * Single source of truth for which query keys get invalidated by which
  * WS event types. Consolidated after Phase 2 feature merges.
+ *
+ * `api/test/unit/ws/event-invalidation-coverage.test.ts` reads this map and
+ * fails when the API publishes an event type that has no entry here.
  */
 import type { QueryClient, QueryKey } from "@tanstack/svelte-query";
 import type { Readable } from "svelte/store";

@@ -1,0 +1,269 @@
+import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * `AGENTS.md` requires every WS event the API publishes to be routed to query
+ * keys by `DEFAULT_INVALIDATIONS` in `frontend/src/lib/ws/events.ts`. Producer
+ * and consumer sit in different packages, so neither package's own suite can
+ * see the drift: a new publish site without a map entry is a live backend event
+ * the admin UI silently ignores, leaving stale data on screen.
+ *
+ * This test reads both sides as text — no imports across the package boundary —
+ * and fails when a publish site has no matching entry and no allowlist reason.
+ */
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const API_SRC = resolve(HERE, '../../../src');
+const FRONTEND_EVENTS = resolve(HERE, '../../../../frontend/src/lib/ws/events.ts');
+
+/** Published types that deliberately invalidate nothing, and why. */
+const UNMAPPED_EVENT_TYPES: Record<string, string> = {
+  toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
+  'host.force_delete_ip_mismatch':
+    'audit alarm only — the same request also publishes host.deleted, which refreshes the host queries',
+};
+
+/** Files that publish a type computed at runtime, and what feeds that type. */
+const RUNTIME_TYPED_PUBLISHERS: Record<string, string> = {
+  'services/admin-events.ts': 'audit writer — rebroadcasts the type of whatever admin event was recorded',
+  'services/admin-events-writer.ts':
+    'same writer, functional form — the type is the wsType the caller passes',
+  'services/shared-memories.ts': 'private publish() indirection — its callers pass shared_memory.* literals',
+};
+
+const NEEDLE = 'wsPublisher.publish(';
+
+interface PublishSite {
+  /** Path relative to `api/src`. */
+  file: string;
+  line: number;
+  /** Every type the call can emit, or null when it is not statically known. */
+  types: string[] | null;
+}
+
+/** Index of the `}`/`)`/`]` closing the bracket at `open`, or -1. */
+function matchingBracket(source: string, open: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = open; i < source.length; i++) {
+    const c = source[i]!;
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Source text of the first call argument, given the index of the `(`. */
+function firstArgument(source: string, open: number): string | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = open; i < source.length; i++) {
+    const c = source[i]!;
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth--;
+      if (depth === 0) return source.slice(open + 1, i);
+    } else if (c === ',' && depth === 1) return source.slice(open + 1, i);
+  }
+  return null;
+}
+
+/** Split `cond ? a : b` into its branches, or null when it is not a ternary. */
+function ternaryBranches(text: string): { consequent: string; alternate: string } | null {
+  const marks: { char: string; index: number }[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (depth === 0 && c === '?') {
+      // `??` and `?.` are not conditionals.
+      if (text[i + 1] === '?' || text[i + 1] === '.') i++;
+      else marks.push({ char: '?', index: i });
+    } else if (depth === 0 && c === ':') marks.push({ char: ':', index: i });
+  }
+  const question = marks[0];
+  if (!question || question.char !== '?') return null;
+  let open = 0;
+  for (const mark of marks) {
+    if (mark.char === '?') open++;
+    else if (--open === 0) {
+      return {
+        consequent: text.slice(question.index + 1, mark.index),
+        alternate: text.slice(mark.index + 1),
+      };
+    }
+  }
+  return null;
+}
+
+/** Every string a template literal body can produce, or null. */
+function templateTypes(body: string): string[] | null {
+  let produced = [''];
+  let literal = '';
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === '$' && body[i + 1] === '{') {
+      const end = matchingBracket(body, i + 1);
+      if (end === -1) return null;
+      const substituted = eventTypesOf(body.slice(i + 2, end));
+      if (!substituted) return null;
+      const prefix = literal;
+      produced = produced.flatMap((head) => substituted.map((value) => head + prefix + value));
+      literal = '';
+      i = end;
+      continue;
+    }
+    literal += body[i];
+  }
+  const suffix = literal;
+  return produced.map((head) => head + suffix);
+}
+
+const STRING_LITERAL = /^(['"])((?:\\.|(?!\1).)*)\1$/;
+
+/** Every event type an expression can evaluate to, or null when it is dynamic. */
+function eventTypesOf(expression: string): string[] | null {
+  const text = expression.trim();
+  const literal = STRING_LITERAL.exec(text);
+  if (literal) return [literal[2]!];
+  if (text.length > 1 && text.startsWith('`') && text.endsWith('`')) return templateTypes(text.slice(1, -1));
+  const branches = ternaryBranches(text);
+  if (!branches) return null;
+  const consequent = eventTypesOf(branches.consequent);
+  const alternate = eventTypesOf(branches.alternate);
+  if (!consequent || !alternate) return null;
+  return [...consequent, ...alternate];
+}
+
+function collectPublishSites(): PublishSite[] {
+  const sites: PublishSite[] = [];
+  const files = readdirSync(API_SRC, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts'));
+  for (const file of files.sort()) {
+    const source = readFileSync(join(API_SRC, file), 'utf8');
+    const lines = source.split('\n');
+    let lineStart = 0;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]!;
+      // Doc comments mention `wsPublisher.publish(type, payload)` in prose.
+      const trimmed = line.trimStart();
+      const isComment = trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*');
+      let at = isComment ? -1 : line.indexOf(NEEDLE);
+      while (at !== -1) {
+        const argument = firstArgument(source, lineStart + at + NEEDLE.length - 1);
+        sites.push({ file, line: index + 1, types: argument === null ? null : eventTypesOf(argument) });
+        at = line.indexOf(NEEDLE, at + 1);
+      }
+      lineStart += line.length + 1;
+    }
+  }
+  return sites;
+}
+
+/** Top-level keys of the `DEFAULT_INVALIDATIONS` object literal. */
+function invalidationKeys(source: string): string[] {
+  const declaration = source.indexOf('export const DEFAULT_INVALIDATIONS');
+  const open = source.indexOf('{', declaration);
+  const close = matchingBracket(source, open);
+  if (declaration === -1 || open === -1 || close === -1) return [];
+  const body = source.slice(open + 1, close);
+  const keys: string[] = [];
+  let depth = 0;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!;
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (depth === 0 && (c === '"' || c === "'")) {
+      let end = i + 1;
+      while (end < body.length && body[end] !== c) end += body[end] === '\\' ? 2 : 1;
+      let after = end + 1;
+      while (after < body.length && /\s/.test(body[after]!)) after++;
+      if (body[after] === ':') keys.push(body.slice(i + 1, end));
+      i = end;
+    }
+  }
+  return keys;
+}
+
+const sites = collectPublishSites();
+const publishedTypes = new Set(sites.flatMap((site) => site.types ?? []));
+const mappedTypes = new Set(invalidationKeys(readFileSync(FRONTEND_EVENTS, 'utf8')));
+
+describe('WS event invalidation coverage', () => {
+  it('extracts the publish sites it is meant to guard', () => {
+    // A scan that silently matches nothing would pass every other assertion.
+    expect(sites.length).toBeGreaterThan(80);
+    expect(mappedTypes.size).toBeGreaterThan(50);
+    expect(publishedTypes.has('host.updated')).toBe(true);
+    // Resolved through a ternary and a template literal respectively.
+    expect(publishedTypes.has('skill.stored')).toBe(true);
+    expect(publishedTypes.has('project.note.updated')).toBe(true);
+    // Ternary conditions are not event types.
+    expect(publishedTypes.has('created')).toBe(false);
+  });
+
+  it('routes every published event type to a frontend invalidation entry', () => {
+    const drift = sites.flatMap((site) =>
+      (site.types ?? [])
+        .filter((type) => !mappedTypes.has(type) && !(type in UNMAPPED_EVENT_TYPES))
+        .map((type) => `${site.file}:${site.line} publishes "${type}"`),
+    );
+    expect(
+      drift,
+      'add the event type to DEFAULT_INVALIDATIONS in frontend/src/lib/ws/events.ts, ' +
+        'or to UNMAPPED_EVENT_TYPES here with a reason',
+    ).toEqual([]);
+  });
+
+  it('accounts for every publish site whose event type is computed at runtime', () => {
+    const unexplained = sites
+      .filter((site) => site.types === null && !(site.file in RUNTIME_TYPED_PUBLISHERS))
+      .map((site) => `${site.file}:${site.line}`);
+    expect(
+      unexplained,
+      'publish a string literal, or record the file in RUNTIME_TYPED_PUBLISHERS with a reason',
+    ).toEqual([]);
+  });
+
+  it('keeps both allowlists free of stale entries', () => {
+    const stale = [
+      ...Object.keys(UNMAPPED_EVENT_TYPES).filter(
+        (type) => !publishedTypes.has(type) || mappedTypes.has(type),
+      ),
+      ...Object.keys(RUNTIME_TYPED_PUBLISHERS).filter(
+        (file) => !sites.some((site) => site.file === file && site.types === null),
+      ),
+    ];
+    expect(stale).toEqual([]);
+    for (const reason of [
+      ...Object.values(UNMAPPED_EVENT_TYPES),
+      ...Object.values(RUNTIME_TYPED_PUBLISHERS),
+    ]) {
+      expect(reason.trim()).not.toBe('');
+      expect(reason).not.toContain('\n');
+    }
+  });
+});
