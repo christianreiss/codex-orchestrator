@@ -3,7 +3,8 @@
  *
  * Discovers the URL + heartbeat interval + lastEventId from
  * `GET /admin/ws/info`, opens the socket, reconnects with exponential
- * backoff (1s → 30s cap), and emits typed `WsEvent`s on a Svelte writable.
+ * backoff (1s → 30s, ±25% jitter clamped so no wait exceeds 30s), and
+ * emits typed `WsEvent`s on a Svelte writable.
  */
 import { writable, type Readable } from "svelte/store";
 import { api } from "../api/client";
@@ -42,9 +43,9 @@ export interface WsClientHandle {
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
-function backoffMs(attempt: number): number {
+export function backoffMs(attempt: number): number {
   const ms = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * Math.pow(2, attempt));
-  return Math.round(ms * (0.75 + Math.random() * 0.5));
+  return Math.min(RECONNECT_MAX_MS, Math.round(ms * (0.75 + Math.random() * 0.5)));
 }
 
 export function createWsClient(): WsClientHandle {
