@@ -1,11 +1,15 @@
 import asyncio
+import inspect
 import os
 import json
 import shutil
 import subprocess
+import typing
 import unittest
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 import app as runner_app
 
@@ -618,10 +622,63 @@ class RunnerAppTest(unittest.TestCase):
         self.assertFalse(result["definitive"])
 
 
+def _request_body_model(endpoint):
+    """Return the Pydantic body model a handler declares, or None."""
+    for parameter in inspect.signature(endpoint).parameters.values():
+        annotation = parameter.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            return annotation
+    return None
+
+
+def _minimal_field_value(annotation):
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _minimal_request_body(annotation)
+    origin = typing.get_origin(annotation) or annotation
+    if origin is list:
+        return []
+    if origin is dict:
+        return {}
+    if origin is str:
+        return "auth-guard-probe"
+    raise AssertionError(f"no minimal request value known for body field type {annotation!r}")
+
+
+def _minimal_request_body(model):
+    """Build the smallest body that passes validation for `model`.
+
+    FastAPI validates the body before the handler runs, so probing a route with
+    an empty body would answer 422 without ever reaching the guard.
+    """
+    if model is None:
+        return {}
+    return {
+        name: _minimal_field_value(field.annotation)
+        for name, field in model.model_fields.items()
+        if field.is_required()
+    }
+
+
 class RunnerRouteAuthTest(unittest.TestCase):
     """X-Runner-Auth is the runner's only access control on the compose network."""
 
     VERIFY_BODY = {"auth_json": {"tokens": {"access_token": "sk-openai-test-token"}}}
+
+    # Routes that answer without the shared secret by design: the container
+    # healthcheck and the GET readiness hints, none of which touch credentials.
+    # Every other route the app declares must enforce the guard, so a new
+    # unauthenticated route has to be added here deliberately.
+    UNAUTHENTICATED_ROUTES = frozenset(
+        {
+            ("GET", "/health"),
+            ("GET", "/skills/summarize"),
+            ("GET", "/skills/generate"),
+            ("GET", "/skills/assist"),
+            ("GET", "/projects/assist"),
+            ("GET", "/memories/summarize"),
+            ("GET", "/exec"),
+        }
+    )
 
     def setUp(self):
         self.client = TestClient(runner_app.app)
@@ -689,6 +746,67 @@ class RunnerRouteAuthTest(unittest.TestCase):
         self.assertEqual({"status": "ok", "reachable": True}, response.json())
         self.assertEqual(1, len(self.probe_payloads))
         self.assertEqual(self.VERIFY_BODY["auth_json"], self.probe_payloads[0].auth_json)
+
+    def guarded_routes(self):
+        """Enumerate the app's own routes, minus the allowlist, with a valid body.
+
+        Reading the router instead of a hand-written path list is the point: a
+        handler added without _require_runner_auth, or one whose guard line is
+        deleted, has to show up here.
+        """
+        routes = []
+        for route in runner_app.app.routes:
+            # Skip FastAPI's own /docs and /openapi.json plumbing.
+            if not isinstance(route, APIRoute):
+                continue
+            for method in sorted(route.methods):
+                if (method, route.path) in self.UNAUTHENTICATED_ROUTES:
+                    continue
+                self.assertEqual(
+                    "POST",
+                    method,
+                    f"{method} {route.path} is neither guarded nor allowlisted",
+                )
+                routes.append(
+                    (method, route.path, _minimal_request_body(_request_body_model(route.endpoint)))
+                )
+
+        self.assertNotEqual([], routes)
+        return routes
+
+    def test_every_mutating_route_rejects_missing_or_wrong_secret(self):
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+        for method, path, body in self.guarded_routes():
+            for headers in (
+                {},
+                {"x-runner-auth": ""},
+                {"x-runner-auth": "runner-secre"},
+                {"x-runner-auth": "runner-secret-extra"},
+                {"x-runner-auth": "RUNNER-SECRET"},
+            ):
+                with self.subTest(path=path, headers=headers):
+                    response = self.client.request(method, path, json=body, headers=headers)
+
+                    self.assertEqual(401, response.status_code)
+                    self.assertEqual("unauthorized", response.json()["detail"])
+
+        self.assertEqual([], self.probe_payloads)
+
+    def test_every_mutating_route_fails_closed_when_secret_is_unset(self):
+        runner_app.RUNNER_SHARED_SECRET = ""
+
+        for method, path, body in self.guarded_routes():
+            for headers in ({}, {"x-runner-auth": ""}, {"x-runner-auth": "any-guess"}):
+                with self.subTest(path=path, headers=headers):
+                    response = self.client.request(method, path, json=body, headers=headers)
+
+                    self.assertEqual(500, response.status_code)
+                    self.assertEqual(
+                        "RUNNER_SHARED_SECRET is not configured", response.json()["detail"]
+                    )
+
+        self.assertEqual([], self.probe_payloads)
 
     def test_get_on_post_only_routes_returns_readiness_hint(self):
         runner_app.RUNNER_SHARED_SECRET = "runner-secret"
