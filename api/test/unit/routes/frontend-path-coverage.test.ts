@@ -24,7 +24,9 @@ import {
  *
  * This scan resolves each call's path argument (module-local `const` paths and
  * path builders included), turns `${…}` segments into `:param`, and fails when
- * no registered route can serve the result.
+ * no registered route can serve the result. `*.test.ts` files under that tree
+ * are skipped: the paths a spec hands its fetch stub are fixtures, not calls the
+ * admin UI makes.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -186,6 +188,8 @@ const CALLER = /\b(?:api\.(?:get|post|put|patch|delete)|apiFetch)\b/g;
 function collectCallSites(): CallSite[] {
   const sites: CallSite[] = [];
   for (const file of sourceFiles(FRONTEND_LIB, ['.ts', '.svelte'])) {
+    // A spec's fetch-stub fixtures are not admin UI call sites.
+    if (file.endsWith('.test.ts')) continue;
     const source = readFileSync(join(FRONTEND_LIB, file), 'utf8');
     for (const match of source.matchAll(CALLER)) {
       const at = match.index;
