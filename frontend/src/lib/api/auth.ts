@@ -2,10 +2,11 @@
  * Auth seeding + canonical upload for the operator-facing admin UI.
  *
  * Two operator workflows live behind `/admin/auth/*`:
- *  - `seed-command` returns a short-lived bash one-liner the operator runs on
- *    the host to capture credentials. The backend currently stubs the response
- *    as `{ status, queued }`; the SeedAuthDialog accepts either that shape or
- *    a future `{ command, expires_at }` envelope.
+ *  - `seed-command` mints a short-lived bash one-liner the operator runs on the
+ *    host to capture credentials, returned as `{ command, expires_at, engine }`.
+ *    Only a backend running without a database cannot mint a token; it falls
+ *    back to a bare `{ status, queued }` acknowledgement, so the SeedAuthDialog
+ *    accepts either shape.
  *  - `upload` accepts the canonical auth payload (Codex auth JSON or Claude
  *    API key) so the fleet can repair drifted hosts directly.
  */
@@ -25,11 +26,10 @@ export interface SeedCommandResponse {
   expires_at?: string;
 }
 
+/** The subset this UI reads of the upload route's `StoreAuthCandidateResult` + `{ received, size }`. */
 export interface UploadAuthResponse {
   status?: string;
-  queued?: boolean;
   received?: boolean;
-  filename?: string | null;
   size?: number;
 }
 

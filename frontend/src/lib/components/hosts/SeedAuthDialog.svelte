@@ -102,7 +102,8 @@
       command = res.command ?? null;
       commandExpiresAt = res.expires_at ?? null;
       if (!command) {
-        // Stub backend response — let the operator know the request was queued.
+        // A backend without a database cannot mint a token and only
+        // acknowledges the request — say so rather than showing nothing.
         toast.success("Seed request queued");
       } else {
         await autoCopyText(command, "Seed command copied", "Seed command ready");
