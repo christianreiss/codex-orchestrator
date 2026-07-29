@@ -5,10 +5,20 @@ on:
     branches: [main]
     paths:
       - 'runner/**'
+      # The runner suite is not confined to runner/: both doc-surface tests
+      # open docs/auth-runner.md and assert it names exactly the routes the
+      # router registers. Without this, a commit editing only that document
+      # runs no runner job and the drift those tests exist to catch ships.
+      # `runner/test_ci_workflow_paths.py` holds both filters below against
+      # the paths the tests actually read.
+      - 'docs/auth-runner.md'
       - '.github/workflows/runner.yml'
   pull_request:
     paths:
       - 'runner/**'
+      # Same paths as `push`; GitHub Actions has no YAML anchors, so the list
+      # is spelled twice and the test above requires both copies to carry it.
+      - 'docs/auth-runner.md'
       - '.github/workflows/runner.yml'
 
 permissions:
