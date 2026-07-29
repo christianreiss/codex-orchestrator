@@ -1900,5 +1900,197 @@ class RunnerSkillDraftSanitizerTest(unittest.TestCase):
         self.assertEqual("- alice\n- bob", normalized["roster_markdown"])
 
 
+class RunnerClaudeExecResultTest(unittest.TestCase):
+    """A claude exec that didn't answer the requested JSON shape must fail closed.
+
+    The claude engine always spawns the CLI with `--output-format json`, so
+    _parse_claude_json_result is the only thing between an unexpected stdout and
+    a raw JSON blob reaching the caller as the assistant's reply (see its
+    docstring). Its None returns, the is_error it lifts out of a 0-exit result
+    and the message it recovers from a non-zero exit are each a separate /exec
+    branch, so the parser and every branch it feeds are pinned here.
+    """
+
+    CLAUDE_AUTH = {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
+
+    # What the CLI prints for a successful `--print --output-format json` run.
+    CLAUDE_RESULT = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 2431,
+        "result": "Banana",
+        "total_cost_usd": 0.0123,
+        "usage": {
+            "input_tokens": 11,
+            "output_tokens": 3,
+            "cache_creation_input_tokens": 5,
+            "cache_read_input_tokens": 7,
+        },
+    }
+    ERRORED_RESULT = {
+        **CLAUDE_RESULT,
+        "subtype": "error_during_execution",
+        "is_error": True,
+        "result": "Credit balance is too low",
+    }
+
+    ZERO_USAGE = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+
+    def setUp(self):
+        self.client = TestClient(runner_app.app)
+        self._original_secret = runner_app.RUNNER_SHARED_SECRET
+        self._original_run = runner_app.subprocess.run
+        runner_app.RUNNER_SHARED_SECRET = "runner-secret"
+
+    def tearDown(self):
+        runner_app.RUNNER_SHARED_SECRET = self._original_secret
+        runner_app.subprocess.run = self._original_run
+
+    def stub_exec(self, returncode, stdout="", stderr=""):
+        """Answer the one process /exec spawns with the given CLI outcome."""
+
+        def fake_run(cmd, env=None, capture_output=False, text=False, timeout=None):
+            return _FakeCompletedProcess(returncode, stdout=stdout, stderr=stderr)
+
+        runner_app.subprocess.run = fake_run
+
+    def exec_claude(self):
+        response = self.client.post(
+            "/exec",
+            json={
+                "auth_json": self.CLAUDE_AUTH,
+                "prompt": "Reply Banana if this works.",
+                "engine": "claude",
+                "timeout_seconds": 2.0,
+            },
+            headers={"x-runner-auth": "runner-secret"},
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        return response.json()
+
+    def test_parse_claude_json_result_rejects_stdout_that_is_not_json(self):
+        for label, stdout in (
+            ("empty", ""),
+            ("prose", "Banana"),
+            ("truncated object", '{"result": "Banana"'),
+            ("log line before the object", 'starting claude\n{"result": "Banana"}'),
+        ):
+            with self.subTest(stdout=label):
+                self.assertIsNone(runner_app._parse_claude_json_result(stdout))
+
+    def test_parse_claude_json_result_rejects_json_without_a_result_field(self):
+        for label, payload in (
+            ("empty object", {}),
+            ("error envelope", {"type": "result", "is_error": True, "error": "boom"}),
+            ("usage only", {"usage": {"input_tokens": 11}}),
+        ):
+            with self.subTest(payload=label):
+                self.assertIsNone(runner_app._parse_claude_json_result(json.dumps(payload)))
+
+    def test_parse_claude_json_result_rejects_json_that_is_not_an_object(self):
+        for label, stdout in (
+            ("array", '[{"result": "Banana"}]'),
+            ("string", '"Banana"'),
+            ("number", "12"),
+            ("null", "null"),
+            ("boolean", "true"),
+        ):
+            with self.subTest(payload=label):
+                self.assertIsNone(runner_app._parse_claude_json_result(stdout))
+
+    def test_parse_claude_json_result_counts_missing_or_non_numeric_usage_as_zero(self):
+        for label, payload in (
+            ("no usage key", {"result": "Banana"}),
+            ("usage is null", {"result": "Banana", "usage": None}),
+            ("usage is not an object", {"result": "Banana", "usage": [11, 3]}),
+            ("members absent", {"result": "Banana", "usage": {"server_tool_use": {}}}),
+            (
+                "members are not numbers",
+                {
+                    "result": "Banana",
+                    "usage": {
+                        "input_tokens": "11",
+                        "output_tokens": None,
+                        "cache_creation_input_tokens": {"ephemeral_5m_input_tokens": 5},
+                        "cache_read_input_tokens": [7],
+                    },
+                },
+            ),
+        ):
+            with self.subTest(usage=label):
+                parsed = runner_app._parse_claude_json_result(json.dumps(payload))
+
+                self.assertEqual("Banana", parsed["output"])
+                self.assertEqual(self.ZERO_USAGE, {key: parsed[key] for key in self.ZERO_USAGE})
+
+    def test_parse_claude_json_result_reads_the_reply_and_every_usage_total(self):
+        parsed = runner_app._parse_claude_json_result(json.dumps(self.CLAUDE_RESULT))
+
+        self.assertEqual(
+            {
+                "output": "Banana",
+                "is_error": False,
+                "input_tokens": 11,
+                "output_tokens": 3,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 7,
+            },
+            parsed,
+        )
+
+    def test_parse_claude_json_result_lifts_is_error_out_of_a_result(self):
+        parsed = runner_app._parse_claude_json_result(json.dumps(self.ERRORED_RESULT))
+
+        self.assertTrue(parsed["is_error"])
+        self.assertEqual("Credit balance is too low", parsed["output"])
+
+    def test_exec_fails_closed_when_a_zero_exit_claude_prints_another_shape(self):
+        """Raw stdout must not reach the caller as the assistant's reply."""
+        for label, stdout in (
+            ("prose", "Banana"),
+            ("array", '[{"result": "Banana"}]'),
+            ("object without result", '{"type": "result", "is_error": false}'),
+        ):
+            with self.subTest(stdout=label):
+                self.stub_exec(0, stdout=stdout)
+
+                body = self.exec_claude()
+
+                self.assertEqual("fail", body["status"])
+                self.assertEqual(
+                    "claude exec returned an unexpected output format", body["error"]
+                )
+                self.assertEqual("", body["output"])
+
+    def test_exec_fails_when_a_zero_exit_result_is_flagged_is_error(self):
+        self.stub_exec(0, stdout=json.dumps(self.ERRORED_RESULT))
+
+        body = self.exec_claude()
+
+        self.assertEqual("fail", body["status"])
+        self.assertEqual("Credit balance is too low", body["error"])
+        self.assertEqual("", body["output"])
+
+    def test_exec_prefers_the_parsed_message_over_stderr_on_a_non_zero_exit(self):
+        for label, stdout, expected in (
+            ("json result", json.dumps(self.ERRORED_RESULT), "Credit balance is too low"),
+            ("no parsable result", "", "claude: command failed"),
+        ):
+            with self.subTest(stdout=label):
+                self.stub_exec(1, stdout=stdout, stderr="claude: command failed")
+
+                body = self.exec_claude()
+
+                self.assertEqual("fail", body["status"])
+                self.assertEqual(expected, body["error"])
+                self.assertEqual("", body["output"])
+
+
 if __name__ == "__main__":
     unittest.main()
