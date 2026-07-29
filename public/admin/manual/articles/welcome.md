@@ -2,11 +2,11 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-07-01
-sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte
+verified: 2026-07-29
+sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
-Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in a signed per-host config consumed by a wrapper binary (`cdx` for Codex, `clx` for Claude); there is no shared token pasted across machines.
+Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx` and `clx` aliases select the enabled persona without sharing a token across machines.
 
 This manual is the in-app operator reference. Every article is written from the live codebase — filenames in each *Source references* footer point at the exact code the article describes.
 

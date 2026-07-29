@@ -20,8 +20,8 @@ import { resolve } from 'node:path';
 const ROOT = resolve(import.meta.dirname, '../../../..');
 
 const WRAPPERS = [
-  { name: 'cdx', main: 'wrappers/cdx/cmd/cdx/main.go', doc: 'docs/interface-cdx.md' },
-  { name: 'clx', main: 'wrappers/clx/cmd/clx/main.go', doc: 'docs/interface-clx.md' },
+  { name: 'cdx', main: 'wrappers/cxx/internal/app/codex/main.go', doc: 'docs/interface-cdx.md' },
+  { name: 'clx', main: 'wrappers/cxx/internal/app/claude/main.go', doc: 'docs/interface-clx.md' },
 ] as const;
 
 /**

@@ -14,7 +14,10 @@ import { ENGINE_CODEX } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
-import type { WrapperBinRegistry } from './wrapper-bin-registry.js';
+import {
+  wrapperBinaryUrl,
+  type WrapperBinRegistry,
+} from './wrapper-bin-registry.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { hostEnginesList } from './host-engine-policy.js';
 
@@ -229,42 +232,30 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   ) {
     const autoUpdate = await settings.autoUpdateDefault();
     const track = await settings.wrapperTrack();
-    const preferred: Array<[string, string]> = [];
-    if (requested?.os && requested?.arch) {
-      preferred.push([requested.os, requested.arch]);
-    }
-    const fallbacks: Array<[string, string]> = [
-      ['linux', 'amd64'],
-      ['linux', 'arm64'],
-      ['darwin', 'arm64'],
-      ['darwin', 'amd64'],
-    ];
-    const seen = new Set<string>();
-    const platformsToTry: Array<[string, string]> = [];
-    for (const pair of [...preferred, ...fallbacks]) {
-      const key = `${pair[0]}-${pair[1]}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      platformsToTry.push(pair);
-    }
-    let version = '0.0.0';
-    let sha = '0'.repeat(64);
-    let chosenOs = 'linux';
-    let chosenArch = 'amd64';
+    const platformsToTry: Array<[string, string]> = requested?.os && requested?.arch
+      ? [[requested.os, requested.arch]]
+      : [
+          ['linux', 'amd64'],
+          ['linux', 'arm64'],
+          ['darwin', 'arm64'],
+          ['darwin', 'amd64'],
+        ];
     for (const [os, arch] of platformsToTry) {
-      const build = await deps.binaries.currentBuild(engine, os, arch);
-      if (build) {
-        version = build.version;
-        sha = build.sha256 || sha;
-        chosenOs = os;
-        chosenArch = arch;
-        break;
-      }
+      const build = await deps.binaries.resolveCurrentBuild(engine, os, arch);
+      if (!build) continue;
+      return {
+        version: build.version,
+        track,
+        auto_update: autoUpdate,
+        binary_url: wrapperBinaryUrl(publicBaseUrl, build.artifact, os, arch, build.version),
+        binary_sha256: build.sha256,
+      };
     }
-    const base = publicBaseUrl.replace(/\/+$/, '');
-    const name = engine === 'claude' ? 'clx' : 'cdx';
-    const binary_url = `${base}/wrapper/v2/bin/${engine}/${chosenOs}-${chosenArch}/v${version}/${name}`;
-    return { version, track, auto_update: autoUpdate, binary_url, binary_sha256: sha };
+    throw new WrapperBinaryUnavailableError(
+      requested
+        ? `no validated wrapper binary for ${engine}/${requested.os}-${requested.arch}`
+        : `no validated wrapper binary for ${engine}`,
+    );
   }
 
   return {
@@ -349,6 +340,13 @@ export class WrapperSigningUnavailableError extends Error {
   constructor() {
     super('wrapper v2 signing key not configured');
     this.name = 'WrapperSigningUnavailableError';
+  }
+}
+
+export class WrapperBinaryUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WrapperBinaryUnavailableError';
   }
 }
 

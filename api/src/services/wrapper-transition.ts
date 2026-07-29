@@ -12,6 +12,18 @@ export function legacyWrapperDownloadUrl(engine: Engine): string {
   return `/wrapper/download?engine=${engine}`;
 }
 
+export function isCxxBinaryUrl(value: unknown): boolean {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    const path = new URL(value, 'https://wrapper.invalid').pathname;
+    return /\/wrapper\/v2\/bin\/cxx\/(?:linux|darwin)-(?:amd64|arm64)\/v[^/]+\/cxx$/.test(
+      path,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function withLegacyShellWrapperTransition(
   summary: VersionSnapshot,
   submittedWrapperVersion: unknown,
@@ -44,7 +56,6 @@ export function buildWrapperV2InstallerScript(opts: {
   const installLabel = requestedEngines
     .map((engine) => (engine === ENGINE_CLAUDE ? 'Claude' : 'Codex'))
     .join(' + ');
-  const peerBlock = peers.length > 0 ? peers.map(peerInstallBlock).join('\n') : undefined;
   const defaultCurlInsecure = opts.allowInsecure ? '1' : '0';
 
   return `#!/bin/sh
@@ -56,8 +67,6 @@ BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
 HOST_API_KEY=${shellQuote(opts.apiKey)}
 ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
-CONFIG_FILE=${shellQuote(`${name}.json`)}
-CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
 HOST_LABEL=${shellQuote(opts.fqdn)}
 INSTALL_LABEL=${shellQuote(installLabel)}
 NEEDS_CLAUDE=${needsClaude ? '1' : '0'}
@@ -68,10 +77,9 @@ CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecur
 
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 
-# Pull signed host config(s), install the wrapper(s), then bootstrap each
-# engine explicitly. The installer owns peer ordering, so cron peer-spawn is
-# suppressed during this one run to avoid duplicate work and hidden failures.
-${bootstrapBody({ peerBlock })}
+# Pull every requested signed host config, install the common wrapper once,
+# then let the host-wide coordinator bootstrap every enabled engine once.
+${bootstrapBody()}
 
 INSTALL_FINISHED=1
 ui_divider
@@ -101,14 +109,8 @@ if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
   ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
   ui_path_hint
 fi
-if [ "$HAS_CODEX" = "1" ]; then
-  ui_hint "Retry Codex cron: cdx --minimal --cron install"
-  ui_hint "Retry Codex CLI:  cdx --minimal --cron run"
-fi
-if [ "$HAS_CLAUDE" = "1" ]; then
-  ui_hint "Retry Claude cron: clx --minimal --cron install"
-  ui_hint "Retry Claude CLI:  clx --minimal --cron run"
-fi
+ui_hint "Retry host cron:    $BIN_ROOT/cxx cron install"
+ui_hint "Retry engine CLIs:  $BIN_ROOT/cxx cron run --minimal"
 ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
 exit 1
 `;
@@ -119,8 +121,14 @@ export function buildLegacyWrapperTransitionScript(opts: {
   apiKey: string;
   baseUrl: string;
   engine: Engine;
+  allowInsecure?: boolean;
+  peerEngines?: Engine[];
 }): string {
   const name = binaryName(opts.engine);
+  const peers = (opts.peerEngines ?? []).filter((engine) => engine !== opts.engine);
+  const requestedEngines = [...new Set<Engine>([opts.engine, ...peers])];
+  const hasCodex = requestedEngines.some((engine) => engine !== ENGINE_CLAUDE);
+  const hasClaude = requestedEngines.includes(ENGINE_CLAUDE);
   return `#!/bin/sh
 # Codex Orchestrator legacy transition launcher for ${name}.
 # Generated for host ${commentValue(opts.fqdn)}.
@@ -130,16 +138,20 @@ BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
 HOST_API_KEY=${shellQuote(opts.apiKey)}
 ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
-CONFIG_FILE=${shellQuote(`${name}.json`)}
-CONFIG_ENV=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH')}
+HOST_LABEL=${shellQuote(opts.fqdn)}
+INSTALL_LABEL=${shellQuote(opts.engine === ENGINE_CLAUDE ? 'Claude' : 'Codex')}
+NEEDS_CLAUDE=${hasClaude ? '1' : '0'}
+HAS_CODEX=${hasCodex ? '1' : '0'}
+HAS_CLAUDE=${hasClaude ? '1' : '0'}
+CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
+BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 INSTALL_CONTEXT=transition
 
 ${bootstrapBody()}
 `;
 }
 
-function bootstrapBody(opts?: { peerBlock?: string }): string {
-  const peerSection = opts?.peerBlock != null ? `\n${opts.peerBlock}` : '';
+function bootstrapBody(): string {
   return `PARENT_PATH=\${PATH:-}
 if [ -z "$PARENT_PATH" ]; then
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -148,11 +160,15 @@ fi
 
 INSTALL_FAILED=0
 INSTALL_FINISHED=0
-BUNDLE_FILE=
+CODEX_BUNDLE=
+CLAUDE_BUNDLE=
 BIN_TMP=
 STEP_LOG=
 NODE_SHIM_TMP=
 NPM_SHIM_TMP=
+INSTALL_BIN_TMP=
+ALIAS_TMP=
+INSTALL_WITH_SUDO=0
 
 UI_TTY=0
 UI_UTF8=0
@@ -297,11 +313,21 @@ show_step_log() {
 }
 
 cleanup() {
-  for CLEAN_PATH in "$BUNDLE_FILE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
+  for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
     if [ -n "$CLEAN_PATH" ]; then rm -f "$CLEAN_PATH"; fi
+  done
+  for CLEAN_PATH in "$INSTALL_BIN_TMP" "$ALIAS_TMP"; do
+    if [ -z "$CLEAN_PATH" ]; then continue; fi
+    if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+      sudo -n rm -f "$CLEAN_PATH" >/dev/null 2>&1 || true
+    else
+      rm -f "$CLEAN_PATH" || true
+    fi
   done
 }
 
+# Invoked indirectly by the EXIT/INT/TERM traps below.
+# shellcheck disable=SC2329
 on_exit() {
   INSTALL_EXIT=$?
   trap - EXIT INT TERM
@@ -321,27 +347,15 @@ trap 'exit 143' TERM
 
 CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
 DATA_HOME=\${XDG_DATA_HOME:-$HOME/.local/share}
-CONFIG_PATH="$CONFIG_HOME/codex-orchestrator/$CONFIG_FILE"
-case "$CONFIG_ENV" in
-  CDX_CONFIG_PATH)
-    if [ -n "\${CDX_CONFIG_PATH:-}" ]; then CONFIG_PATH=$CDX_CONFIG_PATH; fi
-    ;;
-  CLX_CONFIG_PATH)
-    if [ -n "\${CLX_CONFIG_PATH:-}" ]; then CONFIG_PATH=$CLX_CONFIG_PATH; fi
-    ;;
-esac
+CODEX_CONFIG_PATH=\${CDX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cdx.json}
+CLAUDE_CONFIG_PATH=\${CLX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/clx.json}
 
 CURL_INSECURE_FLAG=
 if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
   CURL_INSECURE_FLAG=-k
 fi
 
-INSTALL_WITH_SUDO=0
 ensure_bin_root() {
-  if [ "$INSTALL_CONTEXT" = "transition" ]; then
-    mkdir -p "$BIN_ROOT"
-    return 0
-  fi
   if mkdir -p "$BIN_ROOT" 2>/dev/null && [ -w "$BIN_ROOT" ]; then
     return 0
   fi
@@ -361,18 +375,58 @@ ensure_bin_root() {
 install_bin() {
   src=$1
   dst=$2
-  if [ -L "$dst" ]; then
-    if [ "$INSTALL_WITH_SUDO" = "1" ]; then
-      sudo rm -f "$dst"
-    else
-      rm -f "$dst"
-    fi
+  if [ -d "$dst" ]; then
+    echo "Cannot replace binary directory $dst" >&2
+    return 1
+  fi
+  INSTALL_BIN_TMP="$dst.cxx-install.$$"
+  if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+    sudo rm -f "$INSTALL_BIN_TMP"
+    sudo install -m 755 "$src" "$INSTALL_BIN_TMP"
+    sudo mv -f "$INSTALL_BIN_TMP" "$dst"
+  else
+    rm -f "$INSTALL_BIN_TMP"
+    cp "$src" "$INSTALL_BIN_TMP"
+    chmod 755 "$INSTALL_BIN_TMP"
+    mv -f "$INSTALL_BIN_TMP" "$dst"
+  fi
+  INSTALL_BIN_TMP=
+}
+
+install_alias() {
+  ALIAS_NAME=$1
+  ALIAS_PATH="$BIN_ROOT/$ALIAS_NAME"
+  ALIAS_TMP="$BIN_ROOT/.$ALIAS_NAME.cxx.$$"
+  if [ -d "$ALIAS_PATH" ]; then
+    echo "Cannot replace wrapper alias directory $ALIAS_PATH" >&2
+    return 1
   fi
   if [ "$INSTALL_WITH_SUDO" = "1" ]; then
-    sudo install -m 755 "$src" "$dst"
+    sudo rm -f "$ALIAS_TMP"
+    sudo ln -s cxx "$ALIAS_TMP"
+    sudo mv -f "$ALIAS_TMP" "$ALIAS_PATH"
   else
-    cp "$src" "$dst"
-    chmod 755 "$dst"
+    rm -f "$ALIAS_TMP"
+    ln -s cxx "$ALIAS_TMP"
+    mv -f "$ALIAS_TMP" "$ALIAS_PATH"
+  fi
+  ALIAS_TMP=
+}
+
+remove_disabled_alias() {
+  ALIAS_NAME=$1
+  ALIAS_PATH="$BIN_ROOT/$ALIAS_NAME"
+  if [ ! -e "$ALIAS_PATH" ] && [ ! -L "$ALIAS_PATH" ]; then
+    return 0
+  fi
+  if [ -d "$ALIAS_PATH" ] && [ ! -L "$ALIAS_PATH" ]; then
+    echo "Disabled wrapper alias is a directory and was left intact: $ALIAS_PATH" >&2
+    return 1
+  fi
+  if [ "$INSTALL_WITH_SUDO" = "1" ]; then
+    sudo rm -f "$ALIAS_PATH"
+  else
+    rm -f "$ALIAS_PATH"
   fi
 }
 
@@ -564,77 +618,87 @@ ensure_claude_prerequisites() {
   ui_ok "clx" "prerequisites" "$NODE_VERSION / npm $NPM_VERSION" "ready"
 }
 
-bootstrap_engine() {
-  BOOT_BIN=$1
-  BOOT_NAME=$2
-  BOOT_CLI=$3
-  BOOT_FAILED=0
+bootstrap_host() {
+  HOST_BOOT_FAILED=0
 
-  ui_progress "$BOOT_NAME" "auto-update" "" "scheduling"
+  ui_progress "cxx" "auto-update" "" "scheduling"
   : > "$STEP_LOG"
-  if CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron install >"$STEP_LOG" 2>&1; then
-    ui_ok "$BOOT_NAME" "auto-update" "" "scheduled"
+  if "$TARGET_BIN" cron install --minimal >"$STEP_LOG" 2>&1; then
+    ui_ok "cxx" "auto-update" "" "scheduled"
   else
-    ui_fail "$BOOT_NAME" "auto-update" "" "schedule failed"
+    ui_fail "cxx" "auto-update" "" "schedule failed"
     show_step_log
-    BOOT_FAILED=1
+    HOST_BOOT_FAILED=1
   fi
 
-  ui_progress "$BOOT_NAME" "$BOOT_CLI" "" "installing…"
+  ui_progress "cxx" "engine CLIs" "" "installing…"
   : > "$STEP_LOG"
-  if CODEX_ORCH_PEER_SPAWN=1 "$BOOT_BIN" --minimal --cron run >"$STEP_LOG" 2>&1; then
-    BOOT_CLI_BIN=$(command -v "$BOOT_CLI" 2>/dev/null || true)
-    if [ -z "$BOOT_CLI_BIN" ]; then
-      BOOT_CLI_BIN=$(cached_engine_cli "$BOOT_NAME" || true)
-    fi
-    if [ -n "$BOOT_CLI_BIN" ]; then
-      if BOOT_VERSION=$("$BOOT_CLI_BIN" --version 2>/dev/null) && [ -n "$BOOT_VERSION" ]; then
-        BOOT_VERSION=$(printf '%s\n' "$BOOT_VERSION" | head -n 1)
-        ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "ready"
-      else
-        ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "version check failed"
-        BOOT_FAILED=1
-      fi
-    else
-      ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "command unavailable after bootstrap"
-      show_step_log
-      BOOT_FAILED=1
-    fi
+  if "$TARGET_BIN" cron run --minimal >"$STEP_LOG" 2>&1; then
+    ui_ok "cxx" "engine CLIs" "" "updated"
   else
-    ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "install failed"
+    ui_fail "cxx" "engine CLIs" "" "update failed"
     show_step_log
-    BOOT_FAILED=1
+    HOST_BOOT_FAILED=1
   fi
 
-  [ "$BOOT_FAILED" = "0" ]
+  [ "$HOST_BOOT_FAILED" = "0" ]
+}
+
+verify_engine_cli() {
+  BOOT_NAME=$1
+  BOOT_CLI=$2
+  BOOT_CLI_BIN=$(command -v "$BOOT_CLI" 2>/dev/null || true)
+  if [ -z "$BOOT_CLI_BIN" ]; then
+    BOOT_CLI_BIN=$(cached_engine_cli "$BOOT_NAME" || true)
+  fi
+  if [ -z "$BOOT_CLI_BIN" ]; then
+    ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "command unavailable after bootstrap"
+    return 1
+  fi
+  if ! BOOT_VERSION=$("$BOOT_CLI_BIN" --version 2>/dev/null) || [ -z "$BOOT_VERSION" ]; then
+    ui_fail "$BOOT_NAME" "$BOOT_CLI" "" "version check failed"
+    return 1
+  fi
+  BOOT_VERSION=$(printf '%s\n' "$BOOT_VERSION" | head -n 1)
+  ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "ready"
 }
 
 if [ "$INSTALL_CONTEXT" = "transition" ]; then
-  BIN_ROOT="$DATA_HOME/codex-orchestrator/bin"
+  case "$0" in
+    */*) TRANSITION_SELF=$0 ;;
+    *) TRANSITION_SELF=$(command -v "$0" 2>/dev/null || printf '%s' "$0") ;;
+  esac
+  TRANSITION_DIR=$(dirname "$TRANSITION_SELF")
+  BIN_ROOT=$(CDPATH='' cd -P -- "$TRANSITION_DIR" 2>/dev/null && pwd)
+  if [ -z "$BIN_ROOT" ]; then
+    echo "Cannot resolve transition wrapper directory for $TRANSITION_SELF" >&2
+    exit 1
+  fi
 else
   BIN_ROOT="$BIN_DIR"
 fi
 
-mkdir -p "$(dirname "$CONFIG_PATH")"
+if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
+if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
 ensure_bin_root
 BIN_ROOT_ON_PATH=0
 case ":$PARENT_PATH:" in
   *":$BIN_ROOT:"*) BIN_ROOT_ON_PATH=1 ;;
 esac
-ORIGINAL_RESOLVED_BIN=$(command -v "$NAME" 2>/dev/null || true)
+ORIGINAL_CODEX_BIN=$(command -v cdx 2>/dev/null || true)
+ORIGINAL_CLAUDE_BIN=$(command -v clx 2>/dev/null || true)
 PATH="$BIN_ROOT:\${PATH:-}"
 export PATH
 if [ "$INSTALL_CONTEXT" = "installer" ]; then
   ui_header
 fi
-BUNDLE_FILE=$(mktemp "\${TMPDIR:-/tmp}/$NAME.config.XXXXXX")
-BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$NAME.bin.XXXXXX")
-STEP_LOG=$(mktemp "\${TMPDIR:-/tmp}/$NAME.install.XXXXXX")
-
-if [ "$INSTALL_CONTEXT" = "installer" ] && [ "$NEEDS_CLAUDE" = "1" ]; then
-  if ! ensure_claude_prerequisites; then
-    exit 1
-  fi
+BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/cxx.bin.XXXXXX")
+STEP_LOG=$(mktemp "\${TMPDIR:-/tmp}/cxx.install.XXXXXX")
+if [ "$HAS_CODEX" = "1" ]; then
+  CODEX_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/cdx.config.XXXXXX")
+fi
+if [ "$HAS_CLAUDE" = "1" ]; then
+  CLAUDE_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/clx.config.XXXXXX")
 fi
 
 PLATFORM_OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
@@ -651,20 +715,34 @@ case "$PLATFORM_ARCH" in
 esac
 WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
 
-ui_progress "$NAME" "wrapper" "" "installing…"
-curl $CURL_INSECURE_FLAG -fsSL \\
-  -H "X-API-Key: $HOST_API_KEY" \\
-  -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
-  "$BASE_URL/wrapper/v2/config?engine=$ENGINE" \\
-  -o "$BUNDLE_FILE"
+ui_progress "cxx" "config" "" "fetching enabled engines…"
+if [ "$HAS_CODEX" = "1" ]; then
+  curl $CURL_INSECURE_FLAG -fsSL \\
+    -H "X-API-Key: $HOST_API_KEY" \\
+    -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
+    "$BASE_URL/wrapper/v2/config?engine=codex" \\
+    -o "$CODEX_BUNDLE"
+fi
+if [ "$HAS_CLAUDE" = "1" ]; then
+  curl $CURL_INSECURE_FLAG -fsSL \\
+    -H "X-API-Key: $HOST_API_KEY" \\
+    -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
+    "$BASE_URL/wrapper/v2/config?engine=claude" \\
+    -o "$CLAUDE_BUNDLE"
+fi
 
-PY_OUT=$(python3 - "$BUNDLE_FILE" "$CONFIG_PATH" "$BIN_ROOT" "$NAME" "$INSTALL_CONTEXT" <<'PY'
+# Validate every requested config before writing any of them. A dual-engine
+# install is allowed only when both logical configs identify the same cxx
+# version and SHA; otherwise no binary or alias is changed.
+PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" <<'PY'
 import json
 import os
+import re
 import shlex
 import sys
+from urllib.parse import urlsplit
 
-bundle_path, config_path, bin_root, name, mode = sys.argv[1:6]
+bin_root, codex_bundle, codex_config, claude_bundle, claude_config = sys.argv[1:6]
 
 def sort_value(value):
     if isinstance(value, list):
@@ -673,39 +751,85 @@ def sort_value(value):
         return {k: sort_value(value[k]) for k in sorted(value)}
     return value
 
-with open(bundle_path, "r", encoding="utf-8") as fh:
-    bundle = json.load(fh)
+entries = []
+for engine, bundle_path, config_path in (
+    ("codex", codex_bundle, codex_config),
+    ("claude", claude_bundle, claude_config),
+):
+    if not bundle_path:
+        continue
+    with open(bundle_path, "r", encoding="utf-8") as fh:
+        bundle = json.load(fh)
+    payload = bundle.get("payload")
+    signature = bundle.get("signature") or {}
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{engine} wrapper config payload missing")
+    sig_value = signature.get("value")
+    if not isinstance(sig_value, str) or not sig_value:
+        raise SystemExit(f"{engine} wrapper config signature missing")
+    wrapper = payload.get("wrapper") or {}
+    version = str(wrapper.get("version") or "")
+    binary_url = str(wrapper.get("binary_url") or "")
+    binary_sha256 = str(wrapper.get("binary_sha256") or "")
+    if not version or not binary_url or not re.fullmatch(r"[0-9a-fA-F]{64}", binary_sha256):
+        raise SystemExit(f"{engine} wrapper binary metadata incomplete")
+    binary_path = urlsplit(binary_url).path
+    if not re.search(
+        r"/wrapper/v2/bin/cxx/(?:linux|darwin)-(?:amd64|arm64)/v[^/]+/cxx$",
+        binary_path,
+    ):
+        raise SystemExit(
+            f"{engine} wrapper config does not identify a canonical cxx artifact"
+        )
+    entries.append({
+        "engine": engine,
+        "config_path": config_path,
+        "canonical": json.dumps(sort_value(payload), ensure_ascii=False, separators=(",", ":")),
+        "signature": sig_value,
+        "version": version,
+        "binary_url": binary_url,
+        "sha256": binary_sha256,
+    })
 
-payload = bundle.get("payload")
-signature = bundle.get("signature") or {}
-if not isinstance(payload, dict):
-    raise SystemExit("wrapper config payload missing")
+if not entries:
+    raise SystemExit("no enabled wrapper config requested")
+identities = {(entry["version"], entry["sha256"]) for entry in entries}
+if len(identities) != 1:
+    details = ", ".join(
+        f'{entry["engine"]}={entry["version"]}/{entry["sha256"]}' for entry in entries
+    )
+    raise SystemExit(f"enabled wrapper configs disagree on cxx version/SHA: {details}")
 
-sig_value = signature.get("value")
-if not isinstance(sig_value, str) or not sig_value:
-    raise SystemExit("wrapper config signature missing")
+pending = []
+try:
+    for entry in entries:
+        config_path = entry["config_path"]
+        os.makedirs(os.path.dirname(config_path) or ".", exist_ok=True)
+        tmp_config = f"{config_path}.tmp.{os.getpid()}"
+        tmp_sig = f"{config_path}.sig.tmp.{os.getpid()}"
+        with open(tmp_config, "w", encoding="utf-8") as fh:
+            fh.write(entry["canonical"])
+        with open(tmp_sig, "w", encoding="utf-8") as fh:
+            fh.write(entry["signature"])
+        os.chmod(tmp_config, 0o600)
+        os.chmod(tmp_sig, 0o600)
+        pending.append((tmp_config, config_path, tmp_sig, config_path + ".sig"))
+    for tmp_config, config_path, tmp_sig, sig_path in pending:
+        os.replace(tmp_config, config_path)
+        os.replace(tmp_sig, sig_path)
+finally:
+    for tmp_config, _, tmp_sig, _ in pending:
+        for tmp_path in (tmp_config, tmp_sig):
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
 
-wrapper = payload.get("wrapper") or {}
-version = str(wrapper.get("version") or "")
-binary_url = str(wrapper.get("binary_url") or "")
-binary_sha256 = str(wrapper.get("binary_sha256") or "")
-if not version or not binary_url or len(binary_sha256) != 64:
-    raise SystemExit("wrapper binary metadata incomplete")
-
-canonical = json.dumps(sort_value(payload), ensure_ascii=False, separators=(",", ":"))
-os.makedirs(os.path.dirname(config_path), exist_ok=True)
-tmp_config = f"{config_path}.tmp.{os.getpid()}"
-tmp_sig = f"{config_path}.sig.tmp.{os.getpid()}"
-with open(tmp_config, "w", encoding="utf-8") as fh:
-    fh.write(canonical)
-with open(tmp_sig, "w", encoding="utf-8") as fh:
-    fh.write(sig_value)
-os.replace(tmp_config, config_path)
-os.replace(tmp_sig, config_path + ".sig")
-os.chmod(config_path, 0o600)
-os.chmod(config_path + ".sig", 0o600)
-
-target = os.path.join(bin_root, f"{name}-{version}") if mode == "transition" else os.path.join(bin_root, name)
+selected = entries[0]
+version = selected["version"]
+binary_url = selected["binary_url"]
+binary_sha256 = selected["sha256"]
+target = os.path.join(bin_root, "cxx")
 print(f"WRAPPER_VERSION={shlex.quote(version)}")
 print(f"BINARY_URL={shlex.quote(binary_url)}")
 print(f"BINARY_SHA256={shlex.quote(binary_sha256)}")
@@ -713,6 +837,13 @@ print(f"TARGET_BIN={shlex.quote(target)}")
 PY
 )
 eval "$PY_OUT"
+ui_ok "cxx" "config" "$WRAPPER_VERSION" "ready"
+
+if [ "$INSTALL_CONTEXT" = "installer" ] && [ "$NEEDS_CLAUDE" = "1" ]; then
+  if ! ensure_claude_prerequisites; then
+    exit 1
+  fi
+fi
 
 case "$BINARY_URL" in
   http://*|https://*) ;;
@@ -776,19 +907,23 @@ cleanup_known_relics() {
   if [ "$BIN_ROOT" != "/usr/local/bin" ]; then
     return 0
   fi
-  for RELIC_BIN in "$HOME/.local/bin/$NAME" "/usr/local/sbin/$NAME"; do
-    remove_relic "$RELIC_BIN"
-  done
+  if [ "$HAS_CODEX" = "1" ]; then
+    for RELIC_BIN in "$HOME/.local/bin/cdx" "/usr/local/sbin/cdx"; do
+      remove_relic "$RELIC_BIN"
+    done
+  fi
+  if [ "$HAS_CLAUDE" = "1" ]; then
+    for RELIC_BIN in "$HOME/.local/bin/clx" "/usr/local/sbin/clx"; do
+      remove_relic "$RELIC_BIN"
+    done
+  fi
 }
 
+ui_progress "cxx" "wrapper" "" "installing…"
 SKIP_DOWNLOAD=0
 if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
   EXISTING_SHA=$(sha256_file "$TARGET_BIN" || true)
   if [ "$EXISTING_SHA" = "$BINARY_SHA256" ]; then
-    if [ "$INSTALL_CONTEXT" = "transition" ]; then
-      exec "$TARGET_BIN" "$@"
-    fi
-    cleanup_known_relics
     SKIP_DOWNLOAD=1
   fi
 fi
@@ -802,7 +937,7 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
 
   ACTUAL_SHA=$(sha256_file "$BIN_TMP")
   if [ "$ACTUAL_SHA" != "$BINARY_SHA256" ]; then
-    echo "Downloaded wrapper checksum mismatch for $NAME $WRAPPER_VERSION" >&2
+    echo "Downloaded wrapper checksum mismatch for cxx $WRAPPER_VERSION" >&2
     echo "expected: $BINARY_SHA256" >&2
     echo "actual:   $ACTUAL_SHA" >&2
     exit 1
@@ -811,161 +946,38 @@ if [ "$SKIP_DOWNLOAD" = "0" ]; then
   chmod 755 "$BIN_TMP"
   install_bin "$BIN_TMP" "$TARGET_BIN"
   rm -f "$BIN_TMP"
-  cleanup_known_relics
-
-  if [ "$INSTALL_CONTEXT" = "transition" ]; then
-    exec "$TARGET_BIN" "$@"
-  fi
-
 fi
-if [ -n "$ORIGINAL_RESOLVED_BIN" ] && [ "$ORIGINAL_RESOLVED_BIN" != "$TARGET_BIN" ]; then
-  ui_warn "$NAME" "PATH" "$ORIGINAL_RESOLVED_BIN" "expected $TARGET_BIN"
-  ui_hint "Refresh the parent shell: hash -r; or run directly: $TARGET_BIN run"
+if [ "$HAS_CODEX" = "1" ]; then install_alias cdx; fi
+if [ "$HAS_CLAUDE" = "1" ]; then install_alias clx; fi
+if [ "$INSTALL_CONTEXT" = "installer" ]; then
+  if [ "$HAS_CODEX" = "0" ]; then remove_disabled_alias cdx; fi
+  if [ "$HAS_CLAUDE" = "0" ]; then remove_disabled_alias clx; fi
 fi
-ui_ok "$NAME" "wrapper" "$WRAPPER_VERSION" "ready"
+cleanup_known_relics
+ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 
-if [ "$NAME" = "clx" ]; then
-  PRIMARY_CLI=claude
-else
-  PRIMARY_CLI=codex
+if [ "$INSTALL_CONTEXT" = "transition" ]; then
+  INSTALL_FINISHED=1
+  cleanup
+  trap - EXIT INT TERM
+  exec "$TARGET_BIN" "$ENGINE" "$@"
 fi
-if ! bootstrap_engine "$TARGET_BIN" "$NAME" "$PRIMARY_CLI"; then
-  INSTALL_FAILED=1
-fi${peerSection}`;
-}
 
-function peerInstallBlock(engine: Engine): string {
-  const peerName = binaryName(engine);
-  const peerConfigFile = `${peerName}.json`;
-  const peerConfigEnv = engine === ENGINE_CLAUDE ? 'CLX_CONFIG_PATH' : 'CDX_CONFIG_PATH';
-  return `
+if [ "$HAS_CODEX" = "1" ] && [ -n "$ORIGINAL_CODEX_BIN" ] && [ "$ORIGINAL_CODEX_BIN" != "$BIN_ROOT/cdx" ]; then
+  ui_warn "cdx" "PATH" "$ORIGINAL_CODEX_BIN" "expected $BIN_ROOT/cdx"
+  ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/cdx run"
+fi
+if [ "$HAS_CLAUDE" = "1" ] && [ -n "$ORIGINAL_CLAUDE_BIN" ] && [ "$ORIGINAL_CLAUDE_BIN" != "$BIN_ROOT/clx" ]; then
+  ui_warn "clx" "PATH" "$ORIGINAL_CLAUDE_BIN" "expected $BIN_ROOT/clx"
+  ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/clx run"
+fi
 
-# 3. Install peer wrapper: ${peerName}
-PEER_NAME=${shellQuote(peerName)}
-set +e
-(
-  set -e
-  PEER_ENGINE=${shellQuote(engine)}
-  PEER_CONFIG_FILE=${shellQuote(peerConfigFile)}
-  PEER_CONFIG_ENV=${shellQuote(peerConfigEnv)}
-  PEER_CONFIG_HOME=\${XDG_CONFIG_HOME:-$HOME/.config}
-  PEER_CONFIG_PATH="$PEER_CONFIG_HOME/codex-orchestrator/$PEER_CONFIG_FILE"
-  case "$PEER_CONFIG_ENV" in
-    CDX_CONFIG_PATH)
-      if [ -n "\${CDX_CONFIG_PATH:-}" ]; then PEER_CONFIG_PATH=$CDX_CONFIG_PATH; fi
-      ;;
-    CLX_CONFIG_PATH)
-      if [ -n "\${CLX_CONFIG_PATH:-}" ]; then PEER_CONFIG_PATH=$CLX_CONFIG_PATH; fi
-      ;;
-  esac
-  PEER_BIN_DIR="$(dirname "$TARGET_BIN")"
-  mkdir -p "$(dirname "$PEER_CONFIG_PATH")"
-  PEER_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/$PEER_NAME.config.XXXXXX")
-  PEER_BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/$PEER_NAME.bin.XXXXXX")
-  peer_cleanup() { rm -f "$PEER_BUNDLE" "$PEER_BIN_TMP"; }
-  trap peer_cleanup EXIT INT TERM
-  ui_progress "$PEER_NAME" "wrapper" "" "installing…"
-  curl $CURL_INSECURE_FLAG -fsSL \\
-    -H "X-API-Key: $HOST_API_KEY" \\
-    -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
-    "$BASE_URL/wrapper/v2/config?engine=$PEER_ENGINE" \\
-    -o "$PEER_BUNDLE"
-  PEER_PY_OUT=$(python3 - "$PEER_BUNDLE" "$PEER_CONFIG_PATH" "$PEER_BIN_DIR" "$PEER_NAME" installer <<'PY'
-import json
-import os
-import shlex
-import sys
-
-bundle_path, config_path, bin_root, name, mode = sys.argv[1:6]
-
-def sort_value(value):
-    if isinstance(value, list):
-        return [sort_value(v) for v in value]
-    if isinstance(value, dict):
-        return {k: sort_value(value[k]) for k in sorted(value)}
-    return value
-
-with open(bundle_path, "r", encoding="utf-8") as fh:
-    bundle = json.load(fh)
-
-payload = bundle.get("payload")
-signature = bundle.get("signature") or {}
-if not isinstance(payload, dict):
-    raise SystemExit("peer wrapper config payload missing")
-
-sig_value = signature.get("value")
-if not isinstance(sig_value, str) or not sig_value:
-    raise SystemExit("peer wrapper config signature missing")
-
-wrapper = payload.get("wrapper") or {}
-version = str(wrapper.get("version") or "")
-binary_url = str(wrapper.get("binary_url") or "")
-binary_sha256 = str(wrapper.get("binary_sha256") or "")
-if not version or not binary_url or len(binary_sha256) != 64:
-    raise SystemExit("peer wrapper binary metadata incomplete")
-
-canonical = json.dumps(sort_value(payload), ensure_ascii=False, separators=(",", ":"))
-os.makedirs(os.path.dirname(config_path), exist_ok=True)
-tmp_config = f"{config_path}.tmp.{os.getpid()}"
-tmp_sig = f"{config_path}.sig.tmp.{os.getpid()}"
-with open(tmp_config, "w", encoding="utf-8") as fh:
-    fh.write(canonical)
-with open(tmp_sig, "w", encoding="utf-8") as fh:
-    fh.write(sig_value)
-os.replace(tmp_config, config_path)
-os.replace(tmp_sig, config_path + ".sig")
-os.chmod(config_path, 0o600)
-os.chmod(config_path + ".sig", 0o600)
-
-target = os.path.join(bin_root, name)
-print(f"PEER_WRAPPER_VERSION={shlex.quote(version)}")
-print(f"PEER_BINARY_URL={shlex.quote(binary_url)}")
-print(f"PEER_BINARY_SHA256={shlex.quote(binary_sha256)}")
-print(f"PEER_TARGET_BIN={shlex.quote(target)}")
-PY
-  )
-  eval "$PEER_PY_OUT"
-  case "$PEER_BINARY_URL" in
-    http://*|https://*) ;;
-    /*) PEER_BINARY_URL="$BASE_URL$PEER_BINARY_URL" ;;
-    *) PEER_BINARY_URL="$BASE_URL/$PEER_BINARY_URL" ;;
-  esac
-  PEER_SKIP=0
-  if [ -x "$PEER_TARGET_BIN" ] && [ ! -L "$PEER_TARGET_BIN" ]; then
-    PEER_SHA=$(sha256_file "$PEER_TARGET_BIN" || true)
-    if [ "$PEER_SHA" = "$PEER_BINARY_SHA256" ]; then
-      PEER_SKIP=1
-    fi
-  fi
-  if [ "$PEER_SKIP" = "0" ]; then
-    curl $CURL_INSECURE_FLAG -fsSL \\
-      -H "X-API-Key: $HOST_API_KEY" \\
-      -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
-      "$PEER_BINARY_URL" \\
-      -o "$PEER_BIN_TMP"
-    PEER_ACTUAL_SHA=$(sha256_file "$PEER_BIN_TMP")
-    if [ "$PEER_ACTUAL_SHA" != "$PEER_BINARY_SHA256" ]; then
-      echo "Downloaded peer wrapper checksum mismatch for $PEER_NAME" >&2
-      exit 1
-    fi
-    chmod 755 "$PEER_BIN_TMP"
-    install_bin "$PEER_BIN_TMP" "$PEER_TARGET_BIN"
-    rm -f "$PEER_BIN_TMP"
-  fi
-  ui_ok "$PEER_NAME" "wrapper" "$PEER_WRAPPER_VERSION" "ready"
-  if [ "$PEER_NAME" = "clx" ]; then
-    PEER_CLI=claude
-  else
-    PEER_CLI=codex
-  fi
-  bootstrap_engine "$PEER_TARGET_BIN" "$PEER_NAME" "$PEER_CLI"
-)
-PEER_EXIT=$?
-set -e
-if [ "$PEER_EXIT" != "0" ]; then
-  ui_fail "$PEER_NAME" "setup" "" "failed"
-  INSTALL_FAILED=1
-fi`;
+if ! bootstrap_host; then INSTALL_FAILED=1; fi
+if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
+if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
+# These are consumed by the installer suffix. Keep the shared transition body
+# independently ShellCheck-clean even though its successful path execs above.
+: "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;
 }
 
 function binaryName(engine: Engine): 'cdx' | 'clx' {

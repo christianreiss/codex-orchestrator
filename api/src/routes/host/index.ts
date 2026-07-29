@@ -16,8 +16,9 @@ import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { SettingsService } from '../../services/settings.js';
 import { createVersionSnapshotService } from '../../services/version-snapshot.js';
-import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
+import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
+import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 
 /**
@@ -118,27 +119,18 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
-    const rawSummary = await versions.summary(engine);
-    const summary = withLegacyShellWrapperTransition(rawSummary, submittedWrapper, engine);
-    const usingLegacyTransition = summary.wrapper_url !== rawSummary.wrapper_url;
     const requestedPlatform = resolveWrapperPlatform(req.headers);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
-    const binaryName = engine === 'claude' ? 'clx' : 'cdx';
+    const summary = await projectWrapperVersionSnapshot({
+      snapshot: await versions.summary(engine),
+      engine,
+      submittedWrapperVersion: submittedWrapper,
+      platform: requestedPlatform,
+      publicBaseUrl: baseUrl,
+      binaries,
+    });
+    const usingLegacyTransition = isLegacyShellWrapperVersion(submittedWrapper);
     const targetWrapper = summary.wrapper_version;
-    let platformSha: string | null = summary.wrapper_sha256;
-    let platformUrl: string | null = summary.wrapper_url;
-    if (!usingLegacyTransition && targetWrapper) {
-      const desc = await binaries.binaryDescriptor(
-        engine,
-        requestedPlatform.os,
-        requestedPlatform.arch,
-        targetWrapper,
-      );
-      if (desc?.sha256) {
-        platformSha = desc.sha256;
-        platformUrl = `${baseUrl}/wrapper/v2/bin/${engine}/${requestedPlatform.os}-${requestedPlatform.arch}/v${targetWrapper}/${binaryName}`;
-      }
-    }
 
     await ctx.db
       .update(hostsTable)
@@ -156,8 +148,8 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const wrapperUpdate = {
       action: 'no_update' as 'no_update' | 'update',
       target_version: targetWrapper,
-      sha256: platformSha,
-      url: platformUrl,
+      sha256: summary.wrapper_sha256,
+      url: summary.wrapper_url,
     };
 
     let needClient = false;
@@ -175,7 +167,10 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     }
 
     let needWrapper = false;
-    if (targetWrapper) {
+    if (
+      targetWrapper &&
+      (usingLegacyTransition || (summary.wrapper_sha256 !== null && summary.wrapper_url !== null))
+    ) {
       if (!submittedWrapper) {
         needWrapper = true;
       } else {

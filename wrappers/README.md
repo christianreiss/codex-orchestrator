@@ -1,22 +1,32 @@
 # Wrapper bakery v2
 
-Two static Go binaries (`cdx`, `clx`) replace the legacy bash bakery in `bin/cdx.d/`
-and `bin/clx.d/`. Each binary is shipped per-arch by the orchestrator and reads a
-per-host signed JSON config issued by `src/Services/Wrapper/V2/ConfigBaker.php`.
+One static Go binary (`cxx`) serves both engines. Enabled hosts install relative
+`cdx -> cxx` and/or `clx -> cxx` aliases; explicit invocation is also available
+as `cxx codex ...` and `cxx claude ...`. Engine configs, auth, locks, and native
+CLI state remain separate.
 
 Layout:
 
-- `cdx/`, `clx/` — Go modules, one per engine. No cross-binary code sharing.
+- `cxx/` — the single Go module and multicall command.
+- `cxx/internal/app/{codex,claude}` — compatibility CLI personas.
+- `cxx/internal/{config,cron,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives.
+- `cxx/internal/persona/{codex,claude}` — intentionally different engine lifecycle behavior.
 - `schemas/host-config-v1.json` — JSON Schema for the per-host config blob.
 - `testdata/` — fixtures consumed by both Go and PHP round-trip tests.
 
 Build:
 
 ```
-make all          # local development binaries to wrappers/bin/
-make test         # go test ./... for both modules
-make release      # cross-compile the platform matrix into storage/wrapper/v2/bin
+make all          # local wrappers/bin/cxx
+make test         # go test ./... for the unified module
+make release      # stage one cxx build per platform under wrappers/bin/release
+make publish-release # explicitly publish the staged VERSION to the served store
 ```
+
+`publish-release` validates every staged platform before changing the served
+store, publishes immutable version directories by atomic rename, then merges
+the platform manifests without dropping rollback builds. Override `OUTROOT`
+or `PUBLISH_ROOT` only when intentionally staging or publishing elsewhere.
 
 Key bootstrap (one-time, per environment):
 

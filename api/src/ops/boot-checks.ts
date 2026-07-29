@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type { Env } from '../env.js';
 import type { Database } from '../db/client.js';
@@ -8,6 +9,14 @@ import { sql } from 'drizzle-orm';
 import { nowIso } from '../util/timestamp.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
 import { ensureAuthGenerationBackfill } from '../services/auth-generation-retention.js';
+import {
+  CXX_ARTIFACT,
+  validatePlatformManifest,
+  wrapperBinaryUrl,
+  type BinaryBuild,
+  type PlatformManifest,
+  type WrapperArtifact,
+} from '../services/wrapper-bin-registry.js';
 
 export async function runBootChecks(env: Env, db: Database): Promise<void> {
   const keyring = Keyring.fromEnv(env);
@@ -40,8 +49,78 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const publishedAt = nowIso();
 
+  const commonPlatforms = ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64'];
+  const commonManifests = await Promise.all(
+    commonPlatforms.map((platform) =>
+      readCurrentBuild(
+        join(binRoot, CXX_ARTIFACT, platform, 'manifest.json'),
+        CXX_ARTIFACT,
+        platform,
+      ),
+    ),
+  );
+  const commonPublicationStarted = existsSync(join(binRoot, CXX_ARTIFACT));
+  const commonBuilds = await Promise.all(
+    commonPlatforms.map(async (platform, index) => {
+      const build = commonManifests[index];
+      if (!build) return null;
+      const binary = join(binRoot, CXX_ARTIFACT, platform, `v${build.version}`, CXX_ARTIFACT);
+      return (await binaryMatchesBuild(binary, build)) ? build : null;
+    }),
+  );
+  const commonVersions = new Set(
+    commonBuilds.flatMap((build) => (build ? [build.version] : [])),
+  );
+  const commonBuild = commonBuilds[0] ?? null;
+  if (
+    commonBuild &&
+    commonBuilds.every((build) => build !== null) &&
+    commonVersions.size === 1
+  ) {
+    const url = wrapperBinaryUrl(
+      baseUrl,
+      CXX_ARTIFACT,
+      'linux',
+      'amd64',
+      commonBuild.version,
+    );
+    // Keep the compatibility DB keys, but make both engine projections share
+    // one source of truth. There is no per-engine cxx target to drift.
+    await publishWrapperProjection(db, 'codex', commonBuild, url, publishedAt);
+    await publishWrapperProjection(db, 'claude', commonBuild, url, publishedAt);
+    return;
+  }
+
+  // Once any cxx publication exists, an incomplete/corrupt/mixed-version
+  // matrix is a staged or failed release. Leave the last-known-good database
+  // pointers untouched instead of falling back to a split Linux artifact.
+  if (commonPublicationStarted) return;
+
   await publishWrapperVersion(db, binRoot, baseUrl, 'codex', 'cdx', publishedAt);
   await publishWrapperVersion(db, binRoot, baseUrl, 'claude', 'clx', publishedAt);
+}
+
+async function binaryMatchesBuild(
+  path: string,
+  build: BinaryBuild,
+): Promise<boolean> {
+  if (!isFile(path)) return false;
+  try {
+    const bytes = await readFile(path);
+    if (bytes.byteLength === 0 || bytes.byteLength !== build.size_bytes) return false;
+    const actual = createHash('sha256').update(bytes).digest('hex');
+    return actual === build.sha256.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function publishWrapperVersion(
@@ -52,34 +131,54 @@ async function publishWrapperVersion(
   binary: 'cdx' | 'clx',
   publishedAt: string,
 ): Promise<void> {
-  const manifest = await readManifest(join(binRoot, engine, 'linux-amd64', 'manifest.json'));
-  if (!manifest) return;
-
-  const build =
-    manifest.builds.find((candidate) => candidate.version === manifest.current) ??
-    manifest.builds.at(-1);
-  if (!build?.version || !build.sha256) return;
-
-  const suffix = `_${engine}`;
+  const platform = 'linux-amd64';
+  const build = await readCurrentBuild(
+    join(binRoot, engine, platform, 'manifest.json'),
+    engine,
+    platform,
+  );
+  if (!build) return;
+  const path = join(binRoot, engine, platform, `v${build.version}`, binary);
+  if (!(await binaryMatchesBuild(path, build))) return;
   const url = `${baseUrl}/wrapper/v2/bin/${engine}/linux-amd64/v${build.version}/${binary}`;
+  await publishWrapperProjection(db, engine, build, url, publishedAt);
+}
+
+async function publishWrapperProjection(
+  db: Database,
+  engine: 'codex' | 'claude',
+  build: { version: string; sha256: string },
+  url: string,
+  publishedAt: string,
+): Promise<void> {
+  const suffix = `_${engine}`;
   await upsertVersion(db, `wrapper_version${suffix}`, build.version, publishedAt);
   await upsertVersion(db, `wrapper_sha256${suffix}`, build.sha256, publishedAt);
   await upsertVersion(db, `wrapper_url${suffix}`, url, publishedAt);
 }
 
-interface WrapperManifest {
-  current: string;
-  builds: Array<{ version: string; sha256: string }>;
-}
-
-async function readManifest(path: string): Promise<WrapperManifest | null> {
+async function readManifest(
+  path: string,
+  artifact: WrapperArtifact,
+  platform: string,
+): Promise<PlatformManifest | null> {
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as WrapperManifest;
-    if (!parsed || !Array.isArray(parsed.builds)) return null;
-    return parsed;
+    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
+    return validatePlatformManifest(parsed, artifact, platform);
   } catch {
     return null;
   }
+}
+
+async function readCurrentBuild(
+  path: string,
+  artifact: WrapperArtifact,
+  platform: string,
+): Promise<BinaryBuild | null> {
+  const manifest = await readManifest(path, artifact, platform);
+  if (!manifest) return null;
+  const build = manifest.builds.find((candidate) => candidate.version === manifest.current);
+  return build ?? null;
 }
 
 async function refreshRunnerHealth(env: Env, db: Database): Promise<void> {

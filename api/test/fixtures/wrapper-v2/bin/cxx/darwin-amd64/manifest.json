@@ -1,0 +1,15 @@
+{
+  "engine": "cxx",
+  "os": "darwin",
+  "arch": "amd64",
+  "current": "1.0.1",
+  "builds": [
+    {
+      "version": "1.0.1",
+      "sha256": "e0a8ecd04cf8a1841052fded8ac61b7c76eac6d8d0e1bb62bdd8e9d88388cf4a",
+      "size_bytes": 31,
+      "signature": "sig-cxx-v101-darwin-amd64",
+      "published_at": "2026-07-29T00:00:00Z"
+    }
+  ]
+}

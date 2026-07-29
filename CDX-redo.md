@@ -1,5 +1,9 @@
 # Codex Orchestrator — Complete `cdx` / `clx` Wrapper Bakery Rewrite
 
+> **Superseded 2026-07-29:** this is a historical design record. The current
+> topology builds one `cxx` multicall binary; relative `cdx` and `clx` aliases
+> select the Codex and Claude personas. See `docs/wrapper-v2-architecture.md`.
+
 ## Context
 
 The current wrapper bakery is a string-substitution pipeline that produces two ~10k-line bash scripts (`bin/cdx` 11,132 lines, `bin/clx` 4,844 lines) from 51 fragment files (`bin/cdx.d/`, `bin/clx.d/`), then bakes per-host placeholders (`__CODEX_SYNC_API_KEY__`, `__CODEX_HOST_MODEL__`, `__CODEX_ADMIN_THEME__`, …) into the script at **every** `/wrapper/download` request via PHP `strtr()`. About 90% of the bash code is duplicated between cdx and clx. SHA256 is recomputed on every download. There are no direct unit tests for `WrapperService`, `InstallerScriptBuilder` (597 lines), or `SeedAuthScriptBuilder` (166 lines). Version is detected via regex against the rendered file (`/WRAPPER_VERSION="([^"]+)"/`) — no compile-time provenance. Admin theme (a UI concern) is baked into the shell script. Six env vars + six `versions` DB keys configure the system. Three database tables (`hosts`, `install_tokens`, `auth_seed_tokens`) participate.

@@ -1,0 +1,15 @@
+{
+  "engine": "cxx",
+  "os": "linux",
+  "arch": "arm64",
+  "current": "1.0.1",
+  "builds": [
+    {
+      "version": "1.0.1",
+      "sha256": "f94c595bb011c785ffb8c1afcceca207043be019ce9d29bfe5568337d6f5ca32",
+      "size_bytes": 30,
+      "signature": "sig-cxx-v101-linux-arm64",
+      "published_at": "2026-07-29T00:00:00Z"
+    }
+  ]
+}

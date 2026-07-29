@@ -1,25 +1,27 @@
 ---
-title: The cdx and clx wrappers
+title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-07-18
-sources: wrappers/cdx, wrappers/clx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
+verified: 2026-07-29
+sources: wrappers/cxx, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
-`cdx` wraps the Codex CLI; `clx` wraps the Claude Code CLI. Each wrapper is a
-**static Go binary** built from `wrappers/cdx/` and `wrappers/clx/` (one Go
-module per engine, joined by `wrappers/go.work`). At install time the
+`cdx` wraps the Codex CLI; `clx` wraps the Claude Code CLI. Both paths are
+relative aliases to one **static Go binary**, `cxx`, built from `wrappers/cxx/`.
+Alias `argv[0]` selects the persona; direct calls use `cxx codex ...` or
+`cxx claude ...`. At install time the
 orchestrator emits a POSIX `sh` installer script (`GET /install/{token}`) that
-fetches a signed per-host JSON config plus the matching binary, installs it,
-and bootstraps the engine CLI via `<name> --cron install` + `<name> --cron run`
-— the installer does **not** itself `exec` the wrapper. A separate, shorter
+fetches every enabled signed per-host JSON config, requires identical common
+version/SHA metadata, downloads one binary, installs the enabled aliases, then
+calls `cxx cron install` and `cxx cron run --minimal` once each for all enabled
+engine CLIs — the installer does **not** itself `exec` the wrapper. A separate, shorter
 **legacy transition launcher** (`GET /wrapper/download`) exists only for
 pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
-`exec`s the freshly installed binary with the original argv.
+`exec`s `cxx <engine>` with the original argv.
 
 ## What lives where
 
-- **Go sources** — `wrappers/cdx/cmd/cdx/main.go`, `wrappers/clx/cmd/clx/main.go`
-  plus the `internal/...` packages (`config`, `lifecycle`, `orchestrator`,
+- **Go sources** — `wrappers/cxx/cmd/cxx` plus common and persona-specific
+  `internal/...` packages (`config`, `layout`, `lifecycle`, `orchestrator`,
   `codex`/`claude` exec, `update`, `signing`, `cron`, `ipc`, `ui`).
 - **Per-host config** — a JSON blob matching `wrappers/schemas/host-config-v1.json`.
   `wrapper-config.ts` composes and signs it (Ed25519, key from the
@@ -37,8 +39,8 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
   sits a detached Ed25519 signature file with the same name plus a `.sig`
   suffix (e.g. `cdx.json` and `cdx.json.sig`); both files must be present and
   consistent for the binary to start.
-- **Binaries** — committed (or CI-uploaded) under
-  `<DATA_ROOT>/wrapper/v2/bin/<engine>/<os>-<arch>/v<version>/<engine>` (or
+- **Binaries** — published under
+  `<DATA_ROOT>/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx` (or
   `storage/wrapper/v2/bin/...` relative to the repo when `DATA_ROOT` is unset).
   `wrapper-bin-registry.ts` discovers them via `manifest.json` files or a
   directory scan; SHA256 + size are recorded per build.
@@ -46,12 +48,11 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
   scripts (both shell out to `python3` for the JSON/sha256 work, an undocumented
   host dependency): `buildWrapperV2InstallerScript` — wrapped by
   `install-token.ts`'s `buildInstallerScript` and served at `GET /install/{token}`
-  — is the real installer: config fetch, binary download + sha-check, then
-  `<name> --cron install` + `<name> --cron run` to bootstrap the engine CLI; on
-  a dual-engine host it appends a peer-install block that repeats the same
-  dance for the other engine. `buildLegacyWrapperTransitionScript` — served at
+  — is the real installer: all enabled configs are fetched and gated first,
+  followed by one binary download + sha-check, atomic relative alias migration,
+  and one host-wide bootstrap. `buildLegacyWrapperTransitionScript` — served at
   `GET /wrapper/download` — is the actual **transition launcher**: the same
-  config-and-binary fetch, but it `exec`s the freshly installed binary with the
+  config-and-binary fetch, but it explicitly `exec`s `cxx <engine>` with the
   original argv instead of bootstrapping cron. `isLegacyShellWrapperVersion`
   detects date-format versions (YYYY.MM.DD) from the v1 shell era;
   `withLegacyShellWrapperTransition` redirects those legacy hosts to
@@ -65,8 +66,8 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 `app.requireHost`:
 
-- `GET /wrapper/v2/meta` (alias `GET /wrapper`) — current per-engine binary
-  manifest with signing key id.
+- `GET /wrapper/v2/meta` (alias `GET /wrapper`) — engine-scoped projection of
+  the common platform matrix, with signing key id.
 - `GET /wrapper/v2/config[?engine=<engine>][&sig=1]` — returns the signed
   per-host config JSON (or its detached `.sig` file when `sig=1`). `engine`
   defaults to `codex`; each wrapper's peer-reconciliation code fetches the
@@ -78,9 +79,9 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
   the legacy transition-launcher shell script for pre-v2 (date-versioned)
   hosts (see `buildLegacyWrapperTransitionScript` above).
 - `GET /wrapper/v2/manifest/:engine` — full per-platform manifest for an engine.
-- `GET /wrapper/v2/bin/:engine/:platform/v:version/:binary` — serves the static
-  binary; `:platform` is `<os>-<arch>`. The response is cacheable
-  (ETag = SHA256).
+- `GET /wrapper/v2/bin/cxx/:platform/v:version/cxx` — canonical common binary;
+  compatible old per-engine URLs preserve exact historical files and fall back
+  to common bytes for new versions. Responses are cacheable (ETag = SHA256).
 - `GET /install/{token}` (alias `GET /install/v2/{token}`) — emits the
   installer script.
 - `GET /seed/auth/{token}` (alias `GET /seed/v2/auth/{token}`) /
@@ -89,8 +90,8 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 
 ## Startup sequence inside the Go binary
 
-Implemented in `wrappers/cdx/internal/lifecycle/run.go` (mirrored closely for
-clx; engine-specific deltas are called out in [clx](/admin/manual/clx)):
+Implemented under `wrappers/cxx/internal/persona/{codex,claude}/lifecycle/`;
+engine-specific deltas are called out in [clx](/admin/manual/clx):
 
 1. **Config load** — load and verify the host config JSON and its detached
    `.sig` file against the Ed25519 public key embedded in the binary at build
@@ -276,27 +277,41 @@ an HTTP 2xx API response.
 
 ## Peer engine reconciliation
 
-Since dual-engine host support, each wrapper can provision and keep its
-*peer* wrapper current on the same host (`wrappers/cdx/internal/peer/`,
-`wrappers/clx/internal/peer/`). On a successful launch (step 7 above) or a
+Each persona can provision and keep its peer engine current on the same host
+(`wrappers/cxx/internal/persona/*/peer/`). On a successful launch (step 7 above) or a
 cron tick, the wrapper reads the desired engine set from the auth response's
 `host.engines_list` (falling back to the locally cached config):
 
 - If the peer engine is enabled, it fetches `GET /wrapper/v2/config?engine=<peer>`,
   **verifies the bundle's detached Ed25519 signature against the embedded
   fleet key before trusting anything in it** — closing an MITM/RCE vector,
-  since `binary_url`/`binary_sha256` ride in that same payload — writes
-  `<peer>.json{,.sig}`, and installs/updates the peer binary beside the
-  running wrapper's PATH location if the SHA256 differs. It then runs one
-  guarded `<peer> --cron run` tick (guarded by `CODEX_ORCH_PEER_SPAWN=1` to
-  stop the two wrappers from recursing into each other).
+  since `binary_url`/`binary_sha256` ride in that same payload — verifies its
+  host identity and engine membership, writes `<peer>.json{,.sig}`, and
+  verifies the server's fresh target bytes by SHA while converging canonical
+  `cxx` plus relative aliases. A stale previously cached peer target does not
+  block that refresh.
 - If the peer engine is disabled, it performs local-only cleanup of the
-  peer's wrapper binary, config, cron entry, managed state directory, and
-  npm-installed CLI package — never touching the host row.
-- Cron ticks (`--cron run`) always force this reconciliation
-  (`EnsureForCron`); interactive `run` invocations only run it when the peer
-  was just installed or its engine CLI binary is missing, to keep normal
-  launches lightweight.
+  peer's alias, config, managed state directory, and npm-installed CLI package
+  — never touching the host row or the shared cron needed by the remaining
+  engine.
+- Interactive `run` invocations reconcile only when the peer was just
+  installed or its engine CLI binary is missing, keeping normal launches
+  lightweight. Cron does not spawn a peer cron recursively: the host-wide
+  coordinator runs each enabled persona tick exactly once.
+
+## Host-wide auto-update
+
+`cdx --cron ...` and `clx --cron ...` are compatibility entrypoints into
+`cxx cron [install|remove|run]`. The coordinator verifies signed configs belong
+to the same host and requested enabled engines, but does not compare wrapper
+version/SHA fields that can be stale or temporarily differ during a rolling
+refresh. It owns exactly one user entry (`# cxx-managed-cron`) or system entry
+(`/etc/cron.d/cxx-managed`). The first upgraded tick reached from an old
+`cdx-managed` or `clx-managed` job installs that shared entry and removes both
+historical user/system schedules before running enabled engine maintenance.
+Coordinator children receive internal `CXX_CRON_COORDINATED` and
+`CXX_CRON_ENGINE_ONLY` markers so alias forwarding and legacy peer guards cannot
+re-enter the coordinator; operators do not set either variable.
 
 ## Subcommands and flags
 
@@ -369,6 +384,13 @@ wrapper crash until the child exits. These leases cover wrapper-launched childre
 `codex`/`claude` invocation outside cdx/clx is an unavoidable coordination
 boundary.
 
+Uninstall is engine-scoped at the API boundary. Each persona always cleans its
+own credentials and managed state, then trusts shared-artifact cleanup only to
+an authoritative delete response: with another engine remaining it removes
+only the selected alias and retains `cxx` plus the host-wide cron; with no
+engine remaining it removes both aliases, `cxx`, and cron. Network failure,
+non-2xx, or an undecodable response preserves every shared artifact.
+
 ### execute / --execute
 
 Both wrappers support a headless one-shot mode (`execute` subcommand or
@@ -378,20 +400,20 @@ callers.
 
 ## Verifying a deployment
 
-1. `cd wrappers && make all && make test` — builds local binaries and runs Go tests.
+1. `cd wrappers && make cxx && make test` — builds the common binary and runs Go tests.
 2. `scripts/wrapper-v2-init-keys.sh` followed by `cd wrappers && make pubkey` —
    one-time per environment to generate + persist the Ed25519 signing key and
-   embed the public key into the binaries.
+   embed the public key into the common binary.
 
 ## Source references
 
-- wrappers/cdx, wrappers/clx (Go modules — host wrappers, incl. `internal/peer`
-  peer-engine reconciliation and `internal/orchestrator/auth_decide.go`
+- wrappers/cxx (common Go module and both personas, including peer-engine
+  reconciliation and persona `orchestrator/auth_decide.go`
   launch-gate rules)
 - api/src/services/wrapper-config.ts (signed per-host config bakery)
 - api/src/services/wrapper-signing-key.ts (Ed25519 key from wrapper_signing_keys)
 - api/src/services/wrapper-bin-registry.ts (binary inventory, SHA256)
-- api/src/services/wrapper-meta.ts (per-engine/platform manifest), api/src/services/wrapper-download.ts (binary-stream facade)
+- api/src/services/wrapper-meta.ts (engine-scoped common-platform projection), api/src/services/wrapper-download.ts (binary-stream facade)
 - api/src/services/wrapper-transition.ts, api/src/services/install-token.ts (installer + legacy transition shell script generation, legacy version detection)
 - api/src/routes/wrapper-v2/index.ts (HTTP surface)
 - api/src/routes/install/index.ts (installer + seed-auth tokens)

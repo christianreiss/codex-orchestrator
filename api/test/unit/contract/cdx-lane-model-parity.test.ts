@@ -8,7 +8,7 @@ import {
 } from '../../../src/services/config-normalizer.js';
 
 /**
- * `wrappers/cdx/internal/codex/lane.go` hardcodes the model a lane preference
+ * `wrappers/cxx/internal/codex/lane.go` hardcodes the model a lane preference
  * launches with — spark and normal each return a literal id from `LaneModel` —
  * and `ApplyLanePreference` injects spark's fleet default effort as a literal
  * `--config model_reasoning_effort=...`. All three are duplicates of the server
@@ -27,7 +27,7 @@ import {
  * instead of quietly comparing nothing.
  */
 
-const LANE_FILE = 'wrappers/cdx/internal/codex/lane.go';
+const LANE_FILE = 'wrappers/cxx/internal/codex/lane.go';
 const LANE_PATH = resolve(import.meta.dirname, '../../../..', LANE_FILE);
 
 const source = readFileSync(LANE_PATH, 'utf8');

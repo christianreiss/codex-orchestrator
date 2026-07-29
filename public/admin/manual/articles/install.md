@@ -141,24 +141,40 @@ The GET twin at `/seed/auth/{token}` returns an executable shell script that rea
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host POSIX shell installer. It installs `cdx`, `clx`, or both into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
+`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host POSIX shell installer. It installs one `cxx` plus relative `cdx -> cxx` and/or `clx -> cxx` aliases into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
 
 What the installer actually does on the target machine:
 
-1. Fetches each signed per-host config and its platform-specific Go wrapper,
-   verifies SHA-256, and installs the wrapper into the selected bin directory.
-2. When Claude is requested, prepares Node.js/npm first. It prefers the OS Node
+1. Fetches every enabled signed per-host config first and refuses to continue
+   unless their common wrapper version/SHA metadata agrees.
+2. Downloads one platform-specific `cxx`, verifies SHA-256, and installs it
+   with enabled relative aliases. Existing regular `cdx`/`clx` wrappers are
+   atomically replaced by aliases during migration.
+3. When Claude is requested, prepares Node.js/npm. It prefers the OS Node
    runtime plus a pinned Corepack npm shim and falls back to the OS npm package.
-3. Runs each requested wrapper's managed cron/bootstrap path once with minimal
-   output and peer recursion suppressed, installing Codex and/or Claude Code at
-   the server-selected version.
-4. Prints `READY` only after every wrapper, CLI, and cron entry verifies. Any
+4. Invokes `cxx cron install` and `cxx cron run --minimal` once each. The
+   coordinator installs one shared schedule and boots every enabled persona
+   exactly once, installing Codex and/or Claude Code at the server-selected
+   version.
+5. Prints `READY` only after the common wrapper, every CLI, and cron setup verifies. Any
    partial failure prints `INCOMPLETE`, exits non-zero, and gives a direct retry;
    wrapper/config failures require minting a fresh single-use installer.
 
 ## Wrapper distribution
 
-Canonical wrapper sources are the Go modules under `wrappers/cdx/` and `wrappers/clx/`. CI cross-compiles per platform and writes results to `<DATA_ROOT>/wrapper/v2/bin/<engine>/<os>-<arch>/`, with a `manifest.json` per platform listing builds and their SHA256s; `wrapper-bin-registry.ts` discovers them. `GET /wrapper` (aliased to `/wrapper/v2/meta`) returns the per-platform manifest; `GET /wrapper/download` returns the bootstrap transition launcher for the calling host. Hosts use these endpoints to self-update between runs.
+Canonical wrapper source is the Go module under `wrappers/cxx/`. CI
+cross-compiles once per platform and publishes a single-version release
+fragment. After extracting it to a stage root, operators run
+`cd wrappers && make publish-release OUTROOT=<stage-root> PUBLISH_ROOT=<DATA_ROOT>/wrapper/v2/bin`.
+That target validates the complete incoming matrix and existing rollback
+payloads before mutation, publishes immutable version directories, and merges
+each platform manifest atomically without dropping earlier builds. Exact
+historical per-engine artifacts stay immutable, while compatible old URLs fall
+back to the matching common bytes. `wrapper-bin-registry.ts` discovers the
+published store. `GET /wrapper` (aliased to `/wrapper/v2/meta`) returns the
+per-platform projection; `GET /wrapper/download` returns the bootstrap
+transition launcher for the calling host. Hosts use these endpoints to
+self-update between runs.
 
 ## Post-install smoke test
 

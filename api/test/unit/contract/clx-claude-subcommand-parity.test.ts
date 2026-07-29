@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 
 /**
  * clx keeps two lists of Claude CLI subcommands. `reservedClaudeSubcommands` in
- * `wrappers/clx/cmd/clx/main.go` decides what the wrapper forwards verbatim to
+ * `wrappers/cxx/internal/app/claude/main.go` decides what the wrapper forwards verbatim to
  * the upstream binary; `claudeTopLevelSubcommands` in
- * `wrappers/clx/internal/claude/runtime_auth.go` decides where
+ * `wrappers/cxx/internal/claude/runtime_auth.go` decides where
  * `injectRuntimeAuthSettings` puts the `--settings <tmpfile>` auth overlay. A
  * forwarded name missing from the second list is read as a prompt, so the
  * overlay is appended *after* the subcommand and its arguments — where Claude
@@ -20,8 +20,8 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 
-const MAIN = 'wrappers/clx/cmd/clx/main.go';
-const RUNTIME_AUTH = 'wrappers/clx/internal/claude/runtime_auth.go';
+const MAIN = 'wrappers/cxx/internal/app/claude/main.go';
+const RUNTIME_AUTH = 'wrappers/cxx/internal/claude/runtime_auth.go';
 
 /**
  * Forwarded names deliberately kept out of `claudeTopLevelSubcommands`, keyed by

@@ -97,7 +97,7 @@ function fakeBinaries(): WrapperBinRegistry {
         version: '1.0.1',
         sha256: 'a'.repeat(64),
         size_bytes: 100,
-        url_path: 'https://example.com/wrapper/v2/bin/codex/linux-amd64/v1.0.1/cdx',
+        url_path: 'https://example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
       },
     },
   };
@@ -108,14 +108,22 @@ function fakeBinaries(): WrapperBinRegistry {
     async currentBuild() {
       return build;
     },
+    async resolveCurrentBuild() {
+      return { ...build, artifact: 'cxx', path: '/fixtures/cxx' };
+    },
+    async resolveVersion() {
+      return { ...build, artifact: 'cxx', path: '/fixtures/cxx' };
+    },
     async latestVersion() {
       return '1.0.1';
     },
     async engineManifest() {
       return manifest;
     },
-    async binaryDescriptor() {
-      return null;
+    async binaryDescriptor(artifact) {
+      return artifact === 'cxx'
+        ? { path: '/fixtures/cxx', sha256: build.sha256, size: build.size_bytes }
+        : null;
     },
     async openBinary() {
       throw new Error('not implemented');
@@ -318,7 +326,7 @@ describe('wrapper-config', () => {
     expect(result.payload.host.fqdn).toBe('host01.example.com');
     expect(result.payload.engine_options.model_override).toBe('gpt-5.4');
     expect(result.payload.wrapper.version).toBe('1.0.1');
-    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/codex/linux-amd64/v1.0.1/cdx');
+    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx');
 
     // Signature roundtrip
     const ok = cryptoVerify(
@@ -366,7 +374,7 @@ describe('wrapper-config', () => {
       'https://api.example.com',
       { os: 'darwin', arch: 'arm64' },
     );
-    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/codex/darwin-arm64/v1.0.1/cdx');
+    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/darwin-arm64/v1.0.1/cxx');
   });
 
   it('selects claude-shaped engine_options when engine=claude', async () => {
@@ -398,7 +406,7 @@ describe('wrapper-config', () => {
     expect(result.payload.engine).toBe('claude');
     expect(result.payload.engine_options.claude_model_override).toBe('claude-3-opus');
     expect('model_override' in result.payload.engine_options).toBe(false);
-    expect(result.payload.wrapper.binary_url).toContain('/clx');
+    expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx');
   });
 
   it('exposes a bumped flag and increments config_version', async () => {

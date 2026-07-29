@@ -31,7 +31,7 @@ import {
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 /** Wrapper trees that talk to the host API, relative to the repository root. */
-const WRAPPER_ROOTS = ['wrappers/cdx', 'wrappers/clx'];
+const WRAPPER_ROOTS = ['wrappers/cxx'];
 
 /**
  * Called endpoints — `METHOD /path` — that deliberately reach no Fastify route,
@@ -67,7 +67,7 @@ function endpointOf(method: string, path: string): string {
 const GO_LITERAL = /^(?:"((?:\\.|[^"\\])*)"|`([^`]*)`)$/;
 const IDENTIFIER = /^[A-Za-z_]\w*$/;
 /** `cfg.Orchestrator.BaseURL` and friends — the host root the path hangs off. */
-const BASE_URL = /(?:^|\.)BaseURL$/;
+const BASE_URL = /(?:^|\.)BaseURL(?:\s*,|\)|$)/;
 const NILADIC_CALL = /^([A-Za-z_]\w*)\(\)$/;
 
 /** Source text of the argument starting at `start`, up to its `,` or `)`. */
@@ -167,6 +167,8 @@ function forwardsParameter(source: string, at: number, argument: string): boolea
 const CLIENT_CALL = /\.JSON\(\s*\w+\s*,\s*http\.Method(\w+)\s*,/g;
 /** `http.NewRequestWithContext(ctx, http.MethodGet, …)` — requests built by hand. */
 const DIRECT_CALL = /\bhttp\.NewRequestWithContext\(\s*\w+\s*,\s*http\.Method(\w+)\s*,/g;
+/** `url.Parse(cfg.Orchestrator.BaseURL + "/path")` before a hand-built GET. */
+const PARSED_GET = /\burl\.Parse\(/g;
 /** A hand-built request is a host-API call only when it hangs off the base URL. */
 const ORCHESTRATOR_URL = /\bOrchestrator\.BaseURL\b/;
 
@@ -193,6 +195,22 @@ function collectCallSites(): CallSite[] {
             path: normalizePath(raw),
           });
         }
+      }
+      for (const match of source.matchAll(PARSED_GET)) {
+        const at = match.index;
+        const argument = argumentAt(source, at + match[0].length).trim();
+        if (!ORCHESTRATOR_URL.test(argument)) continue;
+        const raw = operands(argument)
+          .map((operand) => valueOf(operand, source))
+          .join('');
+        const path = normalizePath(raw);
+        if (path === null) continue;
+        sites.push({
+          file: `${root}/${file}`,
+          line: source.slice(0, at).split('\n').length,
+          method: 'GET',
+          path,
+        });
       }
     }
   }

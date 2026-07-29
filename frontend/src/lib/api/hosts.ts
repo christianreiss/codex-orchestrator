@@ -448,6 +448,38 @@ export function hostEngines(
   return [];
 }
 
+export interface HostCxxWrapperState {
+  display: string;
+  drift: boolean;
+}
+
+/** One shared cxx binary is reported through two legacy engine telemetry fields. */
+export function hostCxxWrapperState(
+  host: Pick<
+    HostListItem,
+    "engines_list" | "engines" | "wrapper_version" | "claude_wrapper_version"
+  >,
+): HostCxxWrapperState {
+  const engines = new Set(hostEngines(host));
+  const codexEnabled = engines.has("codex");
+  const claudeEnabled = engines.has("claude");
+  const codexVersion = codexEnabled ? host.wrapper_version : null;
+  const claudeVersion = claudeEnabled ? host.claude_wrapper_version : null;
+  const drift =
+    codexEnabled &&
+    claudeEnabled &&
+    (codexVersion !== null || claudeVersion !== null) &&
+    codexVersion !== claudeVersion;
+
+  if (drift) {
+    return {
+      display: `Codex ${codexVersion ?? "—"} · Claude ${claudeVersion ?? "—"} (migration drift)`,
+      drift: true,
+    };
+  }
+  return { display: codexVersion ?? claudeVersion ?? "—", drift: false };
+}
+
 export const HOST_ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type HostStatusKind = "online" | "offline" | "auth-missing" | "auth-outdated";

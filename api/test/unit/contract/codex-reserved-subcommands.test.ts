@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
  * `docs/USAGE.md` spells out the Codex subcommands that "are reserved by the
  * wrapper" and tells operators to reach a same-named profile through
  * `cdx --profile <name>`. That sentence is free text; the authority is the
- * `reservedCodexSubcommands` map in `wrappers/cdx/cmd/cdx/main.go`, which grows
+ * `reservedCodexSubcommands` map in `wrappers/cxx/internal/app/codex/main.go`, which grows
  * whenever upstream Codex adds a subcommand. The two agree today, and nothing
  * would notice the doc going stale — the same drift the wrapper CLI surface and
  * auth struct contract tests were added to close.
@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 
-const MAIN = 'wrappers/cdx/cmd/cdx/main.go';
+const MAIN = 'wrappers/cxx/internal/app/codex/main.go';
 const DOC = 'docs/USAGE.md';
 
 /**

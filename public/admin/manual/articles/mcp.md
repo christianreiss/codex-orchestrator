@@ -2,7 +2,7 @@
 title: MCP server and tools
 section: Integrations and reference
 verified: 2026-07-28
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/clx/internal/lifecycle/userconfig_merge.go, wrappers/clx/internal/lifecycle/settings_merge.go
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
@@ -244,5 +244,5 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 - api/src/routes/mcp/index.ts (GET/POST /mcp transport, host/operator capability resolution)
 - api/src/services/client-config.ts (injectManagedMcp, buildClaudeMcpServers, renderClaudeSettingsPartial/renderClaudeSettingsPartialForHost)
 - api/src/services/config-normalizer.ts (mcp_servers / orchestrator_mcp_enabled normalization)
-- wrappers/clx/internal/lifecycle/userconfig_merge.go (splitMcpOwned, applyUserMcpServers, MergeUserMcpServers, stripUserMcpServers)
-- wrappers/clx/internal/lifecycle/settings_merge.go (settings.json merge path)
+- wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go (splitMcpOwned, applyUserMcpServers, MergeUserMcpServers, stripUserMcpServers)
+- wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go (settings.json merge path)

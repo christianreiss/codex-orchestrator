@@ -172,7 +172,9 @@ describe('manual article frontmatter sources', () => {
     }
     const declared = new Set(frontmatterSources.map((source) => source.path));
     expect(declared.has('api/src/server.ts')).toBe(true);
-    expect(declared.has('wrappers/clx/internal/lifecycle/settings_merge.go')).toBe(true);
+    expect(
+      declared.has('wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go'),
+    ).toBe(true);
     // The blank line after the opener does not end the frontmatter, and a
     // `sources:` line below the closing fence is body text, not a declaration.
     const sample = collectFrontmatterSources(

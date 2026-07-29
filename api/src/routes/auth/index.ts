@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { join, resolve } from 'node:path';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   hostAuthDigests,
@@ -19,7 +20,10 @@ import { ClientVersionsService } from '../../services/client-versions.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { SettingsService } from '../../services/settings.js';
-import { createVersionSnapshotService } from '../../services/version-snapshot.js';
+import {
+  createVersionSnapshotService,
+  type VersionSnapshot,
+} from '../../services/version-snapshot.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { HostAgentsService } from '../../services/host-agents.js';
 import { HostClaudeArtifactsService, type ArtifactDigestMap } from '../../services/host-claude-artifacts.js';
@@ -34,11 +38,13 @@ import {
   touchHostAuthFields,
   touchHostAuthState,
 } from '../../services/canonical-auth-store.js';
-import { withLegacyShellWrapperTransition } from '../../services/wrapper-transition.js';
+import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
+import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-engine-policy.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
+import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 
 /**
  * Registers the wrapper-facing /auth (+ /sync/*) routes. The legacy PHP
@@ -67,6 +73,23 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     },
   });
   const syncService = createHostSyncService({ db: ctx.db, versions });
+  const binRoot = ctx.env.DATA_ROOT
+    ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
+    : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
+  const binaries = createWrapperBinRegistry({ binRoot });
+  const requestVersions = (req: FastifyRequest): RequestVersionProjector => {
+    const platform = resolveWrapperPlatform(req.headers);
+    const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
+    return async (engine, submittedWrapperVersion) =>
+      projectWrapperVersionSnapshot({
+        snapshot: await versions.summary(engine),
+        engine,
+        submittedWrapperVersion,
+        platform,
+        publicBaseUrl,
+        binaries,
+      });
+  };
   const agentsService = new HostAgentsService(ctx.db, {
     publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
     keyring: ctx.keyring,
@@ -92,11 +115,30 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
+    const projectedVersions = requestVersions(req);
 
     if (command === 'retrieve') {
-      return handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, versions, authStore);
+      return handleRetrieve(
+        app,
+        ctx,
+        enforcedHost,
+        payload,
+        engine,
+        runnerValidation,
+        projectedVersions,
+        authStore,
+      );
     }
-    return handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, versions);
+    return handleStore(
+      app,
+      ctx,
+      enforcedHost,
+      payload,
+      engine,
+      authStore,
+      runnerValidation,
+      projectedVersions,
+    );
   });
 
   // DELETE /auth — host uninstall.
@@ -193,11 +235,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
+    const projectedVersions = requestVersions(req);
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({ host: enforced, engine, bootstrap: false, users });
-    out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
+    out.versions = await projectedVersions(engine, payload.wrapper_version);
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
@@ -208,7 +251,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         payload,
         engine,
         runnerValidation,
-        versions,
+        projectedVersions,
         authStore,
       );
       out.auth = authResult;
@@ -230,11 +273,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
+    const projectedVersions = requestVersions(req);
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({ host: enforced, engine, bootstrap: true, users });
-    out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
+    out.versions = await projectedVersions(engine, payload.wrapper_version);
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
@@ -246,7 +290,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         engine,
         runnerValidation,
         authStore,
-        versions,
+        projectedVersions,
       );
       out.auth = authResult;
       const status = ((authResult as { status?: string }).status ?? '').toLowerCase();
@@ -353,6 +397,11 @@ function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMa
 // /auth retrieve / store
 // ───────────────────────────────────────────────────────────────────────────
 
+type RequestVersionProjector = (
+  engine: Engine,
+  submittedWrapperVersion: unknown,
+) => Promise<VersionSnapshot>;
+
 async function handleRetrieve(
   app: FastifyInstance,
   ctx: RouteContext,
@@ -360,7 +409,7 @@ async function handleRetrieve(
   payload: Record<string, unknown>,
   engine: Engine,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
-  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  projectVersions: RequestVersionProjector,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
 ): Promise<Record<string, unknown>> {
   const providedDigest = extractDigest(payload, false);
@@ -383,11 +432,7 @@ async function handleRetrieve(
     .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
     .where(eq(hostsTable.id, host.id));
 
-  const versions = withLegacyShellWrapperTransition(
-    await versionSvc.summary(engine),
-    payload.wrapper_version,
-    engine,
-  );
+  const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
     canonical_last_refresh: canonicalLast,
@@ -488,7 +533,7 @@ async function buildRetrieveBaseResponse(
   host: Host,
   payload: Record<string, unknown>,
   engine: Engine,
-  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  projectVersions: RequestVersionProjector,
 ): Promise<Record<string, unknown>> {
   // Atomic SQL increment — avoids lost updates from concurrent requests
   // reading the same stale `host.apiCalls` snapshot.
@@ -497,11 +542,7 @@ async function buildRetrieveBaseResponse(
     .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
     .where(eq(hostsTable.id, host.id));
 
-  const versions = withLegacyShellWrapperTransition(
-    await versionSvc.summary(engine),
-    payload.wrapper_version,
-    engine,
-  );
+  const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1);
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host),
@@ -525,11 +566,11 @@ async function handleBootstrapAuth(
   engine: Engine,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
-  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  projectVersions: RequestVersionProjector,
 ): Promise<Record<string, unknown>> {
   const candidate = readAuthCandidate(payload);
   if (!candidate)
-    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore);
+    return handleRetrieve(app, ctx, host, payload, engine, runnerValidation, projectVersions, authStore);
 
   const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
   const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
@@ -550,7 +591,7 @@ async function handleBootstrapAuth(
         };
   const serveDefinitiveCandidateFallback = async (): Promise<Record<string, unknown>> => {
     const fallback = annotateFailedCanonicalMatch(
-      await handleRetrieve(app, ctx, host, payload, engine, runnerValidation, versionSvc, authStore),
+      await handleRetrieve(app, ctx, host, payload, engine, runnerValidation, projectVersions, authStore),
     );
     // This signal authorizes the wrapper to replace a locally newer candidate
     // with the older canonical. Emit it only when the candidate failure was
@@ -585,7 +626,7 @@ async function handleBootstrapAuth(
       // Candidate already matches canonical: this is the common warm-launch
       // path. Startup must not wait on live runner probes; use the latest stored
       // verdict from the background auth-verification worker.
-      const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
+      const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
       baseResponse.canonical_generation = canonicalRow.generation ?? undefined;
       let servedDigest = canonicalDigest;
       let servedLast = canonicalLast;
@@ -640,7 +681,7 @@ async function handleBootstrapAuth(
         retrievePayloadWithCandidateFreshness(payload, candidateLast),
         engine,
         runnerValidation,
-        versionSvc,
+        projectVersions,
         authStore,
       );
     }
@@ -658,7 +699,7 @@ async function handleBootstrapAuth(
       baseCanonicalGeneration:
         typeof payload.base_canonical_generation === 'number' ? payload.base_canonical_generation : null,
     });
-    const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, versionSvc);
+    const baseResponse = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
     return { ...baseResponse, ...stored };
   } catch (err) {
     app.log.warn(
@@ -694,7 +735,7 @@ async function handleBootstrapAuth(
         retrievePayloadWithCandidateFreshness(payload, candidateLast),
         engine,
         runnerValidation,
-        versionSvc,
+        projectVersions,
         authStore,
       ),
     );
@@ -773,7 +814,7 @@ async function handleStore(
   engine: Engine,
   authStore: ReturnType<typeof createCanonicalAuthStoreService>,
   runnerValidation: ReturnType<typeof createRunnerValidationService>,
-  versionSvc: ReturnType<typeof createVersionSnapshotService>,
+  projectVersions: RequestVersionProjector,
 ): Promise<Record<string, unknown>> {
   const incoming = extractAuthPayload(payload);
   let stored;
@@ -800,11 +841,7 @@ async function handleStore(
     .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: now })
     .where(eq(hostsTable.id, host.id));
 
-  const summary = withLegacyShellWrapperTransition(
-    await versionSvc.summary(engine),
-    payload.wrapper_version,
-    engine,
-  );
+  const summary = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1);
 
   const response: Record<string, unknown> = {
@@ -824,6 +861,20 @@ async function handleStore(
 // ───────────────────────────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────────────────────────
+
+function resolvePublicBaseUrl(req: FastifyRequest, envBase: string | undefined): string {
+  if (envBase) return envBase.replace(/\/+$/, '');
+  const proto = headerString(req.headers['x-forwarded-proto']) ?? req.protocol ?? 'http';
+  const host =
+    headerString(req.headers['x-forwarded-host']) ?? headerString(req.headers.host) ?? 'localhost';
+  return `${proto}://${host}`;
+}
+
+function headerString(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value.length > 0) return value[0];
+  return undefined;
+}
 
 function readPayload(body: unknown): Record<string, unknown> {
   if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;

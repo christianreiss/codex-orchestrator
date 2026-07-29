@@ -1,3 +1,27 @@
+# 2026-07-29
+
+- Replaced the separate cdx/clx wrapper artifacts with one `cxx` multicall
+  binary. Relative `cdx -> cxx` and `clx -> cxx` aliases preserve both CLI
+  surfaces, while direct `cxx codex ...` / `cxx claude ...` dispatch is
+  explicit. CI now builds four common platform artifacts, and old per-engine
+  routes remain compatible for rolling migration.
+- Host installers now fetch every enabled signed config before mutation,
+  require one common version/SHA for initial provisioning, download and
+  atomically install `cxx` once, migrate legacy regular binaries to relative
+  aliases, and bootstrap all enabled CLIs through one host-wide cron
+  coordinator. Failed swaps leave the previous binary intact.
+- Auto-update now owns exactly one `cxx-managed` schedule per host and removes
+  both historical persona schedules; the first upgraded legacy tick migrates
+  itself. Engine-scoped uninstall removes only its alias while another engine
+  remains, deletes shared artifacts only after confirmed last-engine removal,
+  and preserves shared state when the API result is uncertain.
+- Host detail now reports one **CXX wrapper** version and calls out dual-engine
+  telemetry drift instead of presenting cdx/clx as independent installations.
+- Common artifact publication is fail-closed across the full four-platform
+  matrix. Release manifests retain immutable earlier `cxx` builds for rollback;
+  incomplete/corrupt common stores do not silently mix in split artifacts, and
+  the operator runbook documents the forward-only host rollback order.
+
 # 2026-07-28
 
 - Made wrapper cron and uninstall tests host-side-effect-free: cdx/clx disable

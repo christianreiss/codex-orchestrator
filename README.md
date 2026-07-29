@@ -15,14 +15,14 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 ## What does it actually do?
 
 **Multi-engine fleet management**
-- Deploy **Codex** (`cdx`) and/or **Claude Code** (`clx`) on any host — each gets its own wrapper but shares the same API key.
+- Deploy **Codex** (`cdx`) and/or **Claude Code** (`clx`) on any host. Both entrypoints are relative aliases to one installed `cxx` wrapper binary and share the same host API key.
 - Skills, AGENTS.md, and MCP memories are shared across both engines by default.
 - Engine-specific config: `config.toml` for Codex, `settings.json` for Claude.
 
 **Sync everything, everywhere**
 - Auth credentials, config, slash commands, and agent documents stay in sync across every host — automatically, every time you run `cdx` or `clx`.
 - Skills are served canonically through MCP `skill://{slug}` resources instead of per-host local copies.
-- Each host gets its own API key baked right into the wrapper. No shared secrets floating around.
+- Each host gets its own API key in its signed engine config. No shared secrets floating around.
 
 **Stay safe without thinking about it**
 - Auth payloads are encrypted at rest. API keys are hashed and IP-bound on first use.
@@ -36,7 +36,7 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 
 **Stay in control**
 - Pin Codex or Claude to a specific version fleet-wide, or let individual hosts override.
-- Both `cdx` and `clx` wrappers self-update from your server — no manual upgrades.
+- The shared `cxx` wrapper self-updates from your server; `cdx` and `clx` retain their engine-specific CLI behavior through alias dispatch.
 - An admin dashboard covers host management, engine selection, content editing, usage monitoring, and more.
 
 **Expose compatible APIs**
@@ -103,7 +103,7 @@ That's it. The guided installer walks you through `.env` configuration, data dir
    ```bash
    curl https://your-server/install/<token> | bash
    ```
-4. **Done.** Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both in one install.
+4. **Done.** Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both aliases backed by one `cxx` install.
 
 Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback).
 On insecure hosts, every auth-aware cdx/clx invocation shares a session lease;

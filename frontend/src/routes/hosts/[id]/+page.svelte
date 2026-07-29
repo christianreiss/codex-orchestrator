@@ -29,6 +29,7 @@
   import {
     hostDetailQuery,
     hostsKeys,
+    hostCxxWrapperState,
     hostEngines,
     hostLatestRefresh,
     hostStatusKind,
@@ -83,6 +84,9 @@
 
   const host = $derived($detail.data?.host);
   const overview = $derived($detail.data?.overview);
+  const cxxWrapper = $derived(
+    host ? hostCxxWrapperState(host) : { display: "—", drift: false },
+  );
 
   async function run<T>(
     label: string,
@@ -174,6 +178,12 @@
     const chv = host.claude_client_version_override ?? host.claude_client_version;
     if (hostEngines(host).includes("claude") && ccv && chv && ccv !== chv) {
       items.push({ tone: "warning", text: `Claude version drift: host on ${chv}, fleet on ${ccv}.` });
+    }
+    if (cxxWrapper.drift) {
+      items.push({
+        tone: "warning",
+        text: `CXX migration drift: ${cxxWrapper.display}. Re-run the host installer.`,
+      });
     }
     if (host.authed === false) {
       items.push({ tone: "warning", text: "Host has not authenticated yet (no payload digest)." });
@@ -347,8 +357,7 @@
           {@render dt("IP (v6)", host.ip6 ?? "—")}
           {@render dt("Codex version", host.client_version_override ?? host.client_version ?? "—")}
           {@render dt("Claude version", host.claude_client_version_override ?? host.claude_client_version ?? "—")}
-          {@render dt("Wrapper (Codex)", host.wrapper_version ?? "—")}
-          {@render dt("Wrapper (Claude)", host.claude_wrapper_version ?? "—")}
+          {@render dt("CXX wrapper", cxxWrapper.display)}
           {@render dt("Model override", host.model_override ?? "—")}
           {@render dt("Reasoning override", host.reasoning_effort_override ?? "—")}
           {@render dt("Claude model", host.claude_model_override ?? "—")}

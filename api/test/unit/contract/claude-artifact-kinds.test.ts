@@ -22,9 +22,18 @@ import { ARTIFACT_KINDS, KIND_DIRS } from '../../../src/services/claude-frontmat
  * directions. Sibling of wrapper-skill-struct.test.ts.
  */
 
-const BUNDLE = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/orchestrator/bundle.go');
-const COLLECTIONS = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/lifecycle/collections.go');
-const UNINSTALL = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/uninstall/uninstall.go');
+const BUNDLE = resolve(
+  import.meta.dirname,
+  '../../../../wrappers/cxx/internal/persona/claude/orchestrator/bundle.go',
+);
+const COLLECTIONS = resolve(
+  import.meta.dirname,
+  '../../../../wrappers/cxx/internal/persona/claude/lifecycle/collections.go',
+);
+const UNINSTALL = resolve(
+  import.meta.dirname,
+  '../../../../wrappers/cxx/internal/persona/claude/uninstall/uninstall.go',
+);
 
 /** Body of the brace-delimited block whose opening `{` is at `open`. */
 const block = (source: string, open: number): string => {

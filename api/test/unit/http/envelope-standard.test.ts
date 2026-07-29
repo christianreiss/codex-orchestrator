@@ -5,7 +5,7 @@ import { ApiError } from '../../../src/http/errors.js';
 /**
  * The standard envelope is the shape contract every Go wrapper struct and the
  * admin client decode against, so its dual root/`data` shaping is load-bearing:
- * `wrappers/cdx/internal/orchestrator/skills.go` hand-guards it by decoding both
+ * `wrappers/cxx/internal/persona/codex/orchestrator/skills.go` hand-guards it by decoding both
  * `skills` and `data.skills`. A silent change here (dropping the root spread,
  * or starting to spread a nested `data` payload at the root) would break wrapper
  * decoding without failing a request-level suite, so pin every branch with

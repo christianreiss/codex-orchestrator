@@ -53,11 +53,11 @@ const RUNNER = resolve(ROOT, 'runner/app.py');
  * stale guard below deletes the excuse once the docs stop mentioning it.
  */
 const NON_API_VARS: Record<string, string> = {
-  ANTHROPIC_MODEL: 'wrappers/clx/internal/summary/local_settings.go',
+  ANTHROPIC_MODEL: 'wrappers/cxx/internal/persona/claude/summary/local_settings.go',
   BIN_DIR: 'api/src/services/wrapper-transition.ts (generated installer)',
-  CODEX_HOME: 'wrappers/cdx/internal/codex/auth_writer.go',
+  CODEX_HOME: 'wrappers/cxx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
-  OPENAI_API_KEY: 'wrappers/cdx/internal/codex/env.go (exported into the Codex process)',
+  OPENAI_API_KEY: 'wrappers/cxx/internal/codex/env.go (exported into the Codex process)',
   PASSWORD_MIN_LENGTH: 'api/src/services/admin-auth.ts (a constant behind passwordMinLength(), not an env var)',
   TOKEN_MIN_LENGTH: 'api/src/services/runner-validation.ts (read off process.env)',
   VALID_ACCESS_LEVELS: 'api/src/services/admin-auth.ts (an exported constant, not an env var)',

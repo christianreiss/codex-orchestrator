@@ -2,7 +2,7 @@
 title: The auth distribution pipeline
 section: Fleet operations
 verified: 2026-07-18
-sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cdx/internal/codex/auth_writer.go, wrappers/cdx/internal/codex/auth_session.go, wrappers/clx/internal/claude/auth_writer.go, wrappers/clx/internal/claude/auth_session.go
+sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cxx/internal/codex/auth_writer.go, wrappers/cxx/internal/codex/auth_session.go, wrappers/cxx/internal/claude/auth_writer.go, wrappers/cxx/internal/claude/auth_session.go
 ---
 
 Every host gets its credentials by asking the orchestrator; the orchestrator is the single writer of canonical auth payloads. The pipeline is built around three requirements: **encrypt at rest**, **authenticate the caller**, and **refuse to hand out anything a compromised host should not have**.
@@ -218,4 +218,4 @@ participate in these leases.
 - api/src/services/reverse-dns.ts
 - api/src/security/secret-box.ts, api/src/security/keyring.ts
 - api/src/db/schema.ts (auth_entries, auth_payloads, host_auth_digests, host_auth_states, insecure_auth_requests, insecure_domain_allows)
-- wrappers/clx/internal/claude/auth_writer.go (host-side credentials file selection/write)
+- wrappers/cxx/internal/claude/auth_writer.go (host-side credentials file selection/write)

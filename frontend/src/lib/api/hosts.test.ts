@@ -49,6 +49,7 @@ registerHooks({
 const hostsModule: string = "./hosts.ts";
 const {
   HOST_ONLINE_WINDOW_MS,
+  hostCxxWrapperState,
   hostEngines,
   hostHasRequiredAuth,
   hostLastSeenMs,
@@ -120,6 +121,48 @@ function makeHost(overrides: Partial<HostListItem> = {}): HostListItem {
     ...overrides,
   };
 }
+
+describe("hostCxxWrapperState", () => {
+  it("renders one shared version when both engine reports agree", () => {
+    assert.deepEqual(
+      hostCxxWrapperState(
+        makeHost({
+          engines: "codex,claude",
+          engines_list: ["codex", "claude"],
+          wrapper_version: "0.7.0",
+          claude_wrapper_version: "0.7.0",
+        }),
+      ),
+      { display: "0.7.0", drift: false },
+    );
+  });
+
+  it("labels mismatched dual-engine telemetry as migration drift", () => {
+    assert.deepEqual(
+      hostCxxWrapperState(
+        makeHost({
+          engines: "codex,claude",
+          engines_list: ["codex", "claude"],
+          wrapper_version: "0.7.0",
+          claude_wrapper_version: "0.6.55",
+        }),
+      ),
+      {
+        display: "Codex 0.7.0 · Claude 0.6.55 (migration drift)",
+        drift: true,
+      },
+    );
+  });
+
+  it("does not invent drift for a single-engine host", () => {
+    assert.deepEqual(
+      hostCxxWrapperState(
+        makeHost({ wrapper_version: "0.7.0", claude_wrapper_version: "0.6.55" }),
+      ),
+      { display: "0.7.0", drift: false },
+    );
+  });
+});
 
 describe("isInsecureWindowActive", () => {
   it("is false for a secure host even with a live deadline", () => {

@@ -77,7 +77,7 @@ describe('overview code map', () => {
       'api/src/ws/publisher.ts',
       'api/src/db/schema.ts',
       'api/src/db/migrations/',
-      'wrappers/cdx/',
+      'wrappers/cxx/',
       'docs/USAGE.md',
     ]) {
       expect(cited.has(path), `code map no longer cites ${path}`).toBe(true);

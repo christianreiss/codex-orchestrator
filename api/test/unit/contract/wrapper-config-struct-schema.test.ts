@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
  * keys.
  *
  * This reads the tags of `Config`/`Orchestrator`/`Host`/`EngineOptions`/
- * `Wrapper` out of both wrappers as text and diffs each against the schema
+ * `Wrapper` out of the shared cxx config package and diffs each engine view against the schema
  * properties at its nesting path: a tag naming nothing the schema declares
  * fails, and a declared property nothing decodes fails unless ALLOWED names it.
  * The two structs decode different subsets on purpose, so the allowlist is per
@@ -19,8 +19,7 @@ import { resolve } from 'node:path';
  */
 
 const SCHEMA = resolve(import.meta.dirname, '../../../../wrappers/schemas/host-config-v1.json');
-const CDX_CONFIG = resolve(import.meta.dirname, '../../../../wrappers/cdx/internal/config/config.go');
-const CLX_CONFIG = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/config/config.go');
+const CXX_CONFIG = resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/config/config.go');
 
 /**
  * Schema properties a wrapper deliberately does not decode, keyed
@@ -34,11 +33,6 @@ const ALLOWED: Record<string, string> = {
   'clx documents': 'AGENTS.md/client-config digests are synced from /auth, not the baked config',
   'clx skills': 'the skill set is synced from GET /skills, not the baked config',
   'clx etag': 'the etag fingerprints the payload for the server; the wrapper never reads it back',
-  'clx host.browseros_mcp_enabled': 'the BrowserOS MCP server is wired up by cdx only',
-  'clx engine_options.model_override': 'the claude bake sends claude_model_override instead',
-  'clx engine_options.reasoning_effort_override': 'claude takes no reasoning-effort override',
-  'clx engine_options.dangerously_bypass_approvals_and_sandbox':
-    'clx takes --dangerously-skip-permissions per run, never from the config',
 };
 
 /** Body of the brace-delimited block whose opening `{` is at `open`. */
@@ -91,8 +85,8 @@ const TYPES = [
 ];
 
 const WRAPPERS = [
-  { wrapper: 'cdx', file: CDX_CONFIG },
-  { wrapper: 'clx', file: CLX_CONFIG },
+  { wrapper: 'cdx', file: CXX_CONFIG },
+  { wrapper: 'clx', file: CXX_CONFIG },
 ];
 
 const at = (path: string, name: string): string => (path ? `${path}.${name}` : name);
@@ -126,9 +120,9 @@ function diffAgainstSchema(wrapper: string, tagsFor: (type: string) => string[])
 describe('wrapper config structs against host-config-v1.json', () => {
   it('extracts the tags and schema properties it is meant to compare', () => {
     // A scan that read nothing would pass the comparisons below on both sides.
-    expect(goTags(CDX_CONFIG, 'Host')).toContain('browseros_mcp_enabled');
-    expect(goTags(CDX_CONFIG, 'EngineOptions')).toContain('reasoning_effort_override');
-    expect(goTags(CLX_CONFIG, 'EngineOptions')).toContain('claude_model_override');
+    expect(goTags(CXX_CONFIG, 'Host')).toContain('browseros_mcp_enabled');
+    expect(goTags(CXX_CONFIG, 'EngineOptions')).toContain('reasoning_effort_override');
+    expect(goTags(CXX_CONFIG, 'EngineOptions')).toContain('claude_model_override');
     for (const { wrapper, file } of WRAPPERS) {
       for (const { type } of TYPES) {
         expect(goTags(file, type).length, `${wrapper} ${type}`).toBeGreaterThan(2);
@@ -152,7 +146,7 @@ describe('wrapper config structs against host-config-v1.json', () => {
   }
 
   it('reports the offending path.key for a renamed tag and a dropped field', () => {
-    const tags = new Map(TYPES.map(({ type }) => [type, goTags(CDX_CONFIG, type)]));
+    const tags = new Map(TYPES.map(({ type }) => [type, goTags(CXX_CONFIG, type)]));
     tags.set('Host', [...tags.get('Host')!.filter((tag) => tag !== 'fqdn'), 'peers']);
 
     const diff = diffAgainstSchema('cdx', (type) => tags.get(type)!);

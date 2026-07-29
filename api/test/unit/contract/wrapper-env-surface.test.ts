@@ -22,14 +22,24 @@ const ROOT = resolve(import.meta.dirname, '../../../..');
 const WRAPPERS = [
   {
     name: 'cdx',
-    dir: 'wrappers/cdx',
+    dirs: [
+      'wrappers/cxx/internal/app/codex',
+      'wrappers/cxx/internal/codex',
+      'wrappers/cxx/internal/persona/codex',
+      'wrappers/cxx/internal/config',
+    ],
     doc: 'docs/interface-cdx.md',
     /** Must be extracted: one plain literal read, one read through a `const`. */
     probe: ['CDX_CONFIG_PATH', 'CDX_AUTH_SESSION_HANDOFF'],
   },
   {
     name: 'clx',
-    dir: 'wrappers/clx',
+    dirs: [
+      'wrappers/cxx/internal/app/claude',
+      'wrappers/cxx/internal/claude',
+      'wrappers/cxx/internal/persona/claude',
+      'wrappers/cxx/internal/config',
+    ],
     doc: 'docs/interface-clx.md',
     probe: ['CLX_CONFIG_PATH', 'CLX_CLAUDE_BIN'],
   },
@@ -47,43 +57,57 @@ const ALLOWED: Record<string, string> = {};
 const WRAPPER_ENV = /^(?:CDX|CLX)_[A-Z0-9_]+$/;
 
 /** Every non-test `.go` file of a wrapper, repo-relative for the failure text. */
-const goSources = (dir: string): string[] => {
-  const found: string[] = [];
+const goSources = (dirs: readonly string[]): string[] => {
+  const found = new Set<string>();
   const walk = (path: string): void => {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       const child = join(path, entry.name);
       if (entry.isDirectory()) walk(child);
-      else if (entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) found.push(child);
+      else if (entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) found.add(child);
     }
   };
-  walk(resolve(ROOT, dir));
-  return found.map((path) => relative(ROOT, path));
+  for (const dir of dirs) walk(resolve(ROOT, dir));
+  return [...found].map((path) => relative(ROOT, path));
 };
 
 /** `const fooEnv = "FOO"` / `fooEnv = "FOO"` inside a `const (...)` block. */
 const CONST = /^\s*(?:const|var)?\s*([A-Za-z_]\w*)\s*=\s*"([^"\\]*)"\s*$/;
 
-/** String values assigned to identifiers, so a read through a named constant resolves. */
-const constants = (sources: string[]): Map<string, string> => {
-  const values = new Map<string, string>();
+/** First value in a multi-assignment such as `envName, filename = "CDX_CONFIG_PATH", ...`. */
+const ASSIGN = /\b([A-Za-z_]\w*)\s*(?:,\s*[A-Za-z_]\w*)?\s*=\s*"([^"\\]*)"/g;
+
+/** String values assigned to identifiers, including switch-selected values. */
+const assignedValues = (sources: string[]): Map<string, Set<string>> => {
+  const values = new Map<string, Set<string>>();
+  const add = (identifier: string, value: string): void => {
+    const seen = values.get(identifier) ?? new Set<string>();
+    seen.add(value);
+    values.set(identifier, seen);
+  };
   for (const source of sources) {
     for (const line of readFileSync(resolve(ROOT, source), 'utf8').split('\n')) {
       const decl = CONST.exec(line);
-      if (decl) values.set(decl[1]!, decl[2]!);
+      if (decl) add(decl[1]!, decl[2]!);
+      for (const assignment of line.matchAll(ASSIGN)) add(assignment[1]!, assignment[2]!);
     }
   }
   return values;
 };
 
-/** An env read; the argument is a string literal or an identifier, as gofmt leaves it. */
-const READ = /\bos\.(?:Getenv|LookupEnv)\(\s*(?:"([^"\\]*)"|([A-Za-z_]\w*))\s*\)/g;
+/**
+ * An env read; the argument is a string literal, a local identifier, or a
+ * package-qualified shared constant such as `hostcron.CoordinatedEnv`.
+ * Qualified constants are accepted by the parser but intentionally resolve to
+ * no per-persona name here: this contract owns only the CDX_/CLX_ namespaces.
+ */
+const READ = /\bos\.(?:Getenv|LookupEnv)\(\s*(?:"([^"\\]*)"|([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?))\s*\)/g;
 /** Guards the argument shapes above: a call the regex above cannot parse must not pass silently. */
 const CALL = /\bos\.(?:Getenv|LookupEnv)\(/g;
 
 /** Wrapper-namespace env names the wrapper reads, each with the first source file:line. */
-const readNames = (dir: string): Map<string, string> => {
-  const sources = goSources(dir);
-  const values = constants(sources);
+const readNames = (dirs: readonly string[]): Map<string, string> => {
+  const sources = goSources(dirs);
+  const values = assignedValues(sources);
   const names = new Map<string, string>();
   for (const source of sources) {
     const lines = readFileSync(resolve(ROOT, source), 'utf8').split('\n');
@@ -95,8 +119,10 @@ const readNames = (dir: string): Map<string, string> => {
         throw new Error(`unparsed os.Getenv/os.LookupEnv argument at ${where}`);
       }
       for (const read of reads) {
-        const name = read[1] ?? values.get(read[2]!);
-        if (name && WRAPPER_ENV.test(name) && !names.has(name)) names.set(name, where);
+        const resolved = read[1] ? [read[1]] : [...(values.get(read[2]!) ?? [])];
+        for (const name of resolved) {
+          if (WRAPPER_ENV.test(name) && !names.has(name)) names.set(name, where);
+        }
       }
     });
   }
@@ -129,7 +155,7 @@ const documentedNames = (doc: string): Set<string> => {
 describe('wrapper environment variable tables', () => {
   for (const wrapper of WRAPPERS) {
     it(`${wrapper.doc} lists every ${wrapper.name} environment knob`, () => {
-      const read = readNames(wrapper.dir);
+      const read = readNames(wrapper.dirs);
       // Guards the extraction itself: a walk or a resolution that parses to
       // nothing would otherwise document nothing and still pass.
       for (const name of wrapper.probe) expect([...read.keys()]).toContain(name);

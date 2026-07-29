@@ -103,16 +103,19 @@ The `CODEX_INSTALL_CURL_INSECURE=1` part tells the installer to reuse `curl -k` 
 If your fleet is intentionally running with self-signed TLS and you need `cdx` itself to skip verification for `/auth` + sync endpoints, enable “Allow insecure curl (-k)” before issuing or re-minting the host installer. The generated installer command then includes the `curl -k` / `CODEX_INSTALL_CURL_INSECURE=1` form automatically, and the host's signed wrapper config carries `allow_insecure: true` so future sync skips verification too. This is a last resort — trusting the correct CA is strongly preferred.
 
 What the installer does:
-- Downloads each signed host config from `/wrapper/v2/config`, downloads the
-  matching platform wrapper, and verifies its SHA-256 before installation.
+- Downloads each enabled signed host config from `/wrapper/v2/config` first and
+  stops if their common wrapper version/SHA metadata differs.
+- Downloads one platform `cxx`, verifies SHA-256, then installs relative
+  `cdx -> cxx` and/or `clx -> cxx` aliases. Existing regular wrapper files at
+  those alias paths are replaced atomically during migration.
 - Installs system-wide into `/usr/local/bin` by default, using root or
   passwordless `sudo`. Set `BIN_DIR` explicitly for a per-user/custom prefix.
 - For Claude-capable hosts, ensures Node.js and npm first. The installer asks
   the OS package manager for the small Node runtime, prefers a managed pinned
   Corepack npm 10.9.2 shim, and uses the OS npm package only as a fallback.
-- Bootstraps Codex and/or Claude Code at the server-selected versions and
-  installs each managed cron entry. Dual installs suppress cron peer recursion,
-  so each requested engine runs once instead of installing its peer twice.
+- Invokes `cxx cron install` and `cxx cron run --minimal` once each. The one
+  shared schedule runs every enabled engine tick exactly once, bootstrapping
+  Codex and/or Claude Code at the server-selected versions.
 - Prints compact progress and installed versions. A final `READY` with exit 0
   is the success signal; `INCOMPLETE` is non-zero and includes direct retry
   commands. The installer does not open an interactive engine session.
@@ -272,7 +275,14 @@ If you see failures about an insecure window being closed, that’s not somethin
 
 ### Update the wrapper / Codex CLI on a host
 
-`cdx` auto-updates in normal operation when it can manage install locations: it installs the Go binary its signed config and the server-reported wrapper metadata name — a versioned `/wrapper/v2/bin/{engine}/{platform}/v{version}/{binary}` artifact, the same build `/wrapper/v2/download` streams for the calling host's platform. `/wrapper/download` is not part of that path; it serves the legacy transition launcher that date-versioned shell wrappers update through. You can force an update check/run:
+`cdx` auto-updates the shared wrapper in normal operation when it can manage
+the install location. The registered versioned route is
+`/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use
+`artifact=cxx` and `binary=cxx`. The compatible per-engine URL and
+`/wrapper/v2/download` resolve to the same bytes for a new common release.
+`/wrapper/download` is not part of that path: it serves the legacy transition
+launcher used by date-versioned shell wrappers. You can force an update
+check/run:
 
 ```bash
 cdx --update
@@ -296,15 +306,17 @@ On the host:
 cdx --uninstall
 ```
 
-This removes Codex artifacts and calls
-`DELETE /auth?force=1&engine=codex`. On a dual-engine host, clx uses
-`engine=claude`; each wrapper removes only its own engine and the host remains
-registered for the other. Removing the last engine (or using the legacy route
-without `engine`) decommissions the host. `force=1` bypasses IP binding for the
-uninstall call. Uninstall first takes an exclusive maintenance lease for that
-effective auth home and refuses while another wrapper process is using it, so
-it cannot remove files or registration beneath an active run. Operators can
-also delete the whole host from the dashboard.
+This removes Codex-local artifacts and calls
+`DELETE /auth?force=1&engine=codex`. On a dual-engine host, `clx` uses
+`engine=claude`; an authoritative partial response removes only the selected
+alias and engine state, leaving the other alias, `cxx`, and the shared cron in
+place. An authoritative last-engine response decommissions the host and removes
+the shared layout. Offline, non-2xx, or malformed delete responses preserve all
+shared artifacts. `force=1` bypasses IP binding for the uninstall call.
+Uninstall first takes an exclusive maintenance lease for that effective auth
+home and refuses while another wrapper process is using it, so it cannot remove
+files or registration beneath an active run. Operators can also delete the
+whole host from the dashboard.
 
 ## Troubleshooting
 

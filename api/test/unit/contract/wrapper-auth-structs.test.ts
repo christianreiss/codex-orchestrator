@@ -18,8 +18,8 @@ import { resolve } from 'node:path';
 
 const AUTH_ROUTE = resolve(import.meta.dirname, '../../../src/routes/auth/index.ts');
 const VERSION_SNAPSHOT = resolve(import.meta.dirname, '../../../src/services/version-snapshot.ts');
-const CDX_AUTH = resolve(import.meta.dirname, '../../../../wrappers/cdx/internal/orchestrator/auth.go');
-const CLX_AUTH = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/orchestrator/auth.go');
+const CDX_AUTH = resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/persona/codex/orchestrator/auth.go');
+const CLX_AUTH = resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/persona/claude/orchestrator/auth.go');
 
 /**
  * Tags a wrapper decodes on purpose without a matching server key, keyed

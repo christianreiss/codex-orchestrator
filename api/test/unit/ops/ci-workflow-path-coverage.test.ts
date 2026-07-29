@@ -6,7 +6,7 @@ import yaml from 'js-yaml';
 /**
  * `.github/workflows/api.yml` fired on `api/**` and itself, but the api suite
  * is not confined to `api/`: the doc-truth scans open the markdown under
- * `docs/`, the wrapper contracts parse `wrappers/cdx/cmd/cdx/main.go` and its
+ * `docs/`, the wrapper contracts parse `wrappers/cxx/internal/app/codex/main.go` and its
  * clx twin, the invalidation coverage reads `frontend/src/lib/ws/events.ts`,
  * the manual routes read the articles under `public/`,
  * `runner-request-contract` reads `runner/app.py` and `boot-migrations` greps

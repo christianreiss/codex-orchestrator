@@ -1,4 +1,7 @@
-import type { WrapperBinRegistry, BinaryBuild } from './wrapper-bin-registry.js';
+import {
+  wrapperBinaryUrl,
+  type WrapperBinRegistry,
+} from './wrapper-bin-registry.js';
 import type { Engine } from '../util/engine.js';
 
 /**
@@ -41,22 +44,17 @@ export interface WrapperMetaDeps {
 }
 
 export function createWrapperMetaService(deps: WrapperMetaDeps): WrapperMetaService {
-  function binaryName(engine: Engine): string {
-    return engine === 'claude' ? 'clx' : 'cdx';
-  }
-
   return {
     async forPlatform(engine, os, arch, publicBaseUrl) {
-      const build: BinaryBuild | null = await deps.binaries.currentBuild(engine, os, arch);
+      const build = await deps.binaries.resolveCurrentBuild(engine, os, arch);
       if (!build) return null;
-      const base = publicBaseUrl.replace(/\/+$/, '');
       return {
         engine,
         platform: `${os}-${arch}`,
         version: build.version,
         sha256: build.sha256,
         size_bytes: build.size_bytes,
-        binary_url: `${base}/wrapper/v2/bin/${engine}/${os}-${arch}/v${build.version}/${binaryName(engine)}`,
+        binary_url: wrapperBinaryUrl(publicBaseUrl, build.artifact, os, arch, build.version),
       };
     },
 

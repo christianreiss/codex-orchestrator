@@ -1,32 +1,40 @@
 ---
 title: clx — the Claude Code wrapper
 section: Fleet operations
-verified: 2026-07-18
-sources: wrappers/clx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
+verified: 2026-07-29
+sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
-`clx` is the **Claude Code fleet wrapper** — a static Go binary
-(`wrappers/clx/`) that wraps the upstream `claude` / `claude-code` Node CLI for
-hosts managed by Codex Orchestrator. The equivalent wrapper for the
-Codex/OpenAI engine is `cdx`; the engine token for clx is `"claude"`.
+`clx` is the **Claude Code fleet wrapper** — the Claude persona of the static
+Go `cxx` binary under `wrappers/cxx/`, selected through the relative
+`clx -> cxx` alias. It wraps the upstream `claude` / `claude-code` Node CLI for
+hosts managed by Codex Orchestrator. The equivalent Codex/OpenAI persona is
+`cdx`; the engine token for clx is `"claude"`.
 
 ## Installation and distribution
 
-The orchestrator serves `clx` through the same wrapper-v2 endpoint used by
-`cdx`. The segment after `bin` is the **engine** token, not the binary name —
-an engine of `clx` is rejected with a 404 `unknown_engine`:
+The canonical new-release route serves the common artifact directly:
+
+```
+GET /wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx
+```
+
+The compatible historical shape still serves an exact old Claude artifact when
+one exists and otherwise projects the matching common bytes:
 
 ```
 GET /wrapper/v2/bin/claude/<os>-<arch>/v<version>/clx
 ```
 
+An engine token of `clx` is rejected with `404 unknown_engine`.
+
 Supported platforms (sent as the `X-Wrapper-Platform` header): `linux-amd64`,
 `linux-arm64`, `darwin-amd64`, `darwin-arm64`.
 
-An install script at `/install` fetches the binary and places it on the host.
-On first boot `clx` downloads its per-host config from
-`GET /wrapper/v2/config` and stores it at the path returned by
-`config.DefaultPath()` (typically `~/.config/codex-orchestrator/clx.json`).
+An install script at `/install` fetches the signed config and common binary,
+then installs `cxx` plus the relative `clx` alias. The config is stored at the
+path returned by `config.DefaultPath()` (typically
+`~/.config/codex-orchestrator/clx.json`) before the first coordinated boot.
 
 ### Per-host config schema
 
@@ -99,10 +107,10 @@ fails fast as an unknown subcommand.
 | `--dangerously-skip-permissions` | Forwarded to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without claiming the launch itself failed. Per-run, not persisted — for a fleet-wide default use `permissions.defaultMode: bypassPermissions` on the Claude settings page instead |
 | `--help` / `-h` / `help` | Full passthrough to upstream `claude`; skips the managed run lock, sync, and boot screen, but keeps a neutral auth session and inherited active-child lease until Claude exits so pending insecure cleanup is not stranded; consumes wrapper-only `--minimal`/`--minimal-output` instead of forwarding it as an unsupported Claude flag |
 | `--wrapper-help` | Wrapper-owned command/flag reference; does not need a loadable config |
-| `--cron [install\|remove\|run]` | Manage host auto-update crontab entry; explicit minimal mode keeps cron status and peer updates ASCII |
+| `--cron [install\|remove\|run]` | Forward to the one host-wide `cxx` auto-update coordinator; explicit minimal mode keeps output ASCII |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version, commit, build date, OS/arch, pubkey status |
 | `--update` / `-U` | Self-update (SHA256-verified) |
-| `--uninstall` | Remove credentials, local state, and cron entry under the exclusive auth-maintenance lease; a failed multi-user lookup requires root/passwordless sudo |
+| `--uninstall` | Remove Claude-local credentials/state under the exclusive auth-maintenance lease and request engine-scoped deletion. Server-confirmed Codex retention keeps `cxx`/`cdx`/cron; confirmed last-engine deletion removes all shared artifacts; uncertain server results preserve them. A failed multi-user lookup requires root/passwordless sudo. |
 | `--execute <prompt>` | Run a one-shot headless prompt (skips boot screen) |
 | `--silent` | Suppress wrapper output |
 | `--debug` / `--verbose` | Verbose logging |
@@ -113,7 +121,7 @@ fails fast as an unknown subcommand.
 
 ## Startup sequence
 
-Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
+Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.Run`:
 
 1. **Validate the signed config and runtime FQDN.** An unloadable config produces
    the same structured, sanitized, width-bounded status/doctor surface as a
@@ -216,11 +224,10 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
 
 7. **Install target Claude CLI version** if allowed and `auto_update` is
    enabled (`claude.EnsureClaude`), then — unless this is a concurrent
-   sync-paused run — **reconcile the peer `cdx` wrapper** (`peer.Reconcile`):
-   installs/updates or removes the Codex wrapper and CLI on this host per the
-   server's `engines_list`. See [wrappers](/admin/manual/wrappers) for the
-   shared peer-reconciliation mechanics (Ed25519-verified peer config bundle,
-   guarded `--cron run` peer tick, etc.).
+   sync-paused run — reconcile the Codex persona (`peer.Reconcile`) from the
+   server's `engines_list`. This fetches the signed peer config and converges
+   the same `cxx` binary plus relative aliases; it does not install a second
+   wrapper artifact. See [wrappers](/admin/manual/wrappers).
 
 8. **Check resource outcomes and print the responsive outcome-first boot card.**
    A successful unchanged skills/config check is green, a real local write gets
@@ -258,7 +265,10 @@ Implemented in `wrappers/clx/internal/lifecycle/` as `lifecycle.Run`:
    exclusive maintenance lease and refuses while another clx session targets
    the same auth home. A failed `/host/users` safety lookup also refuses unless
    root/passwordless sudo provides the safe fallback; required local removal
-   errors make uninstall non-zero.
+   errors make uninstall non-zero. The shared `cxx`, both aliases, and cron are
+   removed only when the API authoritatively confirms no engine remains.
+   Offline, non-2xx, or malformed delete responses preserve all shared
+   artifacts; a confirmed partial uninstall removes only `clx`.
 
    Generation metadata is versioned logical time rather than host wall time.
    If accepted X is followed by `/login` writing old-mtime Y after a clock
@@ -339,11 +349,16 @@ its signed config and proceed.
 
 ## Auto-update (cron)
 
-`clx --cron install` writes a crontab entry (user crontab or
-`/etc/cron.d/clx-managed`, marker `# clx-managed-cron`) and pings
-`POST /cron/check`.
+`clx --cron install` forwards to `cxx cron install`. The coordinator writes one
+host-wide entry (user crontab marker `# cxx-managed-cron`, or system fallback
+`/etc/cron.d/cxx-managed`) and removes the historical cdx/clx schedules.
 
-`clx --cron run` (Tick):
+`clx --cron run` forwards to `cxx cron run` unless it is already the
+coordinator's engine-only child. The coordinator verifies each signed config's
+host/engine membership, but deliberately does not compare wrapper targets that
+may differ during a rolling refresh. It then runs each enabled engine tick once
+in deterministic order. The first upgraded legacy tick also replaces both old
+persona schedules with this one shared schedule. The Claude tick:
 
 1. Calls `POST /cron/check` to ask the orchestrator whether a new wrapper
    version is available (a server response of `action: "disable"` — driven by
@@ -355,13 +370,13 @@ its signed config and proceed.
    at 2).
 3. Ensures the `claude` CLI version matches the server-declared target
    (`claude.EnsureClaude`).
-4. Reconciles the peer `cdx` wrapper/CLI on dual-engine hosts
-   (`peer.EnsureForCron`, guarded by `CODEX_ORCH_PEER_SPAWN=1` against
-   recursion — see [wrappers](/admin/manual/wrappers)).
+4. Reconciles the common `cxx` layout and enabled aliases/CLIs on dual-engine
+   hosts without spawning another coordinator.
 5. Reports the installed `claude` version to `POST /cron/report` (a **separate**
    endpoint from the `/cron/check` probe in step 1), retrying once on failure.
 
-`clx --cron remove` removes the crontab entry.
+`clx --cron remove` removes the shared host-wide entry and any historical
+persona entries.
 
 ## Settings deep-merge
 
@@ -405,7 +420,7 @@ item, discriminated by `kind`), synced via the same `/sync/bootstrap` bundle
 | `command` | `~/.claude/commands/<slug>.md` |
 | `output-style` | `~/.claude/output-styles/<slug>.md` |
 
-`wrappers/clx/internal/lifecycle/collections.go` writes each `<slug>.md` and
+`wrappers/cxx/internal/persona/claude/lifecycle/collections.go` writes each `<slug>.md` and
 tracks exactly the files it wrote per directory; pruning removes only
 manifest-recorded files that dropped out of the live set, so user-authored
 files in those directories are never touched. A missing changed payload, write
@@ -418,7 +433,7 @@ read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
 
 ## Source references
 
-- `wrappers/clx` — Go module (wrapper binary, incl. `internal/peer` peer-wrapper
+- `wrappers/cxx` — common Go module (Claude persona, including peer-engine
   reconciliation and `internal/lifecycle/collections.go` artifact sync)
 - `api/src/routes/wrapper-v2/index.ts` — binary + config + manifest endpoints
 - `api/src/routes/install/index.ts` — installer and seed-auth tokens

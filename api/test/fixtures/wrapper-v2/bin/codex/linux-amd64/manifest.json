@@ -6,14 +6,14 @@
   "builds": [
     {
       "version": "1.0.0",
-      "sha256": "aaaa000000000000000000000000000000000000000000000000000000000000",
+      "sha256": "058f6a3c5105ac486dd4ce670ceeace587f81762a2f6636f873292ac980c3da3",
       "size_bytes": 26,
       "signature": "sig-v100",
       "published_at": "2026-05-01T00:00:00Z"
     },
     {
       "version": "1.0.1",
-      "sha256": "bbbb111111111111111111111111111111111111111111111111111111111111",
+      "sha256": "2ec65cbf202501a60ae44bbee3eb3a2d4f584d51bb8f7a39f84f31a76ded0e72",
       "size_bytes": 26,
       "signature": "sig-v101",
       "published_at": "2026-05-10T00:00:00Z"

@@ -30,7 +30,7 @@ const NON_API_VARS: Record<string, string> = {
   CADDY_MTLS_CA_FILE: 'caddy/tls-acme.caddy, caddy/tls-custom.caddy',
   CADDY_TLS_CERT_FILE: 'caddy/tls-custom.caddy',
   CADDY_TLS_KEY_FILE: 'caddy/tls-custom.caddy',
-  CODEX_DEBUG: 'wrappers/cdx/cmd/cdx/main.go',
+  CODEX_DEBUG: 'wrappers/cxx/internal/app/codex/main.go',
   CODEX_DEPLOY_BACKUP_DIR: 'scripts/deploy.sh',
 };
 

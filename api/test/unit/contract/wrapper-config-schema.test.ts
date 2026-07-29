@@ -194,6 +194,12 @@ function fakeBinaries(): WrapperBinRegistry {
     async currentBuild() {
       return build;
     },
+    async resolveCurrentBuild() {
+      return { ...build, artifact: 'cxx', path: '/fixtures/cxx' };
+    },
+    async resolveVersion() {
+      return { ...build, artifact: 'cxx', path: '/fixtures/cxx' };
+    },
     async latestVersion() {
       return '1.0.1';
     },

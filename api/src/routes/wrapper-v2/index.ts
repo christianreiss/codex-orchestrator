@@ -7,20 +7,32 @@ import { ServiceUnavailableError, NotFoundError, ValidationError } from '../../h
 import {
   createWrapperBinRegistry,
   BinaryNotFoundError,
+  CXX_ARTIFACT,
+  type WrapperArtifact,
   type WrapperBinRegistry,
 } from '../../services/wrapper-bin-registry.js';
-import { createWrapperSigningKeyService } from '../../services/wrapper-signing-key.js';
+import {
+  createWrapperSigningKeyService,
+  type WrapperSigningKeyService,
+} from '../../services/wrapper-signing-key.js';
 import {
   createWrapperConfigService,
   canonicalStringify,
+  WrapperBinaryUnavailableError,
   WrapperSigningUnavailableError,
   WRAPPER_CONFIG_SCHEMA_VERSION,
 } from '../../services/wrapper-config.js';
 import { createWrapperMetaService } from '../../services/wrapper-meta.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
-import { buildLegacyWrapperTransitionScript } from '../../services/wrapper-transition.js';
+import {
+  buildLegacyWrapperTransitionScript,
+  isCxxBinaryUrl,
+} from '../../services/wrapper-transition.js';
 import { publishHostEvent } from '../../services/ws-bridge.js';
-import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import {
+  assertHostEngineEnabled,
+  hostEnginesList,
+} from '../../services/host-engine-policy.js';
 
 /**
  * Wrapper bakery v2 endpoints.
@@ -50,6 +62,8 @@ export interface WrapperV2RouteOptions {
   publicBaseUrl?: string;
   /** Pre-built registry — primarily for tests. */
   binRegistry?: WrapperBinRegistry;
+  /** Pre-built signing service — deterministic test seam. */
+  signingService?: WrapperSigningKeyService;
   /** Optional installation id (otherwise falls back to env.INSTALLATION_ID). */
   installationId?: string;
 }
@@ -61,7 +75,8 @@ export async function registerWrapperV2Routes(
 ): Promise<void> {
   const binRoot = opts.binRoot ?? resolveBinRoot(ctx);
   const binaries = opts.binRegistry ?? createWrapperBinRegistry({ binRoot });
-  const signing = createWrapperSigningKeyService({ db: ctx.db, keyring: ctx.keyring });
+  const signing =
+    opts.signingService ?? createWrapperSigningKeyService({ db: ctx.db, keyring: ctx.keyring });
   const installationId = opts.installationId ?? ctx.env.INSTALLATION_ID ?? '';
   const configService = createWrapperConfigService({
     db: ctx.db,
@@ -141,6 +156,9 @@ export async function registerWrapperV2Routes(
           'wrapper_v2_unavailable',
         );
       }
+      if (err instanceof WrapperBinaryUnavailableError) {
+        throw new ServiceUnavailableError(err.message, 'wrapper_binary_unavailable');
+      }
       throw err;
     }
 
@@ -191,13 +209,13 @@ export async function registerWrapperV2Routes(
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     assertHostEngineEnabled(host, engine);
     const { os, arch } = resolveWrapperPlatform(req.headers);
-    const build = await binaries.currentBuild(engine, os, arch);
+    const build = await binaries.resolveCurrentBuild(engine, os, arch);
     if (!build)
       throw new NotFoundError(
         `no published binary for ${engine}/${os}-${arch}`,
         'binary_not_found',
       );
-    return streamBinary(req, reply, engine, os, arch, build.version);
+    return streamBinary(req, reply, build.artifact, os, arch, build.version);
   }
 
   async function legacyTransitionHandler(req: FastifyRequest, reply: FastifyReply) {
@@ -220,6 +238,9 @@ export async function registerWrapperV2Routes(
           'wrapper_v2_unavailable',
         );
       }
+      if (err instanceof WrapperBinaryUnavailableError) {
+        throw new ServiceUnavailableError(err.message, 'wrapper_binary_unavailable');
+      }
       throw err;
     }
 
@@ -227,11 +248,20 @@ export async function registerWrapperV2Routes(
       publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
     }
 
+    if (!isCxxBinaryUrl(result.payload.wrapper.binary_url)) {
+      throw new ServiceUnavailableError(
+        'common cxx artifact is not published for this platform',
+        'wrapper_binary_unavailable',
+      );
+    }
+
     const body = buildLegacyWrapperTransitionScript({
       fqdn: host.fqdn,
       apiKey: result.payload.orchestrator.api_key,
       baseUrl: result.payload.orchestrator.base_url,
       engine,
+      allowInsecure: host.curlInsecure === 1,
+      peerEngines: hostEnginesList(host.engines),
     });
     reply.envelopeRaw = true;
     reply.header('content-type', 'text/x-shellscript; charset=utf-8');
@@ -269,32 +299,39 @@ export async function registerWrapperV2Routes(
     { preHandler: [app.requireHost] },
     async (req, reply) => {
       await unavailableGuard();
-      const { engine, platform, version, binary } = req.params;
-      if (!isEngine(engine)) throw new NotFoundError('unknown engine', 'unknown_engine');
+      const { engine: artifact, platform, version, binary } = req.params;
       const host = req.authHost;
       if (!host)
         throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-      assertHostEngineEnabled(host, engine);
       const m = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(platform);
       if (!m || !m[1] || !m[2])
         throw new ValidationError('bad platform', { param: 'platform' });
-      const expectedName = engine === 'claude' ? 'clx' : 'cdx';
+
+      if (artifact === CXX_ARTIFACT) {
+        if (binary !== CXX_ARTIFACT)
+          throw new NotFoundError('binary mismatch', 'binary_mismatch');
+        return streamBinary(req, reply, CXX_ARTIFACT, m[1], m[2], version);
+      }
+
+      if (!isEngine(artifact)) throw new NotFoundError('unknown engine', 'unknown_engine');
+      assertHostEngineEnabled(host, artifact);
+      const expectedName = artifact === 'claude' ? 'clx' : 'cdx';
       if (binary !== expectedName) throw new NotFoundError('binary mismatch', 'binary_mismatch');
-      return streamBinary(req, reply, engine, m[1], m[2], version);
+      return streamBinary(req, reply, artifact, m[1], m[2], version);
     },
   );
 
   async function streamBinary(
     req: FastifyRequest,
     reply: FastifyReply,
-    engine: Engine,
+    artifact: WrapperArtifact,
     os: string,
     arch: string,
     version: string,
   ) {
     let opened;
     try {
-      opened = await download.open(engine, os, arch, version);
+      opened = await download.open(artifact, os, arch, version);
     } catch (err) {
       if (err instanceof BinaryNotFoundError) {
         throw new NotFoundError(err.message, 'binary_not_found');

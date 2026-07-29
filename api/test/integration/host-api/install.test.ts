@@ -152,7 +152,9 @@ describe('GET /install/:token', () => {
     expect(r.statusCode).toBe(200);
     expect(r.payload).toContain("INSTALL_LABEL='Codex + Claude'");
     expect(r.payload).toContain('NEEDS_CLAUDE=1');
-    expect(r.payload).toContain("PEER_ENGINE='claude'");
+    expect(r.payload).toContain('/wrapper/v2/config?engine=claude');
+    expect(r.payload).toContain('target = os.path.join(bin_root, "cxx")');
+    expect(r.payload).toContain('ln -s cxx "$ALIAS_TMP"');
     expect(r.payload).toContain('ui_result_ok "READY"');
     expect(r.payload).toContain('ui_result_fail "INCOMPLETE"');
     expect(r.payload).not.toContain('Done. Try:');

@@ -17,8 +17,8 @@ import { resolve } from 'node:path';
  */
 
 const HOST_SKILLS = resolve(import.meta.dirname, '../../../src/services/host-skills.ts');
-const CDX_SKILLS = resolve(import.meta.dirname, '../../../../wrappers/cdx/internal/orchestrator/skills.go');
-const CLX_SKILLS = resolve(import.meta.dirname, '../../../../wrappers/clx/internal/orchestrator/skills.go');
+const CDX_SKILLS = resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/persona/codex/orchestrator/skills.go');
+const CLX_SKILLS = resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/persona/claude/orchestrator/skills.go');
 
 /**
  * Tags a wrapper decodes on purpose without a matching server key, keyed

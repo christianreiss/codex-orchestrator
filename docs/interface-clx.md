@@ -7,8 +7,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 
 | | `cdx` (Codex) | `clx` (Claude) |
 |---|---|---|
-| Wrapper binary | static Go binary (`wrappers/cdx/`) | static Go binary (`wrappers/clx/`) |
-| Built by | `cd wrappers && make cdx` | `cd wrappers && make clx` |
+| Wrapper binary | `cdx -> cxx` Codex persona | `clx -> cxx` Claude persona |
+| Built by | `cd wrappers && make cxx` | same common build |
 | CLI under the hood | `codex` (Rust) | `claude` or `claude-code` (Node, `@anthropic-ai/claude-code`) |
 | Auth file | effective `CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | `~/.claude/.credentials.json` |
 | Config file | effective `CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `~/.claude/settings.json` (JSON) |
@@ -16,6 +16,13 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | API key prefix | `sk-codex-` | `sk-claude-` |
 | Admin API endpoints | `/v1/*` + `/admin/openai/*` | `/anthropic/v1/*` + `/admin/claude/*` |
 | Engine in config | `engine: "codex"` | `engine: "claude"` |
+
+## Build + Publish
+
+- `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink.
+- Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
+- Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
+- The published common binary lives under `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`; historical `/clx/.../clx` artifacts remain readable for pre-migration clients.
 
 ## CLI surface
 
@@ -34,10 +41,10 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. It skips the managed run lock but keeps a neutral auth session plus the native-auth active-child lease until the help child exits, so another insecure invocation's final purge cannot be stranded. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
-| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Manage the host's auto-update crontab entry; cron ticks bootstrap `/usr/local/bin` into `PATH` before probing/updating Claude Code and, on dual-engine hosts, force one guarded `cdx --cron run` peer tick so Codex is refreshed too. Explicit minimal mode stays ASCII through cron status and peer update output. |
+| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Explicit minimal mode stays ASCII throughout. |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `update` / `--update` | Self-update now (verifies SHA256 before swapping) |
-| `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, then remove credentials + local state + cron entry; refuses while another clx auth session is active, on a known multi-user host without sudo, or when the user lookup fails without root/passwordless-sudo fallback |
+| `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
 
 No `lane`/`profile` subcommands — Claude has neither in this orchestrator.
 
@@ -127,6 +134,10 @@ fallback), the inherited `CLAUDE_CONFIG_DIR` the wrapper strips,
 `CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` / `COLUMNS`
 presentation variables.
 
+The shared cron coordinator sets `CXX_CRON_COORDINATED` and
+`CXX_CRON_ENGINE_ONLY` only on its own persona children to prevent recursive
+coordination. They are internal protocol markers; operators must not set them.
+
 ## Per-host config (typed, signed)
 
 Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
@@ -151,31 +162,36 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
 For initial Claude-only or dual-engine provisioning, the host installer first
 ensures Node.js and npm, preferring the OS Node package plus a managed pinned
 Corepack npm 10.9.2 shim over the often much larger OS npm dependency tree. It
-then bootstraps each requested engine explicitly with `--minimal` and
-`CODEX_ORCH_PEER_SPAWN=1`; `READY` is printed only after every wrapper, CLI, and
-cron entry verifies.
+then invokes the common `cxx cron install` and `cxx cron run --minimal`
+coordinator once each; `READY` is printed only after the shared wrapper,
+schedule, and every requested CLI verify.
 
 After a successful startup sync, `clx` reads the host `engines_list`. If Codex is
 enabled, `clx` fetches the signed `cdx` config from
-`/wrapper/v2/config?engine=codex`, writes `cdx.json{,.sig}`, verifies the served
-SHA256, and installs/updates the `cdx` binary beside the running wrapper. If
-Codex is disabled, `clx` performs local-only full Codex cleanup (wrapper
-binary/config/cron, managed `~/.codex` state, `/opt/codex`, and the npm global
-`codex-cli` package when detected) without deleting the host row.
-During `clx --cron run`, peer reconciliation also runs one guarded
-`cdx --cron run` tick even when the `cdx` wrapper and `codex` CLI are already
-present. The shared `CODEX_ORCH_PEER_SPAWN=1` guard prevents recursion, so one
-managed clx cron entry keeps both wrappers and both engine CLIs current on
-dual-engine hosts.
+`/wrapper/v2/config?engine=codex`, verifies its detached signature and
+host/engine identity, writes `cdx.json{,.sig}`, then verifies the server's fresh
+target bytes by SHA while converging the same `cxx` binary plus relative `cdx`
+/ `clx` aliases. A stale peer config target does not block reconciliation. If Codex is disabled, `clx`
+performs local-only Codex cleanup (the `cdx` alias/config, managed `~/.codex`
+state, `/opt/codex`, and the npm global `codex-cli` package when detected)
+without deleting the host row; the shared schedule stays in place for Claude.
+`clx --cron run` forwards to the common coordinator unless it is already an
+engine-only child. The coordinator verifies signed config host/engine
+membership and runs Codex then Claude once without recursion; it does not
+compare possibly stale per-config wrapper targets.
 
 ## Distribution surfaces
 
-Identical to cdx with engine swapped:
+The canonical binary is engine-neutral; the engine manifest and old URLs remain
+compatibility surfaces:
 
 | Method | Path |
 |---|---|
-| GET | `/wrapper/v2/bin/clx/<os>-<arch>/v<ver>/clx` |
+| GET | `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` |
 | GET | `/wrapper/v2/manifest/claude` |
+
+`/wrapper/v2/bin/clx/.../clx` serves only immutable historical split artifacts;
+new common releases are published and streamed through the `cxx` path above.
 
 Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
 (`linux-amd64`, `linux-arm64`, `darwin-arm64`, or `darwin-amd64`) so the
@@ -530,6 +546,7 @@ this run.
 
 ## Adding fields
 
-Follow the same pattern as cdx but edit `wrappers/clx/...`. The schema and
-the Go config struct are deliberately kept identical between the two binaries
-to make cross-cutting changes mechanically diffable.
+Follow the same pattern as cdx under `wrappers/cxx/`. Shared config and layout
+belong in common packages; Claude-only behavior stays under the Claude persona
+packages. There is one build artifact, while the signed config and runtime
+behavior remain engine-specific.

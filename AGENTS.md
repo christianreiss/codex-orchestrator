@@ -17,7 +17,7 @@ The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted
 ## Multi-Engine Architecture
 
 The orchestrator supports two engines: **Codex** (OpenAI) and **Claude** (Anthropic). A host can have one or both.
-- `cdx` wrapper manages Codex; `clx` wrapper manages Claude Code.
+- `cdx` manages Codex and `clx` manages Claude Code; both are relative aliases to the same installed `cxx` binary.
 - Skills, `AGENTS.md` / `CLAUDE.md`, and MCP are shared across both engines by default (per-engine filename via the engine constants).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.
@@ -64,7 +64,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, rate limit, envelope), wires services, and mounts route groups under `api/src/routes/`.
 - `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
 - `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
-- The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-host JSON configs signed with Ed25519, and serve the Go `cdx`/`clx` binaries.
+- The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
 - `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
 - `api/src/http/plugins/rate-limit.ts` enforces the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block) on the `ip_rate_limits` table.
 - MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
@@ -114,7 +114,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 ## Wrappers (cdx / clx)
 
-- Source: `wrappers/cdx/` (Codex) and `wrappers/clx/` (Claude). Both are static Go binaries compiled per-platform; the `cdx`/`clx` CLI is dispatched from `cmd/<engine>/main.go`.
+- Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx` or `clx` relative symlink selects that persona, while direct invocation requires `cxx codex ...` or `cxx claude ...`.
 - Boot flow:
   - Acquires a run lock (unless `--allow-concurrent-sync`), reads and verifies its signed per-host JSON config (Ed25519 detached signature), syncs auth via `/auth`, prunes legacy prompt state, then syncs skills / `AGENTS.md` / config before launch.
   - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
@@ -128,8 +128,8 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 - Respect existing patterns; route registration lives in `api/src/routes/index.ts`, while business logic should stay in `api/src/services/`.
 - Keep `api/src/db/schema.ts` and Drizzle migrations aligned whenever adding columns/tables.
-- Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `api/test/` or `wrappers/<engine>/`.
-- For wrapper changes, edit `wrappers/<engine>/`, run `go build ./...` + `go vet ./...`, bump the wrapper version, and rebuild Docker images so the bakery seeds correctly.
+- Document API/request/CLI changes in `docs/OVERVIEW.md` plus relevant `docs/interface-*.md` files, and add/update tests in `api/test/` or `wrappers/cxx/`.
+- For wrapper changes, edit `wrappers/cxx/`, run `go build ./...` + `go vet ./...`, bump the wrapper version, and rebuild Docker images so the bakery seeds correctly.
 - Behavioral changes that affect hosts/operators require matching dashboard updates and a `CHANGELOG.md` entry.
 
 ## Admin WebUI

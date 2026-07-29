@@ -1,6 +1,7 @@
 # Installation Guide
 
-This doc walks through setting up the Codex Auth stack with Docker, admin login, and a baked-in `cdx` wrapper.
+This doc walks through setting up the Codex Auth stack with Docker, admin login,
+and the common `cxx` wrapper exposed through the `cdx` / `clx` aliases.
 
 ## Prerequisites
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -148,21 +149,23 @@ describe('POST /cron/check', () => {
 
   it('returns a platform-specific wrapper URL based on X-Wrapper-Platform', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-'));
-    const binaryPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'codex', 'linux-amd64', 'v1.0.1', 'cdx');
+    const binaryContents = 'darwin arm64 test binary';
+    const binarySha = createHash('sha256').update(binaryContents).digest('hex');
+    const binaryPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', 'darwin-arm64', 'v1.0.1', 'cxx');
     await mkdir(dirname(binaryPath), { recursive: true });
-    await writeFile(binaryPath, 'test binary');
+    await writeFile(binaryPath, binaryContents);
     await writeFile(
-      join(dataRoot, 'wrapper', 'v2', 'bin', 'codex', 'linux-amd64', 'manifest.json'),
+      join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', 'darwin-arm64', 'manifest.json'),
       JSON.stringify({
-        engine: 'codex',
-        os: 'linux',
-        arch: 'amd64',
+        engine: 'cxx',
+        os: 'darwin',
+        arch: 'arm64',
         current: '1.0.1',
         builds: [
           {
             version: '1.0.1',
-            sha256: 'b'.repeat(64),
-            size_bytes: 11,
+            sha256: binarySha,
+            size_bytes: Buffer.byteLength(binaryContents),
             signature: null,
             published_at: '2026-05-18T00:00:00Z',
           },
@@ -195,7 +198,7 @@ describe('POST /cron/check', () => {
         headers: {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
-          'x-wrapper-platform': 'linux-amd64',
+          'x-wrapper-platform': 'darwin-arm64',
         },
         payload: JSON.stringify({
           engine: 'codex',
@@ -208,18 +211,121 @@ describe('POST /cron/check', () => {
       expect(body.wrapper.action).toBe('update');
       expect(body.wrapper.target_version).toBe('1.0.1');
       expect(body.wrapper.url).toBe(
-        'https://orchestrator.example/wrapper/v2/bin/codex/linux-amd64/v1.0.1/cdx',
+        'https://orchestrator.example/wrapper/v2/bin/cxx/darwin-arm64/v1.0.1/cxx',
       );
       // SHA must match the requested platform manifest, not the configured URL.
-      expect(body.wrapper.sha256).toMatch(/^[a-f0-9]{64}$/);
-      expect(body.wrapper.sha256).not.toBe('a'.repeat(64));
+      expect(body.wrapper.sha256).toBe(binarySha);
     } finally {
       await app?.close();
       await rm(dataRoot, { recursive: true, force: true });
     }
   });
 
-  it('returns the legacy transition launcher URL for date-style shell wrappers', async () => {
+  it('does not offer a Linux wrapper when the requested Darwin arm64 artifact is missing', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-partial-'));
+    const binaryContents = 'linux-only binary';
+    const binarySha = createHash('sha256').update(binaryContents).digest('hex');
+    const binaryPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', 'linux-amd64', 'v1.0.1', 'cxx');
+    await mkdir(dirname(binaryPath), { recursive: true });
+    await writeFile(binaryPath, binaryContents);
+    await writeFile(
+      join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', 'linux-amd64', 'manifest.json'),
+      JSON.stringify({
+        engine: 'cxx',
+        os: 'linux',
+        arch: 'amd64',
+        current: '1.0.1',
+        builds: [
+          {
+            version: '1.0.1',
+            sha256: binarySha,
+            size_bytes: Buffer.byteLength(binaryContents),
+          },
+        ],
+      }),
+    );
+    const db = createDbFake();
+    const apiKey = 'sk-codex-cron-partial-test';
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.130.0' },
+      { name: 'wrapper_version_codex', version: '1.0.1' },
+      { name: 'wrapper_sha256_codex', version: binarySha },
+      {
+        name: 'wrapper_url_codex',
+        version: 'https://orchestrator.example/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
+      },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    let app: Awaited<ReturnType<typeof buildHostApiTestApp>> | null = null;
+    try {
+      app = await buildHostApiTestApp({
+        db: db as any,
+        env: { ...env, DATA_ROOT: dataRoot },
+        keyring: makeKeyring(),
+      });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/cron/check',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+          'x-wrapper-platform': 'darwin-arm64',
+        },
+        payload: JSON.stringify({
+          engine: 'codex',
+          client_version: '0.130.0',
+          wrapper_version: '1.0.0',
+        }),
+      });
+      expect(r.statusCode).toBe(200);
+      expect(JSON.parse(r.payload)).toMatchObject({
+        action: 'no_update',
+        wrapper: {
+          action: 'no_update',
+          target_version: null,
+          sha256: null,
+          url: null,
+        },
+      });
+    } finally {
+      await app?.close();
+      await rm(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('projects split Go bytes directly for date wrappers while cxx is absent', async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-split-legacy-'));
+    const binaryContents = 'historical split cdx';
+    const binarySha = createHash('sha256').update(binaryContents).digest('hex');
+    const binaryPath = join(
+      dataRoot,
+      'wrapper',
+      'v2',
+      'bin',
+      'codex',
+      'linux-amd64',
+      'v0.6.0',
+      'cdx',
+    );
+    await mkdir(dirname(binaryPath), { recursive: true });
+    await writeFile(binaryPath, binaryContents);
+    await writeFile(
+      join(dataRoot, 'wrapper', 'v2', 'bin', 'codex', 'linux-amd64', 'manifest.json'),
+      JSON.stringify({
+        engine: 'codex',
+        os: 'linux',
+        arch: 'amd64',
+        current: '0.6.0',
+        builds: [
+          {
+            version: '0.6.0',
+            sha256: binarySha,
+            size_bytes: Buffer.byteLength(binaryContents),
+          },
+        ],
+      }),
+    );
     const db = createDbFake();
     const apiKey = 'sk-codex-cron-test';
     db.tables.set(hostsTable, [hostRow(apiKey)]);
@@ -233,26 +339,35 @@ describe('POST /cron/check', () => {
       },
       { name: 'auto_update_enabled', version: '1' },
     ]);
-    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
-    const r = await app.inject({
-      method: 'POST',
-      url: '/cron/check',
-      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      payload: JSON.stringify({
-        engine: 'codex',
-        client_version: '0.130.0',
-        wrapper_version: '2026.05.11-01',
-      }),
-    });
-    expect(r.statusCode).toBe(200);
-    const body = JSON.parse(r.payload);
-    expect(body.wrapper).toMatchObject({
-      action: 'update',
-      target_version: '0.6.0',
-      sha256: null,
-      url: '/wrapper/download?engine=codex',
-    });
-    await app.close();
+    let app: Awaited<ReturnType<typeof buildHostApiTestApp>> | null = null;
+    try {
+      app = await buildHostApiTestApp({
+        db: db as any,
+        env: { ...env, DATA_ROOT: dataRoot },
+        keyring: makeKeyring(),
+      });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/cron/check',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          engine: 'codex',
+          client_version: '0.130.0',
+          wrapper_version: '2026.05.11-01',
+        }),
+      });
+      expect(r.statusCode).toBe(200);
+      const body = JSON.parse(r.payload);
+      expect(body.wrapper).toMatchObject({
+        action: 'update',
+        target_version: '0.6.0',
+        sha256: binarySha,
+        url: 'https://orchestrator.example/wrapper/v2/bin/codex/linux-amd64/v0.6.0/cdx',
+      });
+    } finally {
+      await app?.close();
+      await rm(dataRoot, { recursive: true, force: true });
+    }
   });
 });
 

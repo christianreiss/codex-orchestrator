@@ -1,6 +1,5 @@
 import type { ReadStream } from 'node:fs';
-import type { WrapperBinRegistry } from './wrapper-bin-registry.js';
-import type { Engine } from '../util/engine.js';
+import type { WrapperArtifact, WrapperBinRegistry } from './wrapper-bin-registry.js';
 
 /**
  * Thin facade over the binary registry for HTTP route use. The route is
@@ -16,7 +15,7 @@ export interface WrapperDownload {
 }
 
 export interface WrapperDownloadService {
-  open(engine: Engine, os: string, arch: string, version: string): Promise<WrapperDownload>;
+  open(artifact: WrapperArtifact, os: string, arch: string, version: string): Promise<WrapperDownload>;
 }
 
 export interface WrapperDownloadDeps {
@@ -25,8 +24,8 @@ export interface WrapperDownloadDeps {
 
 export function createWrapperDownloadService(deps: WrapperDownloadDeps): WrapperDownloadService {
   return {
-    async open(engine, os, arch, version) {
-      const opened = await deps.binaries.openBinary(engine, os, arch, version);
+    async open(artifact, os, arch, version) {
+      const opened = await deps.binaries.openBinary(artifact, os, arch, version);
       return {
         stream: opened.stream,
         fileName: opened.fileName,
