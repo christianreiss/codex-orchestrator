@@ -67,6 +67,11 @@ function legacyUpgrade(map: Readonly<Record<string, string>>, key: string): stri
   return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
 }
 
+/** Same own-property guard for the per-model effort tables below. */
+export function modelEntry<T>(map: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
+
 export const REASONING_EFFORTS: readonly string[] = [
   'minimal',
   'low',
@@ -246,21 +251,21 @@ export function normalizeReasoningEffortForModel(value: unknown, model: string |
   const effort = normalizeReasoningEffort(value);
   if (effort === null) return null;
   if (model === null) return effort;
-  const supported = MODEL_REASONING_EFFORTS[model];
+  const supported = modelEntry(MODEL_REASONING_EFFORTS, model);
   if (!supported) return effort;
   return supported.includes(effort) ? effort : null;
 }
 
 export function defaultCodexReasoningEffortForModel(model: string | null): string | null {
   if (model === null) return null;
-  return CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model] ?? null;
+  return modelEntry(CODEX_MODEL_DEFAULT_REASONING_EFFORTS, model) ?? null;
 }
 
 /** Claude settings.json `effortLevel`, constrained by the selected Claude model. */
 export function normalizeClaudeEffortLevel(value: unknown, model: string | null): string | null {
   const effort = normalizeString(value)?.toLowerCase() ?? null;
   if (effort === null || model === null) return null;
-  const supported = CLAUDE_MODEL_REASONING_EFFORTS[model];
+  const supported = modelEntry(CLAUDE_MODEL_REASONING_EFFORTS, model);
   return supported?.includes(effort) ? effort : null;
 }
 

@@ -53,6 +53,7 @@ import {
   normalizeClaudeModel,
   normalizeClaudeEffortLevel,
   isLegacyModelUpgrade,
+  modelEntry,
   settingsHash,
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
@@ -304,7 +305,7 @@ function applyHostModelOverrides(
     if (claudeModel !== null) {
       out['model'] = claudeModel;
       const effortLevel = explicitEffort
-        ?? CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS[claudeModel]
+        ?? modelEntry(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, claudeModel)
         ?? null;
       if (effortLevel === null) delete out['effortLevel'];
       else out['effortLevel'] = effortLevel;
