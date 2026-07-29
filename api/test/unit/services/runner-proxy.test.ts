@@ -12,6 +12,18 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
   } as Env;
 }
 
+function statusFromVersions(entries: Record<string, string>) {
+  const svc = new RunnerProxyService(
+    makeEnv({
+      AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+      AUTH_RUNNER_SHARED_SECRET: 'secret',
+    } as Partial<Env>),
+    undefined,
+    { versionReader: async () => new Map(Object.entries(entries)) },
+  );
+  return svc.status();
+}
+
 describe('RunnerProxyService', () => {
   it('reports unconfigured when AUTH_RUNNER_URL is missing', async () => {
     const svc = new RunnerProxyService(makeEnv());
@@ -69,6 +81,116 @@ describe('RunnerProxyService', () => {
       codex: { state: 'ok', last_check: '2026-05-20T10:09:50Z' },
       claude: { state: 'ok', last_check: '2026-05-20T10:09:49Z' },
     });
+  });
+
+  it('folds a failing Codex engine into a fail state even when Claude is ok', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'fail',
+      runner_last_check: '2026-05-20T10:09:50Z',
+      runner_last_fail: '2026-05-20T10:09:50Z',
+      runner_state_claude: 'ok',
+      runner_last_check_claude: '2026-05-20T10:09:49Z',
+      runner_last_ok_claude: '2026-05-20T10:09:49Z',
+    });
+    expect(s.state).toBe('fail');
+    expect(s.last_error).toBe('Codex runner failed at 2026-05-20T10:09:50Z');
+  });
+
+  it('folds a failing Claude engine into a fail state even when Codex is ok', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'ok',
+      runner_last_check: '2026-05-20T10:09:50Z',
+      runner_last_ok: '2026-05-20T10:09:50Z',
+      runner_state_claude: 'fail',
+      runner_last_check_claude: '2026-05-20T10:09:49Z',
+      runner_last_fail_claude: '2026-05-20T10:09:49Z',
+    });
+    expect(s.state).toBe('fail');
+    expect(s.last_error).toBe('Claude runner failed at 2026-05-20T10:09:49Z');
+  });
+
+  it('joins both engine failure labels when both engines fail', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'fail',
+      runner_last_fail: '2026-05-20T10:09:50Z',
+      runner_state_claude: 'fail',
+      runner_last_fail_claude: '2026-05-20T10:09:49Z',
+    });
+    expect(s.state).toBe('fail');
+    expect(s.last_error).toBe(
+      'Codex runner failed at 2026-05-20T10:09:50Z; Claude runner failed at 2026-05-20T10:09:49Z',
+    );
+  });
+
+  it('reports a null last_error when the failing engine has no last_fail timestamp', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'fail',
+      runner_last_check: '2026-05-20T10:09:50Z',
+      runner_state_claude: 'ok',
+      runner_last_ok_claude: '2026-05-20T10:09:49Z',
+    });
+    expect(s.state).toBe('fail');
+    expect(s.last_error).toBeNull();
+  });
+
+  it('reports ok when only one engine is ok and neither fails', async () => {
+    const s = await statusFromVersions({
+      runner_state_claude: 'ok',
+      runner_last_check_claude: '2026-05-20T10:09:49Z',
+      runner_last_ok_claude: '2026-05-20T10:09:49Z',
+    });
+    expect(s.state).toBe('ok');
+    expect(s.last_error).toBeNull();
+  });
+
+  it('reports idle when neither engine is ok or fail', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'pending',
+      runner_last_check: '2026-05-20T10:09:50Z',
+    });
+    expect(s.state).toBe('idle');
+    expect(s.last_error).toBeNull();
+  });
+
+  it('picks the newest parseable timestamp across both engines for last_run', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'ok',
+      runner_last_check: 'not-a-timestamp',
+      runner_last_ok: '',
+      runner_last_fail: '2026-05-20T10:00:00Z',
+      runner_state_claude: 'ok',
+      runner_last_check_claude: '2026-05-20T09:00:00Z',
+      runner_last_ok_claude: '2026-05-21T11:30:00Z',
+      runner_last_fail_claude: '',
+    });
+    expect(s.last_run).toBe('2026-05-21T11:30:00Z');
+  });
+
+  it('reports a null last_run when no engine timestamp is parseable', async () => {
+    const s = await statusFromVersions({
+      runner_state: 'ok',
+      runner_last_check: 'never',
+      runner_last_ok: '',
+      runner_state_claude: 'ok',
+      runner_last_check_claude: '',
+    });
+    expect(s.last_run).toBeNull();
+  });
+
+  it('omits persisted fields when neither db nor versionReader is wired', async () => {
+    const svc = new RunnerProxyService(
+      makeEnv({
+        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Partial<Env>),
+    );
+    const s = await svc.status();
+    expect(s.ready).toBe(true);
+    expect(s).not.toHaveProperty('state');
+    expect(s).not.toHaveProperty('last_run');
+    expect(s).not.toHaveProperty('last_error');
+    expect(s).not.toHaveProperty('last_result');
+    expect(s).not.toHaveProperty('engines');
   });
 
   it('returns unconfigured on run() when AUTH_RUNNER_URL is missing', async () => {
