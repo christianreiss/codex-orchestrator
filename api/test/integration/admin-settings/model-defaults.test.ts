@@ -32,6 +32,11 @@ describe('/admin/model-defaults/:engine', () => {
       reasoning_effort: 'medium',
       catalog: expect.arrayContaining([
         {
+          model: 'gpt-5.6-sol',
+          persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+          default_effort: 'medium',
+        },
+        {
           model: 'gpt-5.6-terra',
           persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
           default_effort: 'medium',
@@ -76,6 +81,13 @@ describe('/admin/model-defaults/:engine', () => {
       engine: 'claude',
       model: 'claude-opus-4-7',
       reasoning_effort: 'xhigh',
+      catalog: expect.arrayContaining([
+        {
+          model: 'claude-opus-5',
+          persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+          default_effort: 'high',
+        },
+      ]),
     });
     const rows = db.tables.get(clientConfigDocuments) ?? [];
     expect(rows.at(-1)?.settings).toMatchObject({

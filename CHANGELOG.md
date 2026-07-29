@@ -1,5 +1,13 @@
 # 2026-07-29
 
+- Refreshed both provider model catalogs against the current official Codex and
+  Claude Code documentation. OpenAI's seven supported Codex model IDs are
+  unchanged, while Sol's native default effort is corrected from `low` to
+  `medium`. Added `claude-opus-5` (1M context, 128k output) to the shared Claude
+  inference gate, fleet defaults, host/authoring pickers, and API model list,
+  with persistent `low|medium|high|xhigh` effort and `high` as its default.
+  Fleet policy remains Terra/medium for Codex and Sonnet 5/high for Claude;
+  Claude `max` remains session-only and is not written to `settings.json`.
 - Replaced the separate cdx/clx wrapper artifacts with one `cxx` multicall
   binary. Relative `cdx -> cxx` and `clx -> cxx` aliases preserve both CLI
   surfaces, while direct `cxx codex ...` / `cxx claude ...` dispatch is

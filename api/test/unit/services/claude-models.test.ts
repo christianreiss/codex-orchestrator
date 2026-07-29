@@ -34,6 +34,7 @@ describe('claude-models', () => {
     expect(CLAUDE_DEFAULT_MODEL).toBe('claude-sonnet-5');
     expect(CLAUDE_SUPPORTED_MODELS).toEqual([
       'claude-fable-5',
+      'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
       'claude-opus-4-7',
@@ -57,6 +58,7 @@ describe('claude-models', () => {
   it('resolves canonical and legacy model strings', async () => {
     const svc = createClaudeModelsService(fakeDb());
     expect(await svc.resolveRequestedModel('claude-fable-5')).toBe('claude-fable-5');
+    expect(await svc.resolveRequestedModel('claude-opus-5')).toBe('claude-opus-5');
     expect(await svc.resolveRequestedModel('claude-opus-4-8')).toBe('claude-opus-4-8');
     expect(await svc.resolveRequestedModel('CLAUDE-SONNET-5')).toBe('claude-sonnet-5');
     expect(await svc.resolveRequestedModel('claude-opus-4-7')).toBe('claude-opus-4-7');
@@ -130,11 +132,11 @@ describe('claude-models', () => {
 
   it('retrieves a single model and 404s on an unknown or blank id', async () => {
     const svc = createClaudeModelsService(fakeDb());
-    const m = await svc.modelResponse('claude-opus-4-8');
+    const m = await svc.modelResponse('claude-opus-5');
     expect(m).toMatchObject({
       type: 'model',
-      id: 'claude-opus-4-8',
-      display_name: 'Claude Opus 4.8',
+      id: 'claude-opus-5',
+      display_name: 'Claude Opus 5',
       max_input_tokens: 1_000_000,
       max_tokens: 128_000,
     });

@@ -57,7 +57,7 @@ describe('config-normalizer constants', () => {
       'gpt-5.3-codex-spark': ['low', 'medium', 'high', 'xhigh'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
-      'gpt-5.6-sol': 'low',
+      'gpt-5.6-sol': 'medium',
       'gpt-5.6-terra': 'medium',
       'gpt-5.6-luna': 'medium',
       'gpt-5.5': 'medium',
@@ -88,6 +88,7 @@ describe('config-normalizer constants', () => {
   it('exposes Claude persistent effort capabilities and defaults', () => {
     expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
       'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+      'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
       'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
@@ -96,6 +97,7 @@ describe('config-normalizer constants', () => {
     });
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'claude-fable-5': 'high',
+      'claude-opus-5': 'high',
       'claude-opus-4-8': 'high',
       'claude-sonnet-5': 'high',
       'claude-opus-4-7': 'xhigh',
@@ -181,6 +183,7 @@ describe('normalizeClaudeAdvisorModel', () => {
 describe('normalizeClaudeEffortLevel', () => {
   it('accepts only efforts supported by the selected Claude model', () => {
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-fable-5')).toBe('xhigh');
+    expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-5')).toBe('xhigh');
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-4-8')).toBe('xhigh');
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-sonnet-5')).toBe('xhigh');
     expect(normalizeClaudeEffortLevel('xhigh', 'claude-opus-4-7')).toBe('xhigh');
@@ -239,7 +242,7 @@ describe('normalizeReasoningEffort', () => {
   });
 
   it('returns each model native Codex default effort', () => {
-    expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('low');
+    expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('gpt-5.3-codex-spark')).toBe('high');
     expect(defaultCodexReasoningEffortForModel('unknown')).toBeNull();
@@ -270,7 +273,7 @@ describe('normalizeSettings()', () => {
   });
 
   it('uses the selected Codex model default when effort is absent or incompatible', () => {
-    expect(normalizeSettings({ model: 'gpt-5.6-sol' }).model_reasoning_effort).toBe('low');
+    expect(normalizeSettings({ model: 'gpt-5.6-sol' }).model_reasoning_effort).toBe('medium');
     expect(normalizeSettings({
       model: 'gpt-5.5',
       model_reasoning_effort: 'minimal',

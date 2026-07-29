@@ -94,7 +94,7 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
 
 /** Defaults reported by the current Codex CLI model catalog. */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
-  'gpt-5.6-sol': 'low',
+  'gpt-5.6-sol': 'medium',
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
   'gpt-5.5': 'medium',
@@ -106,6 +106,7 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
 /** Claude Code effort levels that may be persisted in settings.json per model. */
 export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
+  'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
   'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
   'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
@@ -116,6 +117,7 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
 /** Fleet defaults used when an operator selects a Claude model without an effort. */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
   'claude-fable-5': 'high',
+  'claude-opus-5': 'high',
   'claude-opus-4-8': 'high',
   'claude-sonnet-5': 'high',
   'claude-opus-4-7': 'xhigh',

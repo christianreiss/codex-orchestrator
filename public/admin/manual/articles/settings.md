@@ -73,7 +73,7 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 
 | Model | Persistent effort choices | Default |
 |---|---|---|
-| GPT-5.6 Sol | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| GPT-5.6 Sol | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | GPT-5.6 Terra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | GPT-5.6 Luna | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | GPT-5.5, GPT-5.4, GPT-5.4 mini | `low`, `medium`, `high`, `xhigh` | `medium` |
@@ -116,6 +116,7 @@ The former `/authoring/settings` route permanently redirects to `/settings?tab=c
 | Model | Persistent effort choices | Default |
 |---|---|---|
 | Fable 5 | `low`, `medium`, `high`, `xhigh` | `high` |
+| Opus 5 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Opus 4.8 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Sonnet 5 | `low`, `medium`, `high`, `xhigh` | `high` |
 | Opus 4.7 | `low`, `medium`, `high`, `xhigh` | `xhigh` |
@@ -135,7 +136,7 @@ Claude API proxy defaults (default model and max tokens used when proxying Claud
 | `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. |
 | `max_tokens` | integer | 256–200 000, default 8 192. |
 
-Supported proxy models are `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
+Supported proxy models are `claude-fable-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
 
 This endpoint controls only API proxy behaviour. It is independent from the fleet Claude Code `model` / `effortLevel` directly above and does not change managed CLI sessions.
 

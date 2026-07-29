@@ -16,6 +16,7 @@ export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 /** Current models first, followed by supported pinned predecessors. */
 export const CLAUDE_SUPPORTED_MODELS = [
   'claude-fable-5',
+  'claude-opus-5',
   'claude-opus-4-8',
   'claude-sonnet-5',
   'claude-opus-4-7',
@@ -57,6 +58,7 @@ export const CLAUDE_MODEL_METADATA: Record<
   { displayName: string; maxInputTokens: number; maxTokens: number }
 > = {
   'claude-fable-5': { displayName: 'Claude Fable 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
+  'claude-opus-5': { displayName: 'Claude Opus 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
   'claude-opus-4-7': { displayName: 'Claude Opus 4.7', maxInputTokens: 1_000_000, maxTokens: 128_000 },

@@ -554,11 +554,11 @@ describe('GET /anthropic/v1/models', () => {
     const app = await buildApp();
     const r = await app.inject({
       method: 'GET',
-      url: '/anthropic/v1/models/claude-opus-4-8',
+      url: '/anthropic/v1/models/claude-opus-5',
       headers: { authorization: `Bearer ${VALID_KEY}`, ...AV },
     });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload)).toMatchObject({ type: 'model', id: 'claude-opus-4-8' });
+    expect(JSON.parse(r.payload)).toMatchObject({ type: 'model', id: 'claude-opus-5' });
     await app.close();
   });
 

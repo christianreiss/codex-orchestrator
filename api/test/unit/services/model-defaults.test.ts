@@ -32,7 +32,7 @@ describe('ModelDefaultsService', () => {
       {
         model: 'gpt-5.6-sol',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        default_effort: 'low',
+        default_effort: 'medium',
       },
       {
         model: 'gpt-5.6-terra',
@@ -75,6 +75,11 @@ describe('ModelDefaultsService', () => {
     expect(claude.catalog).toEqual([
       {
         model: 'claude-fable-5',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'high',
+      },
+      {
+        model: 'claude-opus-5',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'high',
       },
