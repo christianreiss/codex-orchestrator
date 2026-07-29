@@ -102,10 +102,12 @@
     }
     errors = {};
     const data = parsed.data;
+    // Create must carry both: the server rejects a blank name or email. Edit
+    // patches, so a field left blank is omitted rather than sent as empty.
     const payload: AdminUserPayload = {
-      name: data.name || undefined,
+      name: isEdit ? data.name || undefined : data.name,
       username: data.username,
-      email: data.email || undefined,
+      email: isEdit ? data.email || undefined : data.email,
       access_level: data.access_level,
       active: data.active,
     };
@@ -138,8 +140,14 @@
 
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
-        <Label for="user-name">Name <span class="text-muted-foreground">(optional)</span></Label>
-        <Input id="user-name" autocomplete="name" bind:value={name} disabled={submitting} />
+        <Label for="user-name">Name</Label>
+        <Input
+          id="user-name"
+          autocomplete="name"
+          bind:value={name}
+          disabled={submitting}
+          aria-invalid={errors.name ? "true" : undefined}
+        />
         {#if errors.name}<p class="text-xs text-destructive">{errors.name}</p>{/if}
       </div>
 
@@ -157,7 +165,7 @@
       </div>
 
       <div class="space-y-1.5">
-        <Label for="user-email">Email <span class="text-muted-foreground">(optional)</span></Label>
+        <Label for="user-email">Email</Label>
         <Input
           id="user-email"
           type="email"
