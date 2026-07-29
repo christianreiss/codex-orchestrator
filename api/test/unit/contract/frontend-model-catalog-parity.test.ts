@@ -34,7 +34,7 @@ const MODELS_PATH = resolve(import.meta.dirname, '../../../..', MODELS_FILE);
  * for a deliberate delta, e.g. an id the inference gate still accepts so
  * already-pinned hosts keep working but the picker no longer offers.
  */
-const DELIBERATE_DELTAS: Record<string, string> = {};
+const ALLOWED: Record<string, string> = {};
 
 /**
  * Blank out whole-line comments, keeping every other character at its offset.
@@ -142,6 +142,17 @@ const optionValues = (name: string): string[] =>
   });
 
 const ADVISOR_OFF = stringConst('ADVISOR_OFF');
+const INHERIT_MODEL = stringConst('INHERIT_MODEL');
+
+/**
+ * Picker-only sentinels: "inherit" (omit the model on save) and "off" (omit
+ * `advisorModel`). Neither is ever stored, so neither is the API's to list.
+ */
+const SENTINELS = new Set([INHERIT_MODEL, ADVISOR_OFF]);
+
+/** Option values of `name`, less the sentinels. */
+const catalogValues = (name: string): string[] =>
+  optionValues(name).filter((value) => !SENTINELS.has(value));
 
 interface Catalog {
   /** Frontend constant under test. */
@@ -158,33 +169,41 @@ const CATALOGS: Catalog[] = [
   {
     constant: 'CLAUDE_MODEL_OPTIONS',
     api: 'CLAUDE_SUPPORTED_MODELS (api/src/services/claude-models.ts)',
-    frontend: optionValues('CLAUDE_MODEL_OPTIONS'),
+    frontend: catalogValues('CLAUDE_MODEL_OPTIONS'),
     server: CLAUDE_SUPPORTED_MODELS,
   },
   {
     constant: 'CODEX_MODELS',
     api: 'SUPPORTED_MODELS (api/src/services/config-normalizer.ts)',
-    frontend: optionValues('CODEX_MODELS'),
+    frontend: catalogValues('CODEX_MODELS'),
     server: SUPPORTED_MODELS,
   },
   {
     constant: 'ADVISOR_MODELS',
     api: 'ADVISOR_MODEL_ALIASES (api/src/services/config-normalizer.ts)',
-    // The "off" sentinel means "omit advisorModel on save"; it is never stored.
-    frontend: optionValues('ADVISOR_MODELS').filter((value) => value !== ADVISOR_OFF),
+    frontend: catalogValues('ADVISOR_MODELS'),
     server: ADVISOR_MODEL_ALIASES,
   },
   {
     constant: 'CLAUDE_PERMISSION_MODES',
     api: 'CLAUDE_PERMISSION_MODES (api/src/services/config-normalizer.ts)',
-    frontend: optionValues('CLAUDE_PERMISSION_MODES'),
+    frontend: catalogValues('CLAUDE_PERMISSION_MODES'),
     server: CLAUDE_PERMISSION_MODES,
+  },
+  {
+    // A scalar, compared as a one-element set so it drifts, allowlists and
+    // reports like the lists. The settings form seeds its picker from it, so a
+    // stale value shows the wrong mode as the active one.
+    constant: 'DEFAULT_CLAUDE_PERMISSION_MODE',
+    api: 'DEFAULT_CLAUDE_PERMISSION_MODE (api/src/services/config-normalizer.ts)',
+    frontend: [stringConst('DEFAULT_CLAUDE_PERMISSION_MODE')],
+    server: [DEFAULT_CLAUDE_PERMISSION_MODE],
   },
 ];
 
-/** The catalog's values minus any deliberate delta, as a comparable set. */
+/** The catalog's values minus any allowed delta, as a comparable set. */
 const compared = ({ constant }: Catalog, values: readonly string[]): string[] =>
-  values.filter((value) => !(`${constant}.${value}` in DELIBERATE_DELTAS)).sort();
+  values.filter((value) => !(`${constant}.${value}` in ALLOWED)).sort();
 
 describe('frontend model catalog parity', () => {
   it('extracts the option lists it is meant to compare', () => {
@@ -194,11 +213,10 @@ describe('frontend model catalog parity', () => {
     expect(optionValues('CLAUDE_MODEL_OPTIONS')).toContain('claude-sonnet-5');
     expect(optionValues('CODEX_MODELS')).toContain('gpt-5.6-terra');
     expect(optionValues('CLAUDE_PERMISSION_MODES')).toContain('bypassPermissions');
-    // The sentinel is resolved through its identifier, then dropped.
+    // The sentinels are resolved through their identifiers, then dropped.
     expect(optionValues('ADVISOR_MODELS')).toContain(ADVISOR_OFF);
-    expect(CATALOGS.find((catalog) => catalog.constant === 'ADVISOR_MODELS')?.frontend).not.toContain(
-      ADVISOR_OFF,
-    );
+    expect(catalogValues('ADVISOR_MODELS')).not.toContain(ADVISOR_OFF);
+    expect([...SENTINELS]).toEqual(['inherit', 'off']);
   });
 
   it('offers exactly the ids the API accepts', () => {
@@ -206,21 +224,13 @@ describe('frontend model catalog parity', () => {
       expect(
         compared(catalog, catalog.frontend),
         `${catalog.constant} in ${MODELS_FILE} must offer exactly ${catalog.api} — update the ` +
-          'frontend list, or record the delta in DELIBERATE_DELTAS here with a reason',
+          'frontend list, or record the delta in ALLOWED here with a reason',
       ).toEqual(compared(catalog, catalog.server));
     }
   });
 
-  it('defaults the permission mode to the same value as the API', () => {
-    expect(
-      stringConst('DEFAULT_CLAUDE_PERMISSION_MODE'),
-      `DEFAULT_CLAUDE_PERMISSION_MODE in ${MODELS_FILE} must equal the API's — the settings form ` +
-        'seeds its picker from it, so a stale value shows the wrong mode as active',
-    ).toBe(DEFAULT_CLAUDE_PERMISSION_MODE);
-  });
-
   it('keeps the allowlist to deltas that still exist', () => {
-    const stale = Object.keys(DELIBERATE_DELTAS).filter((entry) => {
+    const stale = Object.keys(ALLOWED).filter((entry) => {
       const catalog = CATALOGS.find(({ constant }) => entry.startsWith(`${constant}.`));
       if (!catalog) return true;
       // Constants carry no dot, ids do (`gpt-5.6-terra`), so the first one splits.
