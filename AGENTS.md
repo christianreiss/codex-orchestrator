@@ -135,7 +135,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 ## Admin WebUI
 
 - Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
-- Build output: `public/admin/` (committed). The API serves `index.html` for any unknown `/admin/*` route from `STATIC_ROOT` and injects `window.__adminBootstrap` based on the admin session. `public/admin/manual/` ships article content consumed by the in-app help system.
+- Build output: `public/admin/` (committed). The API serves `index.html` verbatim from `STATIC_ROOT` for any unknown `/admin/*` route — no server-side injection; the SPA hydrates its session state from `GET /admin/auth/status`. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
 - Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `cli-auth/verify`, `login`).
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.

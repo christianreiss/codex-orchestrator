@@ -1,7 +1,5 @@
 // See https://kit.svelte.dev/docs/types#app
 // for information about these interfaces.
-import type { AdminBootstrap } from "$lib/api/types";
-
 declare global {
   namespace App {
     // interface Error {}
@@ -9,10 +7,6 @@ declare global {
     // interface PageData {}
     // interface PageState {}
     // interface Platform {}
-  }
-
-  interface Window {
-    __adminBootstrap?: AdminBootstrap;
   }
 }
 

@@ -1,12 +1,11 @@
 /**
- * Auth store. Hydrates from `window.__adminBootstrap` (injected by the PHP
- * gateway) and falls back to `GET /admin/auth/status`. Exposes a readable
+ * Auth store. Hydrates from `GET /admin/auth/status`. Exposes a readable
  * `authStore` and an `authActions` API.
  */
 import { writable, type Readable } from "svelte/store";
 import { browser } from "$app/environment";
 import { api, ApiError } from "../api/client";
-import type { AdminBootstrap, AuthStatus, User } from "../api/types";
+import type { AuthStatus, User } from "../api/types";
 
 export interface AuthState {
   authenticated: boolean;
@@ -25,19 +24,6 @@ const initial: AuthState = {
 };
 
 const store = writable<AuthState>(initial);
-
-function applyBootstrap(b: AdminBootstrap | undefined): AuthState | null {
-  if (!b || typeof b !== "object") return null;
-  const next: AuthState = {
-    authenticated: Boolean(b.authenticated),
-    enforced: Boolean(b.enforced),
-    user: b.user ?? null,
-    roles: extractRoles(b.user),
-    loading: false,
-  };
-  store.set(next);
-  return next;
-}
 
 function extractRoles(user: User | null | undefined): string[] {
   if (!user) return [];
@@ -78,13 +64,9 @@ async function refresh(): Promise<AuthState> {
 }
 
 if (browser) {
-  const applied = applyBootstrap(window.__adminBootstrap);
-  if (!applied) {
-    // No bootstrap injected — fall back to API status.
-    void refresh().catch(() => {
-      store.update((s) => ({ ...s, loading: false }));
-    });
-  }
+  void refresh().catch(() => {
+    store.update((s) => ({ ...s, loading: false }));
+  });
 }
 
 export const authStore: Readable<AuthState> = { subscribe: store.subscribe };
@@ -109,5 +91,4 @@ export const authActions = {
   },
 
   refresh,
-  applyBootstrap,
 };

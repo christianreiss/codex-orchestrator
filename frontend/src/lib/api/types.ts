@@ -23,12 +23,6 @@ export interface AuthStatus {
   roles?: string[];
 }
 
-export interface AdminBootstrap {
-  enforced: boolean;
-  authenticated: boolean;
-  user: User | null;
-}
-
 // projects feature ↓
 export interface ProjectAbout {
   title?: string | null;
