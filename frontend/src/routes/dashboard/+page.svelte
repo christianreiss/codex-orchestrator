@@ -5,7 +5,7 @@
   import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
   import DashboardAlerts from "./DashboardAlerts.svelte";
   import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
-  import { overviewQuery } from "$lib/api/overview";
+  import { engineInstallCounts, overviewQuery } from "$lib/api/overview";
   import Server from "@lucide/svelte/icons/server";
   import Package from "@lucide/svelte/icons/package";
   import Bot from "@lucide/svelte/icons/bot";
@@ -17,13 +17,7 @@
 
   const overview = overviewQuery();
 
-  /**
-   * Active host count is not exposed directly on /admin/overview; derive it
-   * from `last_refresh` recency vs the configured inactivity window. We do
-   * not know the inactivity window without an extra round-trip, so we use a
-   * conservative 7-day default and fall back to the total if no signal
-   * exists.
-   */
+  /** The endpoint exposes the fleet total and its latest refresh directly. */
   const stats = $derived.by(() => {
     const data = $overview.data;
     if (!data) return null;
@@ -31,6 +25,8 @@
     const lastRefresh = data.last_refresh ?? null;
     return { hosts, lastRefresh };
   });
+
+  const installs = $derived(engineInstallCounts($overview.data?.version_distribution));
 
   const currentVersion = $derived(
     ($overview.data?.versions?.client_version as string | null | undefined) ??
@@ -96,6 +92,28 @@
     >
       {#snippet icon()}
         <Server class="h-4 w-4" />
+      {/snippet}
+      {#snippet breakdown()}
+        <dl
+          class="grid grid-cols-2 divide-x divide-border/70 text-right leading-none"
+          aria-label="Reported installations by engine"
+          title="Hosts that reported an installed CLI version"
+        >
+          <div class="min-w-14 pr-2">
+            <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
+              <span class="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true"></span>
+              Codex
+            </dt>
+            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.codex ?? "—"}</dd>
+          </div>
+          <div class="min-w-14 pl-2">
+            <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
+              <span class="h-1.5 w-1.5 rounded-full bg-orange-400" aria-hidden="true"></span>
+              Claude
+            </dt>
+            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.claude ?? "—"}</dd>
+          </div>
+        </dl>
       {/snippet}
     </StatCard>
     <StatCard

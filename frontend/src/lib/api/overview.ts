@@ -29,6 +29,27 @@ export interface VersionDistribution {
   install: { both: number; codex_only: number; claude_only: number; neither: number };
 }
 
+export interface EngineInstallCounts {
+  codex: number;
+  claude: number;
+}
+
+/**
+ * Collapse the mutually-exclusive install buckets into one reported-install
+ * count per engine. A dual-engine host intentionally contributes to both.
+ */
+export function engineInstallCounts(
+  distribution: VersionDistribution | null | undefined,
+): EngineInstallCounts | null {
+  const install = distribution?.install;
+  if (!install) return null;
+
+  return {
+    codex: install.both + install.codex_only,
+    claude: install.both + install.claude_only,
+  };
+}
+
 export interface OverviewResponse {
   totals: { hosts: number };
   latest_log_at?: string | null;

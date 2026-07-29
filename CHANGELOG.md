@@ -1,5 +1,8 @@
 # 2026-07-29
 
+- Split the Overview Hosts card into compact Codex and Claude install totals,
+  derived from reported per-engine client versions while retaining the primary
+  fleet host count and last-refresh hint.
 - Replaced the placeholder “C” with the **Switchyard** brand mark: one canonical
   source splitting toward cyan and coral Codex/Claude nodes. The shared vector
   now appears in the sidebar, login, password-reset, and CLI-authorization

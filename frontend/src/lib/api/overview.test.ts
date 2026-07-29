@@ -163,9 +163,36 @@ describe("overviewKeys", () => {
   });
 });
 
+describe("engineInstallCounts", () => {
+  it("counts dual-engine hosts once under each engine", () => {
+    assert.deepEqual(
+      overview.engineInstallCounts({
+        codex: [],
+        claude: [],
+        install: { both: 3, codex_only: 2, claude_only: 1, neither: 4 },
+      }),
+      { codex: 5, claude: 4 },
+    );
+  });
+
+  it("keeps absent distribution data distinct from zero installs", () => {
+    assert.equal(overview.engineInstallCounts(null), null);
+    assert.equal(overview.engineInstallCounts(undefined), null);
+    assert.deepEqual(
+      overview.engineInstallCounts({
+        codex: [],
+        claude: [],
+        install: { both: 0, codex_only: 0, claude_only: 0, neither: 6 },
+      }),
+      { codex: 0, claude: 0 },
+    );
+  });
+});
+
 describe("module surface", () => {
   /** Every runtime export, so a new builder cannot slip past the cases above. */
   const EXPECTED_EXPORTS = [
+    "engineInstallCounts",
     "insecureApprovalsPendingQuery",
     "overviewKeys",
     "overviewQuery",

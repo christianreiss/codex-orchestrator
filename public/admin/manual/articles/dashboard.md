@@ -2,8 +2,8 @@
 title: Dashboard
 summary: KPIs, ChatGPT quota windows, runner state, and how the charts are fed.
 section: Admin workspace
-verified: 2026-07-10
-sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+verified: 2026-07-29
+sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
@@ -18,7 +18,7 @@ The dashboard combines host health, ChatGPT quota windows, runner state, and ver
 
 ## Overview endpoint
 
-`GET /admin/overview` returns: host count (`totals.hosts`), `last_refresh`, `avg_refresh_age_days`, version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
+`GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
 
 ## Stat cards
 
@@ -26,11 +26,11 @@ The dashboard renders three stat cards sourced from a single `overviewQuery()` c
 
 | Card | Field | Notes |
 |---|---|---|
-| Hosts | `totals.hosts` | Always shows total host count. An active-only subset is not available from this endpoint without a separate round-trip; the card falls back to the total. |
+| Hosts | `totals.hosts`, `version_distribution.install` | Shows total hosts plus a compact Codex/Claude split. Engine counts mean hosts that reported the corresponding installed CLI version; a dual-engine host counts once in each engine total. |
 | Codex latest | `versions.cdx_version_available` | Latest upstream Codex CLI version (GitHub releases) — **not** the installed version. |
 | Claude latest | `versions.claude_version_available` | Latest upstream Claude Code CLI version (npm) — **not** the installed version. |
 
-The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). The currently *installed* client version (`versions.client_version` / `cdx_version`, `versions.claude_version`) is not shown on a stat card at all — it only surfaces in the "Update available" alert banner and its `UpgradeModal` (see Alerts, below).
+The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its Codex count is `both + codex_only`; its Claude count is `both + claude_only`. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Exact installed client versions (`versions.client_version` / `cdx_version`, `versions.claude_version`) are not shown on a stat card; they surface in the "Update available" alert banner and its `UpgradeModal` (see Alerts, below).
 
 ## Alerts
 
