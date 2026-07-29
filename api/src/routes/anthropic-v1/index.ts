@@ -1,13 +1,17 @@
 /**
  * Anthropic-compatible HTTP API. Mirrors the legacy
- * src/Http/Controllers/ClaudeApiController.php route surface:
+ * src/Http/Controllers/ClaudeApiController.php route surface. Every route this
+ * module registers:
  *
- *   OPTIONS /anthropic/v1/*       (CORS preflight)
+ *   OPTIONS /anthropic/v1/*                     (CORS preflight)
  *   POST    /anthropic/v1/messages
- *   POST    /anthropic/v1/completions   (deprecated, supported)
+ *   POST    /anthropic/v1/messages/count_tokens (estimate — no server tokenizer)
+ *   POST    /anthropic/v1/complete              (legacy Text Completions)
+ *   POST    /anthropic/v1/completions           (deprecated alias of /complete)
  *   GET     /anthropic/v1/models
- *   POST    /anthropic/v1/responses     (SSE not implemented — same as PHP)
- *   POST    /anthropic/v1/embeddings    (501 — Anthropic has no embeddings API)
+ *   GET     /anthropic/v1/models/:model_id      (single-model lookup)
+ *   POST    /anthropic/v1/responses             (SSE not implemented — same as PHP)
+ *   POST    /anthropic/v1/embeddings            (501 — Anthropic has no embeddings API)
  *
  * Auth: `claude-key-resolver` preHandler (Bearer / x-api-key / raw).
  * Kill-switch: `claude-kill-switch` preHandler (versions flag `claude_api_disabled`).
