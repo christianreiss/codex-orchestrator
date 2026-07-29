@@ -25,7 +25,7 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 - `GET /mcp` does not authenticate hosts.
 - `/mcp/memories/*` authenticates through `app.requireHost` (`api/src/http/plugins/auth-host.ts`): the API key is matched by hash (legacy plaintext keys still resolve) and the host must be `active`. The IP-binding path of `hostAuth.authenticate` (`api/src/services/host-auth.ts`) — `allow_roaming_ips`, reverse DNS, insecure-window IP overrides — is what `/auth` and `/host/*` run, and it does not run here.
 - `POST /mcp` authenticates in `resolveHost()` (`api/src/routes/mcp/index.ts`): the credential is verified as a short-lived MCP session token first (`McpSessionService.verify`, 8h TTL) and otherwise resolved as a host API key (`app.resolveHostFromKey`); non-`active` hosts are then rejected. No sliding-window check runs on this route — for insecure hosts the session token's own expiry is the window.
-- Origin allowlist checks apply to `/mcp` `GET` and `POST` only. Allowed origins come from `MCP_ALLOWED_ORIGINS` and `PUBLIC_BASE_URL`; optional request-host auto-allow is controlled by `MCP_ALLOW_REQUEST_HOST_ORIGIN` (default `0`). Missing `Origin` is allowed.
+- Origin checks apply to `/mcp` `GET` and `POST` only, and they are a single toggle rather than a list of allowed origins: with `MCP_ALLOW_REQUEST_HOST_ORIGIN` off (default `0`) any request carrying a non-empty `Origin` header is rejected with 403, and turning it on drops the check entirely. A missing or empty `Origin`, the normal case for non-browser MCP clients, is always allowed.
 - Rate limits: global per-IP bucket applies to `/mcp*` (same non-admin bucket; defaults `120` requests per `60` seconds).
 - MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
 - Host-authenticated `/mcp` is intentionally host-scoped: it advertises memory/resource/project tools only. Coordinator filesystem helpers (`fs_*`) are not listed and return “method not found” if called on that route.
@@ -123,7 +123,7 @@ curl -s "$BASE/mcp/memories/search" \
 
 ## Client hints
 
-- `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"`, static `Authorization` header, and `startup_timeout_sec = 30`.
+- `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"` (the base baked into the signed wrapper config, which honors `PUBLIC_BASE_URL` when set), static `Authorization` header, and `startup_timeout_sec = 30`.
 - When the Projects module is enabled, MCP also publishes a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill tells operators that CoCo coordination handoffs are project-only, points fleet-wide reference documents at `shared_memory_*`, and blocks reserved `coco*` memory ids.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.

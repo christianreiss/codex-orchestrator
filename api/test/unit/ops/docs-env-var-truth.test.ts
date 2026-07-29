@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * `docs/INSTALL.md` and `docs/SECURITY.md` have their own guards; these six
+ * `docs/INSTALL.md` and `docs/SECURITY.md` have their own guards; these seven
  * docs describe the same deployment to the same operator, so a name that
  * nothing reads is a knob someone sets that silently does nothing. Five of them
  * presented `INSTALL_TOKEN_TTL_SECONDS` as configurable when it is the fixed
@@ -23,6 +23,11 @@ import { resolve } from 'node:path';
  * between 8 and 128 when the minimum is the fixed `PASSWORD_MIN_LENGTH` in
  * `api/src/services/admin-auth.ts`.
  *
+ * `docs/MCP.md` was the last one outside the scan, and it kept
+ * `MCP_ALLOWED_ORIGINS` alive as the source of an allowlist that
+ * `api/src/routes/mcp/index.ts` never had, long after the docs above had
+ * corrected the same claim.
+ *
  * Name coverage only — every backticked UPPER_SNAKE identifier in each doc has
  * to be declared by the API schema, the compose file, the runner, or the
  * allowlist below. Defaults and prose are not compared.
@@ -36,6 +41,7 @@ const DOCS = [
   'docs/OVERVIEW.md',
   'docs/API.md',
   'docs/interface-api.md',
+  'docs/MCP.md',
 ];
 const ENV_TS = resolve(ROOT, 'api/src/env.ts');
 const COMPOSE = resolve(ROOT, 'docker-compose.yml');
@@ -135,7 +141,7 @@ describe('operator docs environment reference', () => {
   // turn the checks above into comparisons of two empty lists.
   it('reads the names out of each doc and each source', () => {
     const documented = documentedVars();
-    // Every doc has to contribute names, or one of the six goes unchecked.
+    // Every doc has to contribute names, or one of the seven goes unchecked.
     expect([...new Set([...documented.values()].flat())].sort()).toEqual([...DOCS].sort());
     expect(documented.get('PUBLIC_BASE_URL')).toContain('docs/USAGE.md');
     expect(documented.has('ADMIN_ACCESS_MODE')).toBe(true);
