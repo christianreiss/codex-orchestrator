@@ -43,10 +43,11 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 ## HTTP API
 
-Every route `runner/app.py` registers, and nothing else. `runner/test_app.py`
-walks `app.routes` and fails both ways — a registered route missing from this
-file, and a `METHOD /path` documented here that the router does not serve — so
-this list cannot drift from the code.
+Every route `runner/app.py` registers, and nothing else.
+`runner/test_docs_surface.py` walks `app.routes` and fails both ways — a
+registered route missing from this index or from its own `### METHOD /path`
+section below, and a `METHOD /path` named here that the router does not serve —
+so this list cannot drift from the code.
 
 - `GET /health` — per-engine CLI availability.
 - `POST /verify` — Codex credential probe.

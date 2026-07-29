@@ -4,9 +4,10 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 ## HTTP surface (runner container)
 
-This is every route `runner/app.py` registers. `runner/test_app.py` walks
-`app.routes` and fails when a registered `METHOD /path` is missing from this
-file, so a new route has to be documented here before it can ship.
+This is every route `runner/app.py` registers. `runner/test_docs_surface.py`
+walks `app.routes` and fails when a registered `METHOD /path` is missing from
+the list below, and when the list names a route the runner does not serve, so a
+new route has to be documented here before it can ship.
 
 - `GET /health` returns `{"status": "ok"}` plus per-engine `available` flags and is used by Docker health checks.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
