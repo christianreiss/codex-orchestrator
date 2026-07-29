@@ -222,7 +222,7 @@ export function wireWsToQueryClient(
   return events.subscribe((event) => {
     if (!event || !event.type) return;
     if (event.type === "toast") {
-      showServerToast((event as { payload?: unknown }).payload);
+      showServerToast(event.payload);
       return;
     }
     const keys = invalidations[event.type];
@@ -232,7 +232,7 @@ export function wireWsToQueryClient(
       }
     }
     if (PROJECT_SCOPED_EVENTS.has(event.type)) {
-      const slug = extractProjectSlug((event as { payload?: unknown }).payload);
+      const slug = extractProjectSlug(event.payload);
       if (slug) {
         const subKey = projectDetailSubKey(event.type);
         if (subKey) {

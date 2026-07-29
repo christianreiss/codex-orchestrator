@@ -82,7 +82,7 @@ afterEach(() => {
 
 /** Push one event through the wiring; `payload` is the field the dispatcher reads. */
 function emit(type: string, payload?: unknown): void {
-  events.set({ type, payload } as unknown as WsEvent);
+  events.set({ type, payload, ts: "2026-01-01T00:00:00.000Z" });
 }
 
 describe("toast events", () => {

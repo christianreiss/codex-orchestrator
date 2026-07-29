@@ -17,11 +17,11 @@ export interface WsInfo {
   token?: string | null;
 }
 
-export interface WsEvent<T = unknown> {
+/** One frame as `api/src/ws/publisher.ts` writes it. */
+export interface WsEvent<P = unknown> {
   type: string;
-  data?: T;
-  id?: number | string;
-  ts?: string;
+  payload: P;
+  ts: string;
 }
 
 interface InternalState {
@@ -131,15 +131,14 @@ export function createWsClient(): WsClientHandle {
     });
 
     ws.addEventListener("message", (msg) => {
-      let payload: WsEvent | null = null;
+      let frame: WsEvent | null = null;
       try {
-        payload = JSON.parse(typeof msg.data === "string" ? msg.data : "");
+        frame = JSON.parse(typeof msg.data === "string" ? msg.data : "");
       } catch {
         return;
       }
-      if (!payload || typeof payload !== "object" || !payload.type) return;
-      if (payload.id !== undefined && payload.id !== null) state.lastEventId = payload.id;
-      events.set(payload);
+      if (!frame || typeof frame !== "object" || !frame.type) return;
+      events.set(frame);
     });
 
     const closeHandler = () => {

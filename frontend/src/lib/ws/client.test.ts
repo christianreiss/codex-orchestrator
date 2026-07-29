@@ -223,23 +223,34 @@ describe("createWsClient discovery", () => {
 
     assert.equal(lastSocket().url, "wss://host/admin/ws");
   });
+
+  it("re-reads the resume point from the info response on every reconnect", async () => {
+    await start({ enabled: true, url: "wss://host/admin/ws" });
+    lastSocket().handshake();
+
+    currentInfo = { enabled: true, url: "wss://host/admin/ws", last_event_id: 77 };
+    lastSocket().emit("close");
+    fire("timeout");
+    await flush();
+
+    assert.equal(lastSocket().url, "wss://host/admin/ws?last_event_id=77");
+  });
 });
 
 describe("createWsClient frames", () => {
-  it("publishes a frame and resumes the next connect from its id", async () => {
+  it("publishes the frame the server sent", async () => {
     const client = await start({ enabled: true, url: "wss://host/admin/ws" });
     const socket = lastSocket();
     socket.handshake();
     assert.equal(get(client.status), "open");
 
-    socket.emit("message", { data: JSON.stringify({ type: "job.updated", id: 77, data: { id: "j1" } }) });
-    assert.deepEqual(get(client.events), { type: "job.updated", id: 77, data: { id: "j1" } });
-
-    socket.emit("close");
-    fire("timeout");
-    await flush();
-
-    assert.equal(lastSocket().url, "wss://host/admin/ws?last_event_id=77");
+    const frame = {
+      type: "project.updated",
+      payload: { slug: "acme" },
+      ts: "2026-01-01T00:00:00.000Z",
+    };
+    socket.emit("message", { data: JSON.stringify(frame) });
+    assert.deepEqual(get(client.events), frame);
   });
 
   it("drops unparseable, non-string and type-less frames", async () => {
@@ -249,16 +260,9 @@ describe("createWsClient frames", () => {
 
     socket.emit("message", { data: "{not json" });
     socket.emit("message", { data: new ArrayBuffer(4) });
-    socket.emit("message", { data: JSON.stringify({ id: 99, data: { id: "j1" } }) });
+    socket.emit("message", { data: JSON.stringify({ payload: { slug: "acme" }, ts: "now" }) });
 
     assert.equal(get(client.events), null);
-
-    // A dropped frame must not move the resume point either.
-    socket.emit("close");
-    fire("timeout");
-    await flush();
-
-    assert.equal(lastSocket().url, "wss://host/admin/ws");
   });
 
   it("pings on the heartbeat interval while the socket is open", async () => {
