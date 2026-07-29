@@ -32,9 +32,14 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 
 ## JSON-RPC methods
 
-- Core: `initialize`, `notifications/initialized` (also `notifications.initialized`).
+The four `group: methods` bullets below are the dispatch table: everything after the colon is backticked method spellings — a canonical name, then its aliases in parentheses — and nothing else. `api/test/unit/services/mcp-doc-methods.test.ts` compares them against the `case` labels of the `switch (method)` in `api/src/services/mcp-server.ts` and fails on any spelling that is in one and not the other, so notes about a group go on the indented bullet under it.
+
+- Core: `initialize`, `notifications/initialized` (`notifications.initialized`).
 - Tools: `tools/list` (`tools.list`, `list_tools`), `tools/call` (`tools.call`, `call_tool`).
 - Resources: `resources/templates/list` (`resources.templates.list`, `list_resource_templates`), `resources/list` (`resources.list`, `list_resources`), `resources/read` (`resources.read`, `read_resource`), `resources/create` (`resources.create`, `create_resource`), `resources/update` (`resources.update`, `update_resource`), `resources/delete` (`resources.delete`, `delete_resource`).
+- Prompts: `prompts/list` (`prompts.list`), `prompts/get` (`prompts.get`).
+  - No prompts are served: the list is always empty, which is what makes a client's prompts capability probe succeed, and a get answers `-32601` deliberately.
+- Any other method answers `-32601` “Method not found”.
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
