@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import base64
 import inspect
@@ -2182,6 +2183,159 @@ class RunnerSubprocessEnvIsolationTest(unittest.TestCase):
             self.assertEqual(self.AMBIENT_ALLOWLISTED["PATH"], env["PATH"])
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
+
+
+APP_SOURCE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")
+
+
+class RunnerCredentialReadbackTest(unittest.TestCase):
+    """_credential_readback is the runner's half of the auth self-heal handshake.
+
+    canonical-auth-store.ts reads `auth_readback` and the `updated_auth` blob to
+    decide whether a probe rewrote the native credential file: 'error', or an
+    'updated' with no replacement bytes, becomes runner_updated_auth_invalid,
+    while 'unchanged' must never carry a replacement lineage. Each post-probe
+    state is asserted against a real file on disk, including the 400-character
+    cap that keeps a runaway exception message out of the verdict, and the state
+    names themselves are pinned against every literal app.py assigns.
+    """
+
+    ORIGINAL = {
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-oat01-original-token",
+            "refreshToken": "sk-ant-ort01-original-token",
+            "expiresAt": 1893456000000,
+        }
+    }
+    # The states canonical-auth-store.ts branches on; 'not_applicable' is what
+    # the probe paths that never write a credential file report.
+    KNOWN_STATES = {"unchanged", "updated", "error", "not_applicable"}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.auth_path = os.path.join(self._tmp.name, ".credentials.json")
+
+    def write_credentials(self, text):
+        with open(self.auth_path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def readback(self, path=None):
+        return runner_app._credential_readback(path or self.auth_path, self.ORIGINAL)
+
+    def assertReadbackError(self, result, expected_error=None):
+        """An error verdict never doubles as a replacement lineage."""
+        self.assertEqual("error", result["auth_readback"])
+        self.assertNotIn("updated_auth", result)
+        error = result["auth_readback_error"]
+        self.assertNotEqual("", error)
+        self.assertLessEqual(len(error), 400)
+        if expected_error is not None:
+            self.assertEqual(expected_error, error)
+        return error
+
+    def test_missing_credential_file_is_an_error_naming_the_exception(self):
+        # The file the probe was meant to leave behind is simply not there.
+        error = self.assertReadbackError(self.readback())
+
+        self.assertIn("FileNotFoundError", error)
+
+    def test_unparsable_credential_file_is_an_error_naming_the_exception(self):
+        self.write_credentials('{"claudeAiOauth": ')
+
+        error = self.assertReadbackError(self.readback())
+
+        self.assertIn("JSONDecodeError", error)
+
+    def test_long_exception_message_is_truncated_to_400_characters(self):
+        # A missing path is reported verbatim, so a long enough one is the
+        # cheapest way to produce an over-length exception message.
+        long_path = os.path.join(self._tmp.name, *["d" * 120] * 5, ".credentials.json")
+
+        error = self.assertReadbackError(self.readback(long_path))
+
+        self.assertEqual(400, len(error))
+        self.assertTrue(error.startswith("FileNotFoundError: "), error)
+        # Truncated, not merely short: the tail of the path did not survive.
+        self.assertNotIn(long_path, error)
+
+    def test_non_object_json_is_an_error_rather_than_a_replacement(self):
+        for label, contents in [
+            ("empty array", "[]"),
+            ("array of objects", '[{"accessToken": "sk-ant-oat01-rotated"}]'),
+            ("number", "42"),
+            ("string", '"sk-ant-oat01-rotated"'),
+            ("null", "null"),
+        ]:
+            with self.subTest(contents=label):
+                self.write_credentials(contents)
+
+                self.assertReadbackError(
+                    self.readback(), "credential file did not contain a JSON object"
+                )
+
+    def test_identical_object_is_unchanged_with_no_replacement_bytes(self):
+        # Comparison is on the parsed object, so a CLI that rewrites the same
+        # credentials with different formatting is still 'unchanged'.
+        for label, contents in [
+            ("as written", json.dumps(self.ORIGINAL)),
+            ("reserialized", json.dumps(self.ORIGINAL, indent=2, sort_keys=True)),
+        ]:
+            with self.subTest(contents=label):
+                self.write_credentials(contents)
+
+                self.assertEqual({"auth_readback": "unchanged"}, self.readback())
+
+    def test_differing_object_is_updated_and_carries_the_files_contents(self):
+        rotated = {
+            "claudeAiOauth": {
+                "accessToken": "sk-ant-oat01-rotated-token",
+                "refreshToken": "sk-ant-ort01-rotated-token",
+                "expiresAt": 1893542400000,
+            }
+        }
+        for label, updated in [
+            ("rotated tokens", rotated),
+            # Claude clearing its credential file is a change like any other:
+            # the API decides what an empty object means, the runner reports it.
+            ("emptied file", {}),
+        ]:
+            with self.subTest(contents=label):
+                self.write_credentials(json.dumps(updated))
+
+                self.assertEqual(
+                    {"auth_readback": "updated", "updated_auth": updated}, self.readback()
+                )
+
+    def test_every_auth_readback_literal_in_app_is_a_known_state(self):
+        with open(APP_SOURCE_PATH, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+
+        def is_auth_readback_key(node):
+            return isinstance(node, ast.Constant) and node.value == "auth_readback"
+
+        assigned = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if is_auth_readback_key(key) and isinstance(value, ast.Constant):
+                        assigned.add(value.value)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Subscript)
+                        and is_auth_readback_key(target.slice)
+                        and isinstance(node.value, ast.Constant)
+                    ):
+                        assigned.add(node.value.value)
+
+        self.assertNotEqual(set(), assigned)
+        self.assertEqual(
+            set(),
+            assigned - self.KNOWN_STATES,
+            f"app.py reports auth_readback states the API does not handle: "
+            f"{sorted(assigned - self.KNOWN_STATES, key=repr)}",
+        )
 
 
 if __name__ == "__main__":
