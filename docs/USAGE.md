@@ -117,9 +117,11 @@ What the installer does:
   shared schedule runs every enabled engine tick exactly once, bootstrapping
   Codex and/or Claude Code at the server-selected versions. For a privileged
   system schedule, migration discovers every actual owner in the standard
-  cron spools plus config-owner/sudo/current/root safeguards, removes only
-  lines ending in an exact managed marker, and restores every changed crontab
-  plus the new system entry if cleanup cannot complete.
+  cron spools. Strictly validated spool filenames remain eligible when static
+  Go `os/user` cannot resolve an NSS/SSSD-only owner; the added
+  config-owner/sudo/current/root safeguards still require lookup validation.
+  Migration removes only lines ending in an exact managed marker and restores
+  every changed crontab plus the new system entry if cleanup cannot complete.
 - Prints compact progress and installed versions. A final `READY` with exit 0
   is the success signal; `INCOMPLETE` is non-zero and includes direct retry
   commands. The installer does not open an interactive engine session.

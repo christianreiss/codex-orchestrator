@@ -369,7 +369,9 @@ func TestDiscoverCrontabOwnersIncludesOtherUserOnDirectRootSchedule(t *testing.T
 	oldLookup, oldCurrent, oldIdentity := lookupCrontabUser, currentCrontabUser, resolveCronIdentity
 	userCrontabSpoolDirs = []string{spool}
 	lookupCrontabUser = func(name string) (*user.User, error) {
-		if name != "root" && name != "chris" {
+		// Simulate a static binary on an NSS/SSSD host: root is local, while
+		// chris owns a real protected spool file but is absent from /etc/passwd.
+		if name != "root" {
 			return nil, user.UnknownUserError(name)
 		}
 		return &user.User{Username: name, HomeDir: "/home/" + name}, nil
@@ -389,6 +391,19 @@ func TestDiscoverCrontabOwnersIncludesOtherUserOnDirectRootSchedule(t *testing.T
 	}
 	if want := []string{"chris", "root"}; !reflect.DeepEqual(owners, want) {
 		t.Fatalf("owners=%q want=%q", owners, want)
+	}
+}
+
+func TestValidCrontabOwnerNameRejectsOptionAndHiddenEntries(t *testing.T) {
+	for _, candidate := range []string{"", "-root", ".placeholder", "bad/name", "bad name", "bad\nname"} {
+		if validCrontabOwnerName(candidate) {
+			t.Fatalf("unsafe spool owner accepted: %q", candidate)
+		}
+	}
+	for _, candidate := range []string{"root", "chris", "user@example.com", "domain\\user"} {
+		if !validCrontabOwnerName(candidate) {
+			t.Fatalf("valid spool owner rejected: %q", candidate)
+		}
 	}
 }
 

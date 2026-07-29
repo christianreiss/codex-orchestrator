@@ -345,7 +345,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | "spark" | null }` 
 
 ### Sync & cron
 - `POST /sync/status` — periodic check-in. Records `username`/`hostname`, returns `status` (`ok` | `update`), `reasons[]`, `versions`, `host_users`, and — unless `include_auth:false` — the `/auth` retrieve result under `auth`. Auth + IP binding required; insecure-window checks apply.
-- `POST /cron/check` — auto-update probe for the host cron entry. Optional `engine`, `client_version`, `wrapper_version`. Returns `action` (`update` | `no_update` | `disable`), `target_version` / `tag` / `enforce_exact` when the CLI is behind, and a `wrapper` block (`action`, `target_version`, `sha256`, `url`) resolved for the caller's platform. Updates `last_cron_check`; the insecure window is neither enforced nor rolled here.
+- `POST /cron/check` — auto-update probe for the host cron entry. Optional `engine`, `client_version`, `wrapper_version`. Returns `action` (`update` | `no_update` | `disable`), `target_version` / `tag` / `enforce_exact` when the CLI is behind, and a `wrapper` block (`action`, `target_version`, `sha256`, `url`) resolved for the caller's platform. Updates `last_cron_check`; the insecure window is neither enforced nor rolled here. During the wrapper's first privileged shared-cron migration, strictly validated standard-spool filenames are authoritative owner identities even when static Go `os/user` cannot resolve an NSS/SSSD account; non-spool safeguard identities remain lookup-validated.
 - `POST /cron/report` — host reports its installed versions. Requires `client_version` or `wrapper_version`; optional `engine`.
 
 ### Claude artifacts

@@ -665,7 +665,7 @@ func discoverManagedCrontabOwners() ([]string, error) {
 	seen := map[string]struct{}{}
 	addValidated := func(candidate string, required bool) error {
 		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || strings.ContainsAny(candidate, "/\x00\r\n") || strings.HasPrefix(candidate, "-") {
+		if !validCrontabOwnerName(candidate) {
 			if required {
 				return fmt.Errorf("invalid crontab owner %q", candidate)
 			}
@@ -692,8 +692,11 @@ func discoverManagedCrontabOwners() ([]string, error) {
 			return nil, fmt.Errorf("list crontab spool %s: %w", dir, err)
 		}
 		for _, entry := range entries {
-			if err := addValidated(entry, false); err != nil {
-				return nil, err
+			if validCrontabOwnerName(entry) {
+				// Protected spool filenames are authoritative account identities.
+				// Static CGO-free builds cannot resolve NSS/SSSD-only users through
+				// os/user, but crontab -u and the system cron daemon can.
+				seen[entry] = struct{}{}
 			}
 		}
 	}
@@ -727,12 +730,19 @@ func discoverManagedCrontabOwners() ([]string, error) {
 	return users, nil
 }
 
+func validCrontabOwnerName(candidate string) bool {
+	return candidate != "" &&
+		!strings.ContainsAny(candidate, " \t/\x00\r\n") &&
+		!strings.HasPrefix(candidate, "-") &&
+		!strings.HasPrefix(candidate, ".")
+}
+
 func listCrontabSpool(path string) ([]string, error) {
 	entries, err := os.ReadDir(path)
 	if err == nil {
 		names := make([]string, 0, len(entries))
 		for _, entry := range entries {
-			if entry.IsDir() {
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 				continue
 			}
 			names = append(names, entry.Name())
@@ -760,7 +770,7 @@ func listCrontabSpool(path string) ([]string, error) {
 	}
 	var names []string
 	for _, name := range strings.Split(string(out), "\n") {
-		if name = strings.TrimSpace(name); name != "" {
+		if name != "" {
 			names = append(names, name)
 		}
 	}

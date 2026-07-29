@@ -22,6 +22,13 @@
   jobs. Engine-scoped uninstall removes only its alias while another engine
   remains, deletes shared artifacts only after confirmed last-engine removal,
   and preserves shared state when the API result is uncertain.
+- **cxx 0.7.2:** Fixed privileged legacy-cron cleanup for NSS/SSSD users. The
+  static CGO-free wrapper could see a real owner such as `chris` in a protected
+  standard cron spool but fail to resolve that account through Go `os/user`,
+  discard it, and leave its old persona job beside the root-owned shared job.
+  Strictly validated spool filenames are now authoritative cleanup identities
+  even when NSS lookup is unavailable; the config-owner, sudo-caller,
+  current-user, and root safeguards remain lookup-validated.
 - Host detail now reports one **CXX wrapper** version and calls out dual-engine
   telemetry drift instead of presenting cdx/clx as independent installations.
 - Common artifact publication is fail-closed across the full four-platform

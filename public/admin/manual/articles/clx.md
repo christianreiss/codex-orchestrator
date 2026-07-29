@@ -353,11 +353,13 @@ its signed config and proceed.
 host-wide entry (user crontab marker `# cxx-managed-cron`, or system fallback
 `/etc/cron.d/cxx-managed`) and removes the historical cdx/clx schedules. For a
 privileged system entry it discovers every actual owner in the standard cron
-spools plus config-home-owner/sudo/current/root safeguards, snapshots each
-crontab, removes only lines ending in an exact managed marker, and restores
-every snapshot plus removes the new system entry if cross-user or legacy-system
-cleanup fails. Privileged `cron remove` uses the same all-user transaction and
-restores those snapshots if a system cron file cannot be removed.
+spools. Strictly validated spool filenames stay eligible when static Go
+`os/user` cannot resolve an NSS/SSSD-only owner; config-home-owner/sudo/current/root
+safeguards still require lookup validation. It snapshots each crontab, removes
+only lines ending in an exact managed marker, and restores every snapshot plus
+removes the new system entry if cross-user or legacy-system cleanup fails.
+Privileged `cron remove` uses the same all-user transaction and restores those
+snapshots if a system cron file cannot be removed.
 
 `clx --cron run` forwards to `cxx cron run` unless it is already the
 coordinator's engine-only child. The coordinator verifies each signed config's
