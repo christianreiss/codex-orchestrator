@@ -63,8 +63,13 @@ export async function hydratePalette(): Promise<void> {
 
 function readStored(): ThemeChoice {
   if (!browser) return "system";
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  } catch {
+    /* storage blocked for this origin — this runs at module scope, so a throw
+       here would take the whole bundle down instead of defaulting */
+  }
   return "system";
 }
 
