@@ -11,6 +11,7 @@
 import { and, gte, sql } from 'drizzle-orm';
 import { logs } from '../db/schema.js';
 import type { Database } from '../db/client.js';
+import { isoOffsetSeconds } from '../util/timestamp.js';
 
 const SESSION_ACTION = 'agents.retrieve';
 const NOW_WINDOW_MINUTES = 30;
@@ -68,5 +69,5 @@ function startOfUtcMonth(d: Date): Date {
 // Match the wrapper's stored format (`nowIso` in util/timestamp.ts strips
 // millis); using the unstripped form still compares correctly lexically.
 function isoFloor(d: Date): string {
-  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return isoOffsetSeconds(0, d);
 }

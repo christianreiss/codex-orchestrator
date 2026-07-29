@@ -408,7 +408,7 @@ export class ChatGptUsageService {
   }
 
   private daysAgo(days: number): string {
-    return new Date(Date.now() - days * 86400 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    return isoOffsetSeconds(-days * 86400);
   }
 
   private normalizeSnapshot(row: ChatGptSnapshotRow): Record<string, unknown> {

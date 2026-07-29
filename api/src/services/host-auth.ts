@@ -6,7 +6,7 @@ import { hosts as hostsTable, type Host } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ForbiddenError, UnauthorizedError } from '../http/errors.js';
 import { extractApiKey, hashApiKey } from '../util/api-key-helpers.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { AuthFailureTracker } from './auth-failure-tracker.js';
 import type { InsecureWindowService } from './insecure-window.js';
@@ -97,9 +97,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       const days = await settings.getInt('inactivity_window_days', 30);
       const clamped = days < 0 ? 0 : days > 60 ? 60 : days;
       if (clamped === 0) return 0;
-      const cutoff = new Date(now.getTime() - clamped * 86400 * 1000)
-        .toISOString()
-        .replace(/\.\d{3}Z$/, 'Z');
+      const cutoff = isoOffsetSeconds(-clamped * 86400, now);
       const stale = await deps.db
         .select()
         .from(hostsTable)

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { isoOffsetSeconds } from '../util/timestamp.js';
 
 /**
  * Walks `<STATIC_ROOT>/manual/articles/` and builds the manifest in memory.
@@ -106,7 +107,7 @@ export class ManualStore {
     }
 
     const manifest: Manifest = {
-      version: new Date(mtimeMs).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      version: isoOffsetSeconds(0, new Date(mtimeMs)),
       articles: Array.from(articles.values())
         .map((a) => a.meta)
         .sort((a, b) => a.slug.localeCompare(b.slug)),

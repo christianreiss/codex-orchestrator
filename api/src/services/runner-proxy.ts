@@ -7,7 +7,7 @@ import type { RunnerValidationService } from './runner-validation.js';
 import { ENGINE_CODEX, parseEngine, type Engine } from '../util/engine.js';
 import type { Database } from '../db/client.js';
 import { authSeedTokens, versions } from '../db/schema.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 
 type Logger = {
   info?: (...args: unknown[]) => void;
@@ -183,8 +183,7 @@ export class RunnerProxyService {
 
     const ttlRaw = this.env.AUTH_SEED_TOKEN_TTL_SECONDS;
     const ttlSeconds = typeof ttlRaw === 'number' && ttlRaw > 0 ? ttlRaw : 900;
-    const nowMs = Date.now();
-    const expiresAt = new Date(nowMs + ttlSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const expiresAt = isoOffsetSeconds(ttlSeconds);
     const createdAt = nowIso();
     const engine: Engine = payload.engine !== undefined ? parseEngine(payload.engine) : ENGINE_CODEX;
 

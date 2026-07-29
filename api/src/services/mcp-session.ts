@@ -8,7 +8,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import { mcpSessionTokens, hosts } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
-import { nowIso, parseIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
 
 const DEFAULT_TTL_SECONDS = 8 * 60 * 60;
 
@@ -19,7 +19,7 @@ export class McpSessionService {
     const token = randomBytes(32).toString('hex');
     const hash = createHash('sha256').update(token).digest('hex');
     const now = nowIso();
-    const expires = new Date(Date.now() + ttlSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const expires = isoOffsetSeconds(ttlSeconds);
     await this.db.insert(mcpSessionTokens).values({
       token: hash,
       tokenEnc: null,

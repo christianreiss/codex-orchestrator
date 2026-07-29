@@ -7,6 +7,7 @@
 import { desc, gte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { dashboardGraphQuotaSnapshots, logs } from '../db/schema.js';
+import { isoOffsetSeconds } from '../util/timestamp.js';
 
 export class DashboardStatsService {
   constructor(private readonly db: Database) {}
@@ -22,9 +23,7 @@ export class DashboardStatsService {
   }
 
   async quotaSnapshots(days = 30): Promise<Array<typeof dashboardGraphQuotaSnapshots.$inferSelect>> {
-    const cutoff = new Date(Date.now() - days * 86400 * 1000)
-      .toISOString()
-      .replace(/\.\d{3}Z$/, 'Z');
+    const cutoff = isoOffsetSeconds(-days * 86400);
     return this.db
       .select()
       .from(dashboardGraphQuotaSnapshots)

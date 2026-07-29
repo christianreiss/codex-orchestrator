@@ -8,7 +8,7 @@ import {
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import { ForbiddenError, LockedError } from '../http/errors.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 
 /**
@@ -225,7 +225,7 @@ function parseDate(v: Date | string | null | undefined): Date | null {
 }
 
 function isoLocalAtom(d: Date): string {
-  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return isoOffsetSeconds(0, d);
 }
 
 async function findActiveDomainAllow(
