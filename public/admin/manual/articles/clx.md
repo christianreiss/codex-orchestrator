@@ -50,11 +50,12 @@ The config is typed, Ed25519-signed JSON with the following top-level fields:
 | `wrapper.binary_url` | Download URL for self-update |
 | `wrapper.binary_sha256` | SHA256 of the wrapper binary |
 
-`host.engines`/`host.engines_list` are populated by `wrapper-config.ts` and
-read by the Go `Config.Host` struct, but `wrappers/schemas/host-config-v1.json`
-itself does not declare them (`host` has `additionalProperties: false`) and
-nothing validates the served payload against that schema at runtime — treat
-the JSON Schema file as stale reference, not an enforced contract.
+`host.engines`/`host.engines_list` are populated by `wrapper-config.ts`, read by
+the Go `Config.Host` struct and declared in `wrappers/schemas/host-config-v1.json`.
+Nothing validates the served payload against that schema at runtime, but the API
+suite does: `api/test/unit/contract/wrapper-config-schema.test.ts` bakes a payload
+and fails on any key the schema's `additionalProperties: false` objects do not
+declare, so a field added to the bake without a schema entry cannot ship.
 
 ## CLI subcommands and flags
 
@@ -425,4 +426,4 @@ read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
 - `api/src/routes/cli-auth/index.ts` — device-code registration flow
 - `api/src/services/claude-artifacts.ts` — subagent/command/output-style fleet artifacts
 - `api/src/services/client-config.ts` — renders the `claude_settings` partial (incl. `permissions.defaultMode`)
-- `wrappers/schemas/host-config-v1.json` — config schema (partial — `host.engines`/`host.engines_list` are not declared here)
+- `wrappers/schemas/host-config-v1.json` — config schema (enforced against the baked payload by `api/test/unit/contract/wrapper-config-schema.test.ts`)

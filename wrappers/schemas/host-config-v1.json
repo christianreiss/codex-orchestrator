@@ -30,7 +30,9 @@
         "id": { "type": "integer", "minimum": 1 },
         "fqdn": { "type": "string", "minLength": 1 },
         "secure": { "type": "boolean" },
-        "browseros_mcp_enabled": { "type": "boolean", "default": false }
+        "browseros_mcp_enabled": { "type": "boolean", "default": false },
+        "engines": { "type": "string" },
+        "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude"] } }
       }
     },
     "engine_options": {
