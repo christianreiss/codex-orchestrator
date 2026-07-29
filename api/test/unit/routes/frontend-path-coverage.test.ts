@@ -16,9 +16,10 @@ import {
 
 /**
  * The admin UI reaches the backend through literal path strings in
- * `frontend/src/lib` (`api.get("/admin/runner")`, `` api.post(`/admin/hosts/${id}`) ``),
- * and `api/src/routes` registers absolute Fastify paths with no `register`
- * prefixes — so the two sides can be compared as text. Nothing did:
+ * `frontend/src/lib` and `frontend/src/routes` (`api.get("/admin/runner")`,
+ * `` api.post(`/admin/hosts/${id}`) ``), and `api/src/routes` registers absolute
+ * Fastify paths with no `register` prefixes — so the two sides can be compared
+ * as text. Nothing did:
  * `frontend.check` only typechecks, `api.test` never looked at the frontend,
  * and renaming or dropping an admin endpoint left the dashboard 404ing with a
  * fully green gate.
@@ -27,12 +28,19 @@ import {
  * path builders included), turns `${…}` segments into `:param`, and fails when
  * no route registered with the called verb can serve the result — an `api.post`
  * to a GET-only route 404s in the browser just as loudly as a dropped path.
- * `*.test.ts` files under that tree are skipped: the paths a spec hands its
+ * `*.test.ts` files under those trees are skipped: the paths a spec hands its
  * fetch stub are fixtures, not calls the admin UI makes.
+ *
+ * Route components are scanned alongside the library because sign-in lives
+ * entirely in `routes/login/+page.svelte` — its three `/admin/auth/…` posts
+ * pass through no `lib` wrapper, so a scan rooted at `lib` alone would let a
+ * rename break the login page with nothing failing.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FRONTEND_LIB = resolve(HERE, '../../../../frontend/src/lib');
+const REPO = resolve(HERE, '../../../..');
+/** Trees the admin UI calls the API from, relative to the repository root. */
+const FRONTEND_ROOTS = ['frontend/src/lib', 'frontend/src/routes'];
 
 /**
  * Called endpoints — `METHOD /path`, `ANY_METHOD` for `apiFetch` — that
@@ -44,10 +52,11 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
-  'api/client.ts': 'the client itself — every wrapper forwards the path its caller passed',
-  'api/memories.ts':
+  'frontend/src/lib/api/client.ts':
+    'the client itself — every wrapper forwards the path its caller passed',
+  'frontend/src/lib/api/memories.ts':
     'recordPath() builds /admin/memories/:scope and /admin/memories/:scope/:recordId from its arguments',
-  'api/settings.ts':
+  'frontend/src/lib/api/settings.ts':
     'makeToggle() posts to the path its caller passes — each one is also read by a literal api.get here',
 };
 
@@ -202,25 +211,27 @@ const CALLER = /\b(?:api\.(get|post|put|patch|delete)|apiFetch)\b/g;
 
 function collectCallSites(): CallSite[] {
   const sites: CallSite[] = [];
-  for (const file of sourceFiles(FRONTEND_LIB, ['.ts', '.svelte'])) {
-    // A spec's fetch-stub fixtures are not admin UI call sites.
-    if (file.endsWith('.test.ts')) continue;
-    const source = readFileSync(join(FRONTEND_LIB, file), 'utf8');
-    for (const match of source.matchAll(CALLER)) {
-      const at = match.index;
-      // `export async function apiFetch<T>(path, …)` declares the client.
-      if (source.slice(0, at).trimEnd().endsWith('function') || inComment(source, at)) continue;
-      const open = skipTypeArguments(source, at + match[0].length);
-      if (source[open] !== '(') continue;
-      const argument = firstArgument(source, open);
-      const resolved = argument === null ? null : valuesOf(argument, source);
-      const normalized = resolved?.map(normalizePath) ?? null;
-      sites.push({
-        file: `frontend/src/lib/${file}`,
-        line: source.slice(0, at).split('\n').length,
-        method: match[1] ? match[1].toUpperCase() : ANY_METHOD,
-        paths: normalized?.some((path) => path === null) ? null : (normalized as string[] | null),
-      });
+  for (const root of FRONTEND_ROOTS) {
+    for (const file of sourceFiles(join(REPO, root), ['.ts', '.svelte'])) {
+      // A spec's fetch-stub fixtures are not admin UI call sites.
+      if (file.endsWith('.test.ts')) continue;
+      const source = readFileSync(join(REPO, root, file), 'utf8');
+      for (const match of source.matchAll(CALLER)) {
+        const at = match.index;
+        // `export async function apiFetch<T>(path, …)` declares the client.
+        if (source.slice(0, at).trimEnd().endsWith('function') || inComment(source, at)) continue;
+        const open = skipTypeArguments(source, at + match[0].length);
+        if (source[open] !== '(') continue;
+        const argument = firstArgument(source, open);
+        const resolved = argument === null ? null : valuesOf(argument, source);
+        const normalized = resolved?.map(normalizePath) ?? null;
+        sites.push({
+          file: `${root}/${file}`,
+          line: source.slice(0, at).split('\n').length,
+          method: match[1] ? match[1].toUpperCase() : ANY_METHOD,
+          paths: normalized?.some((path) => path === null) ? null : (normalized as string[] | null),
+        });
+      }
     }
   }
   return sites;
@@ -267,6 +278,11 @@ describe('frontend API path coverage', () => {
     // The verb travels with the path, so a GET-only route cannot absorb a POST.
     expect(calledEndpoints.has('DELETE /admin/agents/versions/:param')).toBe(true);
     expect(calledEndpoints.has('DELETE /admin/users/:param')).toBe(true);
+    // Called from a route component, not the library — sign-in is the whole reason
+    // `frontend/src/routes` is scanned.
+    expect(calledEndpoints.has('POST /admin/auth/login/method')).toBe(true);
+    expect(calledEndpoints.has('POST /admin/auth/passkey/login/options')).toBe(true);
+    expect(calledEndpoints.has('POST /admin/auth/passkey/login')).toBe(true);
   });
 
   it('registers a route for every method and path the admin UI calls', () => {
@@ -288,11 +304,7 @@ describe('frontend API path coverage', () => {
 
   it('accounts for every call whose path is built at runtime', () => {
     const unexplained = sites
-      .filter(
-        (site) =>
-          site.paths === null &&
-          !(site.file.slice('frontend/src/lib/'.length) in RUNTIME_PATH_CALLERS),
-      )
+      .filter((site) => site.paths === null && !(site.file in RUNTIME_PATH_CALLERS))
       .map((site) => `${site.file}:${site.line}`);
     expect(
       unexplained,
@@ -310,7 +322,7 @@ describe('frontend API path coverage', () => {
         );
       }),
       ...Object.keys(RUNTIME_PATH_CALLERS).filter(
-        (file) => !sites.some((site) => site.file === `frontend/src/lib/${file}` && site.paths === null),
+        (file) => !sites.some((site) => site.file === file && site.paths === null),
       ),
     ];
     expect(stale).toEqual([]);
