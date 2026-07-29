@@ -71,8 +71,9 @@ describe("internal links", () => {
     for (const pattern of LINK_PATTERNS) {
       for (const match of source.matchAll(pattern)) {
         const target = match[1];
-        // `${base}${item.href}` just forwards a NAV/tab entry, which the
-        // registry's own tests cover; only a literal path says anything here.
+        // `${base}${item.href}` forwards a registry entry rather than a path:
+        // NAV's are resolved by `nav.test.ts`, and a layout's own tab list
+        // carries no path text here. Only a literal path says anything.
         if (!target.startsWith("/")) continue;
         links.push({
           file: relative(srcDir, file),

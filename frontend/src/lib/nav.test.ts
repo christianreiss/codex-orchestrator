@@ -23,9 +23,15 @@ registerHooks({
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const navModule: string = "./nav.ts";
-const { NAV, getDocumentTitle, getPageContext, isActive } = (await import(
-  navModule
-)) as typeof import("./nav");
+const {
+  MOBILE_NAV_OVERFLOW,
+  MOBILE_NAV_PRIMARY,
+  NAV,
+  NAV_SECTIONS,
+  getDocumentTitle,
+  getPageContext,
+  isActive,
+} = (await import(navModule)) as typeof import("./nav");
 
 /** The registered nav item for `href`, so the tests track the real registry. */
 function navItem(href: string): NavItem {
@@ -173,17 +179,49 @@ describe("navigation targets", () => {
     );
   }
 
-  it("found the route tree", () => {
+  /** `label -> href` entries that deliberately point at no page, with the reason. */
+  const ALLOWLIST: Record<string, string> = {};
+
+  it("found the route tree and the nav registry", () => {
     assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
+    assert.ok(NAV.length >= 5, `only ${NAV.length} nav items discovered in NAV_SECTIONS`);
     assert.equal(resolves("/dashboard"), true);
     assert.equal(resolves("/hosts/42"), true);
     assert.equal(resolves("/hosts/42/nope"), false);
   });
 
   it("points every nav item at a real page", () => {
-    for (const item of NAV) {
-      assert.ok(resolves(item.href), `NAV item ${item.label} -> ${item.href} has no +page.svelte`);
-    }
+    const sectionItems = NAV_SECTIONS.flatMap((section) => section.items);
+    assert.deepEqual(
+      NAV.map((item) => item.href),
+      sectionItems.map((item) => item.href),
+      "NAV no longer mirrors NAV_SECTIONS, so the sidebar's own entries go unchecked",
+    );
+    const dead = sectionItems
+      .filter((item) => !resolves(item.href))
+      .map((item) => `${item.label} -> ${item.href}`)
+      .filter((entry) => !(entry in ALLOWLIST));
+    assert.deepEqual(dead, [], `nav items with no +page.svelte:\n${dead.join("\n")}`);
+  });
+
+  it("splits NAV across the mobile bar and its overflow sheet exactly once", () => {
+    const partitioned = [...MOBILE_NAV_PRIMARY, ...MOBILE_NAV_OVERFLOW].map((item) => item.href);
+    assert.deepEqual(
+      partitioned.slice().sort(),
+      NAV.map((item) => item.href).sort(),
+      "the mobile split drops or duplicates a registry entry",
+    );
+    assert.deepEqual(MOBILE_NAV_PRIMARY.map((item) => item.href), [
+      "/dashboard",
+      "/hosts",
+      "/projects",
+      "/authoring",
+    ]);
+    assert.deepEqual(MOBILE_NAV_OVERFLOW.map((item) => item.href), [
+      "/logs/events",
+      "/api-keys",
+      "/settings",
+    ]);
   });
 
   it("points every command-palette href at a real page", () => {
