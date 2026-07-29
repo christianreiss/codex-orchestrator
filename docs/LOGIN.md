@@ -73,7 +73,7 @@
 - There are no named capabilities in the Node API. `requireAdmin`
   (`api/src/http/plugins/auth-admin.ts`) only resolves the session cookie and
   requires the user row to be active; it never reads `access_level`.
-- Role gates in the route tree — three, all `owner`-or-`admin`, all answering
+- Role gates in the route tree — four, all `owner`-or-`admin`, all answering
   every other role with `403` and code `admin_role_required`:
   - `POST /admin/users`, `POST /admin/users/{id}`, `DELETE /admin/users/{id}`,
     `POST /admin/users/wipe`.
@@ -82,6 +82,12 @@
     `POST /admin/memories/shared/{recordId}/append`.
   - External Skill source changes: `POST /admin/skill-sources/mattpocock` and
     `POST /admin/skill-sources/mattpocock/refresh`.
+  - Agent Portal writes: `POST /admin/agent-portal/state`,
+    `POST /admin/agent-portal/users`, `POST /admin/agent-portal/users/{id}`,
+    `POST /admin/agent-portal/users/{id}/enabled`,
+    `POST /admin/agent-portal/users/{id}/rotate`,
+    `POST /admin/agent-portal/users/{id}/resend`, and
+    `DELETE /admin/agent-portal/users/{id}`.
 - Every other admin route is session-only. Any authenticated, active user — a
   `viewer` or a legacy `user` included — can register and delete hosts, open
   insecure windows, upload canonical auth, and change every global setting.

@@ -73,6 +73,15 @@ export const WS_EVENT_TYPES = [
   // Settings
   'settings.changed',
 
+  // Agent portal
+  'agent_portal.state',
+  'agent_portal.user.created',
+  'agent_portal.user.updated',
+  'agent_portal.user.enabled',
+  'agent_portal.user.rotated',
+  'agent_portal.user.link_resent',
+  'agent_portal.user.deleted',
+
   // Usage
   'chatgpt.usage.updated',
   'insecure.approval.changed',

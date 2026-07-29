@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
@@ -31,12 +32,14 @@ import (
 )
 
 type Options struct {
-	Config              *config.Config
-	ExtraArgs           []string
-	SkipAuthSync        bool
-	SkipBoot            bool
-	Minimal             bool
-	Headless            bool
+	Config       *config.Config
+	ExtraArgs    []string
+	SkipAuthSync bool
+	SkipBoot     bool
+	Minimal      bool
+	Headless     bool
+	// Resumed labels an interactive resume distinctly in the portal timeline.
+	Resumed             bool
 	AllowConcurrentSync bool
 	WrapperVersion      string
 	Logger              *slog.Logger
@@ -77,6 +80,20 @@ func markPresented(err error, opts Options) error {
 		return &presentedError{err: err}
 	}
 	return err
+}
+
+func portalInvocationKind(headless bool) string {
+	if headless {
+		return "execute"
+	}
+	return "interactive"
+}
+
+func portalExit(exitCode int, runErr error) (string, string) {
+	if exitCode == 0 && runErr == nil {
+		return "completed", "Agent completed"
+	}
+	return "failed", fmt.Sprintf("Agent exited with code %d", exitCode)
 }
 
 func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
@@ -332,9 +349,60 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	before := snapshotAuthGeneration()
 
+	restoreInheritedPortalEnv := agentportal.ScrubEnvironment()
+	defer restoreInheritedPortalEnv()
+	portalSession, portalErr := agentportal.Start(ctx, cfg, agentportal.StartInput{
+		Engine:         config.EngineClaude,
+		InvocationKind: portalInvocationKind(opts.Headless),
+		Resumed:        opts.Resumed,
+	})
+	if portalErr != nil {
+		logger.Warn("agent portal registration unavailable; continuing local session", "err", portalErr)
+	}
+	closePortal := func(string, string) {}
+	if portalSession != nil {
+		portalBroker, brokerErr := portalSession.StartBroker(ctx)
+		if brokerErr != nil {
+			logger.Warn("agent portal local broker unavailable; continuing without #afk relay", "err", brokerErr)
+		}
+		restorePortalEnv := func() {}
+		if portalBroker != nil {
+			restorePortalEnv = portalBroker.ActivateEnvironment()
+		}
+		stopPortalHeartbeat := portalSession.StartHeartbeat(ctx)
+		portalClosed := false
+		closePortal = func(status, summaryText string) {
+			if portalClosed {
+				return
+			}
+			portalClosed = true
+			stopPortalHeartbeat()
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 4*time.Second)
+			if err := portalSession.Heartbeat(closeCtx, "", "close"); err != nil {
+				logger.Warn("agent portal relay close failed", "err", err)
+			}
+			closeCancel()
+			if portalBroker != nil {
+				if err := portalBroker.Close(); err != nil {
+					logger.Warn("agent portal local broker cleanup failed", "err", err)
+				}
+			}
+			restorePortalEnv()
+			if err := portalSession.Finish(status, summaryText); err != nil {
+				logger.Warn("agent portal finalization failed", "err", err)
+			}
+		}
+		defer func() {
+			status, summaryText := portalExit(exitCode, retErr)
+			closePortal(status, summaryText)
+		}()
+	}
+
 	started := time.Now()
 	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, opts.ExtraArgs, authSession)
 	duration := time.Since(started)
+	portalStatus, portalSummary := portalExit(exitCode, runErr)
+	closePortal(portalStatus, portalSummary)
 
 	// Post-session Claude engine update (best-effort). Runs after the user's
 	// work is done instead of before it starts, so a version bump never

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && node scripts/copy-build.mjs",
+    "build:portal": "vite build --config vite.portal.config.ts",
     "preview": "vite preview",
     "test": "node --test 'src/**/*.test.ts'",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test",

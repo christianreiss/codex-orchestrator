@@ -61,7 +61,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   role. Everything below marked as admin-authenticated is therefore open to any
   authenticated, active user regardless of role, including host registration,
   insecure windows, canonical auth upload, and every global setting.
-- The whole route tree contains exactly three role gates, all of which allow
+- The whole route tree contains exactly four role gates, all of which allow
   `owner` and `admin` only and answer other roles with `403` and code
   `admin_role_required`:
   - Memory Atlas writes: create, update, delete, and shared append
@@ -70,11 +70,34 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
     (`api/src/routes/admin/users/index.ts`).
   - External Skill source inclusion, auto-update, and manual refresh
     (`api/src/routes/admin/skill-sources/index.ts`).
+  - Agent Portal global/user mutations
+    (`api/src/routes/agent-portal/admin-host.ts`).
 - Every authenticated role may read Memory Atlas and the user roster. Memory
   reads carry a per-record `capabilities` object (`read`, `create`, `update`,
   `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.
 - Login enforcement counts active `owner` and `admin` rows only, so a fleet of
   `viewer` accounts never switches login on.
+
+## Agent Portal Operations
+
+- The persistent master switch is intentionally seeded off. Creating a portal
+  user defaults that user on, but no link, message, relay, or Matrix notice is
+  active until an owner/admin enables the master switch.
+- Settings → Agent Portal lets an owner/admin create a user, change the user's
+  Matrix room, enable/disable the user, resend the same permanent link, rotate
+  the link, or delete the user. Read-only roles can inspect portal health but
+  cannot mutate it.
+- Disabling either layer revokes browser sessions and cancels queued or leased
+  undelivered commands/notices. Re-enabling never replays them. Link rotation
+  also cancels old-link notices before replacing the token; changing the room
+  cancels undelivered notices for the former destination before onboarding the
+  new one.
+- `relay_ready` is the operator-visible truth for writability: it requires a
+  live wrapper heartbeat and fresh cooperative `#afk` polling. A registered
+  process without that poll loop remains visible but cannot accept commands.
+- Matrix is notification-only. Use a dedicated posting key restricted to the
+  configured portal room aliases; the Matrix key is server-side only and never
+  belongs in a user link, browser response, or engine child environment.
 
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.

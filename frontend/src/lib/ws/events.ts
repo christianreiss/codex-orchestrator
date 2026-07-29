@@ -99,6 +99,15 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // is unchanged, so keep the source card live across tabs and worker ticks.
   "settings.changed": [["settings"], ["skills", "source"]],
 
+  // Agent portal controls live under Settings.
+  "agent_portal.state": [["settings"]],
+  "agent_portal.user.created": [["settings"]],
+  "agent_portal.user.updated": [["settings"]],
+  "agent_portal.user.enabled": [["settings"]],
+  "agent_portal.user.rotated": [["settings"]],
+  "agent_portal.user.link_resent": [["settings"]],
+  "agent_portal.user.deleted": [["settings"]],
+
   // Usage / dashboard
   // NB: the backend only ever publishes `chatgpt.usage.updated` (see
   // api/src/services/chatgpt-usage.ts); there is no live push for Claude

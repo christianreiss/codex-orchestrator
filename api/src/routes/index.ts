@@ -20,6 +20,7 @@ import { registerAdminOverviewSettingsRoutes } from './admin-overview-settings/i
 import { registerAdminContentRoutes } from './admin-content/index.js';
 import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
+import { registerAgentPortalRoutes } from './agent-portal/index.js';
 
 /**
  * Top-level route mounter. Specific routes register before the static SPA
@@ -38,6 +39,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerHostApiRoutes(app, ctx);
   await registerProjectsMcpRoutes(app, ctx);
   await registerWrapperV2Routes(app, ctx);
+  await registerAgentPortalRoutes(app, ctx);
 
   // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape)
   await registerOpenAiCompatWorktree(app, ctx);

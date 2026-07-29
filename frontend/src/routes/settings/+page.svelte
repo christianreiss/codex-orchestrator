@@ -19,6 +19,7 @@
   import LogRetentionSection from "$lib/components/settings/LogRetentionSection.svelte";
   import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
   import ModelDefaultsSection from "$lib/components/settings/ModelDefaultsSection.svelte";
+  import AgentPortalSection from "$lib/components/settings/AgentPortalSection.svelte";
 
   type SettingsTab = "general" | "codex" | "claude";
 
@@ -35,6 +36,7 @@
     "insecure-approval": "general",
     "prune-policy": "general",
     "log-retention": "general",
+    "agent-portal": "general",
     "openai-engine": "codex",
     "codex-model-defaults": "codex",
     "codex-version": "codex",
@@ -104,6 +106,7 @@
   <Tabs.Content value="general" class="pt-3">
     <div class="grid items-start gap-3 xl:grid-cols-2">
       <ApiStateSection />
+      <AgentPortalSection />
       <AutoUpdateSection />
       <ReverseDnsSection />
       <InsecureApprovalSection />

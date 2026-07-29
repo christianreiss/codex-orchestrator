@@ -157,11 +157,14 @@ describe('admin-content routes registration', () => {
     const app = await buildApp({}, { withAdmin: true });
     const r = await app.inject({ method: 'GET', url: '/admin/skills' });
     expect(r.statusCode).toBe(200);
-    // No `skills` rows in the stub, but `context` is code-derived and always
-    // served, so the admin list shows what hosts actually receive.
+    // No `skills` rows in the stub, but `afk` and `context` are code-derived and
+    // always served, so the admin list shows what hosts actually receive.
     expect(JSON.parse(r.payload)).toMatchObject({
       status: 'ok',
-      skills: [{ slug: 'context', managed: true }],
+      skills: [
+        { slug: 'afk', managed: true },
+        { slug: 'context', managed: true },
+      ],
     });
     await app.close();
   });

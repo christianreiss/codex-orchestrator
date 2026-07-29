@@ -5,6 +5,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 /**
  * CORS policy:
  *   - /v1/* and /anthropic/v1/* are open (browsers + SDKs).
+ *   - /go/* is always same-origin only and never inherits the configured
+ *     cross-origin allowlist because it carries browser-session cookies.
  *   - Everything else (admin, host APIs, MCP) is same-origin only by default;
  *     reverse proxy / SPA serve everything from the same domain anyway.
  *     Cross-site credentialed access to those routes is only granted to
@@ -34,12 +36,14 @@ export const corsPlugin = fp(
       hook: 'preHandler',
       delegator: (req: FastifyRequest, cb) => {
         const open = isOpenRoute(req.url);
+        const portal = req.url === '/go' || req.url.startsWith('/go/');
         cb(null, {
           origin: (origin, originCb) => {
             // Same-origin requests have no Origin header — allow.
             if (!origin) return originCb(null, true);
             // /v1 and /anthropic/v1 are the documented open public API surface.
             if (open) return originCb(null, true);
+            if (portal) return originCb(null, false);
             originCb(null, allowedOrigins.includes(origin));
           },
           methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

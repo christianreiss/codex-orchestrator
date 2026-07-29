@@ -20,8 +20,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ## Build + Publish
 
 - `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink.
-- The source version carrying complete directory-backed Skill sync is **cxx
-  0.7.3**.
+- The current source version, including complete directory-backed Skill sync
+  and the scoped agent-portal lifecycle, is **cxx 0.7.5**.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -584,3 +584,31 @@ Follow the same pattern as cdx under `wrappers/cxx/`. Shared config and layout
 belong in common packages; Claude-only behavior stays under the Claude persona
 packages. There is one build artifact, while the signed config and runtime
 behavior remain engine-specific.
+
+## Agent portal lifecycle (cxx 0.7.5)
+
+Claude has parity with Codex for the permanent `/go` portal. When the persistent
+master switch is on, interactive and human-started execute/resume root sessions
+register with the host API key before launch. The wrapper retains the
+short-lived bridge bearer and gives the Claude child only a private Unix-socket
+path plus session/engine metadata; inherited portal capability variables are
+scrubbed. Cron, auth/preflight, maintenance, and wrapper-only operations are
+excluded. Heartbeats and the terminal completed/failed transition are
+best-effort and cannot block a local Claude run.
+
+The shared `cxx portal status|notify|wait|accept|say|ask|leave` helper is the
+sole relay surface. `notify` opens the relay before queuing the notice. `wait`
+leases the oldest message without acknowledging it; `accept` commits receipt
+after the message reaches the root agent, so an unacknowledged lease is safely
+redelivered. Ambiguous claims reuse one claim UUID, and claim/event/accept/
+terminal retries get fresh bounded deadlines without changing their idempotency
+identity. `say` and `ask` publish only explicit user-facing content. The
+private socket uses a fixed operation allowlist and bounded bodies, but remains
+inside the same-Unix-user trust boundary; there is no PTY injection, remote
+approval path, hidden reasoning stream, or portal-bearer exposure. The managed
+`#afk` Skill cooperatively drives this loop; Matrix only sends attention and
+lifecycle notifications plus the user's permanent link. It cannot wake a
+Claude process or model turn that has already stopped, and `relay_ready` ages
+false when active polling ceases. The relay, socket capability, and environment
+are torn down immediately when the Claude child exits, before post-run updater
+or auth work begins.

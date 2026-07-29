@@ -15,6 +15,7 @@
 import type { Database } from '../db/client.js';
 import { getManagedCocoSkillIfEnabled, isManagedCocoSlug } from './managed-coco-skill.js';
 import { buildManagedContextSkill, isManagedContextSlug, type ManagedSkillManifest } from './managed-context-skill.js';
+import { buildManagedAfkSkill, isManagedAfkSlug } from './managed-afk-skill.js';
 
 export type { ManagedSkillManifest };
 
@@ -22,11 +23,11 @@ export type { ManagedSkillManifest };
  * Stable stand-in for a row timestamp. Managed skills have no row, and a moving
  * value would make every sync look like a change; clients compare `sha256`.
  */
-const MANAGED_UPDATED_AT = '2026-07-27T00:00:00Z';
+const MANAGED_UPDATED_AT = '2026-07-29T00:00:00Z';
 
 /** True for any slug owned by code, whether or not it is currently served. */
 export function isManagedSkillSlug(slug: string): boolean {
-  return isManagedCocoSlug(slug) || isManagedContextSlug(slug);
+  return isManagedCocoSlug(slug) || isManagedContextSlug(slug) || isManagedAfkSlug(slug);
 }
 
 /**
@@ -37,6 +38,7 @@ export async function listManagedSkills(db: Database): Promise<ManagedSkillManif
   const out: ManagedSkillManifest[] = [];
   const coco = await getManagedCocoSkillIfEnabled(db);
   if (coco) out.push(coco as unknown as ManagedSkillManifest);
+  out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedContextSkill(MANAGED_UPDATED_AT));
   out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   return out;

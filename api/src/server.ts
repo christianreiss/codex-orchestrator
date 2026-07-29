@@ -10,6 +10,7 @@ import { runBootChecks } from './ops/boot-checks.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
+import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 
@@ -73,6 +74,7 @@ export async function buildServer() {
   startAuthVerificationWorker(app, env, db, keyring);
   startAuthRetentionWorker(app, db);
   startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
+  startAgentPortalWorker(app, db, env, keyring);
 
   attachShutdown(app, pool);
   return app;

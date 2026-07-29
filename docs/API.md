@@ -13,7 +13,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
 - **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. When enabled, every non-`/admin/api/state` route returns HTTP 503.
 - **Rate limits**:
-  - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Applies to every non-OPTIONS request, `/admin/*` included; only `/healthz`, `/admin/ws`, `/admin/_app/`, `/admin/manual/articles/` and `/admin/favicon` bypass it. Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
+  - Global bucket: `RATE_LIMIT_GLOBAL_PER_MINUTE` (default 120) over `RATE_LIMIT_GLOBAL_WINDOW` seconds (default 60). Applies to every non-OPTIONS request, `/admin/*` and `/go/api/*` included; only `/healthz`, `/admin/ws`, `/admin/_app/`, `/admin/manual/articles/`, `/admin/favicon` and immutable `/go/assets/` bypass it. Exceeding returns `429` with `{bucket:"global", reset_at, limit}`.
   - Auth-fail bucket: missing/invalid API keys count toward `RATE_LIMIT_AUTH_FAIL_COUNT` (default 20) over `RATE_LIMIT_AUTH_FAIL_WINDOW` (default 600); once the count is exceeded further failures return `429 Too many failed authentication attempts` until that window expires.
 - **Pruning**: hosts inactive for `inactivity_window_days` (default 30; `0` disables; max 60), never-provisioned hosts older than 30 minutes, or hosts with `expires_at` in the past are deleted during auth/register/admin-host flows (logs `host.pruned`). Temporary host `expires_at` is refreshed on successful authenticated contact (2-hour idle window).
 
@@ -579,3 +579,56 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 ## Housekeeping & Storage
 - Canonical auth payloads live in `auth_payloads` and are engine-scoped (`codex` / `claude`), with exactly the selected engine-native target mirrored in `auth_entries`; recent host digests in `host_auth_digests` are retained per host per engine (3 each); `host_auth_states` tracks the last payload served to a host per engine.
 - Auth/register/runner events are logged in `logs`.
+
+## Agent Portal
+
+The portal is a separate mobile-first user surface at `/go`. Its persistent
+`agent_portal_enabled` switch is seeded off. Portal users default enabled and
+see every eligible active root session across the fleet; a finished session is
+read-only until the 24-hour retention purge. Matrix only receives lifecycle and
+attention notifications containing that user's stable link.
+
+Every `/go/api/*` route is same-origin only and never inherits
+`CORS_ALLOWED_ORIGINS`. Browser mutations require an exact `Origin` match to
+`PUBLIC_BASE_URL`; foreign `Origin` and `Sec-Fetch-Site: same-site|cross-site`
+requests fail closed. Credential-free GET/EventSource requests may omit
+`Origin`.
+
+Public shell and browser API:
+
+- `GET /go` and `GET /go/` — portal SPA shell.
+- `GET /go/u/{publicId}` — stable per-user shell URL. The reusable secret is supplied only as `#t=...`; the SPA exchanges it and scrubs the fragment.
+- `GET /go/api/state` — unauthenticated master-switch state.
+- `POST /go/api/auth/exchange` — exchange `{public_id, token}` for the Secure, HttpOnly, SameSite=Strict portal cookie.
+- `POST /go/api/logout` — revoke the current browser session and clear its cookie.
+- `GET /go/api/me` — current portal identity.
+- `GET /go/api/agents` — active and retained eligible agents for the tab list; `relay_ready` is true only while a live `#afk` poll loop is accepting instructions.
+- `GET /go/api/agents/{id}/events[?after=&limit=&tail=1]` — encrypted-at-rest safe timeline, returned in cursor order; `tail=1` returns the latest bounded page.
+- `GET /go/api/events[?after=]` — authenticated SSE stream with resumable event IDs and heartbeats. Cookie/global/user authorization is rechecked transactionally for every page; a slow client is closed and resumes from `Last-Event-ID` instead of accumulating an unbounded buffer.
+- `POST /go/api/agents/{id}/messages` — enqueue ordinary user text with a client idempotency UUID; returns 202. New work requires a fresh live relay, while an exact retry returns the committed row even if the session finished. Reusing an ID for another user/kind/prompt/body conflicts. A portal message never grants approvals or new authority.
+- `POST /go/api/agents/{id}/prompts/{promptId}/answer` — enqueue an answer under a locked first-answer-wins transaction; later answers conflict. Only one open prompt is retained per agent session.
+
+Host and scoped bridge API:
+
+- `GET /host/agent-portal/state` — host-authenticated master-switch probe.
+- `POST /host/agent-sessions` — host-authenticated registration for an eligible interactive or human-started execute session. The wrapper retains the short-lived bridge bearer and gives the engine only a private Unix-socket path/session ID; inherited portal variables are scrubbed.
+- `POST /host/agent-sessions/{id}/heartbeat` — scoped-bearer heartbeat/rolling expiry renewal. `relay_action=poll` opens/touches the instruction relay and `relay_action=close` closes it and cancels undelivered session work.
+- `POST /host/agent-sessions/{id}/events` — scoped-bearer idempotent safe event publish. The server forces `source=engine` and accepts only assistant/progress/waiting/terminal-block/attention types; answerable waits require a stable prompt UUID.
+- `POST /host/agent-sessions/{id}/finish` — idempotent, atomic completed/failed event + terminal transition + pending-work cancellation; makes the session read-only.
+- `POST /host/agent-sessions/{id}/commands/claim` — strict FIFO long poll with `{wait_seconds?: 0..25, claim_id: UUID}` and a retryable 30-second lease; repeating the same `claim_id` while its lease is live returns the same item without incrementing attempts. Older leases/backoff always block newer work.
+- `POST /host/agent-commands/{messageId}/ack` — explicit acceptance/retry acknowledgement. `cxx portal wait` does not acknowledge: the model issues `portal accept` only after it has received the structured instruction, so an unaccepted lease is redelivered. Accepted state and the visible `message_accepted` event commit in one transaction.
+
+Admin API:
+
+All mutations below require an `owner` or `admin` role; authenticated viewers
+may read state and users but cannot change rollout or identity state.
+
+- `GET /admin/agent-portal/state` — switch, configuration, queue health, and dead-letter counts.
+- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off revokes browser sessions and cancels queued/leased portal and Matrix work without replay.
+- `GET /admin/agent-portal/users` — list active portal identities and link metadata.
+- `POST /admin/agent-portal/users` — create a user with `display_name`, `matrix_room`, and optional `enabled` (default true); returns the permanent magic URL.
+- `POST /admin/agent-portal/users/{id}` — update display name and/or Matrix room.
+- `POST /admin/agent-portal/users/{id}/enabled` — per-user switch; disabling revokes sessions and cancels that user's undelivered work.
+- `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
+- `POST /admin/agent-portal/users/{id}/resend` — enqueue the current stable link for Matrix delivery without rotating it.
+- `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.

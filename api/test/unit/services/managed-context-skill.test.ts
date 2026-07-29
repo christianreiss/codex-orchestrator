@@ -89,10 +89,10 @@ describe('managed #context skill', () => {
 describe('managed skill registry', () => {
   it('serves context unconditionally and coco only when Projects is on', async () => {
     const off = await listManagedSkills(makeDb() as never);
-    expect(off.map((s) => s.slug)).toEqual(['context']);
+    expect(off.map((s) => s.slug)).toEqual(['afk', 'context']);
 
     const on = await listManagedSkills(makeDb({ projectsEnabled: true }) as never);
-    expect(on.map((s) => s.slug)).toEqual(['coco', 'context']);
+    expect(on.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
   });
 
   it('resolves a managed skill by slug and ignores unmanaged ones', async () => {

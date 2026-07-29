@@ -355,11 +355,11 @@ describe('SkillsService reads', () => {
       skillRow({ id: 2, slug: 'retired', deletedAt: '2026-02-02T00:00:00Z' }),
     ]);
 
-    // `context` is code-derived and always served, so it rides along in both.
+    // `afk` and `context` are code-derived and always served, so they ride along in both.
     const live = await service.list();
-    expect(live.map((s) => s.slug)).toEqual(['agentic', 'context']);
+    expect(live.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context']);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['agentic', 'context', 'retired']);
+    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired']);
   });
 
   it('exposes provenance and marks a source-owned row read-only', async () => {

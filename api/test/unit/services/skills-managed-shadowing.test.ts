@@ -53,8 +53,8 @@ describe('SkillsService managed shadowing', () => {
     const { service } = makeService([staleRow('context', 1)]);
 
     const listed = await service.list({ includeDeleted: true });
-    expect(listed.map((s) => s.slug)).toEqual(['context']);
-    expect(listed[0]).toMatchObject({
+    expect(listed.map((s) => s.slug)).toEqual(['afk', 'context']);
+    expect(listed.find((skill) => skill.slug === 'context')).toMatchObject({
       id: null,
       slug: 'context',
       sha256: context.sha256,
@@ -67,8 +67,8 @@ describe('SkillsService managed shadowing', () => {
       deleted_at: null,
       managed: true,
     });
-    expect(listed[0]?.sha256).not.toBe('a'.repeat(64));
-    expect(listed[0]?.updated_at).not.toBe(STALE_AT);
+    expect(listed.find((skill) => skill.slug === 'context')?.sha256).not.toBe('a'.repeat(64));
+    expect(listed.find((skill) => skill.slug === 'context')?.updated_at).not.toBe(STALE_AT);
   });
 
   it('find resolves a managed slug to the code-derived manifest, not the row', async () => {
@@ -88,8 +88,8 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed).toHaveLength(1);
-    expect(listed[0]).toMatchObject({ slug: 'context', sha256: context.sha256, managed: true });
+    expect(listed.map((skill) => skill.slug)).toEqual(['afk', 'context']);
+    expect(listed.find((skill) => skill.slug === 'context')).toMatchObject({ slug: 'context', sha256: context.sha256, managed: true });
   });
 
   it('leaves a non-managed row untouched and ordered alongside the managed ones', async () => {
@@ -97,8 +97,8 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed.map((s) => s.slug)).toEqual(['agentic', 'context']);
-    expect(listed[0]).toMatchObject({
+    expect(listed.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context']);
+    expect(listed.find((skill) => skill.slug === 'agentic')).toMatchObject({
       id: 2,
       slug: 'agentic',
       sha256: 'a'.repeat(64),
@@ -118,23 +118,23 @@ describe('SkillsService managed shadowing', () => {
       { ...staleRow('retired', 2), deletedAt: '2026-02-02T00:00:00Z' },
     ]);
 
-    await expect(service.list()).resolves.toMatchObject([{ slug: 'agentic' }, { slug: 'context' }]);
+    await expect(service.list()).resolves.toMatchObject([{ slug: 'afk' }, { slug: 'agentic' }, { slug: 'context' }]);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['agentic', 'context', 'retired']);
-    expect(all[2]).toMatchObject({ slug: 'retired', deleted_at: '2026-02-02T00:00:00Z', managed: false });
+    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired']);
+    expect(all[3]).toMatchObject({ slug: 'retired', deleted_at: '2026-02-02T00:00:00Z', managed: false });
   });
 
   it('shadows coco only while the Projects module is on', async () => {
     const withModule = makeService([staleRow('coco', 1)], true);
     const listedOn = await withModule.service.list();
-    expect(listedOn.map((s) => s.slug)).toEqual(['coco', 'context']);
-    expect(listedOn[0]).toMatchObject({ id: null, sha256: coco.sha256, manifest: coco.manifest, managed: true });
+    expect(listedOn.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
+    expect(listedOn.find((skill) => skill.slug === 'coco')).toMatchObject({ id: null, sha256: coco.sha256, manifest: coco.manifest, managed: true });
 
     // With the module off no coco manifest is served, so the row is what hosts
     // get -- but the slug is still code-owned, so it stays flagged as managed.
     const withoutModule = makeService([staleRow('coco', 1)]);
     const listedOff = await withoutModule.service.list();
-    expect(listedOff.map((s) => s.slug)).toEqual(['coco', 'context']);
-    expect(listedOff[0]).toMatchObject({ id: 1, sha256: 'a'.repeat(64), managed: true });
+    expect(listedOff.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
+    expect(listedOff.find((skill) => skill.slug === 'coco')).toMatchObject({ id: 1, sha256: 'a'.repeat(64), managed: true });
   });
 });

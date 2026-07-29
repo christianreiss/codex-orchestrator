@@ -1,5 +1,27 @@
 # 2026-07-29
 
+- Added the permanent per-user **Agent Portal** at `/go`: one revocable magic
+  link opens a mobile-first tabbed view of every eligible active Codex and
+  Claude root session, with ordered messages, first-answer-wins prompts, SSE
+  updates, and 24-hour read-only retention. Matrix now carries outbound
+  lifecycle/attention notifications with the stable link; it is never an
+  inbound chat or identity channel. Global control is seeded **off** for the
+  first rollout, users default enabled, and disabling either layer revokes
+  browser sessions and cancels undelivered queue work without replay. The admin
+  Settings surface manages users, resend/rotation, health, and the master
+  switch. **cxx 0.7.5** registers eligible sessions with a short-lived scoped
+  bridge retained behind a private Unix-socket broker and provides `cxx portal
+  notify|wait|accept|say|ask|leave`; the portal bearer and Matrix key never enter
+  the child environment. Delivery is strict FIFO and at-least-once until
+  explicit acceptance; ambiguous claim/event/accept/finalize responses retry
+  with stable operation IDs and fresh deadlines. Acceptance plus its visible
+  timeline event commit atomically, canceled answers reopen only while their
+  prompt remains live, Matrix retries use an immutable encrypted delivery
+  envelope, stale relays are failed read-only, SSE revocation is transactional,
+  and portal text cannot grant approvals or authority. This cooperative relay
+  is writable only while the running root turn is actively polling; its socket
+  and writable state close immediately when the engine child exits, and it does
+  not wake an ended turn.
 - Split the Overview Hosts card into compact Codex and Claude install totals,
   derived from reported per-engine client versions while retaining the primary
   fleet host count and last-refresh hint.

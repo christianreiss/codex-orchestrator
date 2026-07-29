@@ -57,10 +57,10 @@ at build time, then loads the config:
     "admin_theme_hint": "auto"
   },
   "wrapper": {
-    "version": "0.7.3",
+    "version": "0.7.5",
     "track": "stable",
     "auto_update": true,
-    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.3/cxx",
+    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.5/cxx",
     "binary_sha256": "..."
   }
 }
@@ -393,3 +393,39 @@ participate in these leases and is the explicit coordination boundary.
 4. Wire it through the binary wherever it changes behaviour.
 5. Bump `wrappers/cxx/cmd/cxx`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.
+
+## Agent portal lifecycle (cxx 0.7.5)
+
+When the persistent portal master switch is on, an interactive Codex root run
+or a human-started `--execute`/resume registers through
+`POST /host/agent-sessions`. Registration uses the wrapper's host API key; the
+wrapper retains the short-lived scoped bridge bearer and exposes only a private
+Unix-socket path plus session/engine metadata to the Codex child. Inherited
+portal capability variables are scrubbed even when registration or broker
+startup fails. Cron, auth/preflight, maintenance, and other wrapper-only
+invocations do not register. Heartbeats run best-effort while the child is
+alive and completion/failure is published after `Wait`; a portal outage never
+prevents the local Codex run.
+
+The internal `cxx portal` surface is intentionally narrow:
+
+- `cxx portal status` reports whether this process has an active scoped session.
+- `cxx portal notify --summary TEXT` opens the relay before publishing a bounded attention event, so a fast click cannot race the first poll.
+- `cxx portal wait --seconds N` long-polls and leases the oldest ordered item without acknowledging it. Ambiguous responses retry with the same claim UUID, so a lost response returns the existing lease instead of waiting for expiry.
+- `cxx portal accept --message-id ID --lease-owner OWNER` acknowledges an item only after its tool result reached the root agent; an unacknowledged lease is redelivered. Ambiguous acceptance retries are automatic and preserve the same lease/body.
+- `cxx portal say --text TEXT` publishes safe user-facing assistant text.
+- `cxx portal ask --question TEXT [--options "a|b"]` creates a first-answer-wins prompt.
+- `cxx portal leave` closes the relay and cancels its undelivered work when the local user returns.
+
+Event and terminal publishes retry ambiguous transport/502 results with their
+original operation ID and a fresh per-attempt deadline. When the Codex child
+exits, cxx immediately closes the relay, broker socket, and child environment
+before any post-run updater/auth work. The broker has a fixed operation
+allowlist, bounded request bodies, and a `0700` runtime directory with a `0600`
+socket. This keeps the portal bridge bearer out of the child environment and
+command line; it is not isolation from other processes running as the same Unix
+user. The commands expose no PTY,
+approval handling, hidden reasoning, or raw tool output. The managed `#afk`
+Skill cooperatively keeps the existing root turn polling while Matrix remains
+notification-only. It cannot wake a Codex process or model turn that has
+already stopped; `relay_ready` becomes false when fresh polling ceases.

@@ -302,3 +302,50 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`
 - The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current host status.
 - Timestamp comparisons normalize RFC3339 strings including fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` are supported.
+
+## Permanent Agent Portal
+
+The optional `/go` portal gives each configured user one permanent, revocable
+magic link. After fragment-token exchange it presents tabs for every eligible
+active Codex and Claude root agent in the fleet. Users can send ordered ordinary
+text and answer explicit prompts; first answer wins. Completed or failed agents
+remain visible but read-only for 24 hours, then their sessions, events, prompts,
+and messages are purged.
+
+`cxx` 0.7.5 registers interactive and human-started execute/resume lifecycles
+with the host credential. It retains the short-lived session bridge bearer and
+proxies a fixed command set over a private Unix socket, leaving only the socket
+path and session metadata in the child. The managed `#afk` Skill opens the relay
+before queuing its attention notice and uses `cxx portal wait` to lease portal
+text in the existing root session. `cxx portal accept` acknowledges only after
+the instruction reached the model; unacknowledged leases are redelivered in
+order. Claim retries carry one stable UUID, while event, acceptance, and
+terminal retries reuse their original idempotency boundary with a fresh request
+deadline. Replies and questions are deliberately published through `cxx portal
+say` and `cxx portal ask`; there is no raw PTY or hidden tool-output stream.
+As soon as the engine child exits, cxx closes relay writability, removes the
+socket capability from the environment, finalizes the portal session, and only
+then runs post-session updater/auth work.
+This is a cooperative live-turn relay, not an out-of-band wake mechanism: once
+the engine process or model turn stops polling, `relay_ready` becomes false and
+the portal is read-only until a fresh eligible relay is active.
+
+Matrix is an outbound delivery adapter for start/resume/progress/wait/fail/
+complete notifications and the stable user link. Its durable outbox gives each
+delivery its own random cross-service idempotency key and snapshots the room,
+link, and safe body in one encrypted envelope. Retries therefore stay identical
+across user edits, restarts, and restored auto-increment counters, even when
+multiple portal users receive the same lifecycle event. Matrix replies are
+ignored: all identity, history, and input remain on `/go`.
+
+The global switch is a persistent `versions.agent_portal_enabled` setting and is
+seeded off on first rollout. New users default enabled. Turning off either the
+global switch or one user revokes matching browser sessions and cancels queued
+or leased undelivered commands/notices; re-enabling does not replay them and
+does not change the permanent link. Explicit rotation is the only operation
+that invalidates and replaces that link. A disabled answering user releases a
+still-live prompt for another enabled user; global, relay, or terminal
+cancellation expires the prompt so an old answer cannot replay after
+re-enable. A maintenance sweep turns abandoned live sessions into failed,
+read-only records, cancels their pending work, and purges the complete session
+tree after retention expires.

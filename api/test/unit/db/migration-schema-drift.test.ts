@@ -101,6 +101,13 @@ describe('migrations against the test baseline', () => {
       'shared_memory_chunks',
       'shared_memory_revisions',
       'skill_files',
+      'agent_portal_users',
+      'agent_portal_browser_sessions',
+      'agent_sessions',
+      'agent_events',
+      'agent_prompts',
+      'agent_messages',
+      'agent_matrix_outbox',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),

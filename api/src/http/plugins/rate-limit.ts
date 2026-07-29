@@ -89,7 +89,12 @@ declare module 'fastify' {
   }
 }
 
-const BYPASS_PREFIXES = ['/admin/_app/', '/admin/manual/articles/', '/admin/favicon'];
+const BYPASS_PREFIXES = [
+  '/admin/_app/',
+  '/admin/manual/articles/',
+  '/admin/favicon',
+  '/go/assets/',
+];
 
 export function makeRateLimitPlugin(env: Env) {
   const global = rateLimitBuckets(env).global!;
@@ -113,4 +118,3 @@ export function makeRateLimitPlugin(env: Env) {
     { name: 'rate-limit' },
   );
 }
-

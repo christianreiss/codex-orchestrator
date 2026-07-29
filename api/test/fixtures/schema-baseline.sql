@@ -101,6 +101,138 @@ CREATE TABLE `admin_webauthn_challenges` (
 	CONSTRAINT `challenge` UNIQUE(`challenge`)
 );
 
+CREATE TABLE `agent_events` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`client_event_id` varchar(64) NOT NULL,
+	`event_type` varchar(32) NOT NULL,
+	`source` varchar(24) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_events_session_client` UNIQUE(`session_id`,`client_event_id`)
+);
+
+CREATE TABLE `agent_matrix_outbox` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`portal_user_id` bigint unsigned NOT NULL,
+	`session_id` char(36),
+	`event_id` bigint unsigned,
+	`event_key` varchar(191) NOT NULL,
+	`kind` varchar(32) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'queued',
+	`attempts` int unsigned NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`lease_owner` varchar(191),
+	`lease_until` varchar(100),
+	`last_error` text,
+	`delivered_at` varchar(100),
+	`canceled_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_matrix_outbox_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_matrix_outbox_user_event` UNIQUE(`portal_user_id`,`event_key`)
+);
+
+CREATE TABLE `agent_messages` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`message_id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`portal_user_id` bigint unsigned NOT NULL,
+	`kind` varchar(16) NOT NULL DEFAULT 'message',
+	`prompt_id` char(36),
+	`client_message_id` char(36) NOT NULL,
+	`content_enc` longtext NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'queued',
+	`attempts` int unsigned NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`lease_owner` varchar(191),
+	`lease_until` varchar(100),
+	`upstream_id` varchar(255),
+	`last_error` text,
+	`accepted_at` varchar(100),
+	`canceled_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_messages_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_messages_message_id` UNIQUE(`message_id`),
+	CONSTRAINT `uq_agent_messages_session_client` UNIQUE(`session_id`,`client_message_id`)
+);
+
+CREATE TABLE `agent_portal_browser_sessions` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`token_hash` char(64) NOT NULL,
+	`ip` varchar(64),
+	`user_agent` varchar(255),
+	`expires_at` varchar(100) NOT NULL,
+	`last_seen_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`revoked_at` varchar(100),
+	CONSTRAINT `agent_portal_browser_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_portal_browser_sessions_token` UNIQUE(`token_hash`)
+);
+
+CREATE TABLE `agent_portal_users` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`display_name` varchar(255) NOT NULL,
+	`matrix_room` varchar(255) NOT NULL,
+	`enabled` tinyint NOT NULL DEFAULT 1,
+	`public_id` char(32) NOT NULL,
+	`token_hash` char(64) NOT NULL,
+	`token_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`last_used_at` varchar(100),
+	`disabled_at` varchar(100),
+	`rotated_at` varchar(100),
+	`deleted_at` varchar(100),
+	CONSTRAINT `agent_portal_users_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_portal_users_public_id` UNIQUE(`public_id`),
+	CONSTRAINT `uq_agent_portal_users_token_hash` UNIQUE(`token_hash`)
+);
+
+CREATE TABLE `agent_prompts` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`event_id` bigint unsigned,
+	`question_enc` longtext NOT NULL,
+	`options_enc` longtext,
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`answered_by_user_id` bigint unsigned,
+	`answer_message_id` char(36),
+	`version` int unsigned NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`answered_at` varchar(100),
+	`expires_at` varchar(100),
+	CONSTRAINT `agent_prompts_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_sessions` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`upstream_session_id` varchar(255),
+	`invocation_kind` varchar(24) NOT NULL,
+	`status` varchar(24) NOT NULL DEFAULT 'starting',
+	`relay_enabled` tinyint NOT NULL DEFAULT 0,
+	`relay_heartbeat_at` varchar(100),
+	`active_turn_id` varchar(255),
+	`host_auth_fingerprint` char(64) NOT NULL,
+	`bridge_token_hash` char(64) NOT NULL,
+	`bridge_expires_at` varchar(100) NOT NULL,
+	`started_at` varchar(100) NOT NULL,
+	`heartbeat_at` varchar(100) NOT NULL,
+	`ended_at` varchar(100),
+	`expires_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_sessions_id` PRIMARY KEY(`id`)
+);
+
 CREATE TABLE `agents_document_state` (
 	`id` tinyint NOT NULL,
 	`mode` varchar(16) NOT NULL,
@@ -749,6 +881,21 @@ CREATE INDEX `idx_admin_sessions_expires` ON `admin_sessions` (`expires_at`);
 CREATE INDEX `idx_admin_users_access` ON `admin_users` (`access_level`);
 CREATE INDEX `idx_admin_users_active` ON `admin_users` (`active`);
 CREATE INDEX `idx_admin_webauthn_challenges_expires` ON `admin_webauthn_challenges` (`expires_at`);
+CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`id`);
+CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
+CREATE INDEX `idx_agent_matrix_outbox_dispatch` ON `agent_matrix_outbox` (`status`,`next_attempt_at`,`id`);
+CREATE INDEX `idx_agent_matrix_outbox_session` ON `agent_matrix_outbox` (`session_id`);
+CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
+CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`status`);
+CREATE INDEX `idx_agent_portal_browser_sessions_user` ON `agent_portal_browser_sessions` (`user_id`);
+CREATE INDEX `idx_agent_portal_browser_sessions_expires` ON `agent_portal_browser_sessions` (`expires_at`);
+CREATE INDEX `idx_agent_portal_users_enabled` ON `agent_portal_users` (`enabled`);
+CREATE INDEX `idx_agent_portal_users_deleted` ON `agent_portal_users` (`deleted_at`);
+CREATE INDEX `idx_agent_prompts_session_status` ON `agent_prompts` (`session_id`,`status`);
+CREATE INDEX `idx_agent_prompts_expires` ON `agent_prompts` (`expires_at`);
+CREATE INDEX `idx_agent_sessions_status` ON `agent_sessions` (`status`,`heartbeat_at`);
+CREATE INDEX `idx_agent_sessions_host` ON `agent_sessions` (`host_id`,`engine`);
+CREATE INDEX `idx_agent_sessions_expiry` ON `agent_sessions` (`expires_at`);
 CREATE INDEX `idx_agents_document_state_updated_at` ON `agents_document_state` (`updated_at`);
 CREATE INDEX `idx_agents_documents_updated_at` ON `agents_documents` (`updated_at`);
 CREATE INDEX `idx_agents_documents_engine` ON `agents_documents` (`engine`);

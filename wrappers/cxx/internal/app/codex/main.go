@@ -415,6 +415,7 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		exit, err := lifecycle.Run(ctx, lifecycle.Options{
 			Config:              cfg,
 			ExtraArgs:           resumeArgs(subArgs, passthrough),
+			Resumed:             true,
 			SkipBoot:            f.skipBoot || f.silent,
 			Minimal:             f.minimal,
 			AllowConcurrentSync: f.allowConc,

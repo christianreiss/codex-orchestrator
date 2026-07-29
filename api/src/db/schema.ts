@@ -1125,6 +1125,187 @@ export const wrapperV2Binaries = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// Agent portal — permanent per-user access, live sessions, durable events and
+// ordered delivery. User-visible text and bearer material live only in the
+// encrypted `*_enc` columns; hashes are used for lookup and comparison.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const agentPortalUsers = mysqlTable(
+  'agent_portal_users',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    matrixRoom: varchar('matrix_room', { length: 255 }).notNull(),
+    enabled: tinyint('enabled').notNull().default(1),
+    publicId: char('public_id', { length: 32 }).notNull(),
+    tokenHash: char('token_hash', { length: 64 }).notNull(),
+    tokenEnc: longtext('token_enc').notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+    lastUsedAt: varchar('last_used_at', { length: 100 }),
+    disabledAt: varchar('disabled_at', { length: 100 }),
+    rotatedAt: varchar('rotated_at', { length: 100 }),
+    deletedAt: varchar('deleted_at', { length: 100 }),
+  },
+  (t) => ({
+    publicIdUnique: uniqueIndex('uq_agent_portal_users_public_id').on(t.publicId),
+    tokenHashUnique: uniqueIndex('uq_agent_portal_users_token_hash').on(t.tokenHash),
+    enabledIdx: index('idx_agent_portal_users_enabled').on(t.enabled),
+    deletedIdx: index('idx_agent_portal_users_deleted').on(t.deletedAt),
+  }),
+);
+
+export const agentPortalBrowserSessions = mysqlTable(
+  'agent_portal_browser_sessions',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
+    tokenHash: char('token_hash', { length: 64 }).notNull(),
+    ip: varchar('ip', { length: 64 }),
+    userAgent: varchar('user_agent', { length: 255 }),
+    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+    lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    revokedAt: varchar('revoked_at', { length: 100 }),
+  },
+  (t) => ({
+    tokenHashUnique: uniqueIndex('uq_agent_portal_browser_sessions_token').on(t.tokenHash),
+    userIdx: index('idx_agent_portal_browser_sessions_user').on(t.userId),
+    expiresIdx: index('idx_agent_portal_browser_sessions_expires').on(t.expiresAt),
+  }),
+);
+
+export const agentSessions = mysqlTable(
+  'agent_sessions',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    engine: varchar('engine', { length: 16 }).notNull(),
+    username: varchar('username', { length: 255 }).notNull(),
+    cwd: varchar('cwd', { length: 1024 }).notNull(),
+    upstreamSessionId: varchar('upstream_session_id', { length: 255 }),
+    invocationKind: varchar('invocation_kind', { length: 24 }).notNull(),
+    status: varchar('status', { length: 24 }).notNull().default('starting'),
+    relayEnabled: tinyint('relay_enabled').notNull().default(0),
+    relayHeartbeatAt: varchar('relay_heartbeat_at', { length: 100 }),
+    activeTurnId: varchar('active_turn_id', { length: 255 }),
+    hostAuthFingerprint: char('host_auth_fingerprint', { length: 64 }).notNull(),
+    bridgeTokenHash: char('bridge_token_hash', { length: 64 }).notNull(),
+    bridgeExpiresAt: varchar('bridge_expires_at', { length: 100 }).notNull(),
+    startedAt: varchar('started_at', { length: 100 }).notNull(),
+    heartbeatAt: varchar('heartbeat_at', { length: 100 }).notNull(),
+    endedAt: varchar('ended_at', { length: 100 }),
+    expiresAt: varchar('expires_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    statusIdx: index('idx_agent_sessions_status').on(t.status, t.heartbeatAt),
+    hostIdx: index('idx_agent_sessions_host').on(t.hostId, t.engine),
+    expiryIdx: index('idx_agent_sessions_expiry').on(t.expiresAt),
+  }),
+);
+
+export const agentEvents = mysqlTable(
+  'agent_events',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    sessionId: char('session_id', { length: 36 }).notNull(),
+    clientEventId: varchar('client_event_id', { length: 64 }).notNull(),
+    eventType: varchar('event_type', { length: 32 }).notNull(),
+    source: varchar('source', { length: 24 }).notNull(),
+    payloadEnc: longtext('payload_enc').notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    sessionCursorIdx: index('idx_agent_events_session_cursor').on(t.sessionId, t.id),
+    clientEventUnique: uniqueIndex('uq_agent_events_session_client').on(t.sessionId, t.clientEventId),
+    typeIdx: index('idx_agent_events_type').on(t.eventType, t.createdAt),
+  }),
+);
+
+export const agentPrompts = mysqlTable(
+  'agent_prompts',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    sessionId: char('session_id', { length: 36 }).notNull(),
+    eventId: bigint('event_id', { mode: 'number', unsigned: true }),
+    questionEnc: longtext('question_enc').notNull(),
+    optionsEnc: longtext('options_enc'),
+    status: varchar('status', { length: 16 }).notNull().default('open'),
+    answeredByUserId: bigint('answered_by_user_id', { mode: 'number', unsigned: true }),
+    answerMessageId: char('answer_message_id', { length: 36 }),
+    version: int('version', { unsigned: true }).notNull().default(1),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    answeredAt: varchar('answered_at', { length: 100 }),
+    expiresAt: varchar('expires_at', { length: 100 }),
+  },
+  (t) => ({
+    sessionStatusIdx: index('idx_agent_prompts_session_status').on(t.sessionId, t.status),
+    expiresIdx: index('idx_agent_prompts_expires').on(t.expiresAt),
+  }),
+);
+
+export const agentMessages = mysqlTable(
+  'agent_messages',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    messageId: char('message_id', { length: 36 }).notNull(),
+    sessionId: char('session_id', { length: 36 }).notNull(),
+    portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }).notNull(),
+    kind: varchar('kind', { length: 16 }).notNull().default('message'),
+    promptId: char('prompt_id', { length: 36 }),
+    clientMessageId: char('client_message_id', { length: 36 }).notNull(),
+    contentEnc: longtext('content_enc').notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('queued'),
+    attempts: int('attempts', { unsigned: true }).notNull().default(0),
+    nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
+    leaseOwner: varchar('lease_owner', { length: 191 }),
+    leaseUntil: varchar('lease_until', { length: 100 }),
+    upstreamId: varchar('upstream_id', { length: 255 }),
+    lastError: text('last_error'),
+    acceptedAt: varchar('accepted_at', { length: 100 }),
+    canceledAt: varchar('canceled_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    messageIdUnique: uniqueIndex('uq_agent_messages_message_id').on(t.messageId),
+    clientIdUnique: uniqueIndex('uq_agent_messages_session_client').on(t.sessionId, t.clientMessageId),
+    dispatchIdx: index('idx_agent_messages_dispatch').on(t.sessionId, t.status, t.nextAttemptAt, t.id),
+    userIdx: index('idx_agent_messages_user').on(t.portalUserId, t.status),
+  }),
+);
+
+export const agentMatrixOutbox = mysqlTable(
+  'agent_matrix_outbox',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }).notNull(),
+    sessionId: char('session_id', { length: 36 }),
+    eventId: bigint('event_id', { mode: 'number', unsigned: true }),
+    eventKey: varchar('event_key', { length: 191 }).notNull(),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    payloadEnc: longtext('payload_enc').notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('queued'),
+    attempts: int('attempts', { unsigned: true }).notNull().default(0),
+    nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
+    leaseOwner: varchar('lease_owner', { length: 191 }),
+    leaseUntil: varchar('lease_until', { length: 100 }),
+    lastError: text('last_error'),
+    deliveredAt: varchar('delivered_at', { length: 100 }),
+    canceledAt: varchar('canceled_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    eventUnique: uniqueIndex('uq_agent_matrix_outbox_user_event').on(t.portalUserId, t.eventKey),
+    dispatchIdx: index('idx_agent_matrix_outbox_dispatch').on(t.status, t.nextAttemptAt, t.id),
+    sessionIdx: index('idx_agent_matrix_outbox_session').on(t.sessionId),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // Migration ledger
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1155,6 +1336,13 @@ export type AuthPayload = typeof authPayloads.$inferSelect;
 export type AuthEntry = typeof authEntries.$inferSelect;
 export type HostAuthState = typeof hostAuthStates.$inferSelect;
 export type Skill = typeof skills.$inferSelect;
+export type AgentPortalUser = typeof agentPortalUsers.$inferSelect;
+export type AgentPortalBrowserSession = typeof agentPortalBrowserSessions.$inferSelect;
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type AgentEvent = typeof agentEvents.$inferSelect;
+export type AgentPrompt = typeof agentPrompts.$inferSelect;
+export type AgentMessage = typeof agentMessages.$inferSelect;
+export type AgentMatrixOutboxRow = typeof agentMatrixOutbox.$inferSelect;
 export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;

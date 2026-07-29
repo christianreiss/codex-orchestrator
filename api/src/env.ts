@@ -50,6 +50,12 @@ const intish = (def?: number) =>
     })
     .pipe(z.number().int().or(z.undefined()));
 
+const optionalTrimmed = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' ? (value.trim() === '' ? undefined : value.trim()) : value),
+    inner.optional(),
+  );
+
 const schema = z
   .object({
     NODE_ENV: z.string().default('production'),
@@ -109,6 +115,18 @@ const schema = z
     PUBLIC_BASE_URL: z.string().optional(),
     PUBLIC_BASE_URL_REQUIRED: boolish.default(true),
     CODEX_SYNC_BASE_URL: z.string().optional(),
+
+    // Permanent per-user agent portal. The feature state itself is stored in
+    // `versions.agent_portal_enabled`; these values provide its outbound
+    // Matrix transport and bounded session/retention timers.
+    MATRIX_API_URL: optionalTrimmed(z.string().url()),
+    MATRIX_API_KEY: optionalTrimmed(z.string().min(1)),
+    AGENT_PORTAL_COOKIE: z.string().default('agent_portal_session'),
+    AGENT_PORTAL_SESSION_TTL_HOURS: intish(24).pipe(z.number().int().positive()),
+    AGENT_PORTAL_RETENTION_HOURS: intish(24).pipe(z.number().int().positive()),
+    AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
+    AGENT_PORTAL_MATRIX_WORKER_INTERVAL_SECONDS: intish(5).pipe(z.number().int().positive()),
+    AGENT_PORTAL_MATRIX_TIMEOUT_SECONDS: intish(10).pipe(z.number().int().positive()),
 
     // Cross-site origins (comma-separated) allowed to make credentialed CORS
     // requests against admin/host routes. Empty by default: those routes are

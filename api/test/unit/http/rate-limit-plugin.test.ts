@@ -121,7 +121,7 @@ afterEach(() => {
 });
 
 describe('global rate-limit preHandler', () => {
-  it('bypasses OPTIONS, health, WS upgrades and static admin assets', async () => {
+  it('bypasses OPTIONS, health, WS upgrades and static browser assets', async () => {
     const { app, hits } = await buildProbe({ clientIp: CLIENT_IP });
 
     const bypassed = [
@@ -131,6 +131,7 @@ describe('global rate-limit preHandler', () => {
       '/admin/_app/x.js',
       '/admin/manual/articles/x',
       '/admin/favicon.ico',
+      '/go/assets/app.js',
     ];
     for (const url of bypassed) {
       const res = await app.inject({ method: 'GET', url });
@@ -154,6 +155,7 @@ describe('global rate-limit preHandler', () => {
       ['/admin/_app/immutable/entry.js', '/admin/_apps/entry.js'],
       ['/admin/manual/articles/getting-started', '/admin/manual/articles'],
       ['/admin/favicon.ico', '/admin/fav.ico'],
+      ['/go/assets/app.js', '/go/asset/app.js'],
     ];
     for (const [bypassed, metered] of pairs) {
       hits.length = 0;

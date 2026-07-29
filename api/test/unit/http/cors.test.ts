@@ -16,6 +16,7 @@ const OPEN_ROUTES = ['/v1/messages', '/anthropic/v1/messages'];
 /** Paths that merely start with the prefix *text* are not the open surface. */
 const NEAR_MISS_ROUTES = ['/v1x/thing', '/anthropic/v1x/thing'];
 const RESTRICTED_ROUTES = ['/admin/hosts', ...NEAR_MISS_ROUTES];
+const PORTAL_ROUTES = ['/go', '/go/api/me'];
 
 const LISTED = 'https://console.example.com';
 const UNLISTED = 'https://evil.example';
@@ -24,7 +25,7 @@ async function buildProbe(allowedOrigins: string): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.decorate('env', { ...loadTestEnv(), CORS_ALLOWED_ORIGINS: allowedOrigins });
   await app.register(corsPlugin);
-  for (const url of [...OPEN_ROUTES, ...RESTRICTED_ROUTES]) {
+  for (const url of [...OPEN_ROUTES, ...RESTRICTED_ROUTES, ...PORTAL_ROUTES]) {
     app.get(url, async () => ({ ok: true }));
   }
   await app.ready();
@@ -51,7 +52,7 @@ function allowOrigin(res: LightMyRequestResponse): string | undefined {
 describe('cors origin policy', () => {
   it('lets same-origin (no Origin header) requests through everywhere', async () => {
     const app = await buildProbe('');
-    for (const url of [...OPEN_ROUTES, ...RESTRICTED_ROUTES]) {
+    for (const url of [...OPEN_ROUTES, ...RESTRICTED_ROUTES, ...PORTAL_ROUTES]) {
       const res = await get(app, url);
       expect(res.statusCode, url).toBe(200);
       // Nothing to reflect, so no grant is handed out either.
@@ -114,6 +115,22 @@ describe('cors origin policy', () => {
         expect(pre.statusCode, url).toBe(204);
         expect(allowOrigin(pre), url).toBe(origin);
         expect(pre.headers['access-control-allow-credentials'], url).toBe('true');
+      }
+    }
+    await app.close();
+  });
+
+  it('never reflects an origin on the cookie-bearing portal, even when listed', async () => {
+    const app = await buildProbe(`${LISTED},${UNLISTED}`);
+    for (const url of PORTAL_ROUTES) {
+      for (const origin of [LISTED, UNLISTED]) {
+        const res = await get(app, url, origin);
+        expect(res.statusCode, `${url} ${origin}`).toBe(200);
+        expect(allowOrigin(res), `${url} ${origin}`).toBeUndefined();
+
+        const pre = await preflight(app, url, origin);
+        expect(pre.statusCode, `${url} ${origin}`).toBe(404);
+        expect(allowOrigin(pre), `${url} ${origin}`).toBeUndefined();
       }
     }
     await app.close();

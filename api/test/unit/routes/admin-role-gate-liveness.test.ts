@@ -14,10 +14,10 @@ import {
 
 /**
  * `docs/LOGIN.md` and `docs/ADMIN.md` both state that the whole route tree
- * holds exactly three role gates, and `docs/LOGIN.md` enumerates the ten
- * `METHOD /path` registrations they cover. In code the gates are three
- * module-local preHandlers: memory mutation, source mutation, and user
- * management. They are attached per route by hand. Adding a
+ * holds exactly four role gates, and `docs/LOGIN.md` enumerates the seventeen
+ * `METHOD /path` registrations they cover. In code the gates are four
+ * module-local preHandlers: portal mutation, memory mutation, source mutation,
+ * and user management. They are attached per route by hand. Adding a
  * protected mutation without one silently
  * opens it to every `viewer` and legacy `user`, and both docs go stale while
  * every other suite stays green: `admin-doc-capability-truth.test.ts` only
@@ -39,8 +39,9 @@ const DOC = resolve(HERE, '../../../../docs/LOGIN.md');
 /** The error code every role gate answers with; how a gate is recognized. */
 const ROLE_CODE = 'admin_role_required';
 
-/** The three gates both docs claim are the whole inventory, and where they live. */
+/** The four gates both docs claim are the whole inventory, and where they live. */
 const KNOWN_GATES: Record<string, string> = {
+  requireAgentPortalMutationRole: 'routes/agent-portal/admin-host.ts',
   requireMutationRole: 'routes/admin/memories/index.ts',
   requireSourceMutationRole: 'routes/admin/skill-sources/index.ts',
   requireUserManagementRole: 'routes/admin/users/index.ts',
@@ -53,9 +54,16 @@ const KNOWN_GATES: Record<string, string> = {
  * below and to the role-gate bullets in `docs/LOGIN.md` and `docs/ADMIN.md`.
  */
 const PINNED_GATED_ROUTES = [
+  'DELETE /admin/agent-portal/users/:id',
   'DELETE /admin/memories/:scope/:recordId',
   'DELETE /admin/users/:id',
   'PATCH /admin/memories/:scope/:recordId',
+  'POST /admin/agent-portal/state',
+  'POST /admin/agent-portal/users',
+  'POST /admin/agent-portal/users/:id',
+  'POST /admin/agent-portal/users/:id/enabled',
+  'POST /admin/agent-portal/users/:id/resend',
+  'POST /admin/agent-portal/users/:id/rotate',
   'POST /admin/memories/:scope',
   'POST /admin/memories/shared/:recordId/append',
   'POST /admin/skill-sources/mattpocock',
@@ -292,7 +300,7 @@ describe('owner/admin role gate inventory', () => {
     expect(registrations.length).toBeGreaterThan(100);
     expect(
       Object.fromEntries(helpers.map((helper) => [helper.name, helper.file])),
-      'the docs claim these three gates and no others',
+      'the docs claim these four gates and no others',
     ).toEqual(KNOWN_GATES);
     // The gated set is pinned so the comparison below cannot become vacuous.
     expect(gates.map((gate) => gate.text).sort()).toEqual(PINNED_GATED_ROUTES);
@@ -304,10 +312,10 @@ describe('owner/admin role gate inventory', () => {
     expect(claimed.has(`DELETE /admin/memories/${PARAM}/${PARAM}`)).toBe(true);
   });
 
-  it('raises admin_role_required only inside the three documented gates', () => {
+  it('raises admin_role_required only inside the four documented gates', () => {
     expect(
       strayRoleChecks(),
-      `a fourth role gate makes the "exactly three role gates" claim in docs/LOGIN.md and ` +
+      `another role gate makes the "exactly four role gates" claim in docs/LOGIN.md and ` +
         'docs/ADMIN.md false — document it there and record it in KNOWN_GATES here',
     ).toEqual([]);
   });
@@ -330,11 +338,12 @@ describe('owner/admin role gate inventory', () => {
     ).toEqual([]);
   });
 
-  it('gates every /admin/memories write and every /admin/users mutation', () => {
+  it('gates every agent-portal/memories write and every /admin/users mutation', () => {
     const open = registrations
       .filter((route) => !gates.includes(route))
       .filter(
         (route) =>
+          (under(route.path, '/admin/agent-portal') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/memories') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/users') && !READ_ONLY_BY_DESIGN.includes(route.text)),
       )
