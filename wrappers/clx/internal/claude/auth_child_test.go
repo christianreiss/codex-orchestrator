@@ -1,7 +1,10 @@
 package claude
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -224,4 +227,78 @@ func TestAttachAuthLeaseFilesRejectsClosedLeases(t *testing.T) {
 		}
 		closeExtras()
 	})
+}
+
+// expectAuthChildWriterAvailable asserts the shared lease taken for the help
+// child was released again once RunHelpPassthrough returned.
+func expectAuthChildWriterAvailable(t *testing.T) {
+	t.Helper()
+	writer, err := tryAcquireAuthChildWriter()
+	if err != nil {
+		t.Fatalf("writer after help passthrough returned: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunHelpPassthroughRejectsEmptyArgv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	code, err := RunHelpPassthrough(context.Background(), "/bin/sh", nil, nil, nil, io.Discard, io.Discard, nil)
+	if err == nil {
+		t.Fatalf("empty argv = (%d,nil), want an error", code)
+	}
+	expectAuthChildWriterAvailable(t)
+}
+
+func TestRunHelpPassthroughReportsUnstartableBinaryAs127(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	missing := filepath.Join(t.TempDir(), "claude")
+	code, err := RunHelpPassthrough(context.Background(), missing, []string{"claude", "--help"}, nil, nil, io.Discard, io.Discard, nil)
+	if code != 127 || err == nil {
+		t.Fatalf("unstartable help binary = (%d,%v), want (127, error)", code, err)
+	}
+	expectAuthChildWriterAvailable(t)
+}
+
+func TestRunHelpPassthroughReturnsChildExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script string
+		want   int
+	}{
+		{name: "clean exit", script: "exit 0", want: 0},
+		{name: "child failure", script: "exit 7", want: 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			code, err := RunHelpPassthrough(
+				context.Background(),
+				"/bin/sh",
+				[]string{"claude", "-c", tc.script},
+				nil, nil, io.Discard, io.Discard, nil,
+			)
+			if code != tc.want || err != nil {
+				t.Fatalf("help passthrough = (%d,%v), want (%d,nil)", code, err, tc.want)
+			}
+			expectAuthChildWriterAvailable(t)
+		})
+	}
+}
+
+func TestRunHelpPassthroughForwardsChildOutput(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code, err := RunHelpPassthrough(
+		context.Background(),
+		"/bin/sh",
+		[]string{"claude", "-c", "printf usage; printf deprecation 1>&2"},
+		nil, nil, &stdout, &stderr, nil,
+	)
+	if code != 0 || err != nil {
+		t.Fatalf("help passthrough = (%d,%v), want (0,nil)", code, err)
+	}
+	if stdout.String() != "usage" || stderr.String() != "deprecation" {
+		t.Fatalf("forwarded streams = (%q,%q), want (%q,%q)", stdout.String(), stderr.String(), "usage", "deprecation")
+	}
 }
