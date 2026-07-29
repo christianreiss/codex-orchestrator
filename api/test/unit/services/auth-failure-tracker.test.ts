@@ -28,18 +28,25 @@ const CLIENT_IP = '203.0.113.7';
 interface Probe {
   tracker: AuthFailureTracker;
   hits: Array<{ ip: string; bucket: string; overrides?: Partial<RateLimitConfig> }>;
+  warnings: Array<{ fields: unknown; msg: string }>;
 }
 
 function setup(opts: { ok?: boolean; resetAt?: string } = {}): Probe {
   const hits: Probe['hits'] = [];
+  const warnings: Probe['warnings'] = [];
   const rateLimiter: RateLimiter = {
     async hit(ip, bucket, overrides) {
       hits.push({ ip, bucket, overrides });
       return { ok: opts.ok ?? true, resetAt: opts.resetAt ?? RESET_AT, count: 4 };
     },
   };
-  const app = { env: ENV, rateLimiter } as unknown as FastifyInstance;
-  return { tracker: createAuthFailureTracker(app), hits };
+  const log = {
+    warn(fields: unknown, msg: string) {
+      warnings.push({ fields, msg });
+    },
+  };
+  const app = { env: ENV, rateLimiter, log } as unknown as FastifyInstance;
+  return { tracker: createAuthFailureTracker(app), hits, warnings };
 }
 
 afterEach(() => {
@@ -48,17 +55,19 @@ afterEach(() => {
 
 describe('auth failure tracker', () => {
   it('does not touch the limiter when the caller has no IP', async () => {
-    const { tracker, hits } = setup();
+    const { tracker, hits, warnings } = setup();
 
     await expect(tracker.recordFailure(null, 'password_reset_failed')).resolves.toBeUndefined();
     await expect(tracker.recordFailure(undefined)).resolves.toBeUndefined();
     await expect(tracker.recordFailure('')).resolves.toBeUndefined();
 
     expect(hits).toEqual([]);
+    // An IP-less failure is not throttled, so there is nothing to report.
+    expect(warnings).toEqual([]);
   });
 
   it('charges the auth-fail bucket and resolves while it has room', async () => {
-    const { tracker, hits } = setup();
+    const { tracker, hits, warnings } = setup();
 
     await expect(tracker.recordFailure(CLIENT_IP, 'passkey_login_failed')).resolves.toBeUndefined();
 
@@ -66,6 +75,25 @@ describe('auth failure tracker', () => {
       { ip: CLIENT_IP, bucket: 'auth-fail', overrides: { limit: 3, windowSeconds: 900 } },
     ]);
     expect(hits[0]!.overrides).toEqual(rateLimitBuckets(ENV)['auth-fail']);
+    // Only an exhausted bucket is worth a log line; ordinary bad credentials
+    // are the routes' business.
+    expect(warnings).toEqual([]);
+  });
+
+  it('logs the caller-supplied reason with the ip and bucket when it throttles', async () => {
+    const { tracker, warnings } = setup({ ok: false });
+
+    const err = await tracker.recordFailure(CLIENT_IP, 'invalid_api_key').catch((e: unknown) => e);
+
+    expect(warnings).toEqual([
+      {
+        fields: { ip: CLIENT_IP, reason: 'invalid_api_key', bucket: 'auth-fail' },
+        msg: 'auth failure rate limit exhausted',
+      },
+    ]);
+    // Logging the reason must not change what the routes propagate.
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).extra).toEqual({ bucket: 'auth-fail', reset_at: RESET_AT });
   });
 
   it('throws RateLimitedError with the bucket, resetAt and remaining seconds', async () => {
