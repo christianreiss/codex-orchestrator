@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -92,6 +93,27 @@ func TestPrepareRuntimeAuthSettingsWritesProtectedOverlay(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("overlay survived cleanup: %v", err)
+	}
+}
+
+// Every subcommand cmd/clx forwards verbatim has to take the overlay in front of
+// it, or the settings file is parsed as one of the subcommand's own arguments.
+// `config` and `help` used to fall through to the prompt branch and get it
+// appended last.
+func TestInjectRuntimeAuthSettingsPrecedesPassedThroughSubcommands(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"config", "set", "-g", "theme", "dark"}, "--settings managed.json config set -g theme dark"},
+		{[]string{"help"}, "--settings managed.json help"},
+		{[]string{"mcp", "list"}, "--settings managed.json mcp list"},
+		{[]string{"doctor"}, "--settings managed.json doctor"},
+		{[]string{"-p", "config help"}, "-p config help --settings managed.json"},
+	} {
+		if got := injectRuntimeAuthSettings(tc.args, "managed.json"); strings.Join(got, " ") != tc.want {
+			t.Errorf("overlay order for %q = %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }
 

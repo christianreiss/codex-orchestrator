@@ -12,12 +12,19 @@ import (
 const officialAnthropicBaseURL = "https://api.anthropic.com"
 const staleRuntimeAuthSettingsAge = 7 * 24 * time.Hour
 
+// claudeTopLevelSubcommands names the tokens injectRuntimeAuthSettings treats as
+// a subcommand rather than a prompt, so the settings overlay lands before them.
+// It has to cover every name in cmd/clx's reservedClaudeSubcommands — those are
+// forwarded verbatim — which the clx-claude-subcommand-parity contract test
+// holds it to.
 var claudeTopLevelSubcommands = map[string]struct{}{
 	"agents":      {},
 	"auth":        {},
 	"auto-mode":   {},
+	"config":      {},
 	"doctor":      {},
 	"gateway":     {},
+	"help":        {},
 	"install":     {},
 	"login":       {},
 	"logout":      {},
