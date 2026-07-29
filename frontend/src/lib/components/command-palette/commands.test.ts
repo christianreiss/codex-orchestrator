@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
 import { registerHooks } from "node:module";
+import { join } from "node:path";
 import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import type { CommandGroup, CommandSource } from "./commands";
 import type { QuickHost, QuickProject, QuickSkill, QuickUser } from "$lib/api/quicksearch";
@@ -107,6 +110,9 @@ const { quickSearchKeys } = (await import(
   quicksearchModule
 )) as typeof import("$lib/api/quicksearch");
 
+const navModule: string = "$lib/nav";
+const { NAV } = (await import(navModule)) as typeof import("$lib/nav");
+
 const commandsModule: string = "./commands.ts";
 const { COMMAND_GROUPS, STATIC_COMMANDS, buildDynamicSources, buildRecentCommands, groupOrder } =
   (await import(commandsModule)) as typeof import("./commands");
@@ -170,6 +176,72 @@ describe("STATIC_COMMANDS", () => {
       );
       assert.notEqual(groupOrder(cmd.group), -1, `${cmd.id} has no rank`);
     }
+  });
+});
+
+describe("deep-link navigation commands", () => {
+  const routesDir = fileURLToPath(new URL("../../../routes", import.meta.url));
+
+  /** Segment patterns of every `+page.svelte` under `src/routes`. */
+  function collectRoutes(dir: string, segments: string[], out: string[][]): void {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (entries.some((entry) => entry.isFile() && entry.name === "+page.svelte")) {
+      out.push(segments);
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        collectRoutes(join(dir, entry.name), [...segments, entry.name], out);
+      }
+    }
+  }
+
+  const routes: string[][] = [];
+  collectRoutes(routesDir, [], routes);
+
+  /** True if `href` (query string stripped) resolves to one of those routes. */
+  function resolves(href: string): boolean {
+    const wanted = href.split("?")[0].split("/").filter(Boolean);
+    return routes.some(
+      (route) =>
+        route.length === wanted.length &&
+        route.every((segment, i) => segment.startsWith("[") || segment === wanted[i]),
+    );
+  }
+
+  // DEEP_NAV stays private to `commands.ts`; its entries are the Navigation
+  // commands whose id carries the `#label` suffix that tells them apart from
+  // the plain `nav:${href}` one NAV gets, so the hrefs come back off the ids.
+  const deepIds = STATIC_COMMANDS.filter(
+    (cmd) => cmd.group === "Navigation" && cmd.id.includes("#"),
+  ).map((cmd) => cmd.id);
+  const deepHrefs = deepIds.map((id) => id.slice("nav:".length).split("#")[0]);
+  const navIds = NAV.map((item) => `nav:${item.href}`);
+
+  it("found the route tree and the deep-link entries", () => {
+    assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
+    assert.ok(deepHrefs.length >= 10, `only ${deepHrefs.length} deep-link commands in the registry`);
+    assert.equal(resolves("/dashboard"), true);
+    assert.equal(resolves("/settings?tab=codex"), true);
+    assert.equal(resolves("/hosts/42"), true);
+    assert.equal(resolves("/hosts/42/nope"), false);
+  });
+
+  it("points every deep-link href at a real page", () => {
+    // Renaming a route directory otherwise leaves the palette entry 404ing.
+    for (const href of deepHrefs) {
+      assert.ok(resolves(href), `deep link ${href} has no +page.svelte`);
+    }
+  });
+
+  it("keeps the ids built from those hrefs clear of the NAV-derived ones", () => {
+    assert.ok(navIds.length >= 5, `only ${navIds.length} NAV items to collide with`);
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const id of [...navIds, ...deepIds]) {
+      if (seen.has(id)) duplicates.push(id);
+      seen.add(id);
+    }
+    assert.deepEqual(duplicates, []);
   });
 });
 
