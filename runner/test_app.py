@@ -2092,5 +2092,97 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
                 self.assertEqual("", body["output"])
 
 
+class RunnerSubprocessEnvIsolationTest(unittest.TestCase):
+    """Pin the allowlist that keeps runner secrets out of agent subprocesses.
+
+    _minimal_subprocess_env is the only thing between the runner's own process
+    environment -- which holds RUNNER_SHARED_SECRET and the AUTH_RUNNER_* values
+    it shares with the API -- and a model-driven codex/claude process. An
+    `os.environ.copy()` here, or one extra allow-listed name, would hand that
+    secret to the agent, so the allowlist and both env preparers built on it are
+    asserted against _SUBPROCESS_ENV_ALLOWLIST itself.
+    """
+
+    # Secrets and unrelated operational variables that must never cross over.
+    AMBIENT_SECRETS = {
+        "RUNNER_SHARED_SECRET": "runner-shared-secret",
+        "AUTH_RUNNER_SHARED_SECRET": "auth-runner-shared-secret",
+        "AUTH_RUNNER_URL": "https://runner.example.invalid",
+        "DATABASE_URL": "postgres://orchestrator:password@db/orchestrator",
+    }
+    # Only part of the allowlist is set, so the unset names cover the other half
+    # of _minimal_subprocess_env: absent variables are omitted, not set empty.
+    AMBIENT_ALLOWLISTED = {
+        "PATH": "/usr/local/bin:/usr/bin",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC",
+    }
+
+    # Names each preparer sets itself, on top of what the allowlist let through.
+    CODEX_OWN_KEYS = {
+        "HOME",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "CODEX_SYNC_BASE_URL",
+        "CODEX_SYNC_OPTIONAL",
+        "CODEX_SYNC_BAKED",
+    }
+    CLAUDE_OWN_KEYS = {"HOME", "TMPDIR", "TMP", "TEMP", "ANTHROPIC_API_KEY"}
+
+    def setUp(self):
+        self._home_parent = tempfile.mkdtemp(prefix="runner-env-isolation-")
+        self._original_home_parent = runner_app.RUNNER_HOME_PARENT
+        runner_app.RUNNER_HOME_PARENT = self._home_parent
+        self._original_environ = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(self.AMBIENT_SECRETS)
+        os.environ.update(self.AMBIENT_ALLOWLISTED)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._original_environ)
+        runner_app.RUNNER_HOME_PARENT = self._original_home_parent
+        shutil.rmtree(self._home_parent, ignore_errors=True)
+
+    def assertNoSecrets(self, env, allowed):
+        self.assertEqual(set(), set(env) - allowed)
+        for name in self.AMBIENT_SECRETS:
+            self.assertNotIn(name, env)
+
+    def test_minimal_subprocess_env_passes_only_set_allowlisted_names(self):
+        env = runner_app._minimal_subprocess_env()
+
+        self.assertNoSecrets(env, set(runner_app._SUBPROCESS_ENV_ALLOWLIST))
+        # Set allow-listed names keep their ambient value; unset ones are dropped.
+        self.assertEqual(self.AMBIENT_ALLOWLISTED, env)
+
+    def test_prepare_codex_env_adds_nothing_but_its_own_names(self):
+        env, home_dir, _auth_path = runner_app._prepare_codex_env(
+            {"tokens": {"access_token": "sk-openai-valid-test-token"}}
+        )
+
+        try:
+            self.assertNoSecrets(
+                env, set(runner_app._SUBPROCESS_ENV_ALLOWLIST) | self.CODEX_OWN_KEYS
+            )
+            self.assertEqual(self.AMBIENT_ALLOWLISTED["PATH"], env["PATH"])
+        finally:
+            shutil.rmtree(home_dir, ignore_errors=True)
+
+    def test_prepare_claude_env_adds_nothing_but_its_own_names(self):
+        env, home_dir, _auth_path = runner_app._prepare_claude_env(
+            {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}}
+        )
+
+        try:
+            self.assertNoSecrets(
+                env, set(runner_app._SUBPROCESS_ENV_ALLOWLIST) | self.CLAUDE_OWN_KEYS
+            )
+            self.assertEqual(self.AMBIENT_ALLOWLISTED["PATH"], env["PATH"])
+        finally:
+            shutil.rmtree(home_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
