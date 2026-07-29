@@ -27,7 +27,7 @@ ops strip, charts), login, kv-grid. All class names match spec §2.3.
 
 ### Mockups (mockups.jsx)
 Three surfaces rendered as React components (prototype only, not production):
-1. **Login** — centred card, brand marks (Codex × Claude), serif h1, 44px inputs, kbd hint
+1. **Login** — centred card, now superseded by the Switchyard brand lockup; serif h1, 44px inputs, kbd hint
 2. **Dashboard** — full layout: status bar, ChatGPT/Claude primary cards with lane meters + stat grids, ops strip with seed chips, line+bar chart canvases
 3. **Hosts list** — panel with tabs (All/Secure/Insecure/Unprovisioned), sortable table, state chips
 

@@ -5,6 +5,7 @@
   import { NAV_SECTIONS, isActive } from "$lib/nav";
   import { cn } from "$lib/utils/cn";
   import { authStore, authActions } from "$lib/stores/auth";
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import { Button } from "$lib/components/ui/button";
   import BookOpen from "@lucide/svelte/icons/book-open";
@@ -37,13 +38,10 @@
     class="group flex h-[4.25rem] items-center gap-3 border-b border-white/[0.07] px-5"
     aria-label="Codex Orchestrator overview"
   >
-    <div
-      class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-violet-950/30 transition-transform duration-200 group-hover:scale-[1.04]"
-      aria-hidden="true"
-    >
-      C
-      <span class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[hsl(var(--sidebar-bg))] bg-emerald-400"></span>
-    </div>
+    <BrandMark
+      status
+      class="shadow-lg shadow-violet-950/30 transition-transform duration-200 group-hover:scale-[1.04]"
+    />
     <div class="min-w-0">
       <div class="truncate text-sm font-semibold tracking-tight text-white">Codex Orchestrator</div>
       <div class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.16em] text-white/35">

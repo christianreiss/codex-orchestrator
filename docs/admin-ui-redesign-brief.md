@@ -23,7 +23,7 @@ over polish.
 ## Pages to restyle
 | Surface | Notes |
 |---|---|
-| Login | Username-first; passkey or password; codex+claude brand mark |
+| Login | Username-first; passkey or password; Switchyard brand lockup |
 | Dashboard | Status bar · ChatGPT card + Claude card · ops strip · Quota & Usage charts |
 | Hosts list | Tabs: All / Secure / Insecure / Unprovisioned; sortable table; chip states |
 | Host detail | 4 sections: Stats / Action items / Technical context / Host controls |

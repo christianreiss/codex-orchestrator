@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -144,12 +145,7 @@
 >
   <div class="w-full max-w-md">
     <div class="mb-6 flex items-center justify-center gap-3">
-      <div
-        class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-bold text-white shadow-lg shadow-primary/20"
-        aria-hidden="true"
-      >
-        C
-      </div>
+      <BrandMark class="h-10 w-10 shadow-lg shadow-primary/20" />
       <span class="text-lg font-semibold tracking-tight">Codex Orchestrator</span>
     </div>
 

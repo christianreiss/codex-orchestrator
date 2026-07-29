@@ -2,7 +2,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Label } from "$lib/components/ui/label";
-  import Terminal from "@lucide/svelte/icons/terminal";
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import Check from "@lucide/svelte/icons/check";
   import XCircle from "@lucide/svelte/icons/x-circle";
   import Loader2 from "@lucide/svelte/icons/loader-2";
@@ -127,12 +127,7 @@
   <div class="w-full max-w-lg">
     <!-- Brand mark -->
     <div class="mb-8 flex flex-col items-center gap-3">
-      <div
-        class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-lg shadow-primary/20"
-        aria-hidden="true"
-      >
-        <Terminal class="h-6 w-6" />
-      </div>
+      <BrandMark class="h-12 w-12 rounded-2xl shadow-lg shadow-primary/20" />
       <div class="text-center">
         <h1 class="text-2xl font-bold tracking-tight">Approve CLI session</h1>
         <p class="mt-1.5 text-sm text-muted-foreground">

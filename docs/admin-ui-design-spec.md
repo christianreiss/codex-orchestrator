@@ -169,10 +169,14 @@ Theme is stored in `localStorage.adminTheme` and mirrored to server (`versions.a
 so the `cdx` CLI can match branding. **All six tokens sets must be defined in `theme.css`.**
 
 ### 2.6 Branding marks
-- `/admin/assets/openai-logo.svg` — used in the editorial rail header and login page brand pair.
-- `/admin/assets/claude-logo.svg` — real Claude mark used in the login page brand pair.
-- App name: **Orchestrator**.
-- Tagline: **"Engines to Brrr!"** (kept).
+- **Switchyard** is the product mark: one canonical source diamond splitting
+  toward cyan and coral Codex/Claude persona nodes. It deliberately does not
+  reuse either provider's logo.
+- Canonical UI component: `frontend/src/lib/components/brand/BrandMark.svelte`.
+  Matching static assets are `/admin/favicon.svg` and
+  `/admin/error-logo.svg`.
+- App name: **Codex Orchestrator**.
+- Tagline: **Fleet control**.
 
 ### 2.7 Accessibility floor
 - Contrast: WCAG AA for body text in every theme.
@@ -255,8 +259,8 @@ drawer on mobile. Structure on desktop:
 **Layout:** Centred card, max-width ~420px, single column.
 
 **Elements (top to bottom):**
-1. Brand mark — Codex logo + Claude logo side by side (40×40 each, 8px radius), 10px gap.
-2. App title `<h1>` — "Orchestrator".
+1. Brand lockup — 40×40 Switchyard mark plus **Codex Orchestrator**.
+2. Card title `<h1>` — "Sign in" (or the active password-reset title).
 3. Subhead copy — "Enter your username to continue." (changes when password field appears).
 4. Form:
    - Username field (`<input>`, autocomplete=username, required).
@@ -976,8 +980,8 @@ General settings: **32px** between groups, **20px** between blocks.
 ### 9.9 Login page redesign
 
 - Centre the card on a warm cream background (light) / espresso (dark).
-- Brand mark: codex logo + claude logo, separated by a small `×` (was just adjacent), giving
-  a "fleet of two engines" feeling.
+- Brand mark: the single Switchyard vector, whose split rails already express
+  the two-engine fleet without a provider-logo pair.
 - Title: serif, 32px.
 - Subhead: 14px muted.
 - Input field: 44px tall, 1px `--input-border`, `--radius-sm`.

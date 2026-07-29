@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      # Brand regression tests compare the source SVG against the committed
+      # static admin artifact, so an asset-only change must run this suite too.
+      - 'public/admin/**'
       # The frontend suite is not confined to frontend/: `cli-auth.test.ts`
       # reads api/src/services/cli-auth.ts to pin the device-code alphabet
       # against the service that issues it. Without this, a commit touching
@@ -16,6 +19,8 @@ on:
   pull_request:
     paths:
       - 'frontend/**'
+      # Keep generated/preserved admin brand assets under the same parity gate.
+      - 'public/admin/**'
       # Same trees as `push`; GitHub Actions has no YAML anchors, so the list
       # is spelled twice and the test above requires both copies to carry it.
       - 'api/**'

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { Button } from "$lib/components/ui/button";
@@ -47,12 +48,7 @@
 <main class="standalone-surface flex min-h-full items-center justify-center px-4 py-12">
   <div class="w-full max-w-md">
     <div class="mb-6 flex items-center justify-center gap-3">
-      <div
-        class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-lg font-bold text-white shadow-lg shadow-primary/20"
-        aria-hidden="true"
-      >
-        C
-      </div>
+      <BrandMark class="h-10 w-10 shadow-lg shadow-primary/20" />
       <span class="text-lg font-semibold tracking-tight">Codex Orchestrator</span>
     </div>
 

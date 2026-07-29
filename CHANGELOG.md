@@ -1,5 +1,11 @@
 # 2026-07-29
 
+- Replaced the placeholder “C” with the **Switchyard** brand mark: one canonical
+  source splitting toward cyan and coral Codex/Claude nodes. The shared vector
+  now appears in the sidebar, login, password-reset, and CLI-authorization
+  surfaces, while matching favicon and standalone error assets keep the
+  silhouette crisp from 16 px upward. This also fixes the long-standing
+  `/admin/favicon.svg` 404.
 - Added an opt-in Matt Pocock skill source to Authoring → Skills. Inclusion is
   **off by default** and performs no upstream request while off; fresh source
   state defaults auto-update on, with a six-hour check cadence, while an
