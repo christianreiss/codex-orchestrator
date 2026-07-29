@@ -4,10 +4,15 @@ import type { FastifyReply } from 'fastify';
  * Reply helpers. Handlers either:
  *   return ok(data)           — auto-shaped by the onSend envelope plugin
  *   throw new ApiError(...)   — auto-shaped by the global error handler
- *   call reply.raw(...) directly for binary / SSE bodies
+ *   opt out of the envelope for binary / SSE bodies, in one of two spellings:
+ *     raw(reply).code(200).send(body) — the helper below, which returns the
+ *       same reply so the call stays chainable
+ *     reply.envelopeRaw = true        — the bare flag, set before sending
  *
- * Setting reply.envelopeRaw=true bypasses the onSend envelope rewrite (useful
- * for binary downloads, raw text scripts, SSE streams, signed-JSON responses).
+ * Either spelling sets reply.envelopeRaw=true, which bypasses the onSend
+ * envelope rewrite (useful for binary downloads, raw text scripts, SSE
+ * streams, signed-JSON responses). Note that reply.raw is Fastify's underlying
+ * Node ServerResponse object, not a function to call in its place.
  */
 
 declare module 'fastify' {
