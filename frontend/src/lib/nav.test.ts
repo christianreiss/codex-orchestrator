@@ -194,4 +194,19 @@ describe("navigation targets", () => {
       assert.ok(resolves(href), `command-palette href ${href} has no +page.svelte`);
     }
   });
+
+  it("points every command-palette goto() at a real page", () => {
+    const source = readFileSync(commandsFile, "utf8");
+    const targets = [...source.matchAll(/goto\(`\$\{base\}([^`]*)`\)/g)]
+      .map((m) => m[1])
+      // `${base}${href}` just forwards a NAV/DEEP_NAV entry, which the tests
+      // above already cover; only a literal path says anything here.
+      .filter((path) => path.startsWith("/"))
+      // `/hosts/${h.id}` -> `/hosts/*`, which `resolves` matches against `[id]`.
+      .map((path) => path.replace(/\$\{[^}]*\}/g, "*"));
+    assert.ok(targets.length >= 9, `only ${targets.length} palette goto()s in ${commandsFile}`);
+    for (const target of targets) {
+      assert.ok(resolves(target), `command-palette goto() ${target} has no +page.svelte`);
+    }
+  });
 });
