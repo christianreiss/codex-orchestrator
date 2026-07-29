@@ -34,7 +34,7 @@ func TestSyncSkillsReportsSuccessfulUnchanged(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"skills":[{"slug":"git","sha256":"abc","version":"1"}]}`)
+		_, _ = io.WriteString(w, `{"skills":[{"slug":"git","sha256":"abc","display_name":"Git"}]}`)
 	}))
 	defer server.Close()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

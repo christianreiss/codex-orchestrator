@@ -6,12 +6,15 @@ import (
 	"net/http"
 )
 
+// Skill is the minimal shape needed to know which skills exist and to detect
+// changes. The server's `decorate()` emits {slug, sha256, display_name,
+// description, …}; we only need slug + sha256 for the change fingerprint and
+// keep display_name for future surfacing. The server side is authoritative; we
+// tolerate extra fields.
 type Skill struct {
-	Slug    string          `json:"slug"`
-	Name    string          `json:"name,omitempty"`
-	Version string          `json:"version,omitempty"`
-	SHA256  string          `json:"sha256,omitempty"`
-	Body    json.RawMessage `json:"body,omitempty"`
+	Slug        string `json:"slug"`
+	SHA256      string `json:"sha256,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // SkillsList decodes GET /skills?engine=claude. The handler returns

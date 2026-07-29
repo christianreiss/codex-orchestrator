@@ -4,7 +4,7 @@
 // wrapper never persists the manifest bodies to disk. What it does is:
 //
 //  1. Probe `GET /skills?engine=claude` once per run, hash the
-//     (slug, sha256, version) fingerprint of the list, and compare against
+//     (slug, sha256) fingerprint of the list, and compare against
 //     the cached digest under ~/.cache/codex-orchestrator/clx-skills-digest.
 //     Any change marks the boot screen's "skills" dot as updated.
 //  2. One-shot purge of legacy bash-era on-disk skill caches (`~/.agents/skills`,
@@ -84,10 +84,15 @@ func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.L
 	return state
 }
 
+// fingerprintSkills builds a stable hex digest over the (slug, sha256) pairs
+// in the server response. Order-independent: the list is sorted before hashing
+// so the server's row order doesn't matter. (sha256 already changes whenever a
+// skill body changes, so there's no separate version to fold in — the server
+// never emits one.)
 func fingerprintSkills(list []orchestrator.Skill) string {
 	pairs := make([]string, 0, len(list))
 	for _, s := range list {
-		pairs = append(pairs, s.Slug+"|"+s.SHA256+"|"+s.Version)
+		pairs = append(pairs, s.Slug+"|"+s.SHA256)
 	}
 	sort.Strings(pairs)
 	h := sha256.Sum256([]byte(strings.Join(pairs, "\n")))
