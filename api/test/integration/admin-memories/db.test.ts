@@ -17,7 +17,7 @@ import { getTestDb, type TestDb } from '../../helpers/test-db.js';
  * CI normally has no database, so this file skips there. Run it with either:
  *
  *   npm run test:db
- *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
+ *   TEST_USE_DB=1 TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
  *     npx vitest run test/integration/admin-memories/db.test.ts --no-file-parallelism
  *
  * The project/shared migrations are applied here because both are idempotent

@@ -18,7 +18,7 @@ import { getTestDb } from '../../helpers/test-db.js';
  * without a database and skips this file. Run it with:
  *
  *   npm run test:db          (TEST_USE_DB=1 + DB_* env)
- *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
+ *   TEST_USE_DB=1 TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
  *     npx vitest run test/integration --no-file-parallelism
  *
  * `--no-file-parallelism` is not optional: every real-DB suite shares one

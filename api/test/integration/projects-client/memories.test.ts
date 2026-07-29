@@ -21,7 +21,8 @@ import type { Host } from '../../../src/db/schema.js';
  * runs without a database, so these skip there; run them with:
  *
  *   npm run test:db          (TEST_USE_DB=1 + DB_* env)
- *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db npx vitest run test/integration
+ *   TEST_USE_DB=1 TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
+ *     npx vitest run test/integration --no-file-parallelism
  *
  * The suite applies `0003_add_coord_project_memories.sql` itself (the file is
  * idempotent), which both makes it self-sufficient and covers the migration —

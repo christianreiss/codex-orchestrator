@@ -18,7 +18,7 @@ import type { Host } from '../../../src/db/schema.js';
  * without a database, so this file skips there. Run it with:
  *
  *   npm run test:db          (TEST_USE_DB=1 + DB_* env)
- *   TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
+ *   TEST_USE_DB=1 TEST_DATABASE_URL=mysql://root:pw@127.0.0.1:3306/db \
  *     npx vitest run test/integration --no-file-parallelism
  *
  * `--no-file-parallelism` matters: the index-drop test below races the migration

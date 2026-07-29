@@ -6,8 +6,8 @@ import type { Database } from '../../src/db/client.js';
 
 /**
  * Lazy holder for a singleton test Drizzle client. Tests opt-in by calling
- * `getTestDb()`; if `TEST_DATABASE_URL` (or DB_* env vars) are missing the
- * function returns `null` so callers can `skipUnlessDb()` cleanly.
+ * `getTestDb()`; without `TEST_USE_DB=1` plus `TEST_DATABASE_URL` (or DB_* env
+ * vars) the function returns `null` so callers can `skipUnlessDb()` cleanly.
  *
  * `TestDb` is the same type the production `createDb()` returns so that
  * helpers + factories interop with both seamlessly.
@@ -25,11 +25,18 @@ let cached: TestDbHandle | null | undefined = undefined;
  * Parse TEST_DATABASE_URL if present; otherwise fall back to DB_HOST/DB_PORT/…
  * vars. Returns null if no DB config is available — tests should skip.
  *
+ * `TEST_USE_DB=1` gates both branches: the integration suites issue destructive
+ * DDL (they drop the migration ledger and drop indexes), so an ambient
+ * `TEST_DATABASE_URL` must not be enough to make the plain `npm test` run reach
+ * a real server. Opting in also means opting into `--no-file-parallelism`.
+ *
  * Exported so `test/fixtures/apply-schema-baseline.ts` resolves the target the
  * same way the suites do; a setup script that picked a different database than
  * the tests would be worse than none.
  */
 export function readDbConfig(): mysql.PoolOptions | null {
+  // Require an explicit signal so we don't accidentally hit production DB.
+  if (process.env.TEST_USE_DB !== '1') return null;
   const url = process.env.TEST_DATABASE_URL;
   if (url) {
     try {
@@ -52,8 +59,6 @@ export function readDbConfig(): mysql.PoolOptions | null {
   }
   // Fallback: only spin up if all DB_* are set with non-default test values.
   if (!process.env.DB_DATABASE || !process.env.DB_USERNAME) return null;
-  // Require an explicit signal so we don't accidentally hit production DB.
-  if (process.env.TEST_USE_DB !== '1') return null;
   return {
     host: process.env.DB_HOST || '127.0.0.1',
     port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,

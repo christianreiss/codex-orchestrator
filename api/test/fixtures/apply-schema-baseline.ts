@@ -27,7 +27,7 @@ async function main(): Promise<number> {
   const cfg = readDbConfig();
   if (!cfg) {
     process.stderr.write(
-      'no test database configured: set TEST_DATABASE_URL, or DB_DATABASE/DB_USERNAME with TEST_USE_DB=1\n',
+      'no test database configured: set TEST_USE_DB=1 with either TEST_DATABASE_URL or DB_DATABASE/DB_USERNAME\n',
     );
     return 1;
   }
