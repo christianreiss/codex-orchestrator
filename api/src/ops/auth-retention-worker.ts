@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
-import { pruneSupersededAuth } from '../services/auth-generation-retention.js';
+import {
+  AUTH_PRUNE_BATCH_LIMIT,
+  pruneSupersededAuth,
+} from '../services/auth-generation-retention.js';
 
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -15,7 +18,7 @@ export function startAuthRetentionWorker(app: FastifyInstance, db: Database): vo
       for (;;) {
         const removed = await pruneSupersededAuth(db);
         total += removed;
-        if (removed < 500) break;
+        if (removed < AUTH_PRUNE_BATCH_LIMIT) break;
       }
       if (total > 0) app.log.info({ removed: total }, 'superseded auth history pruned');
     } catch (err) {

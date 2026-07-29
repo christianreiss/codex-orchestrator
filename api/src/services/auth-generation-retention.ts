@@ -16,6 +16,8 @@ import { createRunnerValidationService } from './runner-validation.js';
 
 const BACKFILL_MARKER = 'auth_generation_ledger_v1';
 export const AUTH_HISTORY_RETENTION_DAYS = 180;
+/** Rows deleted per prune call; a full batch means more history is waiting. */
+export const AUTH_PRUNE_BATCH_LIMIT = 500;
 
 export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyring): Promise<void> {
   const marker = await db.select().from(versions).where(eq(versions.name, BACKFILL_MARKER));
@@ -79,7 +81,7 @@ export async function ensureAuthGenerationBackfill(db: Database, keyring: Keyrin
 export async function pruneSupersededAuth(
   db: Database,
   now = nowIso(),
-  limit = 500,
+  limit = AUTH_PRUNE_BATCH_LIMIT,
 ): Promise<number> {
   const heads = await db.select().from(authCanonicalHeads);
   const protectedIds = new Set(heads.map((head) => head.payloadId));
