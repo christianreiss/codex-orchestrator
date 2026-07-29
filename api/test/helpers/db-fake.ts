@@ -30,6 +30,22 @@ export interface DbFake {
 
 export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
   const tables: TableMap = initial;
+  // Per-table AUTO_INCREMENT counters. Deriving ids from the current row count
+  // instead would hand every row of a batch insert the same id and would
+  // reissue ids after a delete -- two states MySQL cannot reach, which matters
+  // for services that batch-insert chunk rows and delete superseded ones.
+  const nextIds = new Map<unknown, number>();
+
+  function nextId(table: unknown, rows: Row[]): number {
+    // The first allocation continues from the seeded row count and skips any id
+    // a row already holds; after that the counter only climbs, so neither a
+    // batch insert nor a delete can hand out an id twice.
+    let id = nextIds.get(table) ?? rows.length + 1;
+    while (rows.some((row) => row.id === id)) id += 1;
+    nextIds.set(table, id + 1);
+    return id;
+  }
+
   const fake: DbFake = {
     tables,
     inserts: [],
@@ -83,11 +99,16 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
           fake.inserts.push({ table, values: vals });
           const existing = tables.get(table) ?? [];
           const list = Array.isArray(vals) ? vals : [vals];
-          const nextId = existing.length + 1;
-          for (const v of list) existing.push({ id: nextId, ...v });
+          let insertId: unknown;
+          for (const v of list) {
+            const id = v.id ?? nextId(table, existing);
+            if (insertId === undefined) insertId = id;
+            existing.push({ id, ...v });
+          }
           tables.set(table, existing);
-          // Drizzle returns [{ insertId, affectedRows }, ...]
-          const result = Promise.resolve([{ insertId: nextId, affectedRows: list.length }]);
+          // Drizzle returns [{ insertId, affectedRows }, ...]; like MySQL, the
+          // insertId of a batch is the id of its first row.
+          const result = Promise.resolve([{ insertId, affectedRows: list.length }]);
           // This fake has no unique-index enforcement, so `ON DUPLICATE KEY
           // UPDATE` just resolves like a plain insert -- good enough for
           // tests that only care about the call succeeding/returning.
