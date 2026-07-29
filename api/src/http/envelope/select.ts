@@ -3,7 +3,7 @@ import * as openai from './openai.js';
 import * as anthropic from './anthropic.js';
 import type { ApiError } from '../errors.js';
 
-export type EnvelopeKind = 'standard' | 'openai' | 'anthropic' | 'raw';
+export type EnvelopeKind = 'standard' | 'openai' | 'anthropic';
 
 export interface EnvelopeFormatter {
   kind: EnvelopeKind;
@@ -26,11 +26,6 @@ const FORMATTERS: Record<EnvelopeKind, EnvelopeFormatter> = {
     kind: 'anthropic',
     success: (d) => anthropic.success(d),
     failure: (e) => anthropic.failure(e),
-  },
-  raw: {
-    kind: 'raw',
-    success: (d) => d,
-    failure: (e) => ({ message: e.message, code: e.code }),
   },
 };
 

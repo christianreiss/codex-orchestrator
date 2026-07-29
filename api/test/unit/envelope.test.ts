@@ -65,4 +65,12 @@ describe('envelope selection', () => {
       code: 'bad',
     });
   });
+
+  it('only ever selects one of the three envelope families', () => {
+    // Handlers that need an unshaped body set reply.envelopeRaw, which skips the
+    // onSend hook entirely -- there is no fourth formatter to select.
+    for (const url of ['/anthropic/v1/messages', '/v1/chat/completions', '/admin/overview']) {
+      expect(['standard', 'openai', 'anthropic']).toContain(selectFormatter(url).kind);
+    }
+  });
 });
