@@ -5,10 +5,35 @@ on:
     branches: [main]
     paths:
       - 'api/**'
+      # The api suite is not confined to api/: its doc-truth, contract and
+      # liveness scans open docs/, the Go wrappers, the frontend sources, the
+      # manual articles under public/, runner/app.py, scripts/deploy.sh, the
+      # Caddy configs and the compose file. Without these, a commit touching
+      # only one of them runs no api job and the drift those tests exist to
+      # catch ships. `api/test/unit/ops/ci-workflow-path-coverage.test.ts`
+      # holds both filters below against what the tests actually read.
+      - 'caddy/**'
+      - 'docker-compose.yml'
+      - 'docs/**'
+      - 'frontend/**'
+      - 'public/**'
+      - 'runner/**'
+      - 'scripts/**'
+      - 'wrappers/**'
       - '.github/workflows/api.yml'
   pull_request:
     paths:
       - 'api/**'
+      # Same trees as `push`; GitHub Actions has no YAML anchors, so the list
+      # is spelled twice and the test above requires both copies to carry it.
+      - 'caddy/**'
+      - 'docker-compose.yml'
+      - 'docs/**'
+      - 'frontend/**'
+      - 'public/**'
+      - 'runner/**'
+      - 'scripts/**'
+      - 'wrappers/**'
       - '.github/workflows/api.yml'
 
 concurrency:
