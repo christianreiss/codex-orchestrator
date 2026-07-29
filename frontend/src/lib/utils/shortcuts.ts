@@ -2,9 +2,9 @@
  * Single-key shortcut handler. Chord-style shortcuts are intentionally
  * removed in the new WebUI — the Cmd-K palette covers their function.
  *
- * Supported keys: '?' (shortcuts modal), '/' (focus Cmd-K), 'Escape' (close
- * overlays). Modifier-combinations (Cmd-K / Ctrl-K) are handled inline by
- * +layout.svelte rather than here.
+ * Supported keys: '?' (shortcuts modal), '/' (focus Cmd-K), 'n' (new host),
+ * 'Escape' (close overlays). Modifier-combinations (Cmd-K / Ctrl-K) are handled
+ * inline by +layout.svelte rather than here.
  */
 export type ShortcutHandler = (event: KeyboardEvent) => void;
 
