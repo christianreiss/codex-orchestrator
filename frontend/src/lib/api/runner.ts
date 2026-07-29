@@ -59,17 +59,20 @@ export interface RunnerStateResponse {
 
 /**
  * Mirrors {@link RunnerRunResult} in `api/src/services/runner-proxy.ts`.
- * The actual proxy implementation also surfaces engine-specific extras
- * from the runner-client; we accept any additional keys.
+ * `formatRunResult` there forwards only known-safe verdict fields — notably it
+ * strips the runner's `updated_auth` credential blob — so this type must not
+ * declare a field the server interface does not, which
+ * `api/test/unit/contract/frontend-runner-result-fields.test.ts` enforces.
+ * The index signature covers the extras the proxy adds (`ok`,
+ * `canonical_digest`, `payload_id`).
  */
 export interface RunnerRunResult {
-  status: "ok" | "error" | "fail" | string;
+  status: "ok" | "fail" | "unconfigured";
   output?: string;
   detail?: string;
   reason?: string;
   reachable?: boolean;
   latency_ms?: number;
-  updated_auth?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
