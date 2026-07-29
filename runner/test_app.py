@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import typing
@@ -2336,6 +2337,101 @@ class RunnerCredentialReadbackTest(unittest.TestCase):
             f"app.py reports auth_readback states the API does not handle: "
             f"{sorted(assigned - self.KNOWN_STATES, key=repr)}",
         )
+
+
+class RunnerCredentialFileTest(unittest.TestCase):
+    """Pin how the runner lands a live credential on disk for a CLI to read.
+
+    Both _prepare_*_env write a secret into a throwaway HOME, so the file has to
+    stay inside that HOME and stay mode 0600. Codex gets the posted auth.json
+    verbatim, but Claude gets only the _claude_native_credentials projection:
+    current Claude versions rewrite a non-native envelope (the orchestrator's
+    last_refresh/auths metadata) to an empty object, which _credential_readback
+    then reports to the API as a destructive token rotation.
+    """
+
+    CODEX_AUTH = {
+        "OPENAI_API_KEY": None,
+        "tokens": {
+            "access_token": "ey-chatgpt-access-token",
+            "refresh_token": "ey-chatgpt-refresh-token",
+            "account_id": "acct-test-1234",
+        },
+        "last_refresh": "2026-07-29T00:00:00Z",
+        "auths": {
+            "api.openai.com": {
+                "token": "ey-chatgpt-access-token",
+                "token_type": "bearer",
+            }
+        },
+    }
+    CLAUDE_OAUTH_AUTH = {
+        "claudeAiOauth": {
+            "accessToken": "sk-ant-oat01-test-token",
+            "refreshToken": "sk-ant-ort01-test-token",
+            "expiresAt": 123456789,
+            "scopes": ["user:inference"],
+        },
+        "last_refresh": "2026-07-29T00:00:00Z",
+        "auths": {
+            "api.anthropic.com": {
+                "token": "sk-ant-oat01-test-token",
+                "token_type": "bearer",
+            }
+        },
+    }
+    # An api-key envelope carries no OAuth block, so the projection is already
+    # the native shape; what it still has to pin is that the write adds nothing.
+    CLAUDE_API_KEY_AUTH = {"api_key": "sk-ant-api03-test-key"}
+
+    def setUp(self):
+        self._home_parent = tempfile.mkdtemp(prefix="runner-credential-file-")
+        self._original_home_parent = runner_app.RUNNER_HOME_PARENT
+        runner_app.RUNNER_HOME_PARENT = self._home_parent
+
+    def tearDown(self):
+        runner_app.RUNNER_HOME_PARENT = self._original_home_parent
+        shutil.rmtree(self._home_parent, ignore_errors=True)
+
+    def prepare(self, prepare_env, auth_json):
+        _env, home_dir, auth_path = prepare_env(auth_json)
+        self.addCleanup(shutil.rmtree, home_dir, ignore_errors=True)
+        return home_dir, auth_path
+
+    def assertPrivateCredential(self, home_dir, auth_path):
+        home_real = os.path.realpath(home_dir)
+        auth_real = os.path.realpath(auth_path)
+        self.assertEqual(home_real, os.path.commonpath([home_real, auth_real]))
+        self.assertNotEqual(home_real, auth_real)
+        self.assertEqual(0o600, stat.S_IMODE(os.stat(auth_path).st_mode))
+
+    def read_credential(self, auth_path):
+        with open(auth_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_codex_credential_file_is_private_and_verbatim(self):
+        home_dir, auth_path = self.prepare(runner_app._prepare_codex_env, self.CODEX_AUTH)
+
+        self.assertEqual(os.path.join(home_dir, ".codex", "auth.json"), auth_path)
+        self.assertPrivateCredential(home_dir, auth_path)
+        self.assertEqual(self.CODEX_AUTH, self.read_credential(auth_path))
+
+    def test_claude_credential_file_is_private_and_native_only(self):
+        for label, auth_json in (
+            ("oauth", self.CLAUDE_OAUTH_AUTH),
+            ("api key", self.CLAUDE_API_KEY_AUTH),
+        ):
+            with self.subTest(credential=label):
+                home_dir, auth_path = self.prepare(runner_app._prepare_claude_env, auth_json)
+
+                self.assertEqual(
+                    os.path.join(home_dir, ".claude", ".credentials.json"), auth_path
+                )
+                self.assertPrivateCredential(home_dir, auth_path)
+                written = self.read_credential(auth_path)
+                self.assertEqual(runner_app._claude_native_credentials(auth_json), written)
+                self.assertNotIn("last_refresh", written)
+                self.assertNotIn("auths", written)
 
 
 if __name__ == "__main__":
