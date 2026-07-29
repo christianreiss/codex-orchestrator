@@ -61,7 +61,7 @@ new route has to be documented here before it can ship.
 2. Resolve the same credential native Codex will execute. Explicit `auth_mode:"apikey"` selects only top-level `OPENAI_API_KEY`; explicit `chatgpt` / `chatgptAuthTokens` selects only `tokens.access_token`. Without a mode, native inference selects personal-access-token/Bedrock first (unsupported by this runner), then a present top-level `OPENAI_API_KEY`, otherwise ChatGPT tokens. Unknown/unsupported modes or a missing selected credential return HTTP 400. Legacy nested/auths-only keys are normalized by the API to native `apikey` shape before this call, not reinterpreted by the runner.
 3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (the bundled runner image sets this to `/dev/shm`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from runner env when set (otherwise `http://api`), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
-5. Run `/usr/local/bin/codex exec -s read-only --skip-git-repo-check "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey).
+5. Run `/usr/local/bin/codex exec --model <probe model> -s read-only --skip-git-repo-check -- "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey). The probe model comes from `RUNNER_CODEX_PROBE_MODEL` (default `gpt-5.6-terra`) and `--` keeps a prompt starting with `-` from being parsed as a flag. The probe passes no images; `/exec` builds its command with the same helper and inserts one `--image <file>` per image right after `--model`.
 6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.
 7. Compute `codex_version` from `/usr/local/bin/codex --version`; if that command fails, `codex_version` is `unknown`.
 
@@ -110,7 +110,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - Runner is enabled only when `AUTH_RUNNER_URL` is a non-empty string; otherwise the runner client is not created.
 - API boot checks probe the runner's derived `/health` endpoint once for per-engine telemetry. Credential verification itself sends one `POST` directly to `/verify` or `/verify-claude`; transport/parse/HTTP failures are non-definitive and report `reachable=false` only for an actual transport/provider-unreachable signal.
 - Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`. The API HTTP transport allows an additional bounded six-second response/readback grace beyond the native probe deadline; this lets a timed-out CLI return any rotated credential bytes safely instead of losing them at the transport boundary.
-- OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, `images[]`, `model`, `engine`, `timeout_seconds`, and whichever of `max_tokens`, `temperature`, `top_p`, `system`, and `stop_sequences` the caller supplied; the Anthropic-compatible adapter can additionally send `top_k`. When `model` is present the runner invokes `codex --model <id> exec ...`, and each image is materialized to a temp file then passed through as `codex --image <file>`.
+- OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, `images[]`, `model`, `engine`, `timeout_seconds`, and whichever of `max_tokens`, `temperature`, `top_p`, `system`, and `stop_sequences` the caller supplied; the Anthropic-compatible adapter can additionally send `top_k`. When `model` is present the runner invokes `codex exec --model <id> ...`, and each image is materialized to a temp file then passed through as `--image <file>`.
 - Project assist request payload includes `auth_json`, `slug`, `project`, and `timeout_seconds`. The API uses it for the admin-only project roster draft flow (`api/src/services/project-drafts.ts`).
 - `/skills/summarize` and `/memories/summarize` have **no API caller**: no code under `api/src` builds either URL or sends either payload. The routes are reachable on the runner but currently unused, so a summary only exists if something outside this repo posts to them.
 - Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
@@ -210,6 +210,13 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 
 ## Configuration quick reference
 
+Every `(runner container)` entry below is one env name `runner/app.py` reads.
+`runner/test_docs_env.py` derives those names from the `os.getenv` /
+`os.environ.get` literals in `runner/app.py` and fails when this list misses one
+or names one the runner does not read, so a renamed knob has to be documented
+here before it can ship. The `(API)` entries are read by the API process
+instead.
+
 - `AUTH_RUNNER_URL` (API): runner endpoint URL used for readiness GET + verification POST. Code default: empty (disabled). Compose default: `http://auth-runner:8080/verify`.
 - `AUTH_RUNNER_SKILL_SUMMARY_URL`, `AUTH_RUNNER_MEMORY_SUMMARY_URL`, and `AUTH_RUNNER_SKILL_GENERATE_URL` (API): historical overrides. No API code reads them; setting one changes nothing.
 - Skill generate, skill assist, and project assist endpoints are derived from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`, `/skills/assist`, and `/projects/assist`; the `/exec` endpoint is derived the same way. The summary endpoints are not derived at all, because the API never calls them.
@@ -222,5 +229,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.
+- `RUNNER_CODEX_PROBE_MODEL` (runner container): model passed as `--model` to the Codex "Reply Banana" probe. Code default: `gpt-5.6-terra`; a value that is blank after trimming drops the flag and lets the CLI pick.
+- `ANTHROPIC_API_BASE` (runner container): base URL the direct API-key half of `POST /verify-claude` posts to. Code default: `https://api.anthropic.com`, with trailing slashes stripped.
 - `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for every POST — `/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.
