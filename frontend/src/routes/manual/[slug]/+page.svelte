@@ -7,7 +7,7 @@
   import ArticleView from "$lib/components/manual/ArticleView.svelte";
   import SearchBox from "$lib/components/manual/SearchBox.svelte";
   import { filterArticles } from "$lib/components/manual/filter";
-  import { fetchManifest, fetchSearchIndex } from "$lib/api/manual";
+  import { fetchManifest } from "$lib/api/manual";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
 
   const slug = $derived(page.params.slug ?? "");
@@ -15,12 +15,6 @@
   const manifestQuery = createQuery({
     queryKey: ["manual", "manifest"],
     queryFn: fetchManifest,
-    staleTime: 5 * 60_000,
-  });
-
-  const searchIndexQuery = createQuery({
-    queryKey: ["manual", "search-index"],
-    queryFn: fetchSearchIndex,
     staleTime: 5 * 60_000,
   });
 
@@ -32,8 +26,7 @@
   }
 
   const articles = $derived($manifestQuery.data?.articles ?? []);
-  const index = $derived($searchIndexQuery.data ?? null);
-  const filtered = $derived(filterArticles(articles, debouncedQuery, index));
+  const filtered = $derived(filterArticles(articles, debouncedQuery));
   const summary = $derived(articles.find((a) => a.slug === slug));
   const notFound = $derived(
     !$manifestQuery.isLoading && !!articles.length && !summary,

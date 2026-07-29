@@ -6,19 +6,13 @@
   import ArticleList from "$lib/components/manual/ArticleList.svelte";
   import SearchBox from "$lib/components/manual/SearchBox.svelte";
   import { filterArticles } from "$lib/components/manual/filter";
-  import { fetchManifest, fetchSearchIndex } from "$lib/api/manual";
+  import { fetchManifest } from "$lib/api/manual";
   import BookOpen from "@lucide/svelte/icons/book-open";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
 
   const manifestQuery = createQuery({
     queryKey: ["manual", "manifest"],
     queryFn: fetchManifest,
-    staleTime: 5 * 60_000,
-  });
-
-  const searchIndexQuery = createQuery({
-    queryKey: ["manual", "search-index"],
-    queryFn: fetchSearchIndex,
     staleTime: 5 * 60_000,
   });
 
@@ -30,8 +24,7 @@
   }
 
   const articles = $derived($manifestQuery.data?.articles ?? []);
-  const index = $derived($searchIndexQuery.data ?? null);
-  const filtered = $derived(filterArticles(articles, debouncedQuery, index));
+  const filtered = $derived(filterArticles(articles, debouncedQuery));
 
   // Featured: articles tagged "getting-started" if any, else the first
   // article in each of the first two sections.
