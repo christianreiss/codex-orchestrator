@@ -30,6 +30,7 @@ import {
   REASONING_EFFORTS,
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
+import { coerceCodexVersionToMinimum, isSemanticVersion } from './client-versions.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -98,10 +99,9 @@ export function installerCommand(url: string, curlInsecure: boolean): string {
 // Semantic version validation (used by codex/claude version overrides)
 // ────────────────────────────────────────────────────────────────────────────
 
-const SEMVER_RE = /^\d+\.\d+\.\d+(?:[+-][0-9A-Za-z.-]+)?$/;
-export function isSemanticVersion(input: string): boolean {
-  return SEMVER_RE.test(input.trim());
-}
+// Re-exported so the version-override call sites here and the fleet-wide lock
+// in /admin/settings validate the same admin input against one validator.
+export { isSemanticVersion };
 
 export function normalizeSemver(input: string): string {
   let v = input.trim();
@@ -849,7 +849,9 @@ export class HostManagementService {
           param: 'selection',
         });
       }
-      stored = normalized;
+      // Same floor the fleet-wide lock applies: a host pinned below it would
+      // get a config.toml its CLI refuses.
+      stored = coerceCodexVersionToMinimum(normalized);
     }
     await this.db
       .update(hosts)
