@@ -21,7 +21,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when request is HTTPS.
 - Password recovery is available from `/admin/login`: the request endpoint accepts a username or email without disclosing whether it matched, sends a one-hour single-use link to `/admin/password/reset`, and the reset endpoint rotates the password while expiring existing sessions and outstanding reset tokens.
 - WebAuthn settings:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving it from the trusted request scheme/host.
 

@@ -25,7 +25,7 @@
 - Client certificates are enforced a layer out, by the optional `caddy` compose profile, which answers `/admin*` without a validated cert with `403 Client certificate required for /admin`. It is not started by a plain `docker compose up`, so without it protect `/admin/` with another control (VPN/firewall) and rely on admin login for user-level access.
 - `ADMIN_ACCESS_MODE` accepts `mtls` (default), `cookie`, or `open`. Despite the name it configures neither TLS nor `/admin/*`: `api/src/routes/cli-auth/index.ts` is the only reader, and it uses the value to decide whether the `/cli/auth/verify` device-approval page demands an admin session (anything but `open` does).
 - WebAuthn/passkey settings:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact origin used for ceremony validation; when unset, the app prefers `PUBLIC_BASE_URL` before deriving origin from the trusted request scheme/host.
 - Admin API endpoints:

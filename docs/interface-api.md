@@ -409,6 +409,7 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 - Admin endpoints require the admin session cookie. The API never checks a client certificate: `auth-mtls` parses `X-MTLS-Fingerprint`/`-Subject`/`-Issuer` into `req.mtls` and no route reads it, so `X-MTLS-Present` changes nothing. The certificate gate belongs to the optional `caddy` compose profile, which is not started by a plain `docker compose up`; without it (or another proxy doing the same) lock down `/admin` via VPN or firewall.
 - Runner IP bypass: when `AUTH_RUNNER_IP_BYPASS=1` and `AUTH_RUNNER_BYPASS_SUBNETS` contains CIDRs, runner-originated `/auth` validation can proceed without rebinding the stored host IP (logged as `auth.runner_ip_bypass`).
 - Runner auth: when `AUTH_RUNNER_SHARED_SECRET` is set on API and `RUNNER_SHARED_SECRET` is set on the runner, API calls to runner include `X-Runner-Auth`; runner rejects missing/invalid secrets with HTTP 401.
+- Encryption key: either `ENCRYPTION_ACTIVE_KEY` or the legacy `AUTH_ENCRYPTION_KEY` must hold 32 base64-encoded raw bytes. With neither set the env schema fails and the API does not start, keyring vars alone included.
 
 ## Rate limiting
 
@@ -430,7 +431,7 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 
 - Admin routes are protected by the admin session cookie (`requireAdmin`). Client certificates are enforced one layer out, by the optional `caddy` profile, which rejects `/admin*` without a validated cert and injects the `X-MTLS-*` headers. `ADMIN_ACCESS_MODE` (`mtls` default, `cookie`, `open`) is read only by `/cli/auth/verify`, where anything but `open` requires an admin session; it does not gate `/admin/*`. Passkey/WebAuthn login issues the same session cookie.
 - WebAuthn config:
-  - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host.
+  - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides RP display name.
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact expected origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving origin from the trusted request scheme/host.
 - Userless bootstrap: when no active admin users exist, the admin UI behaves as it does today (no login enforcement). Creating the first active admin enables login + role checks.
