@@ -5,10 +5,20 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      # The frontend suite is not confined to frontend/: `cli-auth.test.ts`
+      # reads api/src/services/cli-auth.ts to pin the device-code alphabet
+      # against the service that issues it. Without this, a commit touching
+      # only the api runs no frontend job and the parity that test exists to
+      # catch ships. `frontend/src/lib/ci-workflow-paths.test.ts` holds both
+      # filters below against what the tests actually read.
+      - 'api/**'
       - '.github/workflows/frontend.yml'
   pull_request:
     paths:
       - 'frontend/**'
+      # Same trees as `push`; GitHub Actions has no YAML anchors, so the list
+      # is spelled twice and the test above requires both copies to carry it.
+      - 'api/**'
       - '.github/workflows/frontend.yml'
 
 concurrency:
