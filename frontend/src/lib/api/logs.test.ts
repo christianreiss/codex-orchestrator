@@ -139,6 +139,7 @@ describe("hostsForLogsQuery", () => {
     const options = hostsForLogsQuery();
 
     assert.deepEqual(options.queryKey, ["logs", "hosts-map"]);
+    assert.equal(options.staleTime, 60_000);
     assert.deepEqual(await queryFnOf<HostFqdnSummary[]>(options)(), [
       { id: 1, fqdn: "edge-01.example", hostname: "edge-01", display_name: "Edge 01" },
       { id: 2, fqdn: "edge-02", hostname: "edge-02", display_name: "Edge 02" },
