@@ -1,8 +1,11 @@
 /**
  * API client for the admin online manual.
  *
- *   GET /admin/manual/manifest      → ManualManifest (raw JSON, no envelope)
- *   GET /admin/manual/article/{slug} → {slug, meta, body} (raw JSON, no envelope)
+ *   GET /admin/manual/manifest      → ManualManifest
+ *   GET /admin/manual/article/{slug} → {slug, meta, body}
+ *
+ * Both routes go through the standard `{status: "ok", data: {...}}` envelope,
+ * which `apiFetch` unwraps into the payload above.
  *
  * The server also exposes `GET /admin/manual/search?q=…` for server-side
  * full-text hits, but the article-list filter on the client only needs a
@@ -26,10 +29,10 @@ export interface ManualArticleResponse {
 
 /** Fetch the manifest (article list, titles, sections, tags). */
 export function fetchManifest(): Promise<ManualManifest> {
-  return apiFetch<ManualManifest>(manualEndpoints.manifest, { raw: true });
+  return apiFetch<ManualManifest>(manualEndpoints.manifest);
 }
 
 /** Fetch the rendered article body and meta for a slug. */
 export function fetchArticle(slug: string): Promise<ManualArticleResponse> {
-  return apiFetch<ManualArticleResponse>(manualEndpoints.article(slug), { raw: true });
+  return apiFetch<ManualArticleResponse>(manualEndpoints.article(slug));
 }
