@@ -12,7 +12,7 @@
     editUserSchema,
     ROLE_OPTIONS,
   } from "./userSchema";
-  import type { AdminUser, AdminUserPayload, UserRole } from "$lib/api/types";
+  import { USER_ROLES, type AdminUser, type AdminUserPayload, type UserRole } from "$lib/api/types";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Check from "@lucide/svelte/icons/check";
@@ -43,14 +43,25 @@
   let passwordConfirm = $state("");
   let showPassword = $state(false);
 
+  /**
+   * `access_level` arrives as a free-form string. Keep the row's own role
+   * whenever the server still accepts it — falling back to "user" here would
+   * silently demote the subject on save. Only a role the API no longer lists
+   * (or a create, with no subject) starts at "user".
+   */
+  function seedRole(level: string | null | undefined): UserRole {
+    return (USER_ROLES as readonly string[]).includes(level ?? "")
+      ? (level as UserRole)
+      : "user";
+  }
+
   // Reset whenever the dialog opens with a new initial subject.
   $effect(() => {
     if (open) {
       name = initial?.name ?? "";
       username = initial?.username ?? "";
       email = initial?.email ?? "";
-      access_level = (ROLE_OPTIONS.find((r) => r.value === initial?.access_level)?.value
-        ?? "user") as UserRole;
+      access_level = seedRole(initial?.access_level);
       active = initial?.active ?? true;
       password = "";
       passwordConfirm = "";

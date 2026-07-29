@@ -75,7 +75,9 @@ export const editUserSchema = z
   });
 
 export const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+  { value: "owner", label: "Owner" },
   { value: "admin", label: "Admin" },
+  { value: "viewer", label: "Viewer" },
   { value: "fleet_operator", label: "Fleet Operator" },
   { value: "trusted_user", label: "Trusted User" },
   { value: "user", label: "User" },

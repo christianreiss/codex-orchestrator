@@ -19,7 +19,7 @@
     createUserDeleteMutation,
     createWipeUsersMutation,
   } from "$lib/api/users";
-  import type { AdminUser, AdminUserPayload } from "$lib/api/types";
+  import { USER_ROLES, type AdminUser, type AdminUserPayload } from "$lib/api/types";
 
   const usersQuery = createUsersQuery();
   const createMut = createUserCreateMutation();
@@ -110,19 +110,10 @@
     clearUserParam();
   });
 
+  // Sorts by the API's own privilege order (owner first), unknown roles last.
   function roleRank(role: string | undefined): number {
-    switch ((role ?? "").toLowerCase()) {
-      case "admin":
-        return 0;
-      case "fleet_operator":
-        return 1;
-      case "trusted_user":
-        return 2;
-      case "user":
-        return 3;
-      default:
-        return 4;
-    }
+    const index = (USER_ROLES as readonly string[]).indexOf((role ?? "").toLowerCase());
+    return index === -1 ? USER_ROLES.length : index;
   }
 
   const filteredSorted = $derived.by(() => {

@@ -891,8 +891,11 @@ export interface ScalingStatus {
 }
 
 // users feature ↓
+/** Mirrors `VALID_ACCESS_LEVELS` in api/src/services/admin-auth.ts. */
 export const USER_ROLES = [
+  "owner",
   "admin",
+  "viewer",
   "fleet_operator",
   "trusted_user",
   "user",
