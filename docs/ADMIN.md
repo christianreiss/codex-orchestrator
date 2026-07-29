@@ -87,7 +87,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - WebSocket server: in-process Fastify plugin (`api/src/ws/server.ts`) registered at `/admin/ws`.
   - Toggle: `ADMIN_WS_ENABLED`.
   - Requires an admin session: both the upgrade and `/admin/ws/info` call `resolveAdmin`, and neither looks at a certificate.
-  - Tracks admin client presence in `versions.admin_ws_connections` for insecure-approval gating.
+  - Presence is in-process only (`api/src/ws/server.ts` holds the sockets and nothing else); it is not written to the `versions` table, so no other process can see who is connected.
 - Besides push events, the socket now supports targeted request/response hydration for slow host-detail metadata. Current request: `host-detail-support`, returning compact `runner` plus full AGENTS admin metadata for the active host page.
 - Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
 - Host, project, and shared memory mutations invalidate the shared `memories`
@@ -202,9 +202,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Initial open window defaults to `30` minutes.
   - Stored sliding window defaults to `10` minutes unless `duration_minutes` is provided.
 - Insecure window refresh is applied on non-store checks (`/auth` retrieve path, `/mcp`, `/host/lane`), not on plain `/auth` store.
-- Insecure approval queue is only offered when both conditions are true:
-  - `insecure_approval_enabled` flag is on.
-  - WebSocket presence is fresh (`admin_ws_connections` heartbeat window).
+- Insecure approval queue is not gated on websocket presence; there is no such heartbeat window. The `insecure_approval_enabled` flag is a settings toggle reported by `GET /admin/overview`, and `GET /admin/insecure-approvals/pending` lists the queue to any admin regardless of it.
 - The dashboard now rehydrates the insecure approval queue from `GET /admin/insecure-approvals/pending` on load and websocket reconnect, so pending requests still show up even if the original live event was missed.
 - A live `auth.insecure.pending` event now rings a short synthesized bell in the admin dashboard when a genuinely new insecure approval request arrives. Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
 - The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `/admin/projects/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row, doubles as the operator-facing CoCo toolkit/help document, and now tells operators to keep shared CoCo handoffs in Projects rather than host-scoped MCP memories.

@@ -186,17 +186,18 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
   pending/failed payloads are internal history and are never returned as auth.
 - The auth-verification worker is timer-driven, not request-driven; wrapper
   startup does not wait for stale canonical auth to be re-probed.
-- Recovery behavior when `runner_state=fail`: retries are triggered on boot-id
-  change or after ~15 minutes since `runner_last_fail` (`fail_backoff` path).
-  Recovery failures are logged; they block new stores but do not invalidate a
-  still-current verified head.
+- Recovery behavior when `runner_state=fail`: the PHP `fail_backoff` path, which
+  retried on boot-id change or ~15 minutes after `runner_last_fail`, was not
+  ported; recovery now rides on the next boot check, timer pass or manual
+  trigger. Recovery failures are logged; they block new stores but do not
+  invalidate a still-current verified head.
 - Manual trigger `POST /admin/runner/run` forces one Codex runner pass
   (`trigger=manual`) and returns whether canonical digest changed (`applied`).
   `POST /admin/runner/run-claude` verifies the latest Claude canonical payload
   through `/verify-claude`; Claude Code OAuth/account-login payloads are checked
   with a native Claude CLI probe instead of treating the OAuth access token as a
   public Anthropic API key.
-- Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable or a background auth probe produced a final provider verdict), Claude-suffixed equivalents, `runner_boot_id`, and `daily_preflight`.
+- Runner telemetry stored in `versions`: `runner_state`, `runner_last_ok`, `runner_last_fail`, `runner_last_check` (set only when the runner request was reachable or a background auth probe produced a final provider verdict), plus the Claude-suffixed equivalents. Those four are the whole set — there is no boot-id or preflight marker.
 
 ## Network and IP notes
 
