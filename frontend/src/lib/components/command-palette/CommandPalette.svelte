@@ -9,7 +9,6 @@
     STATIC_COMMANDS,
     buildDynamicSources,
     buildRecentCommands,
-    getExternalSources,
     groupOrder,
     type CommandGroup,
     type CommandSource,
@@ -52,8 +51,7 @@
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       const token = ++inflightToken;
-      const all = [...sources, ...getExternalSources()];
-      if (all.length === 0) {
+      if (sources.length === 0) {
         dynamicCommands = [];
         return;
       }
@@ -62,7 +60,7 @@
       // arrive so the palette stays interactive while requests are flying.
       const pending: PaletteCommand[] = [];
       Promise.allSettled(
-        all.map(async (src) => {
+        sources.map(async (src) => {
           const r = await src(q);
           if (token !== inflightToken) return;
           pending.push(...r);

@@ -83,8 +83,6 @@ export interface PaletteCommand {
 /** A dynamic command source. Returns commands for the given query string. */
 export type CommandSource = (query: string) => PaletteCommand[] | Promise<PaletteCommand[]>;
 
-const externalSources: CommandSource[] = [];
-
 /* -------------------------------------------------------------------------- */
 /*  Static commands                                                            */
 /* -------------------------------------------------------------------------- */
@@ -499,11 +497,6 @@ export function buildDynamicSources(qc: QueryClient): CommandSource[] {
   };
 
   return [hostSource, projectSource, skillSource, userSource];
-}
-
-/** Snapshot of external sources for the palette to merge. */
-export function getExternalSources(): readonly CommandSource[] {
-  return externalSources;
 }
 
 /**
