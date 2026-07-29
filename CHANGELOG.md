@@ -10,9 +10,16 @@
   atomically install `cxx` once, migrate legacy regular binaries to relative
   aliases, and bootstrap all enabled CLIs through one host-wide cron
   coordinator. Failed swaps leave the previous binary intact.
-- Auto-update now owns exactly one `cxx-managed` schedule per host and removes
-  both historical persona schedules; the first upgraded legacy tick migrates
-  itself. Engine-scoped uninstall removes only its alias while another engine
+- **cxx 0.7.1:** Auto-update now owns exactly one `cxx-managed` schedule per
+  host and removes both historical persona schedules; the first upgraded
+  legacy tick migrates itself. Privileged system-schedule reconciliation now
+  discovers every actual crontab owner represented in the standard cron spool
+  directories, adds config-owner, sudo-caller, current-user, and root
+  safeguards, then snapshots each crontab before removing only lines ending in
+  an exact cxx/cdx/clx managed marker. Every unrelated byte is preserved. Any
+  cross-user or legacy `/etc/cron.d` cleanup failure restores all user
+  snapshots and removes the new shared entry instead of leaving duplicate
+  jobs. Engine-scoped uninstall removes only its alias while another engine
   remains, deletes shared artifacts only after confirmed last-engine removal,
   and preserves shared state when the API result is uncertain.
 - Host detail now reports one **CXX wrapper** version and calls out dual-engine

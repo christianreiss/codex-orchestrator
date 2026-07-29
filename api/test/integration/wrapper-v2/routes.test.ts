@@ -437,13 +437,13 @@ async function registerRoutesWithSigningOverride(
   );
 
   app.get<{
-    Params: { engine: string; platform: string; version: string; binary: string };
+    Params: { artifact: string; platform: string; version: string; binary: string };
   }>(
-    '/wrapper/v2/bin/:engine/:platform/v:version/:binary',
+    '/wrapper/v2/bin/:artifact/:platform/v:version/:binary',
     { preHandler: [app.requireHost] },
     async (req, reply) => {
       await guard();
-      const { engine: artifact, platform, version, binary } = req.params;
+      const { artifact, platform, version, binary } = req.params;
       const m = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(platform);
       if (!m || !m[1] || !m[2]) throw new ValidationError('bad platform', { param: 'platform' });
 
@@ -856,6 +856,26 @@ describe('wrapper-v2 routes', () => {
     });
     expect(r.statusCode).toBe(200);
     expect(r.headers['content-disposition']).toBe('attachment; filename="cxx"');
+    expect(r.headers['x-sha256']).toBe(
+      '9fffd05c3633248e9442c56817d5bd9b6861e1ebcb63d856d42774277d5f0a66',
+    );
+    expect(r.rawPayload.toString('utf8').trim()).toBe('cxx-binary-v1.0.1-common-payload');
+    await app.close();
+  });
+
+  it('streams common cxx bytes through a per-engine compatibility URL when no split file exists', async () => {
+    const host = { ...fakeHost(), engines: 'codex,claude' };
+    const app = await buildApp(
+      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+      makeSigner(kp.privateKey),
+      host,
+    );
+    const r = await app.inject({
+      method: 'GET',
+      url: '/wrapper/v2/bin/claude/linux-amd64/v1.0.1/clx',
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['content-disposition']).toBe('attachment; filename="clx"');
     expect(r.headers['x-sha256']).toBe(
       '9fffd05c3633248e9442c56817d5bd9b6861e1ebcb63d856d42774277d5f0a66',
     );

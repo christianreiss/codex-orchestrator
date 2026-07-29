@@ -43,7 +43,7 @@ import {
  *   GET  /wrapper/v2/config              → signed per-host config JSON
  *   GET  /wrapper/v2/download            → binary stream for the calling host's platform
  *   GET  /wrapper/v2/manifest/:engine    → per-platform manifest
- *   GET  /wrapper/v2/bin/:engine/:plat/v:version/:binary → static binary
+ *   GET  /wrapper/v2/bin/:artifact/:plat/v:version/:binary → static binary
  *
  * Every endpoint is host-authenticated via `app.requireHost`.
  *
@@ -291,15 +291,15 @@ export async function registerWrapperV2Routes(
     },
   );
 
-  // GET /wrapper/v2/bin/:engine/:platform/v:version/:binary
+  // GET /wrapper/v2/bin/:artifact/:platform/v:version/:binary
   app.get<{
-    Params: { engine: string; platform: string; version: string; binary: string };
+    Params: { artifact: string; platform: string; version: string; binary: string };
   }>(
-    '/wrapper/v2/bin/:engine/:platform/v:version/:binary',
+    '/wrapper/v2/bin/:artifact/:platform/v:version/:binary',
     { preHandler: [app.requireHost] },
     async (req, reply) => {
       await unavailableGuard();
-      const { engine: artifact, platform, version, binary } = req.params;
+      const { artifact, platform, version, binary } = req.params;
       const host = req.authHost;
       if (!host)
         throw new ServiceUnavailableError('host context missing', 'host_context_missing');

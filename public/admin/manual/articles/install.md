@@ -155,7 +155,11 @@ What the installer actually does on the target machine:
 4. Invokes `cxx cron install` and `cxx cron run --minimal` once each. The
    coordinator installs one shared schedule and boots every enabled persona
    exactly once, installing Codex and/or Claude Code at the server-selected
-   version.
+   version. A privileged system-schedule migration discovers every actual
+   owner in the standard cron spools plus config-owner/sudo/current/root
+   safeguards, snapshots each crontab, removes only lines ending in an exact
+   managed marker, and restores every changed crontab plus the new system
+   entry if cleanup cannot complete.
 5. Prints `READY` only after the common wrapper, every CLI, and cron setup verifies. Any
    partial failure prints `INCOMPLETE`, exits non-zero, and gives a direct retry;
    wrapper/config failures require minting a fresh single-use installer.

@@ -25,6 +25,15 @@ pipeline with:
    on per-config wrapper targets, which may differ during rolling refresh. The
    first upgraded legacy cron tick installs `# cxx-managed-cron` (system
    fallback `/etc/cron.d/cxx-managed`) and removes both old persona schedules.
+   Privileged reconciliation discovers every actual crontab owner represented
+   under `/var/spool/cron`, `/var/spool/cron/crontabs`, `/var/at/tabs`,
+   `/var/cron/tabs`, or `/usr/lib/cron/tabs`, then adds resolved config-home
+   owner, valid sudo caller, current OS user, and root safeguards. It snapshots
+   each discovered crontab, strips only lines ending in an exact cxx/cdx/clx
+   managed marker, and leaves all unrelated bytes untouched. A partial
+   user-crontab failure or later legacy `/etc/cron.d` cleanup failure restores
+   every snapshot and removes the new system entry, so migration fails closed
+   instead of committing two jobs.
 
 ## Request flow
 
@@ -98,7 +107,7 @@ Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
 | GET    | `/wrapper/v2/download`                            | Go binary for this host's platform      |
 | GET    | `/wrapper/v2/manifest/{engine}`                   | per-platform inventory                  |
 | GET    | `/wrapper/v2/bin/cxx/{os}-{arch}/v{ver}/cxx`      | common static binary (`ETag=sha256`)   |
-| GET    | `/wrapper/v2/bin/{engine}/{os}-{arch}/v{ver}/{e}` | immutable historical split artifact    |
+| GET    | `/wrapper/v2/bin/{engine}/{os}-{arch}/v{ver}/{e}` | exact historical split bytes, else matching `cxx` bytes |
 | GET    | `/wrapper/download`                               | bootstrap transition launcher (legacy)  |
 | GET    | `/install/v2/{token}`                             | v2 installer script                     |
 | GET    | `/seed/v2/auth/{token}`                           | v2 seed-auth uploader                   |

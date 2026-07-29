@@ -309,6 +309,13 @@ refresh. It owns exactly one user entry (`# cxx-managed-cron`) or system entry
 (`/etc/cron.d/cxx-managed`). The first upgraded tick reached from an old
 `cdx-managed` or `clx-managed` job installs that shared entry and removes both
 historical user/system schedules before running enabled engine maintenance.
+For a privileged system entry, reconciliation discovers every actual owner in
+the standard cron spools plus config-home-owner/sudo/current/root safeguards,
+snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx
+managed marker, and preserves all unrelated bytes. Any partial user cleanup or
+later legacy-system cleanup failure restores every snapshot and removes the
+new shared system entry. Privileged removal uses the same all-user transaction
+and restores the snapshots if any system cron file cannot be removed.
 Coordinator children receive internal `CXX_CRON_COORDINATED` and
 `CXX_CRON_ENGINE_ONLY` markers so alias forwarding and legacy peer guards cannot
 re-enter the coordinator; operators do not set either variable.

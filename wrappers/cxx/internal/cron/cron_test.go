@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -35,6 +36,20 @@ func TestFirstRunScheduleCollapseProducesOneSharedEntry(t *testing.T) {
 	body := strings.Join(lines, "\n")
 	if strings.Count(body, Marker) != 1 || strings.Contains(body, "cdx-managed-cron") || strings.Contains(body, "clx-managed-cron") {
 		t.Fatalf("collapsed schedule=%q", body)
+	}
+}
+
+func TestStripManagedBodyPreservesUnrelatedBytesAndMatchesMarkerSuffix(t *testing.T) {
+	body := "# docs mention # cdx-managed-cron in prose\n\n" +
+		"1 1 * * * cdx --cron # cdx-managed-cron  \n" +
+		"MAILTO=ops@example.com"
+	got, changed := stripManagedBody(body)
+	if !changed {
+		t.Fatal("managed line was not removed")
+	}
+	want := "# docs mention # cdx-managed-cron in prose\n\nMAILTO=ops@example.com"
+	if got != want {
+		t.Fatalf("body=%q want=%q", got, want)
 	}
 }
 
@@ -295,21 +310,180 @@ func TestEnsureCronLogCreatesReadableFile(t *testing.T) {
 }
 
 func TestSystemScheduleCleanupFailureRollsBackNewSharedEntry(t *testing.T) {
-	oldInstall, oldStrip := installSystemSchedule, stripUserSchedule
+	oldInstall, oldReconcile := installSystemSchedule, reconcileUserSchedules
 	oldLegacy, oldRemove := removeLegacySchedules, removeSystemSchedule
 	var calls []string
 	installSystemSchedule = func(string, int, int) error { calls = append(calls, "install"); return nil }
-	stripUserSchedule = func() error { calls = append(calls, "strip-user"); return errors.New("user cleanup failed") }
+	reconcileUserSchedules = func() (userCrontabRollback, error) {
+		calls = append(calls, "reconcile-users")
+		return nil, errors.New("user cleanup failed")
+	}
 	removeLegacySchedules = func() error { calls = append(calls, "remove-legacy"); return nil }
 	removeSystemSchedule = func(path string) error { calls = append(calls, "rollback:"+path); return nil }
 	t.Cleanup(func() {
-		installSystemSchedule, stripUserSchedule = oldInstall, oldStrip
+		installSystemSchedule, reconcileUserSchedules = oldInstall, oldReconcile
 		removeLegacySchedules, removeSystemSchedule = oldLegacy, oldRemove
 	})
 	if err := reconcileSystemSchedule("/usr/local/bin/cxx", 1, 2); err == nil {
 		t.Fatal("cleanup failure hidden")
 	}
-	want := []string{"install", "strip-user", "remove-legacy", "rollback:" + systemCronPath}
+	want := []string{"install", "reconcile-users", "rollback:" + systemCronPath}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls=%q want=%q", calls, want)
+	}
+}
+
+func TestSystemLegacyCleanupFailureRestoresUsersBeforeSharedRollback(t *testing.T) {
+	oldInstall, oldReconcile := installSystemSchedule, reconcileUserSchedules
+	oldLegacy, oldRemove := removeLegacySchedules, removeSystemSchedule
+	var calls []string
+	installSystemSchedule = func(string, int, int) error { calls = append(calls, "install"); return nil }
+	reconcileUserSchedules = func() (userCrontabRollback, error) {
+		calls = append(calls, "reconcile-users")
+		return func() error { calls = append(calls, "restore-users"); return nil }, nil
+	}
+	removeLegacySchedules = func() error { calls = append(calls, "remove-legacy"); return errors.New("legacy cleanup failed") }
+	removeSystemSchedule = func(path string) error { calls = append(calls, "rollback:"+path); return nil }
+	t.Cleanup(func() {
+		installSystemSchedule, reconcileUserSchedules = oldInstall, oldReconcile
+		removeLegacySchedules, removeSystemSchedule = oldLegacy, oldRemove
+	})
+	if err := reconcileSystemSchedule("/usr/local/bin/cxx", 1, 2); err == nil {
+		t.Fatal("legacy cleanup failure hidden")
+	}
+	want := []string{"install", "reconcile-users", "remove-legacy", "restore-users", "rollback:" + systemCronPath}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls=%q want=%q", calls, want)
+	}
+}
+
+func TestDiscoverCrontabOwnersIncludesOtherUserOnDirectRootSchedule(t *testing.T) {
+	spool := t.TempDir()
+	for _, name := range []string{"root", "chris"} {
+		if err := os.WriteFile(filepath.Join(spool, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oldDirs := userCrontabSpoolDirs
+	oldLookup, oldCurrent, oldIdentity := lookupCrontabUser, currentCrontabUser, resolveCronIdentity
+	userCrontabSpoolDirs = []string{spool}
+	lookupCrontabUser = func(name string) (*user.User, error) {
+		if name != "root" && name != "chris" {
+			return nil, user.UnknownUserError(name)
+		}
+		return &user.User{Username: name, HomeDir: "/home/" + name}, nil
+	}
+	currentCrontabUser = func() (*user.User, error) { return &user.User{Username: "root"}, nil }
+	resolveCronIdentity = func() (systemCronIdentity, error) {
+		return systemCronIdentity{userName: "root", home: "/root"}, nil
+	}
+	t.Cleanup(func() {
+		userCrontabSpoolDirs = oldDirs
+		lookupCrontabUser, currentCrontabUser, resolveCronIdentity = oldLookup, oldCurrent, oldIdentity
+	})
+
+	owners, err := discoverManagedCrontabOwners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"chris", "root"}; !reflect.DeepEqual(owners, want) {
+		t.Fatalf("owners=%q want=%q", owners, want)
+	}
+}
+
+func TestReconcileManagedUserCrontabsRemovesOtherUserMarkerAndCanRollback(t *testing.T) {
+	oldDiscover, oldRead, oldWrite := discoverCrontabOwners, readUserCrontab, writeUserCrontab
+	bodies := map[string]string{
+		"chris": "37 2 * * * /usr/local/bin/cdx --cron # cdx-managed-cron\n",
+		"root":  "# Puppet Name: puppet\n45 * * * * /usr/local/sbin/runPuppet.sh\n",
+	}
+	discoverCrontabOwners = func() ([]string, error) { return []string{"chris", "root"}, nil }
+	readUserCrontab = func(name string) (string, error) { return bodies[name], nil }
+	var writes []string
+	writeUserCrontab = func(name, body string) error {
+		writes = append(writes, name+":"+body)
+		bodies[name] = body
+		return nil
+	}
+	t.Cleanup(func() {
+		discoverCrontabOwners, readUserCrontab, writeUserCrontab = oldDiscover, oldRead, oldWrite
+	})
+
+	rollback, err := reconcileManagedUserCrontabs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bodies["chris"] != "" {
+		t.Fatalf("stale other-user entry remains: %q", bodies["chris"])
+	}
+	if len(writes) != 1 || !strings.HasPrefix(writes[0], "chris:") {
+		t.Fatalf("unexpected writes=%q", writes)
+	}
+	if err := rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(bodies["chris"], "# cdx-managed-cron") {
+		t.Fatalf("rollback did not restore chris: %q", bodies["chris"])
+	}
+}
+
+func TestReconcileManagedUserCrontabsRestoresEarlierWritesOnPartialFailure(t *testing.T) {
+	oldDiscover, oldRead, oldWrite := discoverCrontabOwners, readUserCrontab, writeUserCrontab
+	original := map[string]string{
+		"alice": "A\n1 1 * * * cdx --cron # cdx-managed-cron\n",
+		"bob":   "B\n2 2 * * * clx --cron # clx-managed-cron\n",
+	}
+	bodies := map[string]string{"alice": original["alice"], "bob": original["bob"]}
+	discoverCrontabOwners = func() ([]string, error) { return []string{"alice", "bob"}, nil }
+	readUserCrontab = func(name string) (string, error) { return bodies[name], nil }
+	writeUserCrontab = func(name, body string) error {
+		if name == "bob" && body == "B\n" {
+			return errors.New("write failed")
+		}
+		bodies[name] = body
+		return nil
+	}
+	t.Cleanup(func() {
+		discoverCrontabOwners, readUserCrontab, writeUserCrontab = oldDiscover, oldRead, oldWrite
+	})
+
+	if _, err := reconcileManagedUserCrontabs(); err == nil {
+		t.Fatal("partial write failure hidden")
+	}
+	if !reflect.DeepEqual(bodies, original) {
+		t.Fatalf("bodies=%q want restored=%q", bodies, original)
+	}
+}
+
+func TestPrivilegedRemoveRestoresUsersWhenSystemCleanupFails(t *testing.T) {
+	oldReconcile, oldRemove := reconcileUserSchedules, removeSystemSchedule
+	var calls []string
+	reconcileUserSchedules = func() (userCrontabRollback, error) {
+		calls = append(calls, "reconcile-users")
+		return func() error { calls = append(calls, "restore-users"); return nil }, nil
+	}
+	removeSystemSchedule = func(path string) error {
+		calls = append(calls, "remove:"+path)
+		if path == legacySystemPaths[0] {
+			return errors.New("remove failed")
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		reconcileUserSchedules, removeSystemSchedule = oldReconcile, oldRemove
+	})
+
+	if err := removeSchedulesLocked(true); err == nil {
+		t.Fatal("system cleanup failure hidden")
+	}
+	want := []string{
+		"reconcile-users",
+		"remove:" + systemCronPath,
+		"remove:" + legacySystemPaths[0],
+		"remove:" + legacySystemPaths[1],
+		"restore-users",
+	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("calls=%q want=%q", calls, want)
 	}
@@ -324,5 +498,11 @@ func TestSudoInvocationTargetsInstallUsersCrontab(t *testing.T) {
 	}
 	if got, want := crontabArgsFor(1000, "alice", "-l"), []string{"-l"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("non-root args=%q want=%q", got, want)
+	}
+	if name, got := crontabCommandSpecFor(0, "chris", "-l"); name != "crontab" || !reflect.DeepEqual(got, []string{"-u", "chris", "-l"}) {
+		t.Fatalf("root cross-user command=%q %q", name, got)
+	}
+	if name, got := crontabCommandSpecFor(1000, "chris", "-"); name != "sudo" || !reflect.DeepEqual(got, []string{"-n", "crontab", "-u", "chris", "-"}) {
+		t.Fatalf("sudo cross-user command=%q %q", name, got)
 	}
 }

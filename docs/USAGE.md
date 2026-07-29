@@ -115,7 +115,11 @@ What the installer does:
   Corepack npm 10.9.2 shim, and uses the OS npm package only as a fallback.
 - Invokes `cxx cron install` and `cxx cron run --minimal` once each. The one
   shared schedule runs every enabled engine tick exactly once, bootstrapping
-  Codex and/or Claude Code at the server-selected versions.
+  Codex and/or Claude Code at the server-selected versions. For a privileged
+  system schedule, migration discovers every actual owner in the standard
+  cron spools plus config-owner/sudo/current/root safeguards, removes only
+  lines ending in an exact managed marker, and restores every changed crontab
+  plus the new system entry if cleanup cannot complete.
 - Prints compact progress and installed versions. A final `READY` with exit 0
   is the success signal; `INCOMPLETE` is non-zero and includes direct retry
   commands. The installer does not open an interactive engine session.
