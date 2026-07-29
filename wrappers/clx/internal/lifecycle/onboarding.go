@@ -14,6 +14,8 @@ package lifecycle
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"strings"
@@ -21,7 +23,14 @@ import (
 
 func ensureOnboardingState(logger *slog.Logger) {
 	path := userConfigPath()
-	raw, _ := os.ReadFile(path)
+	raw, rerr := os.ReadFile(path)
+	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+		// An existing-but-unreadable file (root-owned, or 0600 from another uid)
+		// would otherwise look exactly like an absent one and get replaced by a
+		// one-key object, dropping oauthAccount, mcpServers and the rest.
+		logger.Warn("skipping onboarding seed; user .claude.json unreadable", "path", path, "err", rerr)
+		return
+	}
 	root := map[string]any{}
 	if strings.TrimSpace(string(raw)) != "" {
 		if err := json.Unmarshal(raw, &root); err != nil {
