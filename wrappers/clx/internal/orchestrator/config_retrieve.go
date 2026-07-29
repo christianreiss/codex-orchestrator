@@ -15,8 +15,10 @@ type ConfigRetrieveResponse struct {
 
 // RetrieveConfig fetches settings.json for Claude engine.
 //
-// home + username hints let the server bake per-user trust state into
-// settings.json the same way the cdx wrapper does for config.toml.
+// home + username are sent for server-side logging and parity with the cdx
+// wrapper's request shape. They do NOT change the Claude render: the trust
+// stanza ([projects."<home>"] trust_level) is baked into config.toml for codex
+// only, so settings.json is byte-identical with or without these hints.
 func (c *Client) RetrieveConfig(ctx context.Context, digest string) (json.RawMessage, error) {
 	body := map[string]any{"engine": "claude"}
 	if digest != "" {
