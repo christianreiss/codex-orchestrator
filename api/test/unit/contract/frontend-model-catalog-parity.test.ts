@@ -29,10 +29,12 @@ const MODELS_FILE = 'frontend/src/lib/constants/models.ts';
 const MODELS_PATH = resolve(import.meta.dirname, '../../../..', MODELS_FILE);
 
 /**
- * Ids one side carries on purpose without the other, keyed `<constant>.<id>`
- * with the reason. Empty today — every list agrees. An entry belongs here only
- * for a deliberate delta, e.g. an id the inference gate still accepts so
- * already-pinned hosts keep working but the picker no longer offers.
+ * Ids one side of a list carries on purpose without the other, keyed
+ * `<constant>.<id>` with the reason. Empty today — every list agrees. An entry
+ * belongs here only for a deliberate delta, e.g. an id the inference gate still
+ * accepts so already-pinned hosts keep working but the picker no longer offers.
+ * The fleet default mode below has no allowlist: the picker seeds the active
+ * mode from it, so the two disagreeing is never deliberate.
  */
 const ALLOWED: Record<string, string> = {};
 
@@ -190,16 +192,13 @@ const CATALOGS: Catalog[] = [
     frontend: catalogValues('CLAUDE_PERMISSION_MODES'),
     server: CLAUDE_PERMISSION_MODES,
   },
-  {
-    // A scalar, compared as a one-element set so it drifts, allowlists and
-    // reports like the lists. The settings form seeds its picker from it, so a
-    // stale value shows the wrong mode as the active one.
-    constant: 'DEFAULT_CLAUDE_PERMISSION_MODE',
-    api: 'DEFAULT_CLAUDE_PERMISSION_MODE (api/src/services/config-normalizer.ts)',
-    frontend: [stringConst('DEFAULT_CLAUDE_PERMISSION_MODE')],
-    server: [DEFAULT_CLAUDE_PERMISSION_MODE],
-  },
 ];
+
+/**
+ * The fleet default mode, a scalar rather than a list: the settings form seeds
+ * its picker from it, so a stale value shows the wrong mode as the active one.
+ */
+const FRONTEND_DEFAULT_PERMISSION_MODE = stringConst('DEFAULT_CLAUDE_PERMISSION_MODE');
 
 /** The catalog's values minus any allowed delta, as a comparable set. */
 const compared = ({ constant }: Catalog, values: readonly string[]): string[] =>
@@ -210,6 +209,8 @@ describe('frontend model catalog parity', () => {
     // A parser reading nothing — after a rename of the file or of a constant —
     // would pass every comparison below vacuously.
     for (const { constant, frontend } of CATALOGS) expect(frontend, constant).not.toEqual([]);
+    // stringConst throws on a rename; this pins that it read a mode, not ''.
+    expect(FRONTEND_DEFAULT_PERMISSION_MODE, 'DEFAULT_CLAUDE_PERMISSION_MODE').not.toEqual('');
     expect(optionValues('CLAUDE_MODEL_OPTIONS')).toContain('claude-sonnet-5');
     expect(optionValues('CODEX_MODELS')).toContain('gpt-5.6-terra');
     expect(optionValues('CLAUDE_PERMISSION_MODES')).toContain('bypassPermissions');
@@ -220,13 +221,34 @@ describe('frontend model catalog parity', () => {
   });
 
   it('offers exactly the ids the API accepts', () => {
+    // Both directions, separately: which side is ahead is the whole diagnosis.
+    // Frontend-only ids are the ones the gate rejects at inference time;
+    // API-only ids are a picker no operator can reach the capability through.
     for (const catalog of CATALOGS) {
+      const frontend = compared(catalog, catalog.frontend);
+      const server = compared(catalog, catalog.server);
+      const allowlist = 'or record the delta in ALLOWED here with a reason';
       expect(
-        compared(catalog, catalog.frontend),
-        `${catalog.constant} in ${MODELS_FILE} must offer exactly ${catalog.api} — update the ` +
-          'frontend list, or record the delta in ALLOWED here with a reason',
-      ).toEqual(compared(catalog, catalog.server));
+        frontend.filter((value) => !server.includes(value)),
+        `${catalog.constant} in ${MODELS_FILE} offers ids ${catalog.api} does not accept — drop ` +
+          `them from the frontend list, ${allowlist}`,
+      ).toEqual([]);
+      expect(
+        server.filter((value) => !frontend.includes(value)),
+        `${catalog.api} accepts ids ${catalog.constant} in ${MODELS_FILE} never offers — add them ` +
+          `to the frontend list, ${allowlist}`,
+      ).toEqual([]);
     }
+  });
+
+  it('seeds the picker with the API fleet default mode', () => {
+    expect(
+      FRONTEND_DEFAULT_PERMISSION_MODE,
+      `DEFAULT_CLAUDE_PERMISSION_MODE in ${MODELS_FILE} must equal DEFAULT_CLAUDE_PERMISSION_MODE ` +
+        '(api/src/services/config-normalizer.ts) — the form shows it as the mode already in effect',
+    ).toBe(DEFAULT_CLAUDE_PERMISSION_MODE);
+    // The default has to be an offered choice, or the form opens on a dead item.
+    expect(catalogValues('CLAUDE_PERMISSION_MODES')).toContain(FRONTEND_DEFAULT_PERMISSION_MODE);
   });
 
   it('keeps the allowlist to deltas that still exist', () => {
