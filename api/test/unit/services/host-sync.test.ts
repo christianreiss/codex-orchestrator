@@ -7,11 +7,20 @@ import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 
 /**
  * The service only reads/writes `host_users`, so the db fake is enough: it
- * filters selects by `eq(hostUsers.hostId, ...)` and records inserts.
+ * filters selects by `eq(hostUsers.hostId, ...)` and records inserts. The
+ * wrapper below also records every `.from(table)` so `collect` can be pinned
+ * to zero reads -- its callers already hold the users from `recordHostUser`.
  */
 
 const HOST_ID = 7;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+// Deliberately unrelated to the rows seeded into the db fake: if `collect`
+// ever reads `host_users` again, the returned payload stops matching this.
+const SUPPLIED_USERS = [
+  { username: 'alice', hostname: 'alice-box', last_seen: '2026-01-02T00:00:00Z' },
+  { username: 'bob', hostname: null, last_seen: '2026-01-03T00:00:00Z' },
+];
 
 // Returned by the stub as-is, so `versions` must come out identical.
 const SNAPSHOT: VersionSnapshot = {
@@ -71,10 +80,32 @@ function makeService(db: DbFake, versions: VersionsStub): HostSyncService {
   return createHostSyncService({ db: db as never, versions });
 }
 
-function makeDb(rows: Record<string, unknown>[] = []): DbFake {
-  const db = createDbFake();
-  db.tables.set(hostUsers, rows);
-  return db;
+interface RecordingDb extends DbFake {
+  // Every table handed to `db.select().from(...)`, in call order.
+  selects: unknown[];
+}
+
+function makeDb(rows: Record<string, unknown>[] = []): RecordingDb {
+  const fake = createDbFake();
+  fake.tables.set(hostUsers, rows);
+  const selects: unknown[] = [];
+  const select = fake.select.bind(fake);
+  return Object.assign(fake, {
+    selects,
+    select(fields?: unknown) {
+      const builder = select(fields) as { from(table: unknown): unknown };
+      return {
+        from(table: unknown) {
+          selects.push(table);
+          return builder.from(table);
+        },
+      };
+    },
+  });
+}
+
+function hostUserSelects(db: RecordingDb): unknown[] {
+  return db.selects.filter((table) => table === hostUsers);
 }
 
 function hostUserInserts(db: DbFake): Array<Record<string, unknown>> {
@@ -88,7 +119,12 @@ describe('HostSyncService.collect', () => {
     const versions = makeVersions();
     const service = makeService(makeDb(), versions);
 
-    const out = await service.collect({ host: makeHost(), engine: ENGINE_CLAUDE, bootstrap: true });
+    const out = await service.collect({
+      host: makeHost(),
+      engine: ENGINE_CLAUDE,
+      bootstrap: true,
+      users: [],
+    });
 
     expect(out.status).toBe('ok');
     expect(out.reasons).toEqual([]);
@@ -102,7 +138,12 @@ describe('HostSyncService.collect', () => {
   it('passes bootstrap: false through unchanged', async () => {
     const service = makeService(makeDb(), makeVersions());
 
-    const out = await service.collect({ host: makeHost(), engine: ENGINE_CODEX, bootstrap: false });
+    const out = await service.collect({
+      host: makeHost(),
+      engine: ENGINE_CODEX,
+      bootstrap: false,
+      users: [],
+    });
 
     expect(out.bootstrap).toBe(false);
     expect(out.engine).toBe(ENGINE_CODEX);
@@ -122,29 +163,30 @@ describe('HostSyncService.collect', () => {
       host: makeHost({ apiCalls }),
       engine: ENGINE_CODEX,
       bootstrap: false,
+      users: [],
     });
 
     expect(out.api_calls).toBe(expected);
     expect(typeof out.api_calls).toBe('number');
   });
 
-  it('scopes host_users to the host id and maps a null hostname column to null', async () => {
-    const db = makeDb([
-      userRow(1, HOST_ID, 'alice', 'alice-box'),
-      userRow(2, HOST_ID + 1, 'mallory', 'other-box'),
-      userRow(3, HOST_ID, 'bob', null),
-    ]);
+  it('reports the supplied users without reading host_users', async () => {
+    const versions = makeVersions();
+    const db = makeDb([userRow(1, HOST_ID, 'mallory', 'other-box')]);
 
-    const out = await makeService(db, makeVersions()).collect({
-      host: makeHost(),
+    const out = await makeService(db, versions).collect({
+      host: makeHost({ apiCalls: 9 }),
       engine: ENGINE_CODEX,
-      bootstrap: false,
+      bootstrap: true,
+      users: SUPPLIED_USERS,
     });
 
-    expect(out.host_users).toEqual([
-      { username: 'alice', hostname: 'alice-box', last_seen: '2026-01-02T00:00:00Z' },
-      { username: 'bob', hostname: null, last_seen: '2026-01-02T00:00:00Z' },
-    ]);
+    expect(hostUserSelects(db)).toEqual([]);
+    expect(out.host_users).toEqual(SUPPLIED_USERS);
+    expect(out.versions).toBe(SNAPSHOT);
+    expect(versions.calls).toEqual([ENGINE_CODEX]);
+    expect(out.api_calls).toBe(9);
+    expect(out.bootstrap).toBe(true);
   });
 });
 
@@ -178,6 +220,22 @@ describe('HostSyncService.recordHostUser', () => {
     expect(String(values['firstSeen'])).toMatch(ISO);
     expect(values['lastSeen']).toBe(values['firstSeen']);
     expect(out).toEqual([{ username: 'alice', hostname: null, last_seen: values['lastSeen'] }]);
+  });
+
+  it('scopes the returned users to the host id and maps a null hostname column to null', async () => {
+    const db = makeDb([
+      userRow(1, HOST_ID, 'alice', 'alice-box'),
+      userRow(2, HOST_ID + 1, 'mallory', 'other-box'),
+      userRow(3, HOST_ID, 'bob', null),
+    ]);
+
+    const out = await makeService(db, makeVersions()).recordHostUser(HOST_ID, null, null);
+
+    expect(hostUserSelects(db)).toHaveLength(1);
+    expect(out).toEqual([
+      { username: 'alice', hostname: 'alice-box', last_seen: '2026-01-02T00:00:00Z' },
+      { username: 'bob', hostname: null, last_seen: '2026-01-02T00:00:00Z' },
+    ]);
   });
 
   it('records a supplied hostname', async () => {

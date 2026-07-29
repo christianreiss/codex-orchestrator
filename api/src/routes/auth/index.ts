@@ -196,9 +196,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
-    const out = await syncService.collect({ host: enforced, engine, bootstrap: false });
+    const out = await syncService.collect({ host: enforced, engine, bootstrap: false, users });
     out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
-    out.host_users = users;
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {
@@ -234,9 +233,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
-    const out = await syncService.collect({ host: enforced, engine, bootstrap: true });
+    const out = await syncService.collect({ host: enforced, engine, bootstrap: true, users });
     out.versions = withLegacyShellWrapperTransition(out.versions, payload.wrapper_version, engine);
-    out.host_users = users;
 
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
     if (includeAuth) {

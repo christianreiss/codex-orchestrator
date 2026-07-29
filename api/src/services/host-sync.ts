@@ -17,6 +17,9 @@ export interface SyncCollectInput {
   host: Host;
   engine: Engine;
   bootstrap: boolean;
+  // Callers reach `collect` via `recordHostUser`, which already returns the
+  // host's users -- they hand that array back instead of making us re-read it.
+  users: Array<{ username: string; hostname: string | null; last_seen: string }>;
 }
 
 export interface SyncCollectResult {
@@ -45,9 +48,8 @@ export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
   const { db, versions } = deps;
 
   return {
-    async collect({ host, engine, bootstrap }) {
+    async collect({ host, engine, bootstrap, users }) {
       const summary = await versions.summary(engine);
-      const users = await readUsers(db, host.id);
       return {
         status: 'ok',
         reasons: [],
