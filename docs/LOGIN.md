@@ -54,10 +54,10 @@
 ## Sessions
 - Cookie name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
 - Cookie flags: `HttpOnly`, `SameSite=Strict`, `Secure` when the request is HTTPS, path `/`.
-- Session TTL seconds (`ADMIN_SESSION_TTL_SECONDS`):
-  - Default: `28800` (8 hours).
-  - Minimum: 300 seconds.
-  - Maximum: 604800 seconds (7 days).
+- Session TTL minutes (`ADMIN_SESSION_TTL_MINUTES`):
+  - Default: `43200` (30 days).
+  - `adminSessionTtlSeconds()` in `api/src/services/admin-auth.ts` clamps the configured value to 300 seconds minimum and 604800 seconds (7 days) maximum, so the 30-day default issues 7-day sessions.
+  - Login and the roll-forward in `api/src/http/plugins/auth-admin.ts` both use that clamped value, so a rolled session never outlives the cap it was issued under.
 - Sessions are stored in `admin_sessions` with `user_id`, `token_hash`, optional `ip`/`user_agent`, `created_at`, `last_seen_at`, and `expires_at`.
 - Session tokens are 64-hex random values; only `sha256(token)` is stored in `admin_sessions.token_hash`.
 - Session resolution updates `last_seen_at` and deletes expired/invalid sessions.
@@ -103,7 +103,7 @@
 - The admin UI shows an empty-state notice when no users exist and prompts you to create the first admin.
 
 ## Password Policy
-- Password minimum length: `ADMIN_PASSWORD_MIN_LENGTH` (default `12`), clamped between 8 and 128 characters.
+- Password minimum length: 12 characters, the fixed `PASSWORD_MIN_LENGTH` constant in `api/src/services/admin-auth.ts` (read through `passwordMinLength()`). There is no environment override.
 - Password validation is enforced on:
   - New user creation (via admin UI/API).
   - User password updates (`POST /admin/users/{id}` with `password`).

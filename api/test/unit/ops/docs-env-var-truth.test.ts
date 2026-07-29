@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * `docs/INSTALL.md` and `docs/SECURITY.md` have their own guards; these five
+ * `docs/INSTALL.md` and `docs/SECURITY.md` have their own guards; these six
  * docs describe the same deployment to the same operator, so a name that
- * nothing reads is a knob someone sets that silently does nothing. All five
+ * nothing reads is a knob someone sets that silently does nothing. Five of them
  * presented `INSTALL_TOKEN_TTL_SECONDS` as configurable when it is the fixed
  * constant `INSTALL_TOKEN_TTL_SECONDS_DEFAULT` in
  * `api/src/services/host-management.ts`, and `docs/ADMIN.md` went as far as
@@ -17,6 +17,12 @@ import { resolve } from 'node:path';
  * `MCP_ALLOWED_ORIGINS` (there is no origin allowlist, only a toggle), and the
  * PHP-isms `REMOTE_ADDR` and `DATE_ATOM`.
  *
+ * `docs/LOGIN.md` joined last, still carrying two the others had already shed:
+ * `ADMIN_SESSION_TTL_SECONDS` (with a default, 28800, that belonged to no
+ * variable at all) and `ADMIN_PASSWORD_MIN_LENGTH`, presented as clamped
+ * between 8 and 128 when the minimum is the fixed `PASSWORD_MIN_LENGTH` in
+ * `api/src/services/admin-auth.ts`.
+ *
  * Name coverage only — every backticked UPPER_SNAKE identifier in each doc has
  * to be declared by the API schema, the compose file, the runner, or the
  * allowlist below. Defaults and prose are not compared.
@@ -26,6 +32,7 @@ const ROOT = resolve(import.meta.dirname, '../../../..');
 const DOCS = [
   'docs/USAGE.md',
   'docs/ADMIN.md',
+  'docs/LOGIN.md',
   'docs/OVERVIEW.md',
   'docs/API.md',
   'docs/interface-api.md',
@@ -45,6 +52,7 @@ const NON_API_VARS: Record<string, string> = {
   CODEX_HOME: 'wrappers/cdx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
   OPENAI_API_KEY: 'wrappers/cdx/internal/codex/env.go (exported into the Codex process)',
+  PASSWORD_MIN_LENGTH: 'api/src/services/admin-auth.ts (a constant behind passwordMinLength(), not an env var)',
   TOKEN_MIN_LENGTH: 'api/src/services/runner-validation.ts (read off process.env)',
   VALID_ACCESS_LEVELS: 'api/src/services/admin-auth.ts (an exported constant, not an env var)',
 };
@@ -127,7 +135,7 @@ describe('operator docs environment reference', () => {
   // turn the checks above into comparisons of two empty lists.
   it('reads the names out of each doc and each source', () => {
     const documented = documentedVars();
-    // Every doc has to contribute names, or one of the five goes unchecked.
+    // Every doc has to contribute names, or one of the six goes unchecked.
     expect([...new Set([...documented.values()].flat())].sort()).toEqual([...DOCS].sort());
     expect(documented.get('PUBLIC_BASE_URL')).toContain('docs/USAGE.md');
     expect(documented.has('ADMIN_ACCESS_MODE')).toBe(true);
