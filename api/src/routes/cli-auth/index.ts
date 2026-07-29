@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { createCliAuthService } from '../../services/cli-auth.js';
@@ -8,18 +6,25 @@ import { createHostRegistrationService } from '../../services/host-registration.
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 
 /**
+ * The approval form: frontend/src/routes/cli-auth/verify/+page.svelte, built
+ * under the SPA's `paths.base = '/admin'` (frontend/svelte.config.js).
+ */
+const VERIFY_PAGE_PATH = '/admin/cli-auth/verify';
+
+/**
  * CLI device-code auth (`/cli/auth/*`).
  *
  *   POST /cli/auth/start          → CLI wrapper begins login
  *   POST /cli/auth/poll/:id       → CLI wrapper polls until approved/denied
- *   GET  /cli/auth/verify         → admin-facing approval page (HTML)
+ *   GET  /cli/auth/verify         → 302 to the admin-facing approval page
  *   POST /cli/auth/lookup         → admin: confirm a pending request
  *   POST /cli/auth/approve        → admin: approve and register the host
  *   POST /cli/auth/deny           → admin: deny the request
  *
  * /start + /poll are open to wrappers (rate-limited per IP); lookup/approve/
- * deny require an admin session. /verify serves the static HTML page that
- * the admin SPA renders; if the file isn't present we 404.
+ * deny require an admin session. /verify is the URL handed to the wrapper, so
+ * it stays where it is and redirects the operator's browser to the SPA page
+ * that renders the approval form.
  *
  * KILL-SWITCH: /cli/auth/start is exempt from the API kill switch (parity
  * with PHP). The kill switch is checked elsewhere; this route deliberately
@@ -67,15 +72,8 @@ export async function registerCliAuthRoutes(app: FastifyInstance, ctx: RouteCont
     } catch (err) {
       if (err instanceof ApiError) throw err;
     }
-    const path = join(ctx.env.STATIC_ROOT ?? '', 'cli-auth-verify.html');
-    try {
-      const html = await readFile(path, 'utf8');
-      reply.envelopeRaw = true;
-      reply.header('content-type', 'text/html; charset=utf-8');
-      return html;
-    } catch {
-      throw new NotFoundError('Verification page not found');
-    }
+    const baseUrl = (ctx.env.PUBLIC_BASE_URL ?? '').replace(/\/+$/, '');
+    return reply.redirect(`${baseUrl}${VERIFY_PAGE_PATH}`, 302);
   });
 
   app.post('/cli/auth/lookup', {
