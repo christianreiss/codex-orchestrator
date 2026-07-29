@@ -1,9 +1,15 @@
+import cookie from '@fastify/cookie';
+import Fastify from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { FastifyRequest } from 'fastify';
 import { describe, expect, it } from 'vitest';
 import type { RouteContext } from '../../../src/routes/index.js';
-import { assertPortalOrigin } from '../../../src/routes/agent-portal/public.js';
+import {
+  assertPortalOrigin,
+  registerAgentPortalPublicRoutes,
+} from '../../../src/routes/agent-portal/public.js';
+import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 function request(headers: Record<string, string> = {}): FastifyRequest {
   return { headers } as unknown as FastifyRequest;
@@ -26,6 +32,32 @@ function expectCode(run: () => void, code: string): void {
 }
 
 describe('agent portal browser boundary', () => {
+  it('registers one shell route under Fastify trailing-slash normalization', async () => {
+    const app = Fastify({ logger: false, ignoreTrailingSlash: true });
+    const ctx: RouteContext = {
+      db: {} as RouteContext['db'],
+      env: {
+        ...loadTestEnv(),
+        STATIC_ROOT: resolve(import.meta.dirname, '../../../../public/admin'),
+      },
+      keyring: testKeyring(),
+    };
+
+    await app.register(cookie);
+    await registerAgentPortalPublicRoutes(app, ctx);
+    await app.ready();
+
+    try {
+      for (const url of ['/go', '/go/']) {
+        const response = await app.inject({ method: 'GET', url });
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-type']).toContain('text/html');
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   it('accepts exact-origin mutations and same-origin reads', () => {
     expect(() => assertPortalOrigin(request({ origin: 'https://portal.example' }), context(), true)).not.toThrow();
     expect(() => assertPortalOrigin(request(), context(), false)).not.toThrow();

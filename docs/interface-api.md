@@ -513,7 +513,8 @@ requests fail closed. Credential-free GET/EventSource requests may omit
 
 Public shell and browser API:
 
-- `GET /go` and `GET /go/` — portal SPA shell.
+- `GET /go` — portal SPA shell; Fastify's global normalization also accepts a
+  trailing slash.
 - `GET /go/u/{publicId}` — stable per-user shell URL. The reusable secret is supplied only as `#t=...`; the SPA exchanges it and scrubs the fragment.
 - `GET /go/api/state` — unauthenticated master-switch state.
 - `POST /go/api/auth/exchange` — exchange `{public_id, token}` for the Secure, HttpOnly, SameSite=Strict portal cookie.

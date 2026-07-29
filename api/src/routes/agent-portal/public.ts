@@ -211,7 +211,6 @@ export async function registerAgentPortalPublicRoutes(
     return reply.send(indexHtml);
   };
   app.get('/go', sendShell);
-  app.get('/go/', sendShell);
   app.get('/go/u/:publicId', sendShell);
 }
 

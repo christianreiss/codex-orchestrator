@@ -18,7 +18,9 @@
   timeline event commit atomically, canceled answers reopen only while their
   prompt remains live, Matrix retries use an immutable encrypted delivery
   envelope, stale relays are failed read-only, SSE revocation is transactional,
-  and portal text cannot grant approvals or authority. This cooperative relay
+  and the `/go` shell follows Fastify's global trailing-slash normalization so
+  route registration remains boot-safe. Portal text cannot grant approvals or
+  authority. This cooperative relay
   is writable only while the running root turn is actively polling; its socket
   and writable state close immediately when the engine child exits, and it does
   not wake an ended turn.
