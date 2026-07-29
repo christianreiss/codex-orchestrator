@@ -24,7 +24,7 @@ describe('admin OpenAI key wire shape', () => {
       key_prefix: 'sk-cdx-123...',
       admin_user_id: 2,
       rate_limit_rpm: 120,
-      is_active: 1,
+      is_active: true,
       use_count: 42,
       last_used_at: '2026-05-20T10:30:00Z',
       expires_at: null,

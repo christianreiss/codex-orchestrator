@@ -136,7 +136,10 @@ export function toAdminApiKey(
     key_prefix: row.keyPrefix,
     admin_user_id: row.adminUserId ?? null,
     rate_limit_rpm: row.rateLimitRpm,
-    is_active: row.isActive,
+    // Boolean, not the raw tinyint: `/admin/claude/keys` serves the same table
+    // through `toRecord` in services/claude-keys.ts and emits a boolean, and
+    // the two routes are one admin surface. See admin-key-payload-parity.test.
+    is_active: row.isActive === 1,
     use_count: row.useCount,
     last_used_at: row.lastUsedAt ?? null,
     expires_at: row.expiresAt ?? null,
