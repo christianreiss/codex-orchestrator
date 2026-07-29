@@ -110,7 +110,12 @@ export function chatgptRefreshMutation() {
 
 /* Aggregations --------------------------------------------------------- */
 
-/** Find the most "interesting" ChatGPT series (highest absolute usage). */
+/**
+ * Pick the ChatGPT series the dashboard charts. Nothing is compared by
+ * magnitude: a series whose key ends in `_secondary` wins as long as it has
+ * points, else the first series that has any points, else `series[0]` — which
+ * is empty whenever every series is.
+ */
 export function pickPrimaryChatgptSeries(history: ChatGptHistoryResponse | undefined): ChatGptHistorySeries | null {
   if (!history || !history.series || history.series.length === 0) return null;
   // Prefer secondary (weekly) over primary (5h) when both exist; users care more about it.
