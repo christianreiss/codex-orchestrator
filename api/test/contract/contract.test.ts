@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { discoverFixtures, FIXTURE_ROOT, fixtureLabel, loadFixture, replayFixture } from './helpers/replay.js';
 import { buildHostApiTestApp } from '../helpers/build-host-api-app.js';
 import { createDbFake } from '../helpers/db-fake.js';
@@ -30,27 +32,73 @@ import { createRunnerValidationService } from '../../src/services/runner-validat
 
 const fixtures = discoverFixtures(FIXTURE_ROOT);
 
-const contractSchemas = [
-  'auth-retrieve.schema.json',
-  'auth-store.schema.json',
-  'sync-bootstrap.schema.json',
-  'sync-status.schema.json',
-  'versions.schema.json',
-] as const;
+const CONTRACT_ROOT = resolve(import.meta.dirname, '..', '..', '..', 'docs', 'contracts');
+/** The `Current schemas:` bullets of `docs/contracts/README.md`. */
+const CONTRACT_DOC = resolve(CONTRACT_ROOT, 'README.md');
+/** The `Current coverage` table of this suite's own README. */
+const SUITE_DOC = resolve(import.meta.dirname, 'README.md');
+
+/**
+ * Every published schema, read off `docs/contracts/`. The inventory is the
+ * directory, not a list beside it: a schema that lands there is compiled and
+ * demands a fixture from the moment it is checked in.
+ */
+const contractSchemas = readdirSync(CONTRACT_ROOT)
+  .filter((entry) => entry.endsWith('.schema.json'))
+  .sort();
 
 /**
  * Fixture label (path under `fixtures/`, no extension) → published schema. The
  * schema is validated against the *replayed* body, not the recorded one, so a
  * schema that describes a body the route no longer serves fails here even with
- * TEST_USE_DB unset.
+ * TEST_USE_DB unset. The pairing is one-to-one with `contractSchemas` and is
+ * mirrored by both README tables; the scans below hold all three together.
  */
-const fixtureContracts: Record<string, (typeof contractSchemas)[number]> = {
+const fixtureContracts: Record<string, string> = {
   'auth/retrieve': 'auth-retrieve.schema.json',
   'auth/store': 'auth-store.schema.json',
   'sync/bootstrap': 'sync-bootstrap.schema.json',
   'sync/status': 'sync-status.schema.json',
   'versions/snapshot': 'versions.schema.json',
 };
+
+/** A `Current schemas:` bullet: the schema file, then its prose. */
+const DOC_SCHEMA_BULLET = /^- `([^`]+\.schema\.json)`/;
+/** A `Current coverage` row: fixture file, endpoint, published schema. */
+const COVERAGE_ROW = /^\| `([^`]+\.json)` \| .* \| `([^`]+\.schema\.json)` \|$/;
+
+/** The schema files `docs/contracts/README.md` advertises, sorted. */
+function collectDocSchemas(): string[] {
+  const out: string[] = [];
+  let inList = false;
+  for (const line of readFileSync(CONTRACT_DOC, 'utf8').split('\n')) {
+    if (line.startsWith('Current schemas:')) {
+      inList = true;
+      continue;
+    }
+    if (!inList) continue;
+    const bullet = DOC_SCHEMA_BULLET.exec(line);
+    if (!bullet) break; // the list ends at the first non-bullet line
+    out.push(bullet[1]!);
+  }
+  return out.sort();
+}
+
+/** Fixture label → published schema, as this suite's README pairs them. */
+function collectCoveragePairs(): Record<string, string> {
+  const out: Record<string, string> = {};
+  let inTable = false;
+  for (const line of readFileSync(SUITE_DOC, 'utf8').split('\n')) {
+    if (line.startsWith('## ')) inTable = line.startsWith('## Current coverage');
+    if (!inTable) continue;
+    const row = COVERAGE_ROW.exec(line);
+    if (row) out[row[1]!.replace(/\.json$/, '')] = row[2]!;
+  }
+  return out;
+}
+
+const docSchemas = collectDocSchemas();
+const coveragePairs = collectCoveragePairs();
 
 const CONTRACT_API_KEY = 'sk-contract-fixture';
 const CANONICAL_STAMP = '2026-06-08T15:26:33Z';
@@ -162,6 +210,35 @@ describe('published JSON schemas', () => {
   it.each(contractSchemas)('%s compiles as JSON Schema 2020-12', (name) => {
     expect(compileContract(name)).toBeTypeOf('function');
   });
+
+  it('reads the inventory it is meant to check', () => {
+    // A scan that silently matched nothing would pass the assertions below.
+    expect(contractSchemas).toContain('versions.schema.json');
+    expect(docSchemas.length, `${CONTRACT_DOC} has no Current schemas: bullets`).toBeGreaterThan(0);
+    expect(
+      Object.keys(coveragePairs).length,
+      `${SUITE_DOC} has no Current coverage rows`,
+    ).toBeGreaterThan(0);
+  });
+
+  it('is listed in docs/contracts/README.md exactly as it sits on disk', () => {
+    expect(docSchemas, 'the Current schemas: bullets and docs/contracts/ disagree').toEqual(
+      contractSchemas,
+    );
+  });
+
+  it('is named by the Current coverage table exactly as it sits on disk', () => {
+    const published = [...new Set(Object.values(coveragePairs))].sort();
+    expect(published, 'the Published schema column and docs/contracts/ disagree').toEqual(
+      contractSchemas,
+    );
+  });
+
+  it('is paired with fixtures identically in the Current coverage table', () => {
+    expect(coveragePairs, 'the Current coverage table and fixtureContracts disagree').toEqual(
+      fixtureContracts,
+    );
+  });
 });
 
 describe('contract suite', () => {
@@ -197,7 +274,8 @@ describe('contract suite', () => {
       try {
         const body = await replayFixture(app, fixture);
         const schema = fixtureContracts[label];
-        if (schema) assertContract(schema, body);
+        expect(schema, `${label} is checked in but maps to no published schema`).toBeTypeOf('string');
+        assertContract(schema!, body);
       } finally {
         await app.close();
       }

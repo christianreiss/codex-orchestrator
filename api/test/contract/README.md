@@ -58,6 +58,10 @@ the shape check.
 
 ## Current coverage
 
+Every row is pinned by `contract.test.ts`: the `Published schema` column must
+name exactly the `*.schema.json` files under `docs/contracts/`, and the
+fixture→schema pairing must match the one the suite validates with.
+
 | Fixture | Endpoint | Published schema |
 | --- | --- | --- |
 | `auth/retrieve.json` | `POST /auth` (`command=retrieve`) | `auth-retrieve.schema.json` |

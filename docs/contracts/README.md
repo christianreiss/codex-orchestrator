@@ -12,7 +12,7 @@ Current schemas:
 
 Contract guardrails:
 - `api/test/contract/contract.test.ts` replays the recorded fixtures under `api/test/contract/fixtures/` — one per schema above — through the host-api app on the db-fake and asserts the response shape stays consistent with the captured baseline.
-- The same suite compiles every published schema with Ajv in strict JSON Schema 2020-12 mode.
+- The same suite takes its inventory from this directory — every `*.schema.json` here is compiled with Ajv in strict JSON Schema 2020-12 mode, must map to exactly one fixture, and must appear both in the `Current schemas:` list above and in the `Published schema` column of `api/test/contract/README.md`, so a new schema file cannot land unguarded or undocumented.
 - `api/test/integration/host-api/*` exercises the live host-facing routes (`/auth`, `/sync/status`, `/sync/bootstrap`, `/versions`) on the db-fake, so the checks below run under a plain `npm test` with no database.
 - Every schema is checked against a representative live response body via `assertContract` (`api/test/helpers/contract-schema.ts`):
   - `auth-retrieve.schema.json`, `auth-store.schema.json` — `auth-store.test.ts`
