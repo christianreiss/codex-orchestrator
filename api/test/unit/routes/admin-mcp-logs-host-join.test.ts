@@ -47,9 +47,9 @@ describe('GET /admin/mcp/logs', () => {
     expect(response.statusCode).toBe(200);
     const logs = JSON.parse(response.payload).logs as Array<Record<string, unknown>>;
     expect(logs).toHaveLength(3);
-    expect(logs[0]).toMatchObject({ id: 1, hostId: 4, host_fqdn: 'crane.alpha-labs.net' });
-    expect(logs[1]).toMatchObject({ id: 2, hostId: null, host_fqdn: null });
-    expect(logs[2]).toMatchObject({ id: 3, hostId: 99, host_fqdn: null });
+    expect(logs[0]).toMatchObject({ id: 1, host_id: 4, host_fqdn: 'crane.alpha-labs.net' });
+    expect(logs[1]).toMatchObject({ id: 2, host_id: null, host_fqdn: null });
+    expect(logs[2]).toMatchObject({ id: 3, host_id: 99, host_fqdn: null });
     await app.close();
   });
 

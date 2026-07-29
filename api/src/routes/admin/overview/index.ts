@@ -597,7 +597,19 @@ export async function registerAdminOverviewRoutes(
     const q = req.query as Record<string, unknown>;
     const limit = Math.max(1, Math.min(500, intQuery(q.limit, 50)));
     const rows = await dashboard.recentLogs(limit);
-    return ok({ logs: rows });
+    // Drizzle hands back camelCase column keys; `AdminAuditLogRow` and the
+    // events view read snake_case, so shape the rows here rather than in the
+    // service (whose other caller reads the row keys directly).
+    return ok({
+      logs: rows.map((row) => ({
+        id: row.id,
+        host_id: row.hostId,
+        action: row.action,
+        details: row.details,
+        created_at: row.createdAt,
+        engine: row.engine,
+      })),
+    });
   });
 
   // ── /admin/chatgpt/usage* ─────────────────────────────────────────────────

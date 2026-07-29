@@ -125,18 +125,20 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const limit = Math.max(1, Math.min(parseInteger(req.query.limit) ?? 200, 500));
       // Left join so rows whose host has been pruned (or that were never bound
       // to one) still list, with a null Host column instead of dropping out.
+      // Aliased to the snake_case keys `McpAccessLogRow` (and the log view that
+      // reads it) expects — a camelCase alias here renders as an empty column.
       const rows = await db
         .select({
           id: mcpAccessLogs.id,
-          hostId: mcpAccessLogs.hostId,
+          host_id: mcpAccessLogs.hostId,
           host_fqdn: hosts.fqdn,
-          clientIp: mcpAccessLogs.clientIp,
+          client_ip: mcpAccessLogs.clientIp,
           method: mcpAccessLogs.method,
           name: mcpAccessLogs.name,
           success: mcpAccessLogs.success,
-          errorCode: mcpAccessLogs.errorCode,
-          errorMessage: mcpAccessLogs.errorMessage,
-          createdAt: mcpAccessLogs.createdAt,
+          error_code: mcpAccessLogs.errorCode,
+          error_message: mcpAccessLogs.errorMessage,
+          created_at: mcpAccessLogs.createdAt,
           engine: mcpAccessLogs.engine,
         })
         .from(mcpAccessLogs)

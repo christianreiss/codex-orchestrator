@@ -703,6 +703,7 @@ export interface McpAccessLogRow {
   error_code?: string | null;
   error_message?: string | null;
   created_at?: string | null;
+  engine?: string | null;
   params?: unknown;
 }
 
@@ -713,6 +714,7 @@ export interface AdminAuditLogRow {
   action: string;
   details?: unknown;
   created_at?: string | null;
+  engine?: string | null;
 }
 
 /** Minimal host shape used by the logs host-FQDN map. */
