@@ -14,9 +14,8 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { InsecureWindowService } from './insecure-window.js';
 
 /**
- * Host create + API-key rotate. Reused by the CLI auth approve path and the
- * seed-token consume path. Emits a host.created / host.updated WS event and
- * writes an admin_events audit row.
+ * Host create + API-key rotate, used by the CLI auth approve path. Emits a
+ * host.created / host.updated WS event and writes an admin_events audit row.
  */
 
 export interface RegisteredHost {
@@ -43,7 +42,7 @@ export interface HostRegistrationDeps {
 export function createHostRegistrationService(deps: HostRegistrationDeps): HostRegistrationService {
   const { db, keyring, insecure } = deps;
   return {
-    async registerOrRotate({ fqdn, secure = true, insecureWindowMinutes, engines = 'codex', createdBy }) {
+    async registerOrRotate({ fqdn, secure = true, insecureWindowMinutes, engines: enginesIn, createdBy }) {
       const trimmed = fqdn.trim();
       const now = nowIso();
       const existing = await db.select().from(hostsTable).where(eq(hostsTable.fqdn, trimmed)).limit(1);
@@ -53,6 +52,10 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
 
       if (existing[0]) {
         const prev = existing[0];
+        // An omitted engines field on a rotate means "keep what's there", not
+        // "reset to the default" — otherwise every CLI re-approval would strip
+        // a host provisioned with codex,claude back down to codex.
+        const engines = enginesIn ?? prev.engines;
         await db
           .update(hostsTable)
           .set({
@@ -76,6 +79,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         return { host, apiKey };
       }
 
+      const engines = enginesIn ?? 'codex';
       const ins = await db.insert(hostsTable).values({
         fqdn: trimmed,
         apiKey: apiKeyHash,

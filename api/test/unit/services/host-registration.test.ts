@@ -16,10 +16,10 @@ import { wsPublisher } from '../../../src/ws/publisher.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 
 /**
- * Both host-minting paths (CLI approve, seed consume) land here, so the column
- * contract is the point: `api_key` holds the *hash* for the legacy unique
- * index, `api_key_hash` the same digest, and only `api_key_enc` can be
- * decrypted back to the key handed to the caller.
+ * The CLI approve path mints hosts here, so the column contract is the point:
+ * `api_key` holds the *hash* for the legacy unique index, `api_key_hash` the
+ * same digest, and only `api_key_enc` can be decrypted back to the key handed
+ * to the caller.
  */
 
 const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
@@ -175,6 +175,32 @@ describe('registerOrRotate: existing host', () => {
 
     expect(host.id).toBe(7);
     expect(h.db.tables.get(hostsTable)).toHaveLength(1);
+  });
+
+  it('keeps the stored engines when the caller omits the field', async () => {
+    const h = setup([existingRow({ engines: 'codex,claude' })]);
+
+    const { host } = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
+
+    expect(host.engines).toBe('codex,claude');
+    expect(h.db.tables.get(hostsTable)![0]!.engines).toBe('codex,claude');
+    expect(h.db.tables.get(adminEvents)![0]).toMatchObject({
+      type: 'host.rotated',
+      payload: { fqdn: ROTATE_FQDN, createdBy: null, engines: 'codex,claude' },
+    });
+  });
+
+  it('overwrites the stored engines when the caller passes the field', async () => {
+    const h = setup([existingRow({ engines: 'codex,claude' })]);
+
+    const { host } = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN, engines: 'codex' });
+
+    expect(host.engines).toBe('codex');
+    expect(h.db.tables.get(hostsTable)![0]!.engines).toBe('codex');
+    expect(h.db.tables.get(adminEvents)![0]).toMatchObject({
+      type: 'host.rotated',
+      payload: { fqdn: ROTATE_FQDN, createdBy: null, engines: 'codex' },
+    });
   });
 
   it('writes a host.rotated admin event and log row with a null createdBy when omitted', async () => {
