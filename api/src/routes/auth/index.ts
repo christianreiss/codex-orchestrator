@@ -330,7 +330,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       });
       // On-disk skills: Claude Code can't read skills over MCP (unlike codex), so
       // the fleet's shared skills are delivered as native ~/.claude/skills/<slug>/
-      // SKILL.md files. Complete live set; content omitted on rendered-sha match.
+      // SKILL.md directories. Complete live set; content/files are omitted when
+      // the wrapper reports the matching complete-bundle digest.
       out.claude_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
 

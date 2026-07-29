@@ -166,6 +166,11 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_bootstrap');
   });
 
+  it('does not expose an engine override on skill_list', () => {
+    const definition = registry.list().find((tool) => tool.name === 'skill_list');
+    expect(definition?.inputSchema['properties']).toEqual({});
+  });
+
   it('registers the project_file_* CRUD tools', () => {
     const list = registry.list().map((t) => t.name);
     expect(list).toContain('project_file_list');

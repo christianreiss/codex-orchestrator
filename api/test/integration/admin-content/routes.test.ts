@@ -34,6 +34,7 @@ interface ChainShape {
 function emptyResultBuilder(rows: unknown[] = []) {
   const chain: Record<string, unknown> = {
     where: () => chain,
+    for: () => chain,
     orderBy: () => chain,
     limit: () => chain,
     innerJoin: () => chain,
@@ -61,6 +62,7 @@ function makeDbStub(partial: Partial<ChainShape> = {}): unknown {
     delete: partial.delete ?? (() => ({
       where: () => Promise.resolve(undefined),
     })),
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(stub),
   };
   return stub;
 }

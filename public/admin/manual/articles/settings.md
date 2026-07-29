@@ -1,8 +1,8 @@
 ---
 title: Settings reference
 section: Admin workspace
-verified: 2026-07-10
-sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts
+verified: 2026-07-29
+sources: frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
 Configuration in Codex Orchestrator is spread across several distinct routes. This article covers the **Settings page** (`/settings`) and distinguishes it from the separate admin routes that handle users, agents, skills, memories, and projects. A final section documents environment variables that can only be set at deployment time and are not accessible through the admin UI.
@@ -203,6 +203,63 @@ Skills are the canonical command library, served over MCP as `skill://{slug}` re
 - `POST /admin/skills/assist` — request targeted edits from the runner.
 - `POST /admin/skills/store` — save.
 - `DELETE /admin/skills/{slug}` — delete.
+
+#### Optional Matt Pocock source
+
+The source card above the Skills library can import
+`https://github.com/mattpocock/skills` through the same canonical Skill system.
+It is **off by default** and performs no outbound request while off. This is an
+external instruction supply chain: review the linked repository before enabling
+it, especially before allowing later upstream changes to reach the fleet.
+
+- **Include in fleet** controls the subscription. Fresh source state defaults
+  **Auto-update** on; a preference set while disabled is preserved when the
+  source is enabled.
+- Re-enabling first validates the retained server cache. A complete cached
+  revision is restored without contacting GitHub; a missing, incomplete, or
+  damaged cache is fetched again from the immutable upstream SHA.
+- **Auto-update** checks every six hours while both switches are on. Turn it off
+  to pin the current last-known-good revision.
+- **Check now** forces a refresh for an enabled source even when auto-update is
+  off.
+- The card reports `disabled`, `ok`, or `error`, the upstream plugin version,
+  immutable revision, Skill/file counts, check/sync times, and the last error.
+
+The admin API is exact and source-specific:
+
+- `GET /admin/skill-sources/mattpocock` is readable by every authenticated admin
+  role and returns
+  `{source,repository,ref,enabled,auto_update,status,revision,upstream_version,skill_count,file_count,last_checked_at,last_synced_at,last_error}`.
+- `POST /admin/skill-sources/mattpocock` requires owner/admin, accepts a
+  non-empty body containing one or both strict booleans
+  `{enabled?,auto_update?}`, and returns the same state.
+- `POST /admin/skill-sources/mattpocock/refresh` requires owner/admin, accepts
+  no body, runs the manual check, and returns the same state on success.
+
+A refresh resolves `main` to an immutable commit SHA, admits exactly the paths
+declared by upstream `.claude-plugin/plugin.json` under its two safe Skill roots,
+and advances only after every manifest, support file, digest, and the MIT license
+notice validate. Failure leaves the previous last-known-good revision served.
+Imported detail rows show their source and are read-only in the ordinary editor;
+their provenance is `source_type: github:mattpocock/skills`, repository/path/SHA,
+and `source_license: MIT`. Each complete bundle includes the upstream root notice
+as `LICENSE.mattpocock` (MIT License, Copyright (c) 2026 Matt Pocock).
+
+Codex reads imported manifests at `skill://<slug>` and support files at
+`skill://<slug>/<path>`; Skills with upstream
+`disable-model-invocation: true` are labelled **Explicit user invocation only**.
+Claude receives a native, atomically replaced
+`~/.claude/skills/<slug>/` directory through cxx 0.7.3. Before advertising a
+cached bundle digest, cxx verifies the exact managed directory tree and every
+owned file; missing, modified, symlinked, or unexpected entries withhold the
+digest so the next bootstrap self-heals from the canonical bundle. Incoming
+content is installed only after manifest, per-file, and recomputed complete
+bundle digests match. Invalid cross-slug ownership records are quarantined and
+cannot authorize overwrite or pruning. Turning inclusion off immediately
+removes the source from the served Codex catalogue and makes Claude prune only
+those fleet-owned directories at its next bootstrap. The cached server
+rows/files and last-known-good metadata remain for re-enable; unrelated Skills
+are untouched.
 
 ### /authoring/memories — MCP memories
 

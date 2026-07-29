@@ -25,13 +25,25 @@ type BundleRequest struct {
 	Artifacts map[string]map[string]string `json:"artifacts,omitempty"`
 }
 
-// CollectionItem is one Claude-native collection artifact (a `.md` file under
-// ~/.claude/{agents,commands,output-styles}). Content is omitted on If-None-Match.
-type CollectionItem struct {
-	Slug    string `json:"slug"`
+// CollectionFile is one auxiliary file in a directory-backed skill bundle.
+// Paths are slash-separated and relative to the skill directory. The wrapper
+// validates them again before writing; imported content is never executed.
+type CollectionFile struct {
+	Path    string `json:"path"`
 	SHA256  string `json:"sha256"`
-	Status  string `json:"status"`
-	Content string `json:"content,omitempty"`
+	Content string `json:"content"`
+}
+
+// CollectionItem is one Claude-native collection artifact. Flat collections
+// use Content only; skills may additionally carry their complete auxiliary file
+// tree. Content/files are omitted together on If-None-Match.
+type CollectionItem struct {
+	Slug           string           `json:"slug"`
+	SHA256         string           `json:"sha256"`
+	Status         string           `json:"status"`
+	Content        string           `json:"content,omitempty"`
+	ManifestSHA256 string           `json:"manifest_sha256,omitempty"`
+	Files          []CollectionFile `json:"files,omitempty"`
 }
 
 // ClaudeArtifacts groups the three collection kinds returned by /sync/bootstrap

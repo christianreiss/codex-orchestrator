@@ -14,12 +14,11 @@ import {
 
 /**
  * `docs/LOGIN.md` and `docs/ADMIN.md` both state that the whole route tree
- * holds exactly two role gates, and `docs/LOGIN.md` enumerates the eight
- * `METHOD /path` registrations they cover. In code the gates are two
- * module-local preHandlers — `requireMutationRole` in
- * `admin/memories/index.ts`, `requireUserManagementRole` in
- * `admin/users/index.ts` — attached per route by hand. Adding a
- * `/admin/memories` write or a `/admin/users` mutation without one silently
+ * holds exactly three role gates, and `docs/LOGIN.md` enumerates the ten
+ * `METHOD /path` registrations they cover. In code the gates are three
+ * module-local preHandlers: memory mutation, source mutation, and user
+ * management. They are attached per route by hand. Adding a
+ * protected mutation without one silently
  * opens it to every `viewer` and legacy `user`, and both docs go stale while
  * every other suite stays green: `admin-doc-capability-truth.test.ts` only
  * checks that no phantom capability or role *name* is documented, and
@@ -40,9 +39,10 @@ const DOC = resolve(HERE, '../../../../docs/LOGIN.md');
 /** The error code every role gate answers with; how a gate is recognized. */
 const ROLE_CODE = 'admin_role_required';
 
-/** The two gates both docs claim are the whole inventory, and where they live. */
+/** The three gates both docs claim are the whole inventory, and where they live. */
 const KNOWN_GATES: Record<string, string> = {
   requireMutationRole: 'routes/admin/memories/index.ts',
+  requireSourceMutationRole: 'routes/admin/skill-sources/index.ts',
   requireUserManagementRole: 'routes/admin/users/index.ts',
 };
 
@@ -58,6 +58,8 @@ const PINNED_GATED_ROUTES = [
   'PATCH /admin/memories/:scope/:recordId',
   'POST /admin/memories/:scope',
   'POST /admin/memories/shared/:recordId/append',
+  'POST /admin/skill-sources/mattpocock',
+  'POST /admin/skill-sources/mattpocock/refresh',
   'POST /admin/users',
   'POST /admin/users/:id',
   'POST /admin/users/wipe',
@@ -290,7 +292,7 @@ describe('owner/admin role gate inventory', () => {
     expect(registrations.length).toBeGreaterThan(100);
     expect(
       Object.fromEntries(helpers.map((helper) => [helper.name, helper.file])),
-      'the docs claim these two gates and no others',
+      'the docs claim these three gates and no others',
     ).toEqual(KNOWN_GATES);
     // The gated set is pinned so the comparison below cannot become vacuous.
     expect(gates.map((gate) => gate.text).sort()).toEqual(PINNED_GATED_ROUTES);
@@ -302,10 +304,10 @@ describe('owner/admin role gate inventory', () => {
     expect(claimed.has(`DELETE /admin/memories/${PARAM}/${PARAM}`)).toBe(true);
   });
 
-  it('raises admin_role_required only inside the two documented gates', () => {
+  it('raises admin_role_required only inside the three documented gates', () => {
     expect(
       strayRoleChecks(),
-      `a third role gate makes the "exactly two role gates" claim in docs/LOGIN.md and ` +
+      `a fourth role gate makes the "exactly three role gates" claim in docs/LOGIN.md and ` +
         'docs/ADMIN.md false — document it there and record it in KNOWN_GATES here',
     ).toEqual([]);
   });

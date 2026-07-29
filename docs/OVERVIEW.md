@@ -28,7 +28,11 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Canonical auth + per-target tokens are encrypted with libsodium `secretbox`; the key is bootstrapped into `.env` on first boot. Optional keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`) supports rotation with `kid`-tagged ciphertext.
 - Safety rails: global/auth-fail rate limits, API kill switch, token quality checks, RFC3339 timestamp bounds, optional IP roaming, and opt-in insecure-host gates.
 - Runner sidecar validates canonical auth from a background worker (default every 5m, TTL 15m) and synchronously validates every store. Only a positive live verdict can advance canonical auth or make bytes distributable; unavailable/inconclusive runner results leave existing verified auth readable but block host, admin, seed, and bootstrap uploads.
-- Extras ride the same API: Skill distribution, native project coordination (notes/todos/files/feedback/activity), host-scoped MCP memories, project-scoped memory facts, the fleet-wide shared memory corpus (`shared_memory_*`), ChatGPT `/wham/usage` snapshots.
+- Extras ride the same API: canonical Skill distribution (including an optional,
+  provenance-tracked Matt Pocock source), native project coordination
+  (notes/todos/files/feedback/activity), host-scoped MCP memories,
+  project-scoped memory facts, the fleet-wide shared memory corpus
+  (`shared_memory_*`), and ChatGPT `/wham/usage` snapshots.
 
 ## Key components (code map)
 
@@ -41,6 +45,20 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - **`api/src/services/agents.ts`** — stores versioned AGENTS.md editions, serves either the latest/pinned fleet version or a per-host pin, exposes read-only history fetches for the admin UI, and can revert an older edition by cloning it into a fresh latest version while returning fleet serving to `latest`. Canonical AGENTS history can also enforce a configurable historical-backup cap (`versions.agents_backup_limit`): the newest latest draft is always kept, while currently served or host-pinned versions are protected from automatic pruning. Served host copies may append managed Skills and Memories inventory blocks at render time, report per-section presence/count/reason metadata through the host sync APIs, and can backfill missing memory summaries lazily through the runner while the AGENTS document is being rendered.
 - **`api/src/services/shared-memories.ts` + `shared-memory-chunker.ts`** — the fleet-wide shared memory corpus: slug-addressed documents up to 1 MiB, chunked on markdown structure and FULLTEXT-indexed per chunk, with `shared_memory_list` (no query — the discovery entry point), `shared_memory_search` (ranked passages, `degraded: true` when the index is missing), `shared_memory_read` (bounded windows with `next_offset`), `shared_memory_write` (sha-guarded replace), `shared_memory_append` (multi-writer safe), and `shared://{slug}` resources. Scoped to neither host nor project — `source_host_id`/`source_engine` are provenance only, never read filters.
 - **`api/src/services/memories.ts` + `mcp-server.ts`** — MCP memory storage per host (content, tags, optional metadata, optional runner-generated summary) with CRUD tooling (`memory_store`/`memory_retrieve`/`memory_search`), host-safe resource helpers, unconditional `skill://{slug}` read-only resources for synced Skill manifests, and optional project-aware MCP tools/resources (`project_*`, `project://{slug}`) when the Projects module is enabled. Coordinator filesystem helpers are retained for operator/internal use and are not exposed on the host-authenticated `/mcp` route.
+- **`api/src/services/mattpocock-skills.ts` +
+  `api/src/ops/mattpocock-skills-worker.ts`** — a deliberately opt-in adapter
+  into the existing `skills` table, not a second Skill system. It resolves
+  upstream `main` to an immutable SHA, imports only the exact
+  `.claude-plugin/plugin.json` allowlist, stores complete directory bundles in
+  `skill_files`, and records repository/path/revision/license provenance. The
+  worker polls state every 30 minutes but performs an upstream check only when
+  the enabled, auto-updating source is at least six hours stale; promotion is
+  atomic and a failed fetch/validation retains the last-known-good revision.
+  Inclusion defaults off and makes no outbound request while off. A later
+  re-enable validates and restores a complete cached revision without contacting
+  GitHub; a missing, incomplete, or damaged cache falls back to a fresh fetch at
+  the immutable upstream SHA. Admin state/config/manual-refresh routes live under
+  `api/src/routes/admin/skill-sources/`.
 - **Memory Atlas admin control plane** — `/admin/memories/*` normalizes host,
   project, and shared rows into stable `memory:{scope}:{record_id}` nodes. Its
   graph endpoint is full-body-free and emits only explicit scope, owner, project,
@@ -98,7 +116,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
    - `/wrapper/v2/meta` (and the legacy `/wrapper` alias) returns an engine-scoped projection of the common per-platform binary matrix. `/wrapper/v2/download` returns the raw Go binary for v2-aware clients, and `/wrapper/download` remains the legacy shell-transition path for date-versioned wrappers. New wrapper versions roll out as one complete four-platform matrix under `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`; both signed engine configs resolve to those same bytes and hosts converge on the next run.
    - The wrapper exposes a short Spark-lane alias: `cdx ls` rewrites to `cdx lane spark` before normal lane/profile parsing. Every explicit lane selection is a server-side preference and therefore persists; the old `--persist` spelling remains accepted as a compatibility no-op.
    - Help-only invocations (`cdx --help`, `cdx -h`, `cdx help`, and Codex subcommand help such as `cdx exec --help`) bypass wrapper startup noise and print only upstream Codex help text. They skip the managed run lock, sync, update, MOTD, and footer, but remain supervised so the native child inherits both auth-session and active-child descriptors until it exits.
-- Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (AGENTS/config in one flow). When local auth is already valid, that same bundle path now also carries auth metadata/refresh inline (`include_auth=true`), and `auth_candidate` is processed before canonical auth is returned so fresh local logins upload to canonical storage before launch. Native Claude credentials without `last_refresh` are compared against canonical form first and only stored when they actually differ, preventing a server copy from overwriting a fresh local OAuth credential. Older servers automatically fall back to legacy per-resource pull endpoints, but transient bundle failures do not trigger extra per-resource retries during startup.
+- Wrapper startup pull sync is batched: it probes `POST /sync/status` and, when updates exist, pulls content via `POST /sync/bootstrap` (AGENTS/config in one flow). When local auth is already valid, that same bundle path now also carries auth metadata/refresh inline (`include_auth=true`), and `auth_candidate` is processed before canonical auth is returned so fresh local logins upload to canonical storage before launch. Native Claude credentials without `last_refresh` are compared against canonical form first and only stored when they actually differ, preventing a server copy from overwriting a fresh local OAuth credential. Older servers automatically fall back to legacy per-resource pull endpoints, but transient bundle failures do not trigger extra per-resource retries during startup. For Claude, cxx 0.7.3 consumes complete `claude_skills` bundles and atomically replaces each fleet-owned native directory; for Codex, manifests and support files remain live MCP resources at `skill://<slug>` and `skill://<slug>/<path>`.
 - Wrapper Codex updates now key off `/auth` `client_version_enforce_exact`: floor-only targets only trigger upgrades, while explicit above-floor pins can still downgrade to match.
   - When the Projects module is enabled, the managed `coco` skill is published through MCP `skill://coco`; there is no separate wrapper-side project bootstrap pass. When the module turns off again, the managed skill disappears from the MCP resource list, and wrapper cleanup removes stale local skill directories so old CoCo docs cannot shadow the project-only skill.
 - `POST /sync/bootstrap` can also process auth in the same request when `include_auth=true`: when `auth_candidate` is provided, the server uses the same live-runner-validated canonical store path as `/auth store`, reports `auth_stored` on success, and returns store metadata including `runner_applied` / skipped-reason fields. Only `verification_state:verified` may include auth bytes. A deterministic malformed/unusable/provider-rejected candidate sets `candidate_credential_rejected:true`; if an older verified replacement is also returned, only `candidate_rejected_definitive:true` authorizes overwriting the newer local generation. Transient failures omit both signals and preserve local auth.
@@ -237,7 +255,16 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   tracks what each host last saw and `host_auth_digests` caches three recent
   digests per host and engine.
 - Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
-- Logs, Skills, all three memory stores, project coordination tables, shared-memory chunks/revisions, ChatGPT snapshots, and version flags all live in MySQL; storage is the compose volume. Memory Atlas activity is assembled from the existing body-free logs, project events, and shared revision metadata and therefore follows their configured retention; it is not an immutable compliance ledger or a restorable body-history store.
+- Logs, Skills and their `skill_files` bundles, all three memory stores, project
+  coordination tables, shared-memory chunks/revisions, ChatGPT snapshots, and
+  version flags all live in MySQL; storage is the compose volume. Disabling an
+  external Skill source soft-deletes its rows from served inventory but retains
+  the cached rows/files and last-known-good metadata. Re-enable validates that
+  cache before restoring it without an upstream request; an invalid cache is
+  rebuilt from the immutable upstream revision. Memory
+  Atlas activity is assembled from the existing body-free logs, project events,
+  and shared revision metadata and therefore follows their configured retention;
+  it is not an immutable compliance ledger or a restorable body-history store.
 
 ## Fleet workflow at a glance
 
@@ -248,6 +275,18 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
 - Set fleet CLI model defaults from Settings → Codex or Settings → Claude. Both tabs call `GET/POST /admin/model-defaults/:engine` and constrain effort to the selected model. Codex persists `model` / `model_reasoning_effort` in canonical `config.toml`; Sol/Terra/Luna/GPT-5.5/GPT-5.4/GPT-5.4 mini default to `medium`, while Spark defaults to `high`. Claude persists `model` / `effortLevel` in the deep-merged `settings.json` partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses the same set with default `xhigh`; Sonnet 4.6 persists `low|medium|high`; Haiku 4.5 omits effort. The nearby Claude API defaults (`default_model`, `max_tokens`) also default to Sonnet 5 but configure only the Anthropic-compatible proxy and do not change managed Claude Code sessions.
 - Build/edit `config.toml` from `/admin/config.html`; saved output is baked per host and synced by `cdx` to `${CODEX_HOME:-~/.codex}/config.toml` (managed HTTP MCP entry; secure hosts use the host API key, insecure hosts get a short-lived bearer). New builder drafts default to `model = "gpt-5.6-terra"` with `model_reasoning_effort = "medium"`, `personality = "friendly"`, `[features].apps = true`, `[features].fast_mode = true`, `[features].memories = true`, and `[features].multi_agent = true`; the admin builder keeps `guardian_approval`, `js_repl`, `tui_app_server`, and `prevent_idle_sleep` off until explicitly enabled. `status:missing` deletes the local copy. Legacy feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `request_permissions`, `use_linux_sandbox_bwrap`) remain ingest-compatible but are dropped from rendered output.
+- Optionally include `https://github.com/mattpocock/skills` from Authoring →
+  Skills. The card is off by default and warns that this is an external
+  instruction supply chain. Fresh source state defaults its six-hour
+  auto-update on, while a preference set before inclusion is preserved; turn
+  that switch off to pin the current last-known-good SHA, or use **Check now**
+  for an operator-triggered refresh. Imported skills are visibly sourced
+  and read-only in the ordinary editor. Re-enabling restores a complete,
+  validated server cache without a GitHub request; a missing or damaged cache is
+  fetched again from the immutable upstream revision. Turning inclusion off
+  hides them from Codex immediately and makes Claude prune only their fleet-owned
+  directories on the next bootstrap; unrelated and user-authored skills are
+  untouched.
 - Enable shared project coordination from Settings → Projects when you want multi-agent notes/todos/files/feedback; that toggle publishes the managed `coco` skill through MCP `skill://coco`. Disabling the module removes that managed skill from the MCP resource list. CoCo coordination handoffs are project-only; host-scoped MCP memories are not a cross-server fallback. Fleet-wide reference documents belong in shared memories (`shared_memory_*`), which need no project and no host. The Settings panel stays compact and opens each project on its own `/admin/projects/<slug>` workspace page, where the admin UI can also ask the runner to draft missing `title`/`name`/`description` metadata and a roster draft from the current shared project context before the operator saves.
 - Inspect and manage the complete memory topology from Authoring → Memories.
   Memory Atlas keeps graph and paginated list views in sync, lazy-loads bodies

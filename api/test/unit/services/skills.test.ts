@@ -29,6 +29,12 @@ function skillRow(overrides: Record<string, unknown> = {}): Record<string, unkno
     description: 'Agentic skill',
     manifest,
     sourceHostId: null,
+    sourceType: null,
+    sourceRepository: null,
+    sourcePath: null,
+    sourceRevision: null,
+    sourceLicense: null,
+    bundleSha256: null,
     engine: null,
     createdAt: SEEDED_AT,
     updatedAt: SEEDED_AT,
@@ -75,6 +81,46 @@ describe('SkillsService.store validation', () => {
     await expectManagedConflict(service.store({ slug: 'coco', manifest: BODY }));
     await expectManagedConflict(service.store({ slug: 'context', manifest: BODY }));
     expect(db.inserts).toEqual([]);
+  });
+
+  it('refuses to store over a source-owned row', async () => {
+    const { service, db } = makeService([
+      skillRow({
+        sourceType: 'github',
+        sourceRepository: 'mattpocock/skills',
+        sourcePath: 'skills/agentic/SKILL.md',
+      }),
+    ]);
+
+    await expectManagedConflict(service.store({ slug: 'agentic', manifest: 'replacement' }));
+    expect(db.updates).toEqual([]);
+    expect(db.inserts).toEqual([]);
+  });
+
+  it('rechecks source ownership under a row-or-gap lock before storing', async () => {
+    const { service, db } = makeService();
+    const originalTransaction = db.transaction.bind(db);
+    let injected = false;
+    db.transaction = async (callback, config) => {
+      if (!injected) {
+        injected = true;
+        db.tables.set(skillsTable, [skillRow({
+          id: 9,
+          slug: 'arrived-during-store',
+          sourceType: 'github',
+        })]);
+      }
+      return originalTransaction(callback, config);
+    };
+
+    await expectManagedConflict(service.store({
+      slug: 'arrived-during-store',
+      manifest: 'replacement',
+    }));
+    expect(db.transactions).toContainEqual({ isolationLevel: 'repeatable read' });
+    expect(db.locks.some((lock) => lock.table === skillsTable && lock.strength === 'update')).toBe(true);
+    expect(db.inserts).toEqual([]);
+    expect(db.updates).toEqual([]);
   });
 
   it('requires a non-blank manifest under either key', async () => {
@@ -246,6 +292,37 @@ describe('SkillsService.softDelete', () => {
     expect(db.updates).toEqual([]);
   });
 
+  it('refuses to delete a source-owned row, including an already retired one', async () => {
+    const live = makeService([skillRow({ sourceType: 'github' })]);
+    await expectManagedConflict(live.service.softDelete('agentic'));
+    expect(live.db.updates).toEqual([]);
+
+    const retired = makeService([
+      skillRow({ sourceType: 'github', deletedAt: '2026-02-02T00:00:00Z' }),
+    ]);
+    await expectManagedConflict(retired.service.softDelete('agentic'));
+    expect(retired.db.updates).toEqual([]);
+  });
+
+  it('rechecks source ownership under the row lock before deleting', async () => {
+    const row = skillRow();
+    const { service, db } = makeService([row]);
+    const originalTransaction = db.transaction.bind(db);
+    let injected = false;
+    db.transaction = async (callback, config) => {
+      if (!injected) {
+        injected = true;
+        row.sourceType = 'github';
+      }
+      return originalTransaction(callback, config);
+    };
+
+    await expectManagedConflict(service.softDelete('agentic'));
+    expect(db.transactions).toContainEqual({ isolationLevel: 'repeatable read' });
+    expect(db.locks.some((lock) => lock.table === skillsTable && lock.strength === 'update')).toBe(true);
+    expect(db.updates).toEqual([]);
+  });
+
   it('leaves other codex-/claude-prefixed slugs deletable', async () => {
     const { service } = makeService([skillRow({ slug: 'codex-review' })]);
 
@@ -283,5 +360,44 @@ describe('SkillsService reads', () => {
     expect(live.map((s) => s.slug)).toEqual(['agentic', 'context']);
     const all = await service.list({ includeDeleted: true });
     expect(all.map((s) => s.slug)).toEqual(['agentic', 'context', 'retired']);
+  });
+
+  it('exposes provenance and marks a source-owned row read-only', async () => {
+    const bundleSha = 'b'.repeat(64);
+    const { service } = makeService([
+      skillRow({
+        sourceType: 'github',
+        sourceRepository: 'mattpocock/skills',
+        sourcePath: 'skills/agentic/SKILL.md',
+        sourceRevision: 'a'.repeat(40),
+        sourceLicense: 'MIT',
+        bundleSha256: bundleSha,
+      }),
+    ]);
+
+    await expect(service.find('agentic')).resolves.toMatchObject({
+      slug: 'agentic',
+      sha256: sha(BODY),
+      bundle_sha256: bundleSha,
+      source_type: 'github',
+      source_repository: 'mattpocock/skills',
+      source_path: 'skills/agentic/SKILL.md',
+      source_revision: 'a'.repeat(40),
+      source_license: 'MIT',
+      managed: true,
+      allow_implicit_invocation: true,
+    });
+  });
+
+  it('exposes explicit-only invocation policy from manifest frontmatter', async () => {
+    const manifest = '---\nname: explicit\ndisable-model-invocation: true\n---\n\nBody\n';
+    const { service } = makeService([
+      skillRow({ slug: 'explicit', manifest, sourceType: 'github' }),
+    ]);
+
+    await expect(service.find('explicit')).resolves.toMatchObject({
+      allow_implicit_invocation: false,
+      managed: true,
+    });
   });
 });

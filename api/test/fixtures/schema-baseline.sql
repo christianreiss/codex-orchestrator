@@ -671,6 +671,18 @@ CREATE TABLE `shared_memory_revisions` (
 	CONSTRAINT `uniq_shared_memory_revision` UNIQUE(`memory_id`,`revision`)
 );
 
+CREATE TABLE `skill_files` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`skill_id` bigint unsigned NOT NULL,
+	`path` varchar(512) NOT NULL,
+	`sha256` char(64) NOT NULL,
+	`content` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `skill_files_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_skill_files_skill_path` UNIQUE(`skill_id`,`path`)
+);
+
 CREATE TABLE `skills` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`slug` varchar(255) NOT NULL,
@@ -679,6 +691,12 @@ CREATE TABLE `skills` (
 	`description` text,
 	`manifest` longtext NOT NULL,
 	`source_host_id` bigint unsigned,
+	`source_type` varchar(64),
+	`source_repository` varchar(512),
+	`source_path` varchar(512),
+	`source_revision` char(40),
+	`source_license` varchar(64),
+	`bundle_sha256` char(64),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	`deleted_at` varchar(100),
@@ -799,6 +817,7 @@ CREATE INDEX `idx_shared_memories_updated_at` ON `shared_memories` (`updated_at`
 CREATE INDEX `idx_shared_memories_deleted_at` ON `shared_memories` (`deleted_at`);
 CREATE INDEX `idx_shared_memory_chunks_memory` ON `shared_memory_chunks` (`memory_id`,`revision`);
 CREATE INDEX `idx_shared_memory_revisions_memory` ON `shared_memory_revisions` (`memory_id`);
+CREATE INDEX `idx_skill_files_skill` ON `skill_files` (`skill_id`);
 CREATE INDEX `idx_skills_updated_at` ON `skills` (`updated_at`);
 CREATE INDEX `idx_skills_engine` ON `skills` (`engine`);
 CREATE INDEX `idx_wrapper_signing_keys_active` ON `wrapper_signing_keys` (`active`);

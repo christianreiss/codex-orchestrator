@@ -96,7 +96,7 @@ describe.skipIf(!handle)('migration runner against a real database', { timeout: 
     expect(rows[0].every((row) => row.applied_by === 'vitest')).toBe(true);
 
     // The tables the runner is supposed to have produced.
-    for (const table of ['claude_artifacts', 'coord_project_memories', 'shared_memories', 'shared_memory_chunks', 'shared_memory_revisions']) {
+    for (const table of ['claude_artifacts', 'coord_project_memories', 'shared_memories', 'shared_memory_chunks', 'shared_memory_revisions', 'skill_files']) {
       await expect(db.execute(sql.raw(`SELECT 1 FROM ${table} LIMIT 0`))).resolves.toBeDefined();
     }
     // …including the FULLTEXT indexes `drizzle-kit push` cannot express.
@@ -113,9 +113,18 @@ describe.skipIf(!handle)('migration runner against a real database', { timeout: 
       await scalar(
         `SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
           WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'FOREIGN KEY'
-            AND CONSTRAINT_NAME IN ('fk_shared_memory_chunks_memory', 'fk_shared_memory_revisions_memory')`,
+            AND CONSTRAINT_NAME IN ('fk_shared_memory_chunks_memory', 'fk_shared_memory_revisions_memory', 'fk_skill_files_skill')`,
       ),
-    ).toBe(2);
+    ).toBe(3);
+    const sourceState = JSON.parse(String(await scalar(
+      "SELECT version FROM versions WHERE name = 'skill_source_mattpocock_state'",
+    ))) as Record<string, unknown>;
+    expect(sourceState).toMatchObject({
+      source: 'github:mattpocock/skills',
+      enabled: false,
+      auto_update: true,
+      status: 'disabled',
+    });
   });
 
   it('is a no-op on the second run', async () => {

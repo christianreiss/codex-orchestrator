@@ -6,6 +6,7 @@
   import { writable } from "svelte/store";
   import { toast } from "svelte-sonner";
   import { skillsApi } from "$lib/api/skills";
+  import { MATTPOCOCK_REPOSITORY } from "$lib/api/skillSources";
   import type { SkillDetail } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
@@ -19,6 +20,7 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Wand2 from "@lucide/svelte/icons/wand-2";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
 
   const qc = useQueryClient();
   const slug = $derived(page.params.slug ?? "");
@@ -61,7 +63,11 @@
     hydrated = false;
   });
 
-  const isManaged = $derived($query.data?.managed === true);
+  const sourceType = $derived($query.data?.source_type?.trim() || null);
+  const sourceLabel = $derived(
+    sourceType?.toLowerCase().includes("mattpocock") ? "Matt Pocock" : sourceType,
+  );
+  const isManaged = $derived($query.data?.managed === true || sourceType !== null);
 
   // ---- Save ----
   const saveMutation = createMutation({
@@ -204,7 +210,25 @@
     <aside aria-label="Skill controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
       {#if isManaged}
         <div class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-          This skill is managed by the system and cannot be edited or deleted.
+          {#if sourceType}
+            This skill is synchronized from
+            {#if sourceType.toLowerCase().includes("mattpocock")}
+              <a
+                href={MATTPOCOCK_REPOSITORY}
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+              >
+                mattpocock/skills
+                <ExternalLink class="h-3 w-3" />
+              </a>
+            {:else}
+              <span class="font-medium">{sourceType}</span>
+            {/if}
+            and is read-only here.
+          {:else}
+            This skill is managed by the system and cannot be edited or deleted.
+          {/if}
         </div>
       {/if}
 
@@ -264,13 +288,37 @@
       <div class="rounded-lg border bg-card p-4 text-xs">
         <div class="flex items-center gap-2">
           <Badge variant={isManaged ? "secondary" : "success"}>
-            {isManaged ? "managed" : "active"}
+            {sourceLabel ?? (isManaged ? "managed" : "active")}
           </Badge>
         </div>
         {#if $query.data?.uri}
           <p class="mt-2 break-all font-mono text-[10px] text-muted-foreground">
             {$query.data.uri}
           </p>
+        {/if}
+        {#if sourceType}
+          <dl class="mt-3 space-y-2 border-t pt-3 text-[11px]">
+            {#if $query.data?.source_revision}
+              <div>
+                <dt class="text-muted-foreground">Upstream revision</dt>
+                <dd class="break-all font-mono" title={$query.data.source_revision}>
+                  {$query.data.source_revision.slice(0, 12)}…
+                </dd>
+              </div>
+            {/if}
+            {#if $query.data?.source_path}
+              <div>
+                <dt class="text-muted-foreground">Source path</dt>
+                <dd class="break-all font-mono">{$query.data.source_path}</dd>
+              </div>
+            {/if}
+            {#if $query.data?.source_license}
+              <div>
+                <dt class="text-muted-foreground">License</dt>
+                <dd>{$query.data.source_license}</dd>
+              </div>
+            {/if}
+          </dl>
         {/if}
       </div>
     </aside>

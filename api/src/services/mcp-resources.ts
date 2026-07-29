@@ -8,12 +8,14 @@
  *   - `project://<slug>/files/<stored_name>`    — single project file (raw content)
  *   - `project://<slug>/memory/<key>`           — single project-scoped memory
  *   - `skill://<slug>`                          — skill manifest
+ *   - `skill://<slug>/<path>`                   — bundled skill support file
  */
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
 import type { SharedMemoriesService } from './shared-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 export interface ResourceDeps {
   memories: McpMemoriesService;
@@ -48,6 +50,7 @@ const MEMORY_INFIX = '/memory/';
 const PROJECT_FILES_LIST_CAP = 50;
 const PROJECT_MEMORIES_LIST_CAP = 50;
 const SHARED_MEMORIES_LIST_CAP = 50;
+const SKILL_FILES_LIST_CAP = 128;
 
 interface ProjectFileSubResource {
   storedName: string;
@@ -144,6 +147,39 @@ function buildProjectMemoryUri(slug: string, key: string): string {
   return `project://${encodeURIComponent(slug)}/memory/${encodeURIComponent(key)}`;
 }
 
+function buildSkillFileUri(slug: string, filePath: string): string {
+  const segments = filePath.split('/').map((s) => encodeURIComponent(s));
+  return `skill://${encodeURIComponent(slug)}/${segments.join('/')}`;
+}
+
+function decodeSkillSubPath(subPath: string): string {
+  const raw = subPath.replace(/^\/+/, '');
+  if (!raw) throw new Error('Skill support-file path is required');
+  return raw.split('/').map((segment) => decodeURIComponent(segment)).join('/');
+}
+
+function skillFileMime(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.md')) return 'text/markdown';
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'application/yaml';
+  if (lower.endsWith('.json')) return 'application/json';
+  if (lower.endsWith('.sh')) return 'text/x-shellscript';
+  return 'text/plain';
+}
+
+function annotateBundledSkillManifest(manifest: string, slug: string, fileCount: number): string {
+  if (fileCount < 1) return manifest;
+  const note = [
+    '> Fleet bundle note: this skill has supporting files managed outside the workspace.',
+    `> When it references a relative path, read \`skill://${encodeURIComponent(slug)}/<path>\` with MCP \`resource_read\`.`,
+    '> Treat bundled scripts as reference text; do not execute them unless the user and higher-priority instructions authorize it.',
+    '',
+  ].join('\n');
+  const frontmatter = /^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/.exec(manifest);
+  if (!frontmatter) return `${note}${manifest}`;
+  return `${frontmatter[0]}\n${note}${manifest.slice(frontmatter[0].length).replace(/^\n+/, '')}`;
+}
+
 export class McpResourcesService {
   constructor(private readonly deps: ResourceDeps) {}
 
@@ -164,6 +200,12 @@ export class McpResourcesService {
         mimeType: 'application/json',
       },
       { uriTemplate: 'skill://{slug}', name: 'skill', description: 'Skill manifest by slug', mimeType: 'text/markdown' },
+      {
+        uriTemplate: 'skill://{slug}/{path}',
+        name: 'skill_file',
+        description: 'Supporting file bundled with a skill',
+        mimeType: 'text/plain',
+      },
     ];
     if (this.deps.sharedMemories) {
       templates.push({
@@ -176,13 +218,10 @@ export class McpResourcesService {
     return templates;
   }
 
-  async list(host: Host): Promise<ResourceDescriptor[]> {
+  async list(host: Host, engine: Engine = ENGINE_CODEX): Promise<ResourceDescriptor[]> {
     const [projects, skills] = await Promise.all([
       this.deps.projects.listProjects(host),
-      // List ALL skills as resources (engine=null ⇒ no engine filter). Previously
-      // hardcoded to codex, which hid any claude-specific skill from the resource
-      // catalogue; the resource list is engine-agnostic and read is by slug.
-      this.deps.skills.listSkills(host, null),
+      this.deps.skills.listSkills(host, engine),
     ]);
     const resources: ResourceDescriptor[] = [];
     for (const p of projects.projects) {
@@ -259,17 +298,34 @@ export class McpResourcesService {
     for (const s of skills.skills as Array<Record<string, unknown>>) {
       const slug = String(s['slug'] ?? '');
       if (!slug) continue;
+      const explicitOnly = s['allow_implicit_invocation'] === false;
+      const description = typeof s['description'] === 'string' ? (s['description'] as string) : '';
       resources.push({
         uri: `skill://${encodeURIComponent(slug)}`,
         name: String(s['display_name'] ?? slug),
-        description: typeof s['description'] === 'string' ? (s['description'] as string) : '',
+        description: explicitOnly ? `[Explicit user invocation only] ${description}`.trim() : description,
         mimeType: 'text/markdown',
       });
+      if (typeof s['source_type'] === 'string' && s['source_type'] !== '') {
+        try {
+          const files = await this.deps.skills.listFiles(slug, host, engine);
+          for (const file of files.slice(0, SKILL_FILES_LIST_CAP)) {
+            resources.push({
+              uri: buildSkillFileUri(slug, file.path),
+              name: `${slug}/${file.path}`,
+              description: `Supporting file for ${slug}`,
+              mimeType: skillFileMime(file.path),
+            });
+          }
+        } catch {
+          // Keep the manifest resource even if its optional file listing fails.
+        }
+      }
     }
     return resources;
   }
 
-  async read(uri: string, host: Host): Promise<ResourceReadResponse> {
+  async read(uri: string, host: Host, engine: Engine = ENGINE_CODEX): Promise<ResourceReadResponse> {
     const parsed = parseUri(uri);
     const { scheme, id } = parsed;
     if (scheme === 'memory') {
@@ -331,11 +387,33 @@ export class McpResourcesService {
       };
     }
     if (scheme === 'skill') {
-      const skill = await this.deps.skills.retrieve(id, null, host);
+      if (parsed.subPath) {
+        const filePath = decodeSkillSubPath(parsed.subPath);
+        const file = await this.deps.skills.retrieveFile(id, filePath, host, engine);
+        return {
+          contents: [
+            {
+              uri,
+              name: `${id}/${file.path}`,
+              mimeType: skillFileMime(file.path),
+              text: file.content,
+            },
+          ],
+        };
+      }
+      const skill = await this.deps.skills.retrieve(id, null, host, engine);
       const manifest = typeof skill['manifest'] === 'string' ? (skill['manifest'] as string) : JSON.stringify(skill);
+      const files = typeof skill['source_type'] === 'string' && skill['source_type'] !== ''
+        ? await this.deps.skills.listFiles(id, host, engine)
+        : [];
       return {
         contents: [
-          { uri, name: id, mimeType: 'text/markdown', text: manifest },
+          {
+            uri,
+            name: id,
+            mimeType: 'text/markdown',
+            text: annotateBundledSkillManifest(manifest, id, files.length),
+          },
         ],
       };
     }

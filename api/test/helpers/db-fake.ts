@@ -20,12 +20,14 @@ export interface DbFake {
   inserts: Array<{ table: unknown; values: Row | Row[] }>;
   updates: Array<{ table: unknown; set: Row; where: unknown }>;
   deletes: Array<{ table: unknown; where: unknown }>;
+  locks: Array<{ table: unknown; where: unknown; strength: unknown }>;
+  transactions: unknown[];
   // Drizzle-compatible verbs (loose typing)
   select(_fields?: unknown): unknown;
   insert(table: unknown): unknown;
   update(table: unknown): unknown;
   delete(table: unknown): unknown;
-  transaction<T>(cb: (tx: DbFake) => Promise<T>): Promise<T>;
+  transaction<T>(cb: (tx: DbFake) => Promise<T>, config?: unknown): Promise<T>;
 }
 
 export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
@@ -51,12 +53,15 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
     inserts: [],
     updates: [],
     deletes: [],
+    locks: [],
+    transactions: [],
 
     // This fake is single-threaded/in-memory, so a "transaction" is just
     // running the callback against the same fake -- there's no real
     // concurrency to isolate, only the API shape (tx.select/.insert/.update)
     // needs to match what the services under test call.
-    transaction<T>(cb: (tx: DbFake) => Promise<T>): Promise<T> {
+    transaction<T>(cb: (tx: DbFake) => Promise<T>, config?: unknown): Promise<T> {
+      fake.transactions.push(config);
       return cb(fake);
     },
 
@@ -79,7 +84,10 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             // `.for('update')` just resolves to the same filtered rows. Without
             // this, any service path going through recordEvent's SELECT ... FOR
             // UPDATE is untestable.
-            inner.for = (_strength?: unknown) => inner;
+            inner.for = (_strength?: unknown) => {
+              fake.locks.push({ table, where: _w, strength: _strength });
+              return inner;
+            };
             return inner;
           };
           builder.orderBy = (..._args: unknown[]) => {

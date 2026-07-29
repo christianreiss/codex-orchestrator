@@ -17,7 +17,7 @@ export interface McpAccessLogEntry {
   success: boolean;
   errorCode: number | null;
   errorMessage: string | null;
-  /** Dispatching engine from the caller's `x-engine` header, null when absent. */
+  /** Effective dispatch engine; `/mcp` defaults an absent/invalid header to Codex. */
   engine: Engine | null;
 }
 

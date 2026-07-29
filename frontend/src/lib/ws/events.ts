@@ -95,7 +95,9 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   ],
 
   // Settings (root key triggers hierarchical match on all per-setting keys)
-  "settings.changed": [["settings"]],
+  // Source checks update their state even when the imported catalogue itself
+  // is unchanged, so keep the source card live across tabs and worker ticks.
+  "settings.changed": [["settings"], ["skills", "source"]],
 
   // Usage / dashboard
   // NB: the backend only ever publishes `chatgpt.usage.updated` (see

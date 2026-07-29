@@ -118,6 +118,69 @@ describe('McpServer.handlePayload', () => {
     const r = await server.handlePayload({ jsonrpc: '2.0', id: 5, method: 'prompts/list' }, ctx);
     expect((r as { result: { prompts: unknown[] } }).result.prompts).toEqual([]);
   });
+
+  it('threads the caller engine through direct and tool-based skill resource access', async () => {
+    const calls: Array<{ operation: string; engine: unknown }> = [];
+    const scopedSkills = {
+      listSkills: async (_host: Host, engine: unknown) => {
+        calls.push({ operation: 'list', engine });
+        return { engine, skills: [] };
+      },
+      retrieve: async (_slug: string, _sha: string | null, _host: Host, engine: unknown) => {
+        calls.push({ operation: 'retrieve', engine });
+        return { slug: 'engine-scope', source_type: null, manifest: '# scoped' };
+      },
+    } as unknown as HostSkillsService;
+    const scopedResources = new McpResourcesService({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: scopedSkills,
+    });
+    const scopedTools = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: scopedSkills,
+      resources: scopedResources,
+    });
+    const scopedServer = new McpServer(scopedTools, scopedResources, noopAccess);
+    const claude = { ...ctx, engine: 'claude' as const };
+
+    await scopedServer.handlePayload({ jsonrpc: '2.0', id: 1, method: 'resources/list' }, claude);
+    await scopedServer.handlePayload({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'resources/read',
+      params: { uri: 'skill://engine-scope' },
+    }, claude);
+    await scopedServer.handlePayload({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'resource_list', arguments: {} },
+    }, claude);
+    await scopedServer.handlePayload({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: { name: 'skill_retrieve', arguments: { slug: 'engine-scope' } },
+    }, claude);
+    await scopedServer.handlePayload({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      // An argument cannot cross the engine boundary; the authenticated
+      // request engine is authoritative for every Skill access surface.
+      params: { name: 'skill_list', arguments: { engine: 'codex' } },
+    }, claude);
+
+    expect(calls).toEqual([
+      { operation: 'list', engine: 'claude' },
+      { operation: 'retrieve', engine: 'claude' },
+      { operation: 'list', engine: 'claude' },
+      { operation: 'retrieve', engine: 'claude' },
+      { operation: 'list', engine: 'claude' },
+    ]);
+  });
 });
 
 describe('McpServer access logging', () => {

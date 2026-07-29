@@ -15,6 +15,97 @@ delete the file rather than let it drift. (Exception: `coco` is not here and nev
 will be — it is synthesized from a constant in `api/src/services/managed-coco-skill.ts`
 and cannot be stored through the normal path.)
 
+## Optional external source: Matt Pocock skills
+
+Authoring → Skills can subscribe the canonical library to
+`https://github.com/mattpocock/skills`. This is an **external instruction supply
+chain**, not a bundled default: inclusion is off on every fresh deployment and
+causes no GitHub request while off. Review upstream before enabling it.
+
+- `GET /admin/skill-sources/mattpocock` is readable by any authenticated admin
+  role and returns source/repository/ref, switches, `disabled|ok|error` status,
+  immutable revision, upstream plugin version, Skill/file counts, check/sync
+  timestamps, and the last error.
+- `POST /admin/skill-sources/mattpocock` requires owner/admin and accepts a
+  non-empty body containing one or both strict `enabled` / `auto_update`
+  booleans. Fresh source state defaults auto-update on, but a preference set
+  while disabled is preserved when inclusion is enabled. Turning only
+  auto-update off pins the last-known-good SHA.
+- `POST /admin/skill-sources/mattpocock/refresh` requires owner/admin and no
+  request body. It runs **Check now** for an enabled source even when periodic
+  auto-update is off. The background updater checks enabled, auto-updating
+  sources every six hours.
+
+Every refresh resolves upstream `main` to one immutable 40-hex commit SHA and
+then fetches every input at that SHA. It never mixes moving-branch responses.
+The complete candidate validates before one database transaction advances the
+served revision; any network, manifest, path, digest, or content error records
+`last_checked_at`/`last_error` and leaves the prior last-known-good Skills and
+revision untouched.
+
+The importer does not recursively ingest the repository. Its inclusion boundary
+is exactly the `skills` array in upstream `.claude-plugin/plugin.json`, with each
+entry constrained to a safe `./skills/engineering/<slug>` or
+`./skills/productivity/<slug>` directory. At the upstream 1.2.0 manifest that
+allowlist is exactly these 22 paths:
+
+```text
+./skills/engineering/ask-matt
+./skills/engineering/diagnosing-bugs
+./skills/engineering/grill-with-docs
+./skills/engineering/triage
+./skills/engineering/improve-codebase-architecture
+./skills/engineering/setup-matt-pocock-skills
+./skills/engineering/tdd
+./skills/engineering/to-spec
+./skills/engineering/to-tickets
+./skills/engineering/wayfinder
+./skills/engineering/implement
+./skills/engineering/prototype
+./skills/engineering/research
+./skills/engineering/domain-modeling
+./skills/engineering/codebase-design
+./skills/engineering/code-review
+./skills/engineering/resolving-merge-conflicts
+./skills/productivity/grill-me
+./skills/productivity/grilling
+./skills/productivity/handoff
+./skills/productivity/teach
+./skills/productivity/writing-great-skills
+```
+
+Each imported directory becomes an ordinary `skills` row plus its complete
+auxiliary tree in `skill_files`; there is no parallel host sync path. The row
+uses `source_type = github:mattpocock/skills` and records repository, upstream
+path, immutable revision, `source_license = MIT`, and a complete-bundle SHA-256.
+The upstream root license is fetched at that same revision and copied into every
+bundle as `LICENSE.mattpocock` so redistribution retains the notice: **MIT
+License, Copyright (c) 2026 Matt Pocock**. A non-blank source type is an ownership
+marker, so the ordinary admin/host Skill store and delete endpoints reject direct
+changes; edits must come from a validated source refresh.
+
+Delivery remains engine-native:
+
+- Codex reads the manifest at `skill://<slug>` and support files at
+  `skill://<slug>/<path>`. The MCP catalogue labels upstream
+  `disable-model-invocation: true` as `[Explicit user invocation only]`, and a
+  read-time note routes relative paths through MCP. Bundled scripts are reference
+  text, not permission to execute them.
+- Claude receives the complete directory in `claude_skills`; cxx 0.7.3 validates
+  every path/digest, recomputes the canonical complete-bundle digest, stages it,
+  and atomically swaps
+  `~/.claude/skills/<slug>/`. Its ownership manifest records every fleet-owned
+  file and content digest. Missing, modified, symlinked, or unexpected managed
+  content withholds the cached bundle digest and is restored by the next
+  bootstrap. Non-canonical cross-slug ownership records are quarantined, and
+  pruning never removes a user-authored Skill directory.
+
+Turning inclusion off soft-deletes only rows owned by this source. Codex stops
+listing them immediately; Claude removes only those fleet-owned directories on
+its next complete bootstrap. The cached rows, files, and last-known-good source
+metadata remain server-side for a safe re-enable. Locally authored Skills and
+code-derived managed Skills are untouched.
+
 ## Storing one
 
 `POST /admin/skills/store` requires an admin session cookie. Only `slug` and `manifest`

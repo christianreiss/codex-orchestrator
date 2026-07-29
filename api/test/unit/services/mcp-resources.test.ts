@@ -612,3 +612,71 @@ describe('McpResourcesService shared:// scheme', () => {
     await expect(res.delete('shared://x', host)).rejects.toThrow(/not available/i);
   });
 });
+
+describe('McpResourcesService skill bundle resources', () => {
+  const projects = makeStubProjects().service;
+  const bundledSkills = {
+    listSkills: async () => ({
+      engine: null,
+      skills: [
+        {
+          slug: 'tdd',
+          display_name: 'TDD',
+          description: 'Test first',
+          source_type: 'github:mattpocock/skills',
+          allow_implicit_invocation: false,
+        },
+      ],
+    }),
+    retrieve: async () => ({
+      slug: 'tdd',
+      source_type: 'github:mattpocock/skills',
+      manifest: '---\nname: tdd\ndisable-model-invocation: true\n---\n\nSee [tests](tests.md).\n',
+    }),
+    listFiles: async () => [
+      { path: 'tests.md', sha256: 'a'.repeat(64), content: 'test reference' },
+      { path: 'agents/openai.yaml', sha256: 'b'.repeat(64), content: 'policy: {}' },
+    ],
+    retrieveFile: async (_slug: string, path: string) => ({
+      path,
+      sha256: 'a'.repeat(64),
+      content: path === 'tests.md' ? 'test reference' : 'policy: {}',
+    }),
+  } as unknown as HostSkillsService;
+
+  it('advertises explicit-only manifests and their supporting files', async () => {
+    const res = new McpResourcesService({ memories: stubMemories, projects, skills: bundledSkills });
+    const listed = await res.list(host);
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          uri: 'skill://tdd',
+          description: '[Explicit user invocation only] Test first',
+        }),
+        expect.objectContaining({ uri: 'skill://tdd/tests.md', mimeType: 'text/markdown' }),
+        expect.objectContaining({
+          uri: 'skill://tdd/agents/openai.yaml',
+          mimeType: 'application/yaml',
+        }),
+      ]),
+    );
+  });
+
+  it('annotates the manifest with the MCP path contract and reads support files', async () => {
+    const res = new McpResourcesService({ memories: stubMemories, projects, skills: bundledSkills });
+    const manifest = await res.read('skill://tdd', host);
+    expect(manifest.contents[0]?.text).toMatch(/^---\nname: tdd/);
+    expect(manifest.contents[0]?.text).toContain('skill://tdd/<path>');
+    expect(manifest.contents[0]?.text).toContain('See [tests](tests.md).');
+
+    const file = await res.read('skill://tdd/tests.md', host);
+    expect(file.contents).toEqual([
+      expect.objectContaining({
+        uri: 'skill://tdd/tests.md',
+        name: 'tdd/tests.md',
+        mimeType: 'text/markdown',
+        text: 'test reference',
+      }),
+    ]);
+  });
+});

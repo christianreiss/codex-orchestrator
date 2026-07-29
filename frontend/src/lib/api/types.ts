@@ -268,6 +268,12 @@ export interface SkillRow {
   canonical_uri?: string | null;
   managed?: boolean;
   status?: string | null;
+  source_type?: string | null;
+  source_repository?: string | null;
+  source_path?: string | null;
+  source_revision?: string | null;
+  source_license?: string | null;
+  bundle_sha256?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
   deleted_at?: string | null;

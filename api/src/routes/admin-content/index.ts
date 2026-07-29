@@ -14,8 +14,10 @@ import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../index.js';
 import { registerAdminConfigRoutes } from '../admin/config/index.js';
 import { registerAdminProjectsRoutes } from '../admin/projects/index.js';
+import { registerAdminSkillSourceRoutes } from '../admin/skill-sources/index.js';
 
 export async function registerAdminContentRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   await registerAdminConfigRoutes(app, ctx);
   await registerAdminProjectsRoutes(app, ctx);
+  await registerAdminSkillSourceRoutes(app, ctx);
 }

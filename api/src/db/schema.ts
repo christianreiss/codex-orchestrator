@@ -309,6 +309,12 @@ export const skills = mysqlTable(
     description: text('description'),
     manifest: longtext('manifest').notNull(),
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    sourceType: varchar('source_type', { length: 64 }),
+    sourceRepository: varchar('source_repository', { length: 512 }),
+    sourcePath: varchar('source_path', { length: 512 }),
+    sourceRevision: char('source_revision', { length: 40 }),
+    sourceLicense: varchar('source_license', { length: 64 }),
+    bundleSha256: char('bundle_sha256', { length: 64 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
     deletedAt: varchar('deleted_at', { length: 100 }),
@@ -318,6 +324,26 @@ export const skills = mysqlTable(
     slugUnique: uniqueIndex('slug').on(t.slug),
     updatedAtIdx: index('idx_skills_updated_at').on(t.updatedAt),
     engineIdx: index('idx_skills_engine').on(t.engine),
+  }),
+);
+
+// Auxiliary files belonging to a skill bundle. Ordinary fleet-authored skills
+// have no rows here; an external source may attach references/scripts/assets
+// while the parent `skills.manifest` remains the canonical SKILL.md body.
+export const skillFiles = mysqlTable(
+  'skill_files',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    skillId: bigint('skill_id', { mode: 'number', unsigned: true }).notNull(),
+    path: varchar('path', { length: 512 }).notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    content: longtext('content').notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    skillPathUnique: uniqueIndex('uq_skill_files_skill_path').on(t.skillId, t.path),
+    skillIdx: index('idx_skill_files_skill').on(t.skillId),
   }),
 );
 

@@ -14,7 +14,7 @@ import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
-import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -777,13 +777,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       description: 'List skills available to this host',
       inputSchema: {
         type: 'object',
-        properties: { engine: { type: 'string', enum: ['codex', 'claude'] } },
+        properties: {},
       },
     },
-    handler: async (args, host) => {
-      const engine = isEngine(args['engine']) ? (args['engine'] as Engine) : ENGINE_CODEX;
-      return deps.skills.listSkills(host, engine);
-    },
+    handler: async (_args, host, requestEngine) =>
+      deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX),
   });
   inputs.push({
     definition: {
@@ -795,10 +793,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         required: ['slug'],
       },
     },
-    handler: async (args, host) => {
+    handler: async (args, host, engine) => {
       const slug = String(args['slug'] ?? '');
       const sha = typeof args['sha256'] === 'string' ? args['sha256'] : null;
-      return deps.skills.retrieve(slug, sha, host);
+      return deps.skills.retrieve(slug, sha, host, engine ?? ENGINE_CODEX);
     },
   });
 
@@ -809,19 +807,25 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         description: 'List MCP resources available to this host',
         inputSchema: { type: 'object', properties: {} },
       },
-      handler: async (_args, host) => ({ resources: await deps.resources!.list(host) }),
+      handler: async (_args, host, engine) => ({
+        resources: await deps.resources!.list(host, engine ?? ENGINE_CODEX),
+      }),
     });
     inputs.push({
       definition: {
         name: 'resource_read',
-        description: 'Read an MCP resource by URI, including skill://{slug} manifests',
+        description: 'Read an MCP resource by URI, including skill://{slug} manifests and skill://{slug}/{path} support files',
         inputSchema: {
           type: 'object',
           properties: { uri: { type: 'string' } },
           required: ['uri'],
         },
       },
-      handler: async (args, host) => deps.resources!.read(String(args['uri'] ?? ''), host),
+      handler: async (args, host, engine) => deps.resources!.read(
+        String(args['uri'] ?? ''),
+        host,
+        engine ?? ENGINE_CODEX,
+      ),
     });
     inputs.push({
       definition: {

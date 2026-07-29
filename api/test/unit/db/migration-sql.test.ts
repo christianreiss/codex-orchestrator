@@ -117,4 +117,20 @@ describe('splitSqlStatements', () => {
     expect(guard).toContain('idx_shared_memories_search');
     expect(guard).toContain('information_schema.STATISTICS');
   });
+
+  it('seeds the durable Matt Pocock source lock row in 0007', () => {
+    const file = readFileSync(
+      resolve(import.meta.dirname, '../../../src/db/migrations/0007_add_skill_provenance.sql'),
+      'utf8',
+    );
+    const statements = splitSqlStatements(file);
+    const seeds = statements.filter((statement) =>
+      statement.startsWith('INSERT IGNORE INTO versions'),
+    );
+
+    expect(seeds).toHaveLength(1);
+    expect(seeds[0]).toContain("'skill_source_mattpocock_state'");
+    expect(seeds[0]).toContain('"enabled":false');
+    expect(seeds[0]).toContain('"auto_update":true');
+  });
 });

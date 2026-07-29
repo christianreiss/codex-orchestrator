@@ -61,13 +61,15 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   role. Everything below marked as admin-authenticated is therefore open to any
   authenticated, active user regardless of role, including host registration,
   insecure windows, canonical auth upload, and every global setting.
-- The whole route tree contains exactly two role gates, both of which allow
+- The whole route tree contains exactly three role gates, all of which allow
   `owner` and `admin` only and answer other roles with `403` and code
   `admin_role_required`:
   - Memory Atlas writes: create, update, delete, and shared append
     (`api/src/routes/admin/memories/index.ts`).
   - Admin user management: create, update, delete, and wipe
     (`api/src/routes/admin/users/index.ts`).
+  - External Skill source inclusion, auto-update, and manual refresh
+    (`api/src/routes/admin/skill-sources/index.ts`).
 - Every authenticated role may read Memory Atlas and the user roster. Memory
   reads carry a per-record `capabilities` object (`read`, `create`, `update`,
   `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.

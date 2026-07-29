@@ -241,7 +241,7 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const slug = String(payload['slug'] ?? payload['filename'] ?? '');
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(payload);
-    return ok(await skills.retrieve(slug, sha, requireEngineHost(req, engine)));
+    return ok(await skills.retrieve(slug, sha, requireEngineHost(req, engine), engine));
   });
   app.post('/skills/store', { preHandler: auth }, async (req) => {
     const payload = (req.body as Record<string, unknown>) ?? {};

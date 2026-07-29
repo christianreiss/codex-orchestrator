@@ -11,6 +11,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import MattPocockSkillsSource from "$lib/components/authoring/MattPocockSkillsSource.svelte";
   import * as Table from "$lib/components/ui/table";
   import * as Sheet from "$lib/components/ui/sheet";
   import * as Dialog from "$lib/components/ui/dialog";
@@ -37,6 +38,12 @@
 
   function status(row: SkillRow): { label: string; variant: "success" | "destructive" | "secondary" | "warning" } {
     if (row.deleted_at) return { label: "deleted", variant: "destructive" };
+    if (row.source_type?.trim()) {
+      return {
+        label: row.source_type.toLowerCase().includes("mattpocock") ? "Matt Pocock" : row.source_type,
+        variant: "secondary",
+      };
+    }
     if (row.managed) return { label: "managed", variant: "secondary" };
     if (row.status && row.status !== "ok") return { label: row.status, variant: "warning" };
     return { label: "active", variant: "success" };
@@ -119,6 +126,8 @@
     },
   });
 </script>
+
+<MattPocockSkillsSource />
 
 <section class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-border/75 bg-card p-4 text-sm shadow-sm">
   <div class="flex flex-col">
@@ -212,7 +221,7 @@
                   variant="ghost"
                   size="sm"
                   aria-label={`Delete skill ${row.display_name || row.slug}`}
-                  disabled={!!row.managed}
+                  disabled={!!row.managed || !!row.source_type?.trim()}
                   onclick={() => (deleteTarget = row)}
                 >
                   <Trash2 class="h-4 w-4 text-destructive" />

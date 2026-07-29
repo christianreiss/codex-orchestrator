@@ -23,7 +23,7 @@ const HOST_KEY = 'sk-codex-' + 'a'.repeat(32);
 
 type Headers = Record<string, string | string[] | undefined>;
 
-function makeHost(fqdn: string, status = 'active'): Host {
+function makeHost(fqdn: string, status = 'active', engines = 'codex,claude'): Host {
   return {
     id: 7,
     fqdn,
@@ -33,6 +33,7 @@ function makeHost(fqdn: string, status = 'active'): Host {
     apiKeyHash: 'h',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    engines,
   } as unknown as Host;
 }
 
@@ -105,11 +106,11 @@ const fallthroughBearers: Array<[string, string]> = [
   ['an operator token of the wrong length', OPERATOR_TOKEN.slice(0, -1)],
 ];
 
-const engineHeaders: Array<[string | undefined, string | null]> = [
+const engineHeaders: Array<[string | undefined, string]> = [
   ['codex', 'codex'],
   ['claude', 'claude'],
-  ['gemini', null],
-  [undefined, null],
+  ['gemini', 'codex'],
+  [undefined, 'codex'],
 ];
 
 describe('POST /mcp credential resolution', () => {
@@ -194,6 +195,47 @@ describe('POST /mcp credential resolution', () => {
 
     expect(r.statusCode).toBe(200);
     expect(h.contexts[0]?.engine).toBe(expected);
+    await h.app.close();
+  });
+
+  it.each([
+    ['codex-only', 'claude', 'codex'],
+    ['claude-only', 'codex', 'claude'],
+  ])('denies %s hosts access through %s when only %s is enabled', async (_name, requested, enabled) => {
+    const h = await buildHarness({ hostFromKey: makeHost('single-engine.example', 'active', enabled) });
+    const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': requested });
+
+    expect(r.statusCode).toBe(403);
+    expect(JSON.parse(r.payload)).toMatchObject({ code: 'engine_disabled' });
+    expect(h.contexts).toEqual([]);
+    await h.app.close();
+  });
+
+  it.each(['codex', 'claude'])('routes an enabled %s-only host with that request engine', async (engine) => {
+    const h = await buildHarness({ hostFromKey: makeHost('single-engine.example', 'active', engine) });
+    const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': engine });
+
+    expect(r.statusCode).toBe(200);
+    expect(h.contexts[0]?.engine).toBe(engine);
+    await h.app.close();
+  });
+
+  it('routes an omitted engine header as Codex for a Codex-only host', async () => {
+    const h = await buildHarness({ hostFromKey: makeHost('codex-only.example', 'active', 'codex') });
+    const r = await post(h.app, { 'x-api-key': HOST_KEY });
+
+    expect(r.statusCode).toBe(200);
+    expect(h.contexts[0]?.engine).toBe('codex');
+    await h.app.close();
+  });
+
+  it('denies the omitted-header Codex default for a Claude-only host', async () => {
+    const h = await buildHarness({ hostFromKey: makeHost('claude-only.example', 'active', 'claude') });
+    const r = await post(h.app, { 'x-api-key': HOST_KEY });
+
+    expect(r.statusCode).toBe(403);
+    expect(JSON.parse(r.payload)).toMatchObject({ code: 'engine_disabled' });
+    expect(h.contexts).toEqual([]);
     await h.app.close();
   });
 });

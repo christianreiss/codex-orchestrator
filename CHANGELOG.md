@@ -1,5 +1,41 @@
 # 2026-07-29
 
+- Added an opt-in Matt Pocock skill source to Authoring → Skills. Inclusion is
+  **off by default** and performs no upstream request while off; fresh source
+  state defaults auto-update on, with a six-hour check cadence, while an
+  operator can turn auto-update off to pin the last-known-good revision
+  (including before enabling) or use
+  **Check now** for a manual refresh. Imports resolve `main` to an immutable
+  commit SHA, admit only the exact 22 paths declared by the upstream
+  `.claude-plugin/plugin.json`, validate the complete transaction, and retain
+  the prior revision when any fetch or validation fails. Imported rows carry
+  repository/path/revision/license provenance, are read-only through ordinary
+  Skill mutations, include their supporting files plus the upstream MIT notice,
+  and remain in the existing Skill library rather than creating a second sync
+  system. Turning the source off immediately hides its rows from Codex and
+  retains the cached last-known-good server copy. A later enable validates and
+  restores that complete cache without contacting GitHub; a missing, incomplete,
+  or damaged cache falls back to a fresh import from the immutable upstream SHA.
+  Import validation also rejects case-folded reserved-license descendants and
+  file/directory path-prefix collisions, and bundle digests use locale-independent
+  UTF-8 byte ordering shared with the Go wrapper.
+  Claude prunes only those fleet-owned source directories on its next bootstrap.
+- **cxx 0.7.3:** Claude Skill sync now installs complete directory bundles
+  atomically under `~/.claude/skills/<slug>/`, tracks every fleet-owned support
+  file and content digest for surgical pruning and tamper detection, recomputes
+  the complete bundle digest before installation, and self-heals any
+  missing/modified/symlinked or unexpected managed entry on the next bootstrap.
+  Invalid cross-slug ownership records are quarantined instead of being allowed
+  to overwrite, prune, or strip another Skill, and an incomplete or invalid
+  replacement preserves the previous directory.
+  Codex keeps the live MCP path: manifests are
+  `skill://<slug>`, support files are `skill://<slug>/<path>`, and upstream
+  `disable-model-invocation: true` is surfaced as explicit-user-invocation-only
+  rather than silently widening the skill's trigger policy.
+- MCP now resolves every request to `X-Engine` or the legacy Codex default and
+  rejects that request before JSON-RPC dispatch when the authenticated host has
+  the effective engine disabled. `skill_list` no longer exposes a per-call
+  engine override that could cross that authenticated engine boundary.
 - Refreshed both provider model catalogs against the current official Codex and
   Claude Code documentation. OpenAI's seven supported Codex model IDs are
   unchanged, while Sol's native default effort is corrected from `low` to

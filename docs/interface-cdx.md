@@ -57,14 +57,37 @@ at build time, then loads the config:
     "admin_theme_hint": "auto"
   },
   "wrapper": {
-    "version": "0.7.0",
+    "version": "0.7.3",
     "track": "stable",
     "auto_update": true,
-    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.0/cxx",
+    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.3/cxx",
     "binary_sha256": "..."
   }
 }
 ```
+
+## Skill delivery
+
+Codex does not receive Skill directories from `cxx`. The wrapper only probes
+`GET /skills?engine=codex` for a fleet fingerprint; Codex reads the canonical
+content live through the managed MCP server:
+
+- `skill://<slug>` is the `SKILL.md` manifest.
+- `skill://<slug>/<path>` is an exact auxiliary file in a source-owned bundle.
+  This includes `LICENSE.mattpocock` for the optional Matt Pocock source.
+- `resources/list` prefixes a Skill whose upstream frontmatter sets
+  `disable-model-invocation: true` with `[Explicit user invocation only]`.
+  Import does not turn an explicit-only Skill into an implicit trigger.
+- Reading a bundled manifest adds a fleet note that maps relative paths onto
+  `skill://<slug>/<path>` and says bundled scripts are reference text. Neither
+  the importer nor the resource layer grants permission to execute them.
+
+The Matt Pocock source is off by default, so this surface does not imply it is
+enabled on a deployment. Once an admin enables it, the source adapter publishes
+only the exact upstream plugin allowlist after resolving `main` to an immutable,
+fully validated SHA. Turning the source off removes those resources from Codex
+immediately while retaining the server's cached last-known-good bundle; ordinary
+fleet-authored and code-managed Skills are unaffected.
 
 ## Fleet model defaults
 
@@ -326,7 +349,7 @@ participate in these leases and is the explicit coordination boundary.
    generation unusable even when no replacement exists. It does not authorize
    an overwrite; only `candidate_rejected_definitive:true` together with
    verified canonical bytes can do that.
-5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. Skills themselves are served via MCP `resource_read skill://<slug>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
+5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response using the complete bundle digest, so a source-owned support-file change is visible even when `SKILL.md` is unchanged. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. Skills themselves are served via MCP `resource_read skill://<slug>` and support files via `resource_read skill://<slug>/<path>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
 6. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when redirected, on `TERM=dumb`, or under explicit `--minimal`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
 7. Snapshot the content-bound `auth.json` generation; acquire shared session +
    active-child leases; pass duplicate descriptors into upstream `codex`;

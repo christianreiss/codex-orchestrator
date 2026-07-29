@@ -20,6 +20,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ## Build + Publish
 
 - `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink.
+- The source version carrying complete directory-backed Skill sync is **cxx
+  0.7.3**.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -416,19 +418,50 @@ Engine-specific details:
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI
   picks up the orchestrator-managed `CLAUDE.md`.
-- **Skills are synced ON-DISK** as native `~/.claude/skills/<slug>/SKILL.md`
-  (one directory per skill). Unlike Codex — which reads skills live over MCP
-  (`resource_read skill://<slug>`) — Claude Code cannot consume skills over MCP,
-  so the bundle returns `claude_skills` (complete live set of `engine`
-  null/`claude` skills; `content` omitted on rendered-sha match) and the wrapper
-  writes them with a dedicated `~/.clx/state/collections/skills.json` manifest.
-  The server **coerces the SKILL.md `name:` to the slug** (Claude Code's native
-  loader requires it). Prune/strip/uninstall remove only manifest-recorded skill
-  dirs — user-authored skill dirs are never touched. Legacy bash-era caches still
-  purged one-shot: `~/.agents/skills`, `~/.clx/skills`. **`~/.claude/skills` is no
-  longer purged** — it is the fleet-managed store. A changed item with missing
-  content or a failed write keeps its previous file and manifest entry; failed
-  pruning stays tracked so the next sync can retry.
+- **Skills are synced ON-DISK** as native
+  `~/.claude/skills/<slug>/SKILL.md` directories. Unlike Codex — which reads
+  skills live over MCP (`resource_read skill://<slug>`) — Claude Code cannot
+  consume skills over MCP, so `/sync/bootstrap` returns `claude_skills`, the
+  complete live set of `engine` null/`claude` skills. Manifest-only Skills carry
+  `content`; source-owned Skills carry `content` plus the complete auxiliary
+  `files[]` tree, including `LICENSE.mattpocock` for the optional MIT-licensed
+  Matt Pocock source. The item SHA is the complete bundle digest and
+  `content`/`files` are omitted together when the wrapper already has it.
+- **cxx 0.7.3 installs a Skill directory atomically.** It validates every
+  slash-separated relative path, rejects traversal/duplicates/backslashes,
+  verifies the manifest and each file SHA-256, recomputes the canonical complete
+  bundle digest, writes a sibling staging directory, and swaps the complete
+  directory into place. Missing/invalid content, an aggregate mismatch, or any
+  write failure leaves the previous native directory and ownership record
+  intact. The wrapper never executes a bundled script; it only installs the
+  upstream text/files for Claude Code to interpret under its normal permission
+  policy.
+- `~/.clx/state/collections/skills.json` records `SKILL.md`, the bundle digest,
+  and every auxiliary path plus content SHA-256 the fleet owns. Before cxx
+  advertises a cached digest it verifies the directory is real (not a symlink),
+  its exact file/directory tree contains no extra entry, every owned file is
+  regular, and all bytes still match; drift withholds the digest so the next
+  bootstrap restores the complete canonical bundle. A manifest record whose
+  filename does not canonically belong to its slug is retained but quarantined:
+  it cannot authorize overwrite, prune, strip, or digest advertisement for
+  another Skill. The
+  server coerces locally authored `SKILL.md` `name:` to the slug (Claude Code's
+  native loader requires it), while source imports validate that upstream name
+  already matches and preserve the file byte-for-byte. Both paths preserve
+  `disable-model-invocation: true`, so an upstream explicit-only Skill stays
+  explicit-only. Prune/strip/uninstall remove only
+  manifest-recorded Skill directories; user-authored directories are never
+  touched. Legacy bash-era caches are still purged one-shot:
+  `~/.agents/skills`, `~/.clx/skills`. **`~/.claude/skills` is no longer
+  wholesale-purged** — it is the native fleet-managed store. Failed pruning
+  remains tracked so the next sync retries it.
+- The Matt Pocock source is an admin opt-in and is off by default; this contract
+  does not mean it is enabled on a given fleet. When enabled, only the upstream
+  plugin allowlist at a validated immutable SHA enters `claude_skills`. Turning
+  it off soft-deletes those source rows from served inventory, so the next
+  complete bootstrap prunes only their fleet-owned directories. Cached
+  last-known-good rows/files stay on the server, and unrelated fleet/user
+  Skills remain untouched.
 - No quota bars — Claude has no orchestrator-side quota concept; the
   ChatGPT-style headless QuotaWarn emission is therefore a no-op on clx.
 

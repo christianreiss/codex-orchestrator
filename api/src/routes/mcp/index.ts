@@ -18,7 +18,7 @@ import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
 import { extractApiKey, parseBearer } from '../../util/api-key-helpers.js';
-import { isEngine } from '../../util/engine.js';
+import { ENGINE_CODEX, isEngine } from '../../util/engine.js';
 
 import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
@@ -30,6 +30,7 @@ import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
 import { McpFsTools } from '../../services/mcp-fs.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
+import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import type { Host } from '../../db/schema.js';
 
 export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
@@ -145,7 +146,8 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
 
     const body = req.body;
     const engineHeader = req.headers['x-engine'];
-    const engine = isEngine(engineHeader) ? engineHeader : null;
+    const engine = isEngine(engineHeader) ? engineHeader : ENGINE_CODEX;
+    assertHostEngineEnabled(host, engine);
     const result = await server.handlePayload(body, {
       host,
       clientIp: clientIp(req),

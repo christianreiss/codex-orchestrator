@@ -10,7 +10,6 @@ import {
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CODEX } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
@@ -20,6 +19,7 @@ import {
 } from './wrapper-bin-registry.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { hostEnginesList } from './host-engine-policy.js';
+import { effectiveSkillDigest } from './skill-provenance.js';
 
 /**
  * Per-host wrapper config bakery.
@@ -193,10 +193,10 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     return rows
       .filter((s) => {
         if (s.deletedAt) return false;
-        const e = s.engine ?? ENGINE_CODEX;
-        return e === engine;
+        const e = s.engine;
+        return e === null || e === undefined || e === '' || e === engine;
       })
-      .map((s) => ({ slug: s.slug, sha256: s.sha256 }));
+      .map((s) => ({ slug: s.slug, sha256: effectiveSkillDigest(s, s.sha256) }));
   }
 
   function resolveApiKey(host: Host): string {

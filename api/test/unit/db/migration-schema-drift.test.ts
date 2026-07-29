@@ -100,6 +100,7 @@ describe('migrations against the test baseline', () => {
       'shared_memories',
       'shared_memory_chunks',
       'shared_memory_revisions',
+      'skill_files',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),
@@ -117,6 +118,12 @@ describe('migrations against the test baseline', () => {
       'auth_payloads.refresh_expires_at',
       'auth_payloads.superseded_at',
       'auth_payloads.purge_after',
+      'skills.source_type',
+      'skills.source_repository',
+      'skills.source_path',
+      'skills.source_revision',
+      'skills.source_license',
+      'skills.bundle_sha256',
     ]);
   });
 

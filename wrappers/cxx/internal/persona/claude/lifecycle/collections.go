@@ -14,12 +14,15 @@
 package lifecycle
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -33,8 +36,13 @@ var artifactDirs = map[string]string{
 }
 
 type manifestEntry struct {
-	Filename string `json:"filename"`
-	SHA256   string `json:"sha256"`
+	Filename       string `json:"filename"`
+	SHA256         string `json:"sha256"`
+	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
+	// Files is populated for directory-backed skills and records every relative
+	// file the fleet owns. Older manifests omit it and remain compatible.
+	Files      []string          `json:"files,omitempty"`
+	FileSHA256 map[string]string `json:"file_sha256,omitempty"`
 }
 
 type collectionManifest struct {
@@ -105,6 +113,255 @@ func saveManifest(path string, m collectionManifest) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func safeSkillFilePath(raw string) (string, bool) {
+	// Provider paths are canonical slash-separated relative paths. Reject a
+	// backslash even on Unix so the same payload cannot become traversal on a
+	// Windows client.
+	if raw == "" || strings.Contains(raw, "\\") || strings.ContainsRune(raw, '\x00') {
+		return "", false
+	}
+	clean := path.Clean(raw)
+	if clean != raw || clean == "." || path.IsAbs(clean) || clean == "SKILL.md" || strings.HasPrefix(clean, "../") {
+		return "", false
+	}
+	return filepath.FromSlash(clean), true
+}
+
+func canonicalSkillOwnership(slug string, rec manifestEntry) (string, bool) {
+	name := sanitizeSlug(slug)
+	if name == "" || rec.Filename != filepath.Join(name, "SKILL.md") {
+		return "", false
+	}
+	return name, true
+}
+
+func managedSkillFileMatches(root, relative, expected string) bool {
+	if len(expected) != 64 {
+		return false
+	}
+	current := root
+	parts := strings.Split(filepath.FromSlash(relative), string(filepath.Separator))
+	for _, part := range parts[:len(parts)-1] {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	target := filepath.Join(root, filepath.FromSlash(relative))
+	info, err := os.Lstat(target)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		return false
+	}
+	got := fmt.Sprintf("%x", sha256.Sum256(body))
+	return strings.EqualFold(got, expected)
+}
+
+func skillBundlePresent(dir string, rec manifestEntry) bool {
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	expectedFiles := map[string]struct{}{"SKILL.md": {}}
+	expectedDirs := map[string]struct{}{}
+	if !managedSkillFileMatches(dir, "SKILL.md", rec.ManifestSHA256) {
+		return false
+	}
+	if len(rec.FileSHA256) != len(rec.Files) {
+		return false
+	}
+	for _, raw := range rec.Files {
+		rel, ok := safeSkillFilePath(filepath.ToSlash(raw))
+		if !ok {
+			return false
+		}
+		canonical := filepath.ToSlash(rel)
+		expected, ok := rec.FileSHA256[canonical]
+		if !ok || !managedSkillFileMatches(dir, canonical, expected) {
+			return false
+		}
+		expectedFiles[canonical] = struct{}{}
+		for parent := path.Dir(canonical); parent != "."; parent = path.Dir(parent) {
+			expectedDirs[parent] = struct{}{}
+		}
+	}
+
+	// A fleet-owned skill is a complete directory bundle, not a set of files
+	// overlaid onto user content. WalkDir does not follow symlinks; requiring the
+	// exact file/directory set prevents an injected extra script, directory, or
+	// symlink from surviving while we advertise the canonical bundle digest.
+	seenFiles := map[string]struct{}{}
+	seenDirs := map[string]struct{}{}
+	err = filepath.WalkDir(dir, func(current string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, relErr := filepath.Rel(dir, current)
+		if relErr != nil {
+			return relErr
+		}
+		if rel == "." {
+			return nil
+		}
+		canonical := filepath.ToSlash(rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unexpected symlink %s", canonical)
+		}
+		if entry.IsDir() {
+			if _, ok := expectedDirs[canonical]; !ok {
+				return fmt.Errorf("unexpected directory %s", canonical)
+			}
+			seenDirs[canonical] = struct{}{}
+			return nil
+		}
+		entryInfo, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("unexpected non-regular file %s", canonical)
+		}
+		if _, ok := expectedFiles[canonical]; !ok {
+			return fmt.Errorf("unexpected file %s", canonical)
+		}
+		seenFiles[canonical] = struct{}{}
+		return nil
+	})
+	return err == nil && len(seenFiles) == len(expectedFiles) && len(seenDirs) == len(expectedDirs)
+}
+
+func collectionFileDigest(content string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+}
+
+func validCollectionFileDigest(content, expected string) bool {
+	if len(expected) != 64 {
+		return false
+	}
+	got := collectionFileDigest(content)
+	return strings.EqualFold(got, expected)
+}
+
+type skillBundleDigestEntry struct {
+	path   string
+	sha256 string
+}
+
+func canonicalSkillBundleDigest(manifestSHA256 string, files map[string]string) string {
+	entries := make([]skillBundleDigestEntry, 0, len(files)+1)
+	entries = append(entries, skillBundleDigestEntry{path: "SKILL.md", sha256: strings.ToLower(manifestSHA256)})
+	for filePath, fileSHA256 := range files {
+		entries = append(entries, skillBundleDigestEntry{path: filePath, sha256: strings.ToLower(fileSHA256)})
+	}
+	// Go string ordering is bytewise. The API uses Buffer.compare over UTF-8 bytes
+	// so this is one language-neutral canonical ordering for every valid path.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	hash := sha256.New()
+	for _, entry := range entries {
+		_, _ = hash.Write([]byte(entry.path))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(entry.sha256))
+		_, _ = hash.Write([]byte{'\n'})
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+type writtenSkillBundle struct {
+	ManifestSHA256 string
+	Files          []string
+	FileSHA256     map[string]string
+}
+
+// replaceSkillBundle stages the complete directory and swaps it into place.
+// A failed validation/write leaves the previous directory untouched.
+func replaceSkillBundle(skillsRoot, name string, it orchestrator.CollectionItem) (writtenSkillBundle, error) {
+	empty := writtenSkillBundle{}
+	manifestSHA256 := collectionFileDigest(it.Content)
+	directoryBundle := it.ManifestSHA256 != "" || it.Files != nil
+	if directoryBundle {
+		if !validCollectionFileDigest(it.Content, it.ManifestSHA256) {
+			return empty, errors.New("SKILL.md has invalid sha256")
+		}
+	} else if !validCollectionFileDigest(it.Content, it.SHA256) {
+		return empty, errors.New("SKILL.md does not match advertised sha256")
+	}
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		return empty, err
+	}
+	stage, err := os.MkdirTemp(skillsRoot, "."+name+".new-")
+	if err != nil {
+		return empty, err
+	}
+	defer func() { _ = os.RemoveAll(stage) }()
+	if err := os.WriteFile(filepath.Join(stage, "SKILL.md"), []byte(it.Content), 0o644); err != nil {
+		return empty, err
+	}
+	written := make([]string, 0, len(it.Files))
+	writtenSHA := make(map[string]string, len(it.Files))
+	seen := map[string]struct{}{}
+	for _, file := range it.Files {
+		rel, ok := safeSkillFilePath(file.Path)
+		if !ok {
+			return empty, fmt.Errorf("unsafe auxiliary path %q", file.Path)
+		}
+		canonical := filepath.ToSlash(rel)
+		// The same payload must be safe on case-sensitive Linux and the usual
+		// case-insensitive macOS filesystems. Importers enforce this too; keep the
+		// wrapper as the final trust boundary.
+		collisionKey := strings.ToLower(canonical)
+		if _, duplicate := seen[collisionKey]; duplicate {
+			return empty, fmt.Errorf("duplicate auxiliary path %q", file.Path)
+		}
+		seen[collisionKey] = struct{}{}
+		if !validCollectionFileDigest(file.Content, file.SHA256) {
+			return empty, fmt.Errorf("auxiliary file %q has invalid sha256", file.Path)
+		}
+		target := filepath.Join(stage, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return empty, err
+		}
+		if err := os.WriteFile(target, []byte(file.Content), 0o644); err != nil {
+			return empty, err
+		}
+		written = append(written, canonical)
+		writtenSHA[canonical] = collectionFileDigest(file.Content)
+	}
+	sort.Strings(written)
+	if directoryBundle {
+		bundleSHA256 := canonicalSkillBundleDigest(manifestSHA256, writtenSHA)
+		if len(it.SHA256) != 64 || !strings.EqualFold(bundleSHA256, it.SHA256) {
+			return empty, errors.New("skill bundle does not match advertised sha256")
+		}
+	}
+
+	target := filepath.Join(skillsRoot, name)
+	backup := stage + ".old"
+	hadTarget := fileExists(target)
+	if hadTarget {
+		if err := os.Rename(target, backup); err != nil {
+			return empty, err
+		}
+	}
+	if err := os.Rename(stage, target); err != nil {
+		if hadTarget {
+			_ = os.Rename(backup, target)
+		}
+		return empty, err
+	}
+	// The new directory is authoritative now. A stale hidden backup is safer
+	// than rolling back a successful swap because cleanup alone failed.
+	_ = os.RemoveAll(backup)
+	return writtenSkillBundle{
+		ManifestSHA256: manifestSHA256,
+		Files:          written,
+		FileSHA256:     writtenSHA,
+	}, nil
 }
 
 // applyCollection writes/prunes one collection kind and returns whether anything
@@ -251,9 +508,9 @@ func applyClaudeSkillsResult(items []orchestrator.CollectionItem, logger *slog.L
 	var resultErr error
 
 	for _, it := range items {
-		prev, known := man.Items[it.Slug]
+		prev, recorded := man.Items[it.Slug]
 		preservePrevious := func() {
-			if known {
+			if recorded {
 				newItems[it.Slug] = prev
 			}
 		}
@@ -264,39 +521,79 @@ func applyClaudeSkillsResult(items []orchestrator.CollectionItem, logger *slog.L
 			preservePrevious()
 			continue
 		}
-		path := filepath.Join(skillsRoot, name, "SKILL.md") // atomicWrite MkdirAll's <slug>/
-		if known && prev.SHA256 == it.SHA256 && fileExists(path) {
-			// If-None-Match: unchanged and present — leave it.
+		known := false
+		if recorded {
+			if _, valid := canonicalSkillOwnership(it.Slug, prev); !valid {
+				logger.Warn("refusing skill with invalid ownership record", "slug", it.Slug, "filename", prev.Filename)
+				resultErr = errors.Join(resultErr, fmt.Errorf("Claude skill %q has an invalid ownership record", it.Slug))
+				preservePrevious()
+				continue
+			}
+			known = true
+		}
+		skillDir := filepath.Join(skillsRoot, name)
+		if !known && fileExists(skillDir) {
+			// A directory that is absent from our ownership manifest belongs to the
+			// user (or another tool). Never adopt, overwrite, or remove it merely
+			// because the fleet later publishes the same slug.
+			resultErr = errors.Join(resultErr, fmt.Errorf("Claude skill %q conflicts with an unmanaged local directory", it.Slug))
+			continue
+		}
+		if known && prev.SHA256 == it.SHA256 && skillBundlePresent(skillDir, prev) {
+			// If-None-Match: unchanged and the complete managed file set is
+			// present — leave the directory untouched.
+			newItems[it.Slug] = prev
+			continue
 		} else if it.Content != "" {
-			if err := atomicWrite(path, []byte(it.Content), 0o644); err != nil {
+			written, err := replaceSkillBundle(skillsRoot, name, it)
+			if err != nil {
 				logger.Debug("skill write failed", "slug", it.Slug, "err", err)
 				resultErr = errors.Join(resultErr, fmt.Errorf("write Claude skill %q: %w", it.Slug, err))
 				preservePrevious()
 				continue
 			}
 			updated = true
+			newItems[it.Slug] = manifestEntry{
+				Filename:       filepath.Join(name, "SKILL.md"),
+				SHA256:         it.SHA256,
+				ManifestSHA256: written.ManifestSHA256,
+				Files:          written.Files,
+				FileSHA256:     written.FileSHA256,
+			}
+			continue
 		} else {
 			resultErr = errors.Join(resultErr, fmt.Errorf("Claude skill %q is missing content", it.Slug))
-			preservePrevious()
+			if known && !skillBundlePresent(skillDir, prev) {
+				// Keep ownership (so prune/strip remain surgical) but clear the
+				// advertised digest. The next bootstrap then receives the complete
+				// bundle and heals the missing file.
+				prev.SHA256 = ""
+				newItems[it.Slug] = prev
+			} else {
+				preservePrevious()
+			}
 			continue
 		}
-		newItems[it.Slug] = manifestEntry{Filename: filepath.Join(name, "SKILL.md"), SHA256: it.SHA256}
 	}
 
 	for slug, rec := range man.Items {
 		if _, stillPresent := newItems[slug]; stillPresent {
 			continue
 		}
-		if d := skillDirFromManifest(skillsRoot, rec.Filename); d != "" {
-			if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
-				logger.Debug("skill prune failed", "slug", slug, "err", err)
-				resultErr = errors.Join(resultErr, fmt.Errorf("prune Claude skill %q: %w", slug, err))
-				// Keep ownership in the manifest so the next sync retries the prune.
-				newItems[slug] = rec
-				continue
-			}
-			updated = true
+		d := skillDirFromManifest(skillsRoot, slug, rec)
+		if d == "" {
+			newItems[slug] = rec
+			resultErr = errors.Join(resultErr, fmt.Errorf("prune Claude skill %q: invalid ownership record", slug))
+			continue
 		}
+		if err := os.RemoveAll(d); err != nil && !os.IsNotExist(err) {
+			logger.Debug("skill prune failed", "slug", slug, "err", err)
+			resultErr = errors.Join(resultErr, fmt.Errorf("prune Claude skill %q: %w", slug, err))
+			// Keep ownership in the manifest so the next sync retries the prune.
+			newItems[slug] = rec
+			continue
+		}
+		updated = true
 	}
 
 	man.Items = newItems
@@ -307,19 +604,15 @@ func applyClaudeSkillsResult(items []orchestrator.CollectionItem, logger *slog.L
 	return updated, resultErr
 }
 
-// skillDirFromManifest resolves the absolute skill directory for a manifest
-// Filename ("<slug>/SKILL.md"). Returns "" (and the caller skips) unless the
-// path is exactly one sanitized slug deep — guarding against ever RemoveAll-ing
-// the whole ~/.claude/skills tree or escaping it.
-func skillDirFromManifest(skillsRoot, filename string) string {
-	sub := filepath.Dir(filename)
-	if sub == "." || sub == "" || sub == string(filepath.Separator) {
+// skillDirFromManifest resolves one canonical ownership record. The map key and
+// Filename must name the same sanitized slug; accepting merely any safe filename
+// would let a corrupted record for slug A authorize removing user-owned slug B.
+func skillDirFromManifest(skillsRoot, slug string, rec manifestEntry) string {
+	name, ok := canonicalSkillOwnership(slug, rec)
+	if !ok {
 		return ""
 	}
-	if name := sanitizeSlug(sub); name == "" || name != sub {
-		return ""
-	}
-	return filepath.Join(skillsRoot, sub)
+	return filepath.Join(skillsRoot, name)
 }
 
 // skillDigestsForRequest advertises the on-disk skill shas for If-None-Match.
@@ -327,6 +620,13 @@ func skillDigestsForRequest() map[string]string {
 	man := loadManifest(collectionManifestPath("skills"))
 	out := map[string]string{}
 	for slug, rec := range man.Items {
+		name, ok := canonicalSkillOwnership(slug, rec)
+		if !ok {
+			continue
+		}
+		if !skillBundlePresent(filepath.Join(claudeSubdir("skills"), name), rec) {
+			continue
+		}
 		out[slug] = rec.SHA256
 	}
 	return out
@@ -345,7 +645,7 @@ func stripClaudeSkillsWith(logger *slog.Logger, removeAll func(string) error) er
 	remaining := map[string]manifestEntry{}
 	var resultErr error
 	for slug, rec := range man.Items {
-		d := skillDirFromManifest(skillsRoot, rec.Filename)
+		d := skillDirFromManifest(skillsRoot, slug, rec)
 		if d == "" {
 			remaining[slug] = rec
 			resultErr = errors.Join(resultErr, fmt.Errorf("strip Claude skill %q: unsafe manifest path", slug))

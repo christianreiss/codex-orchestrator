@@ -9,8 +9,10 @@ import {
   clientConfigDocuments,
   claudeArtifacts,
   skills as skillsTable,
+  skillFiles,
 } from '../../../src/db/schema.js';
 import { renderSkillFile } from '../../../src/services/host-skills.js';
+import { computeSkillBundleDigest } from '../../../src/services/skill-provenance.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 
@@ -61,6 +63,7 @@ function baseTables(apiKey: string, engines: string) {
   db.tables.set(agentsDocuments, []);
   db.tables.set(clientConfigDocuments, []);
   db.tables.set(claudeArtifacts, []);
+  db.tables.set(skillFiles, []);
   return db;
 }
 
@@ -122,6 +125,76 @@ describe('POST /sync/bootstrap claude_skills bundle', () => {
     const noop = body.claude_skills.find((s: { slug: string }) => s.slug === 'noop');
     expect(noop.status).toBe('unchanged');
     expect(noop.content).toBeUndefined();
+  });
+
+  it('delivers the complete external skill directory and caches it by bundle digest', async () => {
+    const apiKey = 'sk-claude-source-bundle';
+    const db = baseTables(apiKey, 'claude');
+    const manifest = '---\nname: tdd\ndescription: Test driven development\n---\n\nRead references/red-green.md.\n';
+    const manifestSha = createHash('sha256').update(manifest).digest('hex');
+    const guideContent = '# Red, green, refactor';
+    const guideSha = createHash('sha256').update(guideContent).digest('hex');
+    const licenseContent = 'MIT License';
+    const licenseSha = createHash('sha256').update(licenseContent).digest('hex');
+    const bundleSha = computeSkillBundleDigest([
+      { path: 'SKILL.md', sha256: manifestSha },
+      { path: 'references/red-green.md', sha256: guideSha },
+      { path: 'LICENSE.mattpocock', sha256: licenseSha },
+    ]);
+    db.tables.set(skillsTable, [
+      skillRow({
+        id: 7,
+        slug: 'tdd',
+        manifest,
+        engine: null,
+        sourceType: 'github:mattpocock/skills',
+        sourceRepository: 'https://github.com/mattpocock/skills',
+        sourcePath: 'skills/engineering/tdd',
+        sourceRevision: 'a'.repeat(40),
+        sourceLicense: 'MIT',
+        bundleSha256: bundleSha,
+      }),
+    ]);
+    db.tables.set(skillFiles, [
+      {
+        id: 1,
+        skillId: 7,
+        path: 'references/red-green.md',
+        sha256: guideSha,
+        content: guideContent,
+        createdAt: 't',
+        updatedAt: 't',
+      },
+      {
+        id: 2,
+        skillId: 7,
+        path: 'LICENSE.mattpocock',
+        sha256: licenseSha,
+        content: licenseContent,
+        createdAt: 't',
+        updatedAt: 't',
+      },
+    ]);
+
+    const updated = await bootstrap(db, apiKey, 'claude');
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().claude_skills.find((item: { slug: string }) => item.slug === 'tdd')).toMatchObject({
+      status: 'updated',
+      sha256: bundleSha,
+      manifest_sha256: manifestSha,
+      content: expect.stringContaining('name: tdd'),
+      files: [
+        { path: 'references/red-green.md', content: '# Red, green, refactor' },
+        { path: 'LICENSE.mattpocock', content: 'MIT License' },
+      ],
+    });
+
+    const unchanged = await bootstrap(db, apiKey, 'claude', { skills: { tdd: bundleSha } });
+    expect(unchanged.json().claude_skills.find((item: { slug: string }) => item.slug === 'tdd')).toEqual({
+      slug: 'tdd',
+      sha256: bundleSha,
+      status: 'unchanged',
+    });
   });
 
   it('does NOT include claude_skills for codex hosts', async () => {

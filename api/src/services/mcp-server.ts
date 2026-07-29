@@ -5,7 +5,7 @@ import type { Host } from '../db/schema.js';
 import type { Capability, McpToolsRegistry } from './mcp-tools.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { McpAccessLogService } from './mcp-access-log.js';
-import type { Engine } from '../util/engine.js';
+import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 export interface JsonRpcRequest {
   jsonrpc?: unknown;
@@ -146,7 +146,9 @@ export class McpServer {
         case 'resources/list':
         case 'resources.list':
         case 'list_resources': {
-          response = okResponse(id, { resources: await this.resources.list(ctx.host) });
+          response = okResponse(id, {
+            resources: await this.resources.list(ctx.host, ctx.engine ?? ENGINE_CODEX),
+          });
           break;
         }
         case 'resources/read':
@@ -161,7 +163,7 @@ export class McpServer {
             logErrorMessage = 'Invalid params';
             break;
           }
-          response = okResponse(id, await this.resources.read(uri, ctx.host));
+          response = okResponse(id, await this.resources.read(uri, ctx.host, ctx.engine ?? ENGINE_CODEX));
           break;
         }
         case 'resources/create':

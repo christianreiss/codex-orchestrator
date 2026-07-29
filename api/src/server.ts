@@ -9,7 +9,9 @@ import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
+import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
+import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 
 import { envelopePlugin } from './http/plugins/envelope.js';
 import { requestIdPlugin } from './http/plugins/request-id.js';
@@ -70,6 +72,7 @@ export async function buildServer() {
   await registerWsServer(app, env);
   startAuthVerificationWorker(app, env, db, keyring);
   startAuthRetentionWorker(app, db);
+  startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
 
   attachShutdown(app, pool);
   return app;
