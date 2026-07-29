@@ -13,10 +13,11 @@ Codex/OpenAI engine is `cdx`; the engine token for clx is `"claude"`.
 ## Installation and distribution
 
 The orchestrator serves `clx` through the same wrapper-v2 endpoint used by
-`cdx`:
+`cdx`. The segment after `bin` is the **engine** token, not the binary name —
+an engine of `clx` is rejected with a 404 `unknown_engine`:
 
 ```
-GET /wrapper/v2/bin/clx/<os>-<arch>/v<version>/clx
+GET /wrapper/v2/bin/claude/<os>-<arch>/v<version>/clx
 ```
 
 Supported platforms (sent as the `X-Wrapper-Platform` header): `linux-amd64`,
