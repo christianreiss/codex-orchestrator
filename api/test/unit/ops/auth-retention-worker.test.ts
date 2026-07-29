@@ -90,6 +90,8 @@ describe('auth retention worker', () => {
 
     expect(prune).toHaveBeenCalledTimes(2);
     expect(prune).toHaveBeenCalledWith(db);
+    // One line per drain, not one per batch: the total is what an operator reads.
+    expect(worker.info).toHaveBeenCalledTimes(1);
     expect(worker.info).toHaveBeenCalledWith(
       { removed: AUTH_PRUNE_BATCH_LIMIT + 7 },
       'superseded auth history pruned',
