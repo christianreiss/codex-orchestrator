@@ -278,8 +278,10 @@ describe('SkillsService reads', () => {
       skillRow({ id: 2, slug: 'retired', deletedAt: '2026-02-02T00:00:00Z' }),
     ]);
 
-    await expect(service.list()).resolves.toMatchObject([{ slug: 'agentic' }]);
+    // `context` is code-derived and always served, so it rides along in both.
+    const live = await service.list();
+    expect(live.map((s) => s.slug)).toEqual(['agentic', 'context']);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['agentic', 'retired']);
+    expect(all.map((s) => s.slug)).toEqual(['agentic', 'context', 'retired']);
   });
 });

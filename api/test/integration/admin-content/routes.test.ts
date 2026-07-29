@@ -151,11 +151,16 @@ describe('admin-content routes registration', () => {
     await app.close();
   });
 
-  it('returns the skills list (empty) when admin', async () => {
+  it('returns the skills list (managed only, no rows) when admin', async () => {
     const app = await buildApp({}, { withAdmin: true });
     const r = await app.inject({ method: 'GET', url: '/admin/skills' });
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.payload)).toMatchObject({ status: 'ok', skills: [] });
+    // No `skills` rows in the stub, but `context` is code-derived and always
+    // served, so the admin list shows what hosts actually receive.
+    expect(JSON.parse(r.payload)).toMatchObject({
+      status: 'ok',
+      skills: [{ slug: 'context', managed: true }],
+    });
     await app.close();
   });
 

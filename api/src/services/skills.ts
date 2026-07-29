@@ -1,7 +1,8 @@
 /**
  * Skills domain service. Port of src/Services/SkillService.php (admin slice).
  *
- * - listSkills() returns every row (optionally including soft-deleted).
+ * - list() returns every row (optionally including soft-deleted) plus the
+ *   code-derived managed skills, which shadow same-named rows.
  * - find() returns one skill by slug (with manifest body).
  * - store() upserts a manifest, validating slug + sha256 + manifest body.
  * - deleteBySlug() soft-deletes via `deleted_at`.
@@ -16,10 +17,10 @@ import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { canonicalSkillUri, normalizeSlug } from './skill-manifest.js';
-import { isManagedSkillSlug } from './managed-skills.js';
+import { findManagedSkill, isManagedSkillSlug, listManagedSkills, type ManagedSkillManifest } from './managed-skills.js';
 
 export interface SkillView {
-  id: number;
+  id: number | null;
   slug: string;
   uri: string;
   canonical_uri: string;
@@ -32,6 +33,8 @@ export interface SkillView {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /** True when the slug is owned by code: shadowed rows and store/delete are rejected. */
+  managed: boolean;
 }
 
 export interface StoreSkillInput {
@@ -75,22 +78,74 @@ function toView(row: typeof skills.$inferSelect): SkillView {
     created_at: row.createdAt,
     updated_at: row.updatedAt,
     deleted_at: row.deletedAt,
+    managed: isManagedSkillSlug(slug),
+  };
+}
+
+/**
+ * A code-derived skill as an admin entry. `id` is null because there is no row
+ * behind it to edit: the manifest ships with the API image, and store/delete
+ * reject the slug.
+ */
+function managedToView(skill: ManagedSkillManifest): SkillView {
+  return {
+    id: null,
+    slug: skill.slug,
+    uri: skill.uri,
+    canonical_uri: skill.canonical_uri,
+    sha256: skill.sha256,
+    display_name: skill.display_name,
+    description: skill.description,
+    manifest: skill.manifest,
+    source_host_id: null,
+    engine: skill.engine,
+    created_at: skill.updated_at,
+    updated_at: skill.updated_at,
+    deleted_at: skill.deleted_at,
+    managed: true,
   };
 }
 
 export class SkillsService {
   constructor(private readonly db: Database) {}
 
+  /**
+   * Ordinary rows plus the code-derived skills hosts actually receive. A row
+   * whose slug is served by a managed skill is replaced by that manifest rather
+   * than listed next to it: showing both is how `#context` ended up with two
+   * disagreeing versions and no way to tell which one hosts were running.
+   */
   async list(opts: { includeDeleted?: boolean } = {}): Promise<SkillView[]> {
     const includeDeleted = opts.includeDeleted ?? false;
-    const rows = includeDeleted
-      ? await this.db.select().from(skills).orderBy(skills.slug)
-      : await this.db.select().from(skills).where(isNull(skills.deletedAt)).orderBy(skills.slug);
-    return rows.map(toView);
+    const [rows, managed] = await Promise.all([
+      includeDeleted
+        ? this.db.select().from(skills).orderBy(skills.slug)
+        : this.db.select().from(skills).where(isNull(skills.deletedAt)).orderBy(skills.slug),
+      listManagedSkills(this.db),
+    ]);
+    const bySlug = new Map(managed.map((m) => [m.slug, m]));
+    const shadowed = new Set<string>();
+    const out: SkillView[] = [];
+    for (const row of rows) {
+      const served = bySlug.get(row.slug);
+      if (!served) {
+        out.push(toView(row));
+        continue;
+      }
+      shadowed.add(row.slug);
+      out.push(managedToView(served));
+    }
+    for (const m of managed) {
+      if (!shadowed.has(m.slug)) out.push(managedToView(m));
+    }
+    out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+    return out;
   }
 
   async find(rawSlug: string): Promise<SkillView | null> {
     const slug = normalizeSlug(rawSlug);
+    const managed = await findManagedSkill(this.db, slug);
+    if (managed) return managedToView(managed);
     const rows = await this.db
       .select()
       .from(skills)
