@@ -14,6 +14,11 @@
  */
 import { ValidationError } from '../http/errors.js';
 
+/**
+ * The kinds keying the `/sync/bootstrap` artifact bundle. clx re-declares this
+ * vocabulary by hand in three places, so renaming or adding a kind here without
+ * changing them fails `test/unit/contract/claude-artifact-kinds.test.ts`.
+ */
 export const ARTIFACT_KINDS = ['subagent', 'command', 'output-style'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
