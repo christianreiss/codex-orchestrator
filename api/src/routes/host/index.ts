@@ -6,6 +6,7 @@ import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
 import { parseEngine } from '../../util/engine.js';
+import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
@@ -120,7 +121,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const rawSummary = await versions.summary(engine);
     const summary = withLegacyShellWrapperTransition(rawSummary, submittedWrapper, engine);
     const usingLegacyTransition = summary.wrapper_url !== rawSummary.wrapper_url;
-    const requestedPlatform = platformFromRequest(req);
+    const requestedPlatform = resolveWrapperPlatform(req.headers);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     const binaryName = engine === 'claude' ? 'clx' : 'cdx';
     const targetWrapper = summary.wrapper_version;
@@ -234,20 +235,6 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
   // /agents/retrieve and /config/retrieve are owned by the projects-client
   // worktree (Phase 2.6) via its host-agents service. Registration moved
   // there to avoid Fastify duplicate-route errors at boot.
-}
-
-function platformFromRequest(req: FastifyRequest): { os: string; arch: string } {
-  const ua = headerString(req.headers['user-agent']) ?? '';
-  const xPlat = headerString(req.headers['x-wrapper-platform']) ?? '';
-  const fromHeader = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(xPlat);
-  if (fromHeader && fromHeader[1] && fromHeader[2]) {
-    return { os: fromHeader[1], arch: fromHeader[2] };
-  }
-  let os = 'linux';
-  let arch = 'amd64';
-  if (/darwin|mac/i.test(ua)) os = 'darwin';
-  if (/arm64|aarch64/i.test(ua)) arch = 'arm64';
-  return { os, arch };
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
 import type { RouteContext } from '../index.js';
 import { ENGINES, isEngine, parseEngine, type Engine } from '../../util/engine.js';
+import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { ServiceUnavailableError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
   createWrapperBinRegistry,
@@ -94,20 +95,6 @@ export async function registerWrapperV2Routes(
     return parseEngine(q.engine, 'codex');
   }
 
-  function platformFromHeaders(req: FastifyRequest): { os: string; arch: string } {
-    const ua = headerString(req.headers['user-agent']) ?? '';
-    const xPlat = headerString(req.headers['x-wrapper-platform']) ?? '';
-    const fromHeader = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(xPlat);
-    if (fromHeader && fromHeader[1] && fromHeader[2]) {
-      return { os: fromHeader[1], arch: fromHeader[2] };
-    }
-    let os = 'linux';
-    let arch = 'amd64';
-    if (/darwin|mac/i.test(ua)) os = 'darwin';
-    if (/arm64|aarch64/i.test(ua)) arch = 'arm64';
-    return { os, arch };
-  }
-
   // GET /wrapper/v2/meta — engine-level manifest.
   app.get('/wrapper/v2/meta', { preHandler: [app.requireHost] }, (req, reply) =>
     metaHandler(req, reply),
@@ -142,7 +129,7 @@ export async function registerWrapperV2Routes(
     assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
     const sigOnly = isTruthyFlag((req.query as { sig?: string }).sig);
-    const platform = platformFromHeaders(req);
+    const platform = resolveWrapperPlatform(req.headers);
 
     let result;
     try {
@@ -203,7 +190,7 @@ export async function registerWrapperV2Routes(
     if (!host)
       throw new ServiceUnavailableError('host context missing', 'host_context_missing');
     assertHostEngineEnabled(host, engine);
-    const { os, arch } = platformFromHeaders(req);
+    const { os, arch } = resolveWrapperPlatform(req.headers);
     const build = await binaries.currentBuild(engine, os, arch);
     if (!build)
       throw new NotFoundError(
@@ -221,7 +208,7 @@ export async function registerWrapperV2Routes(
     const engine = engineFromQuery(req);
     assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
-    const platform = platformFromHeaders(req);
+    const platform = resolveWrapperPlatform(req.headers);
 
     let result;
     try {
