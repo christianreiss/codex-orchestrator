@@ -39,8 +39,6 @@ export interface OverviewResponse {
   chatgpt_usage?: unknown;
   chatgpt_usage_summary?: unknown;
   chatgpt_cached?: boolean;
-  has_canonical_auth?: boolean;
-  seed_required?: boolean;
   insecure_approval_enabled?: boolean;
   auto_update_enabled?: boolean;
   [key: string]: unknown;

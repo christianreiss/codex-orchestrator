@@ -438,7 +438,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/codex-version` — set fleet Codex version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`.
 
 ## Admin Endpoints (admin session cookie)
-- `GET /admin/overview` — host totals, refresh stats, `versions`, canonical-auth/seed status, token totals (`tokens_day`/`tokens_week`/`tokens_month`), ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, and optional client-version lock metadata.
+- `GET /admin/overview` — host totals, refresh stats, `versions`, ChatGPT usage snapshot/summary, quota flags, `cdx_silent`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, and optional client-version lock metadata.
 - `GET /admin/ws/info` — websocket bootstrap (`enabled`, `url`, `last_event_id`, `heartbeat_seconds`, `backlog_limit`).
 - Admin auth + users:
   - `GET /admin/auth/status` — auth status (`has_users`, `admin_count`, `enforced`, `authenticated`, `user`, `roles`).
