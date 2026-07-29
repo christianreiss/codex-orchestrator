@@ -1,11 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
-import {
-  hosts as hostsTable,
-  logs as logsTable,
-  hostAuthDigests,
-  hostAuthStates,
-} from '../../db/schema.js';
+import { hosts as hostsTable, logs as logsTable } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -41,7 +36,9 @@ const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
  *   GET  /seed/v2/auth/:token   → alias of /seed/auth/:token
  *   POST /seed/v2/auth/:token   → alias of /seed/auth/:token
  *
- * Tokens are UUID4 strings; single-use; expire per the row's `expires_at`.
+ * Install tokens are 32 hex chars or a 36-char UUID; seed tokens additionally
+ * accept the 64-hex shape; all are single-use and expire per the row's
+ * `expires_at`.
  * Bash error scripts get a `text/x-shellscript` content type with non-200
  * status, so the wrapper's `curl | sh` surfaces the message in the user's
  * terminal.
@@ -239,8 +236,3 @@ function shellishError(reply: FastifyReply, message: string, status = 400, expir
 function shellishSeedError(reply: FastifyReply, message: string, status = 400, expiresAt?: string): void {
   emitSeed(reply, shellErrorScript(message), status, expiresAt);
 }
-
-// Silence unused-import warnings for tables we reference indirectly via cleanup hooks
-// when this module evolves.
-void hostAuthDigests;
-void hostAuthStates;
