@@ -24,6 +24,9 @@
  *   POST   /admin/skills/assist
  *   POST   /admin/skills/store
  *   DELETE /admin/skills/:slug
+ *   GET    /admin/claude/config
+ *   POST   /admin/claude/config/render
+ *   POST   /admin/claude/config/store
  *   GET    /admin/claude/:kind            (subagent|command|output-style)
  *   GET    /admin/claude/:kind/:slug
  *   POST   /admin/claude/:kind/store
@@ -54,13 +57,6 @@ const AGENTS_BACKUP_LIMIT_KEY = 'agents_backup_limit';
 function parseInteger(value: unknown): number | null {
   if (typeof value === 'number' && Number.isInteger(value)) return value;
   if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return parseInt(value.trim(), 10);
-  return null;
-}
-
-function parseBoolean(value: unknown): boolean | null {
-  if (typeof value === 'boolean') return value;
-  if (value === 1 || value === '1' || value === 'true' || value === 'yes' || value === 'on') return true;
-  if (value === 0 || value === '0' || value === 'false' || value === 'no' || value === 'off') return false;
   return null;
 }
 
@@ -413,7 +409,4 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       return { deleted: slug, kind };
     },
   );
-
-  // suppress lint unused
-  void parseBoolean;
 }
