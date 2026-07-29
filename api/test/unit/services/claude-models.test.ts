@@ -88,6 +88,22 @@ describe('claude-models', () => {
     expect(apiErr.param).toBe('model');
   });
 
+  it('404s on inherited Object.prototype names rather than resolving them', async () => {
+    const svc = createClaudeModelsService(fakeDb());
+    for (const name of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) {
+      let err: unknown = null;
+      try {
+        await svc.resolveRequestedModel(name);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(ApiError);
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(404);
+      expect(apiErr.code).toBe('model_not_found');
+    }
+  });
+
   it('builds an Anthropic-shaped models response body', async () => {
     const svc = createClaudeModelsService(fakeDb());
     const out = await svc.modelsResponse();

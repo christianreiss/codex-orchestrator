@@ -127,11 +127,24 @@ describe('normalizeStoredModel', () => {
     expect(normalizeStoredModel('')).toBeNull();
     expect(normalizeStoredModel('  ')).toBeNull();
   });
+
+  it('does not treat inherited Object.prototype names as legacy upgrades', () => {
+    expect(isLegacyModelUpgrade('toString')).toBe(false);
+    expect(isLegacyModelUpgrade('constructor')).toBe(false);
+    expect(isLegacyModelUpgrade('__proto__')).toBe(false);
+    expect(normalizeStoredModel('toString')).toBe('toString');
+  });
 });
 
 describe('normalizeSupportedModel', () => {
   it('rejects unknown models', () => {
     expect(normalizeSupportedModel('gpt-7.0')).toBeNull();
+  });
+
+  it('rejects inherited Object.prototype names', () => {
+    expect(normalizeSupportedModel('constructor')).toBeNull();
+    expect(normalizeSupportedModel('toString')).toBeNull();
+    expect(normalizeSupportedModel('__proto__')).toBeNull();
   });
 });
 
@@ -141,6 +154,10 @@ describe('normalizeClaudeModel', () => {
   });
   it('passes through current claude models', () => {
     expect(normalizeClaudeModel('claude-sonnet-5')).toBe('claude-sonnet-5');
+  });
+  it('passes inherited Object.prototype names through verbatim', () => {
+    expect(normalizeClaudeModel('valueOf')).toBe('valueOf');
+    expect(normalizeClaudeModel('constructor')).toBe('constructor');
   });
 });
 

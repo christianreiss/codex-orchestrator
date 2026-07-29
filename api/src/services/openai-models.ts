@@ -31,7 +31,11 @@ export function resolveRequestedModel(value: unknown): string {
   if (trimmed === '') return OPENAI_DEFAULT_MODEL;
   if (isSupportedModel(trimmed)) return trimmed;
   const lowered = trimmed.toLowerCase();
-  const upgrade = OPENAI_LEGACY_MODEL_UPGRADES[lowered];
+  // Own properties only: a bare index would resolve an id like `toString` or
+  // `constructor` to an inherited Object.prototype member instead of throwing.
+  const upgrade = Object.prototype.hasOwnProperty.call(OPENAI_LEGACY_MODEL_UPGRADES, lowered)
+    ? OPENAI_LEGACY_MODEL_UPGRADES[lowered]
+    : undefined;
   if (upgrade) return upgrade;
   throw new UnsupportedModelError(trimmed);
 }

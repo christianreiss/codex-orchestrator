@@ -181,10 +181,15 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
       const raw = typeof value === 'string' ? value.trim() : '';
       if (raw === '') return CLAUDE_DEFAULT_MODEL;
       const lower = raw.toLowerCase();
+      // Own properties only: a bare index would resolve an id like `toString`
+      // or `constructor` to an inherited Object.prototype member instead of 404ing.
+      const legacy = Object.prototype.hasOwnProperty.call(CLAUDE_LEGACY_MODEL_UPGRADES, lower)
+        ? CLAUDE_LEGACY_MODEL_UPGRADES[lower]
+        : undefined;
       const canonical: ClaudeModel | undefined =
         (CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(lower)
           ? (lower as ClaudeModel)
-          : CLAUDE_LEGACY_MODEL_UPGRADES[lower];
+          : legacy;
       if (!canonical) {
         // Upstream returns 404 not_found_error for an unknown/typo'd model id.
         throw new ApiError(

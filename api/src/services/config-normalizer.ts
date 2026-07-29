@@ -58,6 +58,15 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   'claude-opus-4-20250514': 'claude-opus-4-8',
 };
 
+/**
+ * Own-property lookup into the upgrade maps above. Model ids arrive from clients
+ * and stored overrides, so a bare index would resolve `toString`, `constructor`
+ * or `__proto__` to an inherited Object.prototype member.
+ */
+function legacyUpgrade(map: Readonly<Record<string, string>>, key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
+
 export const REASONING_EFFORTS: readonly string[] = [
   'minimal',
   'low',
@@ -197,7 +206,7 @@ export function normalizeInt(value: unknown): number | null {
 export function normalizeStoredModel(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
-  const upgraded = LEGACY_MODEL_UPGRADES[s];
+  const upgraded = legacyUpgrade(LEGACY_MODEL_UPGRADES, s);
   if (upgraded !== undefined) return upgraded;
   if (SUPPORTED_MODELS.includes(s)) return s;
   // Pass-through any other model so wrappers can self-test newer models.
@@ -207,13 +216,13 @@ export function normalizeStoredModel(value: unknown): string | null {
 export function isLegacyModelUpgrade(value: unknown): boolean {
   const s = normalizeString(value);
   if (s === null) return false;
-  return s in LEGACY_MODEL_UPGRADES;
+  return legacyUpgrade(LEGACY_MODEL_UPGRADES, s) !== undefined;
 }
 
 export function normalizeSupportedModel(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
-  const upgraded = LEGACY_MODEL_UPGRADES[s];
+  const upgraded = legacyUpgrade(LEGACY_MODEL_UPGRADES, s);
   if (upgraded !== undefined) return upgraded;
   return SUPPORTED_MODELS.includes(s) ? s : null;
 }
@@ -223,7 +232,7 @@ export function normalizeClaudeModel(value: unknown): string | null {
   if (s === null) return null;
   // Upgrade known legacy ids; pass through anything else verbatim so wrappers
   // can self-test newer models (the inference gate is the real allowlist).
-  return CLAUDE_LEGACY_MODEL_UPGRADES[s] ?? s;
+  return legacyUpgrade(CLAUDE_LEGACY_MODEL_UPGRADES, s) ?? s;
 }
 
 export function normalizeReasoningEffort(value: unknown): string | null {
