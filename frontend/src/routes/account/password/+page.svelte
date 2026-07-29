@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { z } from "zod";
   import { toast } from "svelte-sonner";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import * as Card from "$lib/components/ui/card";
@@ -11,15 +10,10 @@
   import { ApiError } from "$lib/api/client";
   import { changePassword, requestPasswordReset } from "$lib/api/account";
   import { authStore } from "$lib/stores/auth";
+  import { PASSWORD_POLICY_TEXT, PASSWORD_RULES, passwordSchema } from "$lib/constants/password";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
   import Mail from "@lucide/svelte/icons/mail";
-
-  const passwordSchema = z
-    .string()
-    .min(12, "Must be at least 12 characters")
-    .regex(/\d/, "Must contain a digit")
-    .regex(/[^A-Za-z0-9]/, "Must contain a symbol");
 
   let current = $state("");
   let next = $state("");
@@ -36,11 +30,9 @@
   });
 
   // Live new-password rule checklist
-  const rules = $derived([
-    { label: "At least 12 characters", ok: next.length >= 12 },
-    { label: "Contains a digit", ok: /\d/.test(next) },
-    { label: "Contains a symbol", ok: /[^A-Za-z0-9]/.test(next) },
-  ]);
+  const rules = $derived(
+    PASSWORD_RULES.map((rule) => ({ label: rule.label, ok: rule.test(next) })),
+  );
 
   function validate(): boolean {
     fieldErrors = {};
@@ -123,7 +115,7 @@
     <Card.Header>
       <Card.Title>Change password</Card.Title>
       <Card.Description>
-        Use a strong, unique password — at least 12 characters with a digit and a symbol.
+        Use a strong, unique password. {PASSWORD_POLICY_TEXT}
       </Card.Description>
     </Card.Header>
     <Card.Content>

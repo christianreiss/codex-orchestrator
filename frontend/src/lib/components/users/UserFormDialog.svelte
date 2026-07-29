@@ -12,6 +12,7 @@
     editUserSchema,
     ROLE_OPTIONS,
   } from "./userSchema";
+  import { PASSWORD_POLICY_TEXT } from "$lib/constants/password";
   import { USER_ROLES, type AdminUser, type AdminUserPayload, type UserRole } from "$lib/api/types";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
@@ -232,7 +233,7 @@
           <p class="text-xs text-destructive">{errors.password}</p>
         {:else}
           <p class="text-xs text-muted-foreground">
-            Minimum 12 characters; mix at least two of lowercase, uppercase, digit, symbol.
+            {PASSWORD_POLICY_TEXT}
           </p>
         {/if}
       </div>

@@ -4,26 +4,16 @@
  * Server-side validation lives in `AdminUserService`. These schemas are a
  * client-side mirror: they catch obvious mistakes before submit and give
  * inline feedback. The server's response is still treated as authoritative.
+ *
+ * The password rules come from `$lib/constants/password`, which the account
+ * page's change form shares, so neither surface can reject what the other
+ * accepts.
  */
 import { z } from "zod";
 import { USER_ROLES, type UserRole } from "$lib/api/types";
+import { PASSWORD_POLICY_TEXT, isValidPassword, passwordSchema } from "$lib/constants/password";
 
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,64}$/;
-
-const passwordCharacterMix = (value: string): boolean => {
-  if (value.length < 12) return false;
-  let classes = 0;
-  if (/[a-z]/.test(value)) classes++;
-  if (/[A-Z]/.test(value)) classes++;
-  if (/\d/.test(value)) classes++;
-  if (/[^A-Za-z0-9]/.test(value)) classes++;
-  return classes >= 2;
-};
-
-export const passwordSchema = z
-  .string()
-  .min(12, "Must be at least 12 characters")
-  .refine(passwordCharacterMix, "Mix at least two of: lowercase, uppercase, digit, symbol");
 
 const baseShape = {
   name: z
@@ -65,8 +55,8 @@ export const editUserSchema = z
     password: z.string().optional().default(""),
     password_confirm: z.string().optional().default(""),
   })
-  .refine((data) => !data.password || passwordCharacterMix(data.password), {
-    message: "Must be ≥ 12 chars with two character classes",
+  .refine((data) => !data.password || isValidPassword(data.password), {
+    message: PASSWORD_POLICY_TEXT,
     path: ["password"],
   })
   .refine((data) => (data.password ?? "") === (data.password_confirm ?? ""), {
