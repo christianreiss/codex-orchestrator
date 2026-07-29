@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
-import { ApiError, NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
+import { NotFoundError, UnauthorizedError, ValidationError } from '../../../http/errors.js';
 import { createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminPasskeyService } from '../../../services/admin-passkey.js';
@@ -280,8 +280,6 @@ export async function registerAdminAuthRoutes(
       return ok({});
     },
   );
-
-  void ApiError; // referenced indirectly via error subclasses; keep import alive
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

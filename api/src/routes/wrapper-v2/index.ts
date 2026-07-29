@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
 import type { RouteContext } from '../index.js';
-import { ENGINES, isEngine, parseEngine, type Engine } from '../../util/engine.js';
+import { isEngine, parseEngine, type Engine } from '../../util/engine.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { ServiceUnavailableError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
@@ -326,10 +326,6 @@ export async function registerWrapperV2Routes(
     reply.header('cache-control', 'public, max-age=86400, immutable');
     return opened.stream;
   }
-
-  // Engines list is exposed for introspection by other plugins if they need
-  // it — currently unused but harmless.
-  void ENGINES;
 }
 
 function headerString(value: string | string[] | undefined): string | undefined {

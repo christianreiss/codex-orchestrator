@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   hostAuthDigests,
   hostAuthStates,
@@ -949,11 +949,6 @@ function buildHostPayload(host: Host): Record<string, unknown> {
     claude_reasoning_effort_override: host.claudeReasoningEffortOverride ?? null,
   };
 }
-
-// Engine consts used in switch arms for clarity.
-void ENGINE_CODEX;
-// Reference desc to silence unused-imports warning when callers don't use it.
-void desc;
 
 async function readQuotaControls(
   ctx: RouteContext,
