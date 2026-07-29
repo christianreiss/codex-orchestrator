@@ -1,5 +1,6 @@
-// Package config defines the typed per-host wrapper config produced by the
-// orchestrator's PHP ConfigBaker. The struct mirrors schemas/host-config-v1.json.
+// Package config defines the typed per-host wrapper config baked by the
+// orchestrator's api/src/services/wrapper-config.ts. The struct mirrors
+// schemas/host-config-v1.json.
 package config
 
 const SchemaVersion = 1

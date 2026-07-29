@@ -1,4 +1,6 @@
-// Package config defines the typed per-host wrapper config for clx (Claude engine).
+// Package config defines the typed per-host wrapper config for clx (Claude
+// engine), baked by the orchestrator's api/src/services/wrapper-config.ts. The
+// struct mirrors schemas/host-config-v1.json.
 package config
 
 const SchemaVersion = 1
