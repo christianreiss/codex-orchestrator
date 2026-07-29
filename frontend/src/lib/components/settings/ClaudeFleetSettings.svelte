@@ -140,7 +140,7 @@
     },
     onSuccess: (result) => {
       serverSha = result.sha256 ?? serverSha;
-      toast.success(result.status === "unchanged" ? "No changes to save" : "Settings saved");
+      toast.success(result.change === "unchanged" ? "No changes to save" : "Settings saved");
       void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() });
     },
     onError: (err: unknown) => {

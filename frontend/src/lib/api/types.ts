@@ -448,18 +448,29 @@ export interface ClaudeConfigSettings {
   [key: string]: unknown;
 }
 
+/** Mirrors `AdminFetchResult` in api/src/services/client-config.ts. */
 export interface ClaudeConfigResponse {
   status: string;
   sha256?: string;
   updated_at?: string | null;
+  size_bytes?: number;
+  content?: string;
   settings?: ClaudeConfigSettings;
 }
 
+/**
+ * Mirrors `StoreResult` in api/src/services/client-config.ts. Unlike every
+ * other store endpoint, the save verb rides on `change` — `status` is always
+ * `"ok"`, since a failed store throws instead of returning.
+ */
 export interface ClaudeConfigStoreResult {
-  status: string;
+  status: "ok";
   sha256: string;
   updated_at?: string | null;
-  change?: unknown;
+  size_bytes?: number;
+  content?: string;
+  settings?: ClaudeConfigSettings;
+  change: "created" | "updated" | "unchanged";
 }
 
 // Memories
