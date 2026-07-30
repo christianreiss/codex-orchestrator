@@ -32,12 +32,12 @@ func main() {
 func run(invokedAs string, args []string, stdout, stderr io.Writer) int {
 	setPersonaBuildInfo()
 
-	switch normalizeProgramName(invokedAs) {
-	case "cdx":
+	switch personaForProgramName(invokedAs) {
+	case "codex":
 		return codexapp.Run(args, stdout, stderr)
-	case "clx":
+	case "claude":
 		return claudeapp.Run(args, stdout, stderr)
-	case "cxx":
+	case "common":
 		return runExplicit(args, stdout, stderr)
 	default:
 		// Update sanity checks execute a uniquely named temporary cxx artifact.
@@ -168,6 +168,46 @@ func configPathFor(engine string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// personaForProgramName recognizes the stable aliases and the versioned
+// aliases left by pre-cxx self-updaters (for example cdx-0.7.2). Only a strict
+// numeric release-version suffix selects a persona, so arbitrary executable
+// names do not get an implicit engine.
+func personaForProgramName(name string) string {
+	name = normalizeProgramName(name)
+	switch {
+	case name == "cdx" || hasVersionedAlias(name, "cdx"):
+		return "codex"
+	case name == "clx" || hasVersionedAlias(name, "clx"):
+		return "claude"
+	case name == "cxx":
+		return "common"
+	default:
+		return ""
+	}
+}
+
+func hasVersionedAlias(name, alias string) bool {
+	suffix, ok := strings.CutPrefix(name, alias+"-")
+	if !ok {
+		return false
+	}
+	parts := strings.Split(suffix, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func normalizeProgramName(name string) string {

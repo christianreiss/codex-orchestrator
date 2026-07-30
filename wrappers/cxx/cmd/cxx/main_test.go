@@ -39,6 +39,8 @@ func TestAliasesAndExplicitSelectorsKeepPersonaIdentity(t *testing.T) {
 	}{
 		{"cdx alias", "/usr/local/bin/cdx", []string{"--wrapper-version"}, "cdx "},
 		{"clx alias", "/usr/local/bin/clx", []string{"--wrapper-version"}, "clx "},
+		{"versioned cdx alias", "/usr/local/bin/cdx-0.7.2", []string{"--wrapper-version"}, "cdx "},
+		{"versioned clx alias", "/usr/local/bin/clx-0.7.2", []string{"--wrapper-version"}, "clx "},
 		{"explicit codex", "cxx", []string{"codex", "--wrapper-version"}, "cdx "},
 		{"explicit claude", "cxx", []string{"claude", "--wrapper-version"}, "clx "},
 	}
@@ -50,6 +52,21 @@ func TestAliasesAndExplicitSelectorsKeepPersonaIdentity(t *testing.T) {
 			}
 			if !strings.HasPrefix(stdout.String(), tt.want) {
 				t.Fatalf("output = %q, want prefix %q", stdout.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestVersionedAliasesRequireSemanticVersion(t *testing.T) {
+	tests := []string{"cdx-debug", "clx-nightly", "cdx-0.7", "clx-0.7.2-rc.1"}
+	for _, invokedAs := range tests {
+		t.Run(invokedAs, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := run(invokedAs, nil, &stdout, &stderr); got != 2 {
+				t.Fatalf("exit = %d, want 2; stderr=%q", got, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "cannot select an engine") {
+				t.Fatalf("stderr = %q", stderr.String())
 			}
 		})
 	}

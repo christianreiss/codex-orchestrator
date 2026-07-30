@@ -6,7 +6,9 @@ pipeline with:
 1. **One static Go binary** (`cxx`) built per architecture by CI and served
    from `storage/wrapper/v2/bin/cxx/`. Hosts expose relative `cdx -> cxx` and
    `clx -> cxx` aliases for enabled engines. `argv[0]` selects the compatible
-   alias persona; direct calls use `cxx codex ...` or `cxx claude ...`.
+   alias persona; legacy versioned `cdx-<major>.<minor>.<patch>` and
+   `clx-<major>.<minor>.<patch>` invocation names remain compatible during
+   self-update migration. Direct calls use `cxx codex ...` or `cxx claude ...`.
    `/wrapper/v2/download` resolves the calling host's platform and streams the
    common binary. Historical per-engine artifacts and URLs remain readable so
    pre-migration wrappers can update into the common artifact.

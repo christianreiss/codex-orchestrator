@@ -7,7 +7,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 
 | | `cdx` (Codex) | `clx` (Claude) |
 |---|---|---|
-| Wrapper binary | `cdx -> cxx` Codex persona | `clx -> cxx` Claude persona |
+| Wrapper binary | `cdx -> cxx` Codex persona; legacy `cdx-<major>.<minor>.<patch>` is compatible | `clx -> cxx` Claude persona; legacy `clx-<major>.<minor>.<patch>` is compatible |
 | Built by | `cd wrappers && make cxx` | same common build |
 | CLI under the hood | `codex` (Rust) | `claude` or `claude-code` (Node, `@anthropic-ai/claude-code`) |
 | Auth file | effective `CODEX_HOME/auth.json` (default `~/.codex/auth.json`) | `~/.claude/.credentials.json` |
@@ -19,9 +19,9 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 
 ## Build + Publish
 
-- `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink.
+- `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink. During legacy self-update migration, a `clx-<major>.<minor>.<patch>` filename selects the same persona.
 - The current source version, including complete directory-backed Skill sync
-  and the scoped agent-portal lifecycle, is **cxx 0.7.5**.
+  and the scoped agent-portal lifecycle, is **cxx 0.7.6**.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -585,7 +585,7 @@ belong in common packages; Claude-only behavior stays under the Claude persona
 packages. There is one build artifact, while the signed config and runtime
 behavior remain engine-specific.
 
-## Agent portal lifecycle (cxx 0.7.5)
+## Agent portal lifecycle (cxx 0.7.6)
 
 Claude has parity with Codex for the permanent `/go` portal. When the persistent
 master switch is on, interactive and human-started execute/resume root sessions

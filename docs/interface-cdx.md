@@ -1,7 +1,7 @@
 # cdx Wrapper Interface (Source of Truth)
 
 ## Build + Publish
-- `cdx` is the Codex persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `cdx` path is a relative `cdx -> cxx` symlink.
+- `cdx` is the Codex persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `cdx` path is a relative `cdx -> cxx` symlink. During legacy self-update migration, a `cdx-<major>.<minor>.<patch>` filename selects the same persona.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - CI workflow `.github/workflows/wrappers.yml` runs `go vet` + `make test` + the cross-compile matrix on every push.
@@ -57,10 +57,10 @@ at build time, then loads the config:
     "admin_theme_hint": "auto"
   },
   "wrapper": {
-    "version": "0.7.5",
+    "version": "0.7.6",
     "track": "stable",
     "auto_update": true,
-    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.5/cxx",
+    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.6/cxx",
     "binary_sha256": "..."
   }
 }
@@ -394,7 +394,7 @@ participate in these leases and is the explicit coordination boundary.
 5. Bump `wrappers/cxx/cmd/cxx`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.
 
-## Agent portal lifecycle (cxx 0.7.5)
+## Agent portal lifecycle (cxx 0.7.6)
 
 When the persistent portal master switch is on, an interactive Codex root run
 or a human-started `--execute`/resume registers through

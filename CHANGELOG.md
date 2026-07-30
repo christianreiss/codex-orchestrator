@@ -1,3 +1,10 @@
+# 2026-07-30
+
+- **cxx 0.7.6:** Restored automatic Codex/Claude persona selection when a
+  legacy self-update invokes the common wrapper through a versioned
+  `cdx-<major>.<minor>.<patch>` or `clx-<major>.<minor>.<patch>` filename.
+  Arbitrary filenames remain fail-closed.
+
 # 2026-07-29
 
 - Added the permanent per-user **Agent Portal** at `/go`: one revocable magic
