@@ -273,7 +273,7 @@
 {:else if phase === "disabled"}
   <main class="center-state"><div class="state-icon">○</div><h1>Agent portal is off</h1><p>The fleet administrator has disabled remote agent access. Local agents are unaffected.</p></main>
 {:else if phase === "login"}
-  <main class="center-state"><div class="state-icon">↗</div><h1>Open your Matrix link</h1><p>This browser has no active portal login. Use the permanent link sent to you in Matrix.</p></main>
+  <main class="center-state"><div class="state-icon">↗</div><h1>Open your permanent link</h1><p>This browser has no active portal login. Open your bookmarked permanent link, or ask a fleet admin to read it back from Settings → Agent Portal.</p></main>
 {:else if phase === "error"}
   <main class="center-state"><div class="state-icon">!</div><h1>Portal unavailable</h1><p>{error}</p><button onclick={() => location.reload()}>Retry</button></main>
 {:else}

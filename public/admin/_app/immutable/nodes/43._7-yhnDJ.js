@@ -1,1 +1,0 @@
-import{Ht as e}from"../chunks/Dqbbk3fc.js";import{c as t}from"../chunks/BcvqvL8Y.js";import{t as n}from"../chunks/CCqUX_mB.js";var r=e({load:()=>i}),i=()=>{throw n(308,`${t}/settings/users`)};export{r as universal};

@@ -57,12 +57,14 @@ const PINNED_GATED_ROUTES = [
   'DELETE /admin/agent-portal/users/:id',
   'DELETE /admin/memories/:scope/:recordId',
   'DELETE /admin/users/:id',
+  // Reads the permanent portal link back out of storage: a GET, but bearer
+  // material, so it carries the same gate as the mutations.
+  'GET /admin/agent-portal/users/:id/link',
   'PATCH /admin/memories/:scope/:recordId',
   'POST /admin/agent-portal/state',
   'POST /admin/agent-portal/users',
   'POST /admin/agent-portal/users/:id',
   'POST /admin/agent-portal/users/:id/enabled',
-  'POST /admin/agent-portal/users/:id/resend',
   'POST /admin/agent-portal/users/:id/rotate',
   'POST /admin/memories/:scope',
   'POST /admin/memories/shared/:recordId/append',

@@ -8,7 +8,7 @@ import {
 describe('managed #afk portal skill', () => {
   const skill = buildManagedAfkSkill('2026-07-29T00:00:00Z');
 
-  it('uses the scoped relay instead of Matrix as an inbound channel', () => {
+  it('uses the scoped relay and names the portal as the only channel', () => {
     expect(skill.manifest).toContain('cxx portal notify');
     expect(skill.manifest).toContain('cxx portal wait');
     expect(skill.manifest).toContain('cxx portal accept');
@@ -16,8 +16,13 @@ describe('managed #afk portal skill', () => {
     expect(skill.manifest).toContain('cxx portal ask');
     expect(skill.manifest).toContain('cxx portal leave');
     expect(skill.manifest).toMatch(/unacknowledged\s+lease is deliberately redelivered/);
-    expect(skill.manifest).toMatch(/Never POST to Matrix yourself/);
-    expect(skill.manifest).toMatch(/Matrix is only the\s+notification path/);
+    // The portal replaced an outbound Matrix fan-out. The manifest must not
+    // reintroduce it by suggesting the agent notify anyone directly, and must
+    // not treat the permanent link as something an agent may hand out.
+    expect(skill.manifest).not.toMatch(/matrix/i);
+    expect(skill.manifest).toMatch(/Never send this notice anywhere yourself/);
+    expect(skill.manifest).toMatch(/The portal\s+is the only sanctioned channel/);
+    expect(skill.manifest).toMatch(/Never read, request, print, or store a portal link/);
   });
 
   it('preserves the authority and output boundaries', () => {

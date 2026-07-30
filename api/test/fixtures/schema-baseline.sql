@@ -113,28 +113,6 @@ CREATE TABLE `agent_events` (
 	CONSTRAINT `uq_agent_events_session_client` UNIQUE(`session_id`,`client_event_id`)
 );
 
-CREATE TABLE `agent_matrix_outbox` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`portal_user_id` bigint unsigned NOT NULL,
-	`session_id` char(36),
-	`event_id` bigint unsigned,
-	`event_key` varchar(191) NOT NULL,
-	`kind` varchar(32) NOT NULL,
-	`payload_enc` longtext NOT NULL,
-	`status` varchar(16) NOT NULL DEFAULT 'queued',
-	`attempts` int unsigned NOT NULL DEFAULT 0,
-	`next_attempt_at` varchar(100) NOT NULL,
-	`lease_owner` varchar(191),
-	`lease_until` varchar(100),
-	`last_error` text,
-	`delivered_at` varchar(100),
-	`canceled_at` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_matrix_outbox_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_matrix_outbox_user_event` UNIQUE(`portal_user_id`,`event_key`)
-);
-
 CREATE TABLE `agent_messages` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`message_id` char(36) NOT NULL,
@@ -177,7 +155,6 @@ CREATE TABLE `agent_portal_browser_sessions` (
 CREATE TABLE `agent_portal_users` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`display_name` varchar(255) NOT NULL,
-	`matrix_room` varchar(255) NOT NULL,
 	`enabled` tinyint NOT NULL DEFAULT 1,
 	`public_id` char(32) NOT NULL,
 	`token_hash` char(64) NOT NULL,
@@ -883,8 +860,6 @@ CREATE INDEX `idx_admin_users_active` ON `admin_users` (`active`);
 CREATE INDEX `idx_admin_webauthn_challenges_expires` ON `admin_webauthn_challenges` (`expires_at`);
 CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`id`);
 CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
-CREATE INDEX `idx_agent_matrix_outbox_dispatch` ON `agent_matrix_outbox` (`status`,`next_attempt_at`,`id`);
-CREATE INDEX `idx_agent_matrix_outbox_session` ON `agent_matrix_outbox` (`session_id`);
 CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
 CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`status`);
 CREATE INDEX `idx_agent_portal_browser_sessions_user` ON `agent_portal_browser_sessions` (`user_id`);

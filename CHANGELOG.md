@@ -1,5 +1,28 @@
 # 2026-07-30
 
+- **Agent Portal is now pull-only.** Removed the Matrix push channel entirely:
+  no lifecycle, attention, or onboarding message is delivered anywhere. Every
+  such event still lands in the portal and still streams to an open portal over
+  SSE — it is simply not mailed out. The motivation was that the old design sent
+  a freshly rendered deep link with *every* event, so live bearer material left
+  the box continuously.
+  Each user now holds one permanent link that an owner/admin reads back on demand
+  from Settings → Agent Portal via **Show link**
+  (`GET /admin/agent-portal/users/{id}/link`) and bookmarks on desktop or adds to
+  a phone home screen. That endpoint is owner/admin gated and audited as
+  `agent_portal.user.link_revealed`; the link stays off the
+  `GET /admin/agent-portal/users` listing, which any admin session may read.
+  Rotation remains the only thing that invalidates an existing bookmark.
+  **Breaking:** `POST /admin/agent-portal/users/{id}/resend` is gone;
+  `matrix_room` is no longer accepted or returned by any portal route;
+  `MATRIX_API_URL`/`MATRIX_API_KEY`/`AGENT_PORTAL_MATRIX_*` are no longer read
+  (`AGENT_PORTAL_PURGE_INTERVAL_SECONDS`, default 300, replaces the worker
+  interval), and `PUBLIC_BASE_URL` alone now satisfies the portal's `configured`
+  check. Migration `0009_drop_agent_portal_matrix.sql` drops
+  `agent_matrix_outbox` and `agent_portal_users.matrix_room` — the outbox is
+  dropped rather than left idle because each queued row's encrypted envelope
+  held a rendered link for a still-valid token. The managed `#afk` skill manifest
+  no longer mentions Matrix, so it re-syncs to every host on next run.
 - **cxx 0.7.6:** Restored automatic Codex/Claude persona selection when a
   legacy self-update invokes the common wrapper through a versioned
   `cdx-<major>.<minor>.<patch>` or `clx-<major>.<minor>.<patch>` filename.

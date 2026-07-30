@@ -82,12 +82,13 @@
     `POST /admin/memories/shared/{recordId}/append`.
   - External Skill source changes: `POST /admin/skill-sources/mattpocock` and
     `POST /admin/skill-sources/mattpocock/refresh`.
-  - Agent Portal writes: `POST /admin/agent-portal/state`,
+  - Agent Portal writes and link reveal: `POST /admin/agent-portal/state`,
     `POST /admin/agent-portal/users`, `POST /admin/agent-portal/users/{id}`,
     `POST /admin/agent-portal/users/{id}/enabled`,
     `POST /admin/agent-portal/users/{id}/rotate`,
-    `POST /admin/agent-portal/users/{id}/resend`, and
-    `DELETE /admin/agent-portal/users/{id}`.
+    `DELETE /admin/agent-portal/users/{id}`, and
+    `GET /admin/agent-portal/users/{id}/link` — the only gated *read* in the tree,
+    because it returns a permanent portal link, which is reusable bearer material.
 - Every other admin route is session-only. Any authenticated, active user — a
   `viewer` or a legacy `user` included — can register and delete hosts, open
   insecure windows, upload canonical auth, and change every global setting.

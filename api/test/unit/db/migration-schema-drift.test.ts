@@ -24,6 +24,19 @@ const BASELINE = resolve(import.meta.dirname, '../../fixtures/schema-baseline.sq
 const CREATE_TABLE = /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i;
 /** Unanchored: 0005 hides its ALTERs inside `CALL add_auth_generation_column(…)`. */
 const ADD_COLUMN = /ALTER\s+TABLE\s+`?([A-Za-z0-9_$]+)`?\s+ADD\s+COLUMN\s+`?([A-Za-z0-9_$]+)`?/gi;
+/**
+ * Anchored, like `CREATE TABLE`: a drop quoted inside a CALL argument is not one.
+ * The name list is captured whole because 0001 drops five tables in one
+ * comma-separated statement.
+ */
+const DROP_TABLE = /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([`A-Za-z0-9_$,\s]+)/i;
+/**
+ * Unanchored, and matches the `CONCAT('ALTER TABLE `', tbl, '` DROP COLUMN …')`
+ * form too: 0009 has to build its DDL as a string because MySQL has no
+ * `DROP COLUMN IF EXISTS`, so the table name arrives via `CALL`.
+ */
+const DROP_COLUMN = /DROP\s+COLUMN\s+`?([A-Za-z0-9_$]+)`?/gi;
+const DROP_COLUMN_CALL = /CALL\s+drop_[A-Za-z0-9_$]*column\s*\(\s*'([A-Za-z0-9_$]+)'\s*,\s*'([A-Za-z0-9_$]+)'\s*\)/gi;
 
 interface Addition {
   migration: string;
@@ -52,6 +65,39 @@ const migrationAdditions = async (): Promise<Addition[]> => {
   return additions;
 };
 
+/**
+ * The mirror image: what later migrations take back out. Without this, every
+ * migration that drops something a *previous* migration added reads as an
+ * addition `schema.ts` forgot — 0008 creates `agent_matrix_outbox` and 0009
+ * drops it, and the baseline is right to contain neither.
+ */
+const migrationRemovals = async (): Promise<Set<string>> => {
+  const removed = new Set<string>();
+  for (const file of await loadMigrations()) {
+    for (const statement of file.statements) {
+      const dropped = DROP_TABLE.exec(statement);
+      if (dropped) {
+        for (const name of dropped[1]!.split(',')) {
+          const table = name.trim().replaceAll('`', '');
+          if (table) removed.add(table);
+        }
+      }
+      for (const [, table, column] of statement.matchAll(DROP_COLUMN_CALL)) {
+        removed.add(`${table}.${column}`);
+      }
+      // A direct `ALTER TABLE t DROP COLUMN c`, where the table is in the same
+      // statement rather than passed to a procedure.
+      const direct = /ALTER\s+TABLE\s+`?([A-Za-z0-9_$]+)`?/i.exec(statement);
+      if (direct) {
+        for (const [, column] of statement.matchAll(DROP_COLUMN)) {
+          removed.add(`${direct[1]!}.${column}`);
+        }
+      }
+    }
+  }
+  return removed;
+};
+
 const baselineTables = (): Map<string, Set<string>> => {
   const tables = new Map<string, Set<string>>();
   for (const statement of splitSqlStatements(readFileSync(BASELINE, 'utf8'))) {
@@ -72,20 +118,37 @@ const baselineTables = (): Map<string, Set<string>> => {
 describe('migrations against the test baseline', () => {
   it('adds no table or column that schema-baseline.sql lacks', async () => {
     const baseline = baselineTables();
+    const retired = await migrationRemovals();
     const missing: string[] = [];
 
     for (const { migration, table, column } of await migrationAdditions()) {
       const columns = baseline.get(table);
+      if (retired.has(table)) continue;
       if (column === undefined) {
         if (!columns) missing.push(`${migration}:${table}`);
         continue;
       }
+      if (retired.has(`${table}.${column}`)) continue;
       if (!columns?.has(column)) missing.push(`${migration}:${table}.${column}`);
     }
 
     // Each entry is a schema change that reached `migrations/` without reaching
     // `schema.ts`: update the mirror and regenerate the fixture.
     expect(missing).toEqual([]);
+  });
+
+  // Pins the removal extraction the same way: a regex that stops matching here
+  // would make the check above start reporting retired schema as drift.
+  it('reads the tables and columns the shipped migrations actually remove', async () => {
+    expect([...(await migrationRemovals())].sort()).toEqual([
+      'agent_matrix_outbox',
+      'agent_portal_users.matrix_room',
+      'claude_usage_snapshots',
+      'dashboard_graph_claude_daily_stats',
+      'dashboard_graph_usage_daily_stats',
+      'token_usage_ingests',
+      'token_usages',
+    ]);
   });
 
   // Pins the extraction itself, so a regex that quietly stops matching cannot

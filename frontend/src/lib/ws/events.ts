@@ -105,7 +105,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_portal.user.updated": [["settings"]],
   "agent_portal.user.enabled": [["settings"]],
   "agent_portal.user.rotated": [["settings"]],
-  "agent_portal.user.link_resent": [["settings"]],
+  "agent_portal.user.link_revealed": [["settings"]],
   "agent_portal.user.deleted": [["settings"]],
 
   // Usage / dashboard

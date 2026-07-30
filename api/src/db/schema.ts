@@ -1135,7 +1135,6 @@ export const agentPortalUsers = mysqlTable(
   {
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
     displayName: varchar('display_name', { length: 255 }).notNull(),
-    matrixRoom: varchar('matrix_room', { length: 255 }).notNull(),
     enabled: tinyint('enabled').notNull().default(1),
     publicId: char('public_id', { length: 32 }).notNull(),
     tokenHash: char('token_hash', { length: 64 }).notNull(),
@@ -1277,34 +1276,6 @@ export const agentMessages = mysqlTable(
   }),
 );
 
-export const agentMatrixOutbox = mysqlTable(
-  'agent_matrix_outbox',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    portalUserId: bigint('portal_user_id', { mode: 'number', unsigned: true }).notNull(),
-    sessionId: char('session_id', { length: 36 }),
-    eventId: bigint('event_id', { mode: 'number', unsigned: true }),
-    eventKey: varchar('event_key', { length: 191 }).notNull(),
-    kind: varchar('kind', { length: 32 }).notNull(),
-    payloadEnc: longtext('payload_enc').notNull(),
-    status: varchar('status', { length: 16 }).notNull().default('queued'),
-    attempts: int('attempts', { unsigned: true }).notNull().default(0),
-    nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
-    leaseOwner: varchar('lease_owner', { length: 191 }),
-    leaseUntil: varchar('lease_until', { length: 100 }),
-    lastError: text('last_error'),
-    deliveredAt: varchar('delivered_at', { length: 100 }),
-    canceledAt: varchar('canceled_at', { length: 100 }),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    eventUnique: uniqueIndex('uq_agent_matrix_outbox_user_event').on(t.portalUserId, t.eventKey),
-    dispatchIdx: index('idx_agent_matrix_outbox_dispatch').on(t.status, t.nextAttemptAt, t.id),
-    sessionIdx: index('idx_agent_matrix_outbox_session').on(t.sessionId),
-  }),
-);
-
 // ────────────────────────────────────────────────────────────────────────────
 // Migration ledger
 // ────────────────────────────────────────────────────────────────────────────
@@ -1342,7 +1313,6 @@ export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentPrompt = typeof agentPrompts.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
-export type AgentMatrixOutboxRow = typeof agentMatrixOutbox.$inferSelect;
 export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;

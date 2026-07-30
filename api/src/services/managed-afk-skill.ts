@@ -4,7 +4,7 @@ import type { ManagedSkillManifest } from './managed-context-skill.js';
 export const MANAGED_AFK_SKILL_SLUG = 'afk';
 
 const DESCRIPTION =
-  'Use #afk to send an immediate Matrix attention notice, then keep this root agent available through the permanent web portal; Matrix is notification-only and never carries replies.';
+  'Use #afk to publish an attention notice to the permanent web portal and keep this root agent available there; the portal is the only channel, and nothing is pushed off-box.';
 
 const MANIFEST = `---
 name: afk
@@ -13,9 +13,11 @@ description: "${DESCRIPTION}"
 
 # AFK notification
 
-The fleet agent portal already records this running root session. Matrix is only the
-notification path: the actual conversation and all replies happen in the authenticated
-web portal.
+The fleet agent portal already records this running root session. The portal is the
+whole channel: the notice, the conversation, and every reply live in the
+authenticated web portal, which the user reaches through their own permanent
+bookmarked link. Nothing is pushed to them, so the notice is what they find waiting
+when they open it.
 
 When #afk is requested:
 
@@ -23,7 +25,7 @@ When #afk is requested:
    transcript content, tool output, or hidden reasoning.
 2. Run \`cxx portal notify --summary "<summary>"\` once through the normal shell tool.
 3. If the command reports that the notice was queued, enter the relay loop below.
-   If the portal or this user is disabled, say so plainly and do not call Matrix directly.
+   If the portal or this user is disabled, say so plainly.
 
 Relay loop:
 
@@ -53,9 +55,11 @@ Relay loop:
 Never paste raw terminal output, secrets, hidden reasoning, or unsafe tool payloads into
 the portal. Publish only the user-facing answer or bounded progress summary.
 
-Never POST to Matrix yourself. Never read, request, print, or store a Matrix API key.
-The orchestrator broadcasts the notice to every enabled portal user and attaches each
-recipient's own permanent magic link.
+Never send this notice anywhere yourself — no chat API, no webhook, no mail. The portal
+is the only sanctioned channel, and \`cxx portal notify\` is the only way to write to it.
+Never read, request, print, or store a portal link or portal token: the link is bearer
+material that an owner or admin reads from Settings → Agent Portal, never something an
+agent hands out.
 `;
 
 export function isManagedAfkSlug(slug: string): boolean {

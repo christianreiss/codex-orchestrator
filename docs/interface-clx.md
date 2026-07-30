@@ -606,8 +606,9 @@ identity. `say` and `ask` publish only explicit user-facing content. The
 private socket uses a fixed operation allowlist and bounded bodies, but remains
 inside the same-Unix-user trust boundary; there is no PTY injection, remote
 approval path, hidden reasoning stream, or portal-bearer exposure. The managed
-`#afk` Skill cooperatively drives this loop; Matrix only sends attention and
-lifecycle notifications plus the user's permanent link. It cannot wake a
+`#afk` Skill cooperatively drives this loop; attention and lifecycle notices are
+recorded in the portal, which the user reaches through their own permanent
+bookmarked link, and are not pushed out. It cannot wake a
 Claude process or model turn that has already stopped, and `relay_ready` ages
 false when active polling ceases. The relay, socket capability, and environment
 are torn down immediately when the Claude child exits, before post-run updater

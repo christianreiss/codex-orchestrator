@@ -6,7 +6,6 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   agentEvents,
-  agentMatrixOutbox,
   agentMessages,
   agentPortalUsers,
   agentPrompts,
@@ -24,7 +23,10 @@ import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const MIGRATION = join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql');
+const MIGRATIONS = [
+  join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
+  join(HERE, '../../../src/db/migrations/0009_drop_agent_portal_matrix.sql'),
+];
 const PREFIX = 'ztest-agent-portal';
 const HOST_FQDN = `${PREFIX}.example`;
 const HOST_KEY = 'a'.repeat(64);
@@ -47,9 +49,6 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   const exec = async (query: string) => await db.execute(sql.raw(query));
 
   const cleanup = async (): Promise<void> => {
-    await exec(`DELETE FROM agent_matrix_outbox WHERE portal_user_id IN (
-      SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
-    )`);
     await exec(`DELETE FROM agent_messages WHERE portal_user_id IN (
       SELECT id FROM agent_portal_users WHERE display_name LIKE '${PREFIX}%'
     )`);
@@ -73,8 +72,10 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const statement of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) {
-      await exec(statement);
+    for (const migration of MIGRATIONS) {
+      for (const statement of splitSqlStatements(readFileSync(migration, 'utf8'))) {
+        await exec(statement);
+      }
     }
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     const now = new Date().toISOString();
@@ -87,12 +88,9 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     env = {
       ...loadTestEnv(),
       PUBLIC_BASE_URL: 'https://portal.example',
-      MATRIX_API_URL: 'https://matrix.example/api',
-      MATRIX_API_KEY: 'matrix-test-key',
       AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900,
       AGENT_PORTAL_RETENTION_HOURS: 24,
       AGENT_PORTAL_SESSION_TTL_HOURS: 24,
-      AGENT_PORTAL_MATRIX_TIMEOUT_SECONDS: 10,
     } as Env;
   });
 
@@ -113,10 +111,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   async function makeWorld(label: string = randomUUID()): Promise<World> {
     const service = new AgentPortalService(db, env, testKeyring());
     await service.setEnabled(true);
-    const created = await service.createUser({
-      displayName: `${PREFIX}-${label}`,
-      matrixRoom: `!${label}:example`,
-    });
+    const created = await service.createUser({ displayName: `${PREFIX}-${label}` });
     const token = decodeURIComponent(new URL(created.magic_url).hash.slice(3));
     const login = await service.exchangeMagicLink({
       publicId: created.user.public_id,
@@ -224,7 +219,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     expect(sessions[0]!.endedAt).not.toBeNull();
   });
 
-  it('does not recompute notification recipients for an exact event retry', async () => {
+  it('collapses an exact event retry onto one row without a second side effect', async () => {
     const world = await makeWorld('recipient-a');
     const eventInput = {
       clientEventId: `attention:${randomUUID()}`,
@@ -238,10 +233,6 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       eventInput,
       world.host.id,
     );
-    const secondUser = await world.service.createUser({
-      displayName: `${PREFIX}-recipient-b`,
-      matrixRoom: '!recipient-b:example',
-    });
 
     const retried = await world.service.addAgentEvent(
       world.sessionId,
@@ -255,13 +246,7 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
       eq(agentEvents.sessionId, world.sessionId),
       eq(agentEvents.clientEventId, eventInput.clientEventId),
     ));
-    const outbox = await db.select().from(agentMatrixOutbox).where(eq(
-      agentMatrixOutbox.eventId,
-      Number(first['cursor']),
-    ));
     expect(events).toHaveLength(1);
-    expect(outbox.map((row) => row.portalUserId)).toEqual([world.userId]);
-    expect(outbox.map((row) => row.portalUserId)).not.toContain(secondUser.user.id);
   });
 
   it('redelivers an active lease to the same claim id without incrementing attempts', async () => {
@@ -388,41 +373,40 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     expect(acceptedEvents).toHaveLength(1);
   });
 
-  it('retries Matrix delivery from its immutable encrypted envelope', async () => {
+  /**
+   * The link is now the only way in, so it has to survive the round trip through
+   * the encrypted column: what an admin reads back later must be byte-identical
+   * to what creation handed out, and must still exchange for a session.
+   */
+  it('reads the permanent link back from storage and it still logs in', async () => {
     const service = new AgentPortalService(db, env, testKeyring());
     await service.setEnabled(true);
-    const created = await service.createUser({
-      displayName: `${PREFIX}-matrix-envelope`,
-      matrixRoom: '!original:example',
-    });
-    const first = await service.claimMatrixDelivery('worker-a');
-    expect(first).not.toBeNull();
-    await service.failMatrixDelivery(first!.id, first!.lease_owner, first!.attempts, 'retry');
-    await db.update(agentMatrixOutbox).set({ nextAttemptAt: '1970-01-01T00:00:00.000Z' }).where(
-      eq(agentMatrixOutbox.id, first!.id),
-    );
-    await db.update(agentPortalUsers).set({
-      matrixRoom: '!changed:example',
-      tokenEnc: 'deliberately-invalid-envelope',
-    }).where(eq(agentPortalUsers.id, created.user.id));
-    const changedEnv = { ...env, PUBLIC_BASE_URL: 'https://changed.example' } as Env;
-    const changedService = new AgentPortalService(db, changedEnv, testKeyring());
+    const created = await service.createUser({ displayName: `${PREFIX}-permanent-link` });
 
-    const retried = await changedService.claimMatrixDelivery('worker-b');
+    const revealed = await service.revealUserLink(created.user.id);
+    expect(revealed.magic_url).toBe(created.magic_url);
 
-    expect(retried).not.toBeNull();
-    expect({
-      idempotency_key: retried!.idempotency_key,
-      matrix_room: retried!.matrix_room,
-      magic_url: retried!.magic_url,
-      payload: retried!.payload,
-    }).toEqual({
-      idempotency_key: first!.idempotency_key,
-      matrix_room: first!.matrix_room,
-      magic_url: first!.magic_url,
-      payload: first!.payload,
+    const url = new URL(revealed.magic_url);
+    expect(url.pathname).toBe(`/go/u/${created.user.public_id}`);
+    // The token rides in the fragment: a bookmarked URL must never put bearer
+    // material anywhere a proxy log or Referer header can reach.
+    expect(url.search).toBe('');
+    const login = await service.exchangeMagicLink({
+      publicId: created.user.public_id,
+      token: decodeURIComponent(url.hash.slice(3)),
     });
-    expect(retried!.attempts).toBe(2);
-    expect(retried!.lease_owner).not.toBe(first!.lease_owner);
+    expect(login.identity.user.id).toBe(created.user.id);
+
+    // Rotation invalidates the old bookmark and hands out a distinct one.
+    const rotated = await service.rotateUser(created.user.id);
+    expect(rotated.magic_url).not.toBe(created.magic_url);
+    expect(rotated.revoked_sessions).toBe(1);
+    await expect(
+      service.exchangeMagicLink({
+        publicId: created.user.public_id,
+        token: decodeURIComponent(url.hash.slice(3)),
+      }),
+    ).rejects.toThrow();
+    expect((await service.revealUserLink(created.user.id)).magic_url).toBe(rotated.magic_url);
   });
 });

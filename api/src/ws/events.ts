@@ -79,7 +79,7 @@ export const WS_EVENT_TYPES = [
   'agent_portal.user.updated',
   'agent_portal.user.enabled',
   'agent_portal.user.rotated',
-  'agent_portal.user.link_resent',
+  'agent_portal.user.link_revealed',
   'agent_portal.user.deleted',
 
   // Usage

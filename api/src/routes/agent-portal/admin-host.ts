@@ -57,11 +57,10 @@ export async function registerAgentPortalAdminHostRoutes(
 
   app.post('/admin/agent-portal/users', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
     const body = z
-      .object({ display_name: z.string(), matrix_room: z.string(), enabled: z.boolean().optional() })
+      .object({ display_name: z.string(), enabled: z.boolean().optional() })
       .parse(req.body ?? {});
     const result = await portal.createUser({
       displayName: body.display_name,
-      matrixRoom: body.matrix_room,
       enabled: body.enabled,
     });
     await events.record({
@@ -78,13 +77,10 @@ export async function registerAgentPortalAdminHostRoutes(
   app.post('/admin/agent-portal/users/:id', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
     const id = parsePositiveId(req.params);
     const body = z
-      .object({ display_name: z.string().optional(), matrix_room: z.string().optional() })
+      .object({ display_name: z.string().optional() })
       .strict()
       .parse(req.body ?? {});
-    const user = await portal.updateUser(id, {
-      displayName: body.display_name,
-      matrixRoom: body.matrix_room,
-    });
+    const user = await portal.updateUser(id, { displayName: body.display_name });
     await events.record({
       type: 'agent_portal.user.updated',
       payload: { portal_user_id: id, admin_user_id: req.admin?.user.id ?? null },
@@ -123,11 +119,15 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok(result);
   });
 
-  app.post('/admin/agent-portal/users/:id/resend', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
+  // The permanent link is what the operator bookmarks, so it has to be readable
+  // after creation. Gated to owner/admin and audited: `GET /admin/agent-portal/
+  // users` is open to every admin session, including `viewer`, and must never
+  // carry bearer material.
+  app.get('/admin/agent-portal/users/:id/link', { preHandler: [app.requireAdmin, requireAgentPortalMutationRole] }, async (req) => {
     const id = parsePositiveId(req.params);
-    const result = await portal.resendUserLink(id);
+    const result = await portal.revealUserLink(id);
     await events.record({
-      type: 'agent_portal.user.link_resent',
+      type: 'agent_portal.user.link_revealed',
       payload: { portal_user_id: id, admin_user_id: req.admin?.user.id ?? null },
     });
     return ok(result);

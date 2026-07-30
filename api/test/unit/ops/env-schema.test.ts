@@ -158,18 +158,14 @@ describe('env coercions', () => {
     expect((await envWith({ AUTH_RUNNER_TIMEOUT: undefined })).AUTH_RUNNER_TIMEOUT).toBe(8);
   });
 
-  it('treats blank optional Matrix configuration as absent', async () => {
-    const blank = await envWith({ MATRIX_API_URL: '', MATRIX_API_KEY: '   ' });
-    expect(blank.MATRIX_API_URL).toBeUndefined();
-    expect(blank.MATRIX_API_KEY).toBeUndefined();
-
-    const configured = await envWith({
-      MATRIX_API_URL: ' https://matrix-api.example/api ',
-      MATRIX_API_KEY: ' dedicated-portal-key ',
-    });
-    expect(configured.MATRIX_API_URL).toBe('https://matrix-api.example/api');
-    expect(configured.MATRIX_API_KEY).toBe('dedicated-portal-key');
-    expect(await envError({ MATRIX_API_URL: 'not-a-url' })).toContain('MATRIX_API_URL');
+  it('defaults the agent portal purge interval and refuses a non-positive one', async () => {
+    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '60' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(60);
+    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(300);
+    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: undefined })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(300);
+    // Zero would busy-loop the retention worker; like its `AGENT_PORTAL_*`
+    // siblings this refuses to boot rather than silently substituting a default.
+    expect(await envError({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '0' })).toContain('AGENT_PORTAL_PURGE_INTERVAL_SECONDS');
+    expect(await envError({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '-1' })).toContain('AGENT_PORTAL_PURGE_INTERVAL_SECONDS');
   });
 
   it('holds CHATGPT_USAGE_TIMEOUT at 10 seconds for any non-positive value', async () => {

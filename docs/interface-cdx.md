@@ -426,6 +426,7 @@ socket. This keeps the portal bridge bearer out of the child environment and
 command line; it is not isolation from other processes running as the same Unix
 user. The commands expose no PTY,
 approval handling, hidden reasoning, or raw tool output. The managed `#afk`
-Skill cooperatively keeps the existing root turn polling while Matrix remains
-notification-only. It cannot wake a Codex process or model turn that has
-already stopped; `relay_ready` becomes false when fresh polling ceases.
+Skill cooperatively keeps the existing root turn polling; the notice it publishes
+lands in the portal and is not pushed anywhere. It cannot wake a Codex process or
+model turn that has already stopped; `relay_ready` becomes false when fresh
+polling ceases.

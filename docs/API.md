@@ -585,8 +585,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 The portal is a separate mobile-first user surface at `/go`. Its persistent
 `agent_portal_enabled` switch is seeded off. Portal users default enabled and
 see every eligible active root session across the fleet; a finished session is
-read-only until the 24-hour retention purge. Matrix only receives lifecycle and
-attention notifications containing that user's stable link.
+read-only until the 24-hour retention purge. Nothing is pushed anywhere: each
+user reaches the portal through their own permanent bookmarked link, and
+lifecycle and attention notices are recorded there rather than delivered out.
 
 Every `/go/api/*` route is same-origin only and never inherits
 `CORS_ALLOWED_ORIGINS`. Browser mutations require an exact `Origin` match to
@@ -625,11 +626,11 @@ All mutations below require an `owner` or `admin` role; authenticated viewers
 may read state and users but cannot change rollout or identity state.
 
 - `GET /admin/agent-portal/state` — switch, configuration, queue health, and dead-letter counts.
-- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off revokes browser sessions and cancels queued/leased portal and Matrix work without replay.
+- `POST /admin/agent-portal/state` — toggle the global switch. Turning it off revokes browser sessions and cancels queued/leased portal work without replay.
 - `GET /admin/agent-portal/users` — list active portal identities and link metadata.
-- `POST /admin/agent-portal/users` — create a user with `display_name`, `matrix_room`, and optional `enabled` (default true); returns the permanent magic URL.
-- `POST /admin/agent-portal/users/{id}` — update display name and/or Matrix room.
+- `POST /admin/agent-portal/users` — create a user with `display_name` and optional `enabled` (default true); returns the permanent magic URL.
+- `POST /admin/agent-portal/users/{id}` — update the display name.
 - `POST /admin/agent-portal/users/{id}/enabled` — per-user switch; disabling revokes sessions and cancels that user's undelivered work.
 - `POST /admin/agent-portal/users/{id}/rotate` — explicitly replace the reusable secret, revoke browser sessions, and return the new URL.
-- `POST /admin/agent-portal/users/{id}/resend` — enqueue the current stable link for Matrix delivery without rotating it.
+- `GET /admin/agent-portal/users/{id}/link` — re-render the stored permanent link without rotating it, so an operator can bookmark it on another device. Owner/admin only, and audited as `agent_portal.user.link_revealed`; the link is bearer material and is deliberately absent from the `GET /admin/agent-portal/users` listing, which every authenticated admin may read.
 - `DELETE /admin/agent-portal/users/{id}` — soft-delete the user, revoke sessions, and cancel pending work.

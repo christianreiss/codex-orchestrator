@@ -71,7 +71,7 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
-	// Make the portal writable before the Matrix notice can be delivered, so a
+	// Make the portal writable before the notice becomes visible in it, so a
 	// fast tap never lands on a visible-but-not-accepting agent.
 	heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	err = session.Heartbeat(heartbeatCtx, "", "poll")

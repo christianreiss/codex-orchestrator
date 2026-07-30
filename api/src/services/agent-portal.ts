@@ -16,7 +16,6 @@ import {
 import type { Database } from '../db/client.js';
 import {
   agentEvents,
-  agentMatrixOutbox,
   agentMessages,
   agentPortalBrowserSessions,
   agentPortalUsers,
@@ -78,23 +77,12 @@ export const AGENT_BRIDGE_EVENT_TYPES = [
 ] as const satisfies readonly AgentEventType[];
 
 const AGENT_EVENT_TYPE_SET = new Set<string>(AGENT_EVENT_TYPES);
-const NOTIFY_EVENT_TYPES = new Set<AgentEventType>([
-  'started',
-  'resumed',
-  'progress',
-  'waiting_input',
-  'terminal_block',
-  'attention',
-  'failed',
-  'completed',
-]);
 const LIVE_SESSION_STATES = ['starting', 'active', 'waiting', 'offline'] as const;
 const LIVE_SESSION_STATE_SET = new Set<string>(LIVE_SESSION_STATES);
 
 export interface PortalUserView {
   id: number;
   display_name: string;
-  matrix_room: string;
   enabled: boolean;
   public_id: string;
   created_at: string;
@@ -138,36 +126,6 @@ export interface ClaimedMessage {
   created_at: string;
 }
 
-export interface MatrixDelivery {
-  id: number;
-  event_key: string;
-  idempotency_key: string;
-  matrix_room: string;
-  magic_url: string;
-  payload: MatrixPayload;
-  attempts: number;
-  lease_owner: string;
-}
-
-interface MatrixPayload {
-  kind: string;
-  title: string;
-  status: string;
-  summary?: string;
-  engine?: string;
-  host?: string;
-  username?: string;
-  cwd?: string;
-}
-
-interface MatrixDeliveryEnvelope {
-  version: 1;
-  idempotency_key: string;
-  matrix_room: string;
-  magic_url: string;
-  payload: MatrixPayload;
-}
-
 interface NormalizedEvent {
   payload: Record<string, unknown>;
   prompt?: {
@@ -209,12 +167,12 @@ export class AgentPortalService {
     return await this.settings.getFlag(AGENT_PORTAL_ENABLED_KEY, false);
   }
 
+  /**
+   * The portal is entirely pull-based: the only thing it needs configured is the
+   * origin its permanent links are rendered against.
+   */
   configured(): boolean {
-    return Boolean(
-      this.env.PUBLIC_BASE_URL?.trim() &&
-        this.env.MATRIX_API_URL?.trim() &&
-        this.env.MATRIX_API_KEY?.trim(),
-    );
+    return Boolean(this.env.PUBLIC_BASE_URL?.trim());
   }
 
   async state(): Promise<Record<string, unknown>> {
@@ -226,7 +184,7 @@ export class AgentPortalService {
   async setEnabled(enabled: boolean): Promise<{ enabled: boolean; canceled: number; revoked_sessions: number }> {
     if (enabled && !this.configured()) {
       throw new ServiceUnavailableError(
-        'PUBLIC_BASE_URL, MATRIX_API_URL and MATRIX_API_KEY are required before enabling the agent portal',
+        'PUBLIC_BASE_URL is required before enabling the agent portal',
         'agent_portal_not_configured',
       );
     }
@@ -278,10 +236,6 @@ export class AgentPortalService {
         tx,
       );
       await tx
-        .update(agentMatrixOutbox)
-        .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-        .where(inArray(agentMatrixOutbox.status, ['queued', 'leased']));
-      await tx
         .update(agentPortalBrowserSessions)
         .set({ revokedAt: now })
         .where(isNull(agentPortalBrowserSessions.revokedAt));
@@ -296,10 +250,6 @@ export class AgentPortalService {
       };
     });
     wsPublisher.publish('settings.changed', { key: AGENT_PORTAL_ENABLED_KEY });
-    if (enabled) {
-      const users = await this.enabledUsers();
-      for (const user of users) await this.enqueueOnboardingAuthorized(user.id, 'enabled');
-    }
     return result;
   }
 
@@ -312,15 +262,13 @@ export class AgentPortalService {
     return rows.map(portalUserView);
   }
 
-  async createUser(input: { displayName: string; matrixRoom: string; enabled?: boolean }): Promise<{ user: PortalUserView; magic_url: string }> {
+  async createUser(input: { displayName: string; enabled?: boolean }): Promise<{ user: PortalUserView; magic_url: string }> {
     const displayName = normalizeRequiredText(input.displayName, 'display_name', 255);
-    const matrixRoom = normalizeMatrixRoom(input.matrixRoom);
     const token = randomBytes(32).toString('base64url');
     const now = nowIso();
     const publicId = randomHex(16);
     await this.db.insert(agentPortalUsers).values({
       displayName,
-      matrixRoom,
       enabled: input.enabled === false ? 0 : 1,
       publicId,
       tokenHash: sha256(token),
@@ -334,8 +282,24 @@ export class AgentPortalService {
     });
     const user = await this.userByPublicId(publicId);
     if (!user) throw new ServiceUnavailableError('Portal user creation did not persist', 'agent_portal_write_failed');
-    if (user.enabled === 1) await this.enqueueOnboardingAuthorized(user.id, 'created');
     return { user: portalUserView(user), magic_url: this.magicUrl(user, token) };
+  }
+
+  /**
+   * Re-renders the stored permanent link for an owner/admin so it can be
+   * bookmarked from the admin page without rotating the token. Deliberately its
+   * own owner/admin-gated call: `PortalUserView` is also served to the portal
+   * itself, so the bearer material never rides along on a listing.
+   */
+  async revealUserLink(id: number): Promise<{ user: PortalUserView; magic_url: string }> {
+    const rows = await this.db
+      .select()
+      .from(agentPortalUsers)
+      .where(and(eq(agentPortalUsers.id, id), isNull(agentPortalUsers.deletedAt)))
+      .limit(1);
+    const user = rows[0];
+    if (!user) throw new NotFoundError('Portal user not found', 'agent_portal_user_not_found');
+    return { user: portalUserView(user), magic_url: this.magicUrl(user, this.decodeText(user.tokenEnc)) };
   }
 
   async setUserEnabled(id: number, enabled: boolean): Promise<{ user: PortalUserView; canceled: number; revoked_sessions: number }> {
@@ -353,33 +317,20 @@ export class AgentPortalService {
       const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
       return { user: portalUserView(rows[0]!), ...disabled };
     });
-    if (enabled) await this.enqueueOnboardingAuthorized(id, 're-enabled');
     return result;
   }
 
-  async updateUser(id: number, input: { displayName?: string; matrixRoom?: string }): Promise<PortalUserView> {
+  async updateUser(id: number, input: { displayName?: string }): Promise<PortalUserView> {
     const patch: Partial<typeof agentPortalUsers.$inferInsert> = { updatedAt: nowIso() };
     if (input.displayName !== undefined) patch.displayName = normalizeRequiredText(input.displayName, 'display_name', 255);
-    if (input.matrixRoom !== undefined) patch.matrixRoom = normalizeMatrixRoom(input.matrixRoom);
-    const result = await this.db.transaction(async (tx) => {
+    const user = await this.db.transaction(async (tx) => {
       await this.portalEnabledLocked(tx);
-      const prior = await this.requireUserLocked(tx, id);
-      const roomChanged = patch.matrixRoom !== undefined && patch.matrixRoom !== prior.matrixRoom;
-      if (roomChanged) {
-        const now = nowIso();
-        await tx
-          .update(agentMatrixOutbox)
-          .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-          .where(and(eq(agentMatrixOutbox.portalUserId, id), inArray(agentMatrixOutbox.status, ['queued', 'leased'])));
-      }
+      await this.requireUserLocked(tx, id);
       await tx.update(agentPortalUsers).set(patch).where(eq(agentPortalUsers.id, id));
       const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
-      return { user: rows[0]!, roomChanged };
+      return rows[0]!;
     });
-    if (result.roomChanged && result.user.enabled === 1) {
-      await this.enqueueOnboardingAuthorized(id, `room:${Date.now()}`);
-    }
-    return portalUserView(result.user);
+    return portalUserView(user);
   }
 
   async rotateUser(id: number): Promise<{ user: PortalUserView; magic_url: string; revoked_sessions: number }> {
@@ -400,26 +351,14 @@ export class AgentPortalService {
         .update(agentPortalBrowserSessions)
         .set({ revokedAt: now })
         .where(and(eq(agentPortalBrowserSessions.userId, id), isNull(agentPortalBrowserSessions.revokedAt)));
-      // The rendered Matrix body contains the permanent link. Cancel every
-      // undelivered old-generation body before swapping the token; the new
-      // onboarding row below receives its own outbox ID/idempotency boundary.
-      await tx
-        .update(agentMatrixOutbox)
-        .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-        .where(and(eq(agentMatrixOutbox.portalUserId, id), inArray(agentMatrixOutbox.status, ['queued', 'leased'])));
       const rows = await tx.select().from(agentPortalUsers).where(eq(agentPortalUsers.id, id)).limit(1);
       return { user: rows[0]!, revoked: Number(sessions[0]?.value ?? 0) };
     });
-    if (result.user.enabled === 1) await this.enqueueOnboardingAuthorized(id, 'rotated');
     return {
       user: portalUserView(result.user),
       magic_url: this.magicUrl(result.user, token),
       revoked_sessions: result.revoked,
     };
-  }
-
-  async resendUserLink(id: number): Promise<{ queued: boolean }> {
-    return { queued: await this.enqueueOnboardingAuthorized(id, `resend:${Date.now()}`) };
   }
 
   async deleteUser(id: number): Promise<{ canceled: number; revoked_sessions: number }> {
@@ -1129,83 +1068,6 @@ export class AgentPortalService {
     return messageView(updated);
   }
 
-  async claimMatrixDelivery(workerId: string): Promise<MatrixDelivery | null> {
-    return await this.db.transaction(async (tx) => {
-      if (!(await this.portalEnabledLocked(tx))) return null;
-      const now = nowIso();
-      await tx
-        .update(agentMatrixOutbox)
-        .set({ status: 'queued', leaseOwner: null, leaseUntil: null, updatedAt: now })
-        .where(and(eq(agentMatrixOutbox.status, 'leased'), lt(agentMatrixOutbox.leaseUntil, now)));
-      const rows = await tx
-        .select({ outbox: agentMatrixOutbox, user: agentPortalUsers })
-        .from(agentMatrixOutbox)
-        .innerJoin(agentPortalUsers, eq(agentPortalUsers.id, agentMatrixOutbox.portalUserId))
-        .where(and(eq(agentMatrixOutbox.status, 'queued'), lte(agentMatrixOutbox.nextAttemptAt, now), eq(agentPortalUsers.enabled, 1), isNull(agentPortalUsers.deletedAt)))
-        .orderBy(asc(agentMatrixOutbox.id))
-        .limit(1)
-        .for('update');
-      const row = rows[0];
-      if (!row) return null;
-      if (row.outbox.attempts >= AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS) {
-        await tx.update(agentMatrixOutbox).set({ status: 'dead', lastError: 'maximum delivery attempts reached', updatedAt: now }).where(eq(agentMatrixOutbox.id, row.outbox.id));
-        return null;
-      }
-      const leaseOwner = `${workerId}:${randomUUID()}`;
-      const leaseSeconds = Math.max(30, this.env.AGENT_PORTAL_MATRIX_TIMEOUT_SECONDS + 5);
-      await tx
-        .update(agentMatrixOutbox)
-        .set({ status: 'leased', attempts: row.outbox.attempts + 1, leaseOwner, leaseUntil: isoOffsetSeconds(leaseSeconds), updatedAt: now })
-        .where(eq(agentMatrixOutbox.id, row.outbox.id));
-      const stored = this.decodeJson<unknown>(row.outbox.payloadEnc, null);
-      const envelope = isMatrixDeliveryEnvelope(stored)
-        ? stored
-        : {
-            version: 1 as const,
-            idempotency_key: `agent-portal-legacy:${row.outbox.id}`,
-            matrix_room: row.user.matrixRoom,
-            magic_url: this.magicUrl(row.user, this.decodeText(row.user.tokenEnc)),
-            payload: isMatrixPayload(stored)
-              ? stored
-              : { kind: row.outbox.kind, title: 'Agent portal', status: row.outbox.kind },
-          };
-      return {
-        id: row.outbox.id,
-        event_key: row.outbox.eventKey,
-        idempotency_key: envelope.idempotency_key,
-        matrix_room: envelope.matrix_room,
-        magic_url: envelope.magic_url,
-        payload: envelope.payload,
-        attempts: row.outbox.attempts + 1,
-        lease_owner: leaseOwner,
-      };
-    });
-  }
-
-  async completeMatrixDelivery(id: number, leaseOwner: string): Promise<void> {
-    const now = nowIso();
-    await this.db
-      .update(agentMatrixOutbox)
-      .set({ status: 'delivered', deliveredAt: now, leaseOwner: null, leaseUntil: null, lastError: null, updatedAt: now })
-      .where(and(eq(agentMatrixOutbox.id, id), eq(agentMatrixOutbox.leaseOwner, leaseOwner)));
-  }
-
-  async failMatrixDelivery(id: number, leaseOwner: string, attempts: number, error: string): Promise<void> {
-    const now = nowIso();
-    const dead = attempts >= AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS;
-    await this.db
-      .update(agentMatrixOutbox)
-      .set({
-        status: dead ? 'dead' : 'queued',
-        nextAttemptAt: dead ? now : isoOffsetSeconds(backoffSeconds(attempts)),
-        leaseOwner: null,
-        leaseUntil: null,
-        lastError: normalizeOptionalText(error, 2000),
-        updatedAt: now,
-      })
-      .where(and(eq(agentMatrixOutbox.id, id), eq(agentMatrixOutbox.leaseOwner, leaseOwner)));
-  }
-
   async purgeExpired(): Promise<{ sessions: number; browser_sessions: number; abandoned_sessions: number }> {
     const now = nowIso();
     const abandonedSessions = await this.expireAbandonedSessions(now);
@@ -1218,7 +1080,6 @@ export class AgentPortalService {
       await this.db.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
       await this.db.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
       await this.db.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
-      await this.db.delete(agentMatrixOutbox).where(inArray(agentMatrixOutbox.sessionId, ids));
       await this.db.delete(agentSessions).where(inArray(agentSessions.id, ids));
     }
     const browser = await this.db
@@ -1236,22 +1097,17 @@ export class AgentPortalService {
   }
 
   async health(): Promise<Record<string, unknown>> {
-    const [users, sessions, queued, dead, matrixQueued, matrixDead] = await Promise.all([
+    const [users, sessions, queued, dead] = await Promise.all([
       this.db.select({ value: count() }).from(agentPortalUsers).where(and(isNull(agentPortalUsers.deletedAt), eq(agentPortalUsers.enabled, 1))),
       this.db.select({ value: count() }).from(agentSessions).where(inArray(agentSessions.status, [...LIVE_SESSION_STATES])),
       this.db.select({ value: count() }).from(agentMessages).where(inArray(agentMessages.status, ['queued', 'leased'])),
       this.db.select({ value: count() }).from(agentMessages).where(eq(agentMessages.status, 'dead')),
-      this.db.select({ value: count() }).from(agentMatrixOutbox).where(inArray(agentMatrixOutbox.status, ['queued', 'leased'])),
-      this.db.select({ value: count() }).from(agentMatrixOutbox).where(eq(agentMatrixOutbox.status, 'dead')),
     ]);
     return {
       enabled_users: Number(users[0]?.value ?? 0),
       active_sessions: Number(sessions[0]?.value ?? 0),
       queued_messages: Number(queued[0]?.value ?? 0),
       dead_messages: Number(dead[0]?.value ?? 0),
-      queued_matrix: Number(matrixQueued[0]?.value ?? 0),
-      dead_matrix: Number(matrixDead[0]?.value ?? 0),
-      matrix_configured: Boolean(this.env.MATRIX_API_URL && this.env.MATRIX_API_KEY),
     };
   }
 
@@ -1269,7 +1125,6 @@ export class AgentPortalService {
     }
     const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
-      const recipients = NOTIFY_EVENT_TYPES.has(input.type) ? await this.enabledUsersLocked(tx) : [];
       const session = options.bridge
         ? await this.requireBridgeSessionLocked(
             tx,
@@ -1349,49 +1204,9 @@ export class AgentPortalService {
           .set({ status: 'active', updatedAt: now })
           .where(and(eq(agentSessions.id, sessionId), isNull(agentSessions.endedAt)));
       }
-      if (NOTIFY_EVENT_TYPES.has(input.type)) {
-        await this.enqueueLifecycleNotifications(sessionId, row.id, input.type, normalized.payload, tx, recipients);
-      }
       return { row, payload: normalized.payload };
     });
     return eventView(result.row, result.payload);
-  }
-
-  private async enqueueLifecycleNotifications(
-    sessionId: string,
-    eventId: number,
-    type: AgentEventType,
-    payload: Record<string, unknown>,
-    db: AgentPortalDb = this.db,
-    recipients?: AgentPortalUser[],
-  ): Promise<void> {
-    const sessionRows = await db
-      .select({ session: agentSessions, fqdn: hosts.fqdn })
-      .from(agentSessions)
-      .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
-      .where(eq(agentSessions.id, sessionId))
-      .limit(1);
-    const row = sessionRows[0];
-    if (!row) return;
-    const users = recipients ?? await this.enabledUsers(db);
-    const title = `${row.session.engine === ENGINE_CLAUDE ? 'Claude' : 'Codex'} on ${row.fqdn}`;
-    const status = lifecycleLabel(type);
-    const summary = typeof payload.summary === 'string' ? payload.summary : typeof payload.question === 'string' ? 'Agent needs an answer' : undefined;
-    const matrixPayload: MatrixPayload = {
-      kind: type,
-      title,
-      status,
-      summary: normalizeOptionalText(summary, 1000) ?? undefined,
-      engine: row.session.engine,
-      host: row.fqdn,
-      username: row.session.username,
-      cwd: row.session.cwd,
-    };
-    const minuteBucket = Math.floor(Date.now() / 60_000);
-    for (const user of users) {
-      const eventKey = type === 'progress' ? `${sessionId}:progress:${minuteBucket}` : `${sessionId}:${eventId}:${type}`;
-      await this.insertMatrixOutbox(user, sessionId, eventId, eventKey, type, matrixPayload, db);
-    }
   }
 
   private async expireAbandonedSessions(now: string): Promise<number> {
@@ -1404,8 +1219,6 @@ export class AgentPortalService {
     let expired = 0;
     for (const candidate of candidates) {
       const changed = await this.db.transaction(async (tx) => {
-        const enabled = await this.portalEnabledLocked(tx);
-        const recipients = enabled ? await this.enabledUsersLocked(tx) : [];
         const rows = await tx
           .select()
           .from(agentSessions)
@@ -1446,70 +1259,11 @@ export class AgentPortalService {
           isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600),
           now,
         );
-        if (enabled) {
-          await this.enqueueLifecycleNotifications(session.id, eventId, 'failed', payload, tx, recipients);
-        }
         return true;
       });
       if (changed) expired += 1;
     }
     return expired;
-  }
-
-  private async enqueueOnboardingAuthorized(userId: number, reason: string): Promise<boolean> {
-    return await this.db.transaction(async (tx) => {
-      if (!(await this.portalEnabledLocked(tx))) return false;
-      const user = await this.requireUserLocked(tx, userId);
-      if (user.enabled !== 1) return false;
-      await this.enqueueOnboarding(user, reason, tx);
-      return true;
-    });
-  }
-
-  private async enqueueOnboarding(user: AgentPortalUser, reason: string, db: AgentPortalDb = this.db): Promise<void> {
-    const payload: MatrixPayload = {
-      kind: 'portal_link',
-      title: 'Agent portal',
-      status: 'Your permanent fleet agent link',
-      summary: 'Open the portal to view and instruct active Codex and Claude agents.',
-    };
-    await this.insertMatrixOutbox(user, null, null, `portal-link:${reason}:${user.rotatedAt ?? user.updatedAt}`, 'portal_link', payload, db);
-  }
-
-  private async insertMatrixOutbox(user: AgentPortalUser, sessionId: string | null, eventId: number | null, eventKey: string, kind: string, payload: MatrixPayload, db: AgentPortalDb = this.db): Promise<void> {
-    const now = nowIso();
-    const envelope: MatrixDeliveryEnvelope = {
-      version: 1,
-      idempotency_key: `agent-portal:${randomUUID()}`,
-      matrix_room: user.matrixRoom,
-      magic_url: this.magicUrl(user, this.decodeText(user.tokenEnc)),
-      payload,
-    };
-    try {
-      await db.insert(agentMatrixOutbox).values({
-        portalUserId: user.id,
-        sessionId,
-        eventId,
-        eventKey: eventKey.slice(0, 191),
-        kind,
-        payloadEnc: this.encodeJson(envelope),
-        status: 'queued',
-        attempts: 0,
-        nextAttemptAt: now,
-        leaseOwner: null,
-        leaseUntil: null,
-        lastError: null,
-        deliveredAt: null,
-        canceledAt: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-    } catch (error) {
-      // Unique (user,event_key) prevents duplicate outbox work. The encrypted
-      // envelope keeps the destination, rendered-link input, payload and
-      // cross-service idempotency key immutable across every retry.
-      if (!isDuplicateKeyError(error)) throw error;
-    }
   }
 
   private async authenticateBridge(
@@ -1597,19 +1351,6 @@ export class AgentPortalService {
       .where(eq(agentPortalUsers.publicId, String(publicId ?? '').trim()))
       .limit(1);
     return rows[0] ?? null;
-  }
-
-  private async enabledUsers(db: AgentPortalDb = this.db): Promise<AgentPortalUser[]> {
-    return await db.select().from(agentPortalUsers).where(and(eq(agentPortalUsers.enabled, 1), isNull(agentPortalUsers.deletedAt)));
-  }
-
-  private async enabledUsersLocked(db: AgentPortalDb): Promise<AgentPortalUser[]> {
-    return await db
-      .select()
-      .from(agentPortalUsers)
-      .where(and(eq(agentPortalUsers.enabled, 1), isNull(agentPortalUsers.deletedAt)))
-      .orderBy(asc(agentPortalUsers.id))
-      .for('update');
   }
 
   private async requireVisibleSession(id: string): Promise<AgentSession> {
@@ -1843,10 +1584,6 @@ export class AgentPortalService {
       .where(and(eq(agentMessages.portalUserId, userId), inArray(agentMessages.status, ['queued', 'leased'])));
     await this.reconcileDisabledUserAnswers(pendingAnswers, now, db);
     await db
-      .update(agentMatrixOutbox)
-      .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-      .where(and(eq(agentMatrixOutbox.portalUserId, userId), inArray(agentMatrixOutbox.status, ['queued', 'leased'])));
-    await db
       .update(agentPortalBrowserSessions)
       .set({ revokedAt: now })
       .where(and(eq(agentPortalBrowserSessions.userId, userId), isNull(agentPortalBrowserSessions.revokedAt)));
@@ -2020,7 +1757,6 @@ function portalUserView(user: AgentPortalUser): PortalUserView {
   return {
     id: user.id,
     display_name: user.displayName,
-    matrix_room: user.matrixRoom,
     enabled: user.enabled === 1,
     public_id: user.publicId,
     created_at: user.createdAt,
@@ -2043,12 +1779,6 @@ function normalizeOptionalText(value: unknown, max: number): string | null {
   const normalized = value.trim();
   if (!normalized) return null;
   return Buffer.byteLength(normalized, 'utf8') > max ? Buffer.from(normalized).subarray(0, max).toString('utf8') : normalized;
-}
-
-function normalizeMatrixRoom(value: unknown): string {
-  const room = normalizeRequiredText(value, 'matrix_room', 255);
-  if (/\p{Cc}/u.test(room)) throw new ValidationError('matrix_room contains control characters', { param: 'matrix_room' });
-  return room;
 }
 
 function normalizeMessage(value: unknown): string {
@@ -2128,22 +1858,6 @@ function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): N
   return { payload };
 }
 
-function isMatrixPayload(value: unknown): value is MatrixPayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Record<string, unknown>;
-  return typeof payload.kind === 'string' && typeof payload.title === 'string' && typeof payload.status === 'string';
-}
-
-function isMatrixDeliveryEnvelope(value: unknown): value is MatrixDeliveryEnvelope {
-  if (!value || typeof value !== 'object') return false;
-  const envelope = value as Record<string, unknown>;
-  return envelope.version === 1 &&
-    typeof envelope.idempotency_key === 'string' &&
-    typeof envelope.matrix_room === 'string' &&
-    typeof envelope.magic_url === 'string' &&
-    isMatrixPayload(envelope.payload);
-}
-
 function safeHashEqual(a: string, b: string): boolean {
   const left = Buffer.from(a, 'hex');
   const right = Buffer.from(b, 'hex');
@@ -2196,20 +1910,6 @@ function messageView(row: typeof agentMessages.$inferSelect): Record<string, unk
 
 function eventView(row: typeof agentEvents.$inferSelect, payload: Record<string, unknown>): Record<string, unknown> {
   return { cursor: row.id, session_id: row.sessionId, type: row.eventType, source: row.source, payload, created_at: row.createdAt };
-}
-
-function lifecycleLabel(type: AgentEventType): string {
-  switch (type) {
-    case 'started': return 'Started';
-    case 'resumed': return 'Resumed';
-    case 'progress': return 'Progress';
-    case 'waiting_input': return 'Needs your answer';
-    case 'terminal_block': return 'Terminal approval required';
-    case 'attention': return 'Attention requested';
-    case 'failed': return 'Failed';
-    case 'completed': return 'Completed';
-    default: return type;
-  }
 }
 
 function backoffSeconds(attempts: number): number {

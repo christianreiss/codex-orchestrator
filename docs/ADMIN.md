@@ -70,7 +70,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
     (`api/src/routes/admin/users/index.ts`).
   - External Skill source inclusion, auto-update, and manual refresh
     (`api/src/routes/admin/skill-sources/index.ts`).
-  - Agent Portal global/user mutations
+  - Agent Portal global/user mutations, plus the permanent-link reveal — the only
+    gated read, since the link is reusable bearer material
     (`api/src/routes/agent-portal/admin-host.ts`).
 - Every authenticated role may read Memory Atlas and the user roster. Memory
   reads carry a per-record `capabilities` object (`read`, `create`, `update`,
@@ -81,23 +82,27 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 ## Agent Portal Operations
 
 - The persistent master switch is intentionally seeded off. Creating a portal
-  user defaults that user on, but no link, message, relay, or Matrix notice is
-  active until an owner/admin enables the master switch.
-- Settings → Agent Portal lets an owner/admin create a user, change the user's
-  Matrix room, enable/disable the user, resend the same permanent link, rotate
-  the link, or delete the user. Read-only roles can inspect portal health but
-  cannot mutate it.
+  user defaults that user on, but no link exchange, message, or relay is active
+  until an owner/admin enables the master switch. `PUBLIC_BASE_URL` is the only
+  configuration the portal needs.
+- Settings → Agent Portal lets an owner/admin create a user, read that user's
+  permanent link back with **Show link**, enable/disable the user, rotate the
+  link, or delete the user. Read-only roles can inspect portal health but cannot
+  mutate it and cannot read a link.
+- The portal is pull-only: nothing is pushed to a user. Each user opens their own
+  permanent link — bookmarked on desktop, or added to the home screen on mobile —
+  and finds whatever the agents recorded while they were away.
+- **Show link** (`GET /admin/agent-portal/users/{id}/link`) re-renders the stored
+  link without rotating it, so an operator can re-bookmark on a new device. It is
+  owner/admin only and writes an `agent_portal.user.link_revealed` admin event;
+  the link is bearer material and never appears on the unrestricted
+  `GET /admin/agent-portal/users` listing. Rotation is the only operation that
+  invalidates an existing bookmark.
 - Disabling either layer revokes browser sessions and cancels queued or leased
-  undelivered commands/notices. Re-enabling never replays them. Link rotation
-  also cancels old-link notices before replacing the token; changing the room
-  cancels undelivered notices for the former destination before onboarding the
-  new one.
+  undelivered commands. Re-enabling never replays them.
 - `relay_ready` is the operator-visible truth for writability: it requires a
   live wrapper heartbeat and fresh cooperative `#afk` polling. A registered
   process without that poll loop remains visible but cannot accept commands.
-- Matrix is notification-only. Use a dedicated posting key restricted to the
-  configured portal room aliases; the Matrix key is server-side only and never
-  belongs in a user link, browser response, or engine child environment.
 
 ## API Kill Switch
 - `POST /admin/api/state` stores `api_disabled` in `versions`.

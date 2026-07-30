@@ -330,13 +330,14 @@ This is a cooperative live-turn relay, not an out-of-band wake mechanism: once
 the engine process or model turn stops polling, `relay_ready` becomes false and
 the portal is read-only until a fresh eligible relay is active.
 
-Matrix is an outbound delivery adapter for start/resume/progress/wait/fail/
-complete notifications and the stable user link. Its durable outbox gives each
-delivery its own random cross-service idempotency key and snapshots the room,
-link, and safe body in one encrypted envelope. Retries therefore stay identical
-across user edits, restarts, and restored auto-increment counters, even when
-multiple portal users receive the same lifecycle event. Matrix replies are
-ignored: all identity, history, and input remain on `/go`.
+The portal has no outbound push channel. It replaced one: every lifecycle event
+used to fan out as a chat message carrying a freshly rendered deep link, which
+meant a stream of notifications each containing live bearer material. Now the
+link is issued once and read back on demand from Settings → Agent Portal, and the
+user bookmarks it. Lifecycle events (`started`, `resumed`, `progress`,
+`waiting_input`, `terminal_block`, `attention`, `failed`, `completed`) are still
+recorded and still stream to an open portal over SSE — they are simply not
+delivered anywhere else. All identity, history, and input remain on `/go`.
 
 The global switch is a persistent `versions.agent_portal_enabled` setting and is
 seeded off on first rollout. New users default enabled. Turning off either the
