@@ -85,7 +85,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 
 1. Require `memory_key` and `content`; reject blank values with HTTP 400.
 2. Reuse the same auth bootstrap path as `/verify` and `/skills/summarize`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
-3. Run `/usr/local/bin/codex exec` with a strict prompt that asks for exactly one short plain-text sentence describing what the memory contains for AGENTS inventory output.
+3. Run `/usr/local/bin/codex exec` with a strict prompt that asks for exactly one short plain-text sentence describing what the memory contains for admin/API summary display.
 4. Sanitize the result into a single trimmed line (collapse whitespace, strip common bullet/quote wrappers, cap length) before returning it as `summary`.
 5. `status` is `ok` only when the command exits `0` and a non-empty sanitized summary is produced; otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
 

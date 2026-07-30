@@ -4,7 +4,7 @@ import {
   managedCocoManifest,
   managedCocoBootstrapGuidance,
 } from '../../../src/services/managed-coco-skill.js';
-import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
+import { renderManagedAgentFeatures } from '../../../src/services/managed-agents-features.js';
 import { managedContextManifest } from '../../../src/services/managed-context-skill.js';
 import { MCP_TOOL_NAMES } from '../../../src/services/shared-memory-tool-names.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
@@ -66,6 +66,7 @@ interface Mention {
 }
 
 const guidance = managedCocoBootstrapGuidance();
+const enabled = { enabled: true, reason: 'ok' };
 
 const CONTENT: Array<{ source: string; text: string }> = [
   { source: 'api/src/services/managed-coco-skill.ts managedCocoManifest()', text: managedCocoManifest() },
@@ -78,8 +79,14 @@ const CONTENT: Array<{ source: string; text: string }> = [
     text: line,
   })),
   ...[ENGINE_CODEX, ENGINE_CLAUDE].map((engine) => ({
-    source: `api/src/services/managed-agents-memory.ts buildManagedMemoryBlock('${engine}')`,
-    text: buildManagedMemoryBlock(engine),
+    source: `api/src/services/managed-agents-features.ts renderManagedAgentFeatures('${engine}')`,
+    text: renderManagedAgentFeatures('', {
+      engine,
+      skills: { ...enabled, count: 1 },
+      memory: enabled,
+      projects: enabled,
+      browseros: enabled,
+    }).body,
   })),
   {
     source: 'api/src/services/managed-context-skill.ts managedContextManifest()',

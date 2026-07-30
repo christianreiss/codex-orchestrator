@@ -14,6 +14,7 @@
   import Save from "@lucide/svelte/icons/save";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import History from "@lucide/svelte/icons/history";
+  import Info from "@lucide/svelte/icons/info";
 
   const qc = useQueryClient();
 
@@ -184,6 +185,14 @@
     <span>{$query.data?.updated_at ? relativeTime($query.data.updated_at) : "—"}</span>
   </div>
 </section>
+
+<div class="mb-4 flex gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+  <Info class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+  <p>
+    This editor stores only the canonical base document. Skills, Memory, Projects, and BrowserOS
+    guidance is appended dynamically for each engine and host when served as AGENTS.md or CLAUDE.md.
+  </p>
+</div>
 
 {#if $query.isError}
   <p class="text-sm text-destructive">

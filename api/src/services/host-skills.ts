@@ -162,6 +162,30 @@ export class HostSkillsService {
   }
 
   /**
+   * Number of effective, non-deleted skills visible to an engine. This is a
+   * diagnostics/capability read: unlike listSkills(), it deliberately emits no
+   * host activity log and selects metadata only, because AGENTS/CLAUDE
+   * rendering calls it on every sync and must not load full Skill bundles.
+   */
+  async availableCount(engine: Engine): Promise<number> {
+    const [stored, managed] = await Promise.all([
+      this.db
+        .select({ slug: skills.slug, deletedAt: skills.deletedAt, engine: skills.engine })
+        .from(skills)
+        .where(sql`${skills.deletedAt} IS NULL`),
+      this.managedSkills(),
+    ]);
+    const managedSlugs = new Set(managed.map((skill) => skill.slug));
+    // Keep the JS filters for db-fake and make engine-null rows shared.
+    const storedCount = stored.filter((row) =>
+      !row.deletedAt
+      && (row.engine === null || row.engine === undefined || row.engine === '' || row.engine === engine)
+      && !managedSlugs.has(row.slug)
+    ).length;
+    return storedCount + managed.length;
+  }
+
+  /**
    * Complete live set of skills visible to `engine`, rendered as Claude Code
    * SKILL.md files, for on-disk distribution (claude only — codex reads skills
    * via MCP). `content` is omitted when the wrapper's supplied digest matches the

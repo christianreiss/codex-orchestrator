@@ -361,10 +361,15 @@ function injectManagedMcp(
     managedMcpToken?: string | null;
   },
 ): NormalizedSettings {
-  if (settings.orchestrator_mcp_enabled === false) return settings;
-  const base = normalizeName(opts.baseUrl ?? null)?.replace(/\/+$/, '');
-  const key = normalizeName(opts.apiKey ?? null);
-  if (!base || !key) return settings;
+  const availability = managedMcpAvailability({
+    settings,
+    host: opts.host,
+    baseUrl: opts.baseUrl,
+    apiKey: opts.apiKey,
+  });
+  if (!availability.enabled) return settings;
+  const base = normalizeName(opts.baseUrl ?? null)!.replace(/\/+$/, '');
+  const key = normalizeName(opts.apiKey ?? null)!;
 
   const secure = opts.host ? Boolean(opts.host.secure) : true;
   const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
@@ -394,6 +399,39 @@ function injectManagedMcp(
     });
   }
   return { ...settings, mcp_servers: [...managedEntries, ...filtered] };
+}
+
+export interface ManagedMcpAvailability {
+  enabled: boolean;
+  reason: 'ok' | 'mcp_disabled' | 'service_unavailable';
+}
+
+/**
+ * Whether the fleet-managed orchestrator MCP entry is enabled and can be
+ * provisioned for a host on its next config sync.
+ *
+ * Keep this predicate shared with the AGENTS/CLAUDE feature supplement: a
+ * document must never advertise MCP-backed capabilities when the matching
+ * client settings cannot contain the managed MCP server. An insecure host
+ * intentionally qualifies without passing its ephemeral bearer here: the
+ * config-sync caller mints that bearer immediately before rendering, while
+ * feature activation itself depends on the stable URL/key/toggle inputs.
+ */
+export function managedMcpAvailability(opts: {
+  settings: NormalizedSettings;
+  host: Host | null;
+  baseUrl: string | null | undefined;
+  apiKey: string | null | undefined;
+}): ManagedMcpAvailability {
+  if (opts.settings.orchestrator_mcp_enabled === false) {
+    return { enabled: false, reason: 'mcp_disabled' };
+  }
+  const base = normalizeName(opts.baseUrl ?? null);
+  const key = normalizeName(opts.apiKey ?? null);
+  if (!base || !key) {
+    return { enabled: false, reason: 'service_unavailable' };
+  }
+  return { enabled: true, reason: 'ok' };
 }
 
 function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unknown> {

@@ -3,6 +3,12 @@
 - Fixed signed wrapper-config baking to use the encrypted host API key rather
   than the database lookup digest. Freshly baked `cdx`/`clx` configs therefore
   remain authenticated after host-key rotation.
+- Agent documents now keep the versioned database copy as canonical base
+  Markdown and append one deterministic managed-feature block when served.
+  The block adds concise engine/host-specific guidance for Skill discovery, MCP
+  Memory routing, Projects/CoCo, and Codex-only BrowserOS without embedding
+  per-Skill or per-memory inventories. The Authoring editor now makes this
+  base-versus-served split explicit.
 - **Agent Portal is now pull-only.** Removed the Matrix push channel entirely:
   no lifecycle, attention, or onboarding message is delivered anywhere. Every
   such event still lands in the portal and still streams to an open portal over

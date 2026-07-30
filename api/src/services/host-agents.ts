@@ -11,8 +11,15 @@ import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
-import { renderTomlForHost, renderClaudeSettingsPartialForHost } from './client-config.js';
-import { appendManagedMemoryBlock, managedMemoryBlockSha } from './managed-agents-memory.js';
+import { managedMcpAvailability, renderTomlForHost, renderClaudeSettingsPartialForHost } from './client-config.js';
+import { normalizeSettings } from './config-normalizer.js';
+import { HostSkillsService } from './host-skills.js';
+import { ProjectsService } from './projects.js';
+import {
+  renderManagedAgentFeatures,
+  type ManagedAgentFeatureContext,
+  type ManagedFeatureState,
+} from './managed-agents-features.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -22,6 +29,8 @@ export class HostAgentsService {
   private readonly publicBaseUrl: string | null;
   private readonly keyring: Keyring | null;
   private readonly mcpSessions: McpSessionService;
+  private readonly skills: HostSkillsService;
+  private readonly projects: ProjectsService;
 
   constructor(
     private readonly db: Database,
@@ -30,6 +39,8 @@ export class HostAgentsService {
     this.publicBaseUrl = deps.publicBaseUrl?.replace(/\/+$/, '') ?? null;
     this.keyring = deps.keyring ?? null;
     this.mcpSessions = new McpSessionService(db);
+    this.skills = new HostSkillsService(db);
+    this.projects = new ProjectsService(db);
   }
 
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
@@ -41,12 +52,9 @@ export class HostAgentsService {
 
     const body = row.body ?? '';
     const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
-    // The served document is the canonical body plus the managed memory-routing
-    // block. That block is the only thing both engines read on every session
-    // without being asked, so it is where the "durable memory lives in MCP, not
-    // in local files" rule has to live — a skill would only apply once invoked,
-    // and by then Claude Code has already reached for its native file memory.
-    const served = appendManagedMemoryBlock(body, engine);
+    const featureContext = await this.resolveManagedFeatureContext(host, engine);
+    const rendered = renderManagedAgentFeatures(body, featureContext);
+    const served = rendered.body;
     const servedSha = createHash('sha256').update(served).digest('hex');
     // Compare against the SERVED hash: comparing the canonical one would report
     // `unchanged` to a host whose on-disk copy predates the managed block.
@@ -56,12 +64,8 @@ export class HostAgentsService {
       version_id: Number(row.id),
       sha256: servedSha,
       base_sha256: baseSha,
-      managed_sha256: managedMemoryBlockSha(engine),
-      sections: {
-        skills: { present: false },
-        memories: { present: false },
-        memory_routing: { present: true, sha256: managedMemoryBlockSha(engine) },
-      },
+      managed_sha256: rendered.managed_sha256,
+      sections: rendered.sections,
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(served, 'utf8'),
     };
@@ -189,6 +193,71 @@ export class HostAgentsService {
     }
     const legacy = host.apiKey ?? '';
     return legacy.length === 64 && legacy === host.apiKeyHash ? null : legacy || null;
+  }
+
+  /**
+   * Resolve the capabilities that are actually usable by this engine/host.
+   * The pure renderer below this seam only knows booleans and reasons; all DB,
+   * config, host, and engine policy stays here.
+   */
+  private async resolveManagedFeatureContext(host: Host, engine: Engine): Promise<ManagedAgentFeatureContext> {
+    const [configRows, skillCount, projectsEnabled] = await Promise.all([
+      this.db
+        .select()
+        .from(clientConfigDocuments)
+        .where(eq(clientConfigDocuments.engine, engine))
+        .orderBy(desc(clientConfigDocuments.id))
+        .limit(1),
+      this.skills.availableCount(engine).catch(() => null),
+      this.projects.getEnabled().catch(() => null),
+    ]);
+    // db-fake ignores WHERE, so do not borrow another engine's row in tests.
+    const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
+    const rawSettings = configRow?.settings && typeof configRow.settings === 'object'
+      ? configRow.settings
+      : engine === ENGINE_CLAUDE
+        ? {}
+        : null;
+
+    const mcp = rawSettings === null
+      ? { enabled: false, reason: 'config_missing' as const }
+      : managedMcpAvailability({
+          settings: normalizeSettings(rawSettings, { applyCodexDefaults: engine === ENGINE_CODEX }),
+          host,
+          baseUrl: this.publicBaseUrl,
+          apiKey: this.resolveApiKey(host),
+        });
+
+    const state = (enabled: boolean, reason: string, count?: number): ManagedFeatureState => ({
+      enabled,
+      reason,
+      ...(count === undefined ? {} : { count }),
+    });
+
+    const skills = skillCount === null
+      ? state(false, 'service_unavailable')
+      : skillCount === 0
+        ? state(false, 'no_skills', 0)
+        : engine === ENGINE_CODEX && !mcp.enabled
+          ? state(false, mcp.reason, skillCount)
+          : state(true, 'ok', skillCount);
+    const memory = state(mcp.enabled, mcp.reason);
+    const projects = projectsEnabled === null
+      ? state(false, 'service_unavailable')
+      : !mcp.enabled
+        ? state(false, mcp.reason)
+        : projectsEnabled
+          ? state(true, 'ok')
+          : state(false, 'projects_disabled');
+    const browseros = engine !== ENGINE_CODEX
+      ? state(false, 'unsupported_engine')
+      : !mcp.enabled
+        ? state(false, mcp.reason)
+        : host.browserosMcpEnabled === 1
+          ? state(true, 'ok')
+          : state(false, 'host_disabled');
+
+    return { engine, skills, memory, projects, browseros };
   }
 
   private async resolveServedDocument(host: Host, engine: Engine): Promise<typeof agentsDocuments.$inferSelect | null> {

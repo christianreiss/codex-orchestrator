@@ -210,7 +210,7 @@ Memory is split into three intentional scopes so scratch notes, workstream facts
 and fleet knowledge do not blur together:
 
 - **Host** — host-local scratch through `memory_*` / `memory://`; isolated per
-  host and summarized into that host's managed AGENTS.md inventory.
+  host.
 - **Project** — short durable facts for one workstream through
   `project_memory_*` / `project://{slug}/memory/{key}`; discoverable by every
   host participating in that project.
@@ -227,25 +227,23 @@ and fleet knowledge do not blur together:
 
 ## Skill management
 
-Skills are slash-command manifests stored centrally and served canonically through MCP — no more copying files between machines.
+Skills are stored centrally and delivered in each engine's native form — no manual copying between machines.
 
-- **Canonical via MCP** — agents access skills through `skill://{slug}` resources. The wrapper cleans up legacy per-host skill directories automatically.
+- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude Skills.
 - **Admin authoring** — create, edit, and delete skills from `/admin/skills`. Descriptions and drafts can be AI-generated via the runner.
 - **Integrity tracking** — every skill carries a SHA256 hash so the sync pipeline knows when content has actually changed.
-- **Injected into AGENTS.md** — published skills with their descriptions are listed in a dynamic section inside each host's AGENTS.md, so agents always know what's available.
+- **Runtime discovery hint** — the served agent document tells Codex to discover Skills through MCP and Claude to use its native synced Skill directories. It does not copy a per-Skill inventory into every document.
 
-## Dynamic AGENTS.md
+## Dynamic AGENTS.md and CLAUDE.md
 
-AGENTS.md is version-controlled on the server and dynamically assembled at sync time with injected sections for skills and memories.
+The agent document is version-controlled on the server as canonical base Markdown and assembled for each engine and host at sync time.
 
 - **Versioned** — every save creates a new immutable version. The admin can revert to any previous version or lock serving to a specific one.
 - **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
-- **Dynamic injection** — when a host pulls AGENTS.md, the server splices in two managed sections (wrapped in `<!-- cdx:skills:start/end -->` and `<!-- cdx:memories:start/end -->` markers):
-  - A **Skills** listing of all published skill slugs and descriptions.
-  - A **Memories** listing of recent host-scoped memories with summaries.
+- **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the concise hints that apply: Skill discovery, MCP memory routing, Projects/CoCo, and Codex-only BrowserOS. Claude receives native Skill-path wording; BrowserOS appears only for Codex hosts with both the host toggle and orchestrator MCP enabled. Skills and Memories themselves stay in their canonical stores and are never inventoried in the document.
 - **Change detection** — the wrapper sends its local SHA256; the server responds with `unchanged` (skip write) or `updated` (atomic file replace). Three hashes are tracked: base document, managed sections, and final combined.
 - **Seeded on boot** — if the database is empty, the server seeds from the repo's `AGENTS.md` file on first start.
-- **Admin dashboard** — edit inline, view version history, control serve mode, and preview the fully rendered document with injections at `/admin/agents`.
+- **Admin dashboard** — edit the canonical base, view version history, and control serve mode at `/admin/agents`; host-specific hints are appended only when the document is served.
 
 ## Documentation
 

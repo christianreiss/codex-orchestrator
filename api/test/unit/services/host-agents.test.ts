@@ -6,16 +6,13 @@ import {
   clientConfigDocuments,
   logs,
   mcpSessionTokens,
+  versions,
 } from '../../../src/db/schema.js';
 import type { Host } from '../../../src/db/schema.js';
 import type { Env } from '../../../src/env.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { HostAgentsService } from '../../../src/services/host-agents.js';
-import {
-  appendManagedMemoryBlock,
-  managedMemoryBlockSha,
-} from '../../../src/services/managed-agents-memory.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 
@@ -120,50 +117,99 @@ describe('HostAgentsService.retrieve', () => {
     expect(logDetails(db, 'agents.retrieve')).toEqual([{ status: 'missing' }]);
   });
 
-  it('serves the canonical body plus the managed memory block', async () => {
+  it('serves the canonical body plus enabled Codex feature guidance', async () => {
     const body = 'Canonical AGENTS body\n';
-    const db = makeDb([[agentsDocuments, [agentsRow(4, body)]]]);
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, body)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: true })]],
+      [versions, [{ name: 'projects_module_enabled', version: '1' }]],
+    ]);
 
-    const out = await makeService(db).retrieve(null, makeHost());
+    const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }));
 
-    const served = appendManagedMemoryBlock(body, ENGINE_CODEX);
+    const served = String(out['content']);
     expect(out['status']).toBe('updated');
-    expect(out['content']).toBe(served);
+    expect(served).toContain(body.trim());
+    expect(served).toContain('<!-- cxx:managed-features:start -->');
+    expect(served).toContain('skill_list');
+    expect(served).toContain('shared_memory_list');
+    expect(served).toContain('#coco');
+    expect(served).toContain('BrowserOS');
     expect(out['version_id']).toBe(4);
     expect(out['sha256']).toBe(sha(served));
     expect(out['base_sha256']).toBe(sha(body));
-    expect(out['managed_sha256']).toBe(managedMemoryBlockSha(ENGINE_CODEX));
+    expect(out['managed_sha256']).toMatch(/^[0-9a-f]{64}$/);
+    expect(out['sections']).toMatchObject({
+      skills: { present: true, transport: 'mcp' },
+      memories: { present: true },
+      memory_routing: { present: true },
+      projects: { present: true },
+      browseros: { present: true },
+    });
     expect(out['sha256']).not.toBe(out['base_sha256']);
     expect(out['sha256']).not.toBe(out['managed_sha256']);
     expect(out['size_bytes']).toBe(Buffer.byteLength(served, 'utf8'));
     expect(logDetails(db, 'agents.retrieve')).toEqual([{ status: 'updated', engine: ENGINE_CODEX }]);
   });
 
-  it('reports unchanged only for the sha of the body WITH the managed block', async () => {
+  it('reports unchanged only for the sha of the effective rendered document', async () => {
     const body = 'Canonical AGENTS body\n';
     const row = agentsRow(4, body);
-    const servedSha = sha(appendManagedMemoryBlock(body, ENGINE_CODEX));
+    const rows: Array<[unknown, Record<string, unknown>[]]> = [
+      [agentsDocuments, [row]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: true })]],
+    ];
+    const first = await makeService(makeDb(rows)).retrieve(null, makeHost());
+    const servedSha = String(first['sha256']);
 
-    const unchanged = await makeService(makeDb([[agentsDocuments, [row]]])).retrieve(servedSha, makeHost());
+    const unchanged = await makeService(makeDb(rows)).retrieve(servedSha, makeHost());
     expect(unchanged['status']).toBe('unchanged');
     expect(unchanged).not.toHaveProperty('content');
 
-    // A host whose on-disk copy predates the managed block holds the bare
+    // A host whose on-disk copy predates the managed feature block holds the bare
     // canonical sha and must be told to update.
-    const stale = await makeService(makeDb([[agentsDocuments, [row]]])).retrieve(String(row['sha256']), makeHost());
+    const stale = await makeService(makeDb(rows)).retrieve(String(row['sha256']), makeHost());
     expect(stale['status']).toBe('updated');
-    expect(stale['content']).toBe(appendManagedMemoryBlock(body, ENGINE_CODEX));
+    expect(stale['sha256']).toBe(servedSha);
   });
 
-  it('appends the claude-specific managed block for the claude engine', async () => {
+  it('uses Claude-native skills and omits Codex-only BrowserOS guidance', async () => {
     const body = 'Canonical CLAUDE body\n';
-    const db = makeDb([[agentsDocuments, [agentsRow(4, body, ENGINE_CLAUDE)]]]);
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, body, ENGINE_CLAUDE)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CLAUDE, { orchestrator_mcp_enabled: true })]],
+    ]);
 
-    const out = await makeService(db).retrieve(null, makeHost(), ENGINE_CLAUDE);
+    const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }), ENGINE_CLAUDE);
 
-    expect(out['content']).toBe(appendManagedMemoryBlock(body, ENGINE_CLAUDE));
-    expect(out['managed_sha256']).toBe(managedMemoryBlockSha(ENGINE_CLAUDE));
-    expect(out['managed_sha256']).not.toBe(managedMemoryBlockSha(ENGINE_CODEX));
+    expect(out['content']).toContain('~/.claude/skills/<slug>/SKILL.md');
+    expect(out['content']).not.toContain('skill_list');
+    expect(out['content']).not.toContain('BrowserOS');
+    expect(out['sections']).toMatchObject({
+      skills: { present: true, transport: 'native' },
+      memories: { present: true },
+      browseros: { present: false, reason: 'unsupported_engine' },
+    });
+  });
+
+  it('removes stale managed guidance when MCP is disabled', async () => {
+    const old = `Canonical AGENTS body\n\n<!-- cxx:managed-features:start -->\nold\n<!-- cxx:managed-features:end -->\n`;
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, old)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: false })]],
+      [versions, [{ name: 'projects_module_enabled', version: '1' }]],
+    ]);
+
+    const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }));
+
+    expect(out['content']).toBe('Canonical AGENTS body\n');
+    expect(out['managed_sha256']).toBeNull();
+    expect(out['sections']).toMatchObject({
+      skills: { present: false, reason: 'mcp_disabled' },
+      memories: { present: false, reason: 'mcp_disabled' },
+      projects: { present: false, reason: 'mcp_disabled' },
+      browseros: { present: false, reason: 'mcp_disabled' },
+    });
   });
 });
 

@@ -66,6 +66,24 @@ at build time, then loads the config:
 }
 ```
 
+## Managed AGENTS.md feature guidance
+
+The admin editor and version history store only canonical base Markdown. During
+`/agents/retrieve` or bundled startup sync, the server derives the effective
+Codex/host feature state and appends at most one
+`<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->`
+block. Existing orchestrator-owned blocks are replaced so repeated renders are
+idempotent.
+
+The block is concise guidance, not state replication. When applicable it tells
+Codex to discover Skills with MCP `skill_list` / `skill_retrieve` and
+`skill://<slug>`, routes durable memory through the MCP `shared_memory_*`,
+`project_memory_*`, and host-local `memory_*` scopes, points enabled project
+coordination at `#coco` / `project_*`, and advertises BrowserOS only when both
+the host toggle and orchestrator MCP are active. It never lists individual
+Skills, memories, or projects. Feature changes alter the served/managed hashes
+without altering the canonical base hash.
+
 ## Skill delivery
 
 Codex does not receive Skill directories from `cxx`. The wrapper only probes

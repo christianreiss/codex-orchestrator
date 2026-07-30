@@ -200,6 +200,25 @@ Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
 (`linux-amd64`, `linux-arm64`, `darwin-arm64`, or `darwin-amd64`) so the
 orchestrator can bake the matching `binary_url` / SHA256 for this host.
 
+## Managed CLAUDE.md feature guidance
+
+The admin editor and version history store only canonical base Markdown. During
+`/agents/retrieve` or bundled startup sync, the server derives the effective
+Claude/host feature state and appends at most one
+`<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->`
+block. Existing orchestrator-owned blocks are replaced so repeated renders are
+idempotent.
+
+The Claude block points Skill discovery at the native managed
+`~/.claude/skills/<slug>/SKILL.md` directories, never at Codex's MCP Skill
+transport. With orchestrator MCP enabled it routes durable fleet, workstream,
+and host facts through `shared_memory_*`, `project_memory_*`, and `memory_*`
+instead of Claude's local `~/.claude/projects/.../memory/` / `MEMORY.md`; enabled
+Projects add the `#coco` / `project_*` hint. BrowserOS remains Codex-only. The
+block never inventories individual Skills, memories, or projects, and feature
+changes alter the served/managed hashes without changing the canonical base
+hash.
+
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — runtime FQDN guard,

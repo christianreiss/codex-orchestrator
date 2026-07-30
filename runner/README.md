@@ -291,7 +291,7 @@ Response (success):
 Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
-- Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+- Sanitizes the result into a single trimmed line suitable for admin/API summary display.
 
 ### `GET /memories/summarize`
 
@@ -303,7 +303,7 @@ Readiness probe for the memory summary path:
 
 ### `POST /memories/summarize`
 
-Generate a short summary for one stored MCP memory so the API can render a per-host memory inventory inside served `AGENTS.md`.
+Generate a short summary for one stored MCP memory for admin and API presentation.
 
 Request body:
 
@@ -344,7 +344,7 @@ Response (success):
 Behavior details:
 - Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
 - Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
-- Sanitizes the result into a single trimmed line suitable for AGENTS.md inventory output.
+- Sanitizes the result into a single trimmed line suitable for admin/API summary display.
 
 ### `GET /skills/generate`
 

@@ -8,6 +8,7 @@ import {
   authPayloads,
   chatgptUsageSnapshots,
   hosts as hostsTable,
+  skills as skillsTable,
   versions as versionsTable,
   agentsDocuments,
   clientConfigDocuments,
@@ -17,7 +18,6 @@ import { encrypt } from '../../../src/security/secret-box.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
 import { assertContract } from '../../helpers/contract-schema.js';
-import { appendManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 
 const env = {
   INSTALLATION_ID: 'inst',
@@ -199,18 +199,41 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     await app.close();
   });
 
-  it('returns content envelopes when local digests differ', async () => {
+  it('serves effective Codex feature guidance and hashes the delivered bytes', async () => {
     const apiKey = 'sk-bootstrap-test';
     const agentsBody = '# AGENTS.md\n';
-    const configBody = 'model = "gpt-5.5"\n';
+    const configBody = 'orchestrator_mcp_enabled = true\n';
+    const skillManifest = '# Fleet helper\n';
     const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
     const configSha = createHash('sha256').update(configBody).digest('hex');
 
     const db = createDbFake();
-    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude' })]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude', browserosMcpEnabled: 1 })]);
     db.tables.set(versionsTable, [
       { name: 'client_version_codex', version: '0.130.0' },
       { name: 'wrapper_version_codex', version: '0.6.5' },
+      { name: 'projects_module_enabled', version: '1', updatedAt: '2026-05-01T00:00:00Z' },
+    ]);
+    db.tables.set(skillsTable, [
+      {
+        id: 11,
+        slug: 'fleet-helper',
+        sha256: createHash('sha256').update(skillManifest).digest('hex'),
+        displayName: 'Fleet helper',
+        description: 'Helps with fleet work',
+        manifest: skillManifest,
+        sourceHostId: null,
+        sourceType: null,
+        sourceRepository: null,
+        sourcePath: null,
+        sourceRevision: null,
+        sourceLicense: null,
+        bundleSha256: null,
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+        deletedAt: null,
+        engine: null,
+      },
     ]);
     db.tables.set(agentsDocuments, [
       {
@@ -232,12 +255,13 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         body: configBody,
         sha256: configSha,
         size: configBody.length,
+        settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
         createdAt: '2026-05-01T00:00:00Z',
         updatedAt: '2026-05-01T00:00:00Z',
       },
     ]);
 
-    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
     const r = await app.inject({
       method: 'POST',
       url: '/sync/bootstrap',
@@ -251,17 +275,196 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     });
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
-    // The served document is the canonical body PLUS the managed memory-routing
-    // block, so the returned sha256 covers both; `base_sha256` stays canonical.
-    const servedAgents = appendManagedMemoryBlock(agentsBody, 'codex');
+    const servedAgents = String(body.agents.content);
     expect(body.agents).toMatchObject({
       status: 'updated',
-      content: servedAgents,
       sha256: createHash('sha256').update(servedAgents).digest('hex'),
       base_sha256: agentsSha,
+      sections: {
+        skills: { present: true },
+        memories: { present: true },
+        memory_routing: { present: true },
+        projects: { present: true },
+        browseros: { present: true },
+      },
     });
-    expect(body.agents.content).toContain('shared_memory_list');
-    expect(body.config).toMatchObject({ status: 'updated', content: configBody, sha256: configSha });
+    expect(body.agents.managed_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(body.agents.sections.skills.count).toBeGreaterThan(0);
+    expect(servedAgents).toContain(agentsBody.trim());
+    expect(servedAgents.match(/<!-- cxx:managed-features:start -->/g)).toHaveLength(1);
+    expect(servedAgents.match(/<!-- cxx:managed-features:end -->/g)).toHaveLength(1);
+    expect(servedAgents).toContain('skill_list');
+    expect(servedAgents).toContain('skill_retrieve');
+    expect(servedAgents).toContain('resource_read');
+    expect(servedAgents).toContain('skill://{slug}');
+    expect(servedAgents).toContain('shared_memory_list');
+    expect(servedAgents).toContain('project_memory_*');
+    expect(servedAgents).toContain('memory_*');
+    expect(servedAgents).toContain('#coco');
+    expect(servedAgents).toContain('project_*');
+    expect(servedAgents).toContain('BrowserOS');
+    expect(servedAgents).not.toContain('fleet-helper');
+    expect(body.config.status).toBe('updated');
+    expect(body.config.base_sha256).toBe(configSha);
+    expect(body.config.sha256).toBe(createHash('sha256').update(String(body.config.content)).digest('hex'));
+    await app.close();
+  });
+
+  it('serves Claude-native Skill wording and never advertises BrowserOS', async () => {
+    const apiKey = 'sk-bootstrap-claude-features';
+    const agentsBody = '# CLAUDE.md\n';
+    const configBody = '{}\n';
+    const skillManifest = '# Fleet helper\n';
+    const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
+
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude', browserosMcpEnabled: 1 })]);
+    db.tables.set(versionsTable, [
+      { name: 'projects_module_enabled', version: '1', updatedAt: '2026-05-01T00:00:00Z' },
+    ]);
+    db.tables.set(skillsTable, [
+      {
+        id: 12,
+        slug: 'fleet-helper',
+        sha256: createHash('sha256').update(skillManifest).digest('hex'),
+        displayName: 'Fleet helper',
+        description: 'Helps with fleet work',
+        manifest: skillManifest,
+        sourceHostId: null,
+        sourceType: null,
+        sourceRepository: null,
+        sourcePath: null,
+        sourceRevision: null,
+        sourceLicense: null,
+        bundleSha256: null,
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+        deletedAt: null,
+        engine: null,
+      },
+    ]);
+    db.tables.set(agentsDocuments, [
+      {
+        id: 8,
+        engine: 'claude',
+        slug: 'main',
+        body: agentsBody,
+        sha256: agentsSha,
+        size: agentsBody.length,
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(clientConfigDocuments, [
+      {
+        id: 10,
+        engine: 'claude',
+        slug: 'main',
+        body: configBody,
+        sha256: createHash('sha256').update(configBody).digest('hex'),
+        size: configBody.length,
+        settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'claude', include_auth: false, agents: 'stale-digest' }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    const servedAgents = String(body.agents.content);
+    expect(body.agents).toMatchObject({
+      status: 'updated',
+      sha256: createHash('sha256').update(servedAgents).digest('hex'),
+      base_sha256: agentsSha,
+      sections: {
+        skills: { present: true },
+        memories: { present: true },
+        memory_routing: { present: true },
+        projects: { present: true },
+        browseros: { present: false, reason: 'unsupported_engine' },
+      },
+    });
+    expect(servedAgents).toContain('~/.claude/skills/<slug>/SKILL.md');
+    expect(servedAgents).not.toContain('skill_list');
+    expect(servedAgents).toContain('shared_memory_list');
+    expect(servedAgents).toContain('~/.claude/projects/');
+    expect(servedAgents).toContain('#coco');
+    expect(servedAgents).not.toContain('BrowserOS');
+    expect(servedAgents).not.toContain('fleet-helper');
+    await app.close();
+  });
+
+  it('does not advertise MCP-backed features when orchestrator MCP is disabled', async () => {
+    const apiKey = 'sk-bootstrap-mcp-disabled';
+    const agentsBody = '# AGENTS.md\n';
+    const configBody = 'orchestrator_mcp_enabled = false\n';
+    const agentsSha = createHash('sha256').update(agentsBody).digest('hex');
+
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey, { browserosMcpEnabled: 1 })]);
+    db.tables.set(versionsTable, [
+      { name: 'projects_module_enabled', version: '1', updatedAt: '2026-05-01T00:00:00Z' },
+    ]);
+    db.tables.set(agentsDocuments, [
+      {
+        id: 9,
+        engine: 'codex',
+        slug: 'main',
+        body: agentsBody,
+        sha256: agentsSha,
+        size: agentsBody.length,
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+    db.tables.set(clientConfigDocuments, [
+      {
+        id: 11,
+        engine: 'codex',
+        slug: 'main',
+        body: configBody,
+        sha256: createHash('sha256').update(configBody).digest('hex'),
+        size: configBody.length,
+        settings: { orchestrator_mcp_enabled: false, mcp_servers: [] },
+        createdAt: '2026-05-01T00:00:00Z',
+        updatedAt: '2026-05-01T00:00:00Z',
+      },
+    ]);
+
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ engine: 'codex', include_auth: false, agents: 'stale-digest' }),
+    });
+
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.payload);
+    const servedAgents = String(body.agents.content);
+    expect(servedAgents).toBe(agentsBody);
+    expect(body.agents).toMatchObject({
+      status: 'updated',
+      sha256: agentsSha,
+      base_sha256: agentsSha,
+      managed_sha256: null,
+      sections: {
+        skills: { present: false, reason: 'mcp_disabled' },
+        memories: { present: false, reason: 'mcp_disabled' },
+        memory_routing: { present: false, reason: 'mcp_disabled' },
+        projects: { present: false, reason: 'mcp_disabled' },
+        browseros: { present: false, reason: 'mcp_disabled' },
+      },
+    });
+    expect(servedAgents).not.toContain('cxx:managed-features');
     await app.close();
   });
 
@@ -928,12 +1131,31 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         body: configBody,
         sha256: configSha,
         size: configBody.length,
+        settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
         createdAt: '2026-05-01T00:00:00Z',
         updatedAt: '2026-05-01T00:00:00Z',
       },
     ]);
 
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const first = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        include_auth: false,
+        agents: 'stale-digest',
+        config: configSha,
+      }),
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = JSON.parse(first.payload);
+    expect(firstBody.agents.status).toBe('updated');
+    expect(firstBody.agents.sha256).toBe(
+      createHash('sha256').update(String(firstBody.agents.content)).digest('hex'),
+    );
+
     const r = await app.inject({
       method: 'POST',
       url: '/sync/bootstrap',
@@ -941,10 +1163,10 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
       payload: JSON.stringify({
         engine: 'codex',
         include_auth: false,
-        // A host that already holds the served document (base + managed block)
-        // must be told `unchanged`; sending the canonical sha would not match.
-        agents: createHash('sha256').update(appendManagedMemoryBlock(agentsBody, 'codex')).digest('hex'),
-        config: configSha,
+        // The digest of the effective base + feature block is the comparison
+        // key; the immutable canonical digest is intentionally not enough.
+        agents: firstBody.agents.sha256,
+        config: firstBody.config.sha256,
       }),
     });
     expect(r.statusCode).toBe(200);
