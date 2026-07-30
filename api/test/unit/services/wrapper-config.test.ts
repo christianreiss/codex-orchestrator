@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const sodium = require('libsodium-wrappers') as typeof import('libsodium-wrappers');
 
 import { Keyring } from '../../../src/security/keyring.js';
+import { encrypt } from '../../../src/security/secret-box.js';
 import type { Env } from '../../../src/env.js';
 import type { Host } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
@@ -341,6 +342,44 @@ describe('wrapper-config', () => {
 
     // Etag is sha256 of the canonical payload (without etag in it)
     expect(result.payload.etag).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('bakes the decrypted API key instead of the modern stored hash', async () => {
+    const keyring = makeKeyring();
+    const plaintext = 'sk-codex-decrypted-wrapper-key';
+    const signer: WrapperSigner = {
+      kid: '1',
+      publicKey: 'pk',
+      sign() {
+        return Buffer.alloc(64);
+      },
+    };
+    const svc = createWrapperConfigService({
+      db: makeFakeDb({
+        hosts: [],
+        agents: [],
+        agentsState: [],
+        clientConfigs: [],
+        skills: [],
+        updates: [],
+      }),
+      keyring,
+      binaries: fakeBinaries(),
+      signing: makeSigningService(signer),
+      installationId: 'inst-keyring',
+    });
+
+    const result = await svc.bakeForHost(
+      fakeHost({
+        apiKey: 'a'.repeat(64),
+        apiKeyHash: 'a'.repeat(64),
+        apiKeyEnc: encrypt(plaintext, keyring),
+      }),
+      'codex',
+      'https://api.example.com',
+    );
+
+    expect(result.payload.orchestrator.api_key).toBe(plaintext);
   });
 
   it('honors the requested platform when baking the wrapper block', async () => {

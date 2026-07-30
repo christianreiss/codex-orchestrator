@@ -1,5 +1,8 @@
 # 2026-07-30
 
+- Fixed signed wrapper-config baking to use the encrypted host API key rather
+  than the database lookup digest. Freshly baked `cdx`/`clx` configs therefore
+  remain authenticated after host-key rotation.
 - **Agent Portal is now pull-only.** Removed the Matrix push channel entirely:
   no lifecycle, attention, or onboarding message is delivered anywhere. Every
   such event still lands in the portal and still streams to an open portal over

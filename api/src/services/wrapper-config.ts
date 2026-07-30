@@ -200,9 +200,17 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   function resolveApiKey(host: Host): string {
-    if (host.apiKey && host.apiKey.length > 0) return host.apiKey;
     const dec = decryptOrNull(host.apiKeyEnc, deps.keyring);
-    return dec ?? '';
+    if (dec) return dec;
+
+    // Modern host rows keep only the SHA-256 digest in api_key. Never bake that
+    // digest as though it were an API key: wrappers would receive a signed but
+    // unusable configuration. Only legacy plaintext rows may fall back here.
+    const legacy = host.apiKey ?? '';
+    if (legacy.length === 64 && legacy === host.apiKeyHash) {
+      throw new Error('host API key unavailable');
+    }
+    return legacy;
   }
 
   function engineOptions(
