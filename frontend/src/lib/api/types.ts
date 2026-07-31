@@ -572,6 +572,7 @@ export interface HostListItem {
   insecure_window_minutes: number | null;
   curl_insecure: boolean;
   browseros_mcp_enabled: boolean;
+  agent_messaging_enabled: boolean;
   last_cron_check: string | null;
   reverse_dns_mode: string | null;
   lane_preference: string | null;

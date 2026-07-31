@@ -45,6 +45,7 @@ import { assertHostEngineEnabled, hostEnginesList } from '../../services/host-en
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
+import { suspendAgentMessagingRuntimeLocked } from '../../services/agent-messaging.js';
 
 /**
  * Registers the wrapper-facing /auth (+ /sync/*) routes. The legacy PHP
@@ -157,6 +158,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       if (remaining.length > 0) {
         const now = nowIso();
         await ctx.db.transaction(async (tx) => {
+          await suspendAgentMessagingRuntimeLocked(tx, host.id, 'engine_disabled', [engine]);
           await tx.insert(logsTable).values({
             hostId: host.id,
             action: 'host.engine.delete',
@@ -211,6 +213,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     // Legacy requests without `engine` (and an explicit uninstall of the last
     // enabled engine) retain the whole-host de-registration behaviour.
     await ctx.db.transaction(async (tx) => {
+      await suspendAgentMessagingRuntimeLocked(tx, host.id, 'host_inactive');
       // Keep the audit row independent of host FK policy: the host identity is
       // preserved in details while the nullable FK is deliberately unset.
       await tx.insert(logsTable).values({

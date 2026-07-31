@@ -113,6 +113,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusBadRequest, "broker_body_invalid", "Broker request must be JSON")
 		return
 	}
+	if b.requiresChannelReceivePolicy(r.URL.Path, raw) && !b.session.signedChannelReceiveEnabled() {
+		writeBrokerError(w, http.StatusForbidden, "broker_receive_forbidden", "Receive-side Channel operations are disabled by signed policy")
+		return
+	}
 	requestCtx, cancel := context.WithCancel(b.ctx)
 	b.requestMu.Lock()
 	b.requestSeq++
@@ -145,10 +149,48 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(output)
 }
 
+func (b *Broker) requiresChannelReceivePolicy(path string, body json.RawMessage) bool {
+	if b == nil || b.session == nil {
+		return true
+	}
+	sessionBase := "/host/agent-sessions/" + url.PathEscape(b.session.ID)
+	messagingBase := sessionBase + "/agent-messaging/"
+	if path == messagingBase+"deliveries/claim" {
+		return true
+	}
+	if path == messagingBase+"bind" {
+		var request map[string]any
+		if json.Unmarshal(body, &request) == nil {
+			receiveCapable, _ := request["receive_capable"].(bool)
+			return receiveCapable
+		}
+		return false
+	}
+	if !strings.HasPrefix(path, messagingBase+"deliveries/") {
+		return false
+	}
+	rest := strings.TrimPrefix(path, messagingBase+"deliveries/")
+	messageID, operation, ok := strings.Cut(rest, "/")
+	return ok && safeID(messageID) && !strings.Contains(operation, "/") && (operation == "renew" || operation == "ack")
+}
+
 func (b *Broker) allowedPath(path string) bool {
 	sessionBase := "/host/agent-sessions/" + url.PathEscape(b.session.ID)
 	if path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
+	}
+	messagingBase := sessionBase + "/agent-messaging/"
+	for _, operation := range []string{"list", "send", "reply", "wait", "message", "cancel", "bind", "deliveries/claim"} {
+		if path == messagingBase+operation {
+			return true
+		}
+	}
+	if strings.HasPrefix(path, messagingBase+"deliveries/") {
+		rest := strings.TrimPrefix(path, messagingBase+"deliveries/")
+		messageID, operation, ok := strings.Cut(rest, "/")
+		if ok && safeID(messageID) && !strings.Contains(operation, "/") && (operation == "renew" || operation == "ack") {
+			return true
+		}
 	}
 	const ackBase = "/host/agent-commands/"
 	if !strings.HasPrefix(path, ackBase) || !strings.HasSuffix(path, "/ack") {

@@ -1,5 +1,17 @@
 # 2026-07-31
 
+- Added default-off **Agent Messaging** so Codex and Claude lifecycles can
+  discover stable one-to-one addresses and exchange/reply to work in all four
+  engine directions without a human copy/paste relay. The signed wrapper
+  policy, outbound host relay, Unix broker, `cxx agent` CLI, and MCP tools use
+  encrypted 32 KiB messages with ordered at-least-once delivery, per-address
+  FIFO, one in-flight delivery, bounded retries/TTL, explicit ambiguity, and
+  audited manual redrive. Host/engine/security/uninstall/prune transitions
+  atomically cancel queued work, mark accepted work ambiguous, revoke managed
+  relays/bindings, and leave interactive agents plus retained history intact.
+  The Svelte admin UI exposes the fleet switch, per-host/address eligibility,
+  direction/queue operations, metadata-only viewer access, and owner/admin-only
+  mutation plus no-store audited content reveal.
 - Added a fleet secrets store for the **working** credentials agents need once
   they are running — GitHub PATs, database passwords, Bookstack/Checkmk tokens,
   SSH keys, third-party API keys for MCP servers and services. Until now there

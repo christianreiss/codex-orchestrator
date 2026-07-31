@@ -402,10 +402,15 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	restoreInheritedPortalEnv := agentportal.ScrubEnvironment()
 	defer restoreInheritedPortalEnv()
+	upstreamSessionID := ""
+	if opts.Resumed {
+		upstreamSessionID = agentportal.ExplicitResumeSessionID(opts.ExtraArgs)
+	}
 	portalSession, portalErr := agentportal.Start(ctx, cfg, agentportal.StartInput{
-		Engine:         config.EngineCodex,
-		InvocationKind: portalInvocationKind(opts.Headless),
-		Resumed:        opts.Resumed,
+		Engine:            config.EngineCodex,
+		InvocationKind:    portalInvocationKind(opts.Headless),
+		Resumed:           opts.Resumed,
+		UpstreamSessionID: upstreamSessionID,
 	})
 	if portalErr != nil {
 		logger.Warn("agent portal registration unavailable; continuing local session", "err", portalErr)

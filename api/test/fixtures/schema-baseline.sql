@@ -101,6 +101,115 @@ CREATE TABLE `admin_webauthn_challenges` (
 	CONSTRAINT `challenge` UNIQUE(`challenge`)
 );
 
+CREATE TABLE `agent_bus_addresses` (
+	`id` char(36) NOT NULL,
+	`address` varchar(48) NOT NULL,
+	`display_alias` varchar(96),
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`cwd_hash` char(64) NOT NULL,
+	`enabled` tinyint NOT NULL DEFAULT 1,
+	`current_session_id` char(36),
+	`last_upstream_session_id` varchar(255),
+	`binding_generation` int unsigned NOT NULL DEFAULT 1,
+	`continuity` varchar(16) NOT NULL DEFAULT 'native',
+	`adapter_protocol` varchar(32),
+	`adapter_capabilities` json,
+	`readiness` varchar(24) NOT NULL DEFAULT 'offline',
+	`receive_heartbeat_at` varchar(100),
+	`last_seen_at` varchar(100) NOT NULL,
+	`archived_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_addresses_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_addresses_address` UNIQUE(`address`),
+	CONSTRAINT `uq_agent_bus_addresses_alias` UNIQUE(`display_alias`),
+	CONSTRAINT `uq_agent_bus_addresses_session` UNIQUE(`current_session_id`)
+);
+
+CREATE TABLE `agent_bus_conversations` (
+	`id` char(36) NOT NULL,
+	`address_a_id` char(36) NOT NULL,
+	`address_b_id` char(36) NOT NULL,
+	`created_by_address_id` char(36) NOT NULL,
+	`next_sequence` bigint unsigned NOT NULL DEFAULT 1,
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`last_activity_at` varchar(100) NOT NULL,
+	`canceled_by` varchar(191),
+	`cancel_reason` varchar(255),
+	`canceled_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_conversations_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_bus_messages` (
+	`id` char(36) NOT NULL,
+	`dispatch_order` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`conversation_id` char(36) NOT NULL,
+	`sequence` bigint unsigned NOT NULL,
+	`reply_to_message_id` char(36),
+	`redrive_of_message_id` char(36),
+	`sender_address_id` char(36) NOT NULL,
+	`sender_session_id` char(36),
+	`target_address_id` char(36) NOT NULL,
+	`source_engine` varchar(16) NOT NULL,
+	`target_engine` varchar(16) NOT NULL,
+	`kind` varchar(16) NOT NULL DEFAULT 'message',
+	`content_enc` longtext NOT NULL,
+	`content_bytes` int unsigned NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'queued',
+	`attempts` int unsigned NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`lease_owner` varchar(191),
+	`lease_until` varchar(100),
+	`claim_id` char(36),
+	`relay_generation` int unsigned,
+	`target_binding_generation` int unsigned,
+	`delivery_session_id` char(36),
+	`delivery_upstream_session_id` varchar(255),
+	`expires_at` varchar(100) NOT NULL,
+	`last_error_code` varchar(64),
+	`last_error_enc` longtext,
+	`cancel_requested_at` varchar(100),
+	`accepted_at` varchar(100),
+	`completed_at` varchar(100),
+	`ambiguous_at` varchar(100),
+	`dead_at` varchar(100),
+	`expired_at` varchar(100),
+	`canceled_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_messages_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_messages_dispatch_order` UNIQUE(`dispatch_order`),
+	CONSTRAINT `uq_agent_bus_messages_sender_client` UNIQUE(`sender_address_id`,`client_message_id`),
+	CONSTRAINT `uq_agent_bus_messages_conversation_sequence` UNIQUE(`conversation_id`,`sequence`)
+);
+
+CREATE TABLE `agent_bus_relays` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`instance_id` char(36) NOT NULL,
+	`generation` int unsigned NOT NULL DEFAULT 1,
+	`token_hash` char(64),
+	`token_expires_at` varchar(100),
+	`host_auth_fingerprint` char(64) NOT NULL,
+	`wrapper_version` varchar(64) NOT NULL,
+	`capabilities` json,
+	`status` varchar(16) NOT NULL DEFAULT 'active',
+	`heartbeat_at` varchar(100) NOT NULL,
+	`stop_requested_at` varchar(100),
+	`stopped_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_relays_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_relays_host_user` UNIQUE(`host_id`,`username`)
+);
+
 CREATE TABLE `agent_events` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`session_id` char(36) NOT NULL,
@@ -193,11 +302,16 @@ CREATE TABLE `agent_sessions` (
 	`username` varchar(255) NOT NULL,
 	`cwd` varchar(1024) NOT NULL,
 	`upstream_session_id` varchar(255),
+	`agent_bus_address_id` char(36),
 	`invocation_kind` varchar(24) NOT NULL,
 	`status` varchar(24) NOT NULL DEFAULT 'starting',
 	`relay_enabled` tinyint NOT NULL DEFAULT 0,
 	`relay_heartbeat_at` varchar(100),
 	`active_turn_id` varchar(255),
+	`adapter_protocol` varchar(32),
+	`adapter_capabilities` json,
+	`receive_heartbeat_at` varchar(100),
+	`binding_generation` int unsigned NOT NULL DEFAULT 0,
 	`host_auth_fingerprint` char(64) NOT NULL,
 	`bridge_token_hash` char(64) NOT NULL,
 	`bridge_expires_at` varchar(100) NOT NULL,
@@ -563,6 +677,7 @@ CREATE TABLE `hosts` (
 	`insecure_window_minutes` int,
 	`curl_insecure` tinyint NOT NULL DEFAULT 0,
 	`browseros_mcp_enabled` tinyint NOT NULL DEFAULT 0,
+	`agent_messaging_enabled` tinyint NOT NULL DEFAULT 0,
 	`expires_at` varchar(100),
 	`vip` tinyint NOT NULL DEFAULT 0,
 	`lane_preference` varchar(16),
@@ -878,6 +993,20 @@ CREATE INDEX `idx_admin_sessions_expires` ON `admin_sessions` (`expires_at`);
 CREATE INDEX `idx_admin_users_access` ON `admin_users` (`access_level`);
 CREATE INDEX `idx_admin_users_active` ON `admin_users` (`active`);
 CREATE INDEX `idx_admin_webauthn_challenges_expires` ON `admin_webauthn_challenges` (`expires_at`);
+CREATE INDEX `idx_agent_bus_addresses_discovery` ON `agent_bus_addresses` (`enabled`,`archived_at`,`engine`,`host_id`);
+CREATE INDEX `idx_agent_bus_addresses_native` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`last_upstream_session_id`);
+CREATE INDEX `idx_agent_bus_addresses_cwd` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`cwd_hash`);
+CREATE INDEX `idx_agent_bus_conversations_a` ON `agent_bus_conversations` (`address_a_id`,`status`,`last_activity_at`);
+CREATE INDEX `idx_agent_bus_conversations_b` ON `agent_bus_conversations` (`address_b_id`,`status`,`last_activity_at`);
+CREATE INDEX `idx_agent_bus_conversations_status` ON `agent_bus_conversations` (`status`,`last_activity_at`);
+CREATE INDEX `idx_agent_bus_messages_dispatch` ON `agent_bus_messages` (`target_address_id`,`status`,`next_attempt_at`,`dispatch_order`);
+CREATE INDEX `idx_agent_bus_messages_conversation` ON `agent_bus_messages` (`conversation_id`,`sequence`);
+CREATE INDEX `idx_agent_bus_messages_status` ON `agent_bus_messages` (`status`,`updated_at`);
+CREATE INDEX `idx_agent_bus_messages_expiry` ON `agent_bus_messages` (`status`,`expires_at`);
+CREATE INDEX `idx_agent_bus_messages_reply` ON `agent_bus_messages` (`reply_to_message_id`);
+CREATE INDEX `idx_agent_bus_messages_redrive` ON `agent_bus_messages` (`redrive_of_message_id`);
+CREATE INDEX `idx_agent_bus_relays_status` ON `agent_bus_relays` (`status`,`heartbeat_at`);
+CREATE INDEX `idx_agent_bus_relays_expiry` ON `agent_bus_relays` (`token_expires_at`);
 CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`id`);
 CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
 CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
@@ -891,6 +1020,7 @@ CREATE INDEX `idx_agent_prompts_expires` ON `agent_prompts` (`expires_at`);
 CREATE INDEX `idx_agent_sessions_status` ON `agent_sessions` (`status`,`heartbeat_at`);
 CREATE INDEX `idx_agent_sessions_host` ON `agent_sessions` (`host_id`,`engine`);
 CREATE INDEX `idx_agent_sessions_expiry` ON `agent_sessions` (`expires_at`);
+CREATE INDEX `idx_agent_sessions_address` ON `agent_sessions` (`agent_bus_address_id`,`status`,`heartbeat_at`);
 CREATE INDEX `idx_agents_document_state_updated_at` ON `agents_document_state` (`updated_at`);
 CREATE INDEX `idx_agents_documents_updated_at` ON `agents_documents` (`updated_at`);
 CREATE INDEX `idx_agents_documents_engine` ON `agents_documents` (`engine`);

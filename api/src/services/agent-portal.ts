@@ -45,6 +45,7 @@ import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { hostEnginesList } from './host-engine-policy.js';
+import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
 export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
@@ -1077,10 +1078,13 @@ export class AgentPortalService {
       .where(and(lte(agentSessions.expiresAt, now), or(eq(agentSessions.status, 'completed'), eq(agentSessions.status, 'failed'))));
     const ids = expired.map((row) => row.id);
     if (ids.length > 0) {
-      await this.db.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
-      await this.db.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
-      await this.db.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
-      await this.db.delete(agentSessions).where(inArray(agentSessions.id, ids));
+      await this.db.transaction(async (tx) => {
+        await releaseAgentMessagingBindingsLocked(tx, ids, now);
+        await tx.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
+        await tx.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
+        await tx.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
+        await tx.delete(agentSessions).where(inArray(agentSessions.id, ids));
+      });
     }
     const browser = await this.db
       .select({ value: count() })
@@ -1475,6 +1479,7 @@ export class AgentPortalService {
     expiresAt: string,
     now = nowIso(),
   ): Promise<void> {
+    await releaseAgentMessagingBindingsLocked(db, [sessionId], now);
     await db
       .update(agentSessions)
       .set({

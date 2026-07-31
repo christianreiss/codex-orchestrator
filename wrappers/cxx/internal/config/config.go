@@ -13,15 +13,30 @@ const (
 )
 
 type Config struct {
-	SchemaVersion int           `json:"schema_version"`
-	Engine        string        `json:"engine"`
-	IssuedAt      string        `json:"issued_at"`
-	ExpiresAt     *string       `json:"expires_at,omitempty"`
-	Orchestrator  Orchestrator  `json:"orchestrator"`
-	Host          Host          `json:"host"`
-	EngineOptions EngineOptions `json:"engine_options"`
-	Wrapper       Wrapper       `json:"wrapper"`
-	ConfigVersion int64         `json:"config_version,omitempty"`
+	SchemaVersion  int            `json:"schema_version"`
+	Engine         string         `json:"engine"`
+	IssuedAt       string         `json:"issued_at"`
+	ExpiresAt      *string        `json:"expires_at,omitempty"`
+	Orchestrator   Orchestrator   `json:"orchestrator"`
+	Host           Host           `json:"host"`
+	EngineOptions  EngineOptions  `json:"engine_options"`
+	AgentMessaging AgentMessaging `json:"agent_messaging,omitempty"`
+	Wrapper        Wrapper        `json:"wrapper"`
+	ConfigVersion  int64          `json:"config_version,omitempty"`
+
+	// sourcePath is local loader metadata, never part of the signed JSON. It lets
+	// long-running wrapper capabilities re-check the same signed policy file
+	// after an administrator changes fleet state.
+	sourcePath string
+}
+
+// SourcePath returns the signed config file used to load c. The value is
+// process-local metadata and is never marshalled into the host config.
+func (c *Config) SourcePath() string {
+	if c == nil {
+		return ""
+	}
+	return c.sourcePath
 }
 
 type Orchestrator struct {
@@ -33,12 +48,13 @@ type Orchestrator struct {
 }
 
 type Host struct {
-	ID                  int64    `json:"id"`
-	FQDN                string   `json:"fqdn"`
-	Secure              bool     `json:"secure"`
-	BrowserOSMCPEnabled bool     `json:"browseros_mcp_enabled,omitempty"`
-	Engines             string   `json:"engines,omitempty"`
-	EnginesList         []string `json:"engines_list,omitempty"`
+	ID                    int64    `json:"id"`
+	FQDN                  string   `json:"fqdn"`
+	Secure                bool     `json:"secure"`
+	BrowserOSMCPEnabled   bool     `json:"browseros_mcp_enabled,omitempty"`
+	AgentMessagingEnabled bool     `json:"agent_messaging_enabled,omitempty"`
+	Engines               string   `json:"engines,omitempty"`
+	EnginesList           []string `json:"engines_list,omitempty"`
 }
 
 type EngineOptions struct {
@@ -48,6 +64,15 @@ type EngineOptions struct {
 	AdminThemeHint                       *string `json:"admin_theme_hint,omitempty"`
 	ClaudeModelOverride                  *string `json:"claude_model_override,omitempty"`
 	DangerouslyBypassApprovalsAndSandbox bool    `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
+}
+
+// AgentMessaging is optional for backward compatibility. A missing block
+// decodes to Enabled=false, keeping old signed configs dormant.
+type AgentMessaging struct {
+	Enabled               bool `json:"enabled"`
+	RelayPollSeconds      int  `json:"relay_poll_seconds,omitempty"`
+	QueuedTTLSeconds      int  `json:"queued_ttl_seconds,omitempty"`
+	ChannelPreviewEnabled bool `json:"channel_preview_enabled,omitempty"`
 }
 
 type Wrapper struct {

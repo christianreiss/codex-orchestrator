@@ -35,6 +35,7 @@ const SNAPSHOT: VersionSnapshot = {
   auto_update_enabled: true,
   cdx_silent: false,
   clx_silent: false,
+  agent_messaging_enabled: false,
   installation_id: 'inst-42',
   engine: ENGINE_CODEX,
 };

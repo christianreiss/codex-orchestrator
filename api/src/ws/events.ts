@@ -90,6 +90,15 @@ export const WS_EVENT_TYPES = [
   'agent_portal.user.link_revealed',
   'agent_portal.user.deleted',
 
+  // Agent messaging
+  'agent_messaging.state.changed',
+  'agent_messaging.host.changed',
+  'agent_messaging.address.changed',
+  'agent_messaging.conversation.changed',
+  'agent_messaging.message.changed',
+  'agent_messaging.relay.changed',
+  'agent_messaging.queue.changed',
+
   // Usage
   'chatgpt.usage.updated',
   'insecure.approval.changed',

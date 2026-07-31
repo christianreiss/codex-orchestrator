@@ -81,6 +81,7 @@ const TYPES = [
   { type: 'Orchestrator', path: 'orchestrator' },
   { type: 'Host', path: 'host' },
   { type: 'EngineOptions', path: 'engine_options' },
+  { type: 'AgentMessaging', path: 'agent_messaging' },
   { type: 'Wrapper', path: 'wrapper' },
 ];
 
@@ -121,6 +122,7 @@ describe('wrapper config structs against host-config-v1.json', () => {
   it('extracts the tags and schema properties it is meant to compare', () => {
     // A scan that read nothing would pass the comparisons below on both sides.
     expect(goTags(CXX_CONFIG, 'Host')).toContain('browseros_mcp_enabled');
+    expect(goTags(CXX_CONFIG, 'Host')).toContain('agent_messaging_enabled');
     expect(goTags(CXX_CONFIG, 'EngineOptions')).toContain('reasoning_effort_override');
     expect(goTags(CXX_CONFIG, 'EngineOptions')).toContain('claude_model_override');
     for (const { wrapper, file } of WRAPPERS) {

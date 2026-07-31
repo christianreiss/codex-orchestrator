@@ -172,6 +172,10 @@ describe('migrations against the test baseline', () => {
       'agent_messages',
       'agent_matrix_outbox',
       'secrets',
+      'agent_bus_addresses',
+      'agent_bus_conversations',
+      'agent_bus_messages',
+      'agent_bus_relays',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),
@@ -196,8 +200,15 @@ describe('migrations against the test baseline', () => {
       'skills.source_license',
       'skills.bundle_sha256',
       'shared_memory_revisions.prev_content',
-          'secrets.source_host_id',
+      'secrets.source_host_id',
       'secrets.source_engine',
+      'hosts.agent_messaging_enabled',
+      'agent_bus_messages.dispatch_order',
+      'agent_sessions.agent_bus_address_id',
+      'agent_sessions.adapter_protocol',
+      'agent_sessions.adapter_capabilities',
+      'agent_sessions.receive_heartbeat_at',
+      'agent_sessions.binding_generation',
     ]);
   });
 

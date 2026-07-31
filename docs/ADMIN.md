@@ -27,7 +27,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 
 ## Navigation & Presentation
 - The primary workspace is task-grouped in one shared route registry:
-  - **Operate**: Overview, Hosts, Projects.
+  - **Operate**: Overview, Hosts, Agent Messaging, Projects.
   - **Create**: Authoring.
   - **Observe**: Activity, with Audit trail and MCP requests.
   - **Manage**: API access and Settings.
@@ -59,9 +59,10 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   names. `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) resolves the
   session cookie and requires the user row to be active — it never reads the
   role. Everything below marked as admin-authenticated is therefore open to any
-  authenticated, active user regardless of role, including host registration,
-  insecure windows, canonical auth upload, and every global setting.
-- The whole route tree contains exactly five role gates, all of which allow
+  authenticated, active user regardless of role unless it appears in the six
+  role-gated families below; insecure windows, canonical auth upload, and
+  ungated global settings remain session-only.
+- The whole route tree contains exactly six role gates, all of which allow
   `owner` and `admin` only and answer other roles with `403` and code
   `admin_role_required`:
   - Memory Atlas writes: create, update, delete, and shared append
@@ -73,6 +74,15 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Agent Portal global/user mutations, plus the permanent-link reveal — the only
     gated read, since the link is reusable bearer material
     (`api/src/routes/agent-portal/admin-host.ts`).
+  - Agent Messaging global/per-host/address switches, address aliases,
+    conversation cancellation, content reveal, explicit redrive, and the host
+    registration/key-rotation, CLI approval, delete, engine, and security
+    transitions that can atomically revoke or generation-fence messaging work
+    (`api/src/routes/agent-messaging/index.ts` and
+    `api/src/routes/admin/hosts/index.ts` plus
+    `api/src/routes/cli-auth/index.ts`). The two additional endpoints are
+    `POST /admin/hosts/register` and `POST /cli/auth/approve`. Lists expose
+    metadata only; content reveal is a role-gated, audited `POST`.
   - Fleet secrets create, update, soft-delete, value reveal, and the
     `secrets_module_enabled` switch (`api/src/routes/admin/secrets/index.ts`).
     Listing and per-secret metadata reads are session-only like the rest of the
@@ -84,6 +94,58 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.
 - Login enforcement counts active `owner` and `admin` rows only, so a fleet of
   `viewer` accounts never switches login on.
+
+## Agent Messaging Operations
+
+- Agent Messaging is the default-off agent-to-agent bus for Codex and Claude,
+  including both same-engine paths and both cross-engine paths. Turning on the
+  fleet switch is necessary but not sufficient: each address also requires an
+  active secure host, that host's Agent Messaging switch, its own engine still
+  enabled on the host, and its own address switch. The address table reports
+  the authoritative eligibility result and reason rather than asking the UI to
+  infer it.
+- Settings → Agent Messaging controls the fleet switch. Host Detail exposes the
+  per-host switch alongside the host engine/security controls. The dedicated
+  `/admin/agent-messaging` operations page shows fleet/direction counts, stable
+  canonical `agent:<uuid>` addresses and aliases, host/engine/readiness state,
+  queue depth, conversations, and delivery metadata.
+- Any authenticated active admin role may inspect that metadata. Address alias
+  and enable changes, global/host switches, conversation cancellation, redrive,
+  and reveal require `owner` or `admin`. Message rows never include content.
+  **Reveal content** is an explicit audited POST whose response is `no-store`
+  and `no-cache`; the page keeps one closeable plaintext reveal at a time and
+  clears it when the caller's role, filters, or loaded result set changes.
+- Delivery is ordered at least once and per-target FIFO. One target has at most
+  one leased/accepted delivery, a delayed retry blocks later rows, attempts stop
+  at 12, UTF-8 content is capped at 32 KiB, and TTL defaults to 24 hours (range
+  60 seconds to seven days). `accepted` is the uncertainty boundary: if
+  completion cannot be proven, the row becomes `ambiguous` rather than replaying
+  automatically. **Redrive** is an explicit owner/admin action for dead or
+  ambiguous rows and creates a new linked sequence; it never mutates the
+  retained original.
+- Disabling the fleet, host, address, host engine, or host security/status
+  cancels queued/leased work, marks accepted work ambiguous, cancels affected
+  conversations, revokes relays where applicable, and generation-fences live
+  bindings. A graceful agent exit unbinds but preserves its stable address as
+  resumable/offline; a graceful relay shutdown stops the server generation.
+- Version 1 has no automatic history purge. Terminal messages, canceled
+  conversations, dormant addresses, aliases, and audit history remain visible
+  for diagnosis.
+
+Admin routes:
+
+- State: `GET /admin/agent-messaging/state`,
+  `POST /admin/agent-messaging/state`.
+- Addresses: `GET /admin/agent-messaging`,
+  `GET /admin/agent-messaging/addresses`,
+  `PATCH /admin/agent-messaging/addresses/{id}`,
+  `POST /admin/agent-messaging/addresses/{id}/enabled`.
+- Conversations: `GET /admin/agent-messaging/conversations`,
+  `POST /admin/agent-messaging/conversations/{id}/cancel`.
+- Deliveries: `GET /admin/agent-messaging/messages`,
+  `POST /admin/agent-messaging/messages/{id}/reveal`,
+  `POST /admin/agent-messaging/messages/{id}/redrive`.
+- Host gate: `POST /admin/hosts/{id}/agent-messaging`.
 
 ## Agent Portal Operations
 

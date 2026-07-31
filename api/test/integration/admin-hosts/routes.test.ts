@@ -270,7 +270,7 @@ async function build(options: BuildOptions): Promise<{ app: FastifyInstance; cal
   app.decorate('requireAdmin', async function requireAdmin(req: FastifyRequest) {
     if (options.authenticated) {
       req.admin = {
-        user: { id: 1 } as never,
+        user: { id: 1, accessLevel: 'owner' } as never,
         session: { id: 1 } as never,
       };
       return;

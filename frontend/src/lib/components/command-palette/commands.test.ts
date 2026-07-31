@@ -36,6 +36,7 @@ const ICON_NAMES = [
   "LayoutDashboard",
   "Lock",
   "LogOut",
+  "MessageSquareShare",
   "Monitor",
   "Moon",
   "Plug",
@@ -177,6 +178,12 @@ describe("STATIC_COMMANDS", () => {
       );
       assert.notEqual(groupOrder(cmd.group), -1, `${cmd.id} has no rank`);
     }
+  });
+
+  it("exposes Agent Messaging operations and its fleet switch", () => {
+    const labels = STATIC_COMMANDS.map((command) => command.label);
+    assert.ok(labels.includes("Go to Agent Messaging"));
+    assert.ok(labels.includes("Go to Settings / Agent Messaging"));
   });
 });
 

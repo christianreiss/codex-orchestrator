@@ -56,6 +56,8 @@ func TestLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	fixture := validCfg()
 	fixture.Host.BrowserOSMCPEnabled = true
+	fixture.Host.AgentMessagingEnabled = true
+	fixture.AgentMessaging = AgentMessaging{Enabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 86400}
 	cfgPath, pub := writeSignedFixture(t, dir, fixture)
 	cfg, err := Load(cfgPath, pub, false)
 	if err != nil {
@@ -66,6 +68,9 @@ func TestLoadRoundTrip(t *testing.T) {
 	}
 	if !cfg.Host.BrowserOSMCPEnabled {
 		t.Fatal("expected browseros_mcp_enabled to round-trip")
+	}
+	if !cfg.AgentMessaging.Enabled || cfg.AgentMessaging.QueuedTTLSeconds != 86400 {
+		t.Fatal("expected agent_messaging to round-trip")
 	}
 }
 

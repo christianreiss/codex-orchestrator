@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 )
@@ -31,6 +32,9 @@ const (
 )
 
 var removeCron = hostcron.Remove
+var removeAgentService = func() error {
+	return agentbus.RemoveService(io.Discard, io.Discard)
+}
 
 func Decide(result ServerResult) Disposition {
 	if !result.Confirmed {
@@ -181,6 +185,11 @@ func Apply(ctx context.Context, result ServerResult, selectedEngine, executable 
 		}
 		return layout.RemoveAlias(ctx, filepath.Dir(canonical), selectedEngine)
 	case RemoveAllShared:
+		if err := removeAgentService(); err != nil {
+			// Do not erase the binary, aliases, cron recovery path, or relay
+			// state while a service manager may still have a live worker.
+			return fmt.Errorf("remove agent relay service: %w", err)
+		}
 		cronErr := removeCron(ctx)
 		layoutErr := layout.RemoveShared(ctx, executable)
 		return errors.Join(cronErr, layoutErr)

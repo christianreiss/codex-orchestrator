@@ -39,6 +39,7 @@ import {
   GitBranch,
   Brain,
   UserCircle,
+  MessageSquareShare,
 } from "@lucide/svelte";
 import { NAV } from "$lib/nav";
 import { setTheme } from "$lib/stores/theme";
@@ -116,6 +117,7 @@ const NAV_ICON_MAP: Record<string, Component> = {
   Users: Users,
   Integrations: Plug,
   Settings: Settings,
+  "Agent Messaging": MessageSquareShare,
 };
 
 /** Deep-link navigation entries (in addition to top-level NAV). */
@@ -167,6 +169,12 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     label: "Settings / General",
     icon: Settings,
     keywords: ["settings", "general", "config", "configuration"],
+  },
+  {
+    href: "/settings?tab=general#agent-messaging",
+    label: "Settings / Agent Messaging",
+    icon: MessageSquareShare,
+    keywords: ["settings", "agents", "messaging", "codex", "claude", "kill switch"],
   },
   {
     href: "/settings?tab=codex",

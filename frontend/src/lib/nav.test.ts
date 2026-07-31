@@ -94,6 +94,10 @@ describe("getPageContext", () => {
     assert.equal(getPageContext("/api-keys"), "API access");
   });
 
+  it("labels Agent Messaging operations", () => {
+    assert.equal(getPageContext("/agent-messaging"), "Agent Messaging");
+  });
+
   it("defaults bare authoring to the skills section", () => {
     assert.equal(getPageContext("/authoring"), "Authoring / Skills");
     assert.equal(getPageContext("/authoring/agents"), "Authoring / Agents");
@@ -218,11 +222,18 @@ describe("navigation targets", () => {
       "/authoring",
     ]);
     assert.deepEqual(MOBILE_NAV_OVERFLOW.map((item) => item.href), [
+      "/agent-messaging",
       "/logs/events",
       "/api-keys",
       "/secrets",
       "/settings",
     ]);
+  });
+
+  it("registers Agent Messaging as an operations destination", () => {
+    const item = navItem("/agent-messaging");
+    assert.equal(item.label, "Agent Messaging");
+    assert.match(item.description, /Codex and Claude/);
   });
 
   it("points every command-palette href at a real page", () => {

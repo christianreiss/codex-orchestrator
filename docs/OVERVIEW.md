@@ -32,7 +32,8 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   provenance-tracked Matt Pocock source), native project coordination
   (notes/todos/files/feedback/activity), host-scoped MCP memories,
   project-scoped memory facts, the fleet-wide shared memory corpus
-  (`shared_memory_*`), and ChatGPT `/wham/usage` snapshots.
+  (`shared_memory_*`), encrypted Agent Messaging across Codex and Claude, and
+  ChatGPT `/wham/usage` snapshots.
 
 ## Key components (code map)
 
@@ -45,6 +46,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - **`api/src/services/agents.ts` + `host-agents.ts`** — store versioned canonical base editions, serve either the latest/pinned fleet version or a per-host pin, expose read-only history fetches for the admin UI, and can revert an older edition by cloning it into a fresh latest version while returning fleet serving to `latest`. Canonical history can enforce a configurable historical-backup cap (`versions.agents_backup_limit`): the newest latest draft is always kept, while currently served or host-pinned versions are protected from automatic pruning. At host render time, one marker-managed block adds only the applicable Skills, MCP Memory, Projects, and Codex-only BrowserOS usage hints; Codex Skill guidance makes MCP authoritative, requires `skill_list` first, and routes management to `skill://skill-manager`. The base document remains unchanged.
 - **`api/src/services/shared-memories.ts` + `shared-memory-chunker.ts`** — the fleet-wide shared memory corpus: slug-addressed documents up to 1 MiB, chunked on markdown structure and FULLTEXT-indexed per chunk, with `shared_memory_list` (no query — the discovery entry point), `shared_memory_search` (ranked passages, `degraded: true` when the index is missing), `shared_memory_read` (bounded windows with `next_offset`), `shared_memory_write` (sha-guarded replace), `shared_memory_append` (multi-writer safe), and `shared://{slug}` resources. Scoped to neither host nor project — `source_host_id`/`source_engine` are provenance only, never read filters.
 - **`api/src/services/secrets.ts`** — the fleet secrets store: the *working* credentials agents need once they are running (GitHub PATs, database passwords, Bookstack/Checkmk tokens, SSH keys, third-party service keys), as distinct from the engine-boot auth in `canonical-auth-store.ts` that gets an agent started. Values are held only as `sbox:v1:` envelopes with no plaintext column and deliberately no digest column; every metadata read enumerates its columns so ciphertext cannot ride along, and only `revealById` (admin, role-gated `POST`) and `getForHost` (MCP) decrypt. Delivery is MCP-only via `secret_list` / `secret_search` / `secret_get` — nothing is written to a host filesystem, so a soft delete revokes on the next read with no wrapper involvement. `getForHost` writes its own `mcp_access_logs` row carrying the slug before returning a value and does not swallow a failed write. Gated fleet-wide by `secrets_module_enabled`, which also controls whether the managed AGENTS.md/CLAUDE.md `## Secrets` block is rendered.
+- **`api/src/services/agent-messaging.ts` + `api/src/ops/agent-messaging-worker.ts`** — the default-off Codex/Claude agent-to-agent bus. It owns stable `agent:<uuid>` addresses, two-party conversations, encrypted message bodies, generation-fenced session/relay delivery, metadata-only admin reads, and explicit audited reveal/redrive. Delivery is per-target FIFO and ordered at least once with one in-flight item, 60-second leases, at most 12 attempts, a 32 KiB body ceiling, and bounded TTL. The worker only advances queue state (expiry/retry/dead/ambiguous and stale binding/relay cleanup); it does not push to hosts or purge terminal v1 history.
 - **`api/src/services/memories.ts` + `mcp-server.ts` + `host-skills.ts`** — MCP memory storage per host (content, tags, optional metadata, optional runner-generated summary), host-safe resource helpers, `skill://{slug}` reads, and host Skill CRUD. `skill_store` creates/replaces/revives shared manifest-only Skills, `skill_delete` soft-deletes them, and the managed `skill-manager` Skill explains and executes the list/retrieve/mutate/verify flow; code-managed and source-owned Skills stay immutable. Project-aware MCP tools/resources use `project_*` / `project://{slug}`. Coordinator filesystem helpers remain operator-only.
 - **`api/src/services/mattpocock-skills.ts` +
   `api/src/ops/mattpocock-skills-worker.ts`** — a deliberately opt-in adapter
@@ -303,6 +305,45 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`
 - The legacy `host-status.txt` export has been removed; use the admin dashboard (`/admin/overview` and `/admin/hosts`) for current host status.
 - Timestamp comparisons normalize RFC3339 strings including fractional seconds, so Codex-style values such as `2025-11-19T09:27:43.373506211Z` are supported.
+
+## Agent Messaging
+
+Agent Messaging lets any eligible managed agent address any other one, covering
+all four paths: Codex to Codex, Codex to Claude, Claude to Codex, and Claude to
+Claude. It is separate from the human-facing Agent Portal and defaults off at
+the fleet and per-host layers. Effective eligibility requires the fleet switch,
+an active secure host, that host's Agent Messaging switch, the address engine
+still enabled on the host, and the address itself enabled. Every send, bind,
+claim, and acknowledgement rechecks those gates; changing host security,
+status, or engines atomically withdraws runtime eligibility.
+
+Wrapper lifecycles bind a stable canonical `agent:<uuid>` address. Native
+resumes recover the same upstream identity; a fresh matching lifecycle may
+reuse a dormant host/user/engine/cwd identity with continuity marked reset.
+Interactive receive-capable sessions claim directly through the private Unix
+broker. One outbound-only relay per host user handles dormant/resumable
+addresses and never opens a host listener. Session finish clears the live
+binding but retains the address as resumable/offline; SIGINT/SIGTERM stops the
+relay generation and erases its server token.
+
+The queue is ordered at least once: a monotonic dispatch order preserves
+per-target FIFO, retries cannot leapfrog, and one target has at most one leased
+or accepted message. Claims and sender client IDs are idempotent, leases last 60
+seconds, retries back off, and attempt 12 becomes dead. Bodies are UTF-8 and at
+most 32 KiB. TTL defaults to 24 hours and accepts 60 seconds through seven
+days. Once delivery is accepted, loss of completion certainty becomes
+`ambiguous` instead of automatic replay. An owner/admin may explicitly redrive
+a dead/ambiguous row, creating a new sequence linked to the retained original.
+
+Message bodies and delivery error text are secretbox-encrypted. Admin viewers
+can inspect address, conversation, queue, direction, and message metadata but
+never content. Alias/switch/cancel/redrive mutations and plaintext reveal
+require owner/admin; reveal is an audited POST with no-store/no-cache response
+headers. Disabling any eligibility layer cancels queued/leased work, marks
+accepted work ambiguous, cancels affected conversations, revokes applicable
+relays, and generation-fences bindings. Version 1 intentionally retains
+terminal messages, canceled conversations, dormant addresses, and audit
+history; there is no automatic Agent Messaging purge.
 
 ## Permanent Agent Portal
 

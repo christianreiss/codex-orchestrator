@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
@@ -66,6 +67,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return runHostCron(args[1:], stdout, stderr)
 	case "portal":
 		return agentportal.RunCommand(args[1:], stdout, stderr)
+	case "agent":
+		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
 	case "update":
 		return runHostUpdate(stdout, stderr)
 	case "--version", "--wrapper-version", "-W":
@@ -231,6 +234,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx update")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|say|ask|wait]")
+	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "The cdx and clx aliases select their matching engine automatically.")

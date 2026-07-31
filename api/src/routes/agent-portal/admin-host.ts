@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
@@ -15,14 +16,17 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { createAgentMessagingService } from '../../services/agent-messaging.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
+const JSON_OBJECT_SCHEMA = z.object({}).catchall(z.unknown());
 
 export async function registerAgentPortalAdminHostRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
 ): Promise<void> {
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
+  const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const events = createAdminEventsService(ctx.db);
   const requireAgentPortalMutationRole = async (req: FastifyRequest): Promise<void> => {
     if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
@@ -169,24 +173,76 @@ export async function registerAgentPortalAdminHostRoutes(
         username: z.string(),
         cwd: z.string(),
         upstream_session_id: z.string().nullable().optional(),
-        invocation_kind: z.enum(['interactive', 'execute']),
+        invocation_kind: z.enum(['interactive', 'execute', 'peer_delivery']),
         resumed: z.boolean().optional(),
         session_id: z.string().uuid().optional(),
         bridge_token: z.string().min(43).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
+        agent_address: z.string().nullable().optional(),
+        binding_generation: z.number().int().nonnegative().nullable().optional(),
+        continuity: z.enum(['native', 'reset']).optional(),
+        adapter_protocol: z.string().nullable().optional(),
+        adapter_capabilities: JSON_OBJECT_SCHEMA.nullable().optional(),
       })
       .parse(req.body ?? {});
     const engine = parseEngine(body.engine);
     assertHostEngineEnabled(host, engine);
-    return await portal.registerAgent(host, {
-      engine,
-      username: body.username,
-      cwd: body.cwd,
-      upstreamSessionId: body.upstream_session_id,
-      invocationKind: body.invocation_kind,
-      resumed: body.resumed,
-      sessionId: body.session_id,
-      bridgeToken: body.bridge_token,
-    });
+    const sessionId = body.session_id ?? randomUUID();
+    const bridgeToken = body.bridge_token ?? randomBytes(32).toString('base64url');
+    const [portalEnabled, messagingEnabled] = await Promise.all([
+      portal.isEnabled(),
+      messaging.isEnabled(),
+    ]);
+    let portalResult: Awaited<ReturnType<typeof portal.registerAgent>> = { enabled: false };
+    if (portalEnabled && body.invocation_kind !== 'peer_delivery') {
+      portalResult = await portal.registerAgent(host, {
+        engine,
+        username: body.username,
+        cwd: body.cwd,
+        upstreamSessionId: body.upstream_session_id,
+        invocationKind: body.invocation_kind,
+        resumed: body.resumed,
+        sessionId,
+        bridgeToken,
+      });
+    }
+    let messagingResult: Record<string, unknown> = { enabled: false };
+    if (messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1) {
+      messagingResult = await messaging.registerSession(host, {
+        engine,
+        username: body.username,
+        cwd: body.cwd,
+        upstreamSessionId: body.upstream_session_id,
+        invocationKind: body.invocation_kind,
+        resumed: body.resumed,
+        sessionId,
+        bridgeToken,
+        requestedAddress: body.agent_address,
+        expectedBindingGeneration: body.binding_generation,
+        continuity: body.continuity,
+        adapterProtocol: body.adapter_protocol,
+        adapterCapabilities: body.adapter_capabilities,
+      });
+    }
+    const enabled = portalResult.enabled || messagingResult.enabled === true;
+    if (!enabled) {
+      return {
+        enabled: false,
+        capabilities: { portal: false, agent_messaging: false },
+      };
+    }
+    return {
+      enabled: true,
+      session_id: sessionId,
+      bridge_token: bridgeToken,
+      expires_at:
+        (messagingResult.expires_at as string | undefined) ??
+        (portalResult.enabled ? portalResult.expires_at : undefined),
+      capabilities: {
+        portal: portalResult.enabled,
+        agent_messaging: messagingResult.enabled === true,
+      },
+      ...(messagingResult.address ? { agent_address: messagingResult.address } : {}),
+    };
   });
 
   app.post('/host/agent-sessions/:id/heartbeat', async (req) => {
@@ -197,14 +253,40 @@ export async function registerAgentPortalAdminHostRoutes(
         status: z.enum(['starting', 'active', 'waiting', 'offline']).optional(),
         active_turn_id: z.string().nullable().optional(),
         relay_action: z.enum(['poll', 'close']).optional(),
+        upstream_session_id: z.string().nullable().optional(),
+        adapter_protocol: z.string().nullable().optional(),
+        adapter_capabilities: JSON_OBJECT_SCHEMA.nullable().optional(),
+        receive_capable: z.boolean().optional(),
+        binding_generation: z.number().int().nonnegative().nullable().optional(),
+        continuity: z.enum(['native', 'reset']).optional(),
       })
       .strict()
       .parse(req.body ?? {});
-    return await portal.heartbeatAgent(id, token, {
-      status: body.status,
-      activeTurnId: body.active_turn_id,
-      relayAction: body.relay_action,
-    });
+    const [portalEnabled, messagingEnabled] = await Promise.all([portal.isEnabled(), messaging.isEnabled()]);
+    const portalResult = portalEnabled
+      ? await portal.heartbeatAgent(id, token, {
+          status: body.status,
+          activeTurnId: body.active_turn_id,
+          relayAction: body.relay_action,
+        })
+      : null;
+    const messagingResult = messagingEnabled
+      ? await messaging.heartbeatSession(id, token, {
+          status: body.status,
+          upstreamSessionId: body.upstream_session_id,
+          adapterProtocol: body.adapter_protocol,
+          adapterCapabilities: body.adapter_capabilities,
+          receiveCapable: body.receive_capable,
+          expectedBindingGeneration: body.binding_generation,
+          continuity: body.continuity,
+        })
+      : null;
+    return {
+      enabled: Boolean(portalResult || messagingResult),
+      capabilities: { portal: Boolean(portalResult), agent_messaging: Boolean(messagingResult) },
+      portal: portalResult,
+      agent_messaging: messagingResult,
+    };
   });
 
   app.post('/host/agent-sessions/:id/events', async (req) => {
@@ -218,6 +300,7 @@ export async function registerAgentPortalAdminHostRoutes(
       })
       .strict()
       .parse(req.body ?? {});
+    if (!(await portal.isEnabled())) return { enabled: false };
     return await portal.addAgentEvent(
       id,
       token,
@@ -236,7 +319,15 @@ export async function registerAgentPortalAdminHostRoutes(
     const body = z
       .object({ status: z.enum(['completed', 'failed']), summary: z.string().optional() })
       .parse(req.body ?? {});
-    return await portal.finishAgent(id, token, body);
+    const [portalEnabled, messagingEnabled] = await Promise.all([portal.isEnabled(), messaging.isEnabled()]);
+    const portalResult = portalEnabled ? await portal.finishAgent(id, token, body) : null;
+    const messagingResult = messagingEnabled ? await messaging.finishSession(id, token, body.status) : null;
+    return {
+      enabled: Boolean(portalResult || messagingResult),
+      capabilities: { portal: Boolean(portalResult), agent_messaging: Boolean(messagingResult) },
+      portal: portalResult,
+      agent_messaging: messagingResult,
+    };
   });
 
   app.post('/host/agent-sessions/:id/commands/claim', async (req) => {

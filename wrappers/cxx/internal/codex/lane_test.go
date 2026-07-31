@@ -3,6 +3,8 @@ package codex
 import (
 	"reflect"
 	"testing"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
 func TestApplyLanePreference(t *testing.T) {
@@ -19,6 +21,18 @@ func TestApplyLanePreference(t *testing.T) {
 		if got := ApplyLanePreference(explicit, "spark"); !reflect.DeepEqual(got, explicit) {
 			t.Fatalf("explicit selection %v was overwritten: %v", explicit, got)
 		}
+	}
+}
+
+func TestAgentMessagingNeverInheritsDangerousBypass(t *testing.T) {
+	cfg := &config.Config{EngineOptions: config.EngineOptions{DangerouslyBypassApprovalsAndSandbox: true}}
+	base := []string{"exec", "-"}
+	if got := applyDangerousBypass(cfg, base); !reflect.DeepEqual(got, []string{"--dangerously-bypass-approvals-and-sandbox", "exec", "-"}) {
+		t.Fatalf("ordinary bypass args = %v", got)
+	}
+	t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "11111111-1111-4111-8111-111111111111")
+	if got := applyDangerousBypass(cfg, base); !reflect.DeepEqual(got, base) {
+		t.Fatalf("peer delivery inherited dangerous bypass: %v", got)
 	}
 }
 

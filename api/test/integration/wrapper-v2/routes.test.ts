@@ -60,6 +60,7 @@ function fakeHost(): Host {
     insecureWindowMinutes: null,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
+    agentMessagingEnabled: 0,
     expiresAt: null,
     vip: 0,
     lanePreference: null,

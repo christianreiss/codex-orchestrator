@@ -12,6 +12,8 @@ import type { Keyring } from '../security/keyring.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { InsecureWindowService } from './insecure-window.js';
+import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { NotFoundError } from '../http/errors.js';
 
 /**
  * Host create + API-key rotate, used by the CLI auth approve path. Emits a
@@ -55,18 +57,33 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         // An omitted engines field on a rotate means "keep what's there", not
         // "reset to the default" — otherwise every CLI re-approval would strip
         // a host provisioned with codex,claude back down to codex.
-        const engines = enginesIn ?? prev.engines;
-        await db
-          .update(hostsTable)
-          .set({
-            apiKey: apiKeyHash,
-            apiKeyHash,
-            apiKeyEnc,
-            secure: secure ? 1 : 0,
-            engines,
-            updatedAt: now,
-          })
-          .where(eq(hostsTable.id, prev.id));
+        let engines = enginesIn ?? prev.engines;
+        await db.transaction(async (tx) => {
+          const lockedRows = await tx
+            .select()
+            .from(hostsTable)
+            .where(eq(hostsTable.id, prev.id))
+            .limit(1)
+            .for('update');
+          const locked = lockedRows[0];
+          if (!locked) throw new NotFoundError('Host not found', 'host_not_found');
+          engines = enginesIn ?? locked.engines;
+          // The host API key fingerprints every active bridge and relay. Rotate
+          // that authentication generation and fence all bus runtime together;
+          // a secure/same-engine rotation is just as definitive as a demotion.
+          await suspendAgentMessagingRuntimeLocked(tx, locked.id, 'host_auth_rotated');
+          await tx
+            .update(hostsTable)
+            .set({
+              apiKey: apiKeyHash,
+              apiKeyHash,
+              apiKeyEnc,
+              secure: secure ? 1 : 0,
+              engines,
+              updatedAt: now,
+            })
+            .where(eq(hostsTable.id, locked.id));
+        });
         const updatedRows = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
         let host = updatedRows[0]!;
         if (!secure) {

@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
@@ -74,6 +75,7 @@ var (
 	lookupCrontabUser      = user.Lookup
 	currentCrontabUser     = user.Current
 	resolveCronIdentity    = resolveSystemCronIdentity
+	ensureAgentService     = agentbus.EnsureService
 )
 
 // Install reconciles aliases first, then writes exactly one cxx schedule and
@@ -144,7 +146,7 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 	if err != nil {
 		return err
 	}
-	_, engines, canonical, err := refreshAuthoritative(ctx, seed, exe)
+	configs, engines, canonical, err := refreshAuthoritative(ctx, seed, exe)
 	if err != nil {
 		return err
 	}
@@ -155,7 +157,21 @@ func Run(ctx context.Context, seed *config.Config, minimal bool, stdout, stderr 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, coordinatorTimout)
 	defer cancel()
-	return runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr)
+	if err := runEnabledTicks(runCtx, canonical, engines, minimal, stdout, stderr); err != nil {
+		return err
+	}
+	for _, cfg := range configs {
+		if cfg != nil && cfg.AgentMessaging.Enabled {
+			// Service managers are not uniformly available in SSH/headless user
+			// contexts. Keep maintenance successful and surface the exact retry;
+			// server-side policy remains fail-closed until a relay connects.
+			if err := ensureAgentService(stdout, stderr); err != nil {
+				fmt.Fprintln(stderr, "cxx agent relay service unavailable:", err)
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func runEnabledTicks(ctx context.Context, canonical string, engines []string, minimal bool, stdout, stderr io.Writer) error {

@@ -956,7 +956,21 @@ fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 
+install_agent_relay() {
+  # Keep the relay installed while the fleet switch is off. It performs no
+  # network work and starts no model in that state; the dormant service is what
+  # lets the WebUI activate a provisioned host without another human install.
+  ui_progress "cxx" "agent relay" "" "installing…"
+  if "$TARGET_BIN" agent service install >"$STEP_LOG" 2>&1; then
+    ui_ok "cxx" "agent relay" "" "ready"
+  else
+    ui_warn "cxx" "agent relay" "" "service unavailable"
+    ui_hint "Retry as the desktop user: $TARGET_BIN agent service install"
+  fi
+}
+
 if [ "$INSTALL_CONTEXT" = "transition" ]; then
+  install_agent_relay
   INSTALL_FINISHED=1
   cleanup
   trap - EXIT INT TERM
@@ -975,6 +989,7 @@ fi
 if ! bootstrap_host; then INSTALL_FAILED=1; fi
 if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
 if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
+if [ "$INSTALL_FAILED" = "0" ]; then install_agent_relay; fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.
 : "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;

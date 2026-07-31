@@ -19,21 +19,27 @@ import (
 	"net/url"
 	"os"
 	"os/user"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
 const (
-	envSocket        = "CXX_AGENT_PORTAL_SOCKET"
-	envBaseURL       = "CXX_AGENT_PORTAL_BASE_URL"
-	envSessionID     = "CXX_AGENT_PORTAL_SESSION_ID"
-	envBridgeToken   = "CXX_AGENT_PORTAL_BRIDGE_TOKEN"
-	envCABundle      = "CXX_AGENT_PORTAL_CA_BUNDLE"
-	envAllowInsecure = "CXX_AGENT_PORTAL_ALLOW_INSECURE"
-	envEngine        = "CXX_AGENT_PORTAL_ENGINE"
+	envSocket              = "CXX_AGENT_PORTAL_SOCKET"
+	envBaseURL             = "CXX_AGENT_PORTAL_BASE_URL"
+	envSessionID           = "CXX_AGENT_PORTAL_SESSION_ID"
+	envBridgeToken         = "CXX_AGENT_PORTAL_BRIDGE_TOKEN"
+	envCABundle            = "CXX_AGENT_PORTAL_CA_BUNDLE"
+	envAllowInsecure       = "CXX_AGENT_PORTAL_ALLOW_INSECURE"
+	envEngine              = "CXX_AGENT_PORTAL_ENGINE"
+	envMessagingAddress    = "CXX_AGENT_MESSAGING_ADDRESS"
+	envMessagingGeneration = "CXX_AGENT_MESSAGING_BINDING_GENERATION"
+	envMessagingContinuity = "CXX_AGENT_MESSAGING_CONTINUITY"
+	envMessagingUpstream   = "CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID"
 )
 
 type StartInput struct {
@@ -41,6 +47,27 @@ type StartInput struct {
 	InvocationKind    string
 	Resumed           bool
 	UpstreamSessionID string
+}
+
+// ExplicitResumeSessionID extracts only an explicit canonical native session
+// UUID from the wrapper's normalized resume argv. Picker/--last forms and
+// arbitrary prompt text deliberately return empty so portal continuity never
+// guesses at a native identity.
+func ExplicitResumeSessionID(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var candidate string
+	switch {
+	case (args[0] == "resume" || args[0] == "--resume" || args[0] == "-r") && len(args) > 1:
+		candidate = strings.TrimSpace(args[1])
+	case strings.HasPrefix(args[0], "--resume="):
+		candidate = strings.TrimSpace(strings.TrimPrefix(args[0], "--resume="))
+	}
+	if !isCanonicalUUID(candidate) {
+		return ""
+	}
+	return candidate
 }
 
 type Session struct {
@@ -54,6 +81,9 @@ type Session struct {
 	http                   *http.Client
 	registrationBody       map[string]any
 	registrationGeneration uint64
+	messagingRecovery      bool
+	messagingConfigPath    string
+	channelReceiveAllowed  bool
 	localBroker            bool
 	mu                     sync.Mutex
 	recoverMu              sync.Mutex
@@ -92,10 +122,14 @@ type envelope[T any] struct {
 }
 
 type registerResponse struct {
-	Enabled     bool   `json:"enabled"`
-	SessionID   string `json:"session_id"`
-	BridgeToken string `json:"bridge_token"`
-	ExpiresAt   string `json:"expires_at"`
+	Enabled      bool   `json:"enabled"`
+	SessionID    string `json:"session_id"`
+	BridgeToken  string `json:"bridge_token"`
+	ExpiresAt    string `json:"expires_at"`
+	AgentAddress *struct {
+		Address           string `json:"address"`
+		BindingGeneration int    `json:"binding_generation"`
+	} `json:"agent_address,omitempty"`
 }
 
 type claimResponse struct {
@@ -118,13 +152,31 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		return nil, fmt.Errorf("agent portal: determine cwd: %w", err)
 	}
 	username := currentUsername()
+	peerAddress := strings.TrimSpace(os.Getenv(envMessagingAddress))
+	upstreamSessionID := strings.TrimSpace(input.UpstreamSessionID)
+	if peerAddress != "" {
+		input.InvocationKind = "peer_delivery"
+		if value := strings.TrimSpace(os.Getenv(envMessagingUpstream)); value != "" {
+			upstreamSessionID = value
+		}
+		input.Resumed = upstreamSessionID != ""
+	}
 	body := map[string]any{
 		"engine":              input.Engine,
 		"username":            username,
 		"cwd":                 cwd,
 		"invocation_kind":     input.InvocationKind,
 		"resumed":             input.Resumed,
-		"upstream_session_id": emptyToNil(input.UpstreamSessionID),
+		"upstream_session_id": emptyToNil(upstreamSessionID),
+	}
+	if peerAddress != "" {
+		body["agent_address"] = peerAddress
+		if generation, parseErr := strconv.Atoi(strings.TrimSpace(os.Getenv(envMessagingGeneration))); parseErr == nil && generation >= 0 {
+			body["binding_generation"] = generation
+		}
+		if continuity := strings.TrimSpace(os.Getenv(envMessagingContinuity)); continuity == "native" || continuity == "reset" {
+			body["continuity"] = continuity
+		}
 	}
 	sessionID := newUUID()
 	bridgeToken, err := newBridgeToken()
@@ -159,6 +211,10 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	if response.SessionID == "" || response.BridgeToken == "" {
 		return nil, errors.New("agent portal: registration returned an incomplete bridge credential")
 	}
+	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
+		body["agent_address"] = response.AgentAddress.Address
+		body["binding_generation"] = response.AgentAddress.BindingGeneration
+	}
 	ca := ""
 	if cfg.Orchestrator.CABundlePath != nil {
 		ca = strings.TrimSpace(*cfg.Orchestrator.CABundlePath)
@@ -174,7 +230,20 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		http:                   client,
 		registrationBody:       body,
 		registrationGeneration: 1,
+		messagingRecovery:      cfg.AgentMessaging.Enabled,
+		messagingConfigPath:    cfg.SourcePath(),
+		// Receive-side Channel access is derived from both the signed config's
+		// engine and policy, never from child-provided environment or MCP input.
+		channelReceiveAllowed: signedChannelReceiveAllowed(cfg, input.Engine),
 	}, nil
+}
+
+func signedChannelReceiveAllowed(cfg *config.Config, sessionEngine string) bool {
+	return cfg != nil &&
+		sessionEngine == config.EngineClaude &&
+		cfg.Engine == config.EngineClaude &&
+		cfg.AgentMessaging.Enabled &&
+		cfg.AgentMessaging.ChannelPreviewEnabled
 }
 
 // StartHeartbeat keeps the scoped bridge alive and makes offline detection
@@ -325,13 +394,58 @@ func (s *Session) bridgeJSON(ctx context.Context, method, path string, body, out
 	generation := s.registrationGeneration
 	s.mu.Unlock()
 	err := doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
-	if !portalErrorCode(err, "agent_bridge_expired") {
+	if !s.canRecoverBridgeError(err) {
 		return err
 	}
 	if recoverErr := s.recoverRegistration(ctx, generation); recoverErr != nil {
 		return recoverErr
 	}
 	return doJSON(ctx, s.http, s.BaseURL, method, path, body, "", s.BridgeToken, out)
+}
+
+func (s *Session) canRecoverBridgeError(err error) bool {
+	if portalErrorCode(err, "agent_bridge_expired") {
+		return true
+	}
+	if s == nil || !s.signedMessagingRecoveryEnabled() {
+		return false
+	}
+	return portalErrorCode(err, "agent_messaging_binding_stale") || portalErrorCode(err, "agent_messaging_address_disabled")
+}
+
+func (s *Session) signedMessagingRecoveryEnabled() bool {
+	if s == nil || !s.messagingRecovery {
+		return false
+	}
+	if strings.TrimSpace(s.messagingConfigPath) == "" {
+		// Test/embedded sessions without loader metadata keep the immutable
+		// policy captured at Start. Production signed loads always set a source path.
+		return true
+	}
+	pubkey, err := signing.PublicKey()
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadForEngine(s.messagingConfigPath, pubkey, false, s.Engine)
+	return err == nil && cfg.AgentMessaging.Enabled
+}
+
+func (s *Session) signedChannelReceiveEnabled() bool {
+	if s == nil || s.Engine != config.EngineClaude || !s.channelReceiveAllowed {
+		return false
+	}
+	if strings.TrimSpace(s.messagingConfigPath) == "" {
+		// Manually constructed/test sessions have no loader metadata. Production
+		// sessions re-check the current signed file below before every receive-side
+		// broker operation so an administrator can revoke Channel immediately.
+		return true
+	}
+	pubkey, err := signing.PublicKey()
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadForEngine(s.messagingConfigPath, pubkey, false, config.EngineClaude)
+	return err == nil && cfg.Engine == config.EngineClaude && cfg.AgentMessaging.Enabled && cfg.AgentMessaging.ChannelPreviewEnabled
 }
 
 func SessionFromEnvironment(timeout time.Duration) (*Session, error) {
@@ -414,12 +528,16 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 }
 
 func (s *Session) recoverRegistration(ctx context.Context, observedGeneration uint64) error {
-	if s == nil || s.localBroker || s.hostAPIKey == "" || len(s.registrationBody) == 0 {
+	if s == nil || s.localBroker || s.hostAPIKey == "" {
 		return errors.New("agent portal: bridge recovery is unavailable")
 	}
 	s.recoverMu.Lock()
 	defer s.recoverMu.Unlock()
 	s.mu.Lock()
+	if len(s.registrationBody) == 0 {
+		s.mu.Unlock()
+		return errors.New("agent portal: bridge recovery is unavailable")
+	}
 	if s.finished {
 		s.mu.Unlock()
 		return errors.New("agent portal: finished session cannot recover")
@@ -428,15 +546,24 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 		s.mu.Unlock()
 		return nil
 	}
+	registrationBody := make(map[string]any, len(s.registrationBody))
+	for key, value := range s.registrationBody {
+		registrationBody[key] = value
+	}
 	s.mu.Unlock()
 	var response registerResponse
-	if err := doJSON(ctx, s.http, s.BaseURL, http.MethodPost, "/host/agent-sessions", s.registrationBody, s.hostAPIKey, "", &response); err != nil {
+	if err := doJSON(ctx, s.http, s.BaseURL, http.MethodPost, "/host/agent-sessions", registrationBody, s.hostAPIKey, "", &response); err != nil {
 		return err
 	}
 	if !response.Enabled || response.SessionID != s.ID || response.BridgeToken != s.BridgeToken {
 		return errors.New("agent portal: bridge recovery returned a different session credential")
 	}
 	s.mu.Lock()
+	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
+		registrationBody["agent_address"] = response.AgentAddress.Address
+		registrationBody["binding_generation"] = response.AgentAddress.BindingGeneration
+	}
+	s.registrationBody = registrationBody
 	s.registrationGeneration++
 	s.mu.Unlock()
 	return nil
@@ -548,6 +675,21 @@ func safeID(value string) bool {
 	}
 	for _, r := range value {
 		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func isCanonicalUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for index, r := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			continue
+		}
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
 			return false
 		}
 	}

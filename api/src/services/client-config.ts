@@ -259,6 +259,8 @@ export interface HostRenderOptions {
   managedMcpToken?: string | null;
   home?: string | null;
   username?: string | null;
+  /** Effective global + secure-host gate for the local agent transport. */
+  agentMessagingEnabled?: boolean;
 }
 
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
@@ -271,8 +273,12 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     apiKey: opts.apiKey,
     engine,
     managedMcpToken: opts.managedMcpToken,
+    agentMessagingEnabled: opts.agentMessagingEnabled,
   });
-  const managedMcpInjected = withManaged !== normalized;
+  const managedServerName = engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
+  const managedMcpInjected = withManaged.mcp_servers.some(
+    (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
+  );
   let content = engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
     : renderToml(withManaged);
@@ -375,6 +381,7 @@ function injectManagedMcp(
     apiKey: string | null | undefined;
     engine: Engine;
     managedMcpToken?: string | null;
+    agentMessagingEnabled?: boolean;
   },
 ): NormalizedSettings {
   const availability = managedMcpAvailability({
@@ -383,37 +390,53 @@ function injectManagedMcp(
     baseUrl: opts.baseUrl,
     apiKey: opts.apiKey,
   });
-  if (!availability.enabled) return settings;
-  const base = normalizeName(opts.baseUrl ?? null)!.replace(/\/+$/, '');
-  const key = normalizeName(opts.apiKey ?? null)!;
-
-  const secure = opts.host ? Boolean(opts.host.secure) : true;
-  const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
-  if (!bearerToken) return settings;
-
-  const entry = {
-    name: opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx',
-    url: `${base}/mcp`,
-    http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
-    startup_timeout_sec: 30,
-  };
-  const managedNames = opts.engine === ENGINE_CLAUDE
-    ? new Set(['codex-memory', 'codex-orchestrator', 'cdx', 'clx'])
-    : new Set(['codex-memory', 'codex-orchestrator', 'cdx']);
-  const browserOsEnabled = opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1;
-  if (browserOsEnabled) managedNames.add('browseros');
+  const managedNames = new Set<string>();
+  const managedEntries: Array<Record<string, unknown>> = [];
+  if (availability.enabled) {
+    const base = normalizeName(opts.baseUrl ?? null)!.replace(/\/+$/, '');
+    const key = normalizeName(opts.apiKey ?? null)!;
+    const secure = opts.host ? Boolean(opts.host.secure) : true;
+    const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
+    if (bearerToken) {
+      const name = opts.engine === ENGINE_CLAUDE ? 'clx' : 'cdx';
+      managedEntries.push({
+        name,
+        url: `${base}/mcp`,
+        http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
+        startup_timeout_sec: 30,
+      });
+      for (const reserved of opts.engine === ENGINE_CLAUDE
+        ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx']
+        : ['codex-memory', 'codex-orchestrator', 'cdx']) {
+        managedNames.add(reserved);
+      }
+      if (opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1) {
+        managedNames.add('browseros');
+        managedEntries.push({
+          name: 'browseros',
+          url: 'http://127.0.0.1:9000/mcp',
+          startup_timeout_sec: 30,
+        });
+      }
+    }
+  }
+  const agentMessagingEnabled = opts.agentMessagingEnabled === true
+    && (opts.host === null || (opts.host.secure === 1 && opts.host.agentMessagingEnabled === 1));
+  if (agentMessagingEnabled) {
+    managedNames.add('cxx-agent');
+    managedEntries.push({
+      name: 'cxx-agent',
+      command: 'cxx',
+      args: ['agent', 'mcp'],
+      startup_timeout_sec: 30,
+      tool_timeout_sec: 35,
+    });
+  }
+  if (managedEntries.length === 0) return settings;
   const filtered = settings.mcp_servers.filter((server) => {
     const name = normalizeName(server['name']);
     return !name || !managedNames.has(name.toLowerCase());
   });
-  const managedEntries: Array<Record<string, unknown>> = [entry];
-  if (browserOsEnabled) {
-    managedEntries.push({
-      name: 'browseros',
-      url: 'http://127.0.0.1:9000/mcp',
-      startup_timeout_sec: 30,
-    });
-  }
   return { ...settings, mcp_servers: [...managedEntries, ...filtered] };
 }
 
@@ -518,6 +541,16 @@ const CURATION_TOOLS = [
   'project_memory_delete',
 ] as const;
 
+const AGENT_MESSAGING_TOOLS = [
+  'agent_list',
+  'agent_send',
+  'agent_request',
+  'agent_wait',
+  'agent_reply',
+  'agent_message_get',
+  'agent_cancel',
+] as const;
+
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
@@ -581,9 +614,12 @@ export function renderClaudeSettingsPartial(
   const curationAllow = Object.keys(servers).flatMap((server) =>
     CURATION_TOOLS.map((tool) => `mcp__${server}__${tool}`),
   );
-  if (curationAllow.length > 0) {
+  const agentMessagingAllow = servers['cxx-agent']
+    ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__cxx-agent__${tool}`)
+    : [];
+  if (curationAllow.length > 0 || agentMessagingAllow.length > 0) {
     const existing = Array.isArray(perms['allow']) ? (perms['allow'] as string[]) : [];
-    perms['allow'] = [...new Set([...existing, ...curationAllow])];
+    perms['allow'] = [...new Set([...existing, ...curationAllow, ...agentMessagingAllow])];
     if (!owned.includes('permissions.allow')) owned.push('permissions.allow');
   }
   // `permissions.defaultMode` is a plain leaf path: it rides the generic dotted
@@ -612,6 +648,7 @@ export function renderClaudeSettingsPartialForHost(
     apiKey: opts.apiKey,
     engine: ENGINE_CLAUDE,
     managedMcpToken: opts.managedMcpToken,
+    agentMessagingEnabled: opts.agentMessagingEnabled,
   });
   const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged);
   const json = JSON.stringify(partial, null, 2) + '\n';

@@ -346,6 +346,7 @@ function snapshot(): VersionSnapshot {
     auto_update_enabled: true,
     cdx_silent: false,
     clx_silent: false,
+    agent_messaging_enabled: false,
     installation_id: 'inst',
     engine: 'codex',
   };
@@ -588,7 +589,11 @@ describe('wrapper transition helpers', () => {
     expect(result.cxxExists).toBe(true);
     expect(result.cdxLink).toBe('cxx');
     expect(result.clxLink).toBe('cxx');
-    expect(result.wrapperInvocations).toEqual(['cron install --minimal', 'cron run --minimal']);
+    expect(result.wrapperInvocations).toEqual([
+      'cron install --minimal',
+      'cron run --minimal',
+      'agent service install',
+    ]);
     expect(output).toContain('WARN | setup | PATH');
     expect(output).toContain('Before running: export PATH=');
     expect(output).not.toContain('ATTENTION');

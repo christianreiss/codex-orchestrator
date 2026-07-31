@@ -8,7 +8,10 @@
 - Admin login is normally username-first: the page submits the entered username before deciding whether the user must complete passkey auth or may continue to password entry. When exactly one active user exists and has passkeys, it can open that user's passkey prompt directly.
 - Passkey login issues the same session cookie as password login; the API wraps neither in a client-certificate check. Only the optional Caddy proxy in front of the app does that.
 - Password recovery is available from the login screen and completes on the standalone `/admin/password/reset` page.
-- Roles are stored per user, but only two route groups actually gate on them: admin user management and Memory Atlas writes.
+- Roles are stored per user. Six route families add an `owner`/`admin` gate:
+  user management, Memory Atlas writes, external Skill-source changes, Agent
+  Portal writes/link reveal, Agent Messaging mutations/content reveal, and
+  fleet-secret writes/value reveal.
 
 ## Bootstrap & Enforcement
 - Enforcement check is the `isEnforced()` helper in `api/src/services/admin-auth.ts` (`countAdmins(true) > 0`).
@@ -73,7 +76,7 @@
 - There are no named capabilities in the Node API. `requireAdmin`
   (`api/src/http/plugins/auth-admin.ts`) only resolves the session cookie and
   requires the user row to be active; it never reads `access_level`.
-- Role gates in the route tree — five, all `owner`-or-`admin`, all answering
+- Role gates in the route tree — six, all `owner`-or-`admin`, all answering
   every other role with `403` and code `admin_role_required`:
   - `POST /admin/users`, `POST /admin/users/{id}`, `DELETE /admin/users/{id}`,
     `POST /admin/users/wipe`.
@@ -89,6 +92,23 @@
     `DELETE /admin/agent-portal/users/{id}`, and
     `GET /admin/agent-portal/users/{id}/link` — the only gated *read* in the tree,
     because it returns a permanent portal link, which is reusable bearer material.
+  - Agent Messaging mutations and content reveal:
+    `POST /admin/agent-messaging/state`,
+    `PATCH /admin/agent-messaging/addresses/{id}`,
+    `POST /admin/agent-messaging/addresses/{id}/enabled`,
+    `POST /admin/agent-messaging/conversations/{id}/cancel`,
+    `POST /admin/agent-messaging/messages/{id}/redrive`,
+    `POST /admin/agent-messaging/messages/{id}/reveal`, and
+    `POST /admin/hosts/{id}/agent-messaging`. Host registration/API-key
+    rotation and device approval (`POST /admin/hosts/register`,
+    `POST /cli/auth/approve`), host deletion, and the host engine/secure-state
+    transitions (`DELETE /admin/hosts/{id}`, `POST /admin/hosts/{id}/engines`,
+    `POST /admin/hosts/{id}/secure`) share this gate because they can
+    generation-fence or atomically revoke Agent Messaging work. State,
+    address, conversation, and message listings are session-only and
+    metadata-only, so viewer/legacy roles may inspect them. Reveal is an
+    explicit audited mutation whose plaintext response is `no-store` and
+    `no-cache`.
   - Fleet secrets writes and value reveal: `POST /admin/secrets`,
     `PATCH /admin/secrets/{id}`, `DELETE /admin/secrets/{id}`,
     `POST /admin/secrets/{id}/reveal`, and `POST /admin/secrets/state` — the
@@ -97,8 +117,11 @@
     the sentence above stays true: it cannot be prefetched, cached by an
     intermediary, or replayed out of browser history.
 - Every other admin route is session-only. Any authenticated, active user — a
-  `viewer` or a legacy `user` included — can register and delete hosts, open
-  insecure windows, upload canonical auth, and change every global setting.
+  `viewer` or a legacy `user` included — can open insecure windows, upload
+  canonical auth, and use settings not enumerated in a role gate above. Host
+  registration/rotation, CLI approval, deletion, and secure/engine transitions
+  are no longer in that session-only set because they can revoke or
+  generation-fence Agent Messaging work.
 - Without a valid session, guarded routes fail with `401` and code
   `admin_required`; a disabled account fails with `403` and code
   `admin_disabled`.

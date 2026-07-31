@@ -57,6 +57,7 @@ export const hosts = mysqlTable(
     insecureWindowMinutes: int('insecure_window_minutes'),
     curlInsecure: tinyint('curl_insecure').notNull().default(0),
     browserosMcpEnabled: tinyint('browseros_mcp_enabled').notNull().default(0),
+    agentMessagingEnabled: tinyint('agent_messaging_enabled').notNull().default(0),
     expiresAt: varchar('expires_at', { length: 100 }),
     vip: tinyint('vip').notNull().default(0),
     lanePreference: varchar('lane_preference', { length: 16 }),
@@ -1243,11 +1244,16 @@ export const agentSessions = mysqlTable(
     username: varchar('username', { length: 255 }).notNull(),
     cwd: varchar('cwd', { length: 1024 }).notNull(),
     upstreamSessionId: varchar('upstream_session_id', { length: 255 }),
+    agentBusAddressId: char('agent_bus_address_id', { length: 36 }),
     invocationKind: varchar('invocation_kind', { length: 24 }).notNull(),
     status: varchar('status', { length: 24 }).notNull().default('starting'),
     relayEnabled: tinyint('relay_enabled').notNull().default(0),
     relayHeartbeatAt: varchar('relay_heartbeat_at', { length: 100 }),
     activeTurnId: varchar('active_turn_id', { length: 255 }),
+    adapterProtocol: varchar('adapter_protocol', { length: 32 }),
+    adapterCapabilities: json('adapter_capabilities'),
+    receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),
+    bindingGeneration: int('binding_generation', { unsigned: true }).notNull().default(0),
     hostAuthFingerprint: char('host_auth_fingerprint', { length: 64 }).notNull(),
     bridgeTokenHash: char('bridge_token_hash', { length: 64 }).notNull(),
     bridgeExpiresAt: varchar('bridge_expires_at', { length: 100 }).notNull(),
@@ -1262,6 +1268,7 @@ export const agentSessions = mysqlTable(
     statusIdx: index('idx_agent_sessions_status').on(t.status, t.heartbeatAt),
     hostIdx: index('idx_agent_sessions_host').on(t.hostId, t.engine),
     expiryIdx: index('idx_agent_sessions_expiry').on(t.expiresAt),
+    addressIdx: index('idx_agent_sessions_address').on(t.agentBusAddressId, t.status, t.heartbeatAt),
   }),
 );
 
@@ -1337,6 +1344,151 @@ export const agentMessages = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// Agent Messaging — agent-to-agent addressing, conversations and encrypted
+// ordered delivery. This is deliberately separate from human Agent Portal
+// messages so toggling either system cannot mutate the other's queue.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const agentBusAddresses = mysqlTable(
+  'agent_bus_addresses',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    address: varchar('address', { length: 48 }).notNull(),
+    displayAlias: varchar('display_alias', { length: 96 }),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    engine: varchar('engine', { length: 16 }).notNull(),
+    username: varchar('username', { length: 255 }).notNull(),
+    cwd: varchar('cwd', { length: 1024 }).notNull(),
+    cwdHash: char('cwd_hash', { length: 64 }).notNull(),
+    enabled: tinyint('enabled').notNull().default(1),
+    currentSessionId: char('current_session_id', { length: 36 }),
+    lastUpstreamSessionId: varchar('last_upstream_session_id', { length: 255 }),
+    bindingGeneration: int('binding_generation', { unsigned: true }).notNull().default(1),
+    continuity: varchar('continuity', { length: 16 }).notNull().default('native'),
+    adapterProtocol: varchar('adapter_protocol', { length: 32 }),
+    adapterCapabilities: json('adapter_capabilities'),
+    readiness: varchar('readiness', { length: 24 }).notNull().default('offline'),
+    receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),
+    lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
+    archivedAt: varchar('archived_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    addressUnique: uniqueIndex('uq_agent_bus_addresses_address').on(t.address),
+    aliasUnique: uniqueIndex('uq_agent_bus_addresses_alias').on(t.displayAlias),
+    sessionUnique: uniqueIndex('uq_agent_bus_addresses_session').on(t.currentSessionId),
+    discoveryIdx: index('idx_agent_bus_addresses_discovery').on(t.enabled, t.archivedAt, t.engine, t.hostId),
+    nativeIdx: index('idx_agent_bus_addresses_native').on(t.hostId, t.engine, t.username, t.lastUpstreamSessionId),
+    cwdIdx: index('idx_agent_bus_addresses_cwd').on(t.hostId, t.engine, t.username, t.cwdHash),
+  }),
+);
+
+export const agentBusConversations = mysqlTable(
+  'agent_bus_conversations',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    addressAId: char('address_a_id', { length: 36 }).notNull(),
+    addressBId: char('address_b_id', { length: 36 }).notNull(),
+    createdByAddressId: char('created_by_address_id', { length: 36 }).notNull(),
+    nextSequence: bigint('next_sequence', { mode: 'number', unsigned: true }).notNull().default(1),
+    status: varchar('status', { length: 16 }).notNull().default('open'),
+    lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
+    canceledBy: varchar('canceled_by', { length: 191 }),
+    cancelReason: varchar('cancel_reason', { length: 255 }),
+    canceledAt: varchar('canceled_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    addressAIdx: index('idx_agent_bus_conversations_a').on(t.addressAId, t.status, t.lastActivityAt),
+    addressBIdx: index('idx_agent_bus_conversations_b').on(t.addressBId, t.status, t.lastActivityAt),
+    statusIdx: index('idx_agent_bus_conversations_status').on(t.status, t.lastActivityAt),
+  }),
+);
+
+export const agentBusMessages = mysqlTable(
+  'agent_bus_messages',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    dispatchOrder: bigint('dispatch_order', { mode: 'number', unsigned: true }).notNull().autoincrement(),
+    conversationId: char('conversation_id', { length: 36 }).notNull(),
+    sequence: bigint('sequence', { mode: 'number', unsigned: true }).notNull(),
+    replyToMessageId: char('reply_to_message_id', { length: 36 }),
+    redriveOfMessageId: char('redrive_of_message_id', { length: 36 }),
+    senderAddressId: char('sender_address_id', { length: 36 }).notNull(),
+    senderSessionId: char('sender_session_id', { length: 36 }),
+    targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+    sourceEngine: varchar('source_engine', { length: 16 }).notNull(),
+    targetEngine: varchar('target_engine', { length: 16 }).notNull(),
+    kind: varchar('kind', { length: 16 }).notNull().default('message'),
+    contentEnc: longtext('content_enc').notNull(),
+    contentBytes: int('content_bytes', { unsigned: true }).notNull(),
+    clientMessageId: char('client_message_id', { length: 36 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('queued'),
+    attempts: int('attempts', { unsigned: true }).notNull().default(0),
+    nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
+    leaseOwner: varchar('lease_owner', { length: 191 }),
+    leaseUntil: varchar('lease_until', { length: 100 }),
+    claimId: char('claim_id', { length: 36 }),
+    relayGeneration: int('relay_generation', { unsigned: true }),
+    targetBindingGeneration: int('target_binding_generation', { unsigned: true }),
+    deliverySessionId: char('delivery_session_id', { length: 36 }),
+    deliveryUpstreamSessionId: varchar('delivery_upstream_session_id', { length: 255 }),
+    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+    lastErrorCode: varchar('last_error_code', { length: 64 }),
+    lastErrorEnc: longtext('last_error_enc'),
+    cancelRequestedAt: varchar('cancel_requested_at', { length: 100 }),
+    acceptedAt: varchar('accepted_at', { length: 100 }),
+    completedAt: varchar('completed_at', { length: 100 }),
+    ambiguousAt: varchar('ambiguous_at', { length: 100 }),
+    deadAt: varchar('dead_at', { length: 100 }),
+    expiredAt: varchar('expired_at', { length: 100 }),
+    canceledAt: varchar('canceled_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    dispatchOrderUnique: uniqueIndex('uq_agent_bus_messages_dispatch_order').on(t.dispatchOrder),
+    senderClientUnique: uniqueIndex('uq_agent_bus_messages_sender_client').on(t.senderAddressId, t.clientMessageId),
+    conversationSequenceUnique: uniqueIndex('uq_agent_bus_messages_conversation_sequence').on(t.conversationId, t.sequence),
+    dispatchIdx: index('idx_agent_bus_messages_dispatch').on(t.targetAddressId, t.status, t.nextAttemptAt, t.dispatchOrder),
+    conversationIdx: index('idx_agent_bus_messages_conversation').on(t.conversationId, t.sequence),
+    statusIdx: index('idx_agent_bus_messages_status').on(t.status, t.updatedAt),
+    expiryIdx: index('idx_agent_bus_messages_expiry').on(t.status, t.expiresAt),
+    replyIdx: index('idx_agent_bus_messages_reply').on(t.replyToMessageId),
+    redriveIdx: index('idx_agent_bus_messages_redrive').on(t.redriveOfMessageId),
+  }),
+);
+
+export const agentBusRelays = mysqlTable(
+  'agent_bus_relays',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
+    username: varchar('username', { length: 255 }).notNull(),
+    instanceId: char('instance_id', { length: 36 }).notNull(),
+    generation: int('generation', { unsigned: true }).notNull().default(1),
+    tokenHash: char('token_hash', { length: 64 }),
+    tokenExpiresAt: varchar('token_expires_at', { length: 100 }),
+    hostAuthFingerprint: char('host_auth_fingerprint', { length: 64 }).notNull(),
+    wrapperVersion: varchar('wrapper_version', { length: 64 }).notNull(),
+    capabilities: json('capabilities'),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    heartbeatAt: varchar('heartbeat_at', { length: 100 }).notNull(),
+    stopRequestedAt: varchar('stop_requested_at', { length: 100 }),
+    stoppedAt: varchar('stopped_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    hostUserUnique: uniqueIndex('uq_agent_bus_relays_host_user').on(t.hostId, t.username),
+    statusIdx: index('idx_agent_bus_relays_status').on(t.status, t.heartbeatAt),
+    expiryIdx: index('idx_agent_bus_relays_expiry').on(t.tokenExpiresAt),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // Migration ledger
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1373,6 +1525,10 @@ export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentPrompt = typeof agentPrompts.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
+export type AgentBusAddress = typeof agentBusAddresses.$inferSelect;
+export type AgentBusConversation = typeof agentBusConversations.$inferSelect;
+export type AgentBusMessage = typeof agentBusMessages.$inferSelect;
+export type AgentBusRelay = typeof agentBusRelays.$inferSelect;
 export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;

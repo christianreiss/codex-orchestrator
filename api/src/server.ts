@@ -12,6 +12,7 @@ import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
 import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
+import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 
@@ -91,6 +92,7 @@ export async function buildServer() {
   startAuthRetentionWorker(app, db);
   startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
   startAgentPortalWorker(app, db, env, keyring);
+  startAgentMessagingWorker(app, db, env, keyring);
 
   attachShutdown(app, pool);
   return app;

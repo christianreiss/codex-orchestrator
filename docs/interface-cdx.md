@@ -47,6 +47,7 @@ at build time, then loads the config:
     "fqdn": "host01.example.com",
     "secure": true,
     "browseros_mcp_enabled": false,
+    "agent_messaging_enabled": false,
     "engines": "codex,claude",
     "engines_list": ["codex", "claude"]
   },
@@ -56,11 +57,17 @@ at build time, then loads the config:
     "reasoning_effort_override": "high",
     "admin_theme_hint": "auto"
   },
+  "agent_messaging": {
+    "enabled": false,
+    "relay_poll_seconds": 25,
+    "queued_ttl_seconds": 86400,
+    "channel_preview_enabled": false
+  },
   "wrapper": {
-    "version": "0.7.6",
+    "version": "0.7.7",
     "track": "stable",
     "auto_update": true,
-    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.6/cxx",
+    "binary_url": "https://orch.example.com/wrapper/v2/bin/cxx/linux-amd64/v0.7.7/cxx",
     "binary_sha256": "..."
   }
 }
@@ -172,6 +179,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when `[profiles.<name>]` exists in the synced `config.toml` and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
+| `cxx agent ...` | Shared Agent Messaging control surface: discover addresses; send, request, wait, reply, inspect, or cancel; inspect the relay; and install/remove its per-user service. Message and reply content is accepted only on stdin. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
@@ -437,7 +445,46 @@ participate in these leases and is the explicit coordination boundary.
 5. Bump `wrappers/cxx/cmd/cxx`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.
 
-## Agent portal lifecycle (cxx 0.7.6)
+## Agent Messaging lifecycle (cxx 0.7.7)
+
+Agent Messaging is a separate, default-off bridge between Codex and Claude. It
+requires the global switch, a secure host, the per-host eligibility switch, and
+the target engine to remain enabled. The signed `agent_messaging.enabled` value
+is the wrapper's local gate. When enabled, managed Codex config contains the
+stdio MCP server `cxx-agent` (`cxx agent mcp`) with these tools:
+`agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
+`agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;
+it is never an instruction or a grant of authority.
+
+An address is stable for `(host, Unix user, engine, working directory)` and can
+bind to an interactive native Codex session. The binding records Codex's native
+thread id and a generation fence. A delivery to an unbound/offline address is
+handled by the outbound-only per-user `cxx agent worker`: it invokes the signed
+wrapper lifecycle as `codex --skip-boot run exec resume --json
+--skip-git-repo-check <thread> -`, or starts a fresh `codex exec` when continuity
+was reset or the saved rollout no longer exists. Only one native writer may use
+an address/thread at a time. The worker renews accepted deliveries while the
+native run is alive and captures only bounded output tails.
+
+Delivery is FIFO per target and at-least-once until native execution starts.
+Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
+and stop after 12 attempts. Once native execution has started, lost completion,
+shutdown, or cancellation is terminal `ambiguous` and is not replayed
+automatically. Operators may inspect history and explicitly redrive an eligible
+terminal message. Disabling the global or host switch revokes relays/bindings,
+cancels queued or leased work, marks accepted work ambiguous, and cancels open
+conversations; re-enable starts a clean boundary with no automatic replay.
+
+The worker has no listener and persists only opaque instance/deployment ids in
+`~/.cxx/agent`. Linux uses a systemd user unit and macOS a LaunchAgent. Routine
+cron reconciliation is idempotent and does not restart an unchanged active
+worker; a changed binary/unit is restarted deliberately. A confirmed last-engine
+uninstall removes the shared service, while partial or unconfirmed uninstall
+leaves it intact. `CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` are copied into the
+managed service definition when set so non-default signed config paths survive
+background startup.
+
+## Agent portal lifecycle (cxx 0.7.7)
 
 When the persistent portal master switch is on, an interactive Codex root run
 or a human-started `--execute`/resume registers through

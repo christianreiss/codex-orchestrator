@@ -51,6 +51,10 @@ func LoadForEngine(configPath string, pubkey ed25519.PublicKey, allowUnsignedFor
 	if err := cfg.ValidateForEngine(expectedEngine); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
+	cfg.sourcePath = configPath
+	if absolute, absErr := filepath.Abs(configPath); absErr == nil {
+		cfg.sourcePath = absolute
+	}
 	return cfg, nil
 }
 
@@ -134,6 +138,17 @@ func (c *Config) ValidateForEngine(expectedEngine string) error {
 	}
 	if c.Host.FQDN == "" {
 		return errors.New("host.fqdn required")
+	}
+	if c.AgentMessaging.Enabled {
+		if !c.Host.Secure || !c.Host.AgentMessagingEnabled {
+			return errors.New("agent_messaging requires an enabled secure host")
+		}
+		if c.AgentMessaging.RelayPollSeconds < 1 || c.AgentMessaging.RelayPollSeconds > 25 {
+			return errors.New("agent_messaging.relay_poll_seconds must be between 1 and 25")
+		}
+		if c.AgentMessaging.QueuedTTLSeconds < 60 || c.AgentMessaging.QueuedTTLSeconds > 604800 {
+			return errors.New("agent_messaging.queued_ttl_seconds must be between 60 and 604800")
+		}
 	}
 	if c.Wrapper.Version == "" {
 		return errors.New("wrapper.version required")

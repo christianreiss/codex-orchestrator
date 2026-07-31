@@ -20,6 +20,7 @@ function snapshot(): VersionSnapshot {
     auto_update_enabled: true,
     cdx_silent: false,
     clx_silent: false,
+    agent_messaging_enabled: false,
     installation_id: 'test',
     engine: 'codex',
   };

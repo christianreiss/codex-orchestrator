@@ -178,7 +178,7 @@
 - `POST /mcp` — the JSON-RPC 2.0 transport itself (single call or batch). Methods include `initialize`, `tools/list`, `tools/call`, `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`, plus the dot aliases (`tools.list`, `resources.list`, …). `skill_list`, `skill_retrieve`, `resource_list`, and Skill `resources/read` honor `X-Engine`; an omitted or invalid header defaults to `codex`, the effective engine must be enabled on the authenticated host, and engine-specific Skills are hidden from the other engine while engine-null Skills remain shared. `skill_list` cannot override the request engine in its arguments. Host tools `skill_store` and `skill_delete` mutate only shared `engine:null`, manifest-only Skills: store creates, fully replaces, or revives with last-writer-wins semantics, while delete writes a recoverable tombstone. Both reject code-managed slugs and source-owned rows. The managed `skill-manager` Skill documents the list/retrieve/mutate/verify workflow.
 - Streamable HTTP MCP endpoint (`/mcp`, protocol `2025-03-26`) authenticates in `resolveHost()` (`api/src/routes/mcp/index.ts`): the presented credential is first checked as a short-lived MCP session token (`McpSessionService.verify`) and otherwise resolved as a host API key (`app.resolveHostFromKey`), after which non-`active` hosts are rejected. It advertises host-safe `memory_*`, `shared_memory_*`, `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete`, `resource_*`, and `project_*` tools. Coordinator filesystem helpers (`fs_*`) remain operator-only and are neither exposed nor dispatchable to host callers. Tool names use underscores to satisfy `^[a-zA-Z0-9_-]+$`; `tools/call` still accepts dot aliases for backward compatibility.
   - MCP resources: `resources/templates/list` returns templates `memory_by_id` (`uriTemplate: memory://{id}`), `memory_store` (`uriTemplate: memory://{scope}:{name}`), `skill_manifest` (`uriTemplate: skill://{slug}`), `skill_file` (`uriTemplate: skill://{slug}/{path}`), and `shared_memory` (`uriTemplate: shared://{slug}`); when the Projects module is enabled it also returns `project_bootstrap` (`uriTemplate: project://{slug}`). `resources/list` enumerates recent memories for the calling host (up to 20), the 50 most recently updated shared memories as `shared://{slug}` markdown resources, canonical Skills as `skill://{slug}` markdown resources, up to 128 support files per source-owned skill as `skill://{slug}/{path}`, and, when enabled, active shared projects as `project://{slug}` resources. A manifest with `disable-model-invocation: true` is described as `[Explicit user invocation only]`; this policy is not silently widened by import. `resources/read` fetches a single memory as `text/plain` when given `uri=memory://{id}`, a shared memory body as `text/markdown` when given `uri=shared://{slug}`, a Skill manifest as `text/markdown` when given `uri=skill://{slug}`, an exact support file when given `uri=skill://{slug}/{path}`, or a project bootstrap JSON document when given `uri=project://{slug}`. Bundled manifests receive a read-time note pointing relative references at the MCP file URI and warning that bundled scripts are reference text, not execution authority. `resources/create`/`update`/`delete` accept `shared://{slug}` as well, though that path carries only text — `shared_memory_write` is the full-fidelity surface and the only one that records an engine. CoCo coordination state still lives only in project resources.
-- `GET /versions` — version snapshot (no auth; `503 api_disabled` while the `api_disabled` flag is set). The envelope `data` is the `codex`-engine `VersionSnapshot` of `api/src/services/version-snapshot.ts`, as codified in `versions.schema.json`. Keys: `client_version`, `client_version_override`, `client_version_enforce_exact`, `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `runner_state`, `api_disabled`, `auto_update_enabled`, `cdx_silent`, `clx_silent`, `installation_id`, `engine`. Wrapper metadata comes from the v2 `BinaryRegistry` (canonical platform `linux-amd64` under `storage/wrapper/v2/bin/cxx/linux-amd64/v<version>/cxx`); clients cannot publish. The fleet target has an internal minimum floor of `0.125.0`; `client_version_enforce_exact=true` means an admin pinned an above-floor version that wrappers should match exactly, while `false` means the target is floor-only and wrappers must not downgrade to meet it. `auto_update_enabled=true` tells wrappers that cron-managed auto-update is the intended update path.
+- `GET /versions` — version snapshot (no auth; `503 api_disabled` while the `api_disabled` flag is set). The envelope `data` is the `codex`-engine `VersionSnapshot` of `api/src/services/version-snapshot.ts`, as codified in `versions.schema.json`. Keys: `client_version`, `client_version_override`, `client_version_enforce_exact`, `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `runner_state`, `api_disabled`, `auto_update_enabled`, `cdx_silent`, `clx_silent`, `agent_messaging_enabled`, `installation_id`, `engine`. Wrapper metadata comes from the v2 `BinaryRegistry` (canonical platform `linux-amd64` under `storage/wrapper/v2/bin/cxx/linux-amd64/v<version>/cxx`); clients cannot publish. The fleet target has an internal minimum floor of `0.125.0`; `client_version_enforce_exact=true` means an admin pinned an above-floor version that wrappers should match exactly, while `false` means the target is floor-only and wrappers must not downgrade to meet it. `auto_update_enabled=true` tells wrappers that cron-managed auto-update is the intended update path.
 - `GET /healthz` — unauthenticated liveness probe: `{ok:true, ts}`. One of the few paths that bypass the global rate-limit bucket.
 - `GET /readyz` — unauthenticated readiness probe with the same `{ok:true, ts}` body.
 - CLI device auth — the `cdx`/`clx` device-code login flow, which mints a host without an admin-issued installer token:
@@ -186,7 +186,7 @@
   - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
   - `GET /cli/auth/verify` — browser approval page read from `STATIC_ROOT`. This is the one route that reads `ADMIN_ACCESS_MODE`: anything but `open` requires an admin session.
   - `POST /cli/auth/lookup` — admin session required; `{user_code}` resolves a pending request (`404` when unknown or expired).
-  - `POST /cli/auth/approve` — admin session required; `{user_code}` approves the request and registers the host.
+  - `POST /cli/auth/approve` — owner/admin role required; `{user_code}` approves the request and registers the host. Approval can rotate an existing host credential, so it shares the Agent Messaging generation-fencing gate.
   - `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
 
 Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a background verifier on boot and repeats it every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300). It refreshes the latest Codex and Claude canonical payloads when their stored verification age exceeds `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900), persists runner-refreshed auth, records `verification_state`, and updates per-engine runner telemetry after each stale live probe without making wrapper startup wait on the runner. Runner failures are logged/surfaced and do not block `/auth` retrieve, but every canonical-auth-changing upload, including admin and seed uploads, requires a configured, reachable runner and a positive live verdict.
@@ -234,7 +234,7 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 - `GET /admin/hosts/insecure` — list insecure hosts only (no secure hosts). Returns `count`, `active` (how many have `insecure_enabled_until` in the future), `hosts` with `id`, `fqdn`, `active`, `secure`, and `insecure_enabled_until` (RFC3339, timezone-aware), plus `domains` (`id`, `domain`, `active`, `enabled_until`, `window_minutes`) and `domains_active` for domain auto-allow rules. Intended for quick UI actions (e.g. enable/disable buttons).
 - `POST /admin/hosts/insecure/extend` — bulk-extend all currently active insecure windows by each host’s configured duration.
 - `POST /admin/hosts/insecure/disable-all` — bulk-close all active insecure windows.
-- `POST /admin/hosts/register` — mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key, deletes prior pending installers, and issues a fresh one. Optional body `secure` (default `true`) marks the host as secure vs. insecure (ephemeral auth); optional body `vip` (default `false`) flags the host as VIP immediately (always warn on quota). Optional body `temporary` (boolean): when `true`, enables sliding expiry (2 hours since last successful host contact) by setting `expires_at`; each authenticated host request refreshes it. When `false`, clears any previous `expires_at`. Optional body `curl_insecure` (boolean): when `true`, bakes the host's signed wrapper config with `allow_insecure: true` (TLS verification bypass for sync), returns an installer command using `curl -k`, and makes the installer reuse `curl -k` for its own downloads. Optional body `reverse_dns_mode` (`global` | `enabled` | `disabled`) sets the per-host override for reverse DNS enforcement. Optional body `engines` selects `codex`, `claude`, or both for the host and drives installer minting mode. Optional body `duration_minutes` (integer 0–480) applies when `secure=false` and sets the initial insecure window duration (and persisted `insecure_window_minutes`) for the new/rotated host; when omitted, insecure registration keeps the default 30-minute provisioning window and stored 10-minute extension duration. Installer tokens capture the public base URL (trusted Host/proto or `PUBLIC_BASE_URL`) and return installer metadata with `mode` (`codex`, `claude`, `both`) plus a human label; creation fails if no valid base is available.
+- `POST /admin/hosts/register` — owner/admin role required. Mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key, deletes prior pending installers, generation-fences any Agent Messaging runtime for the former credential, and issues a fresh one. Optional body `secure` (default `true`) marks the host as secure vs. insecure (ephemeral auth); optional body `vip` (default `false`) flags the host as VIP immediately (always warn on quota). Optional body `temporary` (boolean): when `true`, enables sliding expiry (2 hours since last successful host contact) by setting `expires_at`; each authenticated host request refreshes it. When `false`, clears any previous `expires_at`. Optional body `curl_insecure` (boolean): when `true`, bakes the host's signed wrapper config with `allow_insecure: true` (TLS verification bypass for sync), returns an installer command using `curl -k`, and makes the installer reuse `curl -k` for its own downloads. Optional body `reverse_dns_mode` (`global` | `enabled` | `disabled`) sets the per-host override for reverse DNS enforcement. Optional body `engines` selects `codex`, `claude`, or both for the host and drives installer minting mode. Optional body `duration_minutes` (integer 0–480) applies when `secure=false` and sets the initial insecure window duration (and persisted `insecure_window_minutes`) for the new/rotated host; when omitted, insecure registration keeps the default 30-minute provisioning window and stored 10-minute extension duration. Installer tokens capture the public base URL (trusted Host/proto or `PUBLIC_BASE_URL`) and return installer metadata with `mode` (`codex`, `claude`, `both`) plus a human label; creation fails if no valid base is available.
 - `POST /admin/hosts/quick-register` — mint an insecure temporary throwaway host without a supplied FQDN. Body requires `engines` (`codex`, `claude`, or both) and accepts optional `duration_minutes` (integer 0–480). The server generates a short `tmp-YYYYMMDD-HHMMSS-xxxxxx` name, sets `secure=false`, `vip=false`, `curl_insecure=false`, and `expires_at` to 2 hours ahead, then returns the same host + installer metadata shape as `/admin/hosts/register`.
 - `GET /admin/hosts/{id}/detail` — single-host detail card: the host row plus per-engine version summaries, available client versions, canonical auth metadata, and the global `auto_update_enabled` / `reverse_dns_enabled` / `inactivity_window_days` context. Unknown ids return `404 host_not_found`. This is the JSON payload behind the `/admin/hosts/{id}` page.
 - `GET /admin/hosts/{id}/auth` — canonical digest/last refresh, recent digests, optional `auth` body (`?include_body=1`). Engine selection follows the same request-body/query/header resolution as host-facing routes and defaults to `codex`; the response includes the selected `engine`, engine-specific canonical digest/refresh, engine-scoped `recent_digests`, and the full host block still includes both Codex and Claude host fields (`last_refresh`/`auth_digest` and `claude_last_refresh`/`claude_auth_digest`, both client/wrapper version pairs, `claude_client_version_override`, and `engines`).
@@ -527,6 +527,127 @@ Errors return: `{type: "error", error: {type: string, message: string, code?: st
 ### Anthropic rate limiting
 
 Per-key rate limiting uses the `anthropic:{key_id}` bucket. Default: 60 requests per minute (configurable per key). Rate limit exceeded returns HTTP 429 with `Retry-After: 60` header.
+
+## Agent Messaging
+
+Agent Messaging is the agent-to-agent bus shared by Codex and Claude. Its
+`agent_messaging_enabled` fleet switch is seeded off. A sender and target are
+eligible only when the fleet switch is on, both addresses are enabled and
+unarchived, both hosts are active and secure, each host's per-host Agent
+Messaging switch is on, and each address's engine remains in that host's
+enabled engine set. These checks are repeated inside the send, bind, claim, and
+acknowledgement transactions. The matrix is complete: Codex to Codex, Codex to
+Claude, Claude to Codex, and Claude to Claude all use the same contract.
+
+An agent receives a stable canonical address (`agent:<uuid>`) from the shared
+`POST /host/agent-sessions` lifecycle registration. The address is rebound on a
+native resume, or reused for the latest dormant matching host/user/engine/cwd
+identity with `continuity:reset`; concurrent live sessions never share one
+binding. `POST /host/agent-sessions/{id}/heartbeat` carries adapter capability,
+receive readiness, upstream-session continuity, and a generation fence.
+`POST /host/agent-sessions/{id}/finish` unbinds the address, clears receive
+capability, and leaves it `resumable` when an upstream session is known or
+`offline` otherwise. The scoped bridge bearer is kept by `cxx` and proxied to
+the engine over its private Unix socket.
+
+Session-bound operations require `X-Agent-Bridge-Token`:
+
+- `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
+  peer addresses, optionally filtered by engine or host.
+- `POST /host/agent-sessions/{id}/agent-messaging/send` — enqueue a new message
+  or request. Body includes `to`, UTF-8 `content`, UUID `client_message_id`, and
+  optional `conversation_id`, `ttl_seconds`, and `kind` (`message|request`).
+- `POST /host/agent-sessions/{id}/agent-messaging/reply` — append a reply to a
+  message using a new sender-scoped idempotency UUID.
+- `POST /host/agent-sessions/{id}/agent-messaging/wait` — conversation-ordered
+  long poll (`seconds` 0..25, default 20) after a sequence cursor.
+- `POST /host/agent-sessions/{id}/agent-messaging/message` — fetch one
+  participant-visible message by UUID.
+- `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
+  participant conversation and all queued/leased messages in it.
+- `POST /host/agent-sessions/{id}/agent-messaging/bind` — heartbeat/bind the
+  native adapter with `binding_generation`, continuity, upstream session, and
+  receive-capability state.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim` — claim one
+  delivery with an idempotent UUID and optional 0..25 second long poll.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
+  — extend the owned 60-second lease.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —
+  report `accepted`, `completed`, `retry`, `dead`, or `ambiguous` for the owned
+  claim.
+
+One outbound-only background relay is registered per host user. Registration
+uses normal host API-key/IP policy and returns a generation-fenced 15-minute
+bearer; subsequent calls require `X-Agent-Relay-Token`. The relay never opens a
+listener and never claims an address while its interactive, receive-capable
+session is attached:
+
+- `POST /host/agent-relays/register` — register/replace the per-user relay and
+  return its id, generation, token, expiry, and polling interval.
+- `POST /host/agent-relays/{id}/heartbeat` — renew relay heartbeat and token
+  expiry.
+- `POST /host/agent-relays/{id}/stop` — stop the generation and erase its token.
+- `POST /host/agent-relays/{id}/deliveries/claim` — long-poll for one eligible
+  dormant address delivery.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
+  relay-owned lease.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add
+  the delivery reply while preserving claim and native-session continuity.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/ack` — acknowledge the
+  relay-owned delivery with the same outcome vocabulary as session delivery.
+
+Delivery is ordered at least once. A monotonic dispatch key and conversation
+sequence provide per-target FIFO; a delayed retry remains head-of-line, and no
+target may have more than one leased or accepted message. Claims and sender
+`client_message_id` values are idempotent. Leases last 60 seconds, retries use
+bounded exponential backoff, and the twelfth attempt is terminal `dead`.
+Messages are at most 32 KiB UTF-8. TTL defaults to 24 hours and accepts 60
+seconds through seven days. Expired queued/leased rows become `expired`.
+
+Acceptance is a deliberate uncertainty boundary: after the target has accepted
+work, a lost completion acknowledgement, eligibility shutdown, or expired
+accepted lease becomes `ambiguous` rather than being replayed automatically.
+Only an owner/admin may explicitly redrive a `dead` or `ambiguous` message; the
+redrive is a new queued row and conversation sequence linked by
+`redrive_of_message_id`, while the terminal original remains unchanged.
+
+Message bodies and recorded delivery errors are secretbox-encrypted. Admin
+address, conversation, and message listings return metadata only. Any active
+authenticated admin role, including viewer/legacy read-only roles, may read
+that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
+
+- `GET /admin/agent-messaging/state` — fleet state, eligible/live counts,
+  queues, and all four engine-direction summaries.
+- `POST /admin/agent-messaging/state` — toggle the default-off master switch.
+- `GET /admin/agent-messaging` — SPA/JSON address inventory compatibility path.
+- `GET /admin/agent-messaging/addresses` — address/host eligibility and queue
+  depth without message content.
+- `PATCH /admin/agent-messaging/addresses/{id}` — set or clear the unique
+  human alias.
+- `POST /admin/agent-messaging/addresses/{id}/enabled` — enable/disable one
+  address; enabling rechecks every upstream gate.
+- `GET /admin/agent-messaging/conversations` — metadata listing, optionally
+  filtered by status and bounded to 1..500.
+- `POST /admin/agent-messaging/conversations/{id}/cancel` — cancel an open
+  conversation.
+- `GET /admin/agent-messaging/messages` — metadata-only listing, optionally
+  filtered by conversation UUID/status and bounded to 1..500.
+- `POST /admin/agent-messaging/messages/{id}/reveal` — explicit audited
+  plaintext reveal. Responses set `Cache-Control: no-store` and
+  `Pragma: no-cache`, and reveal events are audit-only rather than broadcast.
+- `POST /admin/agent-messaging/messages/{id}/redrive` — explicitly create a new
+  delivery from a `dead` or `ambiguous` row.
+- `POST /admin/hosts/{id}/agent-messaging` — set the per-host gate; enabling
+  requires an active secure host.
+
+Disabling the fleet, a host, an address, a host engine, or host security/status
+atomically cancels queued/leased work, marks accepted work ambiguous, cancels
+affected conversations, revokes relays where applicable, and generation-fences
+session bindings. A graceful session finish unbinds without deleting its stable
+address, and the relay process handles SIGINT/SIGTERM by stopping its server
+generation. Version 1 performs queue maintenance and state transitions only:
+terminal messages, canceled conversations, dormant addresses, and their audit
+history are retained; there is no automatic Agent Messaging history purge.
 
 ## Agent Portal
 

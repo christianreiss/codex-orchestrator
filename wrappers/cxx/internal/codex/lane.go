@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"os"
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -140,6 +141,12 @@ func hasModelOrProfile(args []string) bool {
 // the config's dangerously_bypass_approvals_and_sandbox key is set to true.
 // The flag is only added when not already present in args.
 func applyDangerousBypass(cfg *config.Config, args []string) []string {
+	// Peer deliveries are ordinary untrusted input. A fleet-wide bypass chosen
+	// for interactive work must never leak into the managed headless adapter.
+	// Forging this marker can only remove privilege; it cannot add any.
+	if strings.TrimSpace(os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID")) != "" {
+		return args
+	}
 	if cfg == nil || !cfg.EngineOptions.DangerouslyBypassApprovalsAndSandbox {
 		return args
 	}

@@ -6,6 +6,7 @@ import {
   agentsDocumentState,
   clientConfigDocuments,
   skills as skillsTable,
+  versions,
   type Host,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
@@ -20,6 +21,7 @@ import {
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { hostEnginesList } from './host-engine-policy.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
+import { isTruthyFlagValue } from './settings.js';
 
 /**
  * Per-host wrapper config bakery.
@@ -61,10 +63,17 @@ export interface WrapperConfigPayload {
     fqdn: string;
     secure: boolean;
     browseros_mcp_enabled?: boolean;
+    agent_messaging_enabled?: boolean;
     engines: string;
     engines_list: Engine[];
   };
   engine_options: Record<string, unknown>;
+  agent_messaging: {
+    enabled: boolean;
+    relay_poll_seconds: number;
+    queued_ttl_seconds: number;
+    channel_preview_enabled: boolean;
+  };
   wrapper: {
     version: string;
     track: string;
@@ -199,6 +208,15 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       .map((s) => ({ slug: s.slug, sha256: effectiveSkillDigest(s, s.sha256) }));
   }
 
+  async function agentMessagingGloballyEnabled(): Promise<boolean> {
+    const rows = await deps.db
+      .select({ version: versions.version })
+      .from(versions)
+      .where(eq(versions.name, 'agent_messaging_enabled'))
+      .limit(1);
+    return isTruthyFlagValue(rows[0]?.version, false);
+  }
+
   function resolveApiKey(host: Host): string {
     const dec = decryptOrNull(host.apiKeyEnc, deps.keyring);
     if (dec) return dec;
@@ -276,13 +294,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       const apiKey = resolveApiKey(host);
       const issuedAt = nowIso();
 
-      const [agents, clientCfg, skills, silent, adminTheme, wrapper] = await Promise.all([
+      const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled] = await Promise.all([
         activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
         activeClientConfig(engine),
         activeSkills(engine),
         settings.silentFlag(),
         settings.adminThemeHint(),
         wrapperBlock(engine, publicBaseUrl, platform),
+        agentMessagingGloballyEnabled(),
       ]);
 
       // Bump config_version atomically; the new value becomes part of the
@@ -307,10 +326,17 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           fqdn: host.fqdn,
           secure: Boolean(host.secure),
           browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
+          agent_messaging_enabled: Boolean(host.agentMessagingEnabled),
           engines: host.engines,
           engines_list: hostEnginesList(host.engines),
         },
         engine_options: engineOptions(host, engine, { silent, adminTheme }),
+        agent_messaging: {
+          enabled: messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1,
+          relay_poll_seconds: 25,
+          queued_ttl_seconds: 86_400,
+          channel_preview_enabled: false,
+        },
         wrapper,
         documents: {
           agents,

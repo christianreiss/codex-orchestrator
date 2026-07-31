@@ -119,8 +119,12 @@ func TestLoadRefusesWhenSignatureFileMissing(t *testing.T) {
 	if !strings.Contains(err.Error(), "read signature") {
 		t.Fatalf("expected signature read failure, got %v", err)
 	}
-	if _, err := Load(cfgPath, nil, true); err != nil {
+	cfg, err := Load(cfgPath, nil, true)
+	if err != nil {
 		t.Fatalf("same payload should load when unsigned loads are allowed: %v", err)
+	}
+	if cfg.SourcePath() != cfgPath {
+		t.Fatalf("loaded config source path = %q, want %q", cfg.SourcePath(), cfgPath)
 	}
 }
 

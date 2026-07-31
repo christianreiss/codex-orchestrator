@@ -30,6 +30,7 @@ import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine, type Engine } from '../../../util/engine.js';
+import { requireAgentMessagingMutationRole } from '../../agent-messaging/index.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -172,6 +173,7 @@ function hostToWire(h: Host): Record<string, unknown> {
     scaling_exempt: h.scalingExempt === 1,
     curl_insecure: h.curlInsecure === 1,
     browseros_mcp_enabled: h.browserosMcpEnabled === 1,
+    agent_messaging_enabled: h.agentMessagingEnabled === 1,
     auto_update_override:
       h.autoUpdateOverride === null || h.autoUpdateOverride === undefined ? null : h.autoUpdateOverride === 1,
     reverse_dns_mode: tinyintToModeString(h.reverseDnsMode ?? null),
@@ -269,7 +271,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/register',
-    preHandler: [app.requireAdmin],
+    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
     handler: async (req) => {
       const body = parseZod(registerSchema, req.body);
       let mode: 'global' | 'enabled' | 'disabled' | null = null;
@@ -377,7 +379,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'DELETE',
     url: '/admin/hosts/:id',
-    preHandler: [app.requireAdmin],
+    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       await hostService.delete(id);
@@ -389,7 +391,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/engines',
-    preHandler: [app.requireAdmin],
+    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(setEnginesSchema, req.body ?? {});
@@ -444,7 +446,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/:id/secure',
-    preHandler: [app.requireAdmin],
+    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
     handler: async (req) => {
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(secureSchema, req.body);

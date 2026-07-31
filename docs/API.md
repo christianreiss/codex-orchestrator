@@ -376,6 +376,101 @@ Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: e
 ### Config
 - `POST /config/retrieve` — optional `sha256` (64-hex) plus optional `username`/`home` to append trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) in baked config. Response: `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256`, `updated_at`, `size_bytes`, and `content` when updated. Fleet defaults from `/admin/model-defaults/codex` are canonical `model` / `model_reasoning_effort`; host `model_override` / `reasoning_effort_override` values take precedence in the baked copy. The baked config also injects managed MCP server config pointing to `/mcp`; secure hosts get the host API key, insecure hosts get a short-lived MCP bearer that is re-baked on each retrieve so stale cached config cannot strand them with an expired MCP token. When that Codex MCP entry is successfully injected, the bake also adds a name-based `skills.config` rule disabling the built-in `skill-creator`; MCP-disabled/unavailable and Claude renders do not. `status:missing` means cdx should delete the effective `${CODEX_HOME:-~/.codex}/config.toml`.
 
+### Agent Messaging
+
+Agent Messaging is a separate agent-to-agent bus for all four directions:
+Codex to Codex, Codex to Claude, Claude to Codex, and Claude to Claude. The
+global `agent_messaging_enabled` setting is seeded off. Discovery and delivery
+also require active secure hosts, each host's per-host switch, the address
+engine in that host's enabled engine set, and an enabled/unarchived address.
+Each wrapper lifecycle receives or rebinds a stable `agent:<uuid>` address
+through `POST /host/agent-sessions`; the existing heartbeat and finish routes
+carry adapter readiness/generation state and unbind the stable address on exit.
+
+Session operations use the short-lived bridge bearer in
+`X-Agent-Bridge-Token`:
+
+- `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
+  peers, optionally filtered by engine/host/offline state.
+- `POST /host/agent-sessions/{id}/agent-messaging/send` — enqueue `content` for
+  `to` with UUID `client_message_id`; optional `conversation_id`,
+  `ttl_seconds`, and `kind` (`message|request`).
+- `POST /host/agent-sessions/{id}/agent-messaging/reply` — reply to a message
+  with a new sender idempotency UUID.
+- `POST /host/agent-sessions/{id}/agent-messaging/wait` — sequence-cursor long
+  poll for a conversation (maximum 25 seconds).
+- `POST /host/agent-sessions/{id}/agent-messaging/message` — read one message
+  visible to the participant.
+- `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
+  participant conversation.
+- `POST /host/agent-sessions/{id}/agent-messaging/bind` — publish native adapter
+  protocol/capabilities, receive readiness, upstream continuity, and the
+  expected binding generation.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim` — claim one
+  delivery with an idempotent claim UUID and optional long poll.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
+  — renew the owned 60-second lease.
+- `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —
+  acknowledge `accepted|completed|retry|dead|ambiguous`.
+
+The outbound-only per-user relay registers with normal host authentication,
+then uses the returned generation-fenced 15-minute bearer in
+`X-Agent-Relay-Token`; it never opens a host listener and does not claim for an
+address while a live interactive session is attached:
+
+- `POST /host/agent-relays/register` — register/replace the host-user relay.
+- `POST /host/agent-relays/{id}/heartbeat` — refresh heartbeat and token expiry.
+- `POST /host/agent-relays/{id}/stop` — stop the relay and erase its token.
+- `POST /host/agent-relays/{id}/deliveries/claim` — claim one dormant-address
+  delivery.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — renew the
+  relay-owned lease.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — persist a reply
+  for the owned delivery.
+- `POST /host/agent-relays/{id}/deliveries/{messageId}/ack` — acknowledge the
+  relay-owned delivery.
+
+Delivery is per-target FIFO, ordered at least once, and limited to one
+leased/accepted message per target. A delayed retry remains head-of-line.
+Claims and sender `client_message_id` values are idempotent, retries back off,
+and attempt 12 is terminal `dead`. UTF-8 content is limited to 32 KiB; TTL
+defaults to 24 hours and may be 60 seconds through seven days. Once a delivery
+is `accepted`, lost completion certainty becomes terminal `ambiguous` instead
+of an automatic replay. Redrive is always explicit and creates a new row linked
+to the retained terminal original.
+
+Admin metadata reads require any active admin session. Mutations and plaintext
+reveal require `owner` or `admin`:
+
+- `GET /admin/agent-messaging/state` — global state, queue/address counts, and
+  the four direction summaries.
+- `POST /admin/agent-messaging/state` — set the global switch.
+- `GET /admin/agent-messaging` — address inventory compatibility/SPA route.
+- `GET /admin/agent-messaging/addresses` — stable addresses, host eligibility,
+  readiness, and queue depth.
+- `PATCH /admin/agent-messaging/addresses/{id}` — set/clear a unique alias.
+- `POST /admin/agent-messaging/addresses/{id}/enabled` — set the address gate.
+- `GET /admin/agent-messaging/conversations` — metadata listing (`status`,
+  `limit` query filters).
+- `POST /admin/agent-messaging/conversations/{id}/cancel` — cancel a
+  conversation.
+- `GET /admin/agent-messaging/messages` — metadata-only listing
+  (`conversation_id`, `status`, `limit` query filters); content is omitted.
+- `POST /admin/agent-messaging/messages/{id}/reveal` — owner/admin audited
+  plaintext reveal with `Cache-Control: no-store` and `Pragma: no-cache`.
+- `POST /admin/agent-messaging/messages/{id}/redrive` — create a fresh queued
+  message from a `dead` or `ambiguous` original.
+- `POST /admin/hosts/{id}/agent-messaging` — set the per-host gate; enabling
+  requires the host to be active and secure.
+
+Turning off any eligibility layer cancels queued/leased work, marks accepted
+work ambiguous, cancels affected conversations, revokes relevant relays, and
+generation-fences bindings. Graceful session finish keeps the stable address
+dormant; graceful relay shutdown stops its server generation. Content and
+delivery errors are Secretbox-encrypted. Terminal messages, canceled
+conversations, dormant addresses, and audit history are retained: version 1
+has no automatic Agent Messaging history purge.
+
 ### Projects module
 All `/projects*` routes require normal host API-key auth + IP binding and return HTTP `404 Project coordination disabled` while the module is off.
 - `GET /projects` — list projects with summary fields (`slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, `updated_at`).
@@ -421,11 +516,11 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /cli/auth/start` — wrapper begins a device-code login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, user code, and `verify_url`. Exempt from the API kill switch; rate-limited per IP.
 - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
 - `POST /cli/auth/lookup` — admin session required; `{user_code}` resolves a pending request (`404` when unknown or expired).
-- `POST /cli/auth/approve` — admin session required; `{user_code}` approves the request and registers the host.
+- `POST /cli/auth/approve` — owner/admin role required; `{user_code}` approves the request and registers the host. Approval can rotate an existing host key, so it shares the Agent Messaging runtime-fencing gate.
 - `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
 
 ## Provisioning & Installer
-- `POST /admin/hosts/register` — create/rotate host. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; `true` enables sliding 2-hour idle expiry via `expires_at` refresh on authenticated contact), optional `curl_insecure` (boolean; bakes `allow_insecure: true` into the signed wrapper config, returns a `curl -k` installer command, and makes the installer reuse `curl -k` for its own downloads), optional `reverse_dns_mode` (`global` | `enabled` | `disabled`), optional `duration_minutes` (`0..480`, used when `secure=false` for initial + stored insecure window), and optional `engines` (`codex`, `claude`, or both). Returns host payload (with API key) and single-use installer metadata: `token`, `url`, `command`, `mode`, `label`, `expires_at`. If `duration_minutes` omitted for insecure hosts, initial window is 30 minutes with stored extension window 10 minutes. Base URL prefers `PUBLIC_BASE_URL`, else validated trusted forwarded host/proto; unresolved base URL returns 500. Existing-host installer mints can also include `curl_insecure` so the returned command reflects the Host Detail toggle state atomically.
+- `POST /admin/hosts/register` — owner/admin role required. Create/rotate a host; rotating an existing key generation-fences that host's Agent Messaging runtime. Body: `fqdn` (required), optional `secure` (default `true`), optional `vip` (default `false`), optional `temporary` (boolean; `true` enables sliding 2-hour idle expiry via `expires_at` refresh on authenticated contact), optional `curl_insecure` (boolean; bakes `allow_insecure: true` into the signed wrapper config, returns a `curl -k` installer command, and makes the installer reuse `curl -k` for its own downloads), optional `reverse_dns_mode` (`global` | `enabled` | `disabled`), optional `duration_minutes` (`0..480`, used when `secure=false` for initial + stored insecure window), and optional `engines` (`codex`, `claude`, or both). Returns host payload (with API key) and single-use installer metadata: `token`, `url`, `command`, `mode`, `label`, `expires_at`. If `duration_minutes` omitted for insecure hosts, initial window is 30 minutes with stored extension window 10 minutes. Base URL prefers `PUBLIC_BASE_URL`, else validated trusted forwarded host/proto; unresolved base URL returns 500. Existing-host installer mints can also include `curl_insecure` so the returned command reflects the Host Detail toggle state atomically.
 - `POST /admin/hosts/quick-register` — create an insecure temporary throwaway host with an auto-generated short `tmp-YYYYMMDD-HHMMSS-xxxxxx` name, `secure=false`, `temporary=true`, `vip=false`, and a 2-hour host expiry. Body requires `engines` (`codex`, `claude`, or both) and accepts optional `duration_minutes` (`0..480`) for the initial insecure window. Returns the same host + installer metadata shape as `/admin/hosts/register`.
 - `GET /install/{token}` — public single-use installer (TTL fixed at 1800s in the API; no env knob). Marks the token used before emit. It fetches all enabled signed configs before installation and requires the Codex/Claude wrapper version and SHA to match, then downloads one `cxx` and atomically installs relative `cdx`/`clx` aliases for enabled engines. Claude-capable installs prepare Node.js/npm (OS Node package, pinned Corepack npm 10.9.2 when available, OS npm fallback). The installer invokes the host-wide `cxx cron install` and `cxx cron run --minimal` coordinator once each; `READY` is gated on the common wrapper, every requested CLI, and the one shared cron setup. Any missing/failed component yields `INCOMPLETE` and a non-zero exit. Fetch/token errors also return shell-script output with non-zero exit.
 - `GET /install/v2/{token}` — alias of `GET /install/{token}`; wrappers minted against the v2 URL keep working unchanged.

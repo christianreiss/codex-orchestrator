@@ -39,7 +39,7 @@ There are no chord keyboard shortcuts for host navigation. Keyboard access is th
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates the host row and returns an install token. `POST /admin/hosts/quick-register` is the abbreviated form used by *Quick VM*. Both are gated by `app.requireAdmin`.
+`POST /admin/hosts/register` creates the host row and returns an install token. It requires `owner` or `admin`, because reusing an FQDN rotates the host key and generation-fences live Agent Messaging work. `POST /admin/hosts/quick-register` is the abbreviated form used by *Quick VM* and remains gated by `app.requireAdmin`.
 
 Full registration inputs (`POST /admin/hosts/register`):
 

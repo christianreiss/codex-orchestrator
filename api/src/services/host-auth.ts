@@ -13,6 +13,7 @@ import type { InsecureWindowService } from './insecure-window.js';
 import { SettingsService } from './settings.js';
 import { assertReverseDnsMatch } from './reverse-dns.js';
 import type { Env } from '../env.js';
+import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 
 /**
  * Host authentication helpers. Foundation already provides
@@ -104,7 +105,10 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
         .where(and(isNotNull(hostsTable.updatedAt), lt(hostsTable.updatedAt, cutoff)));
       let removed = 0;
       for (const row of stale) {
-        await deps.db.delete(hostsTable).where(eq(hostsTable.id, row.id));
+        await deps.db.transaction(async (tx) => {
+          await suspendAgentMessagingRuntimeLocked(tx, row.id, 'host_inactive');
+          await tx.delete(hostsTable).where(eq(hostsTable.id, row.id));
+        });
         wsPublisher.publish('host.pruned', { id: row.id, fqdn: row.fqdn, reason: 'inactive' });
         removed += 1;
       }

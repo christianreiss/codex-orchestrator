@@ -10,6 +10,7 @@ import {
   FolderKanban,
   KeyRound,
   LayoutDashboard,
+  MessageSquareShare,
   Server,
   Settings,
   ShieldCheck,
@@ -41,6 +42,12 @@ export const NAV_SECTIONS: NavSection[] = [
         description: "Fleet health and usage",
       },
       { href: "/hosts", label: "Hosts", icon: Server, description: "Machines and credentials" },
+      {
+        href: "/agent-messaging",
+        label: "Agent Messaging",
+        icon: MessageSquareShare,
+        description: "Codex and Claude conversations",
+      },
       {
         href: "/projects",
         label: "Projects",
@@ -133,6 +140,7 @@ export function getPageContext(pathname: string): string {
   if (segments.length === 0) return "Overview";
 
   if (segments[0] === "dashboard") return "Overview";
+  if (segments[0] === "agent-messaging") return "Agent Messaging";
   if (segments[0] === "hosts") {
     if (segments[1] === "new") return "Hosts / Register host";
     return segments[1] ? `Hosts / Host #${humanize(segments[1])}` : "Hosts";

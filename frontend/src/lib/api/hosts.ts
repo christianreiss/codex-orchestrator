@@ -11,6 +11,7 @@ import {
   createQuery,
   createMutation,
   type QueryClient,
+  type QueryKey,
 } from "@tanstack/svelte-query";
 import { api, ApiError } from "./client";
 import type {
@@ -160,6 +161,7 @@ export function createHostEnginesMutation(qc: QueryClient) {
     onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+      void qc.invalidateQueries({ queryKey: ["agent-messaging"] });
     },
   });
 }
@@ -174,6 +176,7 @@ type BoolToggleField =
   | "scaling_exempt"
   | "curl_insecure"
   | "browseros_mcp"
+  | "agent_messaging"
   | "allow";
 
 type ToggleEndpointPath =
@@ -183,7 +186,8 @@ type ToggleEndpointPath =
   | "auto-update"
   | "scaling-exempt"
   | "curl-insecure"
-  | "browseros-mcp";
+  | "browseros-mcp"
+  | "agent-messaging";
 
 interface ToggleConfig {
   endpoint: ToggleEndpointPath;
@@ -191,6 +195,8 @@ interface ToggleConfig {
   detailField: keyof HostDetail;
   /** Body key sent to the backend. */
   bodyKey: BoolToggleField | "enabled";
+  /** Other feature roots whose state changes with this host toggle. */
+  extraInvalidations?: QueryKey[];
 }
 
 interface ToggleVars {
@@ -235,6 +241,9 @@ function makeBoolToggle(qc: QueryClient, cfg: ToggleConfig) {
     onSettled: (_data, _err, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+      for (const queryKey of cfg.extraInvalidations ?? []) {
+        void qc.invalidateQueries({ queryKey });
+      }
     },
   });
 }
@@ -244,6 +253,7 @@ export function createSecureToggleMutation(qc: QueryClient) {
     endpoint: "secure",
     detailField: "secure",
     bodyKey: "secure",
+    extraInvalidations: [["agent-messaging"]],
   });
 }
 
@@ -323,6 +333,22 @@ export function createBrowserOsMcpToggleMutation(qc: QueryClient) {
     detailField: "browseros_mcp_enabled",
     bodyKey: "browseros_mcp",
   });
+}
+
+export function createAgentMessagingToggleMutation(qc: QueryClient) {
+  return makeBoolToggle(qc, {
+    endpoint: "agent-messaging",
+    detailField: "agent_messaging_enabled",
+    bodyKey: "enabled",
+    extraInvalidations: [["agent-messaging"]],
+  });
+}
+
+/** An ineligible host may still turn messaging off; only a new enable is blocked. */
+export function hostAgentMessagingToggleDisabled(
+  host: Pick<HostDetail, "agent_messaging_enabled" | "secure" | "status">,
+): boolean {
+  return !host.agent_messaging_enabled && (!host.secure || host.status !== "active");
 }
 
 // --- version / model / reverse-dns / agents-version ----------------------

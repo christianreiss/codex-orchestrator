@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { describe, it } from "node:test";
 
+import type { QueryClient } from "@tanstack/svelte-query";
 import type { HostFilterId } from "./hosts";
 import type { HostListItem } from "./types";
 
@@ -23,7 +24,13 @@ export function createMutation(options) {
 
 const clientStubSource = `
 export class ApiError extends Error {}
-export const api = {};
+export const calls = [];
+export const api = {
+  post(path, body) {
+    calls.push({ method: "POST", path, body });
+    return Promise.resolve({});
+  },
+};
 `;
 
 registerHooks({
@@ -52,6 +59,7 @@ const {
   hostCxxWrapperState,
   hostEngines,
   hostHasRequiredAuth,
+  hostAgentMessagingToggleDisabled,
   hostLastSeenMs,
   hostLatestRefresh,
   hostLatestRefreshMs,
@@ -59,7 +67,15 @@ const {
   hostStatusKind,
   hostStatusLabel,
   isInsecureWindowActive,
+  createAgentMessagingToggleMutation,
+  createHostEnginesMutation,
+  createSecureToggleMutation,
 } = (await import(hostsModule)) as typeof import("./hosts");
+
+const clientModule: string = CLIENT_STUB;
+const { calls } = (await import(clientModule)) as {
+  calls: Array<{ method: string; path: string; body: unknown }>;
+};
 
 /** Fixed reference point for the assertions that drive the online window themselves. */
 const NOW = Date.parse("2026-07-29T12:00:00.000Z");
@@ -93,6 +109,7 @@ function makeHost(overrides: Partial<HostListItem> = {}): HostListItem {
     insecure_window_minutes: null,
     curl_insecure: false,
     browseros_mcp_enabled: false,
+    agent_messaging_enabled: false,
     last_cron_check: null,
     reverse_dns_mode: null,
     lane_preference: null,
@@ -121,6 +138,112 @@ function makeHost(overrides: Partial<HostListItem> = {}): HostListItem {
     ...overrides,
   };
 }
+
+describe("Agent Messaging host control", () => {
+  it("blocks only an ineligible enable and always permits disable", () => {
+    assert.equal(
+      hostAgentMessagingToggleDisabled(
+        makeHost({ agent_messaging_enabled: false, secure: false, status: "active" }),
+      ),
+      true,
+    );
+    assert.equal(
+      hostAgentMessagingToggleDisabled(
+        makeHost({ agent_messaging_enabled: false, secure: true, status: "disabled" }),
+      ),
+      true,
+    );
+    assert.equal(
+      hostAgentMessagingToggleDisabled(
+        makeHost({ agent_messaging_enabled: false, secure: true, status: "active" }),
+      ),
+      false,
+    );
+    assert.equal(
+      hostAgentMessagingToggleDisabled(
+        makeHost({ agent_messaging_enabled: true, secure: false, status: "disabled" }),
+      ),
+      false,
+    );
+  });
+
+  it("posts the host toggle and refreshes hosts plus Agent Messaging", async () => {
+    calls.length = 0;
+    const invalidations: unknown[][] = [];
+    const qc = {
+      invalidateQueries({ queryKey }: { queryKey: unknown[] }) {
+        invalidations.push(queryKey);
+        return Promise.resolve();
+      },
+    } as unknown as QueryClient;
+    const mutation = createAgentMessagingToggleMutation(qc) as unknown as {
+      mutationFn: (vars: { id: number; value: boolean }) => Promise<unknown>;
+      onSettled: (
+        data: unknown,
+        error: unknown,
+        vars: { id: number; value: boolean },
+        context: unknown,
+      ) => void;
+    };
+
+    await mutation.mutationFn({ id: 42, value: true });
+    mutation.onSettled(undefined, undefined, { id: 42, value: true }, undefined);
+
+    assert.deepEqual(calls, [
+      {
+        method: "POST",
+        path: "/admin/hosts/42/agent-messaging",
+        body: { enabled: true },
+      },
+    ]);
+    assert.deepEqual(invalidations, [
+      ["hosts", "detail", "42"],
+      ["hosts", "list"],
+      ["agent-messaging"],
+    ]);
+  });
+
+  it("refreshes Agent Messaging when host security or engine eligibility changes", async () => {
+    calls.length = 0;
+    const invalidations: unknown[][] = [];
+    const qc = {
+      invalidateQueries({ queryKey }: { queryKey: unknown[] }) {
+        invalidations.push(queryKey);
+        return Promise.resolve();
+      },
+    } as unknown as QueryClient;
+    const secure = createSecureToggleMutation(qc) as unknown as {
+      mutationFn: (vars: { id: number; value: boolean }) => Promise<unknown>;
+      onSettled: (data: unknown, error: unknown, vars: { id: number; value: boolean }) => void;
+    };
+    const engines = createHostEnginesMutation(qc) as unknown as {
+      mutationFn: (vars: { id: number; engines: Array<"codex" | "claude"> }) => Promise<unknown>;
+      onSettled: (
+        data: unknown,
+        error: unknown,
+        vars: { id: number; engines: Array<"codex" | "claude"> },
+      ) => void;
+    };
+
+    await secure.mutationFn({ id: 42, value: false });
+    secure.onSettled(undefined, undefined, { id: 42, value: false });
+    await engines.mutationFn({ id: 42, engines: ["claude"] });
+    engines.onSettled(undefined, undefined, { id: 42, engines: ["claude"] });
+
+    assert.deepEqual(calls, [
+      { method: "POST", path: "/admin/hosts/42/secure", body: { secure: false } },
+      { method: "POST", path: "/admin/hosts/42/engines", body: { engines: ["claude"] } },
+    ]);
+    assert.deepEqual(invalidations, [
+      ["hosts", "detail", "42"],
+      ["hosts", "list"],
+      ["agent-messaging"],
+      ["hosts", "detail", "42"],
+      ["hosts", "list"],
+      ["agent-messaging"],
+    ]);
+  });
+});
 
 describe("hostCxxWrapperState", () => {
   it("renders one shared version when both engine reports agree", () => {

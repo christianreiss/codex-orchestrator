@@ -160,6 +160,33 @@ describe("mapped events", () => {
     }
   });
 
+  it("keeps Agent Messaging state, host and delivery views live", () => {
+    emit("agent_messaging.state.changed");
+    assert.deepEqual(qc.keys, [["agent-messaging"], ["settings"]]);
+
+    qc.keys = [];
+    emit("agent_messaging.host.changed");
+    assert.deepEqual(qc.keys, [["agent-messaging"], ["hosts"]]);
+
+    for (const type of [
+      "agent_messaging.address.changed",
+      "agent_messaging.conversation.changed",
+      "agent_messaging.message.changed",
+      "agent_messaging.relay.changed",
+      "agent_messaging.queue.changed",
+    ]) {
+      qc.keys = [];
+      emit(type);
+      assert.deepEqual(qc.keys, [["agent-messaging"]], type);
+    }
+  });
+
+  it("does not broadcast or invalidate audited plaintext reveal", () => {
+    assert.equal(DEFAULT_INVALIDATIONS["agent_messaging.message.revealed"], undefined);
+    emit("agent_messaging.message.revealed");
+    assert.deepEqual(qc.keys, []);
+  });
+
   it("invalidates nothing for a null event or an unmapped type", () => {
     events.set(null);
     emit("");

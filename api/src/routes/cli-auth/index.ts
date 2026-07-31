@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../index.js';
+import { requireAgentMessagingMutationRole } from '../agent-messaging/index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { createCliAuthService } from '../../services/cli-auth.js';
 import { createHostRegistrationService } from '../../services/host-registration.js';
@@ -89,7 +90,7 @@ export async function registerCliAuthRoutes(app: FastifyInstance, ctx: RouteCont
   });
 
   app.post('/cli/auth/approve', {
-    preHandler: app.requireAdmin,
+    preHandler: [app.requireAdmin, requireAgentMessagingMutationRole],
     handler: async (req) => {
       const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
       const userCode = typeof body.user_code === 'string' ? body.user_code : '';

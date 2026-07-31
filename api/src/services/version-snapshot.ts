@@ -30,6 +30,7 @@ export interface VersionSnapshot {
   auto_update_enabled: boolean;
   cdx_silent: boolean;
   clx_silent: boolean;
+  agent_messaging_enabled: boolean;
   installation_id: string | null;
   engine: Engine;
 }
@@ -140,6 +141,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         auto_update_enabled: flagValue(get('auto_update_enabled'), false),
         cdx_silent: flagValue(get('cdx_silent'), false),
         clx_silent: flagValue(get('clx_silent'), false),
+        agent_messaging_enabled: flagValue(get('agent_messaging_enabled'), false),
         installation_id: installationId,
         engine,
       };

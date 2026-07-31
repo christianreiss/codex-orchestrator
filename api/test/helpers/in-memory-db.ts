@@ -133,7 +133,7 @@ export function createMockDb(): MockDb {
     return cur;
   }
 
-  const dbApi = {
+  const dbApi: Record<string, unknown> = {
     select(projection?: Record<string, unknown>) {
       let baseInfo: TableInfo | null = null;
       let joinInfo: TableInfo | null = null;
@@ -161,6 +161,9 @@ export function createMockDb(): MockDb {
         },
         limit(n: number) {
           limitN = n;
+          return builder;
+        },
+        for() {
           return builder;
         },
         then(resolve: (rows: Row[]) => void) {
@@ -317,6 +320,9 @@ export function createMockDb(): MockDb {
         },
       };
       return builder;
+    },
+    transaction<T>(callback: (tx: Database) => Promise<T>): Promise<T> {
+      return callback(dbApi as unknown as Database);
     },
   };
 

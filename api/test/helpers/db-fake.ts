@@ -74,7 +74,14 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
           builder.where = (_w: unknown) => {
             const filtered = filterRows(rows, _w);
             const inner: any = Promise.resolve(filtered);
-            inner.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
+            inner.limit = (_n: number) => {
+              const limited: any = Promise.resolve(filtered.slice(0, _n));
+              limited.for = (_strength?: unknown) => {
+                fake.locks.push({ table, where: _w, strength: _strength });
+                return limited;
+              };
+              return limited;
+            };
             inner.orderBy = (..._args: unknown[]) => {
               const o: any = Promise.resolve(filtered);
               o.limit = (_n: number) => Promise.resolve(filtered.slice(0, _n));
@@ -95,7 +102,14 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             o.limit = (_n: number) => Promise.resolve(rows.slice(0, _n));
             return o;
           };
-          builder.limit = (_n: number) => Promise.resolve(rows.slice(0, _n));
+          builder.limit = (_n: number) => {
+            const limited: any = Promise.resolve(rows.slice(0, _n));
+            limited.for = (_strength?: unknown) => {
+              fake.locks.push({ table, where: undefined, strength: _strength });
+              return limited;
+            };
+            return limited;
+          };
           return builder;
         },
       };

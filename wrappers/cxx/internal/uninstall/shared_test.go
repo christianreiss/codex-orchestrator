@@ -2,6 +2,7 @@ package uninstall
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,18 +55,60 @@ func TestApplyLastRemovesCXXAliasesAndCron(t *testing.T) {
 		}
 	}
 	oldRemove := removeCron
+	oldRemoveAgentService := removeAgentService
 	cronCalls := 0
+	relayCalls := 0
 	removeCron = func(context.Context) error { cronCalls++; return nil }
-	t.Cleanup(func() { removeCron = oldRemove })
+	removeAgentService = func() error { relayCalls++; return nil }
+	t.Cleanup(func() {
+		removeCron = oldRemove
+		removeAgentService = oldRemoveAgentService
+	})
 	if err := Apply(context.Background(), ServerResult{Confirmed: true, LastHost: true}, "claude", cxx); err != nil {
 		t.Fatal(err)
 	}
 	if cronCalls != 1 {
 		t.Fatalf("cron calls=%d", cronCalls)
 	}
+	if relayCalls != 1 {
+		t.Fatalf("agent relay service calls=%d", relayCalls)
+	}
 	for _, name := range []string{"cxx", "cdx", "clx"} {
 		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s remains: %v", name, err)
+		}
+	}
+}
+
+func TestApplyLastPreservesSharedArtifactsWhenRelayStopFails(t *testing.T) {
+	dir := t.TempDir()
+	cxx := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(cxx, []byte("common"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{"cdx", "clx"} {
+		if err := os.Symlink("cxx", filepath.Join(dir, alias)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldRemove := removeCron
+	oldRemoveAgentService := removeAgentService
+	cronCalls := 0
+	removeCron = func(context.Context) error { cronCalls++; return nil }
+	removeAgentService = func() error { return errors.New("relay still running") }
+	t.Cleanup(func() {
+		removeCron = oldRemove
+		removeAgentService = oldRemoveAgentService
+	})
+	if err := Apply(context.Background(), ServerResult{Confirmed: true, LastHost: true}, "claude", cxx); err == nil {
+		t.Fatal("last-engine uninstall ignored relay stop failure")
+	}
+	if cronCalls != 0 {
+		t.Fatalf("cron was removed after relay stop failure: calls=%d", cronCalls)
+	}
+	for _, name := range []string{"cxx", "cdx", "clx"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s was removed after relay stop failure: %v", name, err)
 		}
 	}
 }

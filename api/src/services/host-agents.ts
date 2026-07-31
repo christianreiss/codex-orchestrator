@@ -16,6 +16,8 @@ import { normalizeSettings } from './config-normalizer.js';
 import { HostSkillsService } from './host-skills.js';
 import { ProjectsService } from './projects.js';
 import { SecretsService } from './secrets.js';
+import { SettingsService } from './settings.js';
+import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import {
   renderManagedAgentFeatures,
   type ManagedAgentFeatureContext,
@@ -33,6 +35,7 @@ export class HostAgentsService {
   private readonly skills: HostSkillsService;
   private readonly projects: ProjectsService;
   private readonly secrets: SecretsService;
+  private readonly settings: SettingsService;
 
   constructor(
     private readonly db: Database,
@@ -43,6 +46,7 @@ export class HostAgentsService {
     this.mcpSessions = new McpSessionService(db);
     this.skills = new HostSkillsService(db);
     this.projects = new ProjectsService(db);
+    this.settings = new SettingsService(db);
     // No keyring: this instance only ever answers "is the module on, and how
     // many secrets can this engine see?". Rendering guidance must not be able
     // to touch ciphertext, and omitting the keyring makes that structural.
@@ -118,6 +122,9 @@ export class HostAgentsService {
     const managedMcpToken = settings && this.publicBaseUrl && apiKey && !host.secure
       ? (await this.mcpSessions.issue(host.id)).token
       : null;
+    const agentMessagingEnabled = host.secure === 1
+      && host.agentMessagingEnabled === 1
+      && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
     if (settings && this.publicBaseUrl && apiKey) {
       rendered = renderTomlForHost({
         settings,
@@ -128,6 +135,7 @@ export class HostAgentsService {
         managedMcpToken,
         home: opts.home ?? null,
         username: opts.username ?? null,
+        agentMessagingEnabled,
       });
     }
     const status = providedSha && safeHashEquals(rendered.sha256, providedSha) ? 'unchanged' : 'updated';
@@ -173,6 +181,9 @@ export class HostAgentsService {
       return { status: 'missing', owned_paths: [], partial: {} };
     }
     const managedMcpToken = !host.secure ? (await this.mcpSessions.issue(host.id)).token : null;
+    const agentMessagingEnabled = host.secure === 1
+      && host.agentMessagingEnabled === 1
+      && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
     const rendered = renderClaudeSettingsPartialForHost({
       settings,
       host,
@@ -182,6 +193,7 @@ export class HostAgentsService {
       managedMcpToken,
       home: opts.home ?? null,
       username: opts.username ?? null,
+      agentMessagingEnabled,
     });
     await this.recordLog(host.id, 'claude_settings.retrieve', { sha256: rendered.sha256 });
     return {

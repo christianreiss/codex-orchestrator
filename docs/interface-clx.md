@@ -20,8 +20,8 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ## Build + Publish
 
 - `clx` is the Claude persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `clx` path is a relative `clx -> cxx` symlink. During legacy self-update migration, a `clx-<major>.<minor>.<patch>` filename selects the same persona.
-- The current source version, including complete directory-backed Skill sync
-  and the scoped agent-portal lifecycle, is **cxx 0.7.6**.
+- The current source version, including complete directory-backed Skill sync,
+  Agent Messaging, and the scoped agent-portal lifecycle, is **cxx 0.7.7**.
 - Build locally with `cd wrappers && make cxx`; `cd wrappers && make release` only stages the complete cross-platform matrix under `wrappers/bin/release`.
 - Publish that staged matrix explicitly with `cd wrappers && make publish-release`; set `OUTROOT` for an extracted CI release fragment and `PUBLISH_ROOT` for a non-default served store. Publication validates the complete incoming matrix before its first served payload write.
 - New publication writes only `storage/wrapper/v2/bin/cxx/<os>-<arch>/v<version>/cxx`. On compatible old per-engine URLs, exact historical split bytes win when present; otherwise the URL may stream the matching published `cxx` bytes for pre-migration clients.
@@ -36,6 +36,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
+| `cxx agent ...` | Shared Agent Messaging control surface: discover addresses; send, request, wait, reply, inspect, or cancel; inspect the relay; and install/remove its per-user service. Message and reply content is accepted only on stdin. |
 | `--continue` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
@@ -153,9 +154,16 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "silent": false,
     "claude_model_override": "claude-sonnet-5",
     "admin_theme_hint": "auto"
+  },
+  "agent_messaging": {
+    "enabled": false,
+    "relay_poll_seconds": 25,
+    "queued_ttl_seconds": 86400,
+    "channel_preview_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
-  // engines / engines_list for peer reconciliation
+  // engines / engines_list for peer reconciliation and
+  // agent_messaging_enabled as the per-host eligibility gate
 }
 ```
 
@@ -620,7 +628,49 @@ belong in common packages; Claude-only behavior stays under the Claude persona
 packages. There is one build artifact, while the signed config and runtime
 behavior remain engine-specific.
 
-## Agent portal lifecycle (cxx 0.7.6)
+## Agent Messaging lifecycle (cxx 0.7.7)
+
+Agent Messaging is a separate, default-off bridge between Claude and Codex. It
+requires the global switch, a secure host, the per-host eligibility switch, and
+the target engine to remain enabled. The signed `agent_messaging.enabled` value
+is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
+stdio MCP server (`cxx agent mcp`) and allow its seven tools without prompting:
+`agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
+`agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;
+it is never an instruction or a grant of authority.
+
+An address is stable for `(host, Unix user, engine, working directory)` and can
+bind to a native Claude session with a generation-fenced upstream session id.
+The outbound-only per-user worker resumes an offline address with
+`claude --skip-boot resume <session> -p --output-format json`, or starts a fresh
+print-mode run when continuity was reset or the saved conversation no longer
+exists. Only one native writer may use an address/session at a time. Accepted
+work is renewed while the child runs and only bounded output tails are retained.
+
+Delivery is FIFO per target and at-least-once until native execution starts.
+Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
+and stop after 12 attempts. Once native execution has started, lost completion,
+shutdown, or cancellation is terminal `ambiguous` and is not replayed
+automatically. Operators may inspect history and explicitly redrive an eligible
+terminal message. Disabling the global or host switch revokes relays/bindings,
+cancels queued or leased work, marks accepted work ambiguous, and cancels open
+conversations; re-enable starts a clean boundary with no automatic replay.
+
+The optional Claude Channel adapter is preview-only and requires both the signed
+`channel_preview_enabled` gate and Claude's explicit `cxx agent mcp --channel`
+launch. It advertises only `claude/channel`, activates reception after MCP
+`notifications/initialized`, correlates replies to the accepted delivery, and
+does not expose a permission-grant capability. The ordinary stdio MCP tool path
+is the supported default.
+
+The shared service has no listener and persists only opaque
+instance/deployment ids in `~/.cxx/agent`. Routine cron reconciliation does not
+restart an unchanged active worker; binary/unit changes restart it deliberately.
+A confirmed last-engine uninstall removes the service, while partial or
+unconfirmed uninstall leaves it intact. Managed units preserve non-default
+`CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` values.
+
+## Agent portal lifecycle (cxx 0.7.7)
 
 Claude has parity with Codex for the permanent `/go` portal. When the persistent
 master switch is on, interactive and human-started execute/resume root sessions

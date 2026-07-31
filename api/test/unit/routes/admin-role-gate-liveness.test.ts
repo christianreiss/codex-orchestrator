@@ -14,10 +14,9 @@ import {
 
 /**
  * `docs/LOGIN.md` and `docs/ADMIN.md` both state that the whole route tree
- * holds exactly four role gates, and `docs/LOGIN.md` enumerates the seventeen
- * `METHOD /path` registrations they cover. In code the gates are four
- * module-local preHandlers: portal mutation, memory mutation, source mutation,
- * and user management. They are attached per route by hand. Adding a
+ * holds exactly six role gates, and `docs/LOGIN.md` enumerates the
+ * `METHOD /path` registrations they cover. In code the gates are six
+ * module-local preHandlers. They are attached per route by hand. Adding a
  * protected mutation without one silently
  * opens it to every `viewer` and legacy `user`, and both docs go stale while
  * every other suite stays green: `admin-doc-capability-truth.test.ts` only
@@ -39,8 +38,9 @@ const DOC = resolve(HERE, '../../../../docs/LOGIN.md');
 /** The error code every role gate answers with; how a gate is recognized. */
 const ROLE_CODE = 'admin_role_required';
 
-/** The five gates both docs claim are the whole inventory, and where they live. */
+/** The six gates both docs claim are the whole inventory, and where they live. */
 const KNOWN_GATES: Record<string, string> = {
+  requireAgentMessagingMutationRole: 'routes/agent-messaging/index.ts',
   requireAgentPortalMutationRole: 'routes/agent-portal/admin-host.ts',
   requireMutationRole: 'routes/admin/memories/index.ts',
   requireSecretMutationRole: 'routes/admin/secrets/index.ts',
@@ -56,19 +56,30 @@ const KNOWN_GATES: Record<string, string> = {
  */
 const PINNED_GATED_ROUTES = [
   'DELETE /admin/agent-portal/users/:id',
+  'DELETE /admin/hosts/:id',
   'DELETE /admin/memories/:scope/:recordId',
   'DELETE /admin/secrets/:id',
   'DELETE /admin/users/:id',
   // Reads the permanent portal link back out of storage: a GET, but bearer
   // material, so it carries the same gate as the mutations.
   'GET /admin/agent-portal/users/:id/link',
+  'PATCH /admin/agent-messaging/addresses/:id',
   'PATCH /admin/memories/:scope/:recordId',
   'PATCH /admin/secrets/:id',
+  'POST /admin/agent-messaging/addresses/:id/enabled',
+  'POST /admin/agent-messaging/conversations/:id/cancel',
+  'POST /admin/agent-messaging/messages/:id/redrive',
+  'POST /admin/agent-messaging/messages/:id/reveal',
+  'POST /admin/agent-messaging/state',
   'POST /admin/agent-portal/state',
   'POST /admin/agent-portal/users',
   'POST /admin/agent-portal/users/:id',
   'POST /admin/agent-portal/users/:id/enabled',
   'POST /admin/agent-portal/users/:id/rotate',
+  'POST /admin/hosts/:id/agent-messaging',
+  'POST /admin/hosts/:id/engines',
+  'POST /admin/hosts/:id/secure',
+  'POST /admin/hosts/register',
   'POST /admin/memories/:scope',
   'POST /admin/memories/shared/:recordId/append',
   'POST /admin/secrets',
@@ -79,6 +90,7 @@ const PINNED_GATED_ROUTES = [
   'POST /admin/users',
   'POST /admin/users/:id',
   'POST /admin/users/wipe',
+  'POST /cli/auth/approve',
 ];
 
 /** Routes that must carry a gate, whether or not the docs enumerate them. */
@@ -308,7 +320,7 @@ describe('owner/admin role gate inventory', () => {
     expect(registrations.length).toBeGreaterThan(100);
     expect(
       Object.fromEntries(helpers.map((helper) => [helper.name, helper.file])),
-      'the docs claim these four gates and no others',
+        'the docs claim these six gates and no others',
     ).toEqual(KNOWN_GATES);
     // The gated set is pinned so the comparison below cannot become vacuous.
     expect(gates.map((gate) => gate.text).sort()).toEqual(PINNED_GATED_ROUTES);
@@ -320,10 +332,10 @@ describe('owner/admin role gate inventory', () => {
     expect(claimed.has(`DELETE /admin/memories/${PARAM}/${PARAM}`)).toBe(true);
   });
 
-  it('raises admin_role_required only inside the four documented gates', () => {
+  it('raises admin_role_required only inside the six documented gates', () => {
     expect(
       strayRoleChecks(),
-      `another role gate makes the "exactly four role gates" claim in docs/LOGIN.md and ` +
+      `another role gate makes the "exactly six role gates" claim in docs/LOGIN.md and ` +
         'docs/ADMIN.md false — document it there and record it in KNOWN_GATES here',
     ).toEqual([]);
   });
@@ -346,11 +358,12 @@ describe('owner/admin role gate inventory', () => {
     ).toEqual([]);
   });
 
-  it('gates every agent-portal/memories/secrets write and every /admin/users mutation', () => {
+  it('gates every agent-messaging/agent-portal/memories/secrets write and every /admin/users mutation', () => {
     const open = registrations
       .filter((route) => !gates.includes(route))
       .filter(
         (route) =>
+          (under(route.path, '/admin/agent-messaging') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/agent-portal') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/memories') && MUTATING.includes(route.method)) ||
           // Secrets mutations, including the reveal (a POST) and the module

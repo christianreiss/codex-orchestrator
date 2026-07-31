@@ -31,6 +31,7 @@ import {
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
 import { coerceCodexVersionToMinimum, isSemanticVersion } from './client-versions.js';
+import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants (mirrored from legacy PHP)
@@ -245,14 +246,14 @@ export class HostManagementService {
     // secure/engines field means "keep what's there", not "reset to the
     // global default" — otherwise every API-key rotation on an existing host
     // would silently downgrade its engines and flip it back to secure=1.
-    const secure = req.secure ?? (existing ? existing.secure === 1 : true);
-    const enginesIn =
+    let secure = req.secure ?? (existing ? existing.secure === 1 : true);
+    const initialEngines =
       req.engines && req.engines.length
         ? req.engines
         : existing
           ? parseEnginesInput(existing.engines, [ENGINE_CODEX])
           : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
-    const engines = enginesIn.length ? enginesIn : [ENGINE_CODEX];
+    let engines = initialEngines.length ? initialEngines : [ENGINE_CODEX];
 
     const apiKeyPlain = `sk-codex-${randomBytes(32).toString('hex')}`;
     const apiKeyHash = sha256(apiKeyPlain);
@@ -262,17 +263,33 @@ export class HostManagementService {
     let host: Host;
 
     if (existing) {
-      await this.db
-        .update(hosts)
-        .set({
-          apiKey: apiKeyHash,
-          apiKeyHash,
-          apiKeyEnc,
-          secure: secure ? 1 : 0,
-          engines: serializeEngines(engines),
-          updatedAt: now,
-        })
-        .where(eq(hosts.id, existing.id));
+      await this.db.transaction(async (tx) => {
+        const rows = await tx.select().from(hosts).where(eq(hosts.id, existing.id)).limit(1).for('update');
+        const locked = rows[0];
+        if (!locked) throw new NotFoundError('Host not found', 'host_not_found');
+        // Re-registration rotates the credential which authenticates every
+        // bridge and relay. Fence the old generation in the same transaction as
+        // the new host key; otherwise accepted native work can outlive its
+        // credential and sit uncertain until lease maintenance catches up.
+        await suspendAgentMessagingRuntimeLocked(tx, locked.id, 'host_auth_rotated');
+        secure = req.secure ?? locked.secure === 1;
+        const lockedEngines =
+          req.engines && req.engines.length
+            ? req.engines
+            : parseEnginesInput(locked.engines, [ENGINE_CODEX]);
+        engines = lockedEngines.length ? lockedEngines : [ENGINE_CODEX];
+        await tx
+          .update(hosts)
+          .set({
+            apiKey: apiKeyHash,
+            apiKeyHash,
+            apiKeyEnc,
+            secure: secure ? 1 : 0,
+            engines: serializeEngines(engines),
+            updatedAt: now,
+          })
+          .where(eq(hosts.id, locked.id));
+      });
       host = (await this.findById(existing.id))!;
       await this.writeLog(existing.id, 'register', {
         result: 'rotated',
@@ -582,8 +599,11 @@ export class HostManagementService {
     await this.writeLog(id, 'admin.host.delete', { fqdn: host.fqdn });
     // FK cascades take care of children where defined; explicit digest cleanup
     // matches the legacy controller for safety.
-    await this.db.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id));
-    await this.db.delete(hosts).where(eq(hosts.id, id));
+    await this.db.transaction(async (tx) => {
+      await suspendAgentMessagingRuntimeLocked(tx, id, 'host_inactive');
+      await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id));
+      await tx.delete(hosts).where(eq(hosts.id, id));
+    });
     await this.events.appendAndPublish(
       'host.deleted',
       { host_id: id, fqdn: host.fqdn },
@@ -672,7 +692,10 @@ export class HostManagementService {
         patch.insecureGraceUntil = null;
       }
     }
-    await this.db.update(hosts).set(patch).where(eq(hosts.id, id));
+    await this.db.transaction(async (tx) => {
+      if (!secure) await suspendAgentMessagingRuntimeLocked(tx, id, 'host_insecure');
+      await tx.update(hosts).set(patch).where(eq(hosts.id, id));
+    });
     await this.writeLog(id, 'admin.host.secure', { fqdn: host.fqdn, secure });
     return await this.publishUpdate(id, host.fqdn, { secure });
   }
@@ -749,11 +772,19 @@ export class HostManagementService {
     }
     const previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
     const next = serializeEngines(engines);
+    const disabled = [ENGINE_CODEX, ENGINE_CLAUDE].filter((engine) => !engines.includes(engine));
+    await this.db.transaction(async (tx) => {
+      if (disabled.length > 0) {
+        await suspendAgentMessagingRuntimeLocked(tx, id, 'engine_disabled', disabled);
+      }
+      if (next !== previous) {
+        await tx
+          .update(hosts)
+          .set({ engines: next, updatedAt: nowIso() })
+          .where(eq(hosts.id, id));
+      }
+    });
     if (next !== previous) {
-      await this.db
-        .update(hosts)
-        .set({ engines: next, updatedAt: nowIso() })
-        .where(eq(hosts.id, id));
       await this.writeLog(id, 'admin.host.engines', {
         fqdn: host.fqdn,
         previous,

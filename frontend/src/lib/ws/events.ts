@@ -24,10 +24,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "mcp.invoked": [["logs", "mcp"]],
 
   // Hosts + overview dashboard counters
-  "host.updated": [["hosts"], ["overview"]],
+  "host.updated": [["hosts"], ["overview"], ["agent-messaging"]],
   "host.created": [["hosts"], ["overview"]],
-  "host.deleted": [["hosts"], ["overview"]],
-  "host.pruned": [["hosts"], ["overview"]],
+  "host.deleted": [["hosts"], ["overview"], ["agent-messaging"]],
+  "host.pruned": [["hosts"], ["overview"], ["agent-messaging"]],
 
   // Users
   "user.updated": [["users"]],
@@ -131,6 +131,15 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_portal.user.rotated": [["settings"]],
   "agent_portal.user.link_revealed": [["settings"]],
   "agent_portal.user.deleted": [["settings"]],
+
+  // Agent Messaging state, address discovery, relays and delivery lifecycle.
+  "agent_messaging.state.changed": [["agent-messaging"], ["settings"]],
+  "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
+  "agent_messaging.address.changed": [["agent-messaging"]],
+  "agent_messaging.conversation.changed": [["agent-messaging"]],
+  "agent_messaging.message.changed": [["agent-messaging"]],
+  "agent_messaging.relay.changed": [["agent-messaging"]],
+  "agent_messaging.queue.changed": [["agent-messaging"]],
 
   // Usage / dashboard
   // NB: the backend only ever publishes `chatgpt.usage.updated` (see

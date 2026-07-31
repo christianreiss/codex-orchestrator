@@ -191,6 +191,41 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
   });
 
+  it('injects the local Agent Messaging MCP only for an eligible enabled host', () => {
+    const host = {
+      id: 7,
+      fqdn: 'host.example',
+      secure: 1,
+      agentMessagingEnabled: 1,
+    };
+    const enabled = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: host as never,
+      baseUrl: null,
+      apiKey: null,
+      agentMessagingEnabled: true,
+    });
+    expect(enabled.content).toContain('[mcp_servers.cxx-agent]');
+    expect(enabled.content).toContain('command = "cxx"');
+    expect(enabled.content).toContain('args = ["agent", "mcp"]');
+    // A local messaging server does not imply that fleet Skills are reachable.
+    expect(enabled.content).not.toContain('[[skills.config]]');
+
+    for (const ineligible of [
+      { ...host, secure: 0 },
+      { ...host, agentMessagingEnabled: 0 },
+    ]) {
+      const rendered = renderTomlForHost({
+        settings: { orchestrator_mcp_enabled: false },
+        host: ineligible as never,
+        baseUrl: null,
+        apiKey: null,
+        agentMessagingEnabled: true,
+      });
+      expect(rendered.content).not.toContain('cxx-agent');
+    }
+  });
+
   it('revalidates effort when a Codex host overrides the fleet model', () => {
     const switched = renderTomlForHost({
       settings: {
@@ -407,5 +442,34 @@ describe('client-config: memory curation permissions', () => {
     const { partial } = renderClaudeSettingsPartial(normalizeSettings({}, { applyCodexDefaults: false }));
     const allow = (partial.permissions as Record<string, unknown>).allow;
     expect(allow).toBeUndefined();
+  });
+});
+
+describe('client-config: Claude Agent Messaging permissions', () => {
+  it('owns the local MCP server and allows only the explicit agent tool surface', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartialForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: {
+        id: 7,
+        fqdn: 'host.example',
+        secure: 1,
+        agentMessagingEnabled: 1,
+      } as never,
+      baseUrl: null,
+      apiKey: null,
+      engine: ENGINE_CLAUDE,
+      agentMessagingEnabled: true,
+    });
+    const servers = partial.mcpServers as Record<string, Record<string, unknown>>;
+    expect(servers['cxx-agent']).toEqual({ command: 'cxx', args: ['agent', 'mcp'] });
+    expect(owned_paths).toContain('mcpServers.cxx-agent');
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+    expect(allow).toEqual(expect.arrayContaining([
+      'mcp__cxx-agent__agent_list',
+      'mcp__cxx-agent__agent_send',
+      'mcp__cxx-agent__agent_reply',
+      'mcp__cxx-agent__agent_cancel',
+    ]));
+    expect(allow).not.toContain('mcp__cxx-agent__permission');
   });
 });

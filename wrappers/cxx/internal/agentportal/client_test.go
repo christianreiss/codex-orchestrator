@@ -26,6 +26,137 @@ func TestSessionFromEnvironmentRequiresPrivateSocket(t *testing.T) {
 	}
 }
 
+func TestExplicitResumeSessionIDDoesNotGuessPromptText(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	for _, args := range [][]string{
+		{"resume", sessionID},
+		{"--resume", sessionID, "-p"},
+		{"--resume=" + sessionID},
+	} {
+		if got := ExplicitResumeSessionID(args); got != sessionID {
+			t.Fatalf("ExplicitResumeSessionID(%v) = %q", args, got)
+		}
+	}
+	for _, args := range [][]string{
+		{"resume"},
+		{"resume", "--last"},
+		{"resume", "ordinary prompt text"},
+		{"run", sessionID},
+	} {
+		if got := ExplicitResumeSessionID(args); got != "" {
+			t.Fatalf("ExplicitResumeSessionID(%v) guessed %q", args, got)
+		}
+	}
+}
+
+func TestStartKeepsMessagingRecoveryOffWhenSignedPolicyIsOff(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": true, "session_id": body["session_id"], "bridge_token": body["bridge_token"],
+		})
+	}))
+	defer server.Close()
+	session, err := Start(context.Background(), &config.Config{
+		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "host-key"},
+	}, StartInput{Engine: config.EngineCodex, InvocationKind: "interactive"})
+	if err != nil || session == nil {
+		t.Fatalf("portal-only Start = %#v, %v", session, err)
+	}
+	if session.messagingRecovery {
+		t.Fatal("signed-off lifecycle enabled messaging rebind recovery")
+	}
+}
+
+func TestBridgeRecoveryRebindsStableAddressAfterAdminLifecycleReset(t *testing.T) {
+	for _, failure := range []struct {
+		code   string
+		status int
+	}{
+		{code: "agent_messaging_binding_stale", status: http.StatusConflict},
+		{code: "agent_messaging_address_disabled", status: http.StatusForbidden},
+	} {
+		t.Run(failure.code, func(t *testing.T) {
+			const sessionID = "11111111-1111-4111-8111-111111111111"
+			const address = "agent:22222222-2222-4222-8222-222222222222"
+			heartbeats := 0
+			registrations := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/host/agent-sessions/" + sessionID + "/heartbeat":
+					heartbeats++
+					if heartbeats == 1 {
+						w.WriteHeader(failure.status)
+						_ = json.NewEncoder(w).Encode(map[string]any{"code": failure.code, "message": "binding unavailable"})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true})
+				case "/host/agent-sessions":
+					registrations++
+					if got := r.Header.Get("X-API-Key"); got != "host-key" {
+						t.Errorf("recovery host key = %q", got)
+					}
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["session_id"] != sessionID || body["bridge_token"] != testBridgeToken || body["agent_address"] != address || body["binding_generation"] != float64(7) {
+						t.Errorf("recovery body = %#v", body)
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"enabled": true, "session_id": sessionID, "bridge_token": testBridgeToken,
+						"agent_address": map[string]any{"address": address, "binding_generation": 8},
+					})
+				default:
+					t.Errorf("unexpected recovery path %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			session := &Session{
+				ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL, Engine: config.EngineCodex,
+				hostAPIKey: "host-key", http: server.Client(), registrationGeneration: 1, messagingRecovery: true,
+				registrationBody: map[string]any{
+					"session_id": sessionID, "bridge_token": testBridgeToken, "engine": config.EngineCodex,
+					"agent_address": address, "binding_generation": 7,
+				},
+			}
+			if err := session.Heartbeat(context.Background(), "", ""); err != nil {
+				t.Fatalf("Heartbeat recovery: %v", err)
+			}
+			if heartbeats != 2 || registrations != 1 || session.registrationGeneration != 2 {
+				t.Fatalf("heartbeats=%d registrations=%d generation=%d", heartbeats, registrations, session.registrationGeneration)
+			}
+			if got := session.registrationBody["binding_generation"]; got != 8 {
+				t.Fatalf("next expected binding generation = %#v", got)
+			}
+		})
+	}
+}
+
+func TestBindingStaleDoesNotRecoverWithoutSignedMessagingPolicy(t *testing.T) {
+	registrations := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/host/agent-sessions" {
+			registrations++
+		}
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": "agent_messaging_binding_stale", "message": "binding unavailable"})
+	}))
+	defer server.Close()
+	session := &Session{
+		ID: "11111111-1111-4111-8111-111111111111", BridgeToken: testBridgeToken,
+		BaseURL: server.URL, Engine: config.EngineCodex, hostAPIKey: "host-key", http: server.Client(),
+		registrationBody: map[string]any{"session_id": "11111111-1111-4111-8111-111111111111"},
+	}
+	err := session.Heartbeat(context.Background(), "", "")
+	if !portalErrorCode(err, "agent_messaging_binding_stale") {
+		t.Fatalf("signed-off heartbeat error = %v", err)
+	}
+	if registrations != 0 {
+		t.Fatalf("signed-off session attempted %d registrations", registrations)
+	}
+}
+
 func TestStartRetriesRegistrationAndExposesNoPortalBridgeCredential(t *testing.T) {
 	const hostSecret = "host-api-key-that-must-not-reach-the-child"
 	var attempts int
@@ -63,18 +194,25 @@ func TestStartRetriesRegistrationAndExposesNoPortalBridgeCredential(t *testing.T
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"enabled": true, "session_id": gotSession, "bridge_token": gotToken,
 			"expires_at": "2026-07-29T12:00:00Z",
+			"agent_address": map[string]any{
+				"address": "agent:11111111-1111-4111-8111-111111111111", "binding_generation": 4,
+			},
 		})
 	}))
 	defer server.Close()
 
 	session, err := Start(context.Background(), &config.Config{
-		Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: hostSecret},
+		Orchestrator:   config.Orchestrator{BaseURL: server.URL, APIKey: hostSecret},
+		AgentMessaging: config.AgentMessaging{Enabled: true},
 	}, StartInput{Engine: config.EngineCodex, InvocationKind: "interactive"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if session == nil || attempts != 2 {
 		t.Fatalf("session=%v attempts=%d", session, attempts)
+	}
+	if session.registrationBody["agent_address"] != "agent:11111111-1111-4111-8111-111111111111" || session.registrationBody["binding_generation"] != 4 {
+		t.Fatalf("registration recovery identity = %#v", session.registrationBody)
 	}
 	broker, err := session.StartBroker(context.Background())
 	if err != nil {
@@ -275,6 +413,144 @@ func TestBrokerRejectsPrivilegedPathsAndCleansUp(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("broker directory still exists: %v", err)
+	}
+}
+
+func TestBrokerReceiveOperationsRequireSignedClaudePreview(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	const messageID = "22222222-2222-4222-8222-222222222222"
+	restricted := []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "receive bind", path: "/host/agent-sessions/" + sessionID + "/agent-messaging/bind", body: `{"receive_capable":true}`},
+		{name: "claim", path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/claim", body: `{}`},
+		{name: "renew", path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/renew", body: `{}`},
+		{name: "ack", path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/ack", body: `{}`},
+	}
+	for _, policy := range []struct {
+		name                  string
+		engine                string
+		channelReceiveAllowed bool
+	}{
+		{name: "signed preview false", engine: config.EngineClaude},
+		{name: "non-Claude engine", engine: config.EngineCodex, channelReceiveAllowed: true},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			upstreamCalls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamCalls++
+				t.Errorf("forbidden receive request reached upstream: %s", r.URL.Path)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			broker := testDirectBroker(&Session{
+				ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL,
+				Engine: policy.engine, http: server.Client(), channelReceiveAllowed: policy.channelReceiveAllowed,
+			})
+			for _, operation := range restricted {
+				t.Run(operation.name, func(t *testing.T) {
+					response := serveBrokerRequest(broker, operation.path, operation.body)
+					if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"broker_receive_forbidden"`) {
+						t.Fatalf("response status=%d body=%s", response.Code, response.Body.String())
+					}
+				})
+			}
+			if upstreamCalls != 0 {
+				t.Fatalf("forbidden receive requests reached upstream %d times", upstreamCalls)
+			}
+		})
+	}
+}
+
+func TestBrokerAllowsOrdinaryMessagingWithoutChannelPreview(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	var upstreamPaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPaths = append(upstreamPaths, r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	broker := testDirectBroker(&Session{
+		ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL,
+		Engine: config.EngineCodex, http: server.Client(),
+	})
+	for _, operation := range []struct {
+		name string
+		body string
+	}{
+		{name: "list", body: `{}`},
+		{name: "send", body: `{}`},
+		{name: "reply", body: `{}`},
+		{name: "wait", body: `{}`},
+		{name: "message", body: `{}`},
+		{name: "cancel", body: `{}`},
+		{name: "bind", body: `{"receive_capable":false}`},
+	} {
+		path := "/host/agent-sessions/" + sessionID + "/agent-messaging/" + operation.name
+		response := serveBrokerRequest(broker, path, operation.body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", operation.name, response.Code, response.Body.String())
+		}
+	}
+	if len(upstreamPaths) != 7 {
+		t.Fatalf("ordinary upstream paths = %v", upstreamPaths)
+	}
+}
+
+func TestBrokerAllowsReceiveOperationsOnlyForSignedClaudePreview(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	const messageID = "22222222-2222-4222-8222-222222222222"
+	upstreamCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	broker := testDirectBroker(&Session{
+		ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL,
+		Engine: config.EngineClaude, http: server.Client(), channelReceiveAllowed: true,
+	})
+	for _, operation := range []struct {
+		path string
+		body string
+	}{
+		{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/bind", body: `{"receive_capable":true}`},
+		{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/claim", body: `{}`},
+		{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/renew", body: `{}`},
+		{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/ack", body: `{}`},
+	} {
+		response := serveBrokerRequest(broker, operation.path, operation.body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", operation.path, response.Code, response.Body.String())
+		}
+	}
+	if upstreamCalls != 4 {
+		t.Fatalf("receive upstream calls = %d", upstreamCalls)
+	}
+}
+
+func TestSignedChannelReceivePolicyRequiresMatchingClaudeConfig(t *testing.T) {
+	enabled := config.AgentMessaging{Enabled: true, ChannelPreviewEnabled: true}
+	for _, test := range []struct {
+		name    string
+		cfg     *config.Config
+		engine  string
+		allowed bool
+	}{
+		{name: "Claude enabled", cfg: &config.Config{Engine: config.EngineClaude, AgentMessaging: enabled}, engine: config.EngineClaude, allowed: true},
+		{name: "preview false", cfg: &config.Config{Engine: config.EngineClaude, AgentMessaging: config.AgentMessaging{Enabled: true}}, engine: config.EngineClaude},
+		{name: "messaging false", cfg: &config.Config{Engine: config.EngineClaude, AgentMessaging: config.AgentMessaging{ChannelPreviewEnabled: true}}, engine: config.EngineClaude},
+		{name: "Codex signed config", cfg: &config.Config{Engine: config.EngineCodex, AgentMessaging: enabled}, engine: config.EngineCodex},
+		{name: "engine mismatch", cfg: &config.Config{Engine: config.EngineClaude, AgentMessaging: enabled}, engine: config.EngineCodex},
+		{name: "nil config", engine: config.EngineClaude},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := signedChannelReceiveAllowed(test.cfg, test.engine); got != test.allowed {
+				t.Fatalf("signedChannelReceiveAllowed() = %v, want %v", got, test.allowed)
+			}
+		})
 	}
 }
 
@@ -481,6 +757,21 @@ func activatePortalBroker(t *testing.T, server *httptest.Server) *Broker {
 		_ = broker.Close()
 	})
 	return broker
+}
+
+func testDirectBroker(session *Session) *Broker {
+	return &Broker{
+		session:  session,
+		ctx:      context.Background(),
+		requests: make(map[uint64]context.CancelFunc),
+	}
+}
+
+func serveBrokerRequest(broker *Broker, path, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	response := httptest.NewRecorder()
+	broker.ServeHTTP(response, request)
+	return response
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

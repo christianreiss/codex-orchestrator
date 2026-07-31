@@ -44,6 +44,8 @@
     createScalingExemptToggleMutation,
     createCurlInsecureToggleMutation,
     createBrowserOsMcpToggleMutation,
+    createAgentMessagingToggleMutation,
+    hostAgentMessagingToggleDisabled,
     createModelOverrideMutation,
     createCodexVersionMutation,
     createClaudeVersionMutation,
@@ -73,6 +75,7 @@
   const scaling = createScalingExemptToggleMutation(qc);
   const curlInsecure = createCurlInsecureToggleMutation(qc);
   const browserOsMcp = createBrowserOsMcpToggleMutation(qc);
+  const agentMessaging = createAgentMessagingToggleMutation(qc);
   const modelOverride = createModelOverrideMutation(qc);
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
@@ -431,6 +434,9 @@
           )}
           {@render toggleRow("BrowserOS MCP", host.browseros_mcp_enabled, (v) =>
             run(v ? "BrowserOS MCP on" : "BrowserOS MCP off", $browserOsMcp.mutateAsync({ id, value: v })),
+          )}
+          {@render engineSwitchRow("Agent Messaging", host.agent_messaging_enabled, hostAgentMessagingToggleDisabled(host), (v) =>
+            run(v ? "Agent Messaging on" : "Agent Messaging off", $agentMessaging.mutateAsync({ id, value: v })),
           )}
           {@render engineSwitchRow("Codex", codexEngine, codexSwitchDisabled, (v) => setHostEngine("codex", v))}
           {@render engineSwitchRow("Claude", claudeEngine, claudeSwitchDisabled, (v) => setHostEngine("claude", v))}
