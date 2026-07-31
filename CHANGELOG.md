@@ -12,6 +12,12 @@
   The Svelte admin UI exposes the fleet switch, per-host/address eligibility,
   direction/queue operations, metadata-only viewer access, and owner/admin-only
   mutation plus no-store audited content reveal.
+- Fixed the admin runner card to show an engine as `idle` when it has no current,
+  runner-verified canonical auth. Persisted telemetry from a reused database can
+  no longer make a fresh install look `OK` before Codex or Claude is seeded.
+- Clarified manual Claude auth seeding in the host dialog: operators may paste
+  canonical native credentials JSON (including OAuth) or a genuine Anthropic
+  API key; the field is no longer misleadingly labelled as API-key-only.
 - Added a fleet secrets store for the **working** credentials agents need once
   they are running — GitHub PATs, database passwords, Bookstack/Checkmk tokens,
   SSH keys, third-party API keys for MCP servers and services. Until now there

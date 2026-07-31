@@ -83,6 +83,76 @@ describe('RunnerProxyService', () => {
     });
   });
 
+  it('reports idle rather than stale OK telemetry when no canonical auth exists', async () => {
+    const runnerValidation = {
+      resolveCanonicalPayload: async () => null,
+      validateCanonicalPayload: () => null,
+      canonicalAuthFromPayload: () => null,
+    } as unknown as RunnerValidationService;
+    const svc = new RunnerProxyService(
+      makeEnv({
+        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Partial<Env>),
+      undefined,
+      {
+        runnerValidation,
+        versionReader: async () =>
+          new Map([
+            ['runner_state', 'ok'],
+            ['runner_last_check', '2026-05-20T10:09:50Z'],
+            ['runner_last_ok', '2026-05-20T10:09:50Z'],
+            ['runner_state_claude', 'ok'],
+            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
+            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
+          ]),
+      },
+    );
+
+    const s = await svc.status();
+
+    expect(s.state).toBe('idle');
+    expect(s.engines?.codex).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
+    expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
+    expect(s.detail).toBe('configured; no verified canonical auth for Codex or Claude');
+  });
+
+  it('preserves verified Codex telemetry while projecting missing Claude auth as idle', async () => {
+    const verified = { verificationState: 'verified' };
+    const runnerValidation = {
+      resolveCanonicalPayload: async (engine: string) => engine === 'codex' ? verified : null,
+      validateCanonicalPayload: (row: unknown) => row === verified ? { last_refresh: '2026-05-20T10:00:00Z' } : null,
+      canonicalAuthFromPayload: (row: unknown) => row === verified ? { auths: {} } : null,
+    } as unknown as RunnerValidationService;
+    const svc = new RunnerProxyService(
+      makeEnv({
+        AUTH_RUNNER_URL: 'https://runner.example.com/verify',
+        AUTH_RUNNER_SHARED_SECRET: 'secret',
+      } as Partial<Env>),
+      undefined,
+      {
+        runnerValidation,
+        versionReader: async () =>
+          new Map([
+            ['runner_state', 'ok'],
+            ['runner_last_check', '2026-05-20T10:09:50Z'],
+            ['runner_last_ok', '2026-05-20T10:09:50Z'],
+            ['runner_state_claude', 'ok'],
+            ['runner_last_check_claude', '2026-05-20T10:09:49Z'],
+            ['runner_last_ok_claude', '2026-05-20T10:09:49Z'],
+          ]),
+      },
+    );
+
+    const s = await svc.status();
+
+    expect(s.state).toBe('ok');
+    expect(s.last_run).toBe('2026-05-20T10:09:50Z');
+    expect(s.engines?.codex).toMatchObject({ state: 'ok', last_ok: '2026-05-20T10:09:50Z' });
+    expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
+    expect(s.detail).toBe('configured; no verified canonical auth for Claude');
+  });
+
   it('folds a failing Codex engine into a fail state even when Claude is ok', async () => {
     const s = await statusFromVersions({
       runner_state: 'fail',

@@ -4,7 +4,7 @@ import { ServiceUnavailableError } from '../http/errors.js';
 import type { Env } from '../env.js';
 import { createRunnerClient, type RunnerClient, type RunnerVerifyResult } from './runner-client.js';
 import type { RunnerValidationService } from './runner-validation.js';
-import { ENGINE_CODEX, parseEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, parseEngine, type Engine } from '../util/engine.js';
 import type { Database } from '../db/client.js';
 import { authSeedTokens, versions } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
@@ -209,8 +209,20 @@ export class RunnerProxyService {
     if (!read) return {};
 
     const map = await read();
-    const codex = normalizeRunnerEngineStatus(runnerEngineStatus(map, ''), 'Codex');
-    const claude = normalizeRunnerEngineStatus(runnerEngineStatus(map, '_claude'), 'Claude');
+    const [codexCanonical, claudeCanonical] = await Promise.all([
+      this.hasVerifiedCanonicalAuth(ENGINE_CODEX),
+      this.hasVerifiedCanonicalAuth(ENGINE_CLAUDE),
+    ]);
+    const codex = normalizeRunnerEngineStatus(
+      runnerEngineStatus(map, ''),
+      'Codex',
+      codexCanonical,
+    );
+    const claude = normalizeRunnerEngineStatus(
+      runnerEngineStatus(map, '_claude'),
+      'Claude',
+      claudeCanonical,
+    );
     const state = codex.state === 'fail' || claude.state === 'fail'
       ? 'fail'
       : codex.state === 'ok' || claude.state === 'ok'
@@ -224,7 +236,31 @@ export class RunnerProxyService {
       last_error: state === 'fail' ? latestFailureLabel(codex, claude) : null,
       last_result: { codex, claude },
       engines: { codex, claude },
+      ...(canonicalStatusDetail(codexCanonical, claudeCanonical)),
     };
+  }
+
+  /**
+   * Runner telemetry is historical metadata, whereas a green engine badge is
+   * a statement about auth that can be used now.  A fresh database has neither
+   * canonical payload nor telemetry; a reused database can retain telemetry
+   * after its canonical auth has been removed.  Only expose persisted `ok` /
+   * `fail` state when the current canonical row is verified and distributable.
+   *
+   * Test-only embeddings can provide a versionReader without a database or
+   * validation service.  In that case the canonical state is unknowable, so
+   * preserve the historical telemetry behaviour rather than inventing a
+   * negative answer.
+   */
+  private async hasVerifiedCanonicalAuth(engine: Engine): Promise<boolean | null> {
+    const validation = this.deps.runnerValidation;
+    if (!validation) return null;
+    const row = await validation.resolveCanonicalPayload(engine);
+    return (
+      row?.verificationState === 'verified' &&
+      validation.validateCanonicalPayload(row) !== null &&
+      validation.canonicalAuthFromPayload(row) !== null
+    );
   }
 }
 
@@ -255,7 +291,18 @@ function runnerEngineStatus(map: Map<string, string>, suffix: '' | '_claude') {
 function normalizeRunnerEngineStatus(
   status: ReturnType<typeof runnerEngineStatus>,
   label: 'Codex' | 'Claude',
+  canonicalAuth: boolean | null = null,
 ): RunnerEngineStatus {
+  if (canonicalAuth === false) {
+    return {
+      state: 'idle',
+      last_check: null,
+      last_ok: null,
+      last_fail: null,
+      last_run: null,
+      last_error: null,
+    };
+  }
   const state = status.state ?? null;
   const lastRun = latestIso(status.last_check, status.last_ok, status.last_fail);
   return {
@@ -263,6 +310,18 @@ function normalizeRunnerEngineStatus(
     last_run: lastRun,
     last_error: state === 'fail' && status.last_fail ? `${label} runner failed at ${status.last_fail}` : null,
   };
+}
+
+function canonicalStatusDetail(
+  codexCanonical: boolean | null,
+  claudeCanonical: boolean | null,
+): Partial<RunnerStatus> {
+  const missing = [
+    codexCanonical === false ? 'Codex' : null,
+    claudeCanonical === false ? 'Claude' : null,
+  ].filter((engine): engine is string => engine !== null);
+  if (missing.length === 0) return {};
+  return { detail: `configured; no verified canonical auth for ${missing.join(' or ')}` };
 }
 
 function latestIso(...values: Array<string | null | undefined>): string | null {

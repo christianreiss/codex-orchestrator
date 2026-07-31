@@ -153,16 +153,21 @@
 
         <div class="space-y-1.5">
           <Label for="seed-upload-payload">
-            {engine === "codex" ? "Canonical Codex auth JSON" : "Claude API key"}
+            {engine === "codex" ? "Canonical Codex auth JSON" : "Canonical Claude auth JSON or API key"}
           </Label>
           <Textarea
             id="seed-upload-payload"
             class="h-40 font-mono text-xs"
             placeholder={engine === "codex"
               ? '{ "OPENAI_API_KEY": "sk-…", … }'
-              : "sk-ant-…"}
+              : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
             bind:value={payload}
           />
+          {#if engine === "claude"}
+            <p class="text-[11px] text-muted-foreground">
+              Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
+            </p>
+          {/if}
         </div>
 
         <div class="flex items-center gap-2">

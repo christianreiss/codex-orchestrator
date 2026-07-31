@@ -7,8 +7,9 @@
  *    Only a backend running without a database cannot mint a token; it falls
  *    back to a bare `{ status, queued }` acknowledgement, so the SeedAuthDialog
  *    accepts either shape.
- *  - `upload` accepts the canonical auth payload (Codex auth JSON or Claude
- *    API key) so the fleet can repair drifted hosts directly.
+ *  - `upload` accepts the canonical auth payload (Codex auth JSON, Claude
+ *    native credentials JSON, or a genuine Anthropic API key) so the fleet can
+ *    repair drifted hosts directly.
  */
 import {
   createMutation,
