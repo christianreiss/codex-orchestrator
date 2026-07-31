@@ -84,8 +84,14 @@ through `skill://skill-manager`; other manifests and support files use
 memory through the MCP `shared_memory_*`, `project_memory_*`, and host-local
 `memory_*` scopes, points enabled project coordination at `#coco` /
 `project_*`, and advertises BrowserOS only when both the host toggle and
-orchestrator MCP are active. It never lists individual Skills, memories, or
-projects. Recorded decisions, conventions, runbooks, and handoffs are
+orchestrator MCP are active. It routes working credentials — API tokens,
+database passwords, service accounts — at the fleet secrets store via
+`secret_list` / `secret_search` / `secret_get`, ahead of asking the operator or
+reading env files, config files, or shell history, and states the handling rules
+(never echo a value into output, a commit, a log, a file, or any memory scope).
+That paragraph appears only when the `secrets_module_enabled` switch is on,
+orchestrator MCP is reachable, and at least one secret is visible to this
+engine. It never lists individual Skills, memories, projects, or secrets. Recorded decisions, conventions, runbooks, and handoffs are
 authoritative over agent assumptions, but mutable code and runtime facts must be
 verified against the present repository or system; stale records are updated or
 deleted instead of duplicated. Feature changes alter the served/managed hashes

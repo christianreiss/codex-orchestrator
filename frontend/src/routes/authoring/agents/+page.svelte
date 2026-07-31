@@ -189,8 +189,9 @@
 <div class="mb-4 flex gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
   <Info class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
   <p>
-    This editor stores only the canonical base document. Skills, Memory, Projects, and BrowserOS
-    guidance is appended dynamically for each engine and host when served as AGENTS.md or CLAUDE.md.
+    This editor stores only the canonical base document. Skills, Memory, Projects, BrowserOS, and
+    Secrets guidance is appended dynamically for each engine and host when served as AGENTS.md or
+    CLAUDE.md.
   </p>
 </div>
 

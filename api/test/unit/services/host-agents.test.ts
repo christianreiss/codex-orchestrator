@@ -6,6 +6,7 @@ import {
   clientConfigDocuments,
   logs,
   mcpSessionTokens,
+  secrets,
   versions,
 } from '../../../src/db/schema.js';
 import type { Host } from '../../../src/db/schema.js';
@@ -391,5 +392,120 @@ describe('HostAgentsService managed MCP token', () => {
     const servers = (out['partial'] as Record<string, unknown>)['mcpServers'] as Record<string, { url?: string }>;
 
     expect(servers['clx']?.url).toBe('https://api.example/mcp');
+  });
+});
+
+/**
+ * The Secrets guidance gate. `resolveManagedFeatureContext` runs on every host
+ * bootstrap, so two things matter beyond "does the text appear": the served
+ * digest has to cover the augmented body (or hosts are told `unchanged` and
+ * never write the block), and a failing secrets read has to degrade to a missing
+ * section rather than a 500 on every sync in the fleet.
+ */
+describe('HostAgentsService secrets guidance', () => {
+  const body = 'Canonical AGENTS body\n';
+  const rowsFor = (
+    versionRows: Array<Record<string, unknown>>,
+    secretRows: Array<Record<string, unknown>>,
+    engine: string = ENGINE_CODEX,
+  ): Array<[unknown, Record<string, unknown>[]]> => [
+    [agentsDocuments, [agentsRow(4, body, engine)]],
+    [clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: true })]],
+    [versions, versionRows],
+    [secrets, secretRows],
+  ];
+
+  const liveSecret = {
+    id: 1,
+    slug: 'gh-pat',
+    name: 'GitHub PAT',
+    description: null,
+    valueEnc: 'sbox:v1:kid=legacy:aaaa',
+    engine: null,
+    tags: null,
+    tagsText: null,
+    createdAt: '2026-07-01T09:00:00Z',
+    updatedAt: '2026-07-01T09:00:00Z',
+    lastRotatedAt: null,
+    deletedAt: null,
+  };
+  const ON = { name: 'secrets_module_enabled', version: '1' };
+
+  it('serves the block and covers it with the served digest', async () => {
+    const db = makeDb(rowsFor([ON], [liveSecret]));
+    const out = await makeService(db).retrieve(null, makeHost());
+    const served = String(out['content']);
+
+    expect(served).toContain('## Secrets');
+    expect(served).toContain('secret_list');
+    // The digest must be of the augmented body, not the canonical one, or a
+    // host holding the canonical sha would be told `unchanged` forever.
+    expect(out['sha256']).toBe(sha(served));
+    expect(out['sha256']).not.toBe(out['base_sha256']);
+    expect(out['size_bytes']).toBe(Buffer.byteLength(served, 'utf8'));
+    expect(out['sections']).toMatchObject({ secrets: { present: true, reason: 'ok', count: 1 } });
+  });
+
+  it('serves the identical block to Claude', async () => {
+    const db = makeDb(rowsFor([ON], [liveSecret], ENGINE_CLAUDE));
+    const out = await makeService(db).retrieve(null, makeHost(), ENGINE_CLAUDE);
+
+    expect(out['content']).toContain('## Secrets');
+    expect(out['sections']).toMatchObject({ secrets: { present: true, reason: 'ok', count: 1 } });
+  });
+
+  it.each([
+    ['the flag row is absent entirely', [] as Array<Record<string, unknown>>, [liveSecret], 'secrets_disabled'],
+    ['the flag is off', [{ name: 'secrets_module_enabled', version: '0' }], [liveSecret], 'secrets_disabled'],
+    ['the store is empty', [ON], [], 'no_secrets'],
+    [
+      'every secret is soft-deleted',
+      [ON],
+      [{ ...liveSecret, deletedAt: '2026-07-02T09:00:00Z' }],
+      'no_secrets',
+    ],
+  ])('withholds the block when %s', async (_label, versionRows, secretRows, reason) => {
+    const db = makeDb(rowsFor(versionRows, secretRows));
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(String(out['content'])).not.toContain('## Secrets');
+    expect(String(out['content'])).not.toContain('secret_get');
+    expect(out['sections']).toMatchObject({ secrets: { present: false, reason } });
+  });
+
+  it('withholds the block when MCP itself is off, since the tools are unreachable', async () => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, body)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: false })]],
+      [versions, [ON]],
+      [secrets, [liveSecret]],
+    ]);
+    const out = await makeService(db).retrieve(null, makeHost());
+    expect(out['sections']).toMatchObject({ secrets: { present: false, reason: 'mcp_disabled' } });
+  });
+
+  it('still serves the document when the secrets table cannot be read', async () => {
+    // A box mid-deploy whose `secrets` table does not exist yet must not 500
+    // every host's bootstrap over a guidance paragraph.
+    const db = makeDb(rowsFor([ON], [liveSecret]));
+    const broken = {
+      ...db,
+      select: (...args: unknown[]) => {
+        const builder = (db.select as (...a: unknown[]) => Record<string, unknown>)(...args);
+        const from = builder['from'] as (table: unknown) => unknown;
+        builder['from'] = (table: unknown) => {
+          if (table === secrets) throw new Error("Table 'secrets' doesn't exist");
+          return from.call(builder, table);
+        };
+        return builder;
+      },
+    };
+
+    const out = await makeService(broken as unknown as DbFake).retrieve(null, makeHost());
+    expect(out['status']).toBe('updated');
+    expect(String(out['content'])).toContain('Canonical AGENTS body');
+    expect(out['sections']).toMatchObject({
+      secrets: { present: false, reason: 'service_unavailable' },
+    });
   });
 });

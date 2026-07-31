@@ -23,6 +23,7 @@ export interface ManagedAgentFeatureContext {
   memory: ManagedFeatureState;
   projects: ManagedFeatureState;
   browseros: ManagedFeatureState;
+  secrets: ManagedFeatureState;
 }
 
 export interface ManagedAgentFeatureSection {
@@ -40,6 +41,7 @@ export interface ManagedAgentFeatureSections {
   memory_routing: ManagedAgentFeatureSection;
   projects: ManagedAgentFeatureSection;
   browseros: ManagedAgentFeatureSection;
+  secrets: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -174,6 +176,42 @@ requires interactive browser automation or live page inspection.`,
   );
 }
 
+/**
+ * One text for both engines, with no engine branch. Unlike Skills — where
+ * Claude Code has a native `~/.claude/skills/` loader to defer to — neither
+ * engine ships a credential store of its own, so there is nothing to
+ * differentiate and the rendered bytes are identical either way.
+ *
+ * The block does not enumerate slugs. `docs/interface-cdx.md` pins the contract
+ * ("never lists individual Skills, memories, or projects"), enumerating would
+ * rewrite every host's document on every secret added or renamed, and writing
+ * credential *names* to disk cuts against a feature whose premise is that
+ * nothing lands on the host. Making the agent spend one `secret_list` call is
+ * the correct trade.
+ */
+function secretsSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+  if (!context.secrets.enabled) return null;
+  return present(
+    context.secrets,
+    `## Secrets
+
+This fleet keeps working credentials — API tokens, database passwords, service accounts — in the
+orchestrator secrets store, shared across every host and both engines. It is reachable only
+through MCP; nothing is written to this machine's disk.
+
+**Needing a credential.** If a task needs a token, key, password, or connection string, call
+\`secret_list\` (it takes no arguments) or \`secret_search\` **first — before asking the human, and
+before hunting through env files, config files, or shell history**. Read the match with
+\`secret_get\`. Asking for a credential the store already holds is a wrong answer: that is where
+it lives.
+
+**Handling one.** Pass the value straight into the command or request that needs it, then drop it.
+Never write a secret value into your reply, a commit, a log, or any file. Never copy one into
+\`shared_memory_*\`, \`project_memory_*\`, or \`memory_*\`. Refer to secrets by slug, never by value.`,
+    'mcp',
+  );
+}
+
 function stripManagedContent(body: string): { body: string; changed: boolean } {
   let stripped = body.replace(OWN_BLOCK, '');
   stripped = stripped.replace(LEGACY_BLOCK, '');
@@ -185,8 +223,8 @@ function stripManagedContent(body: string): { body: string; changed: boolean } {
 
 /**
  * Render enabled feature guidance in fixed provider order: Skills, Memory,
- * Projects, BrowserOS. The returned managed digest covers the exact delimited
- * block appended to the body, including its final newline.
+ * Projects, BrowserOS, Secrets. The returned managed digest covers the exact
+ * delimited block appended to the body, including its final newline.
  */
 export function renderManagedAgentFeatures(
   baseBody: string,
@@ -196,6 +234,7 @@ export function renderManagedAgentFeatures(
   const memory = memorySection(context);
   const projects = projectsSection(context);
   const browseros = browserOsSection(context);
+  const secrets = secretsSection(context);
 
   const skillsMetadata = skills?.metadata ?? absent(context.skills);
   const memoryMetadata = memory?.metadata ?? absent(context.memory);
@@ -211,9 +250,13 @@ export function renderManagedAgentFeatures(
     memory_routing: memoryMetadata,
     projects: projectsMetadata,
     browseros: browserOsMetadata,
+    secrets: secrets?.metadata ?? absent(context.secrets),
   };
 
-  const renderedSections = [skills, memory, projects, browseros]
+  // Appended last on purpose: provider order is part of `managed_sha256`, so
+  // inserting anywhere else would churn every host's document for four sections
+  // that did not change.
+  const renderedSections = [skills, memory, projects, browseros, secrets]
     .filter((section): section is RenderedSection => section !== null)
     .map((section) => section.text);
   const stripped = stripManagedContent(baseBody);

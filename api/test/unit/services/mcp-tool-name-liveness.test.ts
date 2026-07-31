@@ -35,6 +35,7 @@ const ALL_DEPS = {
   skills: {},
   resources: {},
   fs: {},
+  secrets: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -88,6 +89,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       memory: enabled,
       projects: enabled,
       browseros: enabled,
+      secrets: { ...enabled, count: 1 },
     }).body,
   })),
   {

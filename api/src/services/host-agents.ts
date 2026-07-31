@@ -15,6 +15,7 @@ import { managedMcpAvailability, renderTomlForHost, renderClaudeSettingsPartialF
 import { normalizeSettings } from './config-normalizer.js';
 import { HostSkillsService } from './host-skills.js';
 import { ProjectsService } from './projects.js';
+import { SecretsService } from './secrets.js';
 import {
   renderManagedAgentFeatures,
   type ManagedAgentFeatureContext,
@@ -31,6 +32,7 @@ export class HostAgentsService {
   private readonly mcpSessions: McpSessionService;
   private readonly skills: HostSkillsService;
   private readonly projects: ProjectsService;
+  private readonly secrets: SecretsService;
 
   constructor(
     private readonly db: Database,
@@ -41,6 +43,10 @@ export class HostAgentsService {
     this.mcpSessions = new McpSessionService(db);
     this.skills = new HostSkillsService(db);
     this.projects = new ProjectsService(db);
+    // No keyring: this instance only ever answers "is the module on, and how
+    // many secrets can this engine see?". Rendering guidance must not be able
+    // to touch ciphertext, and omitting the keyring makes that structural.
+    this.secrets = new SecretsService({ db });
   }
 
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
@@ -201,16 +207,22 @@ export class HostAgentsService {
    * config, host, and engine policy stays here.
    */
   private async resolveManagedFeatureContext(host: Host, engine: Engine): Promise<ManagedAgentFeatureContext> {
-    const [configRows, skillCount, projectsEnabled] = await Promise.all([
-      this.db
-        .select()
-        .from(clientConfigDocuments)
-        .where(eq(clientConfigDocuments.engine, engine))
-        .orderBy(desc(clientConfigDocuments.id))
-        .limit(1),
-      this.skills.availableCount(engine).catch(() => null),
-      this.projects.getEnabled().catch(() => null),
-    ]);
+    const [configRows, skillCount, projectsEnabled, secretsEnabled, secretCount] =
+      await Promise.all([
+        this.db
+          .select()
+          .from(clientConfigDocuments)
+          .where(eq(clientConfigDocuments.engine, engine))
+          .orderBy(desc(clientConfigDocuments.id))
+          .limit(1),
+        this.skills.availableCount(engine).catch(() => null),
+        this.projects.getEnabled().catch(() => null),
+        // Both `.catch(() => null)` for the same reason as their neighbours: a
+        // box mid-deploy whose `secrets` table does not exist yet would
+        // otherwise 500 every host's bootstrap, not just its guidance block.
+        this.secrets.getEnabled().catch(() => null),
+        this.secrets.availableCount(engine).catch(() => null),
+      ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
     const rawSettings = configRow?.settings && typeof configRow.settings === 'object'
@@ -257,7 +269,21 @@ export class HostAgentsService {
           ? state(true, 'ok')
           : state(false, 'host_disabled');
 
-    return { engine, skills, memory, projects, browseros };
+    // Ordering mirrors `projects`, with one extra rung: an enabled module with
+    // nothing in it is noise, so guidance about credentials only appears once
+    // there are credentials this engine can actually see.
+    const secrets =
+      secretsEnabled === null || secretCount === null
+        ? state(false, 'service_unavailable')
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : !secretsEnabled
+            ? state(false, 'secrets_disabled')
+            : secretCount === 0
+              ? state(false, 'no_secrets', 0)
+              : state(true, 'ok', secretCount);
+
+    return { engine, skills, memory, projects, browseros, secrets };
   }
 
   private async resolveServedDocument(host: Host, engine: Engine): Promise<typeof agentsDocuments.$inferSelect | null> {

@@ -31,6 +31,7 @@ function context(
     memory: disabled('mcp_disabled'),
     projects: disabled('projects_disabled'),
     browseros: disabled(engine === ENGINE_CODEX ? 'host_disabled' : 'unsupported_engine'),
+    secrets: disabled('no_secrets', 0),
     ...overrides,
   };
 }
@@ -46,14 +47,19 @@ describe('renderManagedAgentFeatures', () => {
         memory: enabled(),
         projects: enabled(),
         browseros: enabled(),
+        secrets: enabled(3),
       }),
     );
 
     expect(out.body).toContain(MANAGED_FEATURES_START);
     expect(out.body).toContain(MANAGED_FEATURES_END);
-    const positions = ['## Skills', '## Memory', '## Projects / CoCo', '## BrowserOS'].map((heading) =>
-      out.body.indexOf(heading),
-    );
+    const positions = [
+      '## Skills',
+      '## Memory',
+      '## Projects / CoCo',
+      '## BrowserOS',
+      '## Secrets',
+    ].map((heading) => out.body.indexOf(heading));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions.every((position) => position >= 0)).toBe(true);
 
@@ -139,6 +145,7 @@ describe('renderManagedAgentFeatures', () => {
       memory_routing: { present: false, reason: 'mcp_disabled' },
       projects: { present: false, reason: 'projects_disabled' },
       browseros: { present: false, reason: 'host_disabled' },
+      secrets: { present: false, reason: 'no_secrets', count: 0 },
     });
   });
 
@@ -215,5 +222,86 @@ stale
     expect(out.body).toBe('# Base\n');
     expect(out.managed_sha256).toBeNull();
     expect(out.body).not.toContain('managed-features');
+  });
+});
+
+/**
+ * The Secrets block is the half of the fleet secrets store that decides whether
+ * anyone ever calls the other half. A proven failure mode here is that agents
+ * ignore MCP tools unless AGENTS.md directs them to look: tool descriptions
+ * decide *which* tool once the agent has decided to look, and this block is what
+ * makes it decide. So these assertions cover the prohibitions and the trigger
+ * sentence, not merely that three tool names appear somewhere.
+ */
+describe('managed Secrets guidance', () => {
+  const rendered = (engine: Engine) =>
+    renderManagedAgentFeatures('# Base\n', context(engine, { secrets: enabled(3) }));
+
+  it('names the tools and carries the count as metadata', () => {
+    const out = rendered(ENGINE_CODEX);
+    expect(out.body).toContain('## Secrets');
+    expect(out.body).toContain('secret_list');
+    expect(out.body).toContain('secret_search');
+    expect(out.body).toContain('secret_get');
+    expect(out.sections.secrets).toMatchObject({
+      present: true,
+      reason: 'ok',
+      count: 3,
+      transport: 'mcp',
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  it('states the trigger and every hard rule', () => {
+    const out = rendered(ENGINE_CODEX);
+    // Look here *first* — the sentence that changes behaviour.
+    expect(out.body).toMatch(/before asking the human/i);
+    expect(out.body).toMatch(/before hunting through env files/i);
+    // And the handling rules, which the tool descriptions repeat but which an
+    // agent reads here first.
+    expect(out.body).toMatch(/never write a secret value into your reply/i);
+    expect(out.body).toMatch(/never copy one into/i);
+    expect(out.body).toMatch(/by slug, never by value/i);
+    // It must not promise a local copy exists; MCP is the only channel.
+    expect(out.body).toMatch(/nothing is written to this machine's disk/i);
+  });
+
+  it('does not enumerate individual secrets', () => {
+    // docs/interface-cdx.md pins this: the block is concise guidance, not state
+    // replication. Enumerating would also rewrite every host's document on every
+    // secret added, and write credential names to a disk that holds none today.
+    const out = rendered(ENGINE_CODEX);
+    const managed = out.body.slice(out.body.indexOf('## Secrets'));
+    expect(managed).not.toMatch(/^-\s/m);
+  });
+
+  it('renders byte-identical guidance for both engines', () => {
+    // Unlike Skills, neither engine has a native credential store to defer to,
+    // so there is nothing to branch on and this invariant should hold forever.
+    expect(rendered(ENGINE_CLAUDE).sections.secrets.sha256).toBe(
+      rendered(ENGINE_CODEX).sections.secrets.sha256,
+    );
+  });
+
+  it('emits nothing at all when the module is off or the store is empty', () => {
+    for (const reason of ['secrets_disabled', 'no_secrets', 'mcp_disabled']) {
+      const out = renderManagedAgentFeatures(
+        '# Base\n',
+        context(ENGINE_CODEX, { secrets: disabled(reason, 0) }),
+      );
+      expect(out.body, reason).not.toContain('## Secrets');
+      expect(out.body, reason).not.toContain('secret_get');
+      expect(out.sections.secrets).toMatchObject({ present: false, reason, count: 0 });
+    }
+  });
+
+  it('replaces its own block rather than accumulating copies', () => {
+    const ctx = context(ENGINE_CODEX, { secrets: enabled(1) });
+    const once = renderManagedAgentFeatures('# Base\n', ctx);
+    const twice = renderManagedAgentFeatures(once.body, ctx);
+
+    expect(twice.body).toBe(once.body);
+    expect(twice.body.split('## Secrets')).toHaveLength(2);
+    expect(twice.body.split(MANAGED_FEATURES_START)).toHaveLength(2);
   });
 });

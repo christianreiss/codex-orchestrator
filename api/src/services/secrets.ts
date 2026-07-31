@@ -113,7 +113,16 @@ export interface SecretsModuleState {
 
 export interface SecretsServiceDeps {
   db: Database;
-  keyring: Keyring;
+  /**
+   * Required for anything that encrypts or decrypts — which is `create`,
+   * `update`, `revealById` and `getForHost`, and nothing else. Optional because
+   * `HostAgentsService` constructs this service purely to answer "is the module
+   * on, and how many secrets can this engine see?" while rendering managed
+   * AGENTS.md guidance, on a code path that must never touch ciphertext and
+   * carries only a nullable keyring of its own. Omitting it makes the mutating
+   * paths throw rather than silently storing something unreadable.
+   */
+  keyring?: Keyring | null;
   /** Required for `getForHost`; admin CRUD may construct the service without it. */
   accessLog?: McpAccessLogService;
 }
@@ -363,7 +372,7 @@ export class SecretsService {
     if (!loaded || loaded.deletedAt) {
       throw new NotFoundError('No such secret', 'secret_not_found');
     }
-    const value = decryptOrNull(loaded.valueEnc, this.deps.keyring);
+    const value = decryptOrNull(loaded.valueEnc, this.requireKeyring());
     if (value === null) {
       throw new ConflictError(
         'Secret cannot be decrypted with the current keyring',
@@ -421,7 +430,7 @@ export class SecretsService {
       throw new NotFoundError(`No secret with slug '${normalized}'`, 'secret_not_found');
     }
 
-    const value = decryptOrNull(loaded.valueEnc, this.deps.keyring);
+    const value = decryptOrNull(loaded.valueEnc, this.requireKeyring());
     if (value === null) {
       // Envelope present but undecryptable: a rotated-away key. Never fall back
       // to returning the envelope; decryptOrNull's plaintext passthrough only
@@ -480,7 +489,7 @@ export class SecretsService {
       slug,
       name,
       description: input.description?.trim() || null,
-      valueEnc: encryptSecret(input.value, this.deps.keyring),
+      valueEnc: encryptSecret(input.value, this.requireKeyring()),
       engine: input.engine ?? null,
       tags,
       tagsText: tags.join(' ') || null,
@@ -525,8 +534,8 @@ export class SecretsService {
       // should mean "the value actually changed", and a `value_sha256` column
       // that could answer this cheaply would also be offline-crackable. The
       // keyring is already in hand here, so this costs one secretbox open.
-      if (decryptOrNull(loaded.valueEnc, this.deps.keyring) !== input.value) {
-        patch['valueEnc'] = encryptSecret(input.value, this.deps.keyring);
+      if (decryptOrNull(loaded.valueEnc, this.requireKeyring()) !== input.value) {
+        patch['valueEnc'] = encryptSecret(input.value, this.requireKeyring());
         patch['lastRotatedAt'] = now;
         rotated = true;
       }
@@ -585,6 +594,12 @@ export class SecretsService {
   ): Promise<Secret | null> {
     const rows = await this.deps.db.select().from(secrets).where(where).limit(1);
     return rows.find(match) ?? null;
+  }
+
+  private requireKeyring(): Keyring {
+    const keyring = this.deps.keyring;
+    if (!keyring) throw new Error('SecretsService requires a keyring to encrypt or decrypt');
+    return keyring;
   }
 
   private normalizeSlug(value: unknown): string {
