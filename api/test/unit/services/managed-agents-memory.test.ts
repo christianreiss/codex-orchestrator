@@ -62,7 +62,32 @@ describe('managed memory block', () => {
     expect(block).toMatch(/recorded decisions, conventions, runbooks, and handoffs/i);
     expect(block).toMatch(/not automatically as current code or runtime truth/i);
     expect(block).toMatch(/verify mutable facts against the\s+present repository or system/i);
-    expect(block).toMatch(/update or delete stale records\s+instead of adding near-duplicates/i);
+  });
+
+  // The whole reason #context was retired into this block: the doctrine only
+  // works if it is in front of every run. These assertions are the contract.
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])('binds correction to the read, for %s', (engine) => {
+    const block = buildManagedMemoryBlock(engine);
+    // Triggered by reading a contradiction, not by an end-of-task checkpoint —
+    // a checkpoint competes with finishing, which produced zero corrections.
+    expect(block).toMatch(/contradicts what you just\s+verified/i);
+    expect(block).toMatch(/part of the task you are already doing/i);
+    // Update and delete must both name their tool and their trigger.
+    expect(block).toMatch(/rewrite the same slug with\s+`shared_memory_write`/i);
+    expect(block).toMatch(/`shared_memory_delete` when a record is superseded or was proven wrong/i);
+    expect(block).toMatch(/wrong context is worse than no context/i);
+    expect(block).toMatch(/near-duplicates are how this corpus rots/i);
+  });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])('carries the hard rules that %s agents never saw', (engine) => {
+    const block = buildManagedMemoryBlock(engine);
+    // 0 of 11 agent-authored documents followed the slug convention while it
+    // lived in a skill that was loaded once, ever.
+    expect(block).toMatch(/search before you create/i);
+    expect(block).toMatch(/name slugs/i);
+    expect(block).toMatch(/deploy\.crane/);
+    expect(block).toMatch(/store the \*why\*/i);
+    expect(block).toMatch(/absolute dates/i);
   });
 
   it('appends after the canonical body, separated by a blank line', () => {
@@ -83,8 +108,15 @@ describe('managed memory block', () => {
     expect(appendManagedMemoryBlock('   \n\n', ENGINE_CLAUDE)).toBe(buildManagedMemoryBlock(ENGINE_CLAUDE));
   });
 
-  it('stays small enough to prepend to every session', () => {
-    // This text costs context on every run on every host, for both engines.
-    expect(buildManagedMemoryBlock(ENGINE_CLAUDE).length).toBeLessThan(1600);
+  // The former `< 1600` ceiling was removed deliberately when #context was
+  // retired into this block: the doctrine has to be here to be read at all, and
+  // a budget that forced it back out into a skill is what produced a corpus with
+  // zero corrections in 9354 sessions. The cost is real, so it is asserted rather
+  // than ignored — this bound is a smoke alarm for accidental bloat (a pasted
+  // duplicate, a runaway loop), not a design constraint to economise against.
+  it('stays within a sane order of magnitude for per-session cost', () => {
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE]) {
+      expect(buildManagedMemoryBlock(engine).length).toBeLessThan(4000);
+    }
   });
 });

@@ -8,12 +8,15 @@ import type { Database } from '../db/client.js';
 import { mcpMemories, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import type { Engine } from '../util/engine.js';
+import { isMissingFulltextIndex } from '../util/mysql-fulltext.js';
 import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
 
 const MAX_CONTENT = 32000;
+/** Row cap for the no-index fallback scan, so a failed search cannot read the whole table. */
+const FALLBACK_SCAN_ROWS = 500;
 const MAX_TAGS = 32;
 const MAX_TAG_LENGTH = 64;
 const KEY_RE = /^[A-Za-z0-9._:-]+$/;
@@ -142,6 +145,7 @@ export class McpMemoriesService {
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
     const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
+    let degraded = false;
 
     const fetchBatch = async (fetchOffset: number): Promise<Array<Record<string, unknown>>> => {
       if (!query) {
@@ -154,18 +158,30 @@ export class McpMemoriesService {
           .offset(fetchOffset);
         return rows as unknown as Array<Record<string, unknown>>;
       }
-      const res = await this.db.execute(
-        sql`SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
-                   MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
-            FROM mcp_memories
-            WHERE host_id = ${host.id}
-              AND deleted_at IS NULL
-              AND MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE)
-            ORDER BY score DESC, updated_at DESC, id DESC
-            LIMIT ${batchSize} OFFSET ${fetchOffset}`,
-      );
-      const rows = Array.isArray(res) ? (res[0] as unknown) : (res as unknown);
-      return Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+      try {
+        const res = await this.db.execute(
+          sql`SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
+                     MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
+              FROM mcp_memories
+              WHERE host_id = ${host.id}
+                AND deleted_at IS NULL
+                AND MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE)
+              ORDER BY score DESC, updated_at DESC, id DESC
+              LIMIT ${batchSize} OFFSET ${fetchOffset}`,
+        );
+        const rows = Array.isArray(res) ? (res[0] as unknown) : (res as unknown);
+        return Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+      } catch (err) {
+        // MySQL 1191. `idx_memories_search` is restored by
+        // 0011_add_mcp_memories_fulltext.sql, but this was the ONLY one of the
+        // three memory searches with no fallback: on a database built by
+        // `drizzle-kit push`, or one that has not run 0011 yet, every non-empty
+        // memory_search threw instead of degrading. Both sibling services have
+        // caught this for a while; this one now matches them.
+        if (!isMissingFulltextIndex(err)) throw err;
+        degraded = true;
+        return this.substringFallback(query, host, batchSize, fetchOffset);
+      }
     };
 
     // Tag filtering happens in JS below (tags is a JSON column, not indexed for
@@ -194,9 +210,40 @@ export class McpMemoriesService {
       limit,
       returned: filtered.length,
       tags: tags.length,
+      degraded,
     });
 
-    return { status: 'ok', query, limit, count: filtered.length, matches: filtered };
+    // `degraded` mirrors shared_memory_search: it lets the caller tell "the index
+    // is missing so this scan was shallow" apart from "nothing matched".
+    return { status: 'ok', query, limit, degraded, count: filtered.length, matches: filtered };
+  }
+
+  /**
+   * Bounded substring scan for when the FULLTEXT index is absent. Host-scoped
+   * like every other read here, capped so a large corpus cannot turn a failed
+   * search into a full table read, and ordered by recency since there is no
+   * relevance score to sort on.
+   */
+  private async substringFallback(
+    query: string,
+    host: Host,
+    limit: number,
+    offset: number,
+  ): Promise<Array<Record<string, unknown>>> {
+    const rows = await this.db
+      .select()
+      .from(mcpMemories)
+      .where(and(eq(mcpMemories.hostId, host.id), isNull(mcpMemories.deletedAt)))
+      .orderBy(desc(mcpMemories.updatedAt), desc(mcpMemories.id))
+      .limit(FALLBACK_SCAN_ROWS);
+
+    const needle = query.toLowerCase();
+    const matches = (rows as unknown as Array<Record<string, unknown>>).filter((row) => {
+      const content = String(row['content'] ?? '').toLowerCase();
+      const tagsText = String(row['tagsText'] ?? row['tags_text'] ?? '').toLowerCase();
+      return content.includes(needle) || tagsText.includes(needle);
+    });
+    return matches.slice(offset, offset + limit);
   }
 
   async delete(payload: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {

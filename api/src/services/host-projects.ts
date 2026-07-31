@@ -19,6 +19,7 @@ import {
   coordProjectEvents,
   logs,
 } from '../db/schema.js';
+import { isMissingFulltextIndex } from '../util/mysql-fulltext.js';
 import { ValidationError, NotFoundError, ConflictError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -767,7 +768,7 @@ export class HostProjectsService {
         // migrations automatically, so a DB that missed the DDL would otherwise
         // hard-fail every search. Fall back to a substring scan (project-scoped,
         // so the row count is naturally bounded) and tell the caller.
-        if (!this.isMissingFulltextIndex(err)) throw err;
+        if (!isMissingFulltextIndex(err)) throw err;
         degraded = true;
         const needle = query.toLowerCase();
         const all = await this.fetchMemories(project.id);
@@ -1123,15 +1124,6 @@ export class HostProjectsService {
    * Only inspecting the top-level error silently misses it and the LIKE fallback
    * never fires — which defeats the entire point of having one.
    */
-  private isMissingFulltextIndex(err: unknown): boolean {
-    for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
-      const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
-      if (e.errno === 1191 || e.code === 'ER_FT_MATCHING_KEY_NOT_FOUND') return true;
-      if (/can't find fulltext index/i.test(String(e.message ?? ''))) return true;
-      cur = e.cause;
-    }
-    return false;
-  }
 
   private hydrateEvent(row: typeof coordProjectEvents.$inferSelect): EventRow {
     return {

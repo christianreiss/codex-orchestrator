@@ -359,3 +359,53 @@ describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', (
     );
   });
 });
+
+describe('client-config: memory curation permissions', () => {
+  const withServer = (extra: Record<string, unknown> = {}) =>
+    normalizeSettings(
+      { mcp_servers: [{ name: 'clx', url: 'https://codex-auth.uggs.io/mcp' }], ...extra },
+      { applyCodexDefaults: false },
+    );
+
+  // Reads were already frictionless while every write/append/delete prompted, so
+  // the permission config pushed agents toward the read-only behaviour the corpus
+  // shows (113 reads : 3 writes : 0 deletes). The AGENTS.md block now tells them
+  // to correct stale records mid-task; the two must not disagree.
+  it('allows the curation tools, namespaced to the configured server', () => {
+    const { partial, owned_paths } = renderClaudeSettingsPartial(withServer());
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+
+    expect(allow).toEqual(expect.arrayContaining([
+      'mcp__clx__shared_memory_write',
+      'mcp__clx__shared_memory_append',
+      'mcp__clx__shared_memory_delete',
+      'mcp__clx__project_memory_upsert',
+      'mcp__clx__project_memory_delete',
+    ]));
+    expect(owned_paths).toContain('permissions.allow');
+  });
+
+  // Read tools are deliberately NOT added here: they were never the friction.
+  it('does not extend the allow-list to read tools', () => {
+    const { partial } = renderClaudeSettingsPartial(withServer());
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+    expect(allow).not.toContain('mcp__clx__shared_memory_read');
+    expect(allow).not.toContain('mcp__clx__shared_memory_list');
+  });
+
+  it('keeps operator-configured allow rules and does not duplicate', () => {
+    const { partial } = renderClaudeSettingsPartial(
+      withServer({ permissions: { allow: ['Bash(ls:*)', 'mcp__clx__shared_memory_write'] } }),
+    );
+    const allow = (partial.permissions as Record<string, unknown>).allow as string[];
+
+    expect(allow).toContain('Bash(ls:*)');
+    expect(allow.filter((r) => r === 'mcp__clx__shared_memory_write')).toHaveLength(1);
+  });
+
+  it('adds nothing when no MCP server is configured — there is no tool to name', () => {
+    const { partial } = renderClaudeSettingsPartial(normalizeSettings({}, { applyCodexDefaults: false }));
+    const allow = (partial.permissions as Record<string, unknown>).allow;
+    expect(allow).toBeUndefined();
+  });
+});

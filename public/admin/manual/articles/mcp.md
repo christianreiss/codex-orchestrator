@@ -139,9 +139,9 @@ Search is a project-scoped `MATCH() AGAINST() IN NATURAL LANGUAGE MODE` over `co
 | `shared_memory_list` | The discovery entry point. Needs no arguments; returns slug, title, summary, tags, size, revision and a preview for every document. Optional `prefix`, `tags`, `limit`, `offset`, `include_content`. |
 | `shared_memory_search` | Ranked passages across the whole corpus. `mode: "documents"` folds hits into one entry per document. Carries `degraded: true` when the chunk index is missing. |
 | `shared_memory_read` | A bounded window over one document — `max_chars` (default 32,000), `offset`, or a `chunk` / `from_chunk`–`to_chunk` range. `truncated` + `next_offset` let you walk a 1 MiB document without holding all of it. |
-| `shared_memory_write` | Create or replace, up to 1,048,576 characters. Pass `expected_sha256` from a prior read and a concurrent change fails with `409 shared_memory_conflict` instead of silently winning. |
-| `shared_memory_append` | Grow a document without reading it first. This is the multi-writer-safe path; tags are unioned rather than replaced. Creates the document when the slug is new. |
-| `shared_memory_delete` | Soft delete. The slug stays reserved and a later write revives it; the admin delete is the hard one. |
+| `shared_memory_write` | Create or replace, up to 1,048,576 characters. Writing an existing slug is the supported way to **correct** a record, and is preferred over creating a near-duplicate beside it. Pass `expected_sha256` from a prior read and a concurrent change fails with `409 shared_memory_conflict` instead of silently winning. |
+| `shared_memory_append` | Grow a document without reading it first. This is the multi-writer-safe path; tags are unioned rather than replaced. Creates the document when the slug is new. Append for concurrency, replace for correction — appending beside a statement that has become wrong leaves both standing. |
+| `shared_memory_delete` | Retire a document that is superseded or was proven wrong. Soft delete: the slug stays reserved and a later write revives it; the admin delete is the hard one. |
 
 Documents are split into chunks on markdown structure — headings first, then paragraph and line boundaries — and it is the chunk, not the document, that carries the full-text index. That is what makes a search hit point at a readable passage with its heading breadcrumb (`Ops > Deploy > Crane`) instead of at a 1 MiB blob. The chunks of one revision tile their document exactly, so a chunk range is also a character range.
 

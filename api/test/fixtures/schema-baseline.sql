@@ -792,6 +792,7 @@ CREATE TABLE `shared_memory_revisions` (
 	`source_host_id` bigint unsigned,
 	`source_engine` varchar(16),
 	`note` varchar(255),
+	`prev_content` longtext,
 	`created_at` varchar(100) NOT NULL,
 	CONSTRAINT `shared_memory_revisions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uniq_shared_memory_revision` UNIQUE(`memory_id`,`revision`)

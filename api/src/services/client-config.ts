@@ -505,6 +505,19 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
  * `owned_paths` deliberately includes the legacy `model` + each managed
  * `mcpServers.<name>` so the first merge reconciles (not duplicates) them.
  */
+/**
+ * The memory tools an agent needs to CURATE rather than merely read. Listing,
+ * searching, and reading are deliberately absent: they were already allowed, and
+ * that asymmetry is the problem being fixed, not a pattern to extend.
+ */
+const CURATION_TOOLS = [
+  'shared_memory_write',
+  'shared_memory_append',
+  'shared_memory_delete',
+  'project_memory_upsert',
+  'project_memory_delete',
+] as const;
+
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
@@ -549,6 +562,29 @@ export function renderClaudeSettingsPartial(
         owned.push(`permissions.${bucket}`);
       }
     }
+  }
+  // Curating memory must not be the option that interrupts the user.
+  //
+  // Reads were already frictionless while every write, append, and delete raised
+  // a prompt, so the permission config pushed agents toward exactly the
+  // read-only behaviour the corpus shows: 113 reads to 3 writes, and zero
+  // deletes in 9354 sessions. Now that the managed AGENTS.md block tells agents
+  // to correct stale records as part of the task they are already doing, leaving
+  // that asymmetry in place would make the instruction and the incentive point
+  // in opposite directions.
+  //
+  // Derived from the configured server names rather than hardcoded, because the
+  // tool identifier Claude Code matches on is `mcp__<server>__<tool>` and the
+  // server name comes from client config. The wrapper unions these with the
+  // user's own rules and removes them again if this ownership ever drops, so
+  // this stays reversible.
+  const curationAllow = Object.keys(servers).flatMap((server) =>
+    CURATION_TOOLS.map((tool) => `mcp__${server}__${tool}`),
+  );
+  if (curationAllow.length > 0) {
+    const existing = Array.isArray(perms['allow']) ? (perms['allow'] as string[]) : [];
+    perms['allow'] = [...new Set([...existing, ...curationAllow])];
+    if (!owned.includes('permissions.allow')) owned.push('permissions.allow');
   }
   // `permissions.defaultMode` is a plain leaf path: it rides the generic dotted
   // merge in the wrapper (NOT the allow/ask/deny union special-case), so it is

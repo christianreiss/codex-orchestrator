@@ -392,7 +392,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_write',
         description:
-          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Up to 1 MiB; pass expected_sha256 from a prior read to fail instead of clobbering a concurrent write. To add to an existing document prefer shared_memory_append.',
+          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces it — that is how you correct a record whose facts have changed, and it is preferred over creating a near-duplicate slug beside it, so search before you create. Pass expected_sha256 from your prior read so a concurrent writer fails loudly instead of losing text. To add new material to a document that is still accurate, prefer shared_memory_append. Up to 1 MiB.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -434,7 +434,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     inputs.push({
       definition: {
         name: 'shared_memory_delete',
-        description: 'Delete a shared memory document by slug (soft delete; the slug stays reserved).',
+        description:
+          'Retire a shared memory document whose content is superseded, was proven wrong, or has been replaced by another record. Deleting is part of curating the corpus: a document that states something untrue is worse than no document, because the next agent cannot tell it is stale. Soft delete — the slug stays reserved and a later write revives it, so this is recoverable.',
         inputSchema: {
           type: 'object',
           properties: { slug: { type: 'string' } },
@@ -804,7 +805,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_memory_upsert',
       description:
-        'Create or update a durable project memory by key (add + update). Idempotent: returns status created, updated, or unchanged.',
+        'Create or update a durable project memory by key (add + update). Upserting an existing key is how you correct a fact whose reality has moved — prefer that over inventing a near-duplicate key beside it. Idempotent: returns status created, updated, or unchanged.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -822,7 +823,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_memory_delete',
-      description: 'Delete a project memory by key',
+      description:
+        'Retire a project memory whose fact is superseded or was proven wrong. Deleting is part of curating a workstream: a stale fact the next agent cannot identify as stale is worse than a missing one. To correct a fact that still belongs, use project_memory_upsert on the same key instead.',
       inputSchema: {
         type: 'object',
         properties: {

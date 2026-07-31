@@ -357,11 +357,12 @@ describe('SkillsService reads', () => {
       skillRow({ id: 2, slug: 'retired', deletedAt: '2026-02-02T00:00:00Z' }),
     ]);
 
-    // `afk`, `context`, and `skill-manager` are code-derived and always served.
+    // `afk` and `skill-manager` are code-derived and always served. `context`
+    // used to be too; it is retired, so it appears only if a row survives.
     const live = await service.list();
-    expect(live.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'skill-manager']);
+    expect(live.map((s) => s.slug)).toEqual(['afk', 'agentic', 'skill-manager']);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired', 'skill-manager']);
+    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'retired', 'skill-manager']);
   });
 
   it('exposes provenance and marks a source-owned row read-only', async () => {

@@ -14,7 +14,10 @@
  */
 import type { Database } from '../db/client.js';
 import { getManagedCocoSkillIfEnabled, isManagedCocoSlug } from './managed-coco-skill.js';
-import { buildManagedContextSkill, isManagedContextSlug, type ManagedSkillManifest } from './managed-context-skill.js';
+// `context` is retired: only the slug predicate and the shared manifest type are
+// still used. buildManagedContextSkill() stays exported but uncalled until
+// Release B deletes the module, so the reservation and the type keep working.
+import { isManagedContextSlug, type ManagedSkillManifest } from './managed-context-skill.js';
 import { buildManagedAfkSkill, isManagedAfkSlug } from './managed-afk-skill.js';
 import { buildManagedSkillManager, isManagedSkillManagerSlug } from './managed-skill-manager.js';
 
@@ -37,15 +40,25 @@ export function isManagedSkillSlug(slug: string): boolean {
 }
 
 /**
- * Every managed skill currently served. `coco` is gated on the Projects module;
- * `context` is unconditional because the memory tools it documents always exist.
+ * Every managed skill currently served. `coco` is gated on the Projects module.
+ *
+ * `context` is RETIRED and deliberately absent. Its memory doctrine — add,
+ * update, delete — now lives in the always-on managed AGENTS.md/CLAUDE.md block
+ * (managed-agents-memory.ts), because a skill only loads when it is invoked and
+ * this one was invoked exactly once in 9354 sessions, to test itself. Its project
+ * bootstrap and substrate-routing halves moved to `#coco`.
+ *
+ * It stays in `isManagedSkillSlug` on purpose: that keeps the slug reserved so
+ * the admin store/delete paths still refuse it, and — critically — the shadowing
+ * in host-skills.ts is computed from THIS list, so an un-reserved slug with a
+ * surviving `skills` row would start serving that row to the fleet. See
+ * retireManagedContextRow().
  */
 export async function listManagedSkills(db: Database): Promise<ManagedSkillManifest[]> {
   const out: ManagedSkillManifest[] = [];
   const coco = await getManagedCocoSkillIfEnabled(db);
   if (coco) out.push(coco as unknown as ManagedSkillManifest);
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
-  out.push(buildManagedContextSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedSkillManager(MANAGED_UPDATED_AT));
   out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   return out;

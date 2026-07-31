@@ -680,3 +680,47 @@ describe('McpResourcesService skill bundle resources', () => {
     ]);
   });
 });
+
+describe('shared resource optimistic concurrency', () => {
+  // resources/update used to alias straight to create() without forwarding
+  // expected_sha256, so the one surface that could clobber a concurrent write
+  // was the one agents are now told to use for corrections.
+  it('forwards expected_sha256 through resources/update', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const svc = new McpResourcesService({
+      memories: stubMemories,
+      projects: {} as never,
+      skills: stubSkills,
+      sharedMemories: {
+        write: async (payload: Record<string, unknown>) => {
+          writes.push(payload);
+          return { status: 'ok' };
+        },
+      } as unknown as SharedMemoriesService,
+    });
+
+    await svc.update('shared://deploy.crane', { text: 'corrected', expected_sha256: 'f'.repeat(64) }, host);
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ slug: 'deploy.crane', content: 'corrected', expected_sha256: 'f'.repeat(64) });
+  });
+
+  it('omits expected_sha256 when the caller did not supply one', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const svc = new McpResourcesService({
+      memories: stubMemories,
+      projects: {} as never,
+      skills: stubSkills,
+      sharedMemories: {
+        write: async (payload: Record<string, unknown>) => {
+          writes.push(payload);
+          return { status: 'ok' };
+        },
+      } as unknown as SharedMemoriesService,
+    });
+
+    await svc.update('shared://deploy.crane', { text: 'blind write' }, host);
+
+    expect(writes[0]).not.toHaveProperty('expected_sha256');
+  });
+});

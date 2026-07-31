@@ -144,8 +144,7 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
 mutation paths reject every managed slug. Their manifests are constants in
 `api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,
-`api/src/services/managed-context-skill.ts`, and
-`api/src/services/managed-skill-manager.ts`, assembled by
+and `api/src/services/managed-skill-manager.ts`, assembled by
 `api/src/services/managed-skills.ts`, and served through the normal `/skills` and
 MCP paths. A managed slug shadows any same-named row left over from before, so an
 existing deployment needs no migration.
@@ -154,8 +153,16 @@ Editing the constant and shipping the API image IS the release: the manifest sha
 host picks it up on its next sync. `docs/skills/context.SKILL.md` used to be the authoring copy for
 `context` and was deleted when it moved into code — a checked-in file that ships nothing is exactly
 the drift this change removes. `coco` is served only while
-`projects_module_enabled = 1`; `afk`, `context`, and `skill-manager` are
-unconditional.
+`projects_module_enabled = 1`; `afk` and `skill-manager` are unconditional.
+
+**`context` is retired and is served no longer** (2026-07-31). Its slug stays in
+`isManagedSkillSlug` so the mutation paths keep refusing it, but it is absent from
+`listManagedSkills`. That split matters: shadowing is computed from the *served*
+list, so leaving the slug reserved without also tombstoning the old row would have
+un-shadowed it and started serving the superseded 2026-07-19 manifest to the whole
+fleet. `api/src/ops/retire-context-skill.ts` tombstones that row on boot,
+signature-matched so an operator-authored replacement survives. Un-reserving the
+slug and deleting the module is Release B, once the fleet has converged.
 
 ## Current manifests
 
@@ -167,15 +174,22 @@ unconditional.
   host-local creator. It is shared across engines and is itself immutable through
   the tools it documents.
 
-- `#context` — **no longer a file and no longer a row.** Moved into
-  `api/src/services/managed-context-skill.ts` on 2026-07-27; the checked-in
-  `context.SKILL.md` was deleted with it. `engine` is `null`, so it serves codex over
-  MCP *and* rides the clx bundle to `~/.claude/skills/context/SKILL.md` — that behaviour
-  is unchanged, only the source of truth moved.
+- `#context` — **RETIRED 2026-07-31.** Its memory doctrine (add / update / delete)
+  moved into the always-on managed AGENTS.md/CLAUDE.md block,
+  `api/src/services/managed-agents-memory.ts`. The reason is measured, not
+  aesthetic: across 9354 sessions the skill was invoked exactly once — a self-test —
+  and `shared_memory_delete` was never called at all. A skill only loads when it is
+  invoked; the agents document is read every session, unprompted. The doctrine was
+  never wrong, it was never *loaded*.
 
-  Its "The store is MCP, not local files" section is load-bearing, not boilerplate:
-  Claude Code ships a native file-memory feature (`~/.claude/projects/**/memory/` +
-  `MEMORY.md`) injected into the system prompt, and Codex has no equivalent. Without a
-  section naming those paths, clx silently wrote context to host-local files while cdx
-  used MCP — the same skill, opposite substrates. Do not trim it back to "use
-  `project_*` tools"; the override has to name what it is overriding.
+  Its project-bootstrap sequence and the three-substrate routing heuristic moved to
+  `#coco`, which is where project workflow already lives.
+
+  The "The store is MCP, not local files" override survives in the memory block and
+  is still load-bearing, not boilerplate: Claude Code ships a native file-memory
+  feature (`~/.claude/projects/**/memory/` + `MEMORY.md`) injected into its system
+  prompt, and Codex has no equivalent. Without naming those paths, clx silently
+  wrote context to host-local files while cdx used MCP — the same guidance, opposite
+  substrates. Do not trim it back to "use the MCP tools"; an override has to name
+  what it is overriding.
+

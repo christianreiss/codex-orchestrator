@@ -163,7 +163,6 @@ describe('admin-content routes registration', () => {
       status: 'ok',
       skills: [
         { slug: 'afk', managed: true },
-        { slug: 'context', managed: true },
         { slug: 'skill-manager', managed: true },
       ],
     });

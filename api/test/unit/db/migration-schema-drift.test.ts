@@ -195,6 +195,7 @@ describe('migrations against the test baseline', () => {
       'skills.source_revision',
       'skills.source_license',
       'skills.bundle_sha256',
+      'shared_memory_revisions.prev_content',
     ]);
   });
 

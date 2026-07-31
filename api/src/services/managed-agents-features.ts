@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
+import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
@@ -70,11 +71,22 @@ const LEGACY_BLOCK =
 // the exact bytes emitted by that renderer (with or without its final LF).
 // A heading-only regex would risk deleting operator-authored rules appended
 // below a previously served copy.
+//
+// Regenerating from the current renderer only ever matches the CURRENT text, so
+// every superseded wording is kept as an exact frozen literal in
+// managed-agents-memory-legacy.ts. Without those, a canonical document holding a
+// copy served under an older text would stop being stripped and the result would
+// carry the stale doctrine beside the current one — the very failure the current
+// block tells agents to avoid. Longest-first so a shorter entry can never eat a
+// prefix of a longer one.
 const LEGACY_MEMORY_BLOCKS = [...new Set(
-  [ENGINE_CODEX, ENGINE_CLAUDE].flatMap((engine) => {
-    const block = buildManagedMemoryBlock(engine);
-    return [block, block.replace(/\n$/, '')];
-  }),
+  [
+    ...[ENGINE_CODEX, ENGINE_CLAUDE].flatMap((engine) => {
+      const block = buildManagedMemoryBlock(engine);
+      return [block, block.replace(/\n$/, '')];
+    }),
+    ...HISTORIC_MANAGED_MEMORY_BLOCKS.flatMap((block) => [block, block.replace(/\n$/, '')]),
+  ],
 )].sort((a, b) => b.length - a.length);
 
 function escapeRegExp(value: string): string {
@@ -161,7 +173,9 @@ function projectsSection(context: ManagedAgentFeatureContext): RenderedSection |
 
 Project coordination is enabled through MCP. Use \`#coco\` for its managed workflow and
 \`project_*\` tools for shared project state, handoffs, and workstream memory. Start by reading
-\`project_bootstrap\` for the active project.`,
+\`project_bootstrap\` for the active project — bootstrap before acting, even when the task looks
+self-evident. The same curation rule as Memory applies here: correct a fact with
+\`project_memory_upsert\` on the same key rather than adding a near-duplicate beside it.`,
   );
 }
 

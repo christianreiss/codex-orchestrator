@@ -23,12 +23,13 @@
  * apply here either: that reservation exists to push shared state out of
  * host-scoped storage, and this IS shared storage.
  */
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, lte, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { logs, sharedMemories, sharedMemoryChunks, sharedMemoryRevisions } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import type { Engine } from '../util/engine.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
+import { isMissingFulltextIndex } from '../util/mysql-fulltext.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -73,6 +74,14 @@ const FALLBACK_SCAN_DOCS = 200;
  */
 const SEARCH_MAX_PAGES = 5;
 const FALLBACK_PREFIX_CHARS = 65_536;
+
+/**
+ * How many recent replaces keep an undo body in the ledger. Older revision rows
+ * survive for attribution, they just lose `prev_content`: 0006 deliberately kept
+ * this table metadata-only because copying a 1 MiB body per write would dwarf the
+ * corpus, and an unbounded undo history would reintroduce exactly that.
+ */
+const PREV_CONTENT_KEEP = 5;
 
 const SLUG_RE = /^[a-z0-9][a-z0-9._:-]*$/;
 
@@ -642,9 +651,49 @@ export class SharedMemoriesService {
         source_host_id: r.sourceHostId,
         source_engine: r.sourceEngine,
         note: r.note,
+        // Not the body itself — a detail view should not ship N copies of a
+        // 1 MiB document. This says whether `restore` can still undo this
+        // revision, which is the only thing a caller needs to decide.
+        restorable: r.prevContent !== null && r.prevContent !== undefined,
         created_at: r.createdAt,
       })),
     };
+  }
+
+  /**
+   * Undo a replace by putting back the body the document had before it.
+   *
+   * This is the counterpart to telling agents to rewrite stale records: the
+   * instruction is only safe because the mistake is reversible. Restoring writes
+   * a NEW revision rather than rewinding the counter — the ledger stays
+   * append-only, and the restore is itself undoable.
+   */
+  async restore(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+    const errors: Record<string, string[]> = {};
+    const slug = this.normalizeSlug(payload['slug'] ?? payload['id'], errors);
+    if (Object.keys(errors).length || !slug) {
+      throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
+    }
+    // Include soft-deleted: restoring the body of a document someone deleted is
+    // exactly as valid as undoing a bad replace, and `write` revives the row.
+    const found = await this.findBySlug(slug, true);
+    if (!found) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
+    const doc = found.doc;
+
+    const target = normalizeInt(payload['revision'], doc.revision, 1, Number.MAX_SAFE_INTEGER);
+    const rows = await this.db
+      .select()
+      .from(sharedMemoryRevisions)
+      .where(and(eq(sharedMemoryRevisions.memoryId, doc.id), eq(sharedMemoryRevisions.revision, target)))
+      .limit(1);
+    const prev = rows[0]?.prevContent ?? null;
+    if (prev === null) {
+      throw new ValidationError('That revision has no restorable body', {
+        extra: { errors: { revision: [`revision ${target} kept no prior body (only the newest ${PREV_CONTENT_KEEP} replaces do)`] } },
+      });
+    }
+
+    return this.write({ slug, content: prev }, host, engine);
   }
 
   /**
@@ -803,7 +852,22 @@ export class SharedMemoriesService {
     await this.dropStaleChunks(memoryId, revision);
 
     const delta = content.length - (live?.contentLength ?? 0);
-    await this.recordRevision(memoryId, revision, op === 'append' ? 'append' : live ? 'replace' : 'create', digest, content.length, delta, host, engine);
+    // The PRIOR body rides along on a replace, so the write that clobbers a
+    // document also records how to undo itself. Not on append (nothing is lost)
+    // and not on create (there was nothing before).
+    const resolvedOp = op === 'append' ? 'append' : live ? 'replace' : 'create';
+    await this.recordRevision(
+      memoryId,
+      revision,
+      resolvedOp,
+      digest,
+      content.length,
+      delta,
+      host,
+      engine,
+      resolvedOp === 'replace' ? (live?.content ?? null) : null,
+    );
+    if (resolvedOp === 'replace') await this.prunePrevContent(memoryId, revision);
     await this.recordLog(host, `shared_memory.${op}`, {
       slug,
       status,
@@ -1023,6 +1087,7 @@ export class SharedMemoriesService {
     delta: number,
     host: Host | null,
     engine: Engine | null,
+    prevContent: string | null = null,
   ): Promise<void> {
     await this.db.insert(sharedMemoryRevisions).values({
       memoryId,
@@ -1034,8 +1099,24 @@ export class SharedMemoriesService {
       sourceHostId: host?.id ?? null,
       sourceEngine: engine ?? null,
       note: null,
+      prevContent,
       createdAt: nowIso(),
     });
+  }
+
+  /**
+   * Keep undo bodies for the most recent replaces only. A 1 MiB document rewritten
+   * daily would otherwise grow an unbounded pile of full copies in the ledger,
+   * which is the exact cost 0006 avoided by keeping it metadata-only. Clearing the
+   * text leaves the attribution row intact.
+   */
+  private async prunePrevContent(memoryId: number, currentRevision: number): Promise<void> {
+    const cutoff = currentRevision - PREV_CONTENT_KEEP;
+    if (cutoff < 1) return;
+    await this.db
+      .update(sharedMemoryRevisions)
+      .set({ prevContent: null })
+      .where(and(eq(sharedMemoryRevisions.memoryId, memoryId), lte(sharedMemoryRevisions.revision, cutoff)));
   }
 
   private async recordLog(host: Host | null, action: string, details: Record<string, unknown>): Promise<void> {
@@ -1388,12 +1469,3 @@ function isDuplicateKey(err: unknown): boolean {
   return false;
 }
 
-function isMissingFulltextIndex(err: unknown): boolean {
-  for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
-    const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
-    if (e.errno === 1191 || e.code === 'ER_FT_MATCHING_KEY_NOT_FOUND') return true;
-    if (/can't find fulltext index/i.test(String(e.message ?? ''))) return true;
-    cur = e.cause;
-  }
-  return false;
-}

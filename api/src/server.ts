@@ -7,6 +7,7 @@ import { createDb } from './db/client.js';
 import { Keyring } from './security/keyring.js';
 import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
+import { retireManagedContextRow } from './ops/retire-context-skill.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
@@ -33,6 +34,21 @@ export async function buildServer() {
   // Schema first: the boot checks below probe tables that migrations create.
   await runBootMigrations(env, pool);
   await runBootChecks(env, db);
+  // Must run before the first /skills request of this process: `context` is no
+  // longer served as a managed skill, so any surviving legacy row would stop
+  // being shadowed and start being handed to the fleet. Idempotent, and a
+  // failure must not keep the whole API down over one stale row — but it does
+  // need to be loud, because the failure mode is silently serving stale doctrine.
+  await retireManagedContextRow(db)
+    .then((outcome) => {
+      if (outcome.reason === 'tombstoned') console.warn('[boot] retired legacy #context skill row');
+      else if (outcome.reason === 'left_alone') {
+        console.warn('[boot] a non-legacy `context` skill row exists and is now served; verify this is intended');
+      }
+    })
+    .catch((err) => {
+      console.warn(`[boot] could not retire legacy #context skill row: ${String(err)}`);
+    });
   const keyring = Keyring.fromEnv(env);
 
   const app = Fastify({

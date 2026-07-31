@@ -442,7 +442,14 @@ export class McpResourcesService {
       // recorded as host-only for this path. Title/summary/tags/metadata are
       // omitted rather than blanked — `write` preserves what it is not given,
       // so a text-only resource update cannot strip a document's labels.
-      return (await this.deps.sharedMemories.write({ slug: stripFragment(parsed.id), content: text }, host, null)) as Record<string, unknown>;
+      const write: Record<string, unknown> = { slug: stripFragment(parsed.id), content: text };
+      // Forward optimistic concurrency when the caller supplies it. Without
+      // this, the resource surface was unconditionally last-writer-wins on
+      // exactly the documents shared_memory_write protects — and now that agents
+      // are told to REPLACE stale records rather than append beside them, a
+      // silently lost concurrent write is a corrected fact quietly reverting.
+      if (typeof params['expected_sha256'] === 'string') write['expected_sha256'] = params['expected_sha256'];
+      return (await this.deps.sharedMemories.write(write, host, null)) as Record<string, unknown>;
     }
     if (parsed.scheme !== 'memory') {
       throw new Error('Only memory://, shared://{slug} and project://{slug}/memory/{key} resources can be created');
@@ -450,6 +457,11 @@ export class McpResourcesService {
     return (await this.deps.memories.store({ id: parsed.id, content: text }, host)) as Record<string, unknown>;
   }
 
+  /**
+   * Update is create: every substrate here is upsert-shaped, so a separate path
+   * would only duplicate the routing. `expected_sha256` rides through `params`,
+   * which is what makes this safe for shared documents.
+   */
   async update(uri: string, params: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     return this.create(uri, params, host);
   }

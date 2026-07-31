@@ -763,6 +763,13 @@ export const sharedMemoryRevisions = mysqlTable(
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
     sourceEngine: varchar('source_engine', { length: 16 }),
     note: varchar('note', { length: 255 }),
+    /**
+     * The body this document had BEFORE the write that created this revision, so
+     * a bad replace can be undone. Null on `create` (there was nothing before)
+     * and on revisions older than the retained window — see PREV_CONTENT_KEEP in
+     * shared-memories.ts. Added by 0012; the ledger is otherwise metadata-only.
+     */
+    prevContent: longtext('prev_content'),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
   },
   (t) => ({

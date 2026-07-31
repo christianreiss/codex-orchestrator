@@ -8,6 +8,7 @@ import {
   type ManagedFeatureState,
 } from '../../../src/services/managed-agents-features.js';
 import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
+import { HISTORIC_MANAGED_MEMORY_BLOCKS } from '../../../src/services/managed-agents-memory-legacy.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../../src/util/engine.js';
 
 const enabled = (count?: number): ManagedFeatureState => ({
@@ -120,12 +121,16 @@ describe('renderManagedAgentFeatures', () => {
       expect(out.body).toContain('shared_memory_read');
       expect(out.body).toContain('shared_memory_write');
       expect(out.body).toContain('shared_memory_append');
+      expect(out.body).toContain('shared_memory_delete');
       expect(out.body).toContain('project_memory_*');
       expect(out.body).toContain('memory_*');
       expect(out.body).toMatch(/before searching the filesystem/i);
       expect(out.body).toMatch(/never store secrets/i);
       expect(out.body).toMatch(/not automatically as current code or runtime truth/i);
-      expect(out.body).toMatch(/update or delete stale records/i);
+      // The curation contract survives the render, not just the raw builder —
+      // this is the text that replaced the retired #context skill.
+      expect(out.body).toMatch(/contradicts what you just\s+verified/i);
+      expect(out.body).toMatch(/wrong context is worse than no context/i);
     }
     expect(codex.body).toContain("Codex's own local memories feature");
     expect(codex.body).not.toContain('~/.claude/projects');
@@ -197,6 +202,39 @@ stale
 
     expect(out.body).not.toContain('## Memory (managed)');
     expect(out.body.split('## Memory')).toHaveLength(2);
+  });
+
+  // The two tests either side of this one call buildManagedMemoryBlock live, so
+  // they pass no matter how the text changes and cannot see this failure. Between
+  // 79bb06d6 and 511f5673 the block was served raw, and those exact bytes still
+  // sit in canonical documents edited during that window. If the strip list is
+  // ever reduced to "whatever the renderer emits today", they stop matching and
+  // the served document carries the stale doctrine beside the current one.
+  it.each(HISTORIC_MANAGED_MEMORY_BLOCKS.map((b, i) => [i, b] as const))(
+    'strips historic raw-served memory block #%i',
+    (_i, historic) => {
+      const base = `# Base\n\n${historic}\n## Operator rules\n\nKeep this rule.\n`;
+      const out = renderManagedAgentFeatures(base, context(ENGINE_CODEX, { memory: enabled() }));
+
+      // No trace of the superseded wording survives...
+      expect(out.body).not.toContain('## Memory (managed)');
+      expect(out.body).not.toContain('Durable memory lives in the orchestrator');
+      expect(out.body).not.toContain('authoritative over your own assumptions');
+      expect(out.body.split('## Memory')).toHaveLength(2);
+      // ...and the operator's own rules below it are untouched.
+      expect(out.body).toContain('## Operator rules');
+      expect(out.body).toContain('Keep this rule.');
+    },
+  );
+
+  it('keeps historic blocks whole — a fragment would orphan the rest of the block', () => {
+    // The strip is a plain substring removal, so every entry must be a complete
+    // rendered block. A partial entry would delete the middle of an old block and
+    // leave its heading and tail behind, which is worse than not stripping.
+    for (const block of HISTORIC_MANAGED_MEMORY_BLOCKS) {
+      expect(block.startsWith('## Memory (managed)')).toBe(true);
+      expect(block).toMatch(/never store secrets/i);
+    }
   });
 
   it('preserves operator rules appended below an exact former Memory block', () => {

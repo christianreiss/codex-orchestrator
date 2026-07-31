@@ -368,11 +368,16 @@ description: Shared lifecycle integration fixture
     const slugs = body.claude_skills.map((s: { slug: string }) => s.slug).sort();
     // These are MANAGED skills: derived from code, not skills rows, and
     // unconditionally bundled to every Claude host.
-    expect(slugs).toEqual(['afk', 'context', 'git-commit', 'reviewer', 'skill-manager']); // codex-only + deleted excluded
+    expect(slugs).toEqual(['afk', 'git-commit', 'reviewer', 'skill-manager']); // codex-only + deleted excluded
 
-    const context = body.claude_skills.find((s: { slug: string }) => s.slug === 'context');
-    expect(context.content).toContain('shared_memory_list');
-    expect(context.content).toContain('~/.claude/projects');
+    // `context` is retired, and its ABSENCE from this array is what deletes it
+    // from every Claude host: applyClaudeSkillsResult prunes any slug in its
+    // ownership manifest that the bundle no longer lists. If it reappears here,
+    // hosts keep a stale ~/.claude/skills/context/SKILL.md forever.
+    expect(slugs).not.toContain('context');
+    // The bundle must still be a non-nil array — a missing key reads as "older
+    // server, change nothing" to the wrapper and would skip the prune entirely.
+    expect(Array.isArray(body.claude_skills)).toBe(true);
 
     const skillManager = body.claude_skills.find((s: { slug: string }) => s.slug === 'skill-manager');
     expect(skillManager.content).toContain('skill_store');
