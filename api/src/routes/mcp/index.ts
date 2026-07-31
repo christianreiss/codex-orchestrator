@@ -24,6 +24,7 @@ import { McpSessionService } from '../../services/mcp-session.js';
 import { McpAccessLogService } from '../../services/mcp-access-log.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { SharedMemoriesService } from '../../services/shared-memories.js';
+import { SecretsService } from '../../services/secrets.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
 import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
@@ -57,8 +58,21 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     }
   }
 
+  // The secrets service needs the access log: `secret_get` writes its own audit
+  // row, carrying the slug and failing closed, rather than relying on the
+  // generic tools/call row McpServer logs on a best-effort basis.
+  const secrets = new SecretsService({ db: ctx.db, keyring: ctx.keyring, accessLog });
+
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
-  const tools = new McpToolsRegistry({ memories, sharedMemories, projects, skills, resources, fs: fsTools });
+  const tools = new McpToolsRegistry({
+    memories,
+    sharedMemories,
+    projects,
+    skills,
+    resources,
+    fs: fsTools,
+    secrets,
+  });
   const server = new McpServer(tools, resources, accessLog);
 
   const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();

@@ -25,6 +25,7 @@ const GROUPS = [
   'Host-authenticated tools',
   'Fleet-wide shared memory',
   'Projects module enabled',
+  'Fleet secrets store',
   'Operator/internal filesystem helpers',
 ];
 

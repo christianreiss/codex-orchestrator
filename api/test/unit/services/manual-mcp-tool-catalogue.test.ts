@@ -28,7 +28,15 @@ const ARTICLE = resolve(HERE, '../../../../public/admin/manual/articles/mcp.md')
 const CATALOGUE_EXCEPTIONS: Record<string, string> = {};
 
 /** The catalogue's bolded group headings, in article order. */
-const GROUPS = ['Memory', 'Shared memory', 'Filesystem (operator only)', 'Resources', 'Skills', 'Projects'];
+const GROUPS = [
+  'Memory',
+  'Shared memory',
+  'Secrets',
+  'Filesystem (operator only)',
+  'Resources',
+  'Skills',
+  'Projects',
+];
 
 const SECTION = '## Tool catalogue';
 /** A group heading: `**Label**`, with any capability note after (or inside) it. */
@@ -80,10 +88,13 @@ const ALL_DEPS = {
   skills: {},
   resources: {},
   fs: {},
+  secrets: {},
 } as unknown as ToolDeps;
 
 /** The same registry with the shared-memory service left out, as `ToolDeps` allows. */
 const NO_SHARED_DEPS = { ...ALL_DEPS, sharedMemories: undefined } as ToolDeps;
+/** Likewise without the secrets service. */
+const NO_SECRETS_DEPS = { ...ALL_DEPS, secrets: undefined } as ToolDeps;
 
 function registeredNames(deps: ToolDeps): string[] {
   // 'operator' sees the host tools too, so this is the whole registry.
@@ -145,5 +156,16 @@ describe('manual mcp article tool catalogue', () => {
       'only when the shared-memory service is wired',
     );
     expect(registeredNames(NO_SHARED_DEPS)).not.toContain('shared_memory_list');
+  });
+
+  it('flags the secrets group as conditional, the way the registry is', () => {
+    expect(catalogue.get('Secrets')!.heading).toContain(
+      'only when the secrets service is wired',
+    );
+    // Not merely blocked — absent. A registry built without the service must
+    // not advertise a credential tool it cannot serve.
+    for (const name of ['secret_list', 'secret_search', 'secret_get']) {
+      expect(registeredNames(NO_SECRETS_DEPS)).not.toContain(name);
+    }
   });
 });

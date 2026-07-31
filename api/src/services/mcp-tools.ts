@@ -14,6 +14,7 @@ import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
+import type { SecretsService } from './secrets.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
@@ -45,6 +46,14 @@ export interface ToolDeps {
    * (neither listed nor callable). Activated by setting MCP_FS_ROOT.
    */
   fs?: McpFsTools;
+  /**
+   * Fleet credential store. Optional like `sharedMemories`: when omitted the
+   * secret_* tools are neither listed nor callable, so a registry built for a
+   * narrower surface cannot hand out credentials by accident. Note the runtime
+   * switch is separate — `secrets_module_enabled` gates what the service will
+   * serve, while this only decides whether the tools exist at all.
+   */
+  secrets?: SecretsService;
 }
 
 export type ToolResult =
@@ -165,9 +174,11 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
       return { id: scalar };
     case 'memory_search':
     case 'shared_memory_search':
+    case 'secret_search':
       return { query: scalar };
     case 'shared_memory_read':
     case 'shared_memory_delete':
+    case 'secret_get':
       return { slug: scalar };
     case 'shared_memory_list':
       // The only useful scalar for a listing is a slug prefix — a bare string
@@ -431,6 +442,65 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host, engine) => shared.delete(args, host, engine ?? null),
+    });
+  }
+  // Fleet credential store. Read-only over MCP and available to any enrolled
+  // host agent, because an agent that cannot reach its credentials falls back to
+  // scraping them off the filesystem or pestering the operator — which is the
+  // failure mode this store exists to remove. Nothing here writes to disk, so
+  // revocation takes effect on the next call.
+  if (deps.secrets) {
+    const store = deps.secrets;
+    inputs.push({
+      definition: {
+        name: 'secret_list',
+        description:
+          'THE fleet credential store: every working credential you are allowed to use — GitHub tokens, database passwords, Bookstack and Checkmk API tokens, SSH keys, third-party API keys for MCP servers and services. Call this FIRST whenever a task needs a credential, BEFORE you read a .env file, ~/.netrc, ~/.ssh, a config file or shell history, and before you tell the operator a credential is missing. Takes no arguments, so you can call it knowing nothing. Returns slug, name, description (what each credential is for and when to use it), tags and engine visibility for every secret — never the values. Pick the slug whose description matches your task, then call secret_get with that slug. The values are not on this machine and are never written to it: the only place a value exists is the response to secret_get.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            limit: { type: 'integer' },
+          },
+        },
+      },
+      handler: async (_args, _host, engine) => ({
+        secrets: await store.listForHost(engine ?? ENGINE_CODEX),
+      }),
+    });
+    inputs.push({
+      definition: {
+        name: 'secret_search',
+        description:
+          'Find a fleet credential by what it is for, when you do not already know its slug — "github", "bookstack token", "production database", "checkmk". Matches the slug, name, description and tags, and returns the same metadata as secret_list and NEVER a value. Omit query to get the full list instead. Use this rather than guessing a slug, and follow up with secret_get on the one you picked. If it finds nothing, call secret_list to see everything the fleet holds before concluding the credential does not exist.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'integer' },
+          },
+          // `query` is deliberately not required: validateAgainstSchema rejects
+          // an empty string, and a search surface that cannot enumerate forces
+          // callers to guess. Omitting it degrades to a listing.
+        },
+      },
+      handler: async (args, _host, engine) => ({
+        secrets: await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX),
+      }),
+    });
+    inputs.push({
+      definition: {
+        name: 'secret_get',
+        description:
+          'Fetch the plaintext of one fleet credential by slug, after finding it with secret_list or secret_search. Returns a live credential — handle it as one: use it for the call you are making right now and nothing else, and never echo it into a shell command you print, a log line, a commit, a file on disk, a memory, a project note, a comment, or any other tool output. Do not cache it or copy it anywhere: revocation in this store is instant, so a copy you kept is a credential that has stopped working, and a credential you wrote down is one nobody can revoke. Call this again if you need it later. Every call is recorded in the fleet MCP audit log against this host and this slug, whether or not it succeeds.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { slug: { type: 'string' } },
+          required: ['slug'],
+        },
+      },
+      handler: async (args, host, engine) =>
+        store.getForHost(String(args['slug'] ?? ''), host, engine ?? ENGINE_CODEX),
     });
   }
   inputs.push({

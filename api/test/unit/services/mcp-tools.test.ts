@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { McpToolsRegistry, wrapContent } from '../../../src/services/mcp-tools.js';
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
@@ -6,6 +6,7 @@ import type { HostSkillsService } from '../../../src/services/host-skills.js';
 import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
+import type { SecretsService } from '../../../src/services/secrets.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -261,6 +262,16 @@ describe('McpToolsRegistry', () => {
     const list = registry.list().map((t) => t.name);
     expect(list).not.toContain('shared_memory_list');
     expect(registry.has('shared_memory_list')).toBe(false);
+  });
+
+  it('omits the secret_* tools when no secrets service is wired', () => {
+    // A registry built for a narrower surface must not be able to hand out
+    // credentials — absent, not merely refused.
+    const list = registry.list().map((t) => t.name);
+    for (const name of ['secret_list', 'secret_search', 'secret_get']) {
+      expect(list).not.toContain(name);
+      expect(registry.has(name)).toBe(false);
+    }
   });
 
   it('registers the project_memory_* CRUD tools', () => {
@@ -605,5 +616,96 @@ describe('shared_memory_* tools', () => {
   it('is visible to host callers, not operator-only', () => {
     expect(reg.has('shared_memory_list', 'host')).toBe(true);
     expect(reg.has('shared_memory_write', 'host')).toBe(true);
+  });
+});
+
+describe('secret_* tools', () => {
+  interface SecretCall {
+    method: string;
+    arg: string;
+    engine: string | null;
+  }
+  let secretCalls: SecretCall[] = [];
+  const stubSecrets = {
+    listForHost: async (engine: string | null) => {
+      secretCalls.push({ method: 'list', arg: '', engine });
+      return [{ slug: 'gh-pat' }];
+    },
+    searchForHost: async (query: string, engine: string | null) => {
+      secretCalls.push({ method: 'search', arg: query, engine });
+      return [];
+    },
+    getForHost: async (slug: string, _host: Host, engine: string | null) => {
+      secretCalls.push({ method: 'get', arg: slug, engine });
+      return { slug, value: 'ghp_x' };
+    },
+  } as unknown as SecretsService;
+
+  const reg = new McpToolsRegistry({
+    memories: stubMemories,
+    projects: stubProjects,
+    skills: stubSkills,
+    secrets: stubSecrets,
+  });
+
+  beforeEach(() => {
+    secretCalls = [];
+  });
+
+  it('registers the read-only secrets surface and nothing that writes', () => {
+    const names = reg.list().map((t) => t.name);
+    expect(names).toContain('secret_list');
+    expect(names).toContain('secret_search');
+    expect(names).toContain('secret_get');
+    // There is no MCP write path: secrets are authored through the admin API.
+    expect(names.filter((n) => n.startsWith('secret_'))).toHaveLength(3);
+  });
+
+  // The discovery premise: an agent that knows nothing must be able to find out
+  // what credentials exist without already knowing a slug.
+  it('lets secret_list run with no arguments at all', async () => {
+    const res = await reg.dispatch('secret_list', {}, host);
+    expect(res).toMatchObject({ isError: false });
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'list' });
+  });
+
+  it('lets secret_search run without a query, degrading to a listing', async () => {
+    const res = await reg.dispatch('secret_search', {}, host);
+    expect(res).toMatchObject({ isError: false });
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'search', arg: '' });
+  });
+
+  it('rejects secret_get without a slug', async () => {
+    const res = await reg.dispatch('secret_get', {}, host);
+    expect(res).toMatchObject({ isError: true });
+  });
+
+  it('normalizes a bare scalar into the useful field', async () => {
+    await reg.dispatch('secret_get', 'gh-pat' as unknown as Record<string, unknown>, host);
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'get', arg: 'gh-pat' });
+
+    await reg.dispatch('secret_search', 'github' as unknown as Record<string, unknown>, host);
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'search', arg: 'github' });
+  });
+
+  it('threads the engine through so engine-scoped secrets stay scoped', async () => {
+    await reg.dispatch('secret_list', {}, host, 'host', 'claude');
+    expect(secretCalls.at(-1)).toMatchObject({ engine: 'claude' });
+
+    // An absent X-Engine header keeps the legacy codex default, as everywhere else.
+    await reg.dispatch('secret_get', { slug: 'a' }, host);
+    expect(secretCalls.at(-1)).toMatchObject({ engine: 'codex' });
+  });
+
+  it('is visible to host callers, not operator-only', () => {
+    // The user's call: any enrolled host agent may read. If these were operator
+    // tools the store would be invisible to the agents it exists for.
+    expect(reg.has('secret_list', 'host')).toBe(true);
+    expect(reg.has('secret_get', 'host')).toBe(true);
+  });
+
+  it('accepts dot aliases like the rest of the surface', async () => {
+    const res = await reg.dispatch('secret.get', { slug: 'a' }, host);
+    expect(res).toMatchObject({ isError: false });
   });
 });
