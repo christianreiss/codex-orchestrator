@@ -171,16 +171,19 @@ describe('HostSkillsService managed skill manager', () => {
     expect(String(retrieved['manifest'])).toContain('skill_delete');
   });
 
-  it('cannot be overwritten or deleted through the host mutation surface', async () => {
-    const service = makeService(false);
+  it.each(['afk', 'context', 'skill-manager'])(
+    'does not let host mutations overwrite or delete the managed %s Skill',
+    async (slug) => {
+      const service = makeService(false);
 
-    await expect(
-      service.store({ slug: 'skill-manager', manifest: 'replacement' }, host),
-    ).rejects.toMatchObject({ code: 'managed_skill' });
-    await expect(service.deleteSkill('skill-manager', host)).rejects.toMatchObject({
-      code: 'managed_skill',
-    });
-  });
+      await expect(
+        service.store({ slug, manifest: 'replacement' }, host),
+      ).rejects.toMatchObject({ code: 'managed_skill' });
+      await expect(service.deleteSkill(slug, host)).rejects.toMatchObject({
+        code: 'managed_skill',
+      });
+    },
+  );
 });
 
 describe('HostSkillsService authored skill lifecycle', () => {
@@ -295,9 +298,15 @@ describe('HostSkillsService authored skill lifecycle', () => {
     });
   });
 
-  it('rejects non-string authored Skill fields instead of coercing them', async () => {
+  it('rejects invalid authored Skill fields instead of coercing them', async () => {
     const service = makeService(false);
 
+    await expect(service.store({ slug: 'blank-manifest', manifest: '   ' }, host)).rejects.toMatchObject({
+      extra: { errors: { manifest: ['manifest is required'] } },
+    });
+    await expect(service.store({ slug: 'path/slug', manifest: 'Body' }, host)).rejects.toMatchObject({
+      extra: { errors: { slug: ['slug cannot include path separators'] } },
+    });
     await expect(service.store({ slug: 'bad-manifest', manifest: { body: 'no' } }, host)).rejects.toMatchObject({
       extra: { errors: { manifest: ['manifest must be a string'] } },
     });
