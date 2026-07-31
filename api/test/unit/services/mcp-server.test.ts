@@ -82,6 +82,8 @@ describe('McpServer.handlePayload', () => {
     const r = await server.handlePayload({ jsonrpc: '2.0', id: 'a', method: 'tools/list' }, ctx);
     const result = (r as { result: { tools: Array<{ name: string }> } }).result;
     expect(result.tools.some((t) => t.name === 'memory_store')).toBe(true);
+    expect(result.tools.some((t) => t.name === 'skill_store')).toBe(true);
+    expect(result.tools.some((t) => t.name === 'skill_delete')).toBe(true);
   });
 
   it('returns -32601 for unknown method', async () => {

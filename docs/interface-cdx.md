@@ -99,6 +99,11 @@ content live through the managed MCP server:
 - Reading a bundled manifest adds a fleet note that maps relative paths onto
   `skill://<slug>/<path>` and says bundled scripts are reference text. Neither
   the importer nor the resource layer grants permission to execute them.
+- Authenticated Codex agents may create, fully replace, revive, or soft-delete
+  ordinary shared manifest-only Skills with MCP `skill_store` / `skill_delete`.
+  Writes are last-writer-wins and always `engine:null`; managed/source-owned
+  Skills remain immutable. The managed `skill-manager` Skill supplies the
+  list/retrieve/mutate/verify runbook, and Codex reads a successful mutation live.
 
 The Matt Pocock source is off by default, so this surface does not imply it is
 enabled on a deployment. Once an admin enables it, the source adapter publishes

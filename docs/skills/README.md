@@ -9,11 +9,11 @@ Manifests are kept here only when they need review in git before being stored, t
 same way `api/src/db/migrations/*.sql` holds DDL that no runner applies automatically.
 Both are deploy artifacts: apply them by hand, in order.
 
-If you change a skill through the authoring UI (`/authoring/skills/<slug>`) or the
-admin API, the copy here goes stale. Treat the DB as authoritative and re-export, or
-delete the file rather than let it drift. (Exception: `coco` is not here and never
-will be — it is synthesized from a constant in `api/src/services/managed-coco-skill.ts`
-and cannot be stored through the normal path.)
+If you change a skill through the authoring UI (`/authoring/skills/<slug>`), the
+admin API, or the MCP Skill tools, the copy here goes stale. Treat the DB as
+authoritative and re-export, or delete the file rather than let it drift.
+Code-managed Skills are the exception: they are synthesized from constants under
+`api/src/services/` and cannot be stored through the normal paths.
 
 ## Optional external source: Matt Pocock skills
 
@@ -113,6 +113,14 @@ are required; `display_name`, `description`, and `engine` (`null` = all engines)
 optional. The server computes `sha256` itself. Re-storing identical content returns
 `unchanged`.
 
+An authenticated host agent can instead use MCP `skill_store` with `slug`,
+`manifest`, and optional `display_name` / `description`. It creates, fully replaces,
+or revives a manifest-only Skill as shared `engine:null` state. MCP `skill_delete`
+soft-deletes by slug. Both operations are last-writer-wins and reject every
+code-managed or source-owned Skill. The managed `skill-manager` Skill instructs
+agents to use `skill_list` / `skill_retrieve` before a mutation and retrieve again
+afterward to verify it.
+
 ```bash
 # 1. Log in (the API binds 127.0.0.1:8488; through Caddy add --cert/--key for mTLS)
 curl -sc /tmp/cj -X POST http://127.0.0.1:8488/admin/auth/login \
@@ -120,7 +128,7 @@ curl -sc /tmp/cj -X POST http://127.0.0.1:8488/admin/auth/login \
   -d '{"username":"<user>","password":"<password>"}'
 
 # 2. Store, reading the manifest straight from the file
-#    (`coco` and `context` are managed in code and are REJECTED here — see below)
+#    (the managed slugs listed below are REJECTED here)
 jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
   '{slug:"<slug>", display_name:"<Display name>", engine:null,
     description:"<one-line description>",
@@ -131,20 +139,30 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 
 ## Managed skills (code-derived, never stored)
 
-`coco` and `context` are NOT rows in the `skills` table and must never be stored with
-`POST /admin/skills/store` — that endpoint rejects both slugs. Their manifests are constants in
-`api/src/services/managed-coco-skill.ts` and `api/src/services/managed-context-skill.ts`, assembled
-by `api/src/services/managed-skills.ts`, and served through the normal `/skills` list / retrieve /
-bundle paths. A managed slug shadows any same-named row left over from before, so an existing
-deployment needs no migration.
+`afk`, `coco`, `context`, and `skill-manager` are NOT rows in the `skills` table and
+must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
+mutation paths reject every managed slug. Their manifests are constants in
+`api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,
+`api/src/services/managed-context-skill.ts`, and
+`api/src/services/managed-skill-manager.ts`, assembled by
+`api/src/services/managed-skills.ts`, and served through the normal `/skills` and
+MCP paths. A managed slug shadows any same-named row left over from before, so an
+existing deployment needs no migration.
 
 Editing the constant and shipping the API image IS the release: the manifest sha changes, and every
 host picks it up on its next sync. `docs/skills/context.SKILL.md` used to be the authoring copy for
 `context` and was deleted when it moved into code — a checked-in file that ships nothing is exactly
-the drift this change removes. `coco` is served only while `projects_module_enabled = 1`; `context`
-is unconditional, because the memory tools it documents always exist.
+the drift this change removes. `coco` is served only while
+`projects_module_enabled = 1`; `afk`, `context`, and `skill-manager` are
+unconditional.
 
 ## Current manifests
+
+- `#skill-manager` — code-derived in
+  `api/src/services/managed-skill-manager.ts`. It documents the MCP
+  list/retrieve/store/delete/verify lifecycle, last-writer-wins behavior, recoverable
+  deletion, and the code/source ownership boundary. It is shared across engines and
+  is itself immutable through the tools it documents.
 
 - `#context` — **no longer a file and no longer a row.** Moved into
   `api/src/services/managed-context-skill.ts` on 2026-07-27; the checked-in

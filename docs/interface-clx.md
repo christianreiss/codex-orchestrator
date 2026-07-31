@@ -446,6 +446,11 @@ Engine-specific details:
   `files[]` tree, including `LICENSE.mattpocock` for the optional MIT-licensed
   Matt Pocock source. The item SHA is the complete bundle digest and
   `content`/`files` are omitted together when the wrapper already has it.
+- Claude agents can call MCP `skill_store` / `skill_delete` to mutate the same
+  shared manifest-only fleet Skills. The canonical API state changes immediately,
+  but Claude's native directory is refreshed on the next unlocked wrapper
+  bootstrap, not live inside the running session. The managed `skill-manager`
+  runbook is delivered through that same native Skill bundle.
 - **cxx 0.7.3 installs a Skill directory atomically.** It validates every
   slash-separated relative path, rejects traversal/duplicates/backslashes,
   verifies the manifest and each file SHA-256, recomputes the canonical complete

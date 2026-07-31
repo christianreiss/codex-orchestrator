@@ -189,6 +189,7 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
       // Scalar form is ambiguous between slug-only and stored-name; default to slug.
       return { slug: scalar };
     case 'skill_retrieve':
+    case 'skill_delete':
       return { slug: scalar };
     default:
       return { value: scalar };
@@ -198,11 +199,12 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
 /**
  * Minimal validation of `args` against a tool's declared JSON-schema-like
  * `inputSchema`: checks that every `required` property is present (and, for
- * `integer`/`number` properties, coercible to a finite number). This is not a
- * full JSON-schema implementation — just enough to turn missing/malformed
- * required fields into a clear error instead of a NaN or undefined silently
- * flowing into the handler. Returns a human-readable message, or null when
- * `args` satisfies the schema.
+ * `integer`/`number` properties, coercible to a finite number). Closed schemas
+ * also reject undeclared fields and enforce their declared string types. This
+ * is not a full JSON-schema implementation — just enough to turn
+ * missing/malformed fields into a clear error instead of silently coercing
+ * them in a handler. Returns a human-readable message, or null when `args`
+ * satisfies the schema.
  */
 function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
@@ -210,6 +212,20 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
     schema['properties'] && typeof schema['properties'] === 'object'
       ? (schema['properties'] as Record<string, { type?: unknown }>)
       : {};
+  if (schema['additionalProperties'] === false) {
+    for (const key of Object.keys(args)) {
+      if (!Object.prototype.hasOwnProperty.call(properties, key)) {
+        return "'" + key + "' is not allowed";
+      }
+    }
+    for (const [key, property] of Object.entries(properties)) {
+      const value = args[key];
+      if (value === undefined) continue;
+      if (property.type === 'string' && typeof value !== 'string') {
+        return "'" + key + "' must be a string";
+      }
+    }
+  }
   for (const key of required) {
     if (typeof key !== 'string') continue;
     const value = args[key];
@@ -798,6 +814,39 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       const sha = typeof args['sha256'] === 'string' ? args['sha256'] : null;
       return deps.skills.retrieve(slug, sha, host, engine ?? ENGINE_CODEX);
     },
+  });
+  inputs.push({
+    definition: {
+      name: 'skill_store',
+      description:
+        'Create, replace, or revive one shared canonical Skill manifest. Last-writer-wins; code-managed and source-managed Skills are read-only.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          slug: { type: 'string' },
+          manifest: { type: 'string' },
+          display_name: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['slug', 'manifest'],
+      },
+    },
+    handler: async (args, host) => deps.skills.store(args, host),
+  });
+  inputs.push({
+    definition: {
+      name: 'skill_delete',
+      description:
+        'Soft-delete one shared canonical Skill by slug. A later skill_store can revive it; code-managed and source-managed Skills are read-only.',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { slug: { type: 'string' } },
+        required: ['slug'],
+      },
+    },
+    handler: async (args, host) => deps.skills.deleteSkill(String(args['slug'] ?? ''), host),
   });
 
   if (deps.resources) {

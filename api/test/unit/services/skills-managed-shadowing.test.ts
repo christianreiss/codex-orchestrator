@@ -53,7 +53,7 @@ describe('SkillsService managed shadowing', () => {
     const { service } = makeService([staleRow('context', 1)]);
 
     const listed = await service.list({ includeDeleted: true });
-    expect(listed.map((s) => s.slug)).toEqual(['afk', 'context']);
+    expect(listed.map((s) => s.slug)).toEqual(['afk', 'context', 'skill-manager']);
     expect(listed.find((skill) => skill.slug === 'context')).toMatchObject({
       id: null,
       slug: 'context',
@@ -88,7 +88,7 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed.map((skill) => skill.slug)).toEqual(['afk', 'context']);
+    expect(listed.map((skill) => skill.slug)).toEqual(['afk', 'context', 'skill-manager']);
     expect(listed.find((skill) => skill.slug === 'context')).toMatchObject({ slug: 'context', sha256: context.sha256, managed: true });
   });
 
@@ -97,7 +97,7 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context']);
+    expect(listed.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'skill-manager']);
     expect(listed.find((skill) => skill.slug === 'agentic')).toMatchObject({
       id: 2,
       slug: 'agentic',
@@ -118,23 +118,28 @@ describe('SkillsService managed shadowing', () => {
       { ...staleRow('retired', 2), deletedAt: '2026-02-02T00:00:00Z' },
     ]);
 
-    await expect(service.list()).resolves.toMatchObject([{ slug: 'afk' }, { slug: 'agentic' }, { slug: 'context' }]);
+    await expect(service.list()).resolves.toMatchObject([
+      { slug: 'afk' },
+      { slug: 'agentic' },
+      { slug: 'context' },
+      { slug: 'skill-manager' },
+    ]);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired']);
+    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired', 'skill-manager']);
     expect(all[3]).toMatchObject({ slug: 'retired', deleted_at: '2026-02-02T00:00:00Z', managed: false });
   });
 
   it('shadows coco only while the Projects module is on', async () => {
     const withModule = makeService([staleRow('coco', 1)], true);
     const listedOn = await withModule.service.list();
-    expect(listedOn.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
+    expect(listedOn.map((s) => s.slug)).toEqual(['afk', 'coco', 'context', 'skill-manager']);
     expect(listedOn.find((skill) => skill.slug === 'coco')).toMatchObject({ id: null, sha256: coco.sha256, manifest: coco.manifest, managed: true });
 
     // With the module off no coco manifest is served, so the row is what hosts
     // get -- but the slug is still code-owned, so it stays flagged as managed.
     const withoutModule = makeService([staleRow('coco', 1)]);
     const listedOff = await withoutModule.service.list();
-    expect(listedOff.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
+    expect(listedOff.map((s) => s.slug)).toEqual(['afk', 'coco', 'context', 'skill-manager']);
     expect(listedOff.find((skill) => skill.slug === 'coco')).toMatchObject({ id: 1, sha256: 'a'.repeat(64), managed: true });
   });
 });

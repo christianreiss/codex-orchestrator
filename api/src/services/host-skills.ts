@@ -12,7 +12,12 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CODEX } from '../util/engine.js';
-import { findManagedSkill, listManagedSkills, type ManagedSkillManifest } from './managed-skills.js';
+import {
+  findManagedSkill,
+  isManagedSkillSlug,
+  listManagedSkills,
+  type ManagedSkillManifest,
+} from './managed-skills.js';
 import {
   allowsImplicitSkillInvocation,
   effectiveSkillDigest,
@@ -373,14 +378,26 @@ export class HostSkillsService {
     const descriptionRaw = payload['description'];
     const providedSha = payload['sha256'];
 
-    const slug = normalizeSlug(String(slugRaw));
-    if (await findManagedSkill(this.db, slug)) {
+    const errors: Record<string, string[]> = {};
+    if (typeof slugRaw !== 'string') errors['slug'] = ['slug must be a string'];
+    if (typeof manifestRaw !== 'string') errors['manifest'] = ['manifest must be a string'];
+    if (displayNameRaw !== undefined && displayNameRaw !== null && typeof displayNameRaw !== 'string') {
+      errors['display_name'] = ['display_name must be a string'];
+    }
+    if (descriptionRaw !== undefined && descriptionRaw !== null && typeof descriptionRaw !== 'string') {
+      errors['description'] = ['description must be a string'];
+    }
+    assertSha256(typeof providedSha === 'string' ? providedSha : providedSha ?? null, true, errors);
+    if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
+
+    const validatedSlug = typeof slugRaw === 'string' ? slugRaw : '';
+    const validatedManifest = typeof manifestRaw === 'string' ? manifestRaw : '';
+    const slug = normalizeSlug(validatedSlug);
+    if (isManagedSkillSlug(slug)) {
       throw new ConflictError('managed skill cannot be overwritten directly', 'managed_skill');
     }
-    const manifest = String(manifestRaw ?? '').trim() === '' ? '' : String(manifestRaw);
-    const errors: Record<string, string[]> = {};
+    const manifest = validatedManifest.trim() === '' ? '' : validatedManifest;
     if (manifest === '') errors['manifest'] = ['manifest is required'];
-    assertSha256(typeof providedSha === 'string' ? providedSha : null, true, errors);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
     const sha = createHash('sha256').update(manifest).digest('hex');
@@ -388,8 +405,8 @@ export class HostSkillsService {
       throw new ValidationError('Validation failed', { extra: { errors: { sha256: ['sha256 does not match manifest contents'] } } });
     }
 
-    const displayName = displayNameRaw !== undefined && displayNameRaw !== null ? String(displayNameRaw).trim() : null;
-    const description = descriptionRaw !== undefined && descriptionRaw !== null ? String(descriptionRaw).trim() : null;
+    const displayName = typeof displayNameRaw === 'string' ? displayNameRaw.trim() : null;
+    const description = typeof descriptionRaw === 'string' ? descriptionRaw.trim() : null;
 
     // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
     // either the existing row or the unique-index gap, so an importer cannot
@@ -407,13 +424,17 @@ export class HostSkillsService {
       }
 
       const existingSha = existing?.sha256 ?? null;
+      const displayNameToPersist = displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName;
       const descriptionToPersist = descriptionRaw === undefined ? (existing?.description ?? null) : description;
       const metadataChanged =
         existing !== undefined &&
-        ((existing.displayName ?? null) !== displayName ||
+        ((existing.displayName ?? null) !== displayNameToPersist ||
           (existing.description ?? null) !== descriptionToPersist);
+      const scopeChanged = existing !== undefined && existing.engine !== null;
       const status: 'created' | 'updated' | 'unchanged' = existing
-        ? existingSha && safeHashEquals(existingSha, sha) && !metadataChanged ? 'unchanged' : 'updated'
+        ? existingSha && safeHashEquals(existingSha, sha) && !metadataChanged && !scopeChanged && !existing.deletedAt
+          ? 'unchanged'
+          : 'updated'
         : 'created';
 
       if (status === 'unchanged') {
@@ -426,10 +447,11 @@ export class HostSkillsService {
           .update(skills)
           .set({
             sha256: sha,
-            displayName,
+            displayName: displayNameToPersist,
             description: descriptionToPersist,
             manifest,
             sourceHostId: host.id,
+            engine: null,
             updatedAt: now,
             deletedAt: null,
           })
@@ -438,7 +460,7 @@ export class HostSkillsService {
         await tx.insert(skills).values({
           slug,
           sha256: sha,
-          displayName,
+          displayName: displayNameToPersist,
           description: descriptionToPersist,
           manifest,
           sourceHostId: host.id,
@@ -461,6 +483,52 @@ export class HostSkillsService {
       canonical_uri: skillUri(slug),
       sha256: persisted.savedSha,
       updated_at: persisted.savedUpdatedAt,
+      managed: false,
+    };
+  }
+
+  async deleteSkill(rawSlug: string, host: Host): Promise<Record<string, unknown>> {
+    const slug = normalizeSlug(rawSlug);
+    if (isManagedSkillSlug(slug)) {
+      throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
+    }
+
+    const persisted = await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(skills)
+        .where(eq(skills.slug, slug))
+        .for('update')
+        .limit(1);
+      const existing = rows[0];
+      if (existing && isSourceOwnedSkill(existing)) {
+        throw new ConflictError('source-managed skill cannot be deleted directly', 'managed_skill');
+      }
+      if (!existing) return { status: 'missing' as const, deletedAt: null };
+      if (existing.deletedAt && existing.engine === null) {
+        return { status: 'unchanged' as const, deletedAt: existing.deletedAt };
+      }
+
+      const updatedAt = nowIso();
+      const deletedAt = existing.deletedAt ?? updatedAt;
+      await tx
+        .update(skills)
+        .set({ deletedAt, engine: null, updatedAt })
+        .where(eq(skills.id, existing.id));
+      return { status: 'deleted' as const, deletedAt };
+    }, { isolationLevel: 'repeatable read' });
+
+    await this.recordLog(host.id, 'skill.delete', { slug, status: persisted.status });
+    if (persisted.status === 'deleted') {
+      wsPublisher.publish('skill.deleted', { slug, source_host_id: host.id });
+    }
+
+    return {
+      status: persisted.status,
+      slug,
+      uri: skillUri(slug),
+      canonical_uri: skillUri(slug),
+      ...(persisted.deletedAt ? { deleted_at: persisted.deletedAt } : {}),
       managed: false,
     };
   }

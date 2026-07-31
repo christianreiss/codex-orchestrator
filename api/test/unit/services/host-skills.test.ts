@@ -111,6 +111,20 @@ describe('HostSkillsService managed CoCo skill', () => {
     await expect(
       service.store({ slug: MANAGED_COCO_SKILL_SLUG, manifest: 'replacement' }, host),
     ).rejects.toMatchObject({ code: 'managed_skill' });
+    await expect(service.deleteSkill(MANAGED_COCO_SKILL_SLUG, host)).rejects.toMatchObject({
+      code: 'managed_skill',
+    });
+  });
+
+  it('reserves the managed coco slug even while Projects is disabled', async () => {
+    const service = makeService(false);
+
+    await expect(
+      service.store({ slug: MANAGED_COCO_SKILL_SLUG, manifest: 'replacement' }, host),
+    ).rejects.toMatchObject({ code: 'managed_skill' });
+    await expect(service.deleteSkill(MANAGED_COCO_SKILL_SLUG, host)).rejects.toMatchObject({
+      code: 'managed_skill',
+    });
   });
 
   it('emits managed coco as an on-disk SKILL.md in the claude bundle (name = slug)', async () => {
@@ -130,6 +144,172 @@ describe('HostSkillsService managed CoCo skill', () => {
     const service = makeService(false, [skillRow({ id: 1, slug: 'agentic' })]);
     const out = await service.bundle(host, 'claude', {});
     expect(out.find((s) => s.slug === MANAGED_COCO_SKILL_SLUG)).toBeUndefined();
+  });
+});
+
+describe('HostSkillsService managed skill manager', () => {
+  it('always lists and retrieves the instructions for managing fleet skills', async () => {
+    const service = makeService(false);
+
+    const listed = await service.listSkills(host, 'codex');
+    expect(listed.skills.find((skill) => skill['slug'] === 'skill-manager')).toMatchObject({
+      slug: 'skill-manager',
+      managed: true,
+      engine: null,
+      uri: 'skill://skill-manager',
+    });
+
+    const retrieved = await service.retrieve('skill-manager', null, host);
+    expect(retrieved).toMatchObject({
+      status: 'updated',
+      slug: 'skill-manager',
+      managed: true,
+    });
+    expect(String(retrieved['manifest'])).toContain('skill_list');
+    expect(String(retrieved['manifest'])).toContain('skill_retrieve');
+    expect(String(retrieved['manifest'])).toContain('skill_store');
+    expect(String(retrieved['manifest'])).toContain('skill_delete');
+  });
+
+  it('cannot be overwritten or deleted through the host mutation surface', async () => {
+    const service = makeService(false);
+
+    await expect(
+      service.store({ slug: 'skill-manager', manifest: 'replacement' }, host),
+    ).rejects.toMatchObject({ code: 'managed_skill' });
+    await expect(service.deleteSkill('skill-manager', host)).rejects.toMatchObject({
+      code: 'managed_skill',
+    });
+  });
+});
+
+describe('HostSkillsService authored skill lifecycle', () => {
+  it('creates, updates, soft-deletes, and revives one shared manifest', async () => {
+    const db = makeDb(false);
+    const service = new HostSkillsService(db as never);
+    const firstManifest = '---\nname: deploy-check\ndescription: First\n---\n\nFirst\n';
+    const secondManifest = '---\nname: deploy-check\ndescription: Second\n---\n\nSecond\n';
+
+    await expect(
+      service.store({ slug: 'deploy-check', manifest: firstManifest, display_name: 'Deploy Check' }, host),
+    ).resolves.toMatchObject({
+      status: 'created',
+      slug: 'deploy-check',
+      managed: false,
+    });
+    expect(db.tables.get(skillsTable)?.[0]).toMatchObject({
+      slug: 'deploy-check',
+      engine: null,
+      sourceHostId: host.id,
+      deletedAt: null,
+    });
+
+    await expect(
+      service.store({ slug: 'deploy-check', manifest: secondManifest, description: 'Second' }, host),
+    ).resolves.toMatchObject({ status: 'updated' });
+
+    await expect(service.deleteSkill('deploy-check', host)).resolves.toMatchObject({
+      status: 'deleted',
+      slug: 'deploy-check',
+    });
+    await expect(service.retrieve('deploy-check', null, host)).resolves.toMatchObject({
+      status: 'deleted',
+      slug: 'deploy-check',
+    });
+
+    // Storing the same bytes must revive a tombstone instead of reporting a
+    // no-op and leaving the Skill deleted.
+    await expect(
+      service.store({ slug: 'deploy-check', manifest: secondManifest, description: 'Second' }, host),
+    ).resolves.toMatchObject({ status: 'updated' });
+    await expect(service.retrieve('deploy-check', null, host)).resolves.toMatchObject({
+      status: 'updated',
+      slug: 'deploy-check',
+      manifest: secondManifest,
+    });
+
+    await expect(service.deleteSkill('deploy-check', host)).resolves.toMatchObject({ status: 'deleted' });
+    await expect(service.deleteSkill('deploy-check', host)).resolves.toMatchObject({ status: 'unchanged' });
+    await expect(service.deleteSkill('missing-skill', host)).resolves.toMatchObject({
+      status: 'missing',
+      slug: 'missing-skill',
+    });
+  });
+
+  it('normalizes an existing engine-scoped manifest to shared fleet scope', async () => {
+    const manifest = '---\nname: legacy-skill\ndescription: Legacy\n---\n\nBody\n';
+    const db = makeDb(false, [
+      skillRow({
+        id: 7,
+        slug: 'legacy-skill',
+        manifest,
+        engine: 'codex',
+      }),
+    ]);
+    const service = new HostSkillsService(db as never);
+
+    await expect(
+      service.store({ slug: 'legacy-skill', manifest }, host),
+    ).resolves.toMatchObject({ status: 'updated' });
+    expect(db.tables.get(skillsTable)?.[0]).toMatchObject({
+      slug: 'legacy-skill',
+      engine: null,
+      sourceHostId: host.id,
+    });
+    await expect(service.retrieve('legacy-skill', null, host, 'claude')).resolves.toMatchObject({
+      status: 'updated',
+      slug: 'legacy-skill',
+      manifest,
+    });
+    await expect(service.listSkills(host, 'claude')).resolves.toMatchObject({
+      skills: expect.arrayContaining([expect.objectContaining({ slug: 'legacy-skill', engine: null })]),
+    });
+  });
+
+  it('normalizes an existing engine-scoped tombstone to shared fleet scope', async () => {
+    const deletedAt = '2026-01-02T00:00:00Z';
+    const db = makeDb(false, [
+      skillRow({
+        id: 8,
+        slug: 'legacy-deleted',
+        engine: 'codex',
+        deletedAt,
+      }),
+    ]);
+    const service = new HostSkillsService(db as never);
+
+    await expect(service.deleteSkill('legacy-deleted', host)).resolves.toMatchObject({
+      status: 'deleted',
+      slug: 'legacy-deleted',
+      deleted_at: deletedAt,
+    });
+    expect(db.tables.get(skillsTable)?.[0]).toMatchObject({
+      slug: 'legacy-deleted',
+      engine: null,
+      deletedAt,
+    });
+    await expect(service.retrieve('legacy-deleted', null, host, 'claude')).resolves.toMatchObject({
+      status: 'deleted',
+      slug: 'legacy-deleted',
+      deleted_at: deletedAt,
+    });
+  });
+
+  it('rejects non-string authored Skill fields instead of coercing them', async () => {
+    const service = makeService(false);
+
+    await expect(service.store({ slug: 'bad-manifest', manifest: { body: 'no' } }, host)).rejects.toMatchObject({
+      extra: { errors: { manifest: ['manifest must be a string'] } },
+    });
+    await expect(service.store({ slug: ['bad-slug'], manifest: 'Body' }, host)).rejects.toMatchObject({
+      extra: { errors: { slug: ['slug must be a string'] } },
+    });
+    await expect(service.store({ slug: 'bad-display', manifest: 'Body', display_name: 7 }, host)).rejects.toMatchObject({
+      extra: { errors: { display_name: ['display_name must be a string'] } },
+    });
+    await expect(service.store({ slug: 'bad-description', manifest: 'Body', description: {} }, host)).rejects.toMatchObject({
+      extra: { errors: { description: ['description must be a string'] } },
+    });
   });
 });
 
@@ -219,6 +399,9 @@ describe('HostSkillsService source-owned skills', () => {
     const service = makeService(false, [skillRow({ id: 1, slug: 'agentic', manifest, ...sourceFor(manifest) })]);
 
     await expect(service.store({ slug: 'agentic', manifest: 'replacement' }, host)).rejects.toMatchObject({
+      code: 'managed_skill',
+    });
+    await expect(service.deleteSkill('agentic', host)).rejects.toMatchObject({
       code: 'managed_skill',
     });
   });

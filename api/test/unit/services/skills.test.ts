@@ -80,6 +80,7 @@ describe('SkillsService.store validation', () => {
 
     await expectManagedConflict(service.store({ slug: 'coco', manifest: BODY }));
     await expectManagedConflict(service.store({ slug: 'context', manifest: BODY }));
+    await expectManagedConflict(service.store({ slug: 'skill-manager', manifest: BODY }));
     expect(db.inserts).toEqual([]);
   });
 
@@ -287,6 +288,7 @@ describe('SkillsService.softDelete', () => {
 
     await expectManagedConflict(service.softDelete('coco'));
     await expectManagedConflict(service.softDelete('context'));
+    await expectManagedConflict(service.softDelete('skill-manager'));
     await expectManagedConflict(service.softDelete('codex-project-coordination'));
     await expectManagedConflict(service.softDelete('claude-project-coordination'));
     expect(db.updates).toEqual([]);
@@ -355,11 +357,11 @@ describe('SkillsService reads', () => {
       skillRow({ id: 2, slug: 'retired', deletedAt: '2026-02-02T00:00:00Z' }),
     ]);
 
-    // `afk` and `context` are code-derived and always served, so they ride along in both.
+    // `afk`, `context`, and `skill-manager` are code-derived and always served.
     const live = await service.list();
-    expect(live.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context']);
+    expect(live.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'skill-manager']);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired']);
+    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'context', 'retired', 'skill-manager']);
   });
 
   it('exposes provenance and marks a source-owned row read-only', async () => {

@@ -1,3 +1,11 @@
+# 2026-07-31
+
+- Authenticated host agents can now manage ordinary fleet Skills through MCP
+  `skill_store` and `skill_delete`. Stores create, replace, or revive one shared
+  manifest-only Skill; deletes are recoverable tombstones. Code-managed and
+  source-owned Skills remain immutable. A new always-available managed
+  `skill-manager` Skill teaches agents the list/retrieve/mutate/verify workflow.
+
 # 2026-07-30
 
 - Fixed signed wrapper-config baking to use the encrypted host API key rather

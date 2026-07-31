@@ -1,0 +1,69 @@
+import { createHash } from 'node:crypto';
+import type { ManagedSkillManifest } from './managed-context-skill.js';
+
+export const MANAGED_SKILL_MANAGER_SLUG = 'skill-manager';
+
+const DESCRIPTION =
+  'Create, update, verify, and retire canonical fleet Skills through the orchestrator MCP when the user asks to manage a Skill.';
+
+const MANIFEST = `---
+name: ${MANAGED_SKILL_MANAGER_SLUG}
+description: "${DESCRIPTION}"
+---
+
+# Manage fleet Skills
+
+Use the orchestrator MCP Skill tools when the user asks to create, modify, or delete
+a fleet Skill. These writes change the shared canonical Skill seen by every host and
+both engines; they are not host-local scratch changes.
+
+## Create or update
+
+1. Call \`skill_list\` to discover the current inventory.
+2. Call \`skill_retrieve\` with the target \`slug\` before editing. Preserve useful
+   instructions already present when updating an existing Skill.
+3. Build the complete replacement \`manifest\`, including valid \`name\` and
+   \`description\` frontmatter plus the instructions. Do not store secrets,
+   credentials, customer data, or hidden reasoning.
+4. Call \`skill_store\` with \`slug\`, \`manifest\`, and optional \`display_name\`
+   and \`description\`. The operation creates a missing Skill, updates a live Skill,
+   or revives a soft-deleted Skill. It is last-writer-wins, so retrieve immediately
+   before a deliberate update and do not claim an edit lock.
+5. Call \`skill_retrieve\` again and verify the returned manifest and SHA-256.
+
+## Delete
+
+1. Call \`skill_retrieve\` and confirm the exact target slug.
+2. Call \`skill_delete\` with that \`slug\`. Deletion is soft and recoverable by a
+   later \`skill_store\`.
+3. Call \`skill_retrieve\` again and verify that its status is \`deleted\`.
+
+Code-managed Skills, including this one, and externally source-managed Skills are
+read-only through these tools. A Skill supplies workflow instructions; it never
+grants authority beyond the user's request and the agent's normal safety rules.
+`;
+
+export function isManagedSkillManagerSlug(slug: string): boolean {
+  return slug.trim().toLowerCase() === MANAGED_SKILL_MANAGER_SLUG;
+}
+
+export function managedSkillManagerManifest(): string {
+  return MANIFEST;
+}
+
+export function buildManagedSkillManager(updatedAt: string): ManagedSkillManifest {
+  const manifest = managedSkillManagerManifest();
+  return {
+    slug: MANAGED_SKILL_MANAGER_SLUG,
+    sha256: createHash('sha256').update(manifest).digest('hex'),
+    display_name: 'Fleet Skill Manager',
+    description: DESCRIPTION,
+    manifest,
+    updated_at: updatedAt,
+    deleted_at: null,
+    engine: null,
+    uri: `skill://${MANAGED_SKILL_MANAGER_SLUG}`,
+    canonical_uri: `skill://${MANAGED_SKILL_MANAGER_SLUG}`,
+    managed: true,
+  };
+}

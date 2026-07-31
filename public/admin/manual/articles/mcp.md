@@ -1,8 +1,8 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-07-28
-sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
+verified: 2026-07-31
+sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/managed-skill-manager.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
 ---
 
 The Model Context Protocol (MCP) endpoint is how hosts and operator tools read canonical orchestrator data at runtime — skills, project state, memories — without going through the admin UI. It speaks JSON-RPC 2.0 over HTTP.
@@ -48,7 +48,7 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete` — `list`/`read` work across every URI scheme; `create`/`update`/`delete` are restricted to the two memory schemes, `memory://` and `project://{slug}/memory/{key}` (see *Resources* below).
 
 **Skills** (both capabilities)
-- `skill_list`, `skill_retrieve` — canonical skill manifest entries.
+- `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete` — canonical Skill manifest CRUD.
 
 **Projects** (both capabilities — always registered)
 - `project_list`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`
@@ -60,6 +60,20 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 These tools are unconditional: `McpToolsRegistry` (`mcp-tools.ts`) registers them the same way it registers `memory_*`/`skill_*`, with no dependency on the Projects module toggle (`projects_module_enabled`). What *is* gated by that toggle is the managed `coco` skill (`api/src/services/managed-coco-skill.ts`, `skill://coco`) — see [Projects](/admin/manual/projects) — which onboards agents onto the `project_*` workflow. Disabling the module removes the skill, not the tools.
 
 Use `tools/list` at runtime for the authoritative set; what you see depends on who is calling.
+
+## Skill tools
+
+`skill_store` accepts `{slug, manifest, display_name?, description?}` and creates,
+fully replaces, or revives one manifest-only canonical Skill. `skill_delete` accepts
+`{slug}` and soft-deletes it, so a later store can recover the same slug. Mutations
+are last-writer-wins, attributed to the authenticated host, and always shared as
+`engine:null`; there is no per-call engine override. Code-managed slugs and rows
+owned by an external Skill source are read-only.
+
+The always-available managed `skill-manager` Skill is the agent runbook for this
+lifecycle: list and retrieve before changing a Skill, store or delete it, then
+retrieve again to verify the result. Skill text is still untrusted instruction
+content and cannot grant authority beyond the user's request.
 
 ## Resources
 
@@ -236,9 +250,10 @@ When a host loses fleet trust (e.g. host is deleted, wrapper is uninstalled, or 
 - api/src/services/mcp-memories.ts (host-scoped memory backing, mcp_memories table, key/content/tag limits)
 - api/src/services/memory-tags.ts (tag/metadata normalization shared by both memory stores)
 - api/src/db/migrations/0003_add_coord_project_memories.sql (coord_project_memories DDL incl. the full-text index)
-- api/src/services/host-skills.ts (skill:// resource + skill_list/skill_retrieve — the actual read-time materialiser)
+- api/src/services/host-skills.ts (skill:// reads plus skill_list/skill_retrieve/skill_store/skill_delete)
 - api/src/services/host-projects.ts (project_* tool implementations, unconditional on the Projects module)
 - api/src/services/managed-coco-skill.ts (coco skill gated by projects_module_enabled)
+- api/src/services/managed-skill-manager.ts (always-available agent runbook for Skill CRUD)
 - api/src/services/skill-manifest.ts (slug/manifest validation for admin skill authoring — not the MCP read path)
 - api/src/services/mcp-access-log.ts (mcp_access_logs writes)
 - api/src/routes/mcp/index.ts (GET/POST /mcp transport, host/operator capability resolution)

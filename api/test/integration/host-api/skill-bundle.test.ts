@@ -94,13 +94,17 @@ describe('POST /sync/bootstrap claude_skills bundle', () => {
     const body = JSON.parse(r.payload);
     expect(body.claude_skills).toBeDefined();
     const slugs = body.claude_skills.map((s: { slug: string }) => s.slug).sort();
-    // `afk` and `context` are MANAGED skills: derived from code, not skills
-    // rows, and unconditionally bundled to every Claude host.
-    expect(slugs).toEqual(['afk', 'context', 'git-commit', 'reviewer']); // codex-only + deleted excluded
+    // These are MANAGED skills: derived from code, not skills rows, and
+    // unconditionally bundled to every Claude host.
+    expect(slugs).toEqual(['afk', 'context', 'git-commit', 'reviewer', 'skill-manager']); // codex-only + deleted excluded
 
     const context = body.claude_skills.find((s: { slug: string }) => s.slug === 'context');
     expect(context.content).toContain('shared_memory_list');
     expect(context.content).toContain('~/.claude/projects');
+
+    const skillManager = body.claude_skills.find((s: { slug: string }) => s.slug === 'skill-manager');
+    expect(skillManager.content).toContain('skill_store');
+    expect(skillManager.content).toContain('skill_delete');
 
     const git = body.claude_skills.find((s: { slug: string }) => s.slug === 'git-commit');
     expect(git.content.startsWith('---\n')).toBe(true);

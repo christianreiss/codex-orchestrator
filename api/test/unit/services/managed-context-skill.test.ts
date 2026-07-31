@@ -82,6 +82,7 @@ describe('managed #context skill', () => {
     expect(isManagedContextSlug('contexts')).toBe(false);
     expect(isManagedSkillSlug('context')).toBe(true);
     expect(isManagedSkillSlug('coco')).toBe(true);
+    expect(isManagedSkillSlug('skill-manager')).toBe(true);
     expect(isManagedSkillSlug('git-commit')).toBe(false);
   });
 });
@@ -89,15 +90,16 @@ describe('managed #context skill', () => {
 describe('managed skill registry', () => {
   it('serves context unconditionally and coco only when Projects is on', async () => {
     const off = await listManagedSkills(makeDb() as never);
-    expect(off.map((s) => s.slug)).toEqual(['afk', 'context']);
+    expect(off.map((s) => s.slug)).toEqual(['afk', 'context', 'skill-manager']);
 
     const on = await listManagedSkills(makeDb({ projectsEnabled: true }) as never);
-    expect(on.map((s) => s.slug)).toEqual(['afk', 'coco', 'context']);
+    expect(on.map((s) => s.slug)).toEqual(['afk', 'coco', 'context', 'skill-manager']);
   });
 
   it('resolves a managed skill by slug and ignores unmanaged ones', async () => {
     const db = makeDb() as never;
     expect(await findManagedSkill(db, 'context')).not.toBeNull();
+    expect(await findManagedSkill(db, 'skill-manager')).not.toBeNull();
     expect(await findManagedSkill(db, 'git-commit')).toBeNull();
     // coco is managed but not served while Projects is off.
     expect(await findManagedSkill(db, 'coco')).toBeNull();

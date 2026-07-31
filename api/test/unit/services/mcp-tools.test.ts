@@ -43,6 +43,8 @@ const todoUpdateCalls: TodoUpdateCall[] = [];
 const todoDoneCalls: TodoDoneCall[] = [];
 const memoryListCalls: MemoryCall[] = [];
 const memorySearchCalls: MemoryCall[] = [];
+const skillStoreCalls: Array<{ payload: Record<string, unknown>; host: Host }> = [];
+const skillDeleteCalls: Array<{ slug: string; host: Host }> = [];
 
 const stubProjects = {
   listProjects: async () => ({ projects: [] }),
@@ -107,6 +109,14 @@ const stubProjects = {
 const stubSkills = {
   listSkills: async () => ({ engine: 'codex' as const, skills: [] }),
   retrieve: async (slug: string) => ({ slug, status: 'missing' }),
+  store: async (payload: Record<string, unknown>, host: Host) => {
+    skillStoreCalls.push({ payload, host });
+    return { status: 'created', slug: payload['slug'] };
+  },
+  deleteSkill: async (slug: string, host: Host) => {
+    skillDeleteCalls.push({ slug, host });
+    return { status: 'deleted', slug };
+  },
 } as unknown as HostSkillsService;
 
 const stubResources = {
@@ -169,6 +179,72 @@ describe('McpToolsRegistry', () => {
   it('does not expose an engine override on skill_list', () => {
     const definition = registry.list().find((tool) => tool.name === 'skill_list');
     expect(definition?.inputSchema['properties']).toEqual({});
+  });
+
+  it('registers and dispatches the host Skill mutation tools', async () => {
+    const tools = registry.list();
+    const store = tools.find((tool) => tool.name === 'skill_store');
+    const remove = tools.find((tool) => tool.name === 'skill_delete');
+    expect(store?.inputSchema).toMatchObject({
+      properties: {
+        slug: { type: 'string' },
+        manifest: { type: 'string' },
+        display_name: { type: 'string' },
+        description: { type: 'string' },
+      },
+      required: ['slug', 'manifest'],
+    });
+    expect(remove?.inputSchema).toMatchObject({
+      properties: { slug: { type: 'string' } },
+      required: ['slug'],
+    });
+    expect(store?.inputSchema['properties']).not.toHaveProperty('engine');
+    expect(remove?.inputSchema['properties']).not.toHaveProperty('engine');
+
+    const payload = {
+      slug: 'release-check',
+      manifest: '---\nname: release-check\ndescription: Check\n---\n\nCheck\n',
+      display_name: 'Release Check',
+    };
+    await expect(registry.dispatch('skill_store', payload, host, 'host', 'claude')).resolves.toMatchObject({
+      isError: false,
+    });
+    expect(skillStoreCalls.at(-1)).toEqual({ payload, host });
+
+    await expect(
+      registry.dispatch('skill_delete', 'release-check' as unknown as Record<string, unknown>, host),
+    ).resolves.toMatchObject({ isError: false });
+    expect(skillDeleteCalls.at(-1)).toEqual({ slug: 'release-check', host });
+  });
+
+  it('requires the complete Skill mutation payload', async () => {
+    await expect(registry.dispatch('skill_store', { slug: 'release-check' }, host)).resolves.toMatchObject({
+      isError: true,
+    });
+    await expect(registry.dispatch('skill_delete', {}, host)).resolves.toMatchObject({
+      isError: true,
+    });
+  });
+
+  it('rejects malformed or extra Skill mutation fields before dispatch', async () => {
+    const beforeStore = skillStoreCalls.length;
+    const beforeDelete = skillDeleteCalls.length;
+
+    await expect(
+      registry.dispatch('skill_store', { slug: 'bad', manifest: { body: 'no' } }, host),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(
+      registry.dispatch('skill_store', { slug: 'bad', manifest: 'Body', display_name: 7 }, host),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(
+      registry.dispatch('skill_store', { slug: 'bad', manifest: 'Body', engine: 'codex' }, host),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(
+      registry.dispatch('skill_delete', { slug: ['bad'] }, host),
+    ).resolves.toMatchObject({ isError: true });
+
+    expect(skillStoreCalls).toHaveLength(beforeStore);
+    expect(skillDeleteCalls).toHaveLength(beforeDelete);
   });
 
   it('registers the project_file_* CRUD tools', () => {

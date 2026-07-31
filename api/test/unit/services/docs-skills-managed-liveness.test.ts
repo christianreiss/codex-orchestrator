@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { MANAGED_AFK_SKILL_SLUG } from '../../../src/services/managed-afk-skill.js';
 import { MANAGED_COCO_SKILL_SLUG } from '../../../src/services/managed-coco-skill.js';
 import { MANAGED_CONTEXT_SKILL_SLUG } from '../../../src/services/managed-context-skill.js';
+import { MANAGED_SKILL_MANAGER_SLUG } from '../../../src/services/managed-skill-manager.js';
 import { isManagedSkillSlug } from '../../../src/services/managed-skills.js';
 import { collectRegisteredRoutes } from '../routes/registered-routes.js';
 
@@ -54,7 +56,12 @@ const ALLOWED_SLUG_DELTAS: Record<string, string> = {};
 
 const doc = readFileSync(DOC, 'utf8');
 
-const managedSlugs = [MANAGED_COCO_SKILL_SLUG, MANAGED_CONTEXT_SKILL_SLUG];
+const managedSlugs = [
+  MANAGED_AFK_SKILL_SLUG,
+  MANAGED_COCO_SKILL_SLUG,
+  MANAGED_CONTEXT_SKILL_SLUG,
+  MANAGED_SKILL_MANAGER_SLUG,
+];
 
 /** The slugs the section's opening claim names as managed. */
 function documentedManagedSlugs(): string[] {

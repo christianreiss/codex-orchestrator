@@ -164,6 +164,8 @@ describe('MCP capability split', () => {
     const body = JSON.parse(r.payload);
     const names: string[] = body.result.tools.map((t: { name: string }) => t.name);
     expect(names).toContain('memory_store');
+    expect(names).toContain('skill_store');
+    expect(names).toContain('skill_delete');
     expect(names).not.toContain('fs_read_file');
     expect(names).not.toContain('fs_write_file');
     await app.close();
