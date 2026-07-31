@@ -215,9 +215,12 @@ transport. With orchestrator MCP enabled it routes durable fleet, workstream,
 and host facts through `shared_memory_*`, `project_memory_*`, and `memory_*`
 instead of Claude's local `~/.claude/projects/.../memory/` / `MEMORY.md`; enabled
 Projects add the `#coco` / `project_*` hint. BrowserOS remains Codex-only. The
-block never inventories individual Skills, memories, or projects, and feature
-changes alter the served/managed hashes without changing the canonical base
-hash.
+block never inventories individual Skills, memories, or projects. Recorded
+decisions, conventions, runbooks, and handoffs are authoritative over agent
+assumptions, but mutable code and runtime facts must be verified against the
+present repository or system; stale records are updated or deleted instead of
+duplicated. Feature changes alter the served/managed hashes without changing the
+canonical base hash.
 
 ## Startup sequence
 

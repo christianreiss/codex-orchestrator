@@ -57,6 +57,14 @@ describe('managed memory block', () => {
     expect(buildManagedMemoryBlock(ENGINE_CODEX)).toMatch(/never store secrets/i);
   });
 
+  it('keeps recorded decisions authoritative without treating mutable facts as current', () => {
+    const block = buildManagedMemoryBlock(ENGINE_CODEX);
+    expect(block).toMatch(/recorded decisions, conventions, runbooks, and handoffs/i);
+    expect(block).toMatch(/not automatically as current code or runtime truth/i);
+    expect(block).toMatch(/verify mutable facts against the\s+present repository or system/i);
+    expect(block).toMatch(/update or delete stale records\s+instead of adding near-duplicates/i);
+  });
+
   it('appends after the canonical body, separated by a blank line', () => {
     const out = appendManagedMemoryBlock('# AGENTS.md\n\nHouse rules.\n', ENGINE_CODEX);
     expect(out.startsWith('# AGENTS.md\n\nHouse rules.')).toBe(true);

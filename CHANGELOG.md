@@ -1,5 +1,11 @@
 # 2026-07-31
 
+- Hardened the repository agent workflow for shared worktrees: it no longer
+  auto-pulls, auto-commits, auto-pushes, or implicitly restarts/migrates
+  production. Managed Memory guidance now treats recorded decisions and
+  handoffs as authoritative without confusing them for mutable code/runtime
+  truth, and tells agents to update or delete stale records instead of creating
+  near-duplicates.
 - Codex Skill management now starts from the fleet MCP even for a zero-knowledge
   session. When the managed `cdx` MCP entry is successfully baked, host
   `config.toml` disables Codex's competing built-in `skill-creator` by name.

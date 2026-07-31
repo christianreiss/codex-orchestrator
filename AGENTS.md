@@ -47,11 +47,23 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 ## Process & Ops Guardrails
 
-- Run `git pull` before touching anything.
-- For each task: code → test → `git commit` → push.
-- Do not push to `github` unless the user explicitly says so. Default remote for pushes is `origin`.
+### Git / Shared-Worktree Safety
+
+- Start with `git status --short --branch` and inspect the existing diff.
+- Assume every pre-existing change belongs to another worker or the user.
+- Never stash, reset, clean, restore, checkout, rebase, or overwrite unrelated changes unless explicitly instructed.
+- Do not run `git pull` in a dirty worktree. When upstream freshness matters, prefer `git fetch --prune` for discovery; integrate remote changes only when necessary and safe.
+- Re-read a target file immediately before editing when concurrent work is possible.
+- Stage only task-owned paths. Use `git add -A` or `git add .` only after a full-tree audit when the user explicitly requests committing everything.
+- Commit only when requested or when the task has an explicit delivery contract.
+- Push only when explicitly requested. Use `origin` unless the user names another remote; a remote named `github` is never implicit.
+- Never create or switch Git branches unless explicitly instructed.
+
+### Delivery & Runtime Safety
+
+- Deploy, publish, restart production services, and run production migrations only when the user’s request explicitly includes that side effect.
 - Update `CHANGELOG.md` (newest date first, grouped under `# YYYY-MM-DD` headers with items listed below each date) for any behavior visible to humans.
-- If a change requires Docker services or the baked wrapper binaries, rebuild + restart the stack.
+- For an explicitly requested rollout that changes Docker services or baked wrapper binaries, rebuild + restart the stack.
 - Schema change ⇒ add `api/src/db/migrations/NNNN_*.sql` (idempotent) **and** update `schema.ts` in the same commit. The migration runner applies it on boot and in `scripts/deploy.sh`; never hand-pipe SQL into the mysql container, and never edit an already-applied migration when a new number will do.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.

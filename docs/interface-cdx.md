@@ -85,8 +85,11 @@ memory through the MCP `shared_memory_*`, `project_memory_*`, and host-local
 `memory_*` scopes, points enabled project coordination at `#coco` /
 `project_*`, and advertises BrowserOS only when both the host toggle and
 orchestrator MCP are active. It never lists individual Skills, memories, or
-projects. Feature changes alter the served/managed hashes without altering the
-canonical base hash.
+projects. Recorded decisions, conventions, runbooks, and handoffs are
+authoritative over agent assumptions, but mutable code and runtime facts must be
+verified against the present repository or system; stale records are updated or
+deleted instead of duplicated. Feature changes alter the served/managed hashes
+without altering the canonical base hash.
 
 ## Skill delivery
 

@@ -45,8 +45,10 @@ function localMemoryOverride(engine: Engine): string {
 export function buildManagedMemoryBlock(engine: Engine): string {
   return `${MANAGED_MEMORY_HEADING}
 
-This fleet keeps what it knows in the orchestrator, reachable over MCP. It is shared across every
-host and both engines, and it is authoritative over your own assumptions.
+This fleet keeps recorded decisions, conventions, runbooks, and handoffs in the orchestrator,
+shared across every host and both engines. Treat those records as authoritative over your own
+assumptions, not automatically as current code or runtime truth. Verify mutable facts against the
+present repository or system.
 
 **Looking something up.** If you are asked about this fleet, a host, a convention, a runbook, or any
 past decision — and you do not already know the answer — call \`shared_memory_list\` (it takes no
@@ -57,7 +59,8 @@ it cannot be listed, so it can never tell you what exists.
 
 **Writing something down.** Anything the next agent — on another host, in another session — would
 want belongs in \`shared_memory_write\`, or \`shared_memory_append\` to add to a document that
-already exists. Facts about one workstream go in \`project_memory_*\`. ${localMemoryOverride(engine)}
+already exists. Facts about one workstream go in \`project_memory_*\`. Update or delete stale records
+instead of adding near-duplicates. ${localMemoryOverride(engine)}
 
 Never store secrets — keys, tokens, credentials, customer data — in any of them.
 `;

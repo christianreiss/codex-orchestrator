@@ -118,6 +118,8 @@ describe('renderManagedAgentFeatures', () => {
       expect(out.body).toContain('memory_*');
       expect(out.body).toMatch(/before searching the filesystem/i);
       expect(out.body).toMatch(/never store secrets/i);
+      expect(out.body).toMatch(/not automatically as current code or runtime truth/i);
+      expect(out.body).toMatch(/update or delete stale records/i);
     }
     expect(codex.body).toContain("Codex's own local memories feature");
     expect(codex.body).not.toContain('~/.claude/projects');
