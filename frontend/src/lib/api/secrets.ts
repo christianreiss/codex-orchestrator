@@ -59,6 +59,15 @@ export function engineScopeLabel(engine: AdminSecret["engine"]): string {
   return "Both engines";
 }
 
+/**
+ * Who may rotate or delete this over MCP. A secret created here belongs to no
+ * host, which is what keeps agents from overwriting a shared credential; one an
+ * agent created is theirs to manage.
+ */
+export function ownerLabel(secret: AdminSecret): string {
+  return secret.source_host_id === null ? "Operator" : `Host #${secret.source_host_id}`;
+}
+
 /** The MCP call an agent makes to read this secret — shown so operators can hand it over. */
 export function agentUsage(slug: string): string {
   return `secret_get ${slug}`;

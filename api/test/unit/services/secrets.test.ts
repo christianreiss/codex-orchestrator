@@ -41,6 +41,8 @@ type SecretSeed = {
   engine?: string | null;
   tags?: string[];
   deletedAt?: string | null;
+  sourceHostId?: number | null;
+  sourceEngine?: string | null;
 };
 
 type LoggedEntry = { method: string; name: string | null; success: boolean; errorMessage: string | null };
@@ -65,6 +67,8 @@ function makeHarness(
       description: seed.description ?? null,
       valueEnc: encrypt(seed.value, keyring),
       engine: seed.engine ?? null,
+      sourceHostId: seed.sourceHostId ?? null,
+      sourceEngine: seed.sourceEngine ?? null,
       tags: seed.tags ?? null,
       tagsText: seed.tags?.join(' ') ?? null,
       createdAt: '2026-07-01T09:00:00Z',
@@ -360,6 +364,7 @@ describe('host listing honours the module switch', () => {
       'engine',
       'last_rotated_at',
       'name',
+      'owned_by_you',
       'slug',
       'tags',
     ]);
@@ -484,5 +489,105 @@ describe('module state', () => {
     expect(await scoped.service.availableCount(ENGINE_CODEX)).toBe(1);
     expect(await scoped.service.availableCount(ENGINE_CLAUDE)).toBe(2);
     expect(await scoped.service.availableCount(null)).toBe(2);
+  });
+});
+
+/**
+ * The client-owned lifecycle. Reading is open to every host; writing is not.
+ *
+ * The property that matters: a secret an operator provisioned — the shared
+ * infrastructure credentials, like a DNS API key every node authenticates
+ * with — cannot be overwritten by whichever agent happens to guess its slug.
+ * Without that, one compromised or confused host silently repoints the fleet.
+ */
+describe('secret_store / secret_delete ownership', () => {
+  const otherHost: Host = { id: 99, fqdn: 'other.example' } as unknown as Host;
+
+  it('creates a secret owned by the calling host', async () => {
+    const { service } = makeHarness();
+    const res = await service.storeForHost(
+      { slug: 'mine', name: 'Mine', value: 'v1', description: 'what it opens' },
+      host,
+      ENGINE_CODEX,
+    );
+    expect(res.status).toBe('created');
+    expect(res.secret.owned_by_you).toBe(true);
+
+    const stored = await service.findBySlug('mine');
+    expect(stored?.sourceHostId).toBe(host.id);
+    expect(stored?.sourceEngine).toBe(ENGINE_CODEX);
+  });
+
+  it('rotates its own secret and reports whether the value moved', async () => {
+    const { service } = makeHarness([
+      { slug: 'mine', value: 'v1', sourceHostId: host.id, sourceEngine: ENGINE_CODEX },
+    ]);
+    expect((await service.storeForHost({ slug: 'mine', name: 'Mine', value: 'v1' }, host, ENGINE_CODEX)).status).toBe(
+      'unchanged',
+    );
+    expect((await service.storeForHost({ slug: 'mine', name: 'Mine', value: 'v2' }, host, ENGINE_CODEX)).status).toBe(
+      'rotated',
+    );
+    expect((await service.getForHost('mine', host, ENGINE_CODEX)).value).toBe('v2');
+  });
+
+  it('refuses to overwrite an operator-created secret', async () => {
+    // The powerdns-api-key case, exactly.
+    const { service } = makeHarness([{ slug: 'powerdns-api-key', value: 'real', sourceHostId: null }]);
+    await expect(
+      service.storeForHost({ slug: 'powerdns-api-key', name: 'x', value: 'hijack' }, host, ENGINE_CODEX),
+    ).rejects.toBeInstanceOf(ConflictError);
+    // ...and the stored value is untouched.
+    expect((await service.getForHost('powerdns-api-key', host, ENGINE_CODEX)).value).toBe('real');
+  });
+
+  it('refuses to overwrite another host secret', async () => {
+    const { service } = makeHarness([
+      { slug: 'theirs', value: 'real', sourceHostId: otherHost.id },
+    ]);
+    await expect(
+      service.storeForHost({ slug: 'theirs', name: 'x', value: 'hijack' }, host, ENGINE_CODEX),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('still lets every host READ what it may not write', async () => {
+    // Ownership narrows writing only. An agent must still be able to use a
+    // credential an operator provisioned — that is the entire point of the store.
+    const { service } = makeHarness([{ slug: 'powerdns-api-key', value: 'real', sourceHostId: null }]);
+    expect((await service.getForHost('powerdns-api-key', host, ENGINE_CODEX)).value).toBe('real');
+    expect((await service.listForHost(null, host.id)).map((s) => s.slug)).toEqual(['powerdns-api-key']);
+    expect((await service.listForHost(null, host.id))[0]!.owned_by_you).toBe(false);
+  });
+
+  it('deletes its own secret and refuses the others', async () => {
+    const { service } = makeHarness([
+      { slug: 'mine', value: 'v', sourceHostId: host.id },
+      { slug: 'theirs', value: 'v', sourceHostId: otherHost.id },
+      { slug: 'operator', value: 'v', sourceHostId: null },
+    ]);
+    expect(await service.deleteForHost('mine', host, ENGINE_CODEX)).toMatchObject({ status: 'deleted' });
+    await expect(service.getForHost('mine', host, ENGINE_CODEX)).rejects.toBeInstanceOf(NotFoundError);
+
+    await expect(service.deleteForHost('theirs', host, ENGINE_CODEX)).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.deleteForHost('operator', host, ENGINE_CODEX)).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('refuses to adopt another host retired slug', async () => {
+    // A soft-deleted row still owns its slug. Reviving it must not let a
+    // different host inherit a name other agents may already have learned.
+    const { service } = makeHarness([
+      { slug: 'retired', value: 'v', sourceHostId: otherHost.id, deletedAt: '2026-07-02T09:00:00Z' },
+    ]);
+    await expect(
+      service.storeForHost({ slug: 'retired', name: 'x', value: 'v' }, host, ENGINE_CODEX),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('refuses every write while the module is disabled', async () => {
+    const { service } = makeHarness([], { enabled: false });
+    await expect(
+      service.storeForHost({ slug: 'mine', name: 'x', value: 'v' }, host, ENGINE_CODEX),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    await expect(service.deleteForHost('mine', host, ENGINE_CODEX)).rejects.toBeInstanceOf(NotFoundError);
   });
 });

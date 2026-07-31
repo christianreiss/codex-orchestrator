@@ -958,6 +958,9 @@ export interface AdminSecret {
   name: string;
   description: string | null;
   engine: "codex" | "claude" | null;
+  /** Host that created it over MCP; null means an operator did, via this UI. */
+  source_host_id: number | null;
+  source_engine: "codex" | "claude" | null;
   tags: string[];
   created_at: string;
   updated_at: string;

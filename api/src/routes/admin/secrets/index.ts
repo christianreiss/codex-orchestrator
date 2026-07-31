@@ -241,6 +241,11 @@ export function toAdminSecret(row: SecretMetadata) {
     name: row.name,
     description: row.description,
     engine: row.engine,
+    // Null means an operator created it, which is also what makes it read-only
+    // to every host over MCP. The admin UI shows this so an operator can tell at
+    // a glance which entries an agent can rotate on its own.
+    source_host_id: row.sourceHostId,
+    source_engine: row.sourceEngine,
     tags: row.tags,
     created_at: row.createdAt,
     updated_at: row.updatedAt,

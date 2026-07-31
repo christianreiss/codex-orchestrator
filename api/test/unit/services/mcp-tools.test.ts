@@ -639,6 +639,14 @@ describe('secret_* tools', () => {
       secretCalls.push({ method: 'get', arg: slug, engine });
       return { slug, value: 'ghp_x' };
     },
+    storeForHost: async (input: { slug: string }, _host: Host, engine: string | null) => {
+      secretCalls.push({ method: 'store', arg: input.slug, engine });
+      return { secret: { slug: input.slug }, status: 'created' };
+    },
+    deleteForHost: async (slug: string, _host: Host, engine: string | null) => {
+      secretCalls.push({ method: 'delete', arg: slug, engine });
+      return { slug, status: 'deleted' };
+    },
   } as unknown as SecretsService;
 
   const reg = new McpToolsRegistry({
@@ -652,13 +660,17 @@ describe('secret_* tools', () => {
     secretCalls = [];
   });
 
-  it('registers the read-only secrets surface and nothing that writes', () => {
+  it('registers the full client-owned lifecycle and nothing more', () => {
     const names = reg.list().map((t) => t.name);
-    expect(names).toContain('secret_list');
-    expect(names).toContain('secret_search');
-    expect(names).toContain('secret_get');
-    // There is no MCP write path: secrets are authored through the admin API.
-    expect(names.filter((n) => n.startsWith('secret_'))).toHaveLength(3);
+    // Read for everyone, write for what this host owns. Pinned as an exact set
+    // so a sixth secret_* tool is a deliberate decision.
+    expect(names.filter((n) => n.startsWith('secret_')).sort()).toEqual([
+      'secret_delete',
+      'secret_get',
+      'secret_list',
+      'secret_search',
+      'secret_store',
+    ]);
   });
 
   // The discovery premise: an agent that knows nothing must be able to find out
@@ -702,6 +714,26 @@ describe('secret_* tools', () => {
     // tools the store would be invisible to the agents it exists for.
     expect(reg.has('secret_list', 'host')).toBe(true);
     expect(reg.has('secret_get', 'host')).toBe(true);
+    expect(reg.has('secret_store', 'host')).toBe(true);
+    expect(reg.has('secret_delete', 'host')).toBe(true);
+  });
+
+  it('runs the write half of the lifecycle', async () => {
+    const stored = await reg.dispatch(
+      'secret_store',
+      { slug: 'mine', name: 'Mine', value: 'v' },
+      host,
+    );
+    expect(stored).toMatchObject({ isError: false });
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'store', arg: 'mine' });
+
+    await reg.dispatch('secret_delete', 'mine' as unknown as Record<string, unknown>, host);
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'delete', arg: 'mine' });
+  });
+
+  it('requires a slug and a value on secret_store', async () => {
+    expect(await reg.dispatch('secret_store', {}, host)).toMatchObject({ isError: true });
+    expect(await reg.dispatch('secret_store', { slug: 'x' }, host)).toMatchObject({ isError: true });
   });
 
   it('accepts dot aliases like the rest of the surface', async () => {

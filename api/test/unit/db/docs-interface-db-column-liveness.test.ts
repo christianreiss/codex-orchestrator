@@ -33,6 +33,8 @@ const NOT_A_COLUMN = new Set<string>([
   'secrets.secret_get', // An MCP tool name, not a column.
   'secrets.secret_list', // An MCP tool name, not a column.
   'secrets.secret_search', // An MCP tool name, not a column.
+  'secrets.secret_store', // An MCP tool name, not a column.
+  'secrets.secret_delete', // An MCP tool name, not a column.
   'secrets.secrets_module_enabled', // A `versions` switch key.
   'secrets.utf8mb4_unicode_ci', // A MySQL collation.
   'secrets.value_sha256', // Names the digest column this table deliberately lacks.

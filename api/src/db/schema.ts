@@ -374,6 +374,16 @@ export const secrets = mysqlTable(
     description: text('description'),
     valueEnc: longtext('value_enc').notNull(),
     engine: varchar('engine', { length: 16 }),
+    /**
+     * Which host created this over MCP, and therefore the only host allowed to
+     * rotate or delete it through `secret_store` / `secret_delete`. NULL means
+     * an operator created it through the admin API; those are read-only to every
+     * host, so a shared infrastructure credential cannot be overwritten by
+     * whichever agent guesses its slug. Admin CRUD ignores this entirely.
+     */
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    /** Provenance only, never a read filter. Visibility is the `engine` column. */
+    sourceEngine: varchar('source_engine', { length: 16 }),
     tags: json('tags'),
     tagsText: text('tags_text'),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -386,6 +396,7 @@ export const secrets = mysqlTable(
     engineIdx: index('idx_secrets_engine').on(t.engine),
     updatedAtIdx: index('idx_secrets_updated_at').on(t.updatedAt),
     deletedAtIdx: index('idx_secrets_deleted_at').on(t.deletedAt),
+    sourceHostIdx: index('idx_secrets_source_host').on(t.sourceHostId),
   }),
 );
 

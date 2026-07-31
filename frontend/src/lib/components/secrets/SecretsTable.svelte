@@ -13,7 +13,7 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { CopyButton } from "$lib/components/ui/copy-button";
-  import { secretsApi, secretQueryKeys, engineScopeLabel, agentUsage } from "$lib/api/secrets";
+  import { secretsApi, secretQueryKeys, engineScopeLabel, agentUsage, ownerLabel } from "$lib/api/secrets";
   import type { AdminSecret, AdminSecretRevealResponse } from "$lib/api/types";
   import { relativeTime } from "$lib/utils/format";
 
@@ -90,6 +90,7 @@
           <Table.Head>Slug</Table.Head>
           <Table.Head>What it is for</Table.Head>
           <Table.Head>Scope</Table.Head>
+          <Table.Head>Managed by</Table.Head>
           <Table.Head>Rotated</Table.Head>
           <Table.Head class="text-right">Actions</Table.Head>
         </Table.Row>
@@ -113,6 +114,14 @@
             </Table.Cell>
             <Table.Cell class="align-top">
               <Badge variant="secondary">{engineScopeLabel(secret.engine)}</Badge>
+            </Table.Cell>
+            <Table.Cell class="align-top">
+              <Badge variant={secret.source_host_id === null ? "outline" : "secondary"}>
+                {ownerLabel(secret)}
+              </Badge>
+              {#if secret.source_host_id === null}
+                <div class="mt-1 text-xs text-muted-foreground">agents cannot change it</div>
+              {/if}
             </Table.Cell>
             <Table.Cell class="align-top text-sm text-muted-foreground">
               {secret.last_rotated_at ? relativeTime(secret.last_rotated_at) : "never"}

@@ -35,10 +35,10 @@ import type { Host } from '../../../src/db/schema.js';
  * against a cut of the SQL the real runner would never produce.
  */
 
-const MIGRATION = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../src/db/migrations/0010_add_secrets.sql',
-);
+const MIGRATIONS = [
+  '0010_add_secrets.sql',
+  '0013_add_secret_provenance.sql',
+].map((f) => join(dirname(fileURLToPath(import.meta.url)), '../../../src/db/migrations/', f));
 
 const FQDN = 'ztest-secrets.example';
 const PLAINTEXT = 'ghp_live_credential_value';
@@ -60,12 +60,14 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     await exec(`DELETE FROM secrets WHERE slug LIKE 'ztest-%'`);
     await exec(`DELETE FROM versions WHERE name = 'secrets_module_enabled'`);
     await exec(`DELETE FROM mcp_access_logs WHERE method = 'secret.read'`);
-    await exec(`DELETE FROM hosts WHERE fqdn = '${FQDN}'`);
+    await exec(`DELETE FROM hosts WHERE fqdn IN ('${FQDN}', 'ztest-doomed.example')`);
   };
 
   beforeAll(async () => {
     db = handle!.db;
-    for (const stmt of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
+    for (const file of MIGRATIONS) {
+      for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);
+    }
     await cleanup();
 
     const now = new Date().toISOString();
@@ -99,7 +101,9 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     it('is idempotent and declares every index', async () => {
       // Re-applying is what the shipped runner does against an already-migrated
       // database; it must be a no-op, not an error.
-      for (const stmt of splitSqlStatements(readFileSync(MIGRATION, 'utf8'))) await exec(stmt);
+      for (const file of MIGRATIONS) {
+        for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);
+      }
 
       const names = rowsOf(
         await exec(
@@ -112,6 +116,70 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
       expect(names).toContain('idx_secrets_engine');
       expect(names).toContain('idx_secrets_updated_at');
       expect(names).toContain('idx_secrets_deleted_at');
+      expect(names).toContain('idx_secrets_source_host');
+    });
+
+    it('carries the ownership foreign key drizzle cannot express', async () => {
+      const fk = rowsOf(
+        await exec(
+          `SELECT DELETE_RULE AS r FROM information_schema.REFERENTIAL_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'fk_secrets_source_host'`,
+        ),
+      );
+      expect(fk).toHaveLength(1);
+      // SET NULL, not CASCADE: de-registering a host must not destroy the
+      // credentials it created. The row survives and becomes operator-owned.
+      expect(String(fk[0]!['r'])).toBe('SET NULL');
+    });
+  });
+
+  describe('client-owned lifecycle', () => {
+    it('lets a host create, rotate and delete its own secret', async () => {
+      const created = await svc.storeForHost(
+        { slug: 'ztest-owned', name: 'Owned', value: 'v1', description: 'mine' },
+        host,
+        ENGINE_CODEX,
+      );
+      expect(created.status).toBe('created');
+      expect(created.secret.owned_by_you).toBe(true);
+
+      expect(
+        (await svc.storeForHost({ slug: 'ztest-owned', name: 'Owned', value: 'v2' }, host, ENGINE_CODEX)).status,
+      ).toBe('rotated');
+      expect((await svc.getForHost('ztest-owned', host, ENGINE_CODEX)).value).toBe('v2');
+
+      expect(await svc.deleteForHost('ztest-owned', host, ENGINE_CODEX)).toMatchObject({ status: 'deleted' });
+      await expect(svc.getForHost('ztest-owned', host, ENGINE_CODEX)).rejects.toThrow();
+    });
+
+    it('refuses to overwrite an operator-created secret but still serves it', async () => {
+      // `create()` leaves source_host_id NULL, which is what the admin API does.
+      await svc.create({ slug: 'ztest-operator-owned', name: 'Op', value: 'real' });
+      await expect(
+        svc.storeForHost({ slug: 'ztest-operator-owned', name: 'x', value: 'hijack' }, host, ENGINE_CODEX),
+      ).rejects.toThrow();
+      await expect(svc.deleteForHost('ztest-operator-owned', host, ENGINE_CODEX)).rejects.toThrow();
+      expect((await svc.getForHost('ztest-operator-owned', host, ENGINE_CODEX)).value).toBe('real');
+    });
+
+    it('nulls the owner rather than deleting the secret when its host goes away', async () => {
+      const now = new Date().toISOString();
+      await exec(
+        `INSERT INTO hosts (fqdn, api_key, status, created_at, updated_at)
+         VALUES ('ztest-doomed.example', SHA2('ztest-doomed', 256), 'active', '${now}', '${now}')`,
+      );
+      const doomed = rowsOf(
+        await exec(`SELECT id FROM hosts WHERE fqdn = 'ztest-doomed.example'`),
+      )[0] as unknown as Host;
+      await svc.storeForHost({ slug: 'ztest-orphan', name: 'Orphan', value: 'v' }, doomed, ENGINE_CODEX);
+
+      await exec(`DELETE FROM hosts WHERE id = ${doomed.id}`);
+
+      const row = rowsOf(await exec(`SELECT source_host_id FROM secrets WHERE slug = 'ztest-orphan'`));
+      expect(row).toHaveLength(1);
+      expect(row[0]!['source_host_id']).toBeNull();
+      // Still readable — the credential outlives the host that registered it.
+      expect((await svc.getForHost('ztest-orphan', host, ENGINE_CODEX)).value).toBe('v');
     });
   });
 
@@ -156,17 +224,16 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
     });
 
     it('shows null-engine rows to both engines and scoped rows to only one', async () => {
+      // Scoped to the slugs this block seeds: other blocks leave their own
+      // ztest- rows behind, and a bare prefix filter would make this assertion
+      // depend on describe execution order.
+      const MINE = ['ztest-shared', 'ztest-codex', 'ztest-claude'];
       const slugs = async (engine: typeof ENGINE_CODEX | typeof ENGINE_CLAUDE | null) =>
-        (await svc.list({ engine })).map((s) => s.slug).filter((s) => s.startsWith('ztest-'));
+        (await svc.list({ engine })).map((s) => s.slug).filter((s) => MINE.includes(s));
 
-      expect(await slugs(ENGINE_CODEX)).toEqual(['ztest-codex', 'ztest-gh-pat', 'ztest-shared']);
-      expect(await slugs(ENGINE_CLAUDE)).toEqual(['ztest-claude', 'ztest-gh-pat', 'ztest-shared']);
-      expect(await slugs(null)).toEqual([
-        'ztest-claude',
-        'ztest-codex',
-        'ztest-gh-pat',
-        'ztest-shared',
-      ]);
+      expect(await slugs(ENGINE_CODEX)).toEqual(['ztest-codex', 'ztest-shared']);
+      expect(await slugs(ENGINE_CLAUDE)).toEqual(['ztest-claude', 'ztest-shared']);
+      expect(await slugs(null)).toEqual(['ztest-claude', 'ztest-codex', 'ztest-shared']);
     });
 
     it('refuses a cross-engine get and still writes the audit row', async () => {

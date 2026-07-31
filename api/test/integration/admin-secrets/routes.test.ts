@@ -91,6 +91,8 @@ describe('admin secrets wire shape', () => {
       name: 'GitHub PAT',
       description: 'opens PRs',
       engine: 'codex',
+      sourceHostId: null,
+      sourceEngine: null,
       tags: ['git'],
       createdAt: '2026-07-01T09:00:00Z',
       updatedAt: '2026-07-02T09:00:00Z',
@@ -109,6 +111,8 @@ describe('admin secrets wire shape', () => {
       'last_rotated_at',
       'name',
       'slug',
+      'source_engine',
+      'source_host_id',
       'tags',
       'updated_at',
     ]);

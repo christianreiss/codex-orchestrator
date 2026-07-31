@@ -49,6 +49,8 @@ const METADATA_COLUMNS = {
   name: secrets.name,
   description: secrets.description,
   engine: secrets.engine,
+  sourceHostId: secrets.sourceHostId,
+  sourceEngine: secrets.sourceEngine,
   tags: secrets.tags,
   createdAt: secrets.createdAt,
   updatedAt: secrets.updatedAt,
@@ -63,6 +65,9 @@ export interface SecretMetadata {
   name: string;
   description: string | null;
   engine: Engine | null;
+  /** The host that created it over MCP; null means operator-created. */
+  sourceHostId: number | null;
+  sourceEngine: Engine | null;
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -89,9 +94,11 @@ export interface SecretListing {
   engine: Engine | null;
   tags: string[];
   last_rotated_at: string | null;
+  /** True when the calling host owns this and may rotate or delete it. */
+  owned_by_you: boolean;
 }
 
-export function toSecretListing(row: SecretMetadata): SecretListing {
+export function toSecretListing(row: SecretMetadata, hostId: number | null): SecretListing {
   return {
     slug: row.slug,
     name: row.name,
@@ -99,6 +106,10 @@ export function toSecretListing(row: SecretMetadata): SecretListing {
     engine: row.engine,
     tags: row.tags,
     last_rotated_at: row.lastRotatedAt,
+    // Spelled out rather than left for the agent to infer from a host id it does
+    // not know: the whole point is that it can tell at a glance which entries it
+    // may rotate and which belong to an operator.
+    owned_by_you: hostId !== null && row.sourceHostId === hostId,
   };
 }
 
@@ -120,6 +131,9 @@ export interface CreateSecretInput {
   description?: string | null;
   engine?: Engine | null;
   tags?: string[];
+  /** Set only by the MCP path; admin-created secrets stay operator-owned (null). */
+  sourceHostId?: number | null;
+  sourceEngine?: Engine | null;
 }
 
 /** An omitted field is left alone; an explicit `null` clears it. */
@@ -186,6 +200,8 @@ function toMetadata(row: {
   name: string;
   description: string | null;
   engine: string | null;
+  sourceHostId?: number | null;
+  sourceEngine?: string | null;
   tags: unknown;
   createdAt: string;
   updatedAt: string;
@@ -198,6 +214,8 @@ function toMetadata(row: {
     name: row.name,
     description: row.description ?? null,
     engine: isEngine(row.engine) ? row.engine : null,
+    sourceHostId: row.sourceHostId ?? null,
+    sourceEngine: isEngine(row.sourceEngine) ? row.sourceEngine : null,
     tags: sortedLowercase(parseTags(row.tags ?? null)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -386,14 +404,135 @@ export class SecretsService {
 
   // ── host-facing surface: the module switch gates these, not admin CRUD ─────
 
-  async listForHost(engine: Engine | null): Promise<SecretListing[]> {
+  async listForHost(engine: Engine | null, hostId: number | null = null): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return (await this.list({ engine })).map(toSecretListing);
+    return (await this.list({ engine })).map((row) => toSecretListing(row, hostId));
   }
 
-  async searchForHost(query: string, engine: Engine | null): Promise<SecretListing[]> {
+  async searchForHost(
+    query: string,
+    engine: Engine | null,
+    hostId: number | null = null,
+  ): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return (await this.search(query, { engine })).map(toSecretListing);
+    return (await this.search(query, { engine })).map((row) => toSecretListing(row, hostId));
+  }
+
+  /**
+   * Create or rotate a secret this host owns. The full lifecycle an agent gets
+   * over MCP, alongside `deleteForHost`.
+   *
+   * Ownership is the whole safety property. A slug already owned by another host
+   * is refused, and so is one an operator created through the admin API
+   * (`sourceHostId === null`) — otherwise any agent that guessed `powerdns-api-key`
+   * could silently replace a shared infrastructure credential and every other
+   * host would start authenticating with the wrong value. Reading stays open to
+   * every host; only writing is narrowed.
+   */
+  async storeForHost(
+    input: CreateSecretInput,
+    host: Host,
+    engine: Engine | null,
+  ): Promise<{ secret: SecretListing; status: 'created' | 'rotated' | 'unchanged' }> {
+    if (!(await this.getEnabled())) {
+      throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
+    }
+    const slug = this.normalizeSlug(input.slug);
+    const existing = await this.loadEnvelope(eq(secrets.slug, slug), (row) => row.slug === slug);
+
+    if (existing && !existing.deletedAt) {
+      this.assertOwned(existing, host, slug);
+      const patch = await this.buildRotation(existing, input, engine);
+      await this.deps.db.update(secrets).set(patch.values).where(eq(secrets.id, existing.id));
+      const updated = await this.findById(existing.id);
+      if (!updated) throw new Error('Failed to persist secret');
+      return {
+        secret: toSecretListing(updated, host.id),
+        status: patch.rotated ? 'rotated' : 'unchanged',
+      };
+    }
+    if (existing?.deletedAt) {
+      // A soft-deleted row still holds the slug. Reviving is a create, so the
+      // ownership check still applies — a host must not adopt another host's
+      // retired slug and inherit whatever an agent already learned about it.
+      this.assertOwned(existing, host, slug);
+    }
+
+    const created = await this.create({
+      ...input,
+      slug,
+      sourceHostId: host.id,
+      sourceEngine: engine,
+    });
+    return { secret: toSecretListing(created, host.id), status: 'created' };
+  }
+
+  /** Soft-delete a secret this host owns. Takes effect on the next read. */
+  async deleteForHost(
+    slug: string,
+    host: Host,
+    _engine: Engine | null,
+  ): Promise<{ slug: string; status: 'deleted' }> {
+    if (!(await this.getEnabled())) {
+      throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
+    }
+    const normalized = this.normalizeSlug(slug);
+    const existing = await this.loadEnvelope(
+      eq(secrets.slug, normalized),
+      (row) => row.slug === normalized,
+    );
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundError(`No secret with slug '${normalized}'`, 'secret_not_found');
+    }
+    this.assertOwned(existing, host, normalized);
+    await this.softDelete(existing.id);
+    return { slug: normalized, status: 'deleted' };
+  }
+
+  /**
+   * The ownership gate. Refuses with a message that tells the agent what to do
+   * instead, because "forbidden" alone invites a retry loop.
+   */
+  private assertOwned(row: Secret, host: Host, slug: string): void {
+    if (row.sourceHostId === host.id) return;
+    if (row.sourceHostId === null || row.sourceHostId === undefined) {
+      throw new ConflictError(
+        `'${slug}' was created by an operator and is read-only here. You can read it with secret_get; ask an operator to change it.`,
+        'secret_not_owned',
+      );
+    }
+    throw new ConflictError(
+      `'${slug}' belongs to another host and cannot be changed from here. Use a slug of your own.`,
+      'secret_not_owned',
+    );
+  }
+
+  /** Shared by storeForHost: decides whether the value actually changed. */
+  private async buildRotation(
+    existing: Secret,
+    input: CreateSecretInput,
+    engine: Engine | null,
+  ): Promise<{ values: Record<string, unknown>; rotated: boolean }> {
+    const now = nowIso();
+    const tags = sortedLowercase(this.normalizeTags(input.tags));
+    const values: Record<string, unknown> = {
+      name: input.name?.trim() || existing.name,
+      description: input.description?.trim() || existing.description || null,
+      engine: input.engine ?? existing.engine ?? null,
+      sourceEngine: engine,
+      tags: input.tags === undefined ? existing.tags : tags,
+      tagsText: input.tags === undefined ? existing.tagsText : tags.join(' ') || null,
+      updatedAt: now,
+    };
+    let rotated = false;
+    if (typeof input.value === 'string' && input.value !== '') {
+      if (decryptOrNull(existing.valueEnc, this.requireKeyring()) !== input.value) {
+        values['valueEnc'] = encryptSecret(input.value, this.requireKeyring());
+        values['lastRotatedAt'] = now;
+        rotated = true;
+      }
+    }
+    return { values, rotated };
   }
 
   // ── the ONLY two methods that decrypt ─────────────────────────────────────
@@ -523,6 +662,8 @@ export class SecretsService {
       description: input.description?.trim() || null,
       valueEnc: encryptSecret(input.value, this.requireKeyring()),
       engine: input.engine ?? null,
+      sourceHostId: input.sourceHostId ?? null,
+      sourceEngine: input.sourceEngine ?? null,
       tags,
       tagsText: tags.join(' ') || null,
       updatedAt: now,

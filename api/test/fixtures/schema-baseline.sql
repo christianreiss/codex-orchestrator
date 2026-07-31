@@ -734,6 +734,8 @@ CREATE TABLE `secrets` (
 	`description` text,
 	`value_enc` longtext NOT NULL,
 	`engine` varchar(16),
+	`source_host_id` bigint unsigned,
+	`source_engine` varchar(16),
 	`tags` json,
 	`tags_text` text,
 	`created_at` varchar(100) NOT NULL,
@@ -956,6 +958,7 @@ CREATE INDEX `idx_openai_keys_engine` ON `openai_api_keys` (`engine`);
 CREATE INDEX `idx_secrets_engine` ON `secrets` (`engine`);
 CREATE INDEX `idx_secrets_updated_at` ON `secrets` (`updated_at`);
 CREATE INDEX `idx_secrets_deleted_at` ON `secrets` (`deleted_at`);
+CREATE INDEX `idx_secrets_source_host` ON `secrets` (`source_host_id`);
 CREATE INDEX `idx_shared_memories_updated_at` ON `shared_memories` (`updated_at`);
 CREATE INDEX `idx_shared_memories_deleted_at` ON `shared_memories` (`deleted_at`);
 CREATE INDEX `idx_shared_memory_chunks_memory` ON `shared_memory_chunks` (`memory_id`,`revision`);

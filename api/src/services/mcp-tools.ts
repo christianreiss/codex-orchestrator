@@ -15,7 +15,7 @@ import type { HostSkillsService } from './host-skills.js';
 import type { McpFsTools } from './mcp-fs.js';
 import type { McpResourcesService } from './mcp-resources.js';
 import type { SecretsService } from './secrets.js';
-import { ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, isEngine, type Engine } from '../util/engine.js';
 import { PROJECT_FEEDBACK_TYPES } from './project-feedback-types.js';
 
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
@@ -179,6 +179,7 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'shared_memory_read':
     case 'shared_memory_delete':
     case 'secret_get':
+    case 'secret_delete':
       return { slug: scalar };
     case 'shared_memory_list':
       // The only useful scalar for a listing is a slug prefix — a bare string
@@ -464,8 +465,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           },
         },
       },
-      handler: async (_args, _host, engine) => ({
-        secrets: await store.listForHost(engine ?? ENGINE_CODEX),
+      handler: async (_args, host, engine) => ({
+        secrets: await store.listForHost(engine ?? ENGINE_CODEX, host.id),
       }),
     });
     inputs.push({
@@ -484,8 +485,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           // callers to guess. Omitting it degrades to a listing.
         },
       },
-      handler: async (args, _host, engine) => ({
-        secrets: await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX),
+      handler: async (args, host, engine) => ({
+        secrets: await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX, host.id),
       }),
     });
     inputs.push({
@@ -502,6 +503,53 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       },
       handler: async (args, host, engine) =>
         store.getForHost(String(args['slug'] ?? ''), host, engine ?? ENGINE_CODEX),
+    });
+    inputs.push({
+      definition: {
+        name: 'secret_store',
+        description:
+          'Save a credential of your own into the fleet store, or rotate one you already saved. Use this instead of writing a token into a config file, a .env, a memory, or a note — this is the only place a credential belongs. Creating: pass slug, name, value, and a description saying what the credential opens and when to reach for it, because that description is all any agent (including you, later) has to go on. Rotating: pass the same slug with the new value; everything else you omit is left alone, and the response says whether the value actually changed. You may only change secrets this host created. A slug an operator created, or one another host owns, is refused — read those with secret_get and ask an operator to change them. Slugs are permanent: pick a descriptive one, because renaming means deleting and recreating, which breaks every agent that learned the old name.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            name: { type: 'string' },
+            value: { type: 'string' },
+            description: { type: 'string' },
+            engine: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['slug', 'value'],
+        },
+      },
+      handler: async (args, host, engine) =>
+        store.storeForHost(
+          {
+            slug: String(args['slug'] ?? ''),
+            name: String(args['name'] ?? args['slug'] ?? ''),
+            value: String(args['value'] ?? ''),
+            description: args['description'] === undefined ? undefined : String(args['description']),
+            engine: isEngine(args['engine']) ? args['engine'] : null,
+            tags: Array.isArray(args['tags']) ? (args['tags'] as string[]) : undefined,
+          },
+          host,
+          engine ?? ENGINE_CODEX,
+        ),
+    });
+    inputs.push({
+      definition: {
+        name: 'secret_delete',
+        description:
+          'Retire a credential this host created, by slug. Revocation is immediate: nothing is cached on any machine, so the next secret_get for it fails everywhere at once. Use this when a credential is rotated away upstream, or when the thing it opened is gone. You may only delete secrets this host created — operator-created ones and other hosts’ are refused. The slug stays reserved and secret_store can revive it later with a fresh value.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { slug: { type: 'string' } },
+          required: ['slug'],
+        },
+      },
+      handler: async (args, host, engine) =>
+        store.deleteForHost(String(args['slug'] ?? ''), host, engine ?? ENGINE_CODEX),
     });
   }
   inputs.push({
