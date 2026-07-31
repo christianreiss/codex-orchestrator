@@ -35,4 +35,4 @@ Key bootstrap (one-time, per environment):
 make pubkey       # copy generated pubkey into the Go embed slot
 ```
 
-See `docs/wrapper-v2-architecture.md` and the parent `CDX-redo.md`.
+See `docs/wrapper-v2-architecture.md`.

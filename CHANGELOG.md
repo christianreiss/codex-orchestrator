@@ -1,5 +1,9 @@
 # 2026-07-31
 
+- Removed completed or superseded Markdown planning records for the backend,
+  wrapper rewrite, one-off cleanup, legacy PHP design, and closed wrapper parity
+  work. Canonical interface, architecture, operator, manual, and active backlog
+  documentation remains in place.
 - Added `scripts/export_ai_bundle.sh`, which flattens a component (`api`,
   `frontend`, `wrappers`, `runner`, `docs`, or `all`) into a single manifested
   text bundle for handing to a model. Committed build output, lockfiles,

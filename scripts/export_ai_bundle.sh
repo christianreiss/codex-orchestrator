@@ -116,7 +116,6 @@ git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 declare -a ROOT_DOCS=(
   "AGENTS.md"
   "README.md"
-  "DESIGN.md"
   "TODO.md"
 )
 declare -a ROOT_INFRA_FILES=(
@@ -145,7 +144,7 @@ declare -A COMPONENT_PREFIXES=(
 declare -A COMPONENT_DOCS=(
   [api]="api/README.md api/src/db/README.md api/test/contract/README.md docs/API.md docs/OVERVIEW.md docs/MCP.md docs/SECURITY.md docs/LOGIN.md docs/CONFIG_BUILDER.md docs/auth-runner.md docs/interface-api.md docs/interface-db.md docs/skills/README.md docs/contracts/README.md"
   [frontend]="docs/ADMIN.md docs/admin-ui-design-spec.md docs/admin-ui-redesign-brief.md docs/redesign-discovery.md"
-  [wrappers]="wrappers/README.md storage/wrapper/v2/README.md docs/INSTALL.md docs/USAGE.md docs/interface-cdx.md docs/interface-clx.md docs/wrapper-v2-architecture.md docs/wrapper-v2-gap-analysis.md"
+  [wrappers]="wrappers/README.md storage/wrapper/v2/README.md docs/INSTALL.md docs/USAGE.md docs/interface-cdx.md docs/interface-clx.md docs/wrapper-v2-architecture.md"
   [runner]="runner/README.md docs/auth-runner.md"
   [docs]=""
 )

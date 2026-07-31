@@ -256,7 +256,6 @@ The agent document is version-controlled on the server as canonical base Markdow
 | [`MCP.md`](docs/MCP.md) | MCP server tools and resources |
 | [`CONFIG_BUILDER.md`](docs/CONFIG_BUILDER.md) | Fleet config.toml builder |
 | [`ADMIN.md`](docs/ADMIN.md) | Admin dashboard guide |
-| [`DESIGN.md`](DESIGN.md) | OpenAI-compatible API design |
 | [`interface-api.md`](docs/interface-api.md) | API interface contracts |
 | [`interface-db.md`](docs/interface-db.md) | Database schema reference |
 | [`interface-cdx.md`](docs/interface-cdx.md) | Wrapper interface contracts |

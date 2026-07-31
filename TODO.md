@@ -1,8 +1,9 @@
 # TODO — wrapper bakery v2 follow-ups
 
-Items left from `CDX-redo.md` that weren't included in the v2 rewrite landing
-on main. None of these block production; each is scoped tightly enough to do
-in a standalone follow-up PR.
+Items left after the wrapper v2 rewrite landed on main. The current
+architecture is documented in `docs/wrapper-v2-architecture.md`. None of these
+block production; each is scoped tightly enough to do in a standalone
+follow-up PR.
 
 ## Operational
 
