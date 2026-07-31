@@ -169,6 +169,11 @@ describe('HostSkillsService managed skill manager', () => {
     expect(String(retrieved['manifest'])).toContain('skill_retrieve');
     expect(String(retrieved['manifest'])).toContain('skill_store');
     expect(String(retrieved['manifest'])).toContain('skill_delete');
+    expect(String(retrieved['manifest'])).toMatch(/how Skill management works/i);
+    expect(String(retrieved['manifest'])).toContain('built-in `skill-creator`');
+    expect(String(retrieved['manifest']).indexOf('skill_list')).toBeLessThan(
+      String(retrieved['manifest']).indexOf('skill_retrieve'),
+    );
   });
 
   it.each(['afk', 'context', 'skill-manager'])(

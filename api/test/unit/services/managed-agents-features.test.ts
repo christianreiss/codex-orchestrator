@@ -77,7 +77,12 @@ describe('renderManagedAgentFeatures', () => {
     expect(out.body).toContain('skill_list');
     expect(out.body).toContain('skill_retrieve');
     expect(out.body).toContain('resource_read');
+    expect(out.body).toContain('skill://skill-manager');
     expect(out.body).toContain('skill://{slug}');
+    expect(out.body).toMatch(/MCP is authoritative/i);
+    expect(out.body).toMatch(/call `skill_list` first/i);
+    expect(out.body).toMatch(/before reading any host-local or system/i);
+    expect(out.body).toContain('built-in `skill-creator`');
     expect(out.body).not.toContain('~/.claude/skills');
     expect(out.sections.skills.transport).toBe('mcp');
   });

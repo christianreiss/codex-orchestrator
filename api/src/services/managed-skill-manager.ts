@@ -4,7 +4,7 @@ import type { ManagedSkillManifest } from './managed-context-skill.js';
 export const MANAGED_SKILL_MANAGER_SLUG = 'skill-manager';
 
 const DESCRIPTION =
-  'Create, update, verify, and retire canonical fleet Skills through the orchestrator MCP when the user asks to manage a Skill.';
+  'Explain, create, update, verify, and retire canonical fleet Skills through the orchestrator MCP when the user asks about or requests Skill management.';
 
 const MANIFEST = `---
 name: ${MANAGED_SKILL_MANAGER_SLUG}
@@ -13,23 +13,27 @@ description: "${DESCRIPTION}"
 
 # Manage fleet Skills
 
-Use the orchestrator MCP Skill tools when the user asks to create, modify, or delete
-a fleet Skill. These writes change the shared canonical Skill seen by every host and
-both engines; they are not host-local scratch changes.
+Use the orchestrator MCP Skill tools when the user asks how Skill management works or
+asks to create, modify, or delete a Skill. On a fleet host, an unqualified "Skill"
+means the shared canonical Skill seen by every host and both engines; it is not a
+host-local scratch change. Do not invoke or consult Codex's built-in \`skill-creator\`
+for this workflow.
+
+Before answering or acting, call \`skill_list\` to inspect the authoritative fleet
+inventory. Then follow the matching lifecycle below.
 
 ## Create or update
 
-1. Call \`skill_list\` to discover the current inventory.
-2. Call \`skill_retrieve\` with the target \`slug\` before editing. Preserve useful
+1. Call \`skill_retrieve\` with the target \`slug\` before editing. Preserve useful
    instructions already present when updating an existing Skill.
-3. Build the complete replacement \`manifest\`, including valid \`name\` and
+2. Build the complete replacement \`manifest\`, including valid \`name\` and
    \`description\` frontmatter plus the instructions. Do not store secrets,
    credentials, customer data, or hidden reasoning.
-4. Call \`skill_store\` with \`slug\`, \`manifest\`, and optional \`display_name\`
+3. Call \`skill_store\` with \`slug\`, \`manifest\`, and optional \`display_name\`
    and \`description\`. The operation creates a missing Skill, updates a live Skill,
    or revives a soft-deleted Skill. It is last-writer-wins, so retrieve immediately
    before a deliberate update and do not claim an edit lock.
-5. Call \`skill_retrieve\` again and verify the returned manifest and SHA-256.
+4. Call \`skill_retrieve\` again and verify the returned manifest and SHA-256.
 
 ## Delete
 

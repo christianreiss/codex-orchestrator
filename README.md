@@ -232,7 +232,7 @@ Skills are stored centrally and delivered in each engine's native form — no ma
 - **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude Skills.
 - **Admin authoring** — create, edit, and delete skills from `/admin/skills`. Descriptions and drafts can be AI-generated via the runner.
 - **Integrity tracking** — every skill carries a SHA256 hash so the sync pipeline knows when content has actually changed.
-- **Runtime discovery hint** — the served agent document tells Codex to discover Skills through MCP and Claude to use its native synced Skill directories. It does not copy a per-Skill inventory into every document.
+- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance requires `skill_list` first and routes management requests and workflow questions to `skill://skill-manager`. Claude continues to use its native synced Skill directories.
 
 ## Dynamic AGENTS.md and CLAUDE.md
 
@@ -240,7 +240,7 @@ The agent document is version-controlled on the server as canonical base Markdow
 
 - **Versioned** — every save creates a new immutable version. The admin can revert to any previous version or lock serving to a specific one.
 - **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
-- **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the concise hints that apply: Skill discovery, MCP memory routing, Projects/CoCo, and Codex-only BrowserOS. Claude receives native Skill-path wording; BrowserOS appears only for Codex hosts with both the host toggle and orchestrator MCP enabled. Skills and Memories themselves stay in their canonical stores and are never inventoried in the document.
+- **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the concise hints that apply: authoritative MCP-first Skill discovery, MCP memory routing, Projects/CoCo, and Codex-only BrowserOS. Codex is told to consult `skill_list` before local/system Skill files and to read `skill://skill-manager` for management work; Claude receives native Skill-path wording. BrowserOS appears only for Codex hosts with both the host toggle and orchestrator MCP enabled. Skills and Memories themselves stay in their canonical stores and are never inventoried in the document.
 - **Change detection** — the wrapper sends its local SHA256; the server responds with `unchanged` (skip write) or `updated` (atomic file replace). Three hashes are tracked: base document, managed sections, and final combined.
 - **Seeded on boot** — if the database is empty, the server seeds from the repo's `AGENTS.md` file on first start.
 - **Admin dashboard** — edit the canonical base, view version history, and control serve mode at `/admin/agents`; host-specific hints are appended only when the document is served.

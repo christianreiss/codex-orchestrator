@@ -131,9 +131,12 @@ trigger applies, and follow its instructions.`,
     context.skills,
     `## Skills
 
-Fleet Skills are available through the orchestrator MCP. Use \`skill_list\` to discover them,
-\`skill_retrieve\` to fetch a manifest, or \`resource_read\` with \`skill://{slug}\` (and
-\`skill://{slug}/<path>\` for support files). Follow a Skill when its description or trigger applies.`,
+The orchestrator MCP is authoritative for fleet Skills. Before answering or acting on any
+Skill-related request, call \`skill_list\` first — before reading any host-local or system
+\`SKILL.md\`. For requests to create, update, delete, or explain the Skill-management workflow,
+read \`skill://skill-manager\` with \`resource_read\` and follow it. Use \`skill_retrieve\` for
+other manifests and \`skill://{slug}/<path>\` for support files. An unqualified "Skill" means a
+fleet Skill; do not substitute Codex's built-in \`skill-creator\`.`,
     'mcp',
   );
 }

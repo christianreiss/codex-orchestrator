@@ -1,5 +1,12 @@
 # 2026-07-31
 
+- Codex Skill management now starts from the fleet MCP even for a zero-knowledge
+  session. When the managed `cdx` MCP entry is successfully baked, host
+  `config.toml` disables Codex's competing built-in `skill-creator` by name.
+  The served AGENTS guidance requires `skill_list` first and routes creation,
+  mutation, deletion, and workflow questions through `skill://skill-manager`;
+  the tool description reinforces that ordering, and the managed Skill now
+  covers those questions explicitly.
 - Removed completed or superseded Markdown planning records for the backend,
   wrapper rewrite, one-off cleanup, legacy PHP design, and closed wrapper parity
   work. Canonical interface, architecture, operator, manual, and active backlog

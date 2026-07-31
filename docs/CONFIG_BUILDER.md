@@ -14,6 +14,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 3. Hosts call `/config/retrieve` with their API key. The server:
    - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
    - Injects managed HTTP MCP auth for the host: the host API key on secure hosts, or a short-lived MCP bearer on insecure hosts (when orchestrator MCP is enabled).
+   - When that managed Codex MCP entry is successfully injected, appends a `[[skills.config]]` entry with `name = "skill-creator"` and `enabled = false` so the built-in local creator cannot bypass authoritative fleet Skill discovery. MCP-disabled or unavailable renders do not suppress it.
    - Appends a trusted projects stanza when `username`/`home` identify a valid home path.
    - Returns baked `sha256` plus `base_sha256` (the stored template hash). When hashes match, `status:unchanged` omits the body.
    - Returns `status:missing` when no config is stored; clients should delete the effective `CODEX_HOME/config.toml` (default `~/.codex/config.toml`).
@@ -28,6 +29,7 @@ Default notice mappings:
 - Native HTTP MCP transport; no node bridge.
 - Controlled by `orchestrator_mcp_enabled` in the builder (enabled by default).
 - For each host, the server injects a managed entry ahead of any user-configured MCP servers and filters out reserved orchestrator aliases (`codex-memory`, `codex-orchestrator`, `cdx`, `codex-coordinator`) from the UI-configurable list.
+- A usable managed Codex entry also owns the `skill-creator` disable rule described above. It is host-baked policy, not part of the stored operator template, and does not apply to Claude.
 - Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.
 
 ## Feature switches

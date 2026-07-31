@@ -75,14 +75,18 @@ Codex/host feature state and appends at most one
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 
-The block is concise guidance, not state replication. When applicable it tells
-Codex to discover Skills with MCP `skill_list` / `skill_retrieve` and
-`skill://<slug>`, routes durable memory through the MCP `shared_memory_*`,
-`project_memory_*`, and host-local `memory_*` scopes, points enabled project
-coordination at `#coco` / `project_*`, and advertises BrowserOS only when both
-the host toggle and orchestrator MCP are active. It never lists individual
-Skills, memories, or projects. Feature changes alter the served/managed hashes
-without altering the canonical base hash.
+The block is concise guidance, not state replication. When applicable it makes
+the orchestrator MCP authoritative for Skills and requires `skill_list` before
+answering or acting on any Skill-related request, ahead of host-local or system
+`SKILL.md` files. Workflow, create, update, and delete requests are routed
+through `skill://skill-manager`; other manifests and support files use
+`skill_retrieve` and `skill://<slug>/<path>`. The same block routes durable
+memory through the MCP `shared_memory_*`, `project_memory_*`, and host-local
+`memory_*` scopes, points enabled project coordination at `#coco` /
+`project_*`, and advertises BrowserOS only when both the host toggle and
+orchestrator MCP are active. It never lists individual Skills, memories, or
+projects. Feature changes alter the served/managed hashes without altering the
+canonical base hash.
 
 ## Skill delivery
 
@@ -102,8 +106,15 @@ content live through the managed MCP server:
 - Authenticated Codex agents may create, fully replace, revive, or soft-delete
   ordinary shared manifest-only Skills with MCP `skill_store` / `skill_delete`.
   Writes are last-writer-wins and always `engine:null`; managed/source-owned
-  Skills remain immutable. The managed `skill-manager` Skill supplies the
-  list/retrieve/mutate/verify runbook, and Codex reads a successful mutation live.
+  Skills remain immutable. The managed `skill-manager` Skill supplies both the
+  Skill-management workflow answer and the list/retrieve/mutate/verify runbook,
+  and Codex reads a successful mutation live.
+- When the server successfully injects the managed orchestrator MCP into a
+  Codex host config, it also appends a `[[skills.config]]` entry with
+  `name = "skill-creator"` and `enabled = false`. This suppresses the
+  higher-priority built-in local creator so it cannot answer before MCP
+  discovery. The rule is omitted when managed MCP is disabled or unavailable,
+  and it is never emitted for Claude.
 
 The Matt Pocock source is off by default, so this surface does not imply it is
 enabled on a deployment. Once an admin enables it, the source adapter publishes
@@ -372,7 +383,7 @@ participate in these leases and is the explicit coordination boundary.
    generation unusable even when no replacement exists. It does not authorize
    an overwrite; only `candidate_rejected_definitive:true` together with
    verified canonical bytes can do that.
-5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response using the complete bundle digest, so a source-owned support-file change is visible even when `SKILL.md` is unchanged. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. Skills themselves are served via MCP `resource_read skill://<slug>` and support files via `resource_read skill://<slug>/<path>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
+5. Skills probe (`GET /skills?engine=codex`) — fingerprints the response using the complete bundle digest, so a source-owned support-file change is visible even when `SKILL.md` is unchanged. A successful unchanged probe is green, a changed fingerprint gets the updated marker, and request/cache-write failures warn instead of being presented as healthy. The config marker applies the same checked/updated/failed/skipped contract to the combined AGENTS/config write. When managed MCP was injected, that config also disables the built-in `skill-creator` by exact name. Skills themselves are served via MCP `resource_read skill://<slug>` and support files via `resource_read skill://<slug>/<path>`; on first boot of each wrapper version, the legacy on-disk caches (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective `CODEX_HOME/prompts`) are pruned so they don't shadow MCP.
 6. Wrapper and Codex CLI version reconciliation — normal `cdx` startup updates the wrapper from the server-declared artifact when `versions.auto_update_enabled` is true, re-execs the original argv, then keeps the local Codex CLI on the server's declared target. `latest` is resolved against GitHub before download so current hosts do not redownload on every launch. Update activity uses the compact `↻` / `✓` / `✗` status line for wrapper, Codex, and peer-wrapper installs; it is coloured only on an interactive terminal, stays escape-free with `NO_COLOR`, and uses width-bounded ASCII when redirected, on `TERM=dumb`, or under explicit `--minimal`. The boot summary uses the same policy: non-exact latest/floor targets only show an arrow when the resolved target is newer than the local CLI. Never blocks launch.
 7. Snapshot the content-bound `auth.json` generation; acquire shared session +
    active-child leases; pass duplicate descriptors into upstream `codex`;

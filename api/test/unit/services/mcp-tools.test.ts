@@ -179,6 +179,8 @@ describe('McpToolsRegistry', () => {
   it('does not expose an engine override on skill_list', () => {
     const definition = registry.list().find((tool) => tool.name === 'skill_list');
     expect(definition?.inputSchema['properties']).toEqual({});
+    expect(definition?.description).toMatch(/authoritative first step/i);
+    expect(definition?.description).toMatch(/before consulting local Skill files/i);
   });
 
   it('registers and dispatches the host Skill mutation tools', async () => {

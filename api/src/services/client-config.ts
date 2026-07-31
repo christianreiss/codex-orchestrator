@@ -272,10 +272,12 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     engine,
     managedMcpToken: opts.managedMcpToken,
   });
+  const managedMcpInjected = withManaged !== normalized;
   let content = engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
     : renderToml(withManaged);
   if (engine !== ENGINE_CLAUDE) {
+    if (managedMcpInjected) content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
   return {
@@ -284,6 +286,20 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     size_bytes: Buffer.byteLength(content, 'utf8'),
     settings: normalized,
   };
+}
+
+/**
+ * Fleet Skills are authoritative whenever the managed orchestrator MCP is
+ * usable. Suppress Codex's built-in local creator in that exact case so its
+ * higher-priority implicit trigger cannot bypass MCP discovery. Name matching
+ * is supported by every Codex version admitted by the fleet floor and avoids
+ * assuming the host's effective CODEX_HOME path.
+ */
+export function injectManagedCodexSkillPolicyToml(content: string): string {
+  const stanza = '[[skills.config]]\nname = "skill-creator"\nenabled = false\n';
+  if (content.includes(stanza)) return content;
+  if (content.trim() === '') return stanza;
+  return content.replace(/\s*$/, '\n\n') + stanza;
 }
 
 function applyHostModelOverrides(

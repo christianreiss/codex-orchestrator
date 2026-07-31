@@ -790,7 +790,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'skill_list',
-      description: 'List skills available to this host',
+      description:
+        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files.',
       inputSchema: {
         type: 'object',
         properties: {},

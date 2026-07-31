@@ -118,8 +118,9 @@ An authenticated host agent can instead use MCP `skill_store` with `slug`,
 or revives a manifest-only Skill as shared `engine:null` state. MCP `skill_delete`
 soft-deletes by slug. Both operations are last-writer-wins and reject every
 code-managed or source-owned Skill. The managed `skill-manager` Skill instructs
-agents to use `skill_list` / `skill_retrieve` before a mutation and retrieve again
-afterward to verify it.
+agents to call `skill_list` before answering or acting on any Skill-management
+request, use the fleet inventory instead of Codex's built-in local
+`skill-creator`, and retrieve again after a mutation to verify it.
 
 ```bash
 # 1. Log in (the API binds 127.0.0.1:8488; through Caddy add --cert/--key for mTLS)
@@ -159,10 +160,12 @@ unconditional.
 ## Current manifests
 
 - `#skill-manager` — code-derived in
-  `api/src/services/managed-skill-manager.ts`. It documents the MCP
-  list/retrieve/store/delete/verify lifecycle, last-writer-wins behavior, recoverable
-  deletion, and the code/source ownership boundary. It is shared across engines and
-  is itself immutable through the tools it documents.
+  `api/src/services/managed-skill-manager.ts`. It answers how Skill management
+  works and documents the MCP list/retrieve/store/delete/verify lifecycle,
+  last-writer-wins behavior, recoverable deletion, and the code/source ownership
+  boundary. It explicitly distinguishes fleet Skills from Codex's built-in
+  host-local creator. It is shared across engines and is itself immutable through
+  the tools it documents.
 
 - `#context` — **no longer a file and no longer a row.** Moved into
   `api/src/services/managed-context-skill.ts` on 2026-07-27; the checked-in

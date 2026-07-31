@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  injectManagedCodexSkillPolicyToml,
   renderClaudeSettingsPartial,
   renderClaudeSettingsPartialForHost,
   renderToml,
@@ -126,8 +127,48 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('X-Engine = "codex"');
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
     expect(rendered.content).not.toContain('codex-memory');
+    expect(rendered.content).toContain('[[skills.config]]');
+    expect(rendered.content).toContain('name = "skill-creator"');
+    expect(rendered.content).toContain('enabled = false');
     expect(rendered.content).toContain('[projects."/home/chris"]');
     expect(rendered.content).toContain('trust_level = "trusted"');
+  });
+
+  it('disables the local creator only when managed Codex MCP is usable', () => {
+    const mcpDisabled = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: { id: 7, fqdn: 'host.example', secure: 1 } as never,
+      baseUrl: 'https://coord.example/',
+      apiKey: 'abc123',
+    });
+    const unavailable = renderTomlForHost({
+      settings: {},
+      host: { id: 7, fqdn: 'host.example', secure: 1 } as never,
+      baseUrl: null,
+      apiKey: null,
+    });
+    const claude = renderTomlForHost({
+      settings: {},
+      host: { id: 7, fqdn: 'host.example', secure: 1 } as never,
+      baseUrl: 'https://coord.example/',
+      apiKey: 'abc123',
+      engine: ENGINE_CLAUDE,
+    });
+
+    for (const rendered of [mcpDisabled, unavailable, claude]) {
+      expect(rendered.content).not.toContain('[[skills.config]]');
+      expect(rendered.content).not.toContain('skill-creator');
+    }
+  });
+
+  it('injects the managed skill policy idempotently', () => {
+    const once = injectManagedCodexSkillPolicyToml('model = "gpt-5.6-terra"\n');
+    const twice = injectManagedCodexSkillPolicyToml(once);
+
+    expect(twice).toBe(once);
+    expect(once.match(/\[\[skills\.config\]\]/g)).toHaveLength(1);
+    expect(once).toContain('name = "skill-creator"');
+    expect(once).toContain('enabled = false');
   });
 
   it('injects BrowserOS MCP only when the Codex host toggle is enabled', () => {

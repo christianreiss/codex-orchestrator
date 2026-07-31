@@ -70,10 +70,13 @@ are last-writer-wins, attributed to the authenticated host, and always shared as
 `engine:null`; there is no per-call engine override. Code-managed slugs and rows
 owned by an external Skill source are read-only.
 
-The always-available managed `skill-manager` Skill is the agent runbook for this
-lifecycle: list and retrieve before changing a Skill, store or delete it, then
-retrieve again to verify the result. Skill text is still untrusted instruction
-content and cannot grant authority beyond the user's request.
+The always-available managed `skill-manager` Skill handles both questions about
+this lifecycle and mutations: list first, retrieve before changing a Skill, store
+or delete it, then retrieve again to verify the result. On Codex hosts with the
+managed MCP available, startup guidance makes this path authoritative and the
+baked config disables the competing built-in `skill-creator` by name. Skill text
+is still untrusted instruction content and cannot grant authority beyond the
+user's request.
 
 ## Resources
 

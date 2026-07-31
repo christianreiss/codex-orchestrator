@@ -86,7 +86,7 @@ async function callSkillTool(
   app: HostApiTestApp,
   apiKey: string,
   engine: 'codex' | 'claude',
-  name: 'skill_list' | 'skill_retrieve' | 'skill_store' | 'skill_delete',
+  name: 'skill_list' | 'skill_retrieve' | 'skill_store' | 'skill_delete' | 'resource_read',
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const response = await app.inject({
@@ -175,6 +175,97 @@ async function bootstrapClaudeSkills(
   expect(response.statusCode).toBe(200);
   return response.json().claude_skills as Array<{ slug: string; status: string; content?: string }>;
 }
+
+describe('fresh Codex Skill bootstrap', () => {
+  it('routes zero-knowledge agents to authoritative MCP Skill management first', async () => {
+    const apiKey = 'sk-codex-mcp-first';
+    const agentsBody = '# Fleet rules\n';
+    const configBody = 'model = "gpt-5.6-terra"\n';
+    const db = baseTables(apiKey, 'codex');
+    db.tables.set(skillsTable, []);
+    db.tables.set(agentsDocuments, [{
+      id: 7,
+      engine: 'codex',
+      slug: 'main',
+      body: agentsBody,
+      sha256: createHash('sha256').update(agentsBody).digest('hex'),
+      size: agentsBody.length,
+      createdAt: '2026-07-31T00:00:00Z',
+      updatedAt: '2026-07-31T00:00:00Z',
+    }]);
+    db.tables.set(clientConfigDocuments, [{
+      id: 9,
+      engine: 'codex',
+      slug: 'main',
+      body: configBody,
+      sha256: createHash('sha256').update(configBody).digest('hex'),
+      size: configBody.length,
+      settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
+      createdAt: '2026-07-31T00:00:00Z',
+      updatedAt: '2026-07-31T00:00:00Z',
+    }]);
+    const keyring = makeKeyring();
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    await registerMcpRoutes(app, { db: db as never, env, keyring });
+
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/sync/bootstrap',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        payload: JSON.stringify({ engine: 'codex', include_auth: false }),
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as Record<string, unknown>;
+      const agents = String((body['agents'] as Record<string, unknown>)['content']);
+      const config = String((body['config'] as Record<string, unknown>)['content']);
+
+      expect((body['agents'] as Record<string, unknown>)['status']).toBe('updated');
+      expect(agents).toMatch(/orchestrator MCP is authoritative/i);
+      expect(agents).toMatch(/call `skill_list` first/i);
+      expect(agents).toMatch(/before reading any host-local or system/i);
+      expect(agents).toContain('skill://skill-manager');
+      expect(agents).toContain('built-in `skill-creator`');
+      expect((body['config'] as Record<string, unknown>)['status']).toBe('updated');
+      expect(config).toContain('[mcp_servers.cdx]');
+      expect(config).toContain('url = "https://o.example/mcp"');
+      expect(config).toContain('X-Engine = "codex"');
+      expect(config).toContain('[[skills.config]]');
+      expect(config).toContain('name = "skill-creator"');
+      expect(config).toContain('enabled = false');
+      expect(body['claude_skills']).toBeUndefined();
+
+      const list = await callSkillTool(app, apiKey, 'codex', 'skill_list', {});
+      expect(list['skills']).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          slug: 'skill-manager',
+          managed: true,
+          uri: 'skill://skill-manager',
+        }),
+      ]));
+      expect(
+        (list['skills'] as Array<{ slug: string }>).some((skill) => skill.slug === 'skill-creator'),
+      ).toBe(false);
+
+      const resource = await callSkillTool(app, apiKey, 'codex', 'resource_read', {
+        uri: 'skill://skill-manager',
+      });
+      const manifest = String(
+        (resource['contents'] as Array<Record<string, unknown>>)[0]?.['text'],
+      );
+      expect(manifest).toContain('name: skill-manager');
+      expect(manifest).toMatch(/how Skill management works/i);
+      expect(manifest).toContain('built-in `skill-creator`');
+      expect(manifest.indexOf('skill_list')).toBeLessThan(manifest.indexOf('skill_retrieve'));
+      expect(manifest.indexOf('skill_retrieve')).toBeLessThan(manifest.indexOf('skill_store'));
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe('POST /sync/bootstrap claude_skills bundle', () => {
   it('keeps one Skill lifecycle interoperable across Codex MCP and Claude bootstrap', async () => {

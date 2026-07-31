@@ -450,7 +450,10 @@ Engine-specific details:
   shared manifest-only fleet Skills. The canonical API state changes immediately,
   but Claude's native directory is refreshed on the next unlocked wrapper
   bootstrap, not live inside the running session. The managed `skill-manager`
-  runbook is delivered through that same native Skill bundle.
+  Skill is delivered through that same native bundle and covers workflow
+  questions as well as list/retrieve/store/delete/verify operations. The
+  Codex-only config rule that suppresses its built-in `skill-creator` is never
+  emitted for Claude.
 - **cxx 0.7.3 installs a Skill directory atomically.** It validates every
   slash-separated relative path, rejects traversal/duplicates/backslashes,
   verifies the manifest and each file SHA-256, recomputes the canonical complete
