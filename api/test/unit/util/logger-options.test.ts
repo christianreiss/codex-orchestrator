@@ -49,6 +49,9 @@ const SECRET_FIELDS = [
   'tokenHash',
   'accessToken',
   'refreshToken',
+  'valueEnc',
+  'value_enc',
+  'secretValue',
 ] as const;
 
 describe('loggerOptions transport', () => {
@@ -129,5 +132,21 @@ describe('loggerOptions redaction', () => {
 
     expect(line.password).toBe('top-level');
     expect(line.req).toEqual({ body: { auth: { token: 'deep' } } });
+  });
+
+  it('strips the fleet-secrets create/update plaintext, which no wildcard reaches', () => {
+    // `req.body.value` sits three levels deep, so it is spelled out in full
+    // rather than covered by `*.value` — which `remove: true` would make far too
+    // destructive, deleting legitimate `{setting:{value}}` shapes everywhere.
+    const line = emit({ req: { body: { slug: 'gh-pat', value: 'ghp_super-secret' } } });
+
+    expect(line.req).toEqual({ body: { slug: 'gh-pat' } });
+    expect(written(line)).not.toContain('ghp_super-secret');
+  });
+
+  it('leaves an unrelated one-level `value` alone', () => {
+    // The other half of the same decision: over-broad redaction is its own bug.
+    const line = emit({ setting: { value: 'normal-mode' } });
+    expect(line.setting).toEqual({ value: 'normal-mode' });
   });
 });

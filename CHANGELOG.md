@@ -1,5 +1,42 @@
 # 2026-07-31
 
+- Added a fleet secrets store for the **working** credentials agents need once
+  they are running — GitHub PATs, database passwords, Bookstack/Checkmk tokens,
+  SSH keys, third-party API keys for MCP servers and services. Until now there
+  was nowhere to put them: the managed Memory guidance forbids the obvious
+  workaround ("never store secrets in any of them"), leaving agents to scrape
+  credentials off the filesystem or ask the operator every time.
+  - Deliberately **not** engine-boot auth. `auth_payloads` / `openai_api_keys`
+    still own the login material that gets an agent started, behind their live
+    runner-verification gate; the two are never merged. There is no runner that
+    can verify a database password, so nothing here claims a verification
+    state — `last_rotated_at` and the admin surface are the whole story.
+  - New `secrets` table (migration `0010`). `value_enc` is the only copy of a
+    value and always holds an `sbox:v1:` envelope; there is no plaintext column
+    and deliberately no `value_sha256`, since a digest of a human-chosen
+    password is offline-crackable.
+  - Delivery is MCP-only: `secret_list`, `secret_search`, `secret_get`, readable
+    by any enrolled host agent. Nothing is written to a host filesystem, so a
+    soft delete revokes on the next call with no wrapper change and no
+    ownership ledger. Every `secret_get` writes its own `mcp_access_logs` row
+    carrying the slug before the value is returned, and a failed audit write
+    fails the read.
+  - Admin CRUD under `/admin/secrets`, plus a role-gated `POST
+    /admin/secrets/{id}/reveal` — the only endpoint returning a plaintext, a
+    POST so it cannot be prefetched, cached, or replayed from history. The
+    module switch `POST /admin/secrets/state` is role-gated too. This is the
+    fifth role gate in the route tree. There is no admin SPA view yet; v1 is
+    driven by `curl` against `/admin/secrets` with an admin session.
+  - Served `AGENTS.md`/`CLAUDE.md` gain a managed `## Secrets` block once the
+    module is on and at least one secret is visible, telling agents to check the
+    store *before* asking a human or hunting through env files, and never to
+    echo a value into a reply, commit, log, file, or memory. Agents demonstrably
+    ignore MCP tools unless the document directs them to look. **Every host's
+    document digest changes on the first sync after this deploy, so every host
+    rewrites it once** — expected, and handled by the existing `updated` path.
+  - Note the boundary: `secret_get` puts plaintext into the agent's context by
+    construction. The protection boundary is the database and the wire; the
+    "never echo it" guidance is steering, not a control. See `docs/SECURITY.md`.
 - Hardened the repository agent workflow for shared worktrees: it no longer
   auto-pulls, auto-commits, auto-pushes, or implicitly restarts/migrates
   production. Managed Memory guidance now treats recorded decisions and
