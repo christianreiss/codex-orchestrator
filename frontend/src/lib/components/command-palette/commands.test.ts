@@ -43,6 +43,7 @@ const ICON_NAMES = [
   "Server",
   "ScrollText",
   "Settings",
+  "ShieldCheck",
   "Sun",
   "UserCircle",
   "Users",

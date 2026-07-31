@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Server,
   Settings,
+  ShieldCheck,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
 
@@ -81,6 +82,12 @@ export const NAV_SECTIONS: NavSection[] = [
         description: "Endpoints, keys, and availability",
       },
       {
+        href: "/secrets",
+        label: "Secrets",
+        icon: ShieldCheck,
+        description: "Credentials agents fetch over MCP",
+      },
+      {
         href: "/settings",
         label: "Settings",
         icon: Settings,
@@ -136,6 +143,7 @@ export function getPageContext(pathname: string): string {
     return `Projects / ${humanize(segments[1])}${tab}`;
   }
   if (segments[0] === "api-keys") return "API access";
+  if (segments[0] === "secrets") return "Secrets";
   if (segments[0] === "authoring") {
     const section = segments[1] ?? "skills";
     const sectionLabel = humanize(section);

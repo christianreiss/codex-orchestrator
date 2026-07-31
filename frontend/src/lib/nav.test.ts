@@ -220,6 +220,7 @@ describe("navigation targets", () => {
     assert.deepEqual(MOBILE_NAV_OVERFLOW.map((item) => item.href), [
       "/logs/events",
       "/api-keys",
+      "/secrets",
       "/settings",
     ]);
   });

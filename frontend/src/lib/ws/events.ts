@@ -94,6 +94,30 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
     ["keys", "claude"],
   ],
 
+  // Fleet secrets. The module card shows a live count, so every mutation
+  // refreshes the state key as well as the listing. `secret.revealed` is
+  // published with broadcast:false on purpose — a human reading a credential is
+  // an audit fact, not a reason to nudge any UI into re-fetching.
+  // NB: keep apostrophes and other bare quote characters out of comments in
+  // this object. The coverage test scans quote characters at depth 0 to find
+  // the keys, so a stray one swallows every entry that follows it.
+  "secret.created": [
+    ["secrets", "list"],
+    ["secrets", "state"],
+  ],
+  "secret.updated": [
+    ["secrets", "list"],
+    ["secrets", "state"],
+  ],
+  "secret.deleted": [
+    ["secrets", "list"],
+    ["secrets", "state"],
+  ],
+  "secret.module_toggled": [
+    ["secrets", "state"],
+    ["secrets", "list"],
+  ],
+
   // Settings (root key triggers hierarchical match on all per-setting keys)
   // Source checks update their state even when the imported catalogue itself
   // is unchanged, so keep the source card live across tabs and worker ticks.

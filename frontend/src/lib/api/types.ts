@@ -944,3 +944,64 @@ export interface AdminUserPayload {
   active: boolean;
   password?: string;
 }
+
+// ── Fleet secrets store ──────────────────────────────────────────────────────
+
+/**
+ * A secret's metadata. Structurally incapable of carrying a value: the backend
+ * DTO is typed on a shape with no ciphertext field, and the plaintext is only
+ * ever returned by the dedicated reveal endpoint.
+ */
+export interface AdminSecret {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  engine: "codex" | "claude" | null;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  last_rotated_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface AdminSecretListResponse {
+  secrets: AdminSecret[];
+}
+
+export interface AdminSecretResponse {
+  secret: AdminSecret;
+}
+
+/** `rotated` is true only when an update genuinely changed the stored value. */
+export interface AdminSecretUpdateResponse extends AdminSecretResponse {
+  rotated: boolean;
+}
+
+export interface AdminSecretRevealResponse extends AdminSecretResponse {
+  value: string;
+}
+
+export interface AdminSecretsModuleState {
+  enabled: boolean;
+  updated_at: string | null;
+  count: number;
+}
+
+export interface CreateSecretPayload {
+  slug: string;
+  name: string;
+  value: string;
+  description?: string | null;
+  engine?: "codex" | "claude" | null;
+  tags?: string[];
+}
+
+/** `slug` is deliberately absent: the backend rejects a rename with a 400. */
+export interface UpdateSecretPayload {
+  name?: string;
+  value?: string;
+  description?: string | null;
+  engine?: "codex" | "claude" | null;
+  tags?: string[];
+}

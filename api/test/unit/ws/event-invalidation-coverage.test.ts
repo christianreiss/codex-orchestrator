@@ -34,13 +34,6 @@ const UNMAPPED_EVENT_TYPES: Record<string, string> = {
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
   'host.force_delete_ip_mismatch':
     'audit alarm only — the same request also publishes host.deleted, which refreshes the host queries',
-  // v1 of the fleet secrets store ships no admin SPA view, so there is no query
-  // key to invalidate. Mapping one anyway would fail ws-invalidation-key-liveness,
-  // whose UNUSED_QUERY_ROOTS is empty on purpose. Drop these four when a UI lands.
-  'secret.created': 'audit broadcast only — v1 ships no secrets admin view',
-  'secret.updated': 'audit broadcast only — v1 ships no secrets admin view',
-  'secret.deleted': 'audit broadcast only — v1 ships no secrets admin view',
-  'secret.module_toggled': 'audit broadcast only — v1 ships no secrets admin view',
 };
 
 /** Files that publish a type computed at runtime, and what feeds that type. */
