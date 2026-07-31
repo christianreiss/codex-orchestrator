@@ -30,6 +30,12 @@ const NOT_A_COLUMN = new Set<string>([
   'auth_canonical_heads.auth_generation_ledger_v1', // A `versions` marker key.
   'coord_project_memories.deleted_at', // Names the column this table deliberately lacks.
   'coord_project_memories.utf8mb4_unicode_ci', // A MySQL collation.
+  'secrets.secret_get', // An MCP tool name, not a column.
+  'secrets.secret_list', // An MCP tool name, not a column.
+  'secrets.secret_search', // An MCP tool name, not a column.
+  'secrets.secrets_module_enabled', // A `versions` switch key.
+  'secrets.utf8mb4_unicode_ci', // A MySQL collation.
+  'secrets.value_sha256', // Names the digest column this table deliberately lacks.
   'shared_memories.utf8mb4_unicode_ci', // A MySQL collation.
   'shared_memory_revisions.shared_memory_search', // The search API, not a column.
   'wrapper_signing_keys.wrapper_v2_unavailable', // An API error code.

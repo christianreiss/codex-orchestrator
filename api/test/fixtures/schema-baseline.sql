@@ -727,6 +727,23 @@ CREATE TABLE `schema_migrations` (
 	CONSTRAINT `schema_migrations_version` PRIMARY KEY(`version`)
 );
 
+CREATE TABLE `secrets` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`slug` varchar(96) NOT NULL,
+	`name` varchar(255) NOT NULL,
+	`description` text,
+	`value_enc` longtext NOT NULL,
+	`engine` varchar(16),
+	`tags` json,
+	`tags_text` text,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`last_rotated_at` varchar(100),
+	`deleted_at` varchar(100),
+	CONSTRAINT `secrets_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uniq_secrets_slug` UNIQUE(`slug`)
+);
+
 CREATE TABLE `shared_memories` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`slug` varchar(160) NOT NULL,
@@ -935,6 +952,9 @@ CREATE INDEX `idx_openai_keys_active` ON `openai_api_keys` (`is_active`);
 CREATE INDEX `idx_openai_keys_prefix` ON `openai_api_keys` (`key_prefix`);
 CREATE INDEX `idx_openai_keys_admin` ON `openai_api_keys` (`admin_user_id`);
 CREATE INDEX `idx_openai_keys_engine` ON `openai_api_keys` (`engine`);
+CREATE INDEX `idx_secrets_engine` ON `secrets` (`engine`);
+CREATE INDEX `idx_secrets_updated_at` ON `secrets` (`updated_at`);
+CREATE INDEX `idx_secrets_deleted_at` ON `secrets` (`deleted_at`);
 CREATE INDEX `idx_shared_memories_updated_at` ON `shared_memories` (`updated_at`);
 CREATE INDEX `idx_shared_memories_deleted_at` ON `shared_memories` (`deleted_at`);
 CREATE INDEX `idx_shared_memory_chunks_memory` ON `shared_memory_chunks` (`memory_id`,`revision`);

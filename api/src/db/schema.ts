@@ -348,6 +348,48 @@ export const skillFiles = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// secrets — fleet credential store (MCP-delivered, never written to disk)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Working credentials agents use once they are running: GitHub PATs, database
+ * passwords, Bookstack/Checkmk tokens, SSH keys, third-party API keys for MCP
+ * servers and services. Distinct from engine-boot auth (`auth_payloads`,
+ * `openai_api_keys`) by lifecycle, consumer, and blast radius, and never merged
+ * with it.
+ *
+ * `valueEnc` is the only copy of the value and always holds an `sbox:v1:`
+ * envelope. Nothing outside SecretsService's two decrypting methods may select
+ * it — every other read there enumerates its columns for exactly that reason,
+ * because a bare `select()` returns the whole row.
+ *
+ * `engine` is nullable and null means every engine, matching `skills.engine`.
+ */
+export const secrets = mysqlTable(
+  'secrets',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    slug: varchar('slug', { length: 96 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    valueEnc: longtext('value_enc').notNull(),
+    engine: varchar('engine', { length: 16 }),
+    tags: json('tags'),
+    tagsText: text('tags_text'),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+    lastRotatedAt: varchar('last_rotated_at', { length: 100 }),
+    deletedAt: varchar('deleted_at', { length: 100 }),
+  },
+  (t) => ({
+    slugUnique: uniqueIndex('uniq_secrets_slug').on(t.slug),
+    engineIdx: index('idx_secrets_engine').on(t.engine),
+    updatedAtIdx: index('idx_secrets_updated_at').on(t.updatedAt),
+    deletedAtIdx: index('idx_secrets_deleted_at').on(t.deletedAt),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // claude_artifacts — Claude-Code-native fleet collections (subagents,
 // slash-commands, output-styles). One table discriminated by `kind`; shares the
 // skills lifecycle (slug+sha256 dedup, soft-delete, If-None-Match retrieve).
@@ -1321,6 +1363,7 @@ export type SharedMemory = typeof sharedMemories.$inferSelect;
 export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
 export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;
 export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
+export type Secret = typeof secrets.$inferSelect;
 export type IpRateLimit = typeof ipRateLimits.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;

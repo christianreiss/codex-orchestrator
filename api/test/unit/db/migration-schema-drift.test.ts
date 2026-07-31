@@ -171,6 +171,7 @@ describe('migrations against the test baseline', () => {
       'agent_prompts',
       'agent_messages',
       'agent_matrix_outbox',
+      'secrets',
     ]);
     expect(
       additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`),
