@@ -5,6 +5,7 @@ import { ApiError, ForbiddenError, UnauthorizedError, ValidationError } from '..
 import { ROLE_ADMIN, ROLE_OWNER } from '../../../services/admin-auth.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { SecretsService, type SecretMetadata } from '../../../services/secrets.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 /**
  * Admin CRUD for the fleet secrets store.
@@ -86,6 +87,11 @@ export async function registerAdminSecretsRoutes(
 ): Promise<void> {
   const secrets = new SecretsService({ db: ctx.db, keyring: ctx.keyring });
   const events = new AdminEventsService(ctx.db);
+  // `/admin/secrets` is both the JSON listing and the SPA's own client route, so
+  // a browser navigating there would otherwise get 401 JSON instead of the app
+  // shell. Same split the users and projects pages already use: text/html gets
+  // the shell, application/json keeps the API contract.
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
 
   const requireSecretMutationRole = async (req: FastifyRequest): Promise<void> => {
     if (!req.admin) throw new UnauthorizedError('Admin session required', 'admin_required');
@@ -122,7 +128,7 @@ export async function registerAdminSecretsRoutes(
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
-  app.get('/admin/secrets', { preHandler: app.requireAdmin }, async (req) => {
+  app.get('/admin/secrets', { preHandler: [adminSpa, app.requireAdmin] }, async (req) => {
     const query = (req.query ?? {}) as Record<string, unknown>;
     const includeDeleted = query['include_deleted'] === '1' || query['include_deleted'] === 'true';
     const rows = await secrets.list({ includeDeleted });
