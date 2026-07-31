@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import { createHash } from 'node:crypto';
+import { registerMcpRoutes } from '../../../src/routes/mcp/index.js';
 import {
   hosts as hostsTable,
   versions as versionsTable,
@@ -79,7 +80,187 @@ async function bootstrap(db: ReturnType<typeof createDbFake>, apiKey: string, en
   return r;
 }
 
+type HostApiTestApp = Awaited<ReturnType<typeof buildHostApiTestApp>>;
+
+async function callSkillTool(
+  app: HostApiTestApp,
+  apiKey: string,
+  engine: 'codex' | 'claude',
+  name: 'skill_list' | 'skill_retrieve' | 'skill_store' | 'skill_delete',
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/mcp',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'x-engine': engine,
+    },
+    payload: {
+      jsonrpc: '2.0',
+      id: `${engine}-${name}`,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    },
+  });
+  expect(response.statusCode).toBe(200);
+  const rpc = response.json() as {
+    error?: unknown;
+    result?: { isError?: boolean; content?: Array<{ text?: unknown }> };
+  };
+  expect(rpc.error).toBeUndefined();
+  expect(rpc.result?.isError).toBe(false);
+  const text = rpc.result?.content?.[0]?.text;
+  expect(typeof text).toBe('string');
+  return JSON.parse(text as string) as Record<string, unknown>;
+}
+
+async function listedSkillSlugs(
+  app: HostApiTestApp,
+  apiKey: string,
+  engine: 'codex' | 'claude',
+): Promise<string[]> {
+  const result = await callSkillTool(app, apiKey, engine, 'skill_list', {});
+  expect(result['engine']).toBe(engine);
+  expect(Array.isArray(result['skills'])).toBe(true);
+  return (result['skills'] as Array<{ slug?: unknown }>)
+    .map((skill) => skill.slug)
+    .filter((slug): slug is string => typeof slug === 'string');
+}
+
+async function readSkillResource(
+  app: HostApiTestApp,
+  apiKey: string,
+  engine: 'codex' | 'claude',
+  slug: string,
+): Promise<string> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/mcp',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'x-engine': engine,
+    },
+    payload: {
+      jsonrpc: '2.0',
+      id: `${engine}-resource-read`,
+      method: 'resources/read',
+      params: { uri: `skill://${slug}` },
+    },
+  });
+  expect(response.statusCode).toBe(200);
+  const rpc = response.json() as {
+    error?: unknown;
+    result?: { contents?: Array<{ text?: unknown }> };
+  };
+  expect(rpc.error).toBeUndefined();
+  const text = rpc.result?.contents?.[0]?.text;
+  expect(typeof text).toBe('string');
+  return text as string;
+}
+
+async function bootstrapClaudeSkills(
+  app: HostApiTestApp,
+  apiKey: string,
+): Promise<Array<{ slug: string; status: string; content?: string }>> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/sync/bootstrap',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    payload: JSON.stringify({ engine: 'claude', include_auth: false }),
+  });
+  expect(response.statusCode).toBe(200);
+  return response.json().claude_skills as Array<{ slug: string; status: string; content?: string }>;
+}
+
 describe('POST /sync/bootstrap claude_skills bundle', () => {
+  it('keeps one Skill lifecycle interoperable across Codex MCP and Claude bootstrap', async () => {
+    const apiKey = 'sk-dual-engine-skill-crud';
+    const slug = 'dual-engine-crud';
+    const manifestHeader = `---
+name: ${slug}
+description: Shared lifecycle integration fixture
+---
+
+`;
+    const manifestV1 = `${manifestHeader}Version one.\n`;
+    const manifestV2 = `${manifestHeader}Version two.\n`;
+    const db = baseTables(apiKey, 'codex,claude');
+    db.tables.set(skillsTable, []);
+    const keyring = makeKeyring();
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    await registerMcpRoutes(app, { db: db as never, env, keyring });
+
+    try {
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'missing', slug });
+
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_store', {
+          slug,
+          manifest: manifestV1,
+          display_name: 'Dual-engine CRUD',
+        }),
+      ).resolves.toMatchObject({ status: 'created', slug });
+
+      await expect(
+        callSkillTool(app, apiKey, 'claude', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'updated', slug, manifest: manifestV1 });
+      await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.toContain(slug);
+      await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.toContain(slug);
+      await expect(readSkillResource(app, apiKey, 'codex', slug)).resolves.toContain(manifestV1);
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ slug, status: 'updated', content: expect.stringContaining('Version one.') }),
+        ]),
+      );
+
+      await expect(
+        callSkillTool(app, apiKey, 'claude', 'skill_store', { slug, manifest: manifestV2 }),
+      ).resolves.toMatchObject({ status: 'updated', slug });
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'updated', slug, manifest: manifestV2 });
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ slug, status: 'updated', content: expect.stringContaining('Version two.') }),
+        ]),
+      );
+
+      await expect(
+        callSkillTool(app, apiKey, 'claude', 'skill_delete', { slug }),
+      ).resolves.toMatchObject({ status: 'deleted', slug });
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'deleted', slug });
+      await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.not.toContain(slug);
+      await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.not.toContain(slug);
+      expect((await bootstrapClaudeSkills(app, apiKey)).some((skill) => skill.slug === slug)).toBe(false);
+
+      await expect(
+        callSkillTool(app, apiKey, 'claude', 'skill_store', { slug, manifest: manifestV1 }),
+      ).resolves.toMatchObject({ status: 'updated', slug });
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'updated', slug, manifest: manifestV1 });
+      await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.toContain(slug);
+      await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.toContain(slug);
+
+      await expect(
+        callSkillTool(app, apiKey, 'codex', 'skill_delete', { slug }),
+      ).resolves.toMatchObject({ status: 'deleted', slug });
+      await expect(
+        callSkillTool(app, apiKey, 'claude', 'skill_retrieve', { slug }),
+      ).resolves.toMatchObject({ status: 'deleted', slug });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('renders claude-visible skills as SKILL.md, coerces name to slug, excludes codex-only + deleted', async () => {
     const apiKey = 'sk-claude-skills';
     const db = baseTables(apiKey, 'claude');

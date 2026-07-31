@@ -1,6 +1,6 @@
 # MCP Server
 
-Native streamable HTTP MCP endpoint plus REST memory helpers for Codex hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
+Native streamable HTTP MCP endpoint plus REST memory helpers for Codex and Claude hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
 
 Three memory substrates live behind this endpoint and they are not interchangeable: `memory_*` / `memory://...` is host-scoped (one row per host per key, invisible to other hosts), `project_memory_*` / `project://...` is project-scoped coordination state, and `shared_memory_*` / `shared://...` is the fleet-wide document corpus — no host and no project scoping, discoverable with `shared_memory_list` before you know any key. For CoCo specifically, coordination state stays project-only; `memory://...` is never a cross-server fallback.
 
@@ -124,7 +124,8 @@ curl -s "$BASE/mcp/memories/search" \
 
 ## Client hints
 
-- `cdx` auto-adds a managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Inserted entry uses `name = "cdx"`, `url = "$BASE/mcp"` (the base baked into the signed wrapper config, which honors `PUBLIC_BASE_URL` when set), static `Authorization` header, and `startup_timeout_sec = 30`.
+- Both wrappers auto-add an engine-labelled managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Each entry uses `url = "$BASE/mcp"` (the base baked into the signed wrapper config, which honors `PUBLIC_BASE_URL` when set), static `Authorization` and `X-Engine: codex|claude` headers, and the engine-specific name `cdx` or `clx`.
+- `cdx` renders its entry into managed `config.toml` with `startup_timeout_sec = 30`. `clx` merges `mcpServers.clx` into the top level of `~/.claude.json`, where Claude Code reads user-scope MCP servers; user-authored entries and unrelated keys are preserved.
 - When the Projects module is enabled, MCP also publishes a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill tells operators that CoCo coordination handoffs are project-only, points fleet-wide reference documents at `shared_memory_*`, and blocks reserved `coco*` memory ids.
 - Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.
