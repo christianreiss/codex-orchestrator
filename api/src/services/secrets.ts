@@ -70,6 +70,38 @@ export interface SecretMetadata {
   deletedAt: string | null;
 }
 
+/**
+ * What `secret_list` / `secret_search` hand an agent: everything needed to pick
+ * the right credential, and nothing else.
+ *
+ * A separate shape from `SecretMetadata` on purpose. Returning the internal type
+ * would put camelCase keys on an agent-facing payload, which the rest of the MCP
+ * surface spells snake_case (`shared_memory_list` → `content_length`,
+ * `created_at`), and would have made `secret_list` disagree with `secret_get`'s
+ * own `last_rotated_at` inside one tool family. It also drops `id` — agents
+ * address secrets by slug and never by number — and `deleted_at`, which is
+ * always null here because a listing only contains live rows.
+ */
+export interface SecretListing {
+  slug: string;
+  name: string;
+  description: string | null;
+  engine: Engine | null;
+  tags: string[];
+  last_rotated_at: string | null;
+}
+
+export function toSecretListing(row: SecretMetadata): SecretListing {
+  return {
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    engine: row.engine,
+    tags: row.tags,
+    last_rotated_at: row.lastRotatedAt,
+  };
+}
+
 /** What `secret_get` hands an agent. The one shape that carries a value. */
 export interface SecretPayload {
   slug: string;
@@ -354,14 +386,14 @@ export class SecretsService {
 
   // ── host-facing surface: the module switch gates these, not admin CRUD ─────
 
-  async listForHost(engine: Engine | null): Promise<SecretMetadata[]> {
+  async listForHost(engine: Engine | null): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return this.list({ engine });
+    return (await this.list({ engine })).map(toSecretListing);
   }
 
-  async searchForHost(query: string, engine: Engine | null): Promise<SecretMetadata[]> {
+  async searchForHost(query: string, engine: Engine | null): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return this.search(query, { engine });
+    return (await this.search(query, { engine })).map(toSecretListing);
   }
 
   // ── the ONLY two methods that decrypt ─────────────────────────────────────

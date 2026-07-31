@@ -344,6 +344,34 @@ describe('getForHost', () => {
 });
 
 describe('host listing honours the module switch', () => {
+  it('hands agents a snake_case payload with no id and no ciphertext', async () => {
+    // The agent-facing shape is deliberately not the internal SecretMetadata:
+    // the rest of the MCP surface spells its fields snake_case, and returning
+    // the internal type made secret_list disagree with secret_get's own
+    // `last_rotated_at` inside one tool family. Pinned as an exact key list so a
+    // future field cannot ride along into an agent contract unnoticed.
+    const { service } = makeHarness([
+      { slug: 'gh-pat', name: 'GitHub PAT', value: 'ghp_supersecret', tags: ['git'] },
+    ]);
+    const listed = await service.listForHost(null);
+
+    expect(Object.keys(listed[0]!).sort()).toEqual([
+      'description',
+      'engine',
+      'last_rotated_at',
+      'name',
+      'slug',
+      'tags',
+    ]);
+    expect(JSON.stringify(listed)).not.toContain('ghp_supersecret');
+    expect(JSON.stringify(listed)).not.toContain('sbox:');
+
+    // And it agrees with secret_get's own spelling.
+    const fetched = await service.getForHost('gh-pat', host, ENGINE_CODEX);
+    expect(fetched).toHaveProperty('last_rotated_at');
+    expect(await service.searchForHost('gh', null)).toEqual(listed);
+  });
+
   // Passing `null` for the engine keeps `or(...)` out of the where clause; see
   // the note on engine filtering above.
   it('lists nothing while disabled and everything once enabled', async () => {
