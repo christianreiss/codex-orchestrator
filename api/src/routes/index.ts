@@ -20,6 +20,7 @@ import { registerAdminOverviewSettingsRoutes } from './admin-overview-settings/i
 import { registerAdminContentRoutes } from './admin-content/index.js';
 import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
+import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAgentPortalRoutes } from './agent-portal/index.js';
 
 /**
@@ -51,6 +52,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminOverviewSettingsRoutes(app, ctx);
   await registerAdminContentRoutes(app, ctx);
   await registerAdminMemoriesRoutes(app, ctx);
+  await registerAdminSecretsRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
 
   // SPA fallback last (catches HTML GET /admin/* that didn't match a JSON

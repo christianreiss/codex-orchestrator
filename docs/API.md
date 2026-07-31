@@ -557,6 +557,15 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/memories/shared/{recordId}/append` — append to a shared memory; the body accepts `content` and nothing else.
   - `PATCH /admin/memories/{scope}/{recordId}` — update a record; `expected_etag` (or `If-Match`) guards the write.
   - `DELETE /admin/memories/{scope}/{recordId}` — delete a record; `expected_etag` may come from the body, query, or `If-Match`.
+- Fleet secrets (working credentials for agents — GitHub tokens, database passwords, service tokens; *not* engine-boot auth, which lives under `/auth`. Every mutation, and the reveal, requires the owner or admin role):
+  - `GET /admin/secrets/state` — module switch plus a live secret count.
+  - `POST /admin/secrets/state` — `{enabled}` flips `secrets_module_enabled`. While it is off the `secret_*` MCP tools serve nothing; admin CRUD stays available so secrets can be staged before switch-on.
+  - `GET /admin/secrets` — metadata listing; `include_deleted=1` includes soft-deleted rows. Never returns values.
+  - `GET /admin/secrets/{id}` — one secret's metadata. Never returns the value.
+  - `POST /admin/secrets` — create from `{slug, name, value, description?, engine?, tags?}`; responds `201`. `engine` is nullable and null means every engine. Creating against a soft-deleted slug revives and rotates it.
+  - `PATCH /admin/secrets/{id}` — update `{name?, value?, description?, engine?, tags?}`. `slug` is immutable, since it is the key agents hold. The response carries `rotated`, true only when the value actually changed.
+  - `DELETE /admin/secrets/{id}` — soft delete; takes effect on the next `secret_get` with no wrapper involvement.
+  - `POST /admin/secrets/{id}/reveal` — the only endpoint that returns a plaintext value. A `POST` deliberately: a `GET` could be prefetched, cached by an intermediary, or replayed out of browser history.
 - Manual: `GET /admin/manual/manifest`, `GET /admin/manual/search?q=`, `GET /admin/manual/article/{slug}` — the admin UI's in-app manual (article set bundled under `STATIC_ROOT`). Unknown slugs return `404`.
 - Config builder: `GET /admin/config`, `POST /admin/config/render`, `POST /admin/config/store`.
 

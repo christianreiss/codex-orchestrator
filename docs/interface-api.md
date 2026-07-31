@@ -387,6 +387,37 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
   to 20 revision metadata rows; and `DELETE /admin/shared-memories/{slug}`
   permanently deletes the document, chunks, and revision trail. New clients
   should use `/admin/memories/*`.
+- Fleet secrets store — the working credentials agents use once they are running
+  (GitHub PATs, database passwords, Bookstack/Checkmk tokens, SSH keys,
+  third-party service keys). Distinct from engine-boot auth under `/auth`, which
+  has its own runner-verified lifecycle; the two are never merged. Delivery to
+  hosts is MCP-only (`secret_list`, `secret_search`, `secret_get`) and no value
+  is ever written to a host filesystem, so a soft delete takes effect on the
+  next read. All four mutations and the reveal require the owner or admin role.
+  - `GET /admin/secrets/state` — `{enabled, updated_at, count}` for the
+    `secrets_module_enabled` switch.
+  - `POST /admin/secrets/state` — `{enabled}` (boolean, `0`/`1`, or
+    `"true"`/`"false"`). While the module is off the `secret_*` MCP tools serve
+    nothing and the managed AGENTS.md block is not rendered; admin CRUD stays
+    live so secrets can be staged before switch-on.
+  - `GET /admin/secrets` — metadata listing ordered by slug, `include_deleted=1`
+    to include soft-deleted rows. Returns `{secrets:[…]}` and never a value.
+  - `GET /admin/secrets/{id}` — one secret's metadata, soft-deleted rows
+    included. Never a value.
+  - `POST /admin/secrets` — `{slug, name, value, description?, engine?, tags?}`,
+    responds `201`. `engine` is nullable and null means every engine. A create
+    against a soft-deleted slug revives and rotates that row rather than
+    failing, since the unique key is on `slug` alone.
+  - `PATCH /admin/secrets/{id}` — `{name?, value?, description?, engine?, tags?}`.
+    `slug` is rejected: it is the lookup key agents hold, so a rename would
+    silently break them. Responds `{secret, rotated}`, where `rotated` is true
+    only when the value genuinely differs from the stored one.
+  - `DELETE /admin/secrets/{id}` — soft delete; the slug stays reserved and can
+    be revived by a later create.
+  - `POST /admin/secrets/{id}/reveal` — the only endpoint returning a plaintext
+    value, as `{secret, value}`. A `POST` deliberately: a `GET` can be
+    prefetched by a browser, cached by an intermediary, and replayed out of
+    history. Records a non-broadcast `secret.revealed` admin event.
 - `GET /admin/skills` — list stored skills (slug, sha256, display name, description, timestamps) plus canonical `uri` / `canonical_uri`, `managed`, and nullable source provenance. `description` is the persisted short summary used by the runtime AGENTS Skills block when present. Code-managed and source-owned skills are returned with `managed:true`; imported rows use `source_type:"github:mattpocock/skills"`.
 - `GET /admin/skills/{slug}` — browser/API split. Browser requests (`Accept: text/html`) receive the admin SPA shell for the dedicated skill workspace page; JSON requests (`Accept: application/json`) fetch full skill content (manifest + metadata, including canonical skill URI, invocation policy, and source provenance).
 - `POST /admin/skills/generate` — admin-only runner-backed draft generation. Body: `prompt` (required string) and optional `slug_hint`. Returns a structured skill draft (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`) plus a server-built canonical `manifest`. This endpoint never persists the skill; admins must still call `POST /admin/skills/store` after review. Returns `503` when canonical auth or the runner is unavailable, and `502` when the runner returns unusable output.

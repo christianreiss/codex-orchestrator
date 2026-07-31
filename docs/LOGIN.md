@@ -73,7 +73,7 @@
 - There are no named capabilities in the Node API. `requireAdmin`
   (`api/src/http/plugins/auth-admin.ts`) only resolves the session cookie and
   requires the user row to be active; it never reads `access_level`.
-- Role gates in the route tree — four, all `owner`-or-`admin`, all answering
+- Role gates in the route tree — five, all `owner`-or-`admin`, all answering
   every other role with `403` and code `admin_role_required`:
   - `POST /admin/users`, `POST /admin/users/{id}`, `DELETE /admin/users/{id}`,
     `POST /admin/users/wipe`.
@@ -89,6 +89,13 @@
     `DELETE /admin/agent-portal/users/{id}`, and
     `GET /admin/agent-portal/users/{id}/link` — the only gated *read* in the tree,
     because it returns a permanent portal link, which is reusable bearer material.
+  - Fleet secrets writes and value reveal: `POST /admin/secrets`,
+    `PATCH /admin/secrets/{id}`, `DELETE /admin/secrets/{id}`,
+    `POST /admin/secrets/{id}/reveal`, and `POST /admin/secrets/state` — the
+    module switch is gated too, because turning a credential store on or off is
+    not a UI preference. The reveal is a `POST` rather than a `GET` precisely so
+    the sentence above stays true: it cannot be prefetched, cached by an
+    intermediary, or replayed out of browser history.
 - Every other admin route is session-only. Any authenticated, active user — a
   `viewer` or a legacy `user` included — can register and delete hosts, open
   insecure windows, upload canonical auth, and change every global setting.

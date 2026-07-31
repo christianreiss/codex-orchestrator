@@ -70,6 +70,14 @@ export const WS_EVENT_TYPES = [
   'apikey.toggled',
   'apikey.deleted',
 
+  // Fleet secrets. `secret.revealed` is deliberately absent: it is recorded
+  // with `broadcast: false`, because a human reading a credential is an audit
+  // fact and not a reason to nudge anything into re-fetching.
+  'secret.created',
+  'secret.updated',
+  'secret.deleted',
+  'secret.module_toggled',
+
   // Settings
   'settings.changed',
 

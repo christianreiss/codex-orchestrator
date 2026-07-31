@@ -61,7 +61,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   role. Everything below marked as admin-authenticated is therefore open to any
   authenticated, active user regardless of role, including host registration,
   insecure windows, canonical auth upload, and every global setting.
-- The whole route tree contains exactly four role gates, all of which allow
+- The whole route tree contains exactly five role gates, all of which allow
   `owner` and `admin` only and answer other roles with `403` and code
   `admin_role_required`:
   - Memory Atlas writes: create, update, delete, and shared append
@@ -73,6 +73,12 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Agent Portal global/user mutations, plus the permanent-link reveal — the only
     gated read, since the link is reusable bearer material
     (`api/src/routes/agent-portal/admin-host.ts`).
+  - Fleet secrets create, update, soft-delete, value reveal, and the
+    `secrets_module_enabled` switch (`api/src/routes/admin/secrets/index.ts`).
+    Listing and per-secret metadata reads are session-only like the rest of the
+    tree; only the plaintext reveal and the mutations are gated. There is no
+    secrets view in the admin SPA yet, so v1 is driven by `curl` against
+    `/admin/secrets` with an admin session behind mTLS.
 - Every authenticated role may read Memory Atlas and the user roster. Memory
   reads carry a per-record `capabilities` object (`read`, `create`, `update`,
   `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.

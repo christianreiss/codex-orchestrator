@@ -39,10 +39,11 @@ const DOC = resolve(HERE, '../../../../docs/LOGIN.md');
 /** The error code every role gate answers with; how a gate is recognized. */
 const ROLE_CODE = 'admin_role_required';
 
-/** The four gates both docs claim are the whole inventory, and where they live. */
+/** The five gates both docs claim are the whole inventory, and where they live. */
 const KNOWN_GATES: Record<string, string> = {
   requireAgentPortalMutationRole: 'routes/agent-portal/admin-host.ts',
   requireMutationRole: 'routes/admin/memories/index.ts',
+  requireSecretMutationRole: 'routes/admin/secrets/index.ts',
   requireSourceMutationRole: 'routes/admin/skill-sources/index.ts',
   requireUserManagementRole: 'routes/admin/users/index.ts',
 };
@@ -56,11 +57,13 @@ const KNOWN_GATES: Record<string, string> = {
 const PINNED_GATED_ROUTES = [
   'DELETE /admin/agent-portal/users/:id',
   'DELETE /admin/memories/:scope/:recordId',
+  'DELETE /admin/secrets/:id',
   'DELETE /admin/users/:id',
   // Reads the permanent portal link back out of storage: a GET, but bearer
   // material, so it carries the same gate as the mutations.
   'GET /admin/agent-portal/users/:id/link',
   'PATCH /admin/memories/:scope/:recordId',
+  'PATCH /admin/secrets/:id',
   'POST /admin/agent-portal/state',
   'POST /admin/agent-portal/users',
   'POST /admin/agent-portal/users/:id',
@@ -68,6 +71,9 @@ const PINNED_GATED_ROUTES = [
   'POST /admin/agent-portal/users/:id/rotate',
   'POST /admin/memories/:scope',
   'POST /admin/memories/shared/:recordId/append',
+  'POST /admin/secrets',
+  'POST /admin/secrets/:id/reveal',
+  'POST /admin/secrets/state',
   'POST /admin/skill-sources/mattpocock',
   'POST /admin/skill-sources/mattpocock/refresh',
   'POST /admin/users',
@@ -340,13 +346,17 @@ describe('owner/admin role gate inventory', () => {
     ).toEqual([]);
   });
 
-  it('gates every agent-portal/memories write and every /admin/users mutation', () => {
+  it('gates every agent-portal/memories/secrets write and every /admin/users mutation', () => {
     const open = registrations
       .filter((route) => !gates.includes(route))
       .filter(
         (route) =>
           (under(route.path, '/admin/agent-portal') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/memories') && MUTATING.includes(route.method)) ||
+          // Secrets mutations, including the reveal (a POST) and the module
+          // switch. Pinned by prefix so a route added later cannot ship ungated
+          // just because nobody remembered to extend PINNED_GATED_ROUTES.
+          (under(route.path, '/admin/secrets') && MUTATING.includes(route.method)) ||
           (under(route.path, '/admin/users') && !READ_ONLY_BY_DESIGN.includes(route.text)),
       )
       .map((route) => `${route.file}:${route.line} registers ${route.text} with no role gate`);
