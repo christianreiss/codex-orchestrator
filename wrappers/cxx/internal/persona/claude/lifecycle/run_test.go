@@ -829,7 +829,8 @@ func TestNeedsInteractiveAuthRecovery(t *testing.T) {
 func TestFailedServerHeadWithExplicitlyDistinctLocalCandidateDefersWithoutLogin(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := claude.WriteAuth(json.RawMessage(`{"last_refresh":"2026-07-24T07:00:00Z","claudeAiOauth":{"accessToken":"distinct-local","refreshToken":"refresh"}}`)); err != nil {
+	lastRefresh := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	if err := claude.WriteAuth(json.RawMessage(fmt.Sprintf(`{"last_refresh":%q,"claudeAiOauth":{"accessToken":"distinct-local","refreshToken":"refresh"}}`, lastRefresh))); err != nil {
 		t.Fatal(err)
 	}
 	authPath, err := claude.AuthPath()
