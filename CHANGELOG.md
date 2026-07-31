@@ -1,5 +1,10 @@
 # 2026-07-31
 
+- Added `scripts/export_ai_bundle.sh`, which flattens a component (`api`,
+  `frontend`, `wrappers`, `runner`, `docs`, or `all`) into a single manifested
+  text bundle for handing to a model. Committed build output, lockfiles,
+  source maps, binaries and secrets are filtered out; `--no-tests` roughly
+  halves the API bundle.
 - Authenticated host agents can now manage ordinary fleet Skills through MCP
   `skill_store` and `skill_delete`. Stores create, replace, or revive one shared
   manifest-only Skill; deletes are recoverable tombstones. Code-managed and
