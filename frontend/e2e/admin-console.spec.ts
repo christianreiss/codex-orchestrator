@@ -55,10 +55,161 @@ function fixture(pathname: string): Record<string, unknown> {
         feedback: [{ id: 1, type: "bug", title: "Sample", body: "Sample feedback" }],
         recent_changes: [],
       };
+    case "/admin/projects/fleet-console/todos":
+      return {
+        project: "fleet-console",
+        todos: [
+          {
+            id: 1,
+            title: "Refresh runner image",
+            detail: "Verify the new image on a staging host.",
+            done: false,
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+          {
+            id: 2,
+            title: "Capture baseline",
+            detail: "",
+            done: true,
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
+    case "/admin/projects/fleet-console/notes":
+      return {
+        project: "fleet-console",
+        notes: [
+          {
+            id: 3,
+            header: "Rollout note",
+            body: "Review the runner result before widening the rollout.",
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
+    case "/admin/projects/fleet-console/files":
+      return {
+        project: "fleet-console",
+        files: [
+          {
+            id: 4,
+            stored_name: "docs/rollout.md",
+            description: "Deployment checklist",
+            content_sha256: "abcdef",
+            mime_type: "text/markdown",
+            size_bytes: 64,
+            content: "# Rollout",
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
+    case "/admin/projects/fleet-console/feedback":
+      return {
+        project: "fleet-console",
+        feedback: [
+          {
+            id: 5,
+            type: "bug",
+            title: "Runner label is stale",
+            body: "Surface the last successful check timestamp.",
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
+    case "/admin/projects/fleet-console/changes":
+      return {
+        project: "fleet-console",
+        since: 0,
+        latest_seq: 7,
+        changes: [
+          {
+            seq: 7,
+            eventType: "todo",
+            action: "updated",
+            entityType: "todo",
+            entityId: 1,
+            payloadJson: { done: false },
+            sourceHostId: 1,
+            createdAt: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
     case "/admin/skills":
       return { skills: [{ slug: "fleet-ops", display_name: "Fleet operations", description: "Operator runbook", status: "ok" }] };
     case "/admin/hosts":
       return { hosts: [] };
+    case "/admin/hosts/1/detail":
+      return {
+        host: {
+          id: 1,
+          fqdn: "console.example.test",
+          status: "online",
+          last_refresh: "2026-08-01T08:00:00Z",
+          claude_last_refresh: "2026-08-01T08:00:00Z",
+          updated_at: "2026-08-01T08:00:00Z",
+          created_at: "2026-07-01T08:00:00Z",
+          client_version: "1.0.0",
+          claude_client_version: "2.0.0",
+          client_version_override: null,
+          claude_client_version_override: null,
+          agents_document_id_override: null,
+          wrapper_version: "2.4.0",
+          claude_wrapper_version: "2.4.0",
+          api_calls: 48,
+          ip4: "192.0.2.20",
+          ip6: null,
+          allow_roaming_ips: false,
+          secure: true,
+          vip: false,
+          insecure_enabled_until: null,
+          insecure_grace_until: null,
+          insecure_window_minutes: 10,
+          curl_insecure: false,
+          browseros_mcp_enabled: true,
+          agent_messaging_enabled: true,
+          last_cron_check: "2026-08-01T08:00:00Z",
+          reverse_dns_mode: null,
+          lane_preference: "normal",
+          model_override: null,
+          reasoning_effort_override: null,
+          claude_model_override: null,
+          claude_reasoning_effort_override: null,
+          engines: "codex,claude",
+          engines_list: ["codex", "claude"],
+          auto_update_override: null,
+          effective_auto_update_enabled: true,
+          auto_update_state: "current",
+          auto_update_label: "Current",
+          auto_update_emoji: null,
+          auto_update_rank: 0,
+          auto_update_last_event_at: null,
+          auto_update_target_version: null,
+          canonical_digest: "0123456789abcdef0123456789abcdef",
+          claude_canonical_digest: "abcdef0123456789abcdef0123456789",
+          recent_digests: [],
+          claude_recent_digests: [],
+          authed: true,
+          auth_outdated: false,
+          auth_source: true,
+          users: [],
+        },
+        overview: {
+          versions: {
+            client_version: "1.0.0",
+            wrapper_version: "2.4.0",
+            client_version_checked_at: "2026-08-01T08:00:00Z",
+            claude_version: "2.0.0",
+          },
+          reverse_dns_enabled: true,
+          auto_update_enabled: true,
+          inactivity_window_days: 30,
+        },
+      };
     case "/admin/users":
       return { users: [] };
     case "/admin/agent-messaging/state":
@@ -243,6 +394,45 @@ test("project detail and standalone approval keep their task-focused layouts", a
   await expect(page.getByRole("heading", { name: "Approve CLI session" })).toBeVisible();
   await expect(page.getByLabel("Device code")).toBeVisible();
   await expect(page.getByRole("button", { name: "Look up" })).toBeDisabled();
+  await expectNoSeriousAxeFindings(page);
+});
+
+test("host detail uses one ordered operational workspace", async ({ page }) => {
+  await page.goto("/admin/hosts/1");
+  await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Identity & reachability", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Engines & versions", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Access & security", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fleet policy overrides", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Integrations", level: 2 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mint installer" })).toBeVisible();
+
+  await page.getByRole("button", { name: /Fleet policy overrides/ }).click();
+  await expect(page.getByText("Reverse DNS", { exact: true })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+});
+
+test("project peer views keep records dense, readable, and inspectable", async ({ page }) => {
+  await page.goto("/admin/projects/fleet-console/todos");
+  await expect(page.getByRole("heading", { name: "Open · 1", level: 2 })).toBeVisible();
+  await expect(page.getByText("Refresh runner image", { exact: true })).toBeVisible();
+  await expect(page.getByText("Capture baseline", { exact: true })).toBeVisible();
+
+  await page.goto("/admin/projects/fleet-console/notes");
+  await expect(page.getByRole("heading", { name: "1 note", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rollout note", level: 3 })).toBeVisible();
+
+  await page.goto("/admin/projects/fleet-console/files");
+  await expect(page.getByRole("table")).toBeVisible();
+  await expect(page.getByText("docs/rollout.md", { exact: true })).toBeVisible();
+
+  await page.goto("/admin/projects/fleet-console/feedback");
+  await expect(page.getByRole("heading", { name: /1 entry.*read-only log/, level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Runner label is stale", level: 3 })).toBeVisible();
+
+  await page.goto("/admin/projects/fleet-console/activity");
+  await page.getByRole("button", { name: /todo\.updated/ }).click();
+  await expect(page.getByText("Entity:", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
 

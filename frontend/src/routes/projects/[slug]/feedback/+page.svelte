@@ -4,13 +4,13 @@
   import { toast } from "svelte-sonner";
   import Save from "@lucide/svelte/icons/save";
   import Plus from "@lucide/svelte/icons/plus";
-  import * as Card from "$lib/components/ui/card";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge, type BadgeVariant } from "$lib/components/ui/badge";
+  import * as Select from "$lib/components/ui/select";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Alert from "$lib/components/ui/alert";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
@@ -132,30 +132,28 @@
         </Alert.Description>
       </Alert.Root>
     {:else if items.length === 0}
-      <div class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+      <div class="border-y border-dashed py-10 text-center text-sm text-muted-foreground">
         No feedback yet.
       </div>
     {:else}
-      {#each items as entry (entry.id)}
-        <Card.Root>
-          <Card.Header>
+      <ol class="divide-y divide-border border-y border-border">
+        {#each items as entry (entry.id)}
+          <li class="px-3 py-3 sm:px-4">
             <div class="flex flex-wrap items-start justify-between gap-2">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <Badge variant={TYPE_BADGE[entry.type] ?? "default"}>
                     {TYPE_LABEL[entry.type] ?? entry.type}
                   </Badge>
-                  <Card.Title class="truncate text-base">{entry.title}</Card.Title>
+                  <h3 class="truncate text-sm font-semibold">{entry.title}</h3>
                 </div>
-                <Card.Description>{relativeTime(entry.created_at)}</Card.Description>
+                <p class="mt-1 text-xs text-muted-foreground">{relativeTime(entry.created_at)}</p>
               </div>
             </div>
-          </Card.Header>
-          <Card.Content>
-            <p class="whitespace-pre-wrap text-sm text-foreground/90">{entry.body}</p>
-          </Card.Content>
-        </Card.Root>
-      {/each}
+            <p class="mt-3 whitespace-pre-wrap text-sm text-foreground/90">{entry.body}</p>
+          </li>
+        {/each}
+      </ol>
     {/if}
   </section>
 </div>
@@ -182,17 +180,16 @@
       <div class="grid gap-3 sm:grid-cols-[160px_1fr]">
         <div class="grid gap-1.5">
           <Label for="fb-type">Type</Label>
-          <select
-            id="fb-type"
-            bind:value={type}
-            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <option value="feature">Feature</option>
-            <option value="bug">Bug</option>
-            <option value="issue">Issue</option>
-            <option value="test">Test</option>
-            <option value="note">Note</option>
-          </select>
+          <Select.Root type="single" value={type} onValueChange={(value) => (type = value as ProjectFeedbackType)}>
+            <Select.Trigger id="fb-type"><Select.Value placeholder="Choose type">{TYPE_LABEL[type]}</Select.Value></Select.Trigger>
+            <Select.Content>
+              <Select.Item value="feature" label="Feature">Feature</Select.Item>
+              <Select.Item value="bug" label="Bug">Bug</Select.Item>
+              <Select.Item value="issue" label="Issue">Issue</Select.Item>
+              <Select.Item value="test" label="Test">Test</Select.Item>
+              <Select.Item value="note" label="Note">Note</Select.Item>
+            </Select.Content>
+          </Select.Root>
         </div>
         <div class="grid gap-1.5">
           <Label for="fb-title">Title</Label>

@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/Psc2_SD6.js";export{e as component};

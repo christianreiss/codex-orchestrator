@@ -7,7 +7,6 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
-  import * as Card from "$lib/components/ui/card";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -183,14 +182,15 @@
         </Alert.Description>
       </Alert.Root>
     {:else if notes.length === 0}
-      <div class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+      <div class="border-y border-dashed py-10 text-center text-sm text-muted-foreground">
         No notes yet.
       </div>
     {:else}
-      {#each notes as note (note.id)}
-        <Card.Root>
+      <ol class="divide-y divide-border border-y border-border">
+        {#each notes as note (note.id)}
+          <li class="px-3 py-3 sm:px-4">
           {#if editingId === note.id}
-            <Card.Content class="flex flex-col gap-3 pt-6">
+            <div class="flex flex-col gap-3">
               <div class="grid gap-1.5">
                 <Label for="edit-header-{note.id}">Header</Label>
                 <Input id="edit-header-{note.id}" bind:value={editHeader} />
@@ -199,8 +199,8 @@
                 <Label for="edit-body-{note.id}">Body</Label>
                 <Textarea id="edit-body-{note.id}" bind:value={editBody} rows={5} />
               </div>
-            </Card.Content>
-            <Card.Footer class="flex justify-end gap-2 border-t pt-4">
+            </div>
+            <div class="mt-4 flex justify-end gap-2 border-t pt-3">
               <Button variant="ghost" onclick={cancelEdit}>
                 <X class="h-4 w-4" />
                 Cancel
@@ -212,39 +212,36 @@
                 <Save class="h-4 w-4" />
                 {$updateMut.isPending ? "Saving…" : "Save"}
               </Button>
-            </Card.Footer>
+            </div>
           {:else}
-            <Card.Header>
-              <div class="flex flex-wrap items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <Card.Title class="truncate text-base">{note.header}</Card.Title>
-                  {#if note.updated_at}
-                    <Card.Description>Updated {relativeTime(note.updated_at)}</Card.Description>
-                  {/if}
-                </div>
-                <div class="flex gap-1">
-                  <Button variant="ghost" size="sm" onclick={() => startEdit(note)}>
-                    <Pencil class="h-4 w-4" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onclick={() => $deleteMut.mutate(note.id)}
-                    disabled={$deleteMut.isPending}
-                  >
-                    <Trash2 class="h-4 w-4" />
-                    Delete
-                  </Button>
-                </div>
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div class="min-w-0">
+                <h3 class="truncate text-sm font-semibold">{note.header}</h3>
+                {#if note.updated_at}
+                  <p class="mt-1 text-xs text-muted-foreground">Updated {relativeTime(note.updated_at)}</p>
+                {/if}
               </div>
-            </Card.Header>
-            <Card.Content>
-              <p class="whitespace-pre-wrap text-sm text-foreground/90">{note.body}</p>
-            </Card.Content>
+              <div class="flex gap-1">
+                <Button variant="ghost" size="sm" onclick={() => startEdit(note)}>
+                  <Pencil class="h-4 w-4" />
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onclick={() => $deleteMut.mutate(note.id)}
+                  disabled={$deleteMut.isPending}
+                >
+                  <Trash2 class="h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+            <p class="mt-3 whitespace-pre-wrap text-sm text-foreground/90">{note.body}</p>
           {/if}
-        </Card.Root>
-      {/each}
+          </li>
+        {/each}
+      </ol>
     {/if}
   </section>
 </div>

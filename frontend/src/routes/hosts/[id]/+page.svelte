@@ -10,7 +10,6 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Skeleton } from "$lib/components/ui/skeleton";
-  import * as Card from "$lib/components/ui/card";
   import * as Collapsible from "$lib/components/ui/collapsible";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import EngineBadge from "$lib/components/hosts/EngineBadge.svelte";
@@ -335,72 +334,66 @@
     {/each}
   </div>
 
-  <div class="grid grid-cols-1 gap-4">
+  <div class="divide-y divide-border border-y border-border">
     {#if actionItems.length > 0}
-      <Card.Root>
-        <Card.Header>
-          <Card.Title>Needs attention</Card.Title>
-        </Card.Header>
-        <Card.Content class="text-sm">
-          <ul class="space-y-2">
-            {#each actionItems as item}
-              <li
-                class="flex items-start gap-2 rounded-md border px-2.5 py-1.5 {item.tone === 'warning'
-                  ? 'border-warning/25 bg-warning-muted text-warning-muted-foreground'
-                  : 'border-info/25 bg-info-muted text-info-muted-foreground'}"
-              >
-                <AlertTriangle class="mt-0.5 h-4 w-4 flex-shrink-0" />
-                <span>{item.text}</span>
-              </li>
-            {/each}
-          </ul>
-        </Card.Content>
-      </Card.Root>
+      <section class="py-5" aria-labelledby="host-attention">
+        <h2 id="host-attention" class="text-sm font-semibold">Needs attention</h2>
+        <ul class="mt-3 space-y-2 text-sm">
+          {#each actionItems as item}
+            <li
+              class="flex items-start gap-2 rounded-md border px-2.5 py-1.5 {item.tone === 'warning'
+                ? 'border-warning/25 bg-warning-muted text-warning-muted-foreground'
+                : 'border-info/25 bg-info-muted text-info-muted-foreground'}"
+            >
+              <AlertTriangle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{item.text}</span>
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/if}
 
     <!-- Identity & reachability: facts only. -->
-    <Card.Root>
-      <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0">
+    <section class="py-5" aria-labelledby="host-identity">
+      <header class="mb-4 flex flex-row items-start justify-between gap-3">
         <div>
-          <Card.Title>Identity & reachability</Card.Title>
-          <Card.Description>Network identity and last-contact facts.</Card.Description>
+          <h2 id="host-identity" class="text-sm font-semibold">Identity & reachability</h2>
+          <p class="mt-1 text-sm text-muted-foreground">Network identity and last-contact facts.</p>
         </div>
         {#if host.ip4 || host.ip6}
           <Button variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>
             Release IP binding
           </Button>
         {/if}
-      </Card.Header>
-      <Card.Content>
-        <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          {@render dt("Host ID", String(host.id))}
-          {@render dt("FQDN", host.fqdn)}
-          {@render dt("IP (v4)", host.ip4 ?? "—")}
-          {@render dt("IP (v6)", host.ip6 ?? "—")}
-          {@render dt("Last contact", relativeTime(hostLatestRefresh(host)) || "—")}
-          {@render dt("Last cron check", relativeTime(host.last_cron_check) || "—")}
-          {@render dt("API calls (recent)", host.api_calls != null ? String(host.api_calls) : "—")}
-          <div class="flex flex-col">
-            <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Insecure window</dt>
-            <dd class="font-mono text-xs"><InsecureCountdown until={host.insecure_enabled_until} /></dd>
-          </div>
-        </dl>
-      </Card.Content>
-    </Card.Root>
+      </header>
+      <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        {@render dt("Host ID", String(host.id))}
+        {@render dt("FQDN", host.fqdn)}
+        {@render dt("IP (v4)", host.ip4 ?? "—")}
+        {@render dt("IP (v6)", host.ip6 ?? "—")}
+        {@render dt("Last contact", relativeTime(hostLatestRefresh(host)) || "—")}
+        {@render dt("Last cron check", relativeTime(host.last_cron_check) || "—")}
+        {@render dt("API calls (recent)", host.api_calls != null ? String(host.api_calls) : "—")}
+        <div class="flex flex-col">
+          <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Insecure window</dt>
+          <dd class="font-mono text-xs"><InsecureCountdown until={host.insecure_enabled_until} /></dd>
+        </div>
+      </dl>
+    </section>
 
     <!-- Engines & versions: per-engine overrides via inline popovers, each
          showing the effective value and where it came from. -->
-    <Card.Root>
-      <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0">
+    <section class="py-5" aria-labelledby="host-engines">
+      <header class="mb-4 flex flex-row items-start justify-between gap-3">
         <div>
-          <Card.Title>Engines & versions</Card.Title>
-          <Card.Description>Blank clears an override and inherits the fleet default.</Card.Description>
+          <h2 id="host-engines" class="text-sm font-semibold">Engines & versions</h2>
+          <p class="mt-1 text-sm text-muted-foreground">Blank clears an override and inherits the fleet default.</p>
         </div>
         <Button variant="outline" size="sm" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
           <Download class="h-3.5 w-3.5" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
         </Button>
-      </Card.Header>
-      <Card.Content class="space-y-4">
+      </header>
+      <div class="space-y-4">
         <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           {@render dt("CXX wrapper", cxxWrapper.display)}
         </dl>
@@ -461,16 +454,16 @@
             </dl>
           </div>
         {/if}
-      </Card.Content>
-    </Card.Root>
+      </div>
+    </section>
 
     <!-- Access & security -->
-    <Card.Root>
-      <Card.Header>
-        <Card.Title>Access & security</Card.Title>
-        <Card.Description>How strictly this host's requests are authenticated.</Card.Description>
-      </Card.Header>
-      <Card.Content class="space-y-3">
+    <section class="py-5" aria-labelledby="host-security">
+      <header class="mb-4">
+        <h2 id="host-security" class="text-sm font-semibold">Access & security</h2>
+        <p class="mt-1 text-sm text-muted-foreground">How strictly this host's requests are authenticated.</p>
+      </header>
+      <div class="space-y-3">
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <ToggleRow
             label="Secure"
@@ -509,37 +502,37 @@
             />
           {/if}
         </div>
-      </Card.Content>
-    </Card.Root>
+      </div>
+    </section>
 
     <!-- Fleet policy overrides: collapsible, trigger states what's inside. -->
-    <Card.Root>
+    <section class="py-5" aria-labelledby="host-policy-overrides">
       <Collapsible.Root bind:open={policyOpen}>
-        <Collapsible.Trigger class="w-full">
-          {#snippet child({ props })}
-            <button
-              {...props}
-              type="button"
-              class="group flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-accent/50"
-            >
-              <div>
-                <div class="text-lg font-semibold leading-tight tracking-[-0.02em]">
-                  Fleet policy overrides
-                </div>
-                <p class="mt-1 text-sm text-muted-foreground">
-                  {policyOverrideCount > 0
-                    ? `${policyOverrideCount} set`
-                    : "All inherit fleet defaults"}
-                </p>
-              </div>
-              <ChevronDown
-                class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
-              />
-            </button>
-          {/snippet}
-        </Collapsible.Trigger>
+        <h2 id="host-policy-overrides">
+          <Collapsible.Trigger class="w-full">
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class="group flex w-full items-center justify-between gap-3 text-left"
+              >
+                <span>
+                  <span class="block text-sm font-semibold">Fleet policy overrides</span>
+                  <span class="mt-1 block text-sm font-normal text-muted-foreground">
+                    {policyOverrideCount > 0
+                      ? `${policyOverrideCount} set`
+                      : "All inherit fleet defaults"}
+                  </span>
+                </span>
+                <ChevronDown
+                  class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+                />
+              </button>
+            {/snippet}
+          </Collapsible.Trigger>
+        </h2>
         <Collapsible.Content>
-          <Card.Content class="space-y-3 pt-0">
+          <div class="space-y-3 pt-4">
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ToggleRow
                 label="VIP"
@@ -597,44 +590,42 @@
                 Edit
               </Button>
             </div>
-          </Card.Content>
+          </div>
         </Collapsible.Content>
       </Collapsible.Root>
-    </Card.Root>
+    </section>
 
     <!-- Integrations -->
-    <Card.Root>
-      <Card.Header>
-        <Card.Title>Integrations</Card.Title>
-      </Card.Header>
-      <Card.Content>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ToggleRow
-            label="BrowserOS MCP"
-            checked={host.browseros_mcp_enabled}
-            onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
-          />
-          <ToggleRow
-            label="Agent Messaging"
-            checked={host.agent_messaging_enabled}
-            disabled={hostAgentMessagingToggleDisabled(host)}
-            onchange={(v) => runQuiet($agentMessaging.mutateAsync({ id, value: v }))}
-          />
-          <ToggleRow
-            label="Codex engine"
-            checked={codexEngine}
-            disabled={codexSwitchDisabled}
-            onchange={(v) => setHostEngine("codex", v)}
-          />
-          <ToggleRow
-            label="Claude engine"
-            checked={claudeEngine}
-            disabled={claudeSwitchDisabled}
-            onchange={(v) => setHostEngine("claude", v)}
-          />
-        </div>
-      </Card.Content>
-    </Card.Root>
+    <section class="py-5" aria-labelledby="host-integrations">
+      <header class="mb-4">
+        <h2 id="host-integrations" class="text-sm font-semibold">Integrations</h2>
+      </header>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ToggleRow
+          label="BrowserOS MCP"
+          checked={host.browseros_mcp_enabled}
+          onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
+        />
+        <ToggleRow
+          label="Agent Messaging"
+          checked={host.agent_messaging_enabled}
+          disabled={hostAgentMessagingToggleDisabled(host)}
+          onchange={(v) => runQuiet($agentMessaging.mutateAsync({ id, value: v }))}
+        />
+        <ToggleRow
+          label="Codex engine"
+          checked={codexEngine}
+          disabled={codexSwitchDisabled}
+          onchange={(v) => setHostEngine("codex", v)}
+        />
+        <ToggleRow
+          label="Claude engine"
+          checked={claudeEngine}
+          disabled={claudeSwitchDisabled}
+          onchange={(v) => setHostEngine("claude", v)}
+        />
+      </div>
+    </section>
 
     <DangerZone description="Permanently remove this host from the fleet.">
       <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>

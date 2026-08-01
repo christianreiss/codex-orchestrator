@@ -1,0 +1,1 @@
+import{Ct as e}from"./CpTjFNj2.js";import"./CTcVqGJF.js";var t={activeInsecureWindows:0};function n(){let{subscribe:n,update:r}=e(t);return{subscribe:n,setActiveInsecureWindows(e){r(t=>({...t,activeInsecureWindows:Math.max(0,e|0)}))}}}var r=n();export{r as t};

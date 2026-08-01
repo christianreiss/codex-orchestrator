@@ -3,7 +3,6 @@
   import { createQuery } from "@tanstack/svelte-query";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import * as Card from "$lib/components/ui/card";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
@@ -69,56 +68,54 @@
       </Alert.Description>
     </Alert.Root>
   {:else if events.length === 0}
-    <div class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+    <div class="border-y border-dashed py-10 text-center text-sm text-muted-foreground">
       No activity yet.
     </div>
   {:else}
-    <ol class="flex flex-col gap-2">
+    <ol class="divide-y divide-border border-y border-border">
       {#each events as ev (ev.seq)}
         {@const isOpen = expanded.has(ev.seq)}
         <li>
-          <Card.Root>
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              onclick={() => toggle(ev.seq)}
-              aria-expanded={isOpen}
-            >
-              <span class="text-muted-foreground">
-                {#if isOpen}
-                  <ChevronDown class="h-4 w-4" />
-                {:else}
-                  <ChevronRight class="h-4 w-4" />
-                {/if}
-              </span>
-              <Badge variant="outline" class="font-mono text-xs">#{ev.seq}</Badge>
-              <code class="text-sm">{actionLabel(ev)}</code>
-              <span class="ml-auto text-xs text-muted-foreground">
-                {relativeTime(ev.createdAt)}
-              </span>
-            </button>
-            {#if isOpen}
-              <div class="space-y-2 border-t bg-muted/30 px-4 py-3">
-                {#if ev.entityType || ev.entityId != null || ev.sourceHostId != null}
-                  <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                    {#if ev.entityType}
-                      <span>
-                        <span class="font-medium text-foreground">Entity:</span>
-                        <code class="font-mono">{ev.entityType}{ev.entityId != null ? ` #${ev.entityId}` : ""}</code>
-                      </span>
-                    {/if}
-                    {#if ev.sourceHostId != null}
-                      <span>
-                        <span class="font-medium text-foreground">Source host:</span>
-                        <code class="font-mono">{ev.sourceHostId}</code>
-                      </span>
-                    {/if}
-                  </div>
-                {/if}
-                <JsonExpando value={ev.payloadJson ?? null} />
-              </div>
-            {/if}
-          </Card.Root>
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:px-4"
+            onclick={() => toggle(ev.seq)}
+            aria-expanded={isOpen}
+          >
+            <span class="text-muted-foreground">
+              {#if isOpen}
+                <ChevronDown class="h-4 w-4" />
+              {:else}
+                <ChevronRight class="h-4 w-4" />
+              {/if}
+            </span>
+            <Badge variant="outline" class="font-mono text-xs">#{ev.seq}</Badge>
+            <code class="text-sm">{actionLabel(ev)}</code>
+            <span class="ml-auto text-xs text-muted-foreground">
+              {relativeTime(ev.createdAt)}
+            </span>
+          </button>
+          {#if isOpen}
+            <div class="space-y-2 border-t bg-muted/30 px-3 py-3 sm:px-4">
+              {#if ev.entityType || ev.entityId != null || ev.sourceHostId != null}
+                <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                  {#if ev.entityType}
+                    <span>
+                      <span class="font-medium text-foreground">Entity:</span>
+                      <code class="font-mono">{ev.entityType}{ev.entityId != null ? ` #${ev.entityId}` : ""}</code>
+                    </span>
+                  {/if}
+                  {#if ev.sourceHostId != null}
+                    <span>
+                      <span class="font-medium text-foreground">Source host:</span>
+                      <code class="font-mono">{ev.sourceHostId}</code>
+                    </span>
+                  {/if}
+                </div>
+              {/if}
+              <JsonExpando value={ev.payloadJson ?? null} />
+            </div>
+          {/if}
         </li>
       {/each}
     </ol>

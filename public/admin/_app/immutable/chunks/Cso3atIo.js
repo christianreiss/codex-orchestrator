@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./Dqbbk3fc.js";import"./xihTtKlq.js";import{t as n}from"./BiY6hucH.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2`}]];n(r,t({name:`activity`},()=>a,{get iconNode(){return o}}))}export{r as t};

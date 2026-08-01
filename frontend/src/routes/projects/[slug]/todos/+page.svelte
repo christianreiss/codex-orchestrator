@@ -9,7 +9,6 @@
   import X from "@lucide/svelte/icons/x";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import * as Card from "$lib/components/ui/card";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -171,9 +170,9 @@
 </script>
 
 {#snippet todoRow(todo: ProjectTodo)}
-  <Card.Root>
+  <li class="px-3 py-3 sm:px-4">
     {#if editingId === todo.id}
-      <Card.Content class="flex flex-col gap-3 pt-6">
+      <div class="flex flex-col gap-3">
         <div class="grid gap-1.5">
           <Label for="edit-title-{todo.id}">Title</Label>
           <Input id="edit-title-{todo.id}" bind:value={editTitle} />
@@ -182,8 +181,8 @@
           <Label for="edit-detail-{todo.id}">Detail</Label>
           <Textarea id="edit-detail-{todo.id}" bind:value={editDetail} rows={4} />
         </div>
-      </Card.Content>
-      <Card.Footer class="flex justify-end gap-2 border-t pt-4">
+      </div>
+      <div class="mt-4 flex justify-end gap-2 border-t pt-3">
         <Button variant="ghost" onclick={cancelEdit}>
           <X class="h-4 w-4" />
           Cancel
@@ -195,60 +194,58 @@
           <Save class="h-4 w-4" />
           {$updateMut.isPending ? "Saving…" : "Save"}
         </Button>
-      </Card.Footer>
+      </div>
     {:else}
-      <Card.Header>
-        <div class="flex items-start gap-3">
-          <div class="pt-0.5">
-            <Checkbox
-              checked={todo.done}
-              onCheckedChange={(next) =>
-                $toggleMut.mutate({ id: todo.id, done: next === true })}
-              aria-label={todo.done ? "Mark as not done" : "Mark as done"}
-            />
-          </div>
-          <div class="min-w-0 flex-1">
-            <Card.Title class="text-base {todo.done ? 'text-muted-foreground line-through' : ''}">
-              {todo.title}
-            </Card.Title>
-            {#if todo.detail}
-              <p
-                class="mt-1 whitespace-pre-wrap text-sm {todo.done
-                  ? 'text-muted-foreground/70'
-                  : 'text-muted-foreground'}"
-              >
-                {todo.detail}
-              </p>
-            {/if}
-            {#if todo.updated_at}
-              <p class="mt-1 text-xs text-muted-foreground">
-                Updated {relativeTime(todo.updated_at)}
-              </p>
-            {/if}
-          </div>
-          <div class="flex gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`Edit todo ${todo.title}`}
-              onclick={() => startEdit(todo)}
-            >
-              <Pencil class="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`Delete todo ${todo.title}`}
-              onclick={() => $deleteMut.mutate(todo.id)}
-              disabled={$deleteMut.isPending}
-            >
-              <Trash2 class="h-4 w-4" />
-            </Button>
-          </div>
+      <div class="flex items-start gap-3">
+        <div class="pt-0.5">
+          <Checkbox
+            checked={todo.done}
+            onCheckedChange={(next) =>
+              $toggleMut.mutate({ id: todo.id, done: next === true })}
+            aria-label={todo.done ? "Mark as not done" : "Mark as done"}
+          />
         </div>
-      </Card.Header>
+        <div class="min-w-0 flex-1">
+          <h3 class="text-sm font-semibold {todo.done ? 'text-muted-foreground line-through' : ''}">
+            {todo.title}
+          </h3>
+          {#if todo.detail}
+            <p
+              class="mt-1 whitespace-pre-wrap text-sm {todo.done
+                ? 'text-muted-foreground/70'
+                : 'text-muted-foreground'}"
+            >
+              {todo.detail}
+            </p>
+          {/if}
+          {#if todo.updated_at}
+            <p class="mt-1 text-xs text-muted-foreground">
+              Updated {relativeTime(todo.updated_at)}
+            </p>
+          {/if}
+        </div>
+        <div class="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Edit todo ${todo.title}`}
+            onclick={() => startEdit(todo)}
+          >
+            <Pencil class="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete todo ${todo.title}`}
+            onclick={() => $deleteMut.mutate(todo.id)}
+            disabled={$deleteMut.isPending}
+          >
+            <Trash2 class="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     {/if}
-  </Card.Root>
+  </li>
 {/snippet}
 
 <div class="flex flex-col gap-6">
@@ -286,13 +283,15 @@
         Open · {openTodos.length}
       </h2>
       {#if openTodos.length === 0}
-        <div class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+        <div class="border-y border-dashed py-10 text-center text-sm text-muted-foreground">
           No open todos.
         </div>
       {:else}
-        {#each openTodos as todo (todo.id)}
-          {@render todoRow(todo)}
-        {/each}
+        <ol class="divide-y divide-border border-y border-border">
+          {#each openTodos as todo (todo.id)}
+            {@render todoRow(todo)}
+          {/each}
+        </ol>
       {/if}
     </section>
 
@@ -312,14 +311,16 @@
       {#if !doneCollapsed}
         {#if doneTodos.length === 0}
           <div
-            class="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground"
+            class="border-y border-dashed py-6 text-center text-sm text-muted-foreground"
           >
             Nothing completed yet.
           </div>
         {:else}
-          {#each doneTodos as todo (todo.id)}
-            {@render todoRow(todo)}
-          {/each}
+          <ol class="divide-y divide-border border-y border-border">
+            {#each doneTodos as todo (todo.id)}
+              {@render todoRow(todo)}
+            {/each}
+          </ol>
         {/if}
       {/if}
     </section>

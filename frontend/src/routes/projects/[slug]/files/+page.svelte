@@ -135,13 +135,13 @@
         </Alert.Description>
       </Alert.Root>
     {:else if files.length === 0}
-      <div class="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+      <div class="border-y border-dashed py-10 text-center text-sm text-muted-foreground">
         No files yet.
       </div>
     {:else}
-      <div class="overflow-hidden rounded-lg border">
+      <div class="overflow-x-auto border-y border-border">
         <table class="w-full text-sm">
-          <thead class="bg-muted text-left text-xs uppercase text-muted-foreground">
+          <thead class="sticky top-0 z-10 bg-muted text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">MIME</th>
