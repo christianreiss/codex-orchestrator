@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="switchyard" x1="4" y1="3" x2="28" y2="29" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4f46e5"/>
+      <stop offset=".52" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#db2777"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#switchyard)"/>
+  <path d="M9 16h4.25c2.9 0 3.55-6 6.5-6H23" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13.25 16c2.9 0 3.55 6 6.5 6H23" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M9 12.8 12.2 16 9 19.2 5.8 16Z" fill="#fff"/>
+  <circle cx="24" cy="10" r="2.35" fill="#67e8f9" stroke="#fff" stroke-width=".8"/>
+  <circle cx="24" cy="22" r="2.35" fill="#fdba74" stroke="#fff" stroke-width=".8"/>
+</svg>

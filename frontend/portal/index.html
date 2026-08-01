@@ -1,13 +1,22 @@
 <!doctype html>
-<html lang="en">
+<!--
+  data-auto-scheme activates the prefers-color-scheme dark token block in
+  lib/styles/tokens.css. The admin sets `.dark` from an inline bootstrap script;
+  this page cannot, because its CSP is `script-src 'self'`. Setting the
+  attribute statically gets system dark with no script and no flash of light.
+-->
+<html lang="en" data-auto-scheme>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
+    <!-- Emitted into /go/assets/, the only path the API serves static files
+         from; portal/public/ would 404. -->
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>Fleet agents</title>
   </head>
-  <body>
+  <body class="antialiased">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
