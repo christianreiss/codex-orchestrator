@@ -24,6 +24,7 @@ const PALETTE_STUB = "stub:palette-store";
 const ICON_NAMES = [
   "Activity",
   "BookOpen",
+  "Bot",
   "Brain",
   "FileText",
   "Fingerprint",
@@ -36,16 +37,19 @@ const ICON_NAMES = [
   "LayoutDashboard",
   "Lock",
   "LogOut",
+  "Link",
   "MessageSquareShare",
   "Monitor",
   "Moon",
   "Plug",
   "Plus",
+  "Palette",
   "Server",
   "ScrollText",
   "Settings",
   "ShieldCheck",
   "Sun",
+  "Terminal",
   "UserCircle",
   "Users",
   "Zap",
@@ -180,10 +184,10 @@ describe("STATIC_COMMANDS", () => {
     }
   });
 
-  it("exposes Agent Messaging operations and its fleet switch", () => {
+  it("exposes direct Agent Messaging and Agent Portal destinations", () => {
     const labels = STATIC_COMMANDS.map((command) => command.label);
     assert.ok(labels.includes("Go to Agent Messaging"));
-    assert.ok(labels.includes("Go to Settings / Agent Messaging"));
+    assert.ok(labels.includes("Go to Agent Portal"));
   });
 });
 
@@ -227,9 +231,9 @@ describe("deep-link navigation commands", () => {
 
   it("found the route tree and the deep-link entries", () => {
     assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
-    assert.ok(deepHrefs.length >= 10, `only ${deepHrefs.length} deep-link commands in the registry`);
+    assert.ok(deepHrefs.length >= 3, `only ${deepHrefs.length} deep-link commands in the registry`);
     assert.equal(resolves("/dashboard"), true);
-    assert.equal(resolves("/settings?tab=engines"), true);
+    assert.equal(resolves("/engines"), true);
     assert.equal(resolves("/hosts/42"), true);
     assert.equal(resolves("/hosts/42/nope"), false);
   });

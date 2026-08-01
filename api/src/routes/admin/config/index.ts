@@ -51,6 +51,7 @@ import { createRunnerValidationService } from '../../../services/runner-validati
 import { ClaudeArtifactsService } from '../../../services/claude-artifacts.js';
 import { normalizeKind } from '../../../services/claude-frontmatter.js';
 import { nowIso } from '../../../util/timestamp.js';
+import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
 const AGENTS_BACKUP_LIMIT_KEY = 'agents_backup_limit';
 
@@ -62,6 +63,9 @@ function parseInteger(value: unknown): number | null {
 
 export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const db = ctx.db;
+  // `/admin/skills` is both the JSON API and the Svelte list/detail route.
+  // Let browser navigations reach the SPA while retaining JSON for the client.
+  const adminSpa = adminSpaHtmlPreHandler(ctx);
   const clientConfig = new ClientConfigService(db);
   const skills = new SkillsService(db);
   const claudeArtifacts = new ClaudeArtifactsService(db);
@@ -286,14 +290,14 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
 
   // ── /admin/skills ────────────────────────────────────────────────────────
 
-  app.get('/admin/skills', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/skills', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     const list = await skills.list({ includeDeleted: true });
     return { skills: list };
   });
 
   app.get<{ Params: { slug: string } }>(
     '/admin/skills/:slug',
-    { preHandler: app.requireAdmin },
+    { preHandler: [adminSpa, app.requireAdmin] },
     async (req) => {
       const found = await skills.find(decodeURIComponent(req.params.slug));
       if (!found) {

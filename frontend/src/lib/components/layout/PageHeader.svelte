@@ -16,7 +16,7 @@
 
 <header
   class={cn(
-    "mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
+    "mb-5 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between",
     className,
   )}
 >

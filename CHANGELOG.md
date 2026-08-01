@@ -1,5 +1,17 @@
 # 2026-08-01
 
+- Rebuilt the Svelte admin console around direct operator destinations: the new
+  shared route registry drives the dense grouped rail, mobile menu, command
+  palette, titles, and active state. Engines, Policies, Agent Portal, Admin
+  Users, and the Knowledge surfaces now have canonical routes; retired Settings
+  and Authoring URLs issue tested 308 client redirects without changing any API
+  contract. API availability, engine defaults, policies, Messaging, Portal,
+  projects, secrets, and users each have one editable owner.
+- Replaced the cream/espresso/pink presentation with a neutral zinc/slate,
+  blue-accent visual system across light/dark/system modes. Legacy pink account
+  preferences are migrated client-side to the matching neutral mode while the
+  API remains backward-compatible. Shared controls and tables are compacted;
+  Projects now uses a sortable full-width operator table.
 - Made `bin/setup.sh` the authoritative fresh-install bootstrap: it now preserves or generates every installation secret, keeps API/runner shared secrets identical, uses supported cookie mode when mTLS is declined, builds a uniquely trusted four-platform wrapper fleet, imports its private signer encrypted with verified read-back, waits for the critical Compose services, and prints `READY` only after local and public readiness pass. Partial and prepare-only runs print `INCOMPLETE` and exit non-zero; existing key/artifact mismatches fail closed instead of rotating.
 - Made `--mtls-optional` select Caddy's cookie-session admin path as well as the supported API mode, and preserved all non-empty database credentials on setup reruns.
 - Updated the bundled Caddy ACME fragment to the supported `issuer acme` syntax used by current Caddy 2 images and wired its certificate-path variables into the container.

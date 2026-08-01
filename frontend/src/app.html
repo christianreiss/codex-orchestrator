@@ -16,15 +16,17 @@
     <script>
       // Apply persisted theme synchronously to avoid FOUC.
       try {
-        const stored = localStorage.getItem("codex.theme") || "system";
+        const legacy = localStorage.getItem("codex.theme.palette");
+        const raw = localStorage.getItem("codex.theme") || legacy || "system";
+        const stored = raw === "auto" || raw === "auto-pink" ? "system" : raw === "bright-pink" ? "light" : raw === "dark-pink" ? "dark" : raw;
         const isDark =
           stored === "dark" ||
           (stored === "system" &&
             window.matchMedia("(prefers-color-scheme: dark)").matches);
         if (isDark) document.documentElement.classList.add("dark");
-        const palette = localStorage.getItem("codex.theme.palette");
-        if (["auto-pink", "bright-pink", "dark-pink"].includes(palette || "")) {
-          document.documentElement.setAttribute("data-theme", palette);
+        if (raw !== stored || legacy) {
+          localStorage.setItem("codex.theme", stored);
+          localStorage.removeItem("codex.theme.palette");
         }
       } catch (_e) {}
     </script>

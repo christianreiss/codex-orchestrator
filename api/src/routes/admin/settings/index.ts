@@ -31,11 +31,10 @@ import {
 } from '../../../services/claude-models.js';
 
 /**
- * The only values `/admin/theme` accepts. Five frontend files re-spell this list
- * — the `AccountTheme` union, the theme page's presets, the theme store's
- * palettes, the FOUC script in app.html and the `[data-theme]` blocks in
- * app.css — so changing it without changing them fails
- * `test/unit/contract/frontend-theme-catalog.test.ts`.
+ * The only values `/admin/theme` accepts. The legacy palette values remain
+ * accepted for persisted account compatibility; the neutral frontend maps them
+ * to System, Light, or Dark before rendering. Keep the wire-format union and
+ * migration contract aligned with `test/unit/contract/frontend-theme-catalog.test.ts`.
  */
 const ADMIN_THEMES = ['auto', 'auto-pink', 'light', 'dark', 'bright-pink', 'dark-pink'] as const;
 type AdminTheme = (typeof ADMIN_THEMES)[number];

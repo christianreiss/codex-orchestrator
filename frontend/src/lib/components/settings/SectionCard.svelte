@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import * as Card from "$lib/components/ui/card";
   import SaveIndicator from "./SaveIndicator.svelte";
 
   type Props = {
@@ -27,28 +26,26 @@
   }: Props = $props();
 </script>
 
-<section {id} class="scroll-mt-24">
-  <Card.Root>
-    <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0 p-4 pb-3">
+<section {id} class="scroll-mt-16 border-b border-border py-4">
+    <div class="flex flex-row items-start justify-between gap-3">
       <div class="min-w-0">
-        <Card.Title class="text-h3">{title}</Card.Title>
+        <h2 class="text-sm font-semibold">{title}</h2>
         {#if description}
-          <Card.Description class="mt-0.5 text-sm leading-normal">
+          <p class="mt-0.5 text-sm leading-normal text-muted-foreground">
             {description}
-          </Card.Description>
+        </p>
         {/if}
       </div>
       {#if headerAction}
         <div class="flex shrink-0 items-center gap-2">{@render headerAction()}</div>
       {/if}
-    </Card.Header>
-    <Card.Content class="space-y-3 px-4 pb-4 pt-0">
+    </div>
+    <div class="mt-3 space-y-3">
       {@render children?.()}
-    </Card.Content>
+    </div>
     {#if status !== "idle" || savedAt || error}
-      <Card.Footer class="flex items-center justify-between gap-2 px-4 pb-3 pt-0">
+      <div class="mt-3 flex items-center justify-between gap-2">
         <SaveIndicator {status} {savedAt} {error} />
-      </Card.Footer>
+      </div>
     {/if}
-  </Card.Root>
 </section>

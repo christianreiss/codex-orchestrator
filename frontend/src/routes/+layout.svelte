@@ -15,7 +15,7 @@
   import { searchModal } from "$lib/stores/search-modal";
   import { bindGlobalShortcuts } from "$lib/utils/shortcuts";
   import { authActions, authStore } from "$lib/stores/auth";
-  import { hydratePalette } from "$lib/stores/theme";
+  import { hydrateTheme } from "$lib/stores/theme";
   import { createWsClient, type WsClientHandle } from "$lib/ws/client";
   import { wireWsToQueryClient } from "$lib/ws/events";
   import { setWsStatus } from "$lib/stores/ws-status";
@@ -111,7 +111,7 @@
     const unsubscribePalette = authStore.subscribe((state) => {
       if (paletteHydrated || state.loading || !state.authenticated) return;
       paletteHydrated = true;
-      void hydratePalette();
+      void hydrateTheme();
     });
 
     return () => {

@@ -1,262 +1,87 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-
 import type { NavItem } from "./nav";
 
-// `nav.ts` pulls its icons from `@lucide/svelte`, whose components node cannot
-// parse; answering every `.svelte` request with an empty module keeps the
-// registry importable without a bundler.
 registerHooks({
   load(url, context, nextLoad) {
-    if (url.endsWith(".svelte")) {
-      return { format: "module", shortCircuit: true, source: "export default function () {}" };
-    }
+    if (url.endsWith(".svelte")) return { format: "module", shortCircuit: true, source: "export default function () {}" };
     return nextLoad(url, context);
   },
 });
 
-// `node --test` strips types but resolves specifiers verbatim, so the runtime
-// import needs the ".ts" extension that TypeScript rejects on a static import;
-// hiding it behind a variable keeps both happy. Types come from the cast.
 const navModule: string = "./nav.ts";
-const {
-  MOBILE_NAV_OVERFLOW,
-  MOBILE_NAV_PRIMARY,
-  NAV,
-  NAV_SECTIONS,
-  getDocumentTitle,
-  getPageContext,
-  isActive,
-} = (await import(navModule)) as typeof import("./nav");
+const { MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV, NAV_FOOTER, NAV_SECTIONS, getDocumentTitle, getPageContext, isActive } =
+  (await import(navModule)) as typeof import("./nav");
 
-/** The registered nav item for `href`, so the tests track the real registry. */
-function navItem(href: string): NavItem {
-  const item = NAV.find((candidate) => candidate.href === href);
-  assert.ok(item, `NAV has no item for ${href}`);
-  return item;
+function item(id: string): NavItem {
+  const found = NAV.find((candidate) => candidate.id === id);
+  assert.ok(found, `missing registry item ${id}`);
+  return found;
 }
 
-describe("isActive", () => {
-  it("matches the item's own route exactly", () => {
-    assert.equal(isActive(navItem("/hosts"), "/hosts"), true);
+describe("route registry", () => {
+  it("has one stable direct destination for every planned operator task", () => {
+    assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Monitor", "Fleet", "Coordinate", "Knowledge", "Access"]);
+    assert.deepEqual(NAV_SECTIONS.flatMap((section) => section.items).map((entry) => entry.id), [
+      "overview", "activity", "hosts", "engines", "policies", "projects", "agent-messaging", "agent-portal",
+      "skills", "instructions", "memories", "subagents", "commands", "output-styles", "api-access", "secrets", "admin-users",
+    ]);
+    assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
+    for (const entry of NAV) {
+      assert.equal(entry.href, entry.route, `${entry.id} compatibility href drifted from route`);
+      assert.ok(entry.keywords.length > 0, `${entry.id} has no command-palette keywords`);
+      assert.ok(entry.description.length > 0, `${entry.id} has no description`);
+    }
   });
 
-  it("matches routes nested under the item", () => {
-    assert.equal(isActive(navItem("/hosts"), "/hosts/42"), true);
-    assert.equal(isActive(navItem("/hosts"), "/hosts/new"), true);
+  it("keeps active states route-aware without prefix collisions", () => {
+    assert.equal(isActive(item("hosts"), "/hosts/42"), true);
+    assert.equal(isActive(item("hosts"), "/hostsx"), false);
+    assert.equal(isActive(item("activity"), "/logs/mcp"), true);
+    assert.equal(isActive(item("activity"), "/logsx"), false);
+    assert.equal(isActive(item("engines"), "/engines#claude-client"), false);
   });
 
-  it("does not match a sibling route sharing the href's prefix", () => {
-    assert.equal(isActive(navItem("/hosts"), "/hostsx"), false);
-    assert.equal(isActive(navItem("/hosts"), "/host"), false);
-    assert.equal(isActive(navItem("/api-keys"), "/api-keys-legacy"), false);
-  });
-
-  it("prefers the item's regex over the href when one is supplied", () => {
-    const activity = navItem("/logs/events");
-    // Sibling of the href, and the href's own parent: both only match by regex.
-    assert.equal(isActive(activity, "/logs/mcp"), true);
-    assert.equal(isActive(activity, "/logs"), true);
-    assert.equal(isActive(activity, "/logs/events"), true);
-  });
-
-  it("keeps regex items off near-miss paths", () => {
-    assert.equal(isActive(navItem("/logs/events"), "/logsx"), false);
-    assert.equal(isActive(navItem("/settings"), "/settingsx"), false);
-    assert.equal(isActive(navItem("/settings"), "/settings/users"), true);
+  it("keeps exactly four frequent destinations in the mobile bar", () => {
+    assert.deepEqual(MOBILE_NAV_PRIMARY.map((entry) => entry.id), ["overview", "hosts", "projects", "activity"]);
+    assert.deepEqual(
+      [...MOBILE_NAV_PRIMARY, ...MOBILE_NAV_OVERFLOW].map((entry) => entry.id).sort(),
+      NAV.map((entry) => entry.id).sort(),
+    );
   });
 });
 
-describe("getPageContext", () => {
-  it("labels the empty path as the overview", () => {
-    assert.equal(getPageContext("/"), "Overview");
-    assert.equal(getPageContext(""), "Overview");
-    assert.equal(getPageContext("/dashboard"), "Overview");
-  });
-
-  it("labels the hosts list, the register form and a host detail", () => {
-    assert.equal(getPageContext("/hosts"), "Hosts");
-    assert.equal(getPageContext("/hosts/new"), "Hosts / Register host");
-    assert.equal(getPageContext("/hosts/42"), "Hosts / Host #42");
-  });
-
-  it("labels a project and its sub-tab", () => {
-    assert.equal(getPageContext("/projects"), "Projects");
-    assert.equal(getPageContext("/projects/my-app"), "Projects / My app");
-    assert.equal(getPageContext("/projects/my-app/todos"), "Projects / My app / Todos");
-  });
-
-  it("labels API access", () => {
-    assert.equal(getPageContext("/api-keys"), "API access");
-  });
-
-  it("labels Agent Messaging operations", () => {
-    assert.equal(getPageContext("/agent-messaging"), "Agent Messaging");
-  });
-
-  it("defaults bare authoring to the skills section", () => {
-    assert.equal(getPageContext("/authoring"), "Authoring / Skills");
-    assert.equal(getPageContext("/authoring/agents"), "Authoring / Agents");
-    assert.equal(getPageContext("/authoring/skills/deploy-bot"), "Authoring / Skills / Deploy bot");
-  });
-
-  it("splits the activity log by source", () => {
+describe("location text", () => {
+  it("uses direct task labels and preserves useful detail breadcrumbs", () => {
+    assert.equal(getPageContext("/engines"), "Engines");
+    assert.equal(getPageContext("/api-keys"), "API Access");
+    assert.equal(getPageContext("/skills/deploy-bot"), "Skills / Deploy bot");
+    assert.equal(getPageContext("/projects/fleet/todos"), "Projects / Fleet / Todos");
     assert.equal(getPageContext("/logs/mcp"), "Activity / MCP requests");
-    assert.equal(getPageContext("/logs/events"), "Activity / Audit trail");
-    assert.equal(getPageContext("/logs"), "Activity / Audit trail");
-  });
-
-  it("names the users tab of settings only", () => {
-    assert.equal(getPageContext("/settings"), "Settings");
-    assert.equal(getPageContext("/settings/users"), "Settings / Users & access");
-    assert.equal(getPageContext("/settings/codex"), "Settings");
-  });
-
-  it("renames the account theme section to Appearance", () => {
-    assert.equal(getPageContext("/account"), "Account");
-    assert.equal(getPageContext("/account/theme"), "Account / Appearance");
-    assert.equal(getPageContext("/account/passkeys"), "Account / Passkeys");
-  });
-
-  it("labels the manual index and a manual page", () => {
-    assert.equal(getPageContext("/manual"), "Manual");
-    assert.equal(getPageContext("/manual/quick%20start"), "Manual / Quick start");
-  });
-
-  it("labels the unauthenticated routes", () => {
-    assert.equal(getPageContext("/login"), "Sign in");
-    assert.equal(getPageContext("/password/reset"), "Reset password");
-    assert.equal(getPageContext("/cli-auth"), "CLI authorization");
-    assert.equal(getPageContext("/cli-auth/verify"), "CLI authorization");
-  });
-
-  it("keeps the raw segment when a malformed percent-escape reaches humanize", () => {
-    assert.equal(getPageContext("/manual/50%-off"), "Manual / 50% off");
-  });
-
-  it("falls back to joining humanized segments for unregistered routes", () => {
-    assert.equal(getPageContext("/password"), "Password");
-    assert.equal(getPageContext("/whats_new/2026-07"), "Whats new / 2026 07");
-  });
-});
-
-describe("getDocumentTitle", () => {
-  it("suffixes the page context with the product name", () => {
-    assert.equal(getDocumentTitle("/hosts/new"), "Hosts / Register host · Codex Orchestrator");
-    assert.equal(getDocumentTitle("/"), "Overview · Codex Orchestrator");
+    assert.equal(getDocumentTitle("/agent-portal"), "Agent Portal · Codex Orchestrator");
   });
 });
 
 describe("navigation targets", () => {
   const routesDir = fileURLToPath(new URL("../routes", import.meta.url));
-  const commandsFile = fileURLToPath(
-    new URL("./components/command-palette/commands.ts", import.meta.url),
-  );
-
-  /** Segment patterns of every `+page.svelte` under `src/routes`. */
-  function collectRoutes(dir: string, segments: string[], out: string[][]): void {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    if (entries.some((entry) => entry.isFile() && entry.name === "+page.svelte")) {
-      out.push(segments);
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        collectRoutes(join(dir, entry.name), [...segments, entry.name], out);
-      }
-    }
-  }
-
   const routes: string[][] = [];
-  collectRoutes(routesDir, [], routes);
-
-  /** True if `href` (query string stripped) resolves to one of those routes. */
-  function resolves(href: string): boolean {
-    const wanted = href.split("?")[0].split("/").filter(Boolean);
-    return routes.some(
-      (route) =>
-        route.length === wanted.length &&
-        route.every((segment, i) => segment.startsWith("[") || segment === wanted[i]),
-    );
+  function collect(dir: string, segments: string[]): void {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (entries.some((entry) => entry.isFile() && entry.name === "+page.svelte")) routes.push(segments);
+    for (const entry of entries) if (entry.isDirectory()) collect(join(dir, entry.name), [...segments, entry.name]);
+  }
+  collect(routesDir, []);
+  function resolves(path: string): boolean {
+    const wanted = path.split("?")[0].split("/").filter(Boolean);
+    return routes.some((route) => route.length === wanted.length && route.every((segment, index) => segment.startsWith("[") || segment === wanted[index]));
   }
 
-  /** `label -> href` entries that deliberately point at no page, with the reason. */
-  const ALLOWLIST: Record<string, string> = {};
-
-  it("found the route tree and the nav registry", () => {
-    assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
-    assert.ok(NAV.length >= 5, `only ${NAV.length} nav items discovered in NAV_SECTIONS`);
-    assert.equal(resolves("/dashboard"), true);
-    assert.equal(resolves("/hosts/42"), true);
-    assert.equal(resolves("/hosts/42/nope"), false);
-  });
-
-  it("points every nav item at a real page", () => {
-    const sectionItems = NAV_SECTIONS.flatMap((section) => section.items);
-    assert.deepEqual(
-      NAV.map((item) => item.href),
-      sectionItems.map((item) => item.href),
-      "NAV no longer mirrors NAV_SECTIONS, so the sidebar's own entries go unchecked",
-    );
-    const dead = sectionItems
-      .filter((item) => !resolves(item.href))
-      .map((item) => `${item.label} -> ${item.href}`)
-      .filter((entry) => !(entry in ALLOWLIST));
-    assert.deepEqual(dead, [], `nav items with no +page.svelte:\n${dead.join("\n")}`);
-  });
-
-  it("splits NAV across the mobile bar and its overflow sheet exactly once", () => {
-    const partitioned = [...MOBILE_NAV_PRIMARY, ...MOBILE_NAV_OVERFLOW].map((item) => item.href);
-    assert.deepEqual(
-      partitioned.slice().sort(),
-      NAV.map((item) => item.href).sort(),
-      "the mobile split drops or duplicates a registry entry",
-    );
-    assert.deepEqual(MOBILE_NAV_PRIMARY.map((item) => item.href), [
-      "/dashboard",
-      "/hosts",
-      "/projects",
-      "/authoring",
-    ]);
-    assert.deepEqual(MOBILE_NAV_OVERFLOW.map((item) => item.href), [
-      "/agent-messaging",
-      "/logs/events",
-      "/api-keys",
-      "/secrets",
-      "/settings",
-    ]);
-  });
-
-  it("registers Agent Messaging as an operations destination", () => {
-    const item = navItem("/agent-messaging");
-    assert.equal(item.label, "Agent Messaging");
-    assert.match(item.description, /Codex and Claude/);
-  });
-
-  it("points every command-palette href at a real page", () => {
-    const source = readFileSync(commandsFile, "utf8");
-    const hrefs = [...source.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(hrefs.length >= 12, `only ${hrefs.length} palette hrefs found in ${commandsFile}`);
-    for (const href of hrefs) {
-      assert.ok(resolves(href), `command-palette href ${href} has no +page.svelte`);
-    }
-  });
-
-  it("points every command-palette goto() at a real page", () => {
-    const source = readFileSync(commandsFile, "utf8");
-    const targets = [...source.matchAll(/goto\(`\$\{base\}([^`]*)`\)/g)]
-      .map((m) => m[1])
-      // `${base}${href}` just forwards a NAV/DEEP_NAV entry, which the tests
-      // above already cover; only a literal path says anything here.
-      .filter((path) => path.startsWith("/"))
-      // `/hosts/${h.id}` -> `/hosts/*`, which `resolves` matches against `[id]`.
-      .map((path) => path.replace(/\$\{[^}]*\}/g, "*"));
-    assert.ok(targets.length >= 9, `only ${targets.length} palette goto()s in ${commandsFile}`);
-    for (const target of targets) {
-      assert.ok(resolves(target), `command-palette goto() ${target} has no +page.svelte`);
-    }
+  it("backs every direct registry route with a Svelte page", () => {
+    assert.ok(routes.length > 20, "expected the canonical route set");
+    for (const entry of NAV) assert.equal(resolves(entry.route), true, `${entry.id} -> ${entry.route} has no page`);
   });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { api } from "$lib/api/client";
   import * as Card from "$lib/components/ui/card";
@@ -29,9 +29,18 @@
     last_used_at: string | null;
   };
 
-  let portalState = $state<PortalState | null>(null);
-  let users = $state<PortalUser[]>([]);
-  let loading = $state(true);
+  const queryClient = useQueryClient();
+  const stateQuery = createQuery({
+    queryKey: ["agent-portal", "state"],
+    queryFn: () => api.get<PortalState>("/admin/agent-portal/state"),
+  });
+  const usersQuery = createQuery({
+    queryKey: ["agent-portal", "users"],
+    queryFn: () => api.get<{ users: PortalUser[] }>("/admin/agent-portal/users"),
+  });
+  const portalState = $derived($stateQuery.data ?? null);
+  const users = $derived($usersQuery.data?.users ?? []);
+  const loading = $derived($stateQuery.isLoading || $usersQuery.isLoading);
   let saving = $state(false);
   let displayName = $state("");
   /** Revealed permanent links, by portal user id. Never fetched in bulk. */
@@ -50,22 +59,8 @@
   let confirmRotateOpen = $state(false);
   let confirmRemoveOpen = $state(false);
 
-  onMount(() => void load());
-
   async function load() {
-    loading = true;
-    try {
-      const [stateResult, usersResult] = await Promise.all([
-        api.get<PortalState>("/admin/agent-portal/state"),
-        api.get<{ users: PortalUser[] }>("/admin/agent-portal/users"),
-      ]);
-      portalState = stateResult;
-      users = usersResult.users;
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      loading = false;
-    }
+    await queryClient.invalidateQueries({ queryKey: ["agent-portal"] });
   }
 
   async function setMaster(enabled: boolean) {

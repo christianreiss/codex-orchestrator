@@ -8,6 +8,7 @@
   import { toast } from "svelte-sonner";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import LogToolbar from "$lib/components/logs/LogToolbar.svelte";
+  import AgentMessagingSection from "$lib/components/settings/AgentMessagingSection.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as Card from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
@@ -302,6 +303,10 @@
     </Button>
   {/snippet}
 </PageHeader>
+
+<div id="service-state" class="mb-4">
+  <AgentMessagingSection />
+</div>
 
 {#if $stateQuery.data && !$stateQuery.data.enabled}
   <div class="mb-4 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">

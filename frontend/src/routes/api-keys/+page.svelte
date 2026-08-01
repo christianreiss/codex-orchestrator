@@ -6,9 +6,11 @@
   import { Button } from "$lib/components/ui/button";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import * as Tabs from "$lib/components/ui/tabs";
-  import KillSwitchToggle from "$lib/components/api-keys/KillSwitchToggle.svelte";
   import KeysTable from "$lib/components/api-keys/KeysTable.svelte";
   import NewKeyDialog from "$lib/components/api-keys/NewKeyDialog.svelte";
+  import ApiStateSection from "$lib/components/settings/ApiStateSection.svelte";
+  import OpenAIEngineSection from "$lib/components/settings/OpenAIEngineSection.svelte";
+  import ClaudeEngineSection from "$lib/components/settings/ClaudeEngineSection.svelte";
   import type { ApiKeyEngine } from "$lib/api/types";
 
   let dialogOpen = $state(false);
@@ -52,7 +54,7 @@
 
 <PageHeader
   title="API access"
-  subtitle="Manage compatible endpoints, credentials, rate limits, and per-engine availability."
+  subtitle="Manage service availability, compatible endpoints, credentials, and issued API keys."
 >
   {#snippet actions()}
     <Button onclick={() => openDialog(activeTab)}>
@@ -62,8 +64,20 @@
   {/snippet}
 </PageHeader>
 
-<div class="flex flex-col gap-2">
-  <h2 class="eyebrow">Proxy endpoints</h2>
+<section id="service-availability" class="setting-boundary mb-5">
+  <div class="setting-boundary__head">
+    <h2>Service availability</h2>
+    <p>Master API state and OpenAI/Claude-compatible proxy controls live here, next to the credentials they govern.</p>
+  </div>
+  <div class="divide-y">
+    <ApiStateSection bordered={false} />
+    <OpenAIEngineSection bordered={false} />
+  </div>
+  <div id="claude-proxy" class="mt-3"><ClaudeEngineSection /></div>
+</section>
+
+<section id="proxy-endpoints" class="mb-5 flex flex-col gap-2">
+  <h2 class="section-label">Proxy endpoints</h2>
   {#each proxyEndpoints as endpoint}
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5">
       <div class="min-w-0">
@@ -84,7 +98,7 @@
       />
     </div>
   {/each}
-</div>
+</section>
 
 <Tabs.Root class="mt-6" value={activeTab} onValueChange={(v) => (activeTab = v as ApiKeyEngine)}>
   <div class="flex flex-wrap items-center justify-between gap-3">
@@ -92,7 +106,6 @@
       <Tabs.Trigger value="openai">OpenAI</Tabs.Trigger>
       <Tabs.Trigger value="claude">Anthropic</Tabs.Trigger>
     </Tabs.List>
-    <KillSwitchToggle engine={activeTab} />
   </div>
 
   <Tabs.Content value="openai" class="mt-4">

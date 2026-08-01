@@ -26,16 +26,16 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving it from the trusted request scheme/host.
 
 ## Navigation & Presentation
-- The primary workspace is task-grouped in one shared route registry:
-  - **Operate**: Overview, Hosts, Agent Messaging, Projects.
-  - **Create**: Authoring.
-  - **Observe**: Activity, with Audit trail and MCP requests.
-  - **Manage**: API access and Settings.
-- Authoring separates shared fleet content (Skills, Agents, Memories) from
-  Claude-native content (Subagents, Commands, Output styles). Settings exposes
-  Fleet configuration and Users & access as sibling views.
-- Authoring → Memories opens **Memory Atlas** at
-  `/admin/authoring/memories`. The default graph and equivalent paginated list
+- One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
+  command palette, title, breadcrumb, and active state. Its direct groups are
+  **Monitor** (Overview, Activity), **Fleet** (Hosts, Engines, Policies),
+  **Coordinate** (Projects, Agent Messaging, Agent Portal), **Knowledge**
+  (Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles),
+  and **Access** (API Access, Secrets, Admin Users). Manual and Account stay in
+  the sidebar footer. There is no generic Settings or Authoring destination.
+- Legacy Settings and Authoring URLs issue 308 client redirects to the direct
+  owner route. Mapping lives in `frontend/src/lib/legacy-admin-routes.ts`.
+- Memories opens **Memory Atlas** at `/admin/memories`. The default graph and equivalent paginated list
   cover host, project, and shared memory in one filterable workspace; selecting
   a memory opens its Overview, Content, Metadata, and Activity inspector. The
   canvas shows the newest 150 memories from the loaded page and refuses optional
@@ -43,7 +43,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   loaded page. Host, project, and tag filter choices are capped to the top 200
   values and disclose when that cap is active.
 - Desktop uses grouped sidebar navigation. Mobile keeps Overview, Hosts,
-  Projects, and Authoring in the persistent bottom bar; its Menu sheet contains
+  Projects, and Activity in the persistent bottom bar; its Menu sheet contains
   all remaining workspace, help, appearance, password, passkey, and sign-out
   actions, so no capability depends on a desktop-only control.
 - Route-aware breadcrumbs and browser titles come from `frontend/src/lib/nav.ts`.
@@ -104,7 +104,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   enabled on the host, and its own address switch. The address table reports
   the authoritative eligibility result and reason rather than asking the UI to
   infer it.
-- Settings → Agent Messaging controls the fleet switch. Host Detail exposes the
+- Agent Messaging controls the fleet switch. Host Detail exposes the
   per-host switch alongside the host engine/security controls. The dedicated
   `/admin/agent-messaging` operations page shows fleet/direction counts, stable
   canonical `agent:<uuid>` addresses and aliases, host/engine/readiness state,
@@ -153,7 +153,7 @@ Admin routes:
   user defaults that user on, but no link exchange, message, or relay is active
   until an owner/admin enables the master switch. `PUBLIC_BASE_URL` is the only
   configuration the portal needs.
-- Settings → Agent Portal lets an owner/admin create a user, read that user's
+- Agent Portal lets an owner/admin create a user, read that user's
   permanent link back with **Show link**, enable/disable the user, rotate the
   link, or delete the user. Read-only roles can inspect portal health but cannot
   mutate it and cannot read a link.
@@ -193,7 +193,10 @@ Admin routes:
 - Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
 
 ## Page-by-Page (Code-Backed)
-- **Theme**: Auto/Light/Dark plus optional Auto Pink/Bright Pink/Dark Pink choices. The client stores mode in `localStorage["codex.theme"]` and an optional palette in `localStorage["codex.theme.palette"]`; the selected account theme is mirrored to the server-side `versions.admin_theme` setting so `cdx` can match pink wrapper branding on the next auth pull.
+- **Theme**: neutral System/Light/Dark modes only. The client maps legacy
+  `auto-pink`, `bright-pink`, and `dark-pink` preferences to System, Light, and
+  Dark and clears `localStorage["codex.theme.palette"]`; the backend continues
+  accepting those historical values for compatibility.
 - **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
 - **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota and usage history store rather than raw verbose logs.
 - **Hosts**:
@@ -289,7 +292,7 @@ Admin routes:
 - **Open insecure window**: `POST /admin/hosts/{id}/insecure/enable` with `duration_minutes`.
 - **Force runner validation now**: `POST /admin/runner/run` for Codex, `POST /admin/runner/run-claude` for Claude.
 - **Freeze/unfreeze fleet codex version**: `POST /admin/codex-version` with `selection` (`latest` or pinned semver).
-- **Manage memory lifecycle**: Authoring → Memories → choose graph or list,
+- **Manage memory lifecycle**: Memories → choose Atlas or Inventory,
   create in the intended scope, then inspect/edit/append/delete from the detail
   panel. Shared append is the concurrency-safe operation for adding content;
   PATCH/DELETE conflicts require reloading the latest ETag before retrying.

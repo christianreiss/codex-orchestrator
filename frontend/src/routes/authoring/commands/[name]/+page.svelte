@@ -90,7 +90,7 @@
     onSuccess: () => {
       toast.success(`Command "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: commandsKeys.all });
-      void goto(`${base}/authoring/commands`);
+      void goto(`${base}/commands`);
     },
     onError: (err: unknown) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to delete");
@@ -107,7 +107,7 @@
 
 <PageHeader title={$query.data?.display_name || slug} subtitle={`Command · ${slug}`} headingLevel="h2">
   {#snippet actions()}
-    <Button variant="outline" href={`${base}/authoring/commands`}>
+    <Button variant="outline" href={`${base}/commands`}>
       <ArrowLeft class="h-4 w-4" />
       Back
     </Button>

@@ -1,1 +1,0 @@
-import{Ht as e}from"../chunks/Dqbbk3fc.js";import{c as t}from"../chunks/BL3cTAxY.js";import{t as n}from"../chunks/BWzQNV3T2.js";var r=e({load:()=>i}),i=()=>{throw n(308,`${t}/settings?tab=claude-config#claude-fleet-settings`)};export{r as universal};

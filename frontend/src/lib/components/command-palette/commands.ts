@@ -14,15 +14,9 @@
 import type { Component } from "svelte";
 import type { QueryClient } from "@tanstack/svelte-query";
 import {
-  LayoutDashboard,
   Server,
   FolderKanban,
-  KeyRound,
-  BookOpen,
   ScrollText,
-  Users,
-  Plug,
-  Settings,
   Sun,
   Moon,
   Monitor,
@@ -30,16 +24,10 @@ import {
   Keyboard,
   Plus,
   Zap,
-  FileText,
   Lock,
   Fingerprint,
-  HelpCircle,
   Activity,
-  Layers,
-  GitBranch,
-  Brain,
   UserCircle,
-  MessageSquareShare,
 } from "@lucide/svelte";
 import { NAV } from "$lib/nav";
 import { setTheme } from "$lib/stores/theme";
@@ -107,19 +95,6 @@ function navigateCommand(
   };
 }
 
-const NAV_ICON_MAP: Record<string, Component> = {
-  Overview: LayoutDashboard,
-  Hosts: Server,
-  Projects: FolderKanban,
-  "API access": KeyRound,
-  Authoring: BookOpen,
-  Activity: Activity,
-  Users: Users,
-  Integrations: Plug,
-  Settings: Settings,
-  "Agent Messaging": MessageSquareShare,
-};
-
 /** Deep-link navigation entries (in addition to top-level NAV). */
 const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?: string[] }> = [
   {
@@ -135,24 +110,6 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     keywords: ["logs", "events", "audit", "trail"],
   },
   {
-    href: "/authoring",
-    label: "Authoring / Skills",
-    icon: Layers,
-    keywords: ["skills", "skill"],
-  },
-  {
-    href: "/authoring/agents",
-    label: "Authoring / Agents",
-    icon: GitBranch,
-    keywords: ["agents", "agents.md"],
-  },
-  {
-    href: "/authoring/memories",
-    label: "Authoring / Memories",
-    icon: Brain,
-    keywords: ["memories", "memory"],
-  },
-  {
     href: "/account/password",
     label: "Account / Password",
     icon: Lock,
@@ -164,60 +121,12 @@ const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?:
     icon: Fingerprint,
     keywords: ["passkeys", "webauthn", "account"],
   },
-  {
-    href: "/settings?tab=availability",
-    label: "Settings / Availability",
-    icon: Settings,
-    keywords: ["settings", "general", "availability", "kill switch", "config", "configuration"],
-  },
-  {
-    href: "/settings?tab=availability#agent-messaging",
-    label: "Settings / Agent Messaging",
-    icon: MessageSquareShare,
-    keywords: ["settings", "agents", "messaging", "codex", "claude", "kill switch"],
-  },
-  {
-    href: "/settings?tab=engines",
-    label: "Settings / Engines & models",
-    icon: Settings,
-    keywords: ["settings", "codex", "openai", "claude", "anthropic", "model", "version", "config", "configuration"],
-  },
-  {
-    href: "/settings?tab=fleet-policy",
-    label: "Settings / Fleet policy",
-    icon: Settings,
-    keywords: ["settings", "auto-update", "reverse dns", "insecure", "prune", "retention", "policy"],
-  },
-  {
-    href: "/settings?tab=claude-config",
-    label: "Settings / Claude config",
-    icon: Settings,
-    keywords: ["settings", "claude", "anthropic", "cli", "config", "configuration"],
-  },
-  {
-    href: "/settings/users",
-    label: "Settings / Users",
-    icon: Users,
-    keywords: ["users", "accounts", "roles", "settings"],
-  },
-  {
-    href: "/settings/agent-portal",
-    label: "Settings / Agent portal",
-    icon: Settings,
-    keywords: ["settings", "agent portal", "remote", "magic link", "chat"],
-  },
-  {
-    href: "/manual",
-    label: "Manual",
-    icon: HelpCircle,
-    keywords: ["manual", "help", "docs", "documentation"],
-  },
 ];
 
 function buildNavigationCommands(): PaletteCommand[] {
   const cmds: PaletteCommand[] = [];
   for (const n of NAV) {
-    cmds.push(navigateCommand(n.href, n.label, NAV_ICON_MAP[n.label] ?? LayoutDashboard));
+    cmds.push(navigateCommand(n.route, n.label, n.icon, n.keywords));
   }
   for (const d of DEEP_NAV) {
     cmds.push({
@@ -439,7 +348,7 @@ function skillCommand(s: QuickSkill): PaletteCommand {
     icon: Activity,
     keywords: ["skill", s.slug.toLowerCase(), (s.name ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/authoring/skills/${s.slug}`);
+      void goto(`${base}/skills/${s.slug}`);
       commandPalette.close();
     },
   };
@@ -454,7 +363,7 @@ function userCommand(u: QuickUser): PaletteCommand {
     icon: UserCircle,
     keywords: ["user", u.username.toLowerCase(), (u.name ?? "").toLowerCase(), (u.email ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/settings/users?user=${encodeURIComponent(String(u.id))}`);
+      void goto(`${base}/users?user=${encodeURIComponent(String(u.id))}`);
       commandPalette.close();
     },
   };

@@ -111,7 +111,7 @@
       newSlug = "";
       newName = "";
       newDescription = "";
-      void goto(`${base}/authoring/skills/${encodeURIComponent(data.slug ?? variables.slug)}`);
+      void goto(`${base}/skills/${encodeURIComponent(data.slug ?? variables.slug)}`);
     },
     onError: (err: unknown) => {
       const msg = err instanceof ApiError ? err.message : "Failed to create skill";
@@ -270,7 +270,7 @@
           <Table.Row>
             <Table.Cell class="font-medium">
               <a
-                href={`${base}/authoring/skills/${encodeURIComponent(row.slug)}`}
+                href={`${base}/skills/${encodeURIComponent(row.slug)}`}
                 class="hover:underline"
               >
                 {row.display_name || row.slug}
@@ -291,7 +291,7 @@
                 <Button
                   variant="ghost"
                   size="sm"
-                  href={`${base}/authoring/skills/${encodeURIComponent(row.slug)}`}
+                  href={`${base}/skills/${encodeURIComponent(row.slug)}`}
                 >
                   <ExternalLink class="h-4 w-4" />
                   Open

@@ -93,7 +93,7 @@
     onSuccess: () => {
       toast.success(`Subagent "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: subagentsKeys.all });
-      void goto(`${base}/authoring/subagents`);
+      void goto(`${base}/subagents`);
     },
     onError: (err: unknown) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to delete");
@@ -111,7 +111,7 @@
 
 <PageHeader title={$query.data?.display_name || slug} subtitle={`Subagent · ${slug}`} headingLevel="h2">
   {#snippet actions()}
-    <Button variant="outline" href={`${base}/authoring/subagents`}>
+    <Button variant="outline" href={`${base}/subagents`}>
       <ArrowLeft class="h-4 w-4" />
       Back
     </Button>

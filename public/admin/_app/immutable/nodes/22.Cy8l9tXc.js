@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/OFMQkyog.js";export{e as component};

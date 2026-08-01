@@ -93,7 +93,7 @@
       createOpen = false;
       newSlug = "";
       newDescription = "";
-      void goto(`${base}/authoring/output-styles/${encodeURIComponent(data.slug ?? variables.slug)}`);
+      void goto(`${base}/output-styles/${encodeURIComponent(data.slug ?? variables.slug)}`);
     },
     onError: (err: unknown) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to create output style");
@@ -230,7 +230,7 @@
           <Table.Row>
             <Table.Cell class="font-medium">
               <a
-                href={`${base}/authoring/output-styles/${encodeURIComponent(row.slug)}`}
+                href={`${base}/output-styles/${encodeURIComponent(row.slug)}`}
                 class="hover:underline"
               >
                 {row.display_name || row.slug}
@@ -251,7 +251,7 @@
                 <Button
                   variant="ghost"
                   size="sm"
-                  href={`${base}/authoring/output-styles/${encodeURIComponent(row.slug)}`}
+                  href={`${base}/output-styles/${encodeURIComponent(row.slug)}`}
                 >
                   <ExternalLink class="h-4 w-4" />
                   Open

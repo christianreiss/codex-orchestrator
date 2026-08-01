@@ -71,7 +71,7 @@
     onSuccess: () => {
       toast.success(`Output style "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: outputStylesKeys.all });
-      void goto(`${base}/authoring/output-styles`);
+      void goto(`${base}/output-styles`);
     },
     onError: (err: unknown) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to delete");
@@ -83,7 +83,7 @@
 
 <PageHeader title={$query.data?.display_name || slug} subtitle={`Output style · ${slug}`} headingLevel="h2">
   {#snippet actions()}
-    <Button variant="outline" href={`${base}/authoring/output-styles`}>
+    <Button variant="outline" href={`${base}/output-styles`}>
       <ArrowLeft class="h-4 w-4" />
       Back
     </Button>

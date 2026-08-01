@@ -124,16 +124,16 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "settings.changed": [["settings"], ["skills", "source"]],
 
   // Agent portal controls live under Settings.
-  "agent_portal.state": [["settings"]],
-  "agent_portal.user.created": [["settings"]],
-  "agent_portal.user.updated": [["settings"]],
-  "agent_portal.user.enabled": [["settings"]],
-  "agent_portal.user.rotated": [["settings"]],
-  "agent_portal.user.link_revealed": [["settings"]],
-  "agent_portal.user.deleted": [["settings"]],
+  "agent_portal.state": [["agent-portal"]],
+  "agent_portal.user.created": [["agent-portal"]],
+  "agent_portal.user.updated": [["agent-portal"]],
+  "agent_portal.user.enabled": [["agent-portal"]],
+  "agent_portal.user.rotated": [["agent-portal"]],
+  "agent_portal.user.link_revealed": [["agent-portal"]],
+  "agent_portal.user.deleted": [["agent-portal"]],
 
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
-  "agent_messaging.state.changed": [["agent-messaging"], ["settings"]],
+  "agent_messaging.state.changed": [["agent-messaging"]],
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
   "agent_messaging.address.changed": [["agent-messaging"]],
   "agent_messaging.conversation.changed": [["agent-messaging"]],

@@ -278,7 +278,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
 - Set fleet CLI model defaults from Settings → Codex or Settings → Claude. Both tabs call `GET/POST /admin/model-defaults/:engine` and constrain effort to the selected model. Codex persists `model` / `model_reasoning_effort` in canonical `config.toml`; Sol/Terra/Luna/GPT-5.5/GPT-5.4/GPT-5.4 mini default to `medium`, while Spark defaults to `high`. Claude persists `model` / `effortLevel` in the deep-merged `settings.json` partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses the same set with default `xhigh`; Sonnet 4.6 persists `low|medium|high`; Haiku 4.5 omits effort. The nearby Claude API defaults (`default_model`, `max_tokens`) also default to Sonnet 5 but configure only the Anthropic-compatible proxy and do not change managed Claude Code sessions.
 - Build/edit `config.toml` from `/admin/config.html`; saved output is baked per host and synced by `cdx` to `${CODEX_HOME:-~/.codex}/config.toml` (managed HTTP MCP entry; secure hosts use the host API key, insecure hosts get a short-lived bearer). New builder drafts default to `model = "gpt-5.6-terra"` with `model_reasoning_effort = "medium"`, `personality = "friendly"`, `[features].apps = true`, `[features].fast_mode = true`, `[features].memories = true`, and `[features].multi_agent = true`; the admin builder keeps `guardian_approval`, `js_repl`, `tui_app_server`, and `prevent_idle_sleep` off until explicitly enabled. `status:missing` deletes the local copy. Legacy feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `request_permissions`, `use_linux_sandbox_bwrap`) remain ingest-compatible but are dropped from rendered output.
-- Optionally include `https://github.com/mattpocock/skills` from Authoring →
+- Optionally include `https://github.com/mattpocock/skills` from Skills →
   Skills. The card is off by default and warns that this is an external
   instruction supply chain. Fresh source state defaults its six-hour
   auto-update on, while a preference set before inclusion is preserved; turn
@@ -290,8 +290,8 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   hides them from Codex immediately and makes Claude prune only their fleet-owned
   directories on the next bootstrap; unrelated and user-authored skills are
   untouched.
-- Enable shared project coordination from Settings → Projects when you want multi-agent notes/todos/files/feedback; that toggle publishes the managed `coco` skill through MCP `skill://coco`. Disabling the module removes that managed skill from the MCP resource list. CoCo coordination handoffs are project-only; host-scoped MCP memories are not a cross-server fallback. Fleet-wide reference documents belong in shared memories (`shared_memory_*`), which need no project and no host. The Settings panel stays compact and opens each project on its own `/admin/projects/<slug>` workspace page, where the admin UI can also ask the runner to draft missing `title`/`name`/`description` metadata and a roster draft from the current shared project context before the operator saves.
-- Inspect and manage the complete memory topology from Authoring → Memories.
+- Enable shared project coordination from Projects when you want multi-agent notes/todos/files/feedback; that toggle publishes the managed `coco` skill through MCP `skill://coco`. Disabling the module removes that managed skill from the MCP resource list. CoCo coordination handoffs are project-only; host-scoped MCP memories are not a cross-server fallback. Fleet-wide reference documents belong in shared memories (`shared_memory_*`), which need no project and no host. Each project opens on its own `/admin/projects/<slug>` workspace page, where the admin UI can also ask the runner to draft missing `title`/`name`/`description` metadata and a roster draft from the current shared project context before the operator saves.
+- Inspect and manage the complete memory topology from Memories.
   Memory Atlas keeps graph and paginated list views in sync, lazy-loads bodies
   in the inspector, and offers scope-aware create/edit/delete plus shared
   append. Memory keys/slugs and host/project ownership are fixed at creation;
@@ -375,7 +375,7 @@ the portal is read-only until a fresh eligible relay is active.
 The portal has no outbound push channel. It replaced one: every lifecycle event
 used to fan out as a chat message carrying a freshly rendered deep link, which
 meant a stream of notifications each containing live bearer material. Now the
-link is issued once and read back on demand from Settings → Agent Portal, and the
+link is issued once and read back on demand from Agent Portal, and the
 user bookmarks it. Lifecycle events (`started`, `resumed`, `progress`,
 `waiting_input`, `terminal_block`, `attention`, `failed`, `completed`) are still
 recorded and still stream to an open portal over SSE — they are simply not

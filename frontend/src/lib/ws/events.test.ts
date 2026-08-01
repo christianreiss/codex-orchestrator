@@ -162,7 +162,7 @@ describe("mapped events", () => {
 
   it("keeps Agent Messaging state, host and delivery views live", () => {
     emit("agent_messaging.state.changed");
-    assert.deepEqual(qc.keys, [["agent-messaging"], ["settings"]]);
+    assert.deepEqual(qc.keys, [["agent-messaging"]]);
 
     qc.keys = [];
     emit("agent_messaging.host.changed");

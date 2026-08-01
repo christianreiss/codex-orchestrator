@@ -1,7 +1,6 @@
 /**
  * Chart color helpers that track the CSS custom-property theme (light/dark
- * plus the pink `data-theme` palette variants) without needing a page
- * reload.
+ * without needing a page reload.
  *
  * Chart.js paints to a `<canvas>`, so its colors don't repaint for free the
  * way DOM elements inheriting `currentColor` do — a chart has to re-read
@@ -57,9 +56,7 @@ export function chartTooltipFg(): string {
 
 /**
  * Bumps whenever `<html>`'s `class` (light/dark, toggled by mode-watcher via
- * `setTheme` in `$lib/stores/theme.ts`) or `data-theme` (pink palette
- * variant, toggled by `applyPaletteAttr` in the same file) attribute
- * changes — the two independent mechanisms theme switching uses. Components
+ * `setTheme` in `$lib/stores/theme.ts`) changes. Components
  * that derive Chart.js colors from CSS variables should read this store's
  * value inside their re-render effect and force a redraw on change (canvas
  * painting doesn't inherit CSS updates the way DOM elements do).
@@ -77,7 +74,7 @@ export const themeVersion = readable(0, (set) => {
   });
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["class", "data-theme"],
+    attributeFilter: ["class"],
   });
   return () => observer.disconnect();
 });

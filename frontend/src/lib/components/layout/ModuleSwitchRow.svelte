@@ -32,7 +32,7 @@
   }: Props = $props();
 </script>
 
-<div class={`rounded-xl border border-border/75 bg-card p-4 shadow-sm ${className}`}>
+<div class={`border-y border-border bg-card px-3 py-3 ${className}`}>
   <div class="flex items-center justify-between gap-3">
     <div class="flex flex-col">
       <Label for={id} class="text-sm font-medium">{label}</Label>

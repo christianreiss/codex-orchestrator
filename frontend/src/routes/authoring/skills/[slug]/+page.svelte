@@ -102,7 +102,7 @@
     onSuccess: () => {
       toast.success(`Skill "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: ["skills"] });
-      void goto(`${base}/authoring`);
+      void goto(`${base}/skills`);
     },
     onError: (err: unknown) => {
       const msg = err instanceof ApiError ? err.message : "Failed to delete";
@@ -171,7 +171,7 @@
 
 <PageHeader title={displayName || slug} subtitle={`Skill · ${slug}`} headingLevel="h2">
   {#snippet actions()}
-    <Button variant="outline" href={`${base}/authoring`}>
+    <Button variant="outline" href={`${base}/skills`}>
       <ArrowLeft class="h-4 w-4" />
       Back
     </Button>
