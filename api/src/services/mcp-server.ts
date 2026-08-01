@@ -7,6 +7,9 @@ import type { McpResourcesService } from './mcp-resources.js';
 import type { McpAccessLogService } from './mcp-access-log.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
+export const MCP_SERVER_INSTRUCTIONS =
+  'This is the authoritative fleet MCP. Do not infer that a capability is absent from a partial or deferred client tool list: inspect this server\'s tools or call the safe discovery tool named in AGENTS.md or CLAUDE.md. For secrets, call secret_list before answering whether the store is available or can save credentials; its status and capabilities report live state. Use secret_store only with explicit user intent and a supplied value. Never persist secret values in replies, files, logs, or memory.';
+
 export interface JsonRpcRequest {
   jsonrpc?: unknown;
   id?: unknown;
@@ -96,6 +99,7 @@ export class McpServer {
               prompts: { listChanged: false },
             },
             serverInfo: { name: 'codex-orchestrator', version: ctx.serverVersion },
+            instructions: MCP_SERVER_INSTRUCTIONS,
           });
           break;
         }

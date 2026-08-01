@@ -139,6 +139,19 @@ function canAccess(caller: Capability, required: Capability): boolean {
   return caller === 'operator';
 }
 
+function secretCapabilities(enabled: boolean): Record<string, boolean> {
+  return {
+    list: enabled,
+    search: enabled,
+    get: enabled,
+    create: enabled,
+    rotate_owned: enabled,
+    delete_owned: enabled,
+    mutate_operator_owned: false,
+    mutate_other_host_owned: false,
+  };
+}
+
 export function wrapContent(data: unknown, isError = false): ToolResult {
   if (
     data !== null &&
@@ -446,8 +459,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       handler: async (args, host, engine) => shared.delete(args, host, engine ?? null),
     });
   }
-  // Fleet credential store. Read-only over MCP and available to any enrolled
-  // host agent, because an agent that cannot reach its credentials falls back to
+  // Fleet credential store. Available to any enrolled host agent, because an
+  // agent that cannot reach its credentials falls back to
   // scraping them off the filesystem or pestering the operator — which is the
   // failure mode this store exists to remove. Nothing here writes to disk, so
   // revocation takes effect on the next call.
@@ -457,7 +470,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'secret_list',
         description:
-          'THE fleet credential store: every working credential you are allowed to use — GitHub tokens, database passwords, Bookstack and Checkmk API tokens, SSH keys, third-party API keys for MCP servers and services. Call this FIRST whenever a task needs a credential, BEFORE you read a .env file, ~/.netrc, ~/.ssh, a config file or shell history, and before you tell the operator a credential is missing. Takes no arguments, so you can call it knowing nothing. Returns slug, name, description (what each credential is for and when to use it), tags and engine visibility for every secret — never the values. Pick the slug whose description matches your task, then call secret_get with that slug. The values are not on this machine and are never written to it: the only place a value exists is the response to secret_get.',
+          'THE fleet credential store and its read-only capability probe. Call this FIRST whenever a task needs a credential OR asks whether the store is available or can save secrets. Never infer absence from a partial or deferred client tool list. Takes no arguments. Returns live status, capabilities, and metadata for visible secrets — never values. status=available means secret_store can create a new slug and rotate only credentials owned by this host; secret_delete has the same ownership limit. status=disabled means those operations are unavailable. Pick a matching slug, then call secret_get. Values are never written to this machine.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -465,9 +478,14 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           },
         },
       },
-      handler: async (_args, host, engine) => ({
-        secrets: await store.listForHost(engine ?? ENGINE_CODEX, host.id),
-      }),
+      handler: async (_args, host, engine) => {
+        const enabled = await store.getEnabled();
+        return {
+          status: enabled ? 'available' : 'disabled',
+          capabilities: secretCapabilities(enabled),
+          secrets: enabled ? await store.listForHost(engine ?? ENGINE_CODEX, host.id) : [],
+        };
+      },
     });
     inputs.push({
       definition: {
@@ -485,9 +503,16 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           // callers to guess. Omitting it degrades to a listing.
         },
       },
-      handler: async (args, host, engine) => ({
-        secrets: await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX, host.id),
-      }),
+      handler: async (args, host, engine) => {
+        const enabled = await store.getEnabled();
+        return {
+          status: enabled ? 'available' : 'disabled',
+          capabilities: secretCapabilities(enabled),
+          secrets: enabled
+            ? await store.searchForHost(String(args['query'] ?? ''), engine ?? ENGINE_CODEX, host.id)
+            : [],
+        };
+      },
     });
     inputs.push({
       definition: {

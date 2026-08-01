@@ -164,7 +164,7 @@ describe('manual mcp article tool catalogue', () => {
     );
     // Not merely blocked — absent. A registry built without the service must
     // not advertise a credential tool it cannot serve.
-    for (const name of ['secret_list', 'secret_search', 'secret_get']) {
+    for (const name of ['secret_list', 'secret_search', 'secret_get', 'secret_store', 'secret_delete']) {
       expect(registeredNames(NO_SECRETS_DEPS)).not.toContain(name);
     }
   });

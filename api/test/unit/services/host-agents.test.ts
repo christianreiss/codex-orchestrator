@@ -454,16 +454,17 @@ describe('HostAgentsService secrets guidance', () => {
     expect(out['sections']).toMatchObject({ secrets: { present: true, reason: 'ok', count: 1 } });
   });
 
+  it('serves the block for an empty enabled store so an agent can create the first secret', async () => {
+    const db = makeDb(rowsFor([ON], []));
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(out['content']).toContain('secret_store');
+    expect(out['sections']).toMatchObject({ secrets: { present: true, reason: 'ok', count: 0 } });
+  });
+
   it.each([
     ['the flag row is absent entirely', [] as Array<Record<string, unknown>>, [liveSecret], 'secrets_disabled'],
     ['the flag is off', [{ name: 'secrets_module_enabled', version: '0' }], [liveSecret], 'secrets_disabled'],
-    ['the store is empty', [ON], [], 'no_secrets'],
-    [
-      'every secret is soft-deleted',
-      [ON],
-      [{ ...liveSecret, deletedAt: '2026-07-02T09:00:00Z' }],
-      'no_secrets',
-    ],
   ])('withholds the block when %s', async (_label, versionRows, secretRows, reason) => {
     const db = makeDb(rowsFor(versionRows, secretRows));
     const out = await makeService(db).retrieve(null, makeHost());

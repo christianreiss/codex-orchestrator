@@ -228,11 +228,12 @@ transport. With orchestrator MCP enabled it routes durable fleet, workstream,
 and host facts through `shared_memory_*`, `project_memory_*`, and `memory_*`
 instead of Claude's local `~/.claude/projects/.../memory/` / `MEMORY.md`; enabled
 Projects add the `#coco` / `project_*` hint. BrowserOS remains Codex-only. The
-fleet secrets paragraph — `secret_list` / `secret_search` / `secret_get` for
-working credentials, with the rules against echoing a value anywhere — is
+fleet secrets paragraph — the complete `secret_list` / `secret_search` /
+`secret_get` / `secret_store` / `secret_delete` lifecycle, with a read-only
+capability probe and the rules against echoing a value anywhere — is
 byte-identical to the Codex one, since neither engine ships a native credential
-store to defer to; it appears only when `secrets_module_enabled` is on,
-orchestrator MCP is reachable, and this engine can see at least one secret. The
+store to defer to; it appears whenever `secrets_module_enabled` and orchestrator
+MCP are on, including when this engine can see no secrets yet. The
 block never inventories individual Skills, memories, projects, or secrets. Recorded
 decisions, conventions, runbooks, and handoffs are authoritative over agent
 assumptions, but mutable code and runtime facts must be verified against the

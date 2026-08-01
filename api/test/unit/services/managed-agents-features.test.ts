@@ -269,7 +269,7 @@ stale
  * ignore MCP tools unless AGENTS.md directs them to look: tool descriptions
  * decide *which* tool once the agent has decided to look, and this block is what
  * makes it decide. So these assertions cover the prohibitions and the trigger
- * sentence, not merely that three tool names appear somewhere.
+ * sentence, not merely that five tool names appear somewhere.
  */
 describe('managed Secrets guidance', () => {
   const rendered = (engine: Engine) =>
@@ -281,6 +281,8 @@ describe('managed Secrets guidance', () => {
     expect(out.body).toContain('secret_list');
     expect(out.body).toContain('secret_search');
     expect(out.body).toContain('secret_get');
+    expect(out.body).toContain('secret_store');
+    expect(out.body).toContain('secret_delete');
     expect(out.sections.secrets).toMatchObject({
       present: true,
       reason: 'ok',
@@ -295,6 +297,8 @@ describe('managed Secrets guidance', () => {
     // Look here *first* — the sentence that changes behaviour.
     expect(out.body).toMatch(/before asking the human/i);
     expect(out.body).toMatch(/before hunting through env files/i);
+    expect(out.body).toMatch(/whether the store is available/i);
+    expect(out.body).toMatch(/capability question is read-only/i);
     // And the handling rules, which the tool descriptions repeat but which an
     // agent reads here first.
     expect(out.body).toMatch(/never write a secret value into your reply/i);
@@ -321,8 +325,8 @@ describe('managed Secrets guidance', () => {
     );
   });
 
-  it('emits nothing at all when the module is off or the store is empty', () => {
-    for (const reason of ['secrets_disabled', 'no_secrets', 'mcp_disabled']) {
+  it('emits nothing at all when the module or MCP is off', () => {
+    for (const reason of ['secrets_disabled', 'mcp_disabled']) {
       const out = renderManagedAgentFeatures(
         '# Base\n',
         context(ENGINE_CODEX, { secrets: disabled(reason, 0) }),
@@ -331,6 +335,15 @@ describe('managed Secrets guidance', () => {
       expect(out.body, reason).not.toContain('secret_get');
       expect(out.sections.secrets).toMatchObject({ present: false, reason, count: 0 });
     }
+  });
+
+  it('renders guidance for an empty enabled store', () => {
+    const out = renderManagedAgentFeatures(
+      '# Base\n',
+      context(ENGINE_CODEX, { secrets: enabled(0) }),
+    );
+    expect(out.body).toContain('secret_store');
+    expect(out.sections.secrets).toMatchObject({ present: true, reason: 'ok', count: 0 });
   });
 
   it('replaces its own block rather than accumulating copies', () => {

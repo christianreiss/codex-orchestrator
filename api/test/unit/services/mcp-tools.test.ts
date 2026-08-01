@@ -268,7 +268,7 @@ describe('McpToolsRegistry', () => {
     // A registry built for a narrower surface must not be able to hand out
     // credentials — absent, not merely refused.
     const list = registry.list().map((t) => t.name);
-    for (const name of ['secret_list', 'secret_search', 'secret_get']) {
+    for (const name of ['secret_list', 'secret_search', 'secret_get', 'secret_store', 'secret_delete']) {
       expect(list).not.toContain(name);
       expect(registry.has(name)).toBe(false);
     }
@@ -626,7 +626,9 @@ describe('secret_* tools', () => {
     engine: string | null;
   }
   let secretCalls: SecretCall[] = [];
+  let secretsEnabled = true;
   const stubSecrets = {
+    getEnabled: async () => secretsEnabled,
     listForHost: async (engine: string | null) => {
       secretCalls.push({ method: 'list', arg: '', engine });
       return [{ slug: 'gh-pat' }];
@@ -658,6 +660,7 @@ describe('secret_* tools', () => {
 
   beforeEach(() => {
     secretCalls = [];
+    secretsEnabled = true;
   });
 
   it('registers the full client-owned lifecycle and nothing more', () => {
@@ -677,8 +680,27 @@ describe('secret_* tools', () => {
   // what credentials exist without already knowing a slug.
   it('lets secret_list run with no arguments at all', async () => {
     const res = await reg.dispatch('secret_list', {}, host);
-    expect(res).toMatchObject({ isError: false });
+    expect(res).toMatchObject({
+      isError: false,
+      content: [{ text: expect.stringContaining('"status":"available"') }],
+    });
+    expect(res).toMatchObject({
+      content: [{ text: expect.stringContaining('"create":true') }],
+    });
     expect(secretCalls.at(-1)).toMatchObject({ method: 'list' });
+  });
+
+  it('reports disabled capability state without pretending an empty store is available', async () => {
+    secretsEnabled = false;
+    const res = await reg.dispatch('secret_list', {}, host);
+    expect(res).toMatchObject({
+      isError: false,
+      content: [{ text: expect.stringContaining('"status":"disabled"') }],
+    });
+    expect(res).toMatchObject({
+      content: [{ text: expect.stringContaining('"create":false') }],
+    });
+    expect(secretCalls).toEqual([]);
   });
 
   it('lets secret_search run without a query, degrading to a listing', async () => {

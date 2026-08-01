@@ -1,5 +1,12 @@
 # 2026-08-01
 
+- Fixed zero-knowledge agent discovery for the fleet secrets store. Managed
+  AGENTS.md/CLAUDE.md guidance now covers the complete `secret_*` lifecycle,
+  requires a read-only `secret_list` check before capability claims, and remains
+  present for an enabled but empty store so an agent can create the first
+  credential. MCP initialization reinforces that deferred client tool lists are
+  not proof of absence, while `secret_list`/`secret_search` now return explicit
+  live status and ownership-scoped capability metadata.
 - Gave the agent portal an honest liveness signal. `agent_sessions.status` is
   written once at registration and never updated, because the wrapper heartbeats
   with an empty status for the life of its process — so every open terminal

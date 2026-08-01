@@ -219,6 +219,12 @@ before hunting through env files, config files, or shell history**. Read the mat
 \`secret_get\`. Asking for a credential the store already holds is a wrong answer: that is where
 it lives.
 
+**Checking or storing.** If asked whether the store is available or whether you can save a secret,
+call \`secret_list\` first and use its live \`status\` and \`capabilities\`; never infer availability
+from a partial tool list. Save a new credential, or rotate one this host owns, with \`secret_store\`.
+Retire a credential this host owns with \`secret_delete\`. A capability question is read-only:
+never create, rotate, or delete anything without explicit user intent and the required value.
+
 **Handling one.** Pass the value straight into the command or request that needs it, then drop it.
 Never write a secret value into your reply, a commit, a log, or any file. Never copy one into
 \`shared_memory_*\`, \`project_memory_*\`, or \`memory_*\`. Refer to secrets by slug, never by value.`,

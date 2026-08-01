@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { McpServer, type DispatchContext, type JsonRpcResponse } from '../../../src/services/mcp-server.js';
+import {
+  MCP_SERVER_INSTRUCTIONS,
+  McpServer,
+  type DispatchContext,
+  type JsonRpcResponse,
+} from '../../../src/services/mcp-server.js';
 import { McpToolsRegistry } from '../../../src/services/mcp-tools.js';
 import { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import type { McpFsTools } from '../../../src/services/mcp-fs.js';
@@ -75,7 +80,11 @@ describe('McpServer.handlePayload', () => {
   it('returns initialize result', async () => {
     const r = await server.handlePayload({ jsonrpc: '2.0', id: 1, method: 'initialize' }, ctx);
     expect(r).toMatchObject({ jsonrpc: '2.0', id: 1 });
-    expect((r as { result: { protocolVersion: string } }).result.protocolVersion).toMatch(/2025/);
+    const result = (r as { result: { protocolVersion: string; instructions: string } }).result;
+    expect(result.protocolVersion).toMatch(/2025/);
+    expect(result.instructions).toBe(MCP_SERVER_INSTRUCTIONS);
+    expect(result.instructions.slice(0, 512)).toContain('secret_list');
+    expect(result.instructions.slice(0, 512)).toContain('secret_store');
   });
 
   it('returns tools/list catalog', async () => {

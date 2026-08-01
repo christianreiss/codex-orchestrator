@@ -281,9 +281,9 @@ export class HostAgentsService {
           ? state(true, 'ok')
           : state(false, 'host_disabled');
 
-    // Ordering mirrors `projects`, with one extra rung: an enabled module with
-    // nothing in it is noise, so guidance about credentials only appears once
-    // there are credentials this engine can actually see.
+    // An empty enabled store still needs guidance: `secret_store` is how an
+    // agent creates its first credential. Count is diagnostic metadata, not an
+    // activation gate.
     const secrets =
       secretsEnabled === null || secretCount === null
         ? state(false, 'service_unavailable')
@@ -291,9 +291,7 @@ export class HostAgentsService {
           ? state(false, mcp.reason)
           : !secretsEnabled
             ? state(false, 'secrets_disabled')
-            : secretCount === 0
-              ? state(false, 'no_secrets', 0)
-              : state(true, 'ok', secretCount);
+            : state(true, 'ok', secretCount);
 
     return { engine, skills, memory, projects, browseros, secrets };
   }
