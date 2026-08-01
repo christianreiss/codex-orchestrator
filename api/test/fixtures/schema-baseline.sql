@@ -308,6 +308,7 @@ CREATE TABLE `agent_sessions` (
 	`relay_enabled` tinyint NOT NULL DEFAULT 0,
 	`relay_heartbeat_at` varchar(100),
 	`active_turn_id` varchar(255),
+	`close_requested_at` varchar(100),
 	`adapter_protocol` varchar(32),
 	`adapter_capabilities` json,
 	`receive_heartbeat_at` varchar(100),

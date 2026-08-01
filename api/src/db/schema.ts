@@ -1250,6 +1250,7 @@ export const agentSessions = mysqlTable(
     relayEnabled: tinyint('relay_enabled').notNull().default(0),
     relayHeartbeatAt: varchar('relay_heartbeat_at', { length: 100 }),
     activeTurnId: varchar('active_turn_id', { length: 255 }),
+    closeRequestedAt: varchar('close_requested_at', { length: 100 }),
     adapterProtocol: varchar('adapter_protocol', { length: 32 }),
     adapterCapabilities: json('adapter_capabilities'),
     receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),

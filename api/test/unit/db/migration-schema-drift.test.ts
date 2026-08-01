@@ -209,6 +209,7 @@ describe('migrations against the test baseline', () => {
       'agent_sessions.adapter_capabilities',
       'agent_sessions.receive_heartbeat_at',
       'agent_sessions.binding_generation',
+      'agent_sessions.close_requested_at',
     ]);
   });
 
