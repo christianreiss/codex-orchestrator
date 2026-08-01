@@ -26,6 +26,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = [
   join(HERE, '../../../src/db/migrations/0008_add_agent_portal.sql'),
   join(HERE, '../../../src/db/migrations/0009_drop_agent_portal_matrix.sql'),
+  join(HERE, '../../../src/db/migrations/0015_add_agent_session_close_request.sql'),
 ];
 const PREFIX = 'ztest-agent-portal';
 const HOST_FQDN = `${PREFIX}.example`;
@@ -162,6 +163,312 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
     });
     return { promptId, messageId: String(answer['message_id']) };
   }
+
+  const agentOf = async (world: World) =>
+    (await world.service.listAgents()).find((agent) => agent['id'] === world.sessionId)!;
+
+  const backdateHeartbeat = async (sessionId: string, secondsAgo: number) => {
+    await db
+      .update(agentSessions)
+      .set({ heartbeatAt: new Date(Date.now() - secondsAgo * 1000).toISOString() })
+      .where(eq(agentSessions.id, sessionId));
+  };
+
+  const raiseAttention = async (world: World, summary: string) => {
+    await world.service.addAgentEvent(
+      world.sessionId,
+      world.bridgeToken,
+      { clientEventId: randomUUID(), type: 'attention', source: 'bridge', payload: { summary } },
+      world.host.id,
+    );
+  };
+
+  // `status` is written once by registerAgent and never updated, because the
+  // wrapper heartbeats with an empty status forever. Every case below asserts it
+  // stays 'active' so the compatibility field is pinned and the reason `presence`
+  // exists stays documented in the suite.
+  describe('presence is derived, because status is not a liveness signal', () => {
+    it('reports listening while an #afk relay is polling', async () => {
+      const world = await makeWorld();
+      expect(await agentOf(world)).toMatchObject({ presence: 'listening', relay_ready: true, status: 'active' });
+    });
+
+    it('reports idle after the agent runs portal leave', async () => {
+      const world = await makeWorld();
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+      expect(await agentOf(world)).toMatchObject({ presence: 'idle', relay_ready: false, status: 'active' });
+    });
+
+    it('reports idle for a session that never opened a relay', async () => {
+      const world = await makeWorld();
+      const registered = await world.service.registerAgent(host, {
+        engine: 'codex',
+        username: 'portal-test',
+        cwd: '/tmp/portal-never-afk',
+        invocationKind: 'interactive',
+      });
+      if (!registered.enabled) throw new Error('portal unexpectedly disabled');
+      const agents = await world.service.listAgents();
+      const fresh = agents.find((agent) => agent['id'] === registered.session_id)!;
+      expect(fresh).toMatchObject({ presence: 'idle', relay_ready: false, status: 'active' });
+    });
+
+    it('reports offline once the heartbeat goes stale', async () => {
+      const world = await makeWorld();
+      await backdateHeartbeat(world.sessionId, 120);
+      expect(await agentOf(world)).toMatchObject({ presence: 'offline', relay_ready: false });
+    });
+
+    it('lets ended win over a stale heartbeat', async () => {
+      const world = await makeWorld();
+      await world.service.finishAgent(world.sessionId, world.bridgeToken, { status: 'completed' }, world.host.id);
+      await backdateHeartbeat(world.sessionId, 120);
+      expect(await agentOf(world)).toMatchObject({ presence: 'ended', read_only: true });
+    });
+  });
+
+  describe('outstanding attention is derived from event cursors', () => {
+    it('surfaces a notice and its summary', async () => {
+      const world = await makeWorld();
+      await raiseAttention(world, 'Approve the prod migration?');
+      expect(await agentOf(world)).toMatchObject({
+        attention: { summary: 'Approve the prod migration?' },
+      });
+    });
+
+    it('clears once the operator sends a message', async () => {
+      const world = await makeWorld();
+      await raiseAttention(world, 'Need a decision');
+      await world.service.enqueueMessage(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId: randomUUID(),
+        content: 'go ahead',
+      });
+      expect(await agentOf(world)).toMatchObject({ attention: null });
+    });
+
+    // answerPrompt also writes a user_message event, so answering a prompt
+    // clears an unrelated attention notice. Surprising, intended, pinned here.
+    it('clears when the operator answers a prompt', async () => {
+      const world = await makeWorld();
+      await raiseAttention(world, 'Need a decision');
+      await openPromptAndAnswer(world);
+      expect(await agentOf(world)).toMatchObject({ attention: null });
+    });
+
+    it('re-raises for a notice newer than the last reply', async () => {
+      const world = await makeWorld();
+      await raiseAttention(world, 'first');
+      await world.service.enqueueMessage(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId: randomUUID(),
+        content: 'ok',
+      });
+      await raiseAttention(world, 'second');
+      expect(await agentOf(world)).toMatchObject({ attention: { summary: 'second' } });
+    });
+
+    it('leaves last_event_at and attention null for a session with no events', async () => {
+      const world = await makeWorld();
+      await db.delete(agentEvents).where(eq(agentEvents.sessionId, world.sessionId));
+      expect(await agentOf(world)).toMatchObject({ last_event_at: null, attention: null });
+    });
+  });
+
+  describe('operator-initiated close', () => {
+    const requestClose = async (world: World, note?: string) =>
+      await world.service.requestClose(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId: randomUUID(),
+        note,
+      });
+
+    const closeRow = async (sessionId: string) => {
+      const rows = await db
+        .select()
+        .from(agentMessages)
+        .where(and(eq(agentMessages.sessionId, sessionId), eq(agentMessages.kind, 'close')));
+      return rows[0];
+    };
+
+    // The core regression: `cxx portal leave` is how an agent acts on a close,
+    // so its own leave must not cancel the note it already claimed.
+    it('keeps a leased close note alive across the agent"s own portal leave', async () => {
+      const world = await makeWorld();
+      await requestClose(world, 'wrap up please');
+      const claim = await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
+      expect(claim).toMatchObject({ kind: 'close', content: 'wrap up please' });
+
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+
+      expect(await closeRow(world.sessionId)).toMatchObject({ status: 'leased' });
+      await expect(
+        world.service.acknowledgeMessage(
+          world.sessionId,
+          world.bridgeToken,
+          { messageId: claim!.message_id, leaseOwner: claim!.lease_owner, outcome: 'accepted' },
+          world.host.id,
+        ),
+      ).resolves.toBeTruthy();
+    });
+
+    // A queued note can never be delivered once the relay is down and nothing
+    // ages it out, so it must not survive to fire on an unrelated later #afk.
+    it('cancels a still-queued close note when the relay closes', async () => {
+      const world = await makeWorld();
+      await requestClose(world);
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+
+      expect(await closeRow(world.sessionId)).toMatchObject({ status: 'canceled' });
+      const sessions = await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId));
+      expect(sessions[0]?.closeRequestedAt).toBeTruthy();
+    });
+
+    it('walks close.state from pending to acknowledged', async () => {
+      const world = await makeWorld();
+      await requestClose(world);
+      expect(await agentOf(world)).toMatchObject({ close: { state: 'pending' } });
+
+      const claim = await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
+      expect(await agentOf(world)).toMatchObject({ close: { state: 'pending' } });
+
+      await world.service.acknowledgeMessage(
+        world.sessionId,
+        world.bridgeToken,
+        { messageId: claim!.message_id, leaseOwner: claim!.lease_owner, outcome: 'accepted' },
+        world.host.id,
+      );
+      expect(await agentOf(world)).toMatchObject({ close: { state: 'acknowledged' } });
+    });
+
+    it('reports undeliverable once the note is canceled', async () => {
+      const world = await makeWorld();
+      await requestClose(world);
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+      expect(await agentOf(world)).toMatchObject({ close: { state: 'undeliverable' } });
+    });
+
+    it('is idempotent for a repeated client_message_id', async () => {
+      const world = await makeWorld();
+      const clientMessageId = randomUUID();
+      const first = await world.service.requestClose(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId,
+        note: 'same note',
+      });
+      const second = await world.service.requestClose(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId,
+        note: 'same note',
+      });
+      expect(second['message_id']).toBe(first['message_id']);
+
+      const rows = await db
+        .select()
+        .from(agentMessages)
+        .where(and(eq(agentMessages.sessionId, world.sessionId), eq(agentMessages.kind, 'close')));
+      expect(rows).toHaveLength(1);
+      const events = await db
+        .select()
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, world.sessionId), eq(agentEvents.eventType, 'close_requested')));
+      expect(events).toHaveLength(1);
+    });
+
+    it('rejects a reused client_message_id carrying a different note', async () => {
+      const world = await makeWorld();
+      const clientMessageId = randomUUID();
+      await world.service.requestClose(world.identity, { sessionId: world.sessionId, clientMessageId, note: 'one' });
+      await expect(
+        world.service.requestClose(world.identity, { sessionId: world.sessionId, clientMessageId, note: 'two' }),
+      ).rejects.toMatchObject({ code: 'client_message_id_conflict' });
+    });
+
+    it('refuses a cooperative close when no relay is open', async () => {
+      const world = await makeWorld();
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+      await expect(requestClose(world)).rejects.toMatchObject({ code: 'agent_relay_unavailable' });
+    });
+
+    it('raises attention when the close note dies undelivered', async () => {
+      const world = await makeWorld();
+      await requestClose(world);
+      await db
+        .update(agentMessages)
+        .set({ attempts: 12 })
+        .where(and(eq(agentMessages.sessionId, world.sessionId), eq(agentMessages.kind, 'close')));
+
+      await world.service.claimMessage(world.sessionId, world.bridgeToken, randomUUID(), world.host.id);
+
+      expect(await closeRow(world.sessionId)).toMatchObject({ status: 'dead' });
+      expect(await agentOf(world)).toMatchObject({
+        attention: { summary: expect.stringContaining('Force end') },
+      });
+    });
+  });
+
+  describe('force close', () => {
+    const forceClose = async (world: World, note?: string, clientMessageId = randomUUID()) =>
+      await world.service.forceClose(world.identity, { sessionId: world.sessionId, clientMessageId, note });
+
+    // The whole point of the fallback: it must not depend on the agent.
+    it('ends a session whose heartbeat is stale and relay is shut', async () => {
+      const world = await makeWorld();
+      await world.service.heartbeatAgent(world.sessionId, world.bridgeToken, { relayAction: 'close' }, world.host.id);
+      await backdateHeartbeat(world.sessionId, 300);
+
+      const result = await forceClose(world, 'ending this');
+      expect(result).toMatchObject({ forced: true, already_ended: false, status: 'completed' });
+      expect(await agentOf(world)).toMatchObject({ presence: 'ended', read_only: true });
+
+      const events = await db
+        .select()
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, world.sessionId), eq(agentEvents.eventType, 'close_requested')));
+      expect(events).toHaveLength(1);
+    });
+
+    it('cancels pending work on the way out', async () => {
+      const world = await makeWorld();
+      await world.service.enqueueMessage(world.identity, {
+        sessionId: world.sessionId,
+        clientMessageId: randomUUID(),
+        content: 'still queued',
+      });
+      await forceClose(world);
+      const rows = await db.select().from(agentMessages).where(eq(agentMessages.sessionId, world.sessionId));
+      expect(rows.every((row) => row.status === 'canceled')).toBe(true);
+    });
+
+    // LIVE_SESSION_STATES excludes completed/failed, so this pins that the
+    // endedAt short-circuit runs before any liveness assertion.
+    it('is a no-op on a session that already failed', async () => {
+      const world = await makeWorld();
+      await world.service.finishAgent(world.sessionId, world.bridgeToken, { status: 'failed' }, world.host.id);
+      const before = (await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId)))[0]!;
+
+      const result = await forceClose(world);
+      expect(result).toMatchObject({ forced: false, already_ended: true, status: 'failed' });
+
+      const after = (await db.select().from(agentSessions).where(eq(agentSessions.id, world.sessionId)))[0]!;
+      expect(after.endedAt).toBe(before.endedAt);
+      expect(after.status).toBe('failed');
+    });
+
+    it('collapses a double-tapped force onto one event', async () => {
+      const world = await makeWorld();
+      const clientMessageId = randomUUID();
+      await forceClose(world, undefined, clientMessageId);
+      const second = await forceClose(world, undefined, clientMessageId);
+      expect(second).toMatchObject({ already_ended: true });
+
+      const events = await db
+        .select()
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, world.sessionId), eq(agentEvents.eventType, 'close_requested')));
+      expect(events).toHaveLength(1);
+    });
+  });
 
   it('reopens a live prompt when the answering user is disabled', async () => {
     const world = await makeWorld();

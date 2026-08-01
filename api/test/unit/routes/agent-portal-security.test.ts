@@ -91,7 +91,7 @@ describe('agent portal browser boundary', () => {
     );
     const routes = source.match(/app\.(?:get|post)\('\/go\/api\//g) ?? [];
     const guards = source.match(/assertPortalOrigin\(req, ctx, (?:true|false)\);/g) ?? [];
-    expect(routes).toHaveLength(9);
+    expect(routes).toHaveLength(11);
     expect(guards).toHaveLength(routes.length);
 
     const stream = source.slice(

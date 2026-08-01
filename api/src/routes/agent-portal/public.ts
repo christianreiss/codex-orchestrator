@@ -123,6 +123,39 @@ export async function registerAgentPortalPublicRoutes(
     );
   });
 
+  app.post('/go/api/agents/:id/close', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    const identity = await identityFor(req);
+    const body = z
+      .object({ client_message_id: z.string(), note: z.string().optional() })
+      .parse(req.body ?? {});
+    reply.code(202);
+    return ok(
+      await portal.requestClose(identity, {
+        sessionId: stringParam(req.params, 'id'),
+        clientMessageId: body.client_message_id,
+        note: body.note,
+      }),
+    );
+  });
+
+  app.post('/go/api/agents/:id/close/force', async (req, reply) => {
+    assertPortalOrigin(req, ctx, true);
+    portalHeaders(reply);
+    const identity = await identityFor(req);
+    const body = z
+      .object({ client_message_id: z.string(), note: z.string().optional() })
+      .parse(req.body ?? {});
+    return ok(
+      await portal.forceClose(identity, {
+        sessionId: stringParam(req.params, 'id'),
+        clientMessageId: body.client_message_id,
+        note: body.note,
+      }),
+    );
+  });
+
   app.get('/go/api/events', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);

@@ -1,5 +1,26 @@
 # 2026-08-01
 
+- Gave the agent portal an honest liveness signal. `agent_sessions.status` is
+  written once at registration and never updated, because the wrapper heartbeats
+  with an empty status for the life of its process — so every open terminal
+  reported itself as `active` whether or not it could be reached. `GET
+  /go/api/agents` now returns a derived `presence`: `listening` accepts
+  instructions, `idle` is alive but has no open `#afk` relay, `offline` has not
+  heartbeat within 45s, `ended` is read-only. `status` is retained for
+  compatibility and is no longer a liveness signal.
+- Made an unanswered attention notice visible without adding read state. Each
+  agent now reports `attention` and `last_event_at`, derived by comparing event
+  cursors: a notice stays outstanding until that session receives a
+  `user_message` (a plain message or a prompt answer) or a `close_requested`.
+- Added an operator-initiated channel close. `POST /go/api/agents/{id}/close`
+  delivers a note to the running agent as a `close`-kind instruction so it can
+  wrap up cleanly, and `POST /go/api/agents/{id}/close/force` ends the session
+  outright without requiring the agent to be reachable. A close note the agent
+  has already claimed now survives that agent's own `cxx portal leave`, which is
+  the command it runs to act on the close; a note that can no longer be
+  delivered raises an attention notice rather than waiting silently. The managed
+  `#afk` skill gained a matching step, so agents wrap up and leave the relay
+  instead of executing the closing note as a task.
 - Rebuilt the Svelte admin console around direct operator destinations: the new
   shared route registry drives the dense grouped rail, mobile menu, command
   palette, titles, and active state. Engines, Policies, Agent Portal, Admin

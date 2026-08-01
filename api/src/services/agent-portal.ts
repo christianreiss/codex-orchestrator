@@ -10,6 +10,7 @@ import {
   isNull,
   lt,
   lte,
+  not,
   or,
   sql,
 } from 'drizzle-orm';
@@ -53,6 +54,8 @@ export const AGENT_PORTAL_EVENT_TEXT_MAX_BYTES = 128 * 1024;
 export const AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS = 12;
 export const AGENT_PORTAL_RELAY_FRESH_SECONDS = 90;
 export const AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS = 45;
+export const AGENT_PORTAL_CLOSE_NOTE_MAX_BYTES = 1000;
+export const AGENT_PORTAL_DEFAULT_CLOSE_NOTE = 'The operator closed this channel from the portal.';
 
 export const AGENT_EVENT_TYPES = [
   'started',
@@ -64,6 +67,7 @@ export const AGENT_EVENT_TYPES = [
   'terminal_block',
   'message_accepted',
   'attention',
+  'close_requested',
   'failed',
   'completed',
 ] as const;
@@ -80,6 +84,37 @@ export const AGENT_BRIDGE_EVENT_TYPES = [
 const AGENT_EVENT_TYPE_SET = new Set<string>(AGENT_EVENT_TYPES);
 const LIVE_SESSION_STATES = ['starting', 'active', 'waiting', 'offline'] as const;
 const LIVE_SESSION_STATE_SET = new Set<string>(LIVE_SESSION_STATES);
+
+/**
+ * How the portal describes a session to the browser.
+ *
+ * `agent_sessions.status` cannot answer this. `registerAgent` writes 'active'
+ * once and the wrapper's heartbeat ticker posts an empty status every 15s, which
+ * `heartbeatAgent` deliberately treats as "keep what you had" -- so `status`
+ * reads 'active' for the entire life of the wrapper process whether or not the
+ * agent is reachable. `presence` is the honest signal and is what the UI shows.
+ *
+ * `idle` is the state that was previously invisible: the wrapper is alive and
+ * heartbeating, but no `#afk` relay is open, so instructions would be refused.
+ */
+export const AGENT_PRESENCE_STATES = ['ended', 'offline', 'idle', 'listening'] as const;
+export type AgentPresence = (typeof AGENT_PRESENCE_STATES)[number];
+
+/**
+ * An outstanding attention notice is one the operator has not acted on yet. It
+ * is derived from event cursors rather than stored, so there is no read state to
+ * keep in sync: a notice counts as outstanding while its cursor is newer than
+ * every acknowledging event.
+ *
+ * `insertPortalMessageEvent` writes `user_message` for plain messages *and* for
+ * prompt answers, so answering a prompt clears the notice -- intended, and
+ * pinned by a test. Requesting a close is a stronger acknowledgement still.
+ */
+const AGENT_ATTENTION_CLEARING_EVENT_TYPES = ['user_message', 'close_requested'] as const;
+
+/** Lifecycle of the operator's close note, read off the queued message row. */
+export const AGENT_CLOSE_STATES = ['pending', 'acknowledged', 'undeliverable'] as const;
+export type AgentCloseState = (typeof AGENT_CLOSE_STATES)[number];
 
 export interface PortalUserView {
   id: number;
@@ -119,7 +154,7 @@ export interface AgentEventInput {
 export interface ClaimedMessage {
   message_id: string;
   sequence: number;
-  kind: 'message' | 'answer';
+  kind: 'message' | 'answer' | 'close';
   prompt_id: string | null;
   content: string;
   attempts: number;
@@ -569,7 +604,9 @@ export class AgentPortalService {
       } else if (input.relayAction === 'close') {
         patch.relayEnabled = 0;
         patch.relayHeartbeatAt = null;
-        await this.cancelSessionPending(sessionId, now, tx);
+        // `cxx portal leave` is how an agent acts *on* a close note, so a close
+        // it has already claimed must survive its own leave.
+        await this.cancelSessionPending(sessionId, now, tx, { keepLeasedClose: true });
       }
       await tx.update(agentSessions).set(patch).where(eq(agentSessions.id, sessionId));
       return {
@@ -629,13 +666,93 @@ export class AgentPortalService {
         created_at: prompt.createdAt,
       });
     }
+    // One grouped aggregate over every visible session, served by
+    // idx_agent_events_session_cursor. Ordering is by `id`, never `created_at`:
+    // nowIso() strips milliseconds while other writers keep them, so a
+    // lexicographic compare mis-orders the two forms inside the same second.
+    const eventStats = sessionIds.length
+      ? await this.db
+          .select({
+            sessionId: agentEvents.sessionId,
+            lastId: sql<number>`MAX(${agentEvents.id})`,
+            attentionId: sql<
+              number | null
+            >`MAX(CASE WHEN ${agentEvents.eventType} = 'attention' THEN ${agentEvents.id} END)`,
+            clearedId: sql<number | null>`MAX(CASE WHEN ${agentEvents.eventType} IN (${sql.join(
+              AGENT_ATTENTION_CLEARING_EVENT_TYPES.map((type) => sql`${type}`),
+              sql`, `,
+            )}) THEN ${agentEvents.id} END)`,
+          })
+          .from(agentEvents)
+          .where(inArray(agentEvents.sessionId, sessionIds))
+          .groupBy(agentEvents.sessionId)
+      : [];
+
+    // Only fetch the rows actually rendered: the newest event of every session
+    // (for last_event_at) plus the specific attention notice that is still
+    // outstanding. Payloads are secretbox-encrypted, so the summary has to be
+    // decoded in JS -- doing that for every event would be needless work.
+    const statsBySession = new Map<string, (typeof eventStats)[number]>();
+    const detailIds = new Set<number>();
+    for (const stat of eventStats) {
+      statsBySession.set(stat.sessionId, stat);
+      detailIds.add(Number(stat.lastId));
+      const attentionId = Number(stat.attentionId ?? 0);
+      if (attentionId > Number(stat.clearedId ?? 0)) detailIds.add(attentionId);
+    }
+    const detailRows = detailIds.size
+      ? await this.db
+          .select({ id: agentEvents.id, createdAt: agentEvents.createdAt, payloadEnc: agentEvents.payloadEnc })
+          .from(agentEvents)
+          .where(inArray(agentEvents.id, [...detailIds]))
+      : [];
+    const detailById = new Map(detailRows.map((row) => [Number(row.id), row]));
+
+    // The close note's own row is what distinguishes "asked, not claimed yet"
+    // from "the agent honoured it and left" -- both leave presence at 'idle',
+    // and close_requested_at is never cleared, so it cannot tell them apart.
+    const closeRows = sessionIds.length
+      ? await this.db
+          .select({
+            id: agentMessages.id,
+            sessionId: agentMessages.sessionId,
+            status: agentMessages.status,
+            createdAt: agentMessages.createdAt,
+          })
+          .from(agentMessages)
+          .where(and(inArray(agentMessages.sessionId, sessionIds), eq(agentMessages.kind, 'close')))
+          .orderBy(desc(agentMessages.id))
+      : [];
+    const closeBySession = new Map<string, (typeof closeRows)[number]>();
+    for (const row of closeRows) {
+      if (!closeBySession.has(row.sessionId)) closeBySession.set(row.sessionId, row);
+    }
+
     const offlineBefore = Date.now() - AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
     const relayBefore = Date.now() - AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
     return rows.map(({ session, fqdn }) => {
       const heartbeat = parseIso(session.heartbeatAt)?.getTime() ?? 0;
-      const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && heartbeat < offlineBefore ? 'offline' : session.status;
+      const heartbeatFresh = heartbeat >= offlineBefore;
+      const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && !heartbeatFresh ? 'offline' : session.status;
       const relayHeartbeat = parseIso(session.relayHeartbeatAt ?? '')?.getTime() ?? 0;
-      const relayReady = !session.endedAt && heartbeat >= offlineBefore && session.relayEnabled === 1 && relayHeartbeat >= relayBefore;
+      const relayReady = !session.endedAt && heartbeatFresh && session.relayEnabled === 1 && relayHeartbeat >= relayBefore;
+      const presence: AgentPresence = session.endedAt
+        ? 'ended'
+        : !heartbeatFresh
+          ? 'offline'
+          : relayReady
+            ? 'listening'
+            : 'idle';
+
+      // A session with no events yet (registered, `server:started` not committed)
+      // produces no aggregate row at all.
+      const stats = statsBySession.get(session.id);
+      const lastEvent = stats ? detailById.get(Number(stats.lastId)) : undefined;
+      const attentionId = Number(stats?.attentionId ?? 0);
+      const attentionRow =
+        attentionId > Number(stats?.clearedId ?? 0) ? detailById.get(attentionId) : undefined;
+      const closeRow = closeBySession.get(session.id);
+
       return {
         id: session.id,
         engine: session.engine,
@@ -645,13 +762,30 @@ export class AgentPortalService {
         cwd: session.cwd,
         invocation_kind: session.invocationKind,
         upstream_session_id: session.upstreamSessionId,
+        // Retained for compatibility only. See AGENT_PRESENCE_STATES: this field
+        // is not a liveness signal. Read `presence`.
         status: effectiveStatus,
+        presence,
         relay_ready: relayReady,
         active_turn_id: session.activeTurnId,
         started_at: session.startedAt,
         heartbeat_at: session.heartbeatAt,
+        last_event_at: lastEvent?.createdAt ?? null,
+        attention: attentionRow
+          ? {
+              since: attentionRow.createdAt,
+              summary:
+                (this.decodeJson<Record<string, unknown>>(attentionRow.payloadEnc, {}).summary as
+                  | string
+                  | undefined) ?? null,
+            }
+          : null,
         ended_at: session.endedAt,
         expires_at: session.expiresAt,
+        close_requested_at: session.closeRequestedAt,
+        close: closeRow
+          ? { requested_at: session.closeRequestedAt ?? closeRow.createdAt, state: closeState(closeRow.status) }
+          : null,
         read_only: Boolean(session.endedAt),
         pending_prompt: promptBySession.get(session.id) ?? null,
       };
@@ -899,6 +1033,135 @@ export class AgentPortalService {
     return messageView(inserted);
   }
 
+  /**
+   * Asks the running agent to wind down, delivering the operator's note through
+   * the normal instruction queue so the agent can finish cleanly. Requires an
+   * open relay: an undeliverable note is worse than none, because the operator
+   * would believe the channel is closing when nothing received the request.
+   * `forceClose` is the escalation when the relay is shut or the agent is gone.
+   */
+  async requestClose(
+    identity: PortalIdentity,
+    input: { sessionId: string; clientMessageId: string; note?: string },
+  ): Promise<Record<string, unknown>> {
+    const note = normalizeCloseNote(input.note);
+    const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
+    const messageId = randomUUID();
+    const now = nowIso();
+    const result = await this.db.transaction(async (tx) => {
+      await this.requirePortalEnabledLocked(tx);
+      const user = await this.requireIdentityLocked(tx, identity, now);
+      const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
+      const raced = await this.findMessageByClientId(input.sessionId, clientMessageId, tx, true);
+      if (raced) {
+        this.assertMessageIdempotency(raced, user.id, 'close', null, note);
+        return { row: raced, requestedAt: session.closeRequestedAt ?? raced.createdAt };
+      }
+      this.assertLiveSession(session);
+      this.assertRelayReady(session);
+      await tx.insert(agentMessages).values({
+        messageId,
+        sessionId: input.sessionId,
+        portalUserId: user.id,
+        kind: 'close',
+        promptId: null,
+        clientMessageId,
+        contentEnc: this.encodeText(note),
+        status: 'queued',
+        attempts: 0,
+        nextAttemptAt: now,
+        leaseOwner: null,
+        leaseUntil: null,
+        upstreamId: null,
+        lastError: null,
+        acceptedAt: null,
+        canceledAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      // First close wins, and the value is never cleared: `cxx portal wait`
+      // re-asserts relay_action=poll every iteration, so a rule that cleared it
+      // on the agent's return would erase the request within a second.
+      const requestedAt = session.closeRequestedAt ?? now;
+      await tx
+        .update(agentSessions)
+        .set({ closeRequestedAt: requestedAt, updatedAt: now })
+        .where(eq(agentSessions.id, input.sessionId));
+      await this.insertPortalCloseEvent(tx, input.sessionId, `portal:close:${messageId}`, {
+        message_id: messageId,
+        summary: note,
+        author: user.displayName,
+        delivery_status: 'queued',
+      }, now);
+      const rows = await tx.select().from(agentMessages).where(eq(agentMessages.messageId, messageId)).limit(1);
+      if (!rows[0]) throw new ServiceUnavailableError('Close request insert was not readable', 'agent_message_write_failed');
+      return { row: rows[0], requestedAt };
+    });
+    return {
+      ...messageView(result.row),
+      close_requested_at: result.requestedAt,
+      close: { requested_at: result.requestedAt, state: closeState(result.row.status) },
+    };
+  }
+
+  /**
+   * Ends the session outright. Deliberately asserts neither liveness nor relay
+   * readiness -- working against an agent that is offline or has closed its
+   * relay is the entire point of the fallback.
+   */
+  async forceClose(
+    identity: PortalIdentity,
+    input: { sessionId: string; clientMessageId: string; note?: string },
+  ): Promise<Record<string, unknown>> {
+    const note = normalizeCloseNote(input.note);
+    const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
+    const eventId = `portal:close-force:${clientMessageId}`;
+    const now = nowIso();
+    const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
+    return await this.db.transaction(async (tx) => {
+      await this.requirePortalEnabledLocked(tx);
+      const user = await this.requireIdentityLocked(tx, identity, now);
+      const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
+      const existing = await tx
+        .select({ id: agentEvents.id })
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, input.sessionId), eq(agentEvents.clientEventId, eventId)))
+        .limit(1)
+        .for('update');
+      if (!existing[0]) {
+        await this.insertPortalCloseEvent(tx, input.sessionId, eventId, {
+          summary: note,
+          author: user.displayName,
+          delivery_status: 'forced',
+        }, now);
+      }
+      // Must precede any liveness assertion: LIVE_SESSION_STATES excludes
+      // completed/failed, so a second Force tap on an ended session would throw
+      // instead of being the harmless no-op the UI expects.
+      if (session.endedAt) {
+        return {
+          forced: false,
+          already_ended: true,
+          status: session.status,
+          ended_at: session.endedAt,
+          expires_at: session.expiresAt,
+        };
+      }
+      await tx
+        .update(agentSessions)
+        .set({ closeRequestedAt: session.closeRequestedAt ?? now, updatedAt: now })
+        .where(eq(agentSessions.id, input.sessionId));
+      await this.applyTerminalState(tx, input.sessionId, 'completed', expiresAt, now);
+      return {
+        forced: true,
+        already_ended: false,
+        status: 'completed',
+        ended_at: now,
+        expires_at: expiresAt,
+      };
+    });
+  }
+
   async claimMessage(sessionId: string, bridgeToken: string, claimId: string, hostId?: number): Promise<ClaimedMessage | null> {
     const leaseClaimId = normalizeUuid(claimId, 'claim_id');
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken, hostId);
@@ -949,6 +1212,7 @@ export class AgentPortalService {
             .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
             .where(eq(agentMessages.id, row.id));
           await this.releaseUndeliveredAnswerPrompt(row, session, now, tx);
+          await this.announceUndeliveredClose(row, now, tx);
           return 'retry';
         }
         if (
@@ -960,7 +1224,7 @@ export class AgentPortalService {
           return {
             message_id: row.messageId,
             sequence: row.id,
-            kind: row.kind === 'answer' ? 'answer' : 'message',
+            kind: normalizeClaimKind(row.kind),
             prompt_id: row.promptId,
             content: this.decodeText(row.contentEnc),
             attempts: row.attempts,
@@ -976,6 +1240,7 @@ export class AgentPortalService {
             .set({ status: 'dead', lastError: 'maximum delivery attempts reached', leaseOwner: null, leaseUntil: null, updatedAt: now })
             .where(eq(agentMessages.id, row.id));
           await this.releaseUndeliveredAnswerPrompt(row, session, now, tx);
+          await this.announceUndeliveredClose(row, now, tx);
           return 'retry';
         }
         const leaseUntil = isoOffsetSeconds(30);
@@ -986,7 +1251,7 @@ export class AgentPortalService {
         return {
           message_id: row.messageId,
           sequence: row.id,
-          kind: row.kind === 'answer' ? 'answer' : 'message',
+          kind: normalizeClaimKind(row.kind),
           prompt_id: row.promptId,
           content: this.decodeText(row.contentEnc),
           attempts: row.attempts + 1,
@@ -1513,7 +1778,7 @@ export class AgentPortalService {
   private assertMessageIdempotency(
     row: AgentMessage,
     portalUserId: number,
-    kind: 'message' | 'answer',
+    kind: 'message' | 'answer' | 'close',
     promptId: string | null,
     content: string,
   ): void {
@@ -1566,6 +1831,31 @@ export class AgentPortalService {
     });
   }
 
+  /**
+   * `close_requested` is its own event type rather than a `user_message`.
+   * A user_message bubble asserts "this text was queued for delivery"; that is
+   * true of a cooperative close but false of a force close, which records the
+   * note without delivering anything. The note travels in `summary` and the mode
+   * in `delivery_status`, both already whitelisted by normalizeEvent.
+   */
+  private async insertPortalCloseEvent(
+    db: AgentPortalDb,
+    sessionId: string,
+    clientEventId: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): Promise<void> {
+    const normalized = normalizeEvent('close_requested', payload);
+    await db.insert(agentEvents).values({
+      sessionId,
+      clientEventId,
+      eventType: 'close_requested',
+      source: 'portal',
+      payloadEnc: this.encodeJson(normalized.payload),
+      createdAt: now,
+    });
+  }
+
   private async disableUserRows(userId: number, now: string, db: AgentPortalDb = this.db): Promise<{ canceled: number; revoked_sessions: number }> {
     const pendingAnswers = await db
       .select({ messageId: agentMessages.messageId, promptId: agentMessages.promptId, sessionId: agentMessages.sessionId })
@@ -1595,7 +1885,36 @@ export class AgentPortalService {
     return { canceled: Number(pending[0]?.value ?? 0), revoked_sessions: Number(sessions[0]?.value ?? 0) };
   }
 
-  private async cancelSessionPending(sessionId: string, now: string, db: AgentPortalDb = this.db): Promise<void> {
+  /**
+   * Cancels everything still in flight for a session.
+   *
+   * `keepLeasedClose` exempts a close note the agent has already claimed. The
+   * agent's own `cxx portal leave` runs through here, and without the exemption
+   * that call would cancel the very instruction it is obeying -- the follow-up
+   * `cxx portal accept` would then fail with agent_message_lease_lost.
+   *
+   * A *queued* close note is deliberately not exempt. It can never be delivered
+   * once the relay is down (claimMessage asserts relay readiness) and nothing
+   * ages it out, so it would sit at the head of the strict-FIFO queue and fire
+   * hours later on the next unrelated `#afk`. close_requested_at and the force
+   * close carry the operator's intent forward instead.
+   *
+   * Only a terminal session or an administrative shutdown may cancel a claimed
+   * close note; the agent cannot cancel a close it is already acting on.
+   */
+  private async cancelSessionPending(
+    sessionId: string,
+    now: string,
+    db: AgentPortalDb = this.db,
+    options: { keepLeasedClose?: boolean } = {},
+  ): Promise<void> {
+    const cancelable = and(
+      eq(agentMessages.sessionId, sessionId),
+      inArray(agentMessages.status, ['queued', 'leased']),
+      ...(options.keepLeasedClose
+        ? [not(and(eq(agentMessages.kind, 'close'), eq(agentMessages.status, 'leased'))!)]
+        : []),
+    );
     const pendingAnswers = await db
       .select({ messageId: agentMessages.messageId })
       .from(agentMessages)
@@ -1607,7 +1926,7 @@ export class AgentPortalService {
     await db
       .update(agentMessages)
       .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-      .where(and(eq(agentMessages.sessionId, sessionId), inArray(agentMessages.status, ['queued', 'leased'])));
+      .where(cancelable);
     await db
       .update(agentPrompts)
       .set({ status: 'expired', expiresAt: now, version: sql`${agentPrompts.version} + 1` })
@@ -1685,6 +2004,31 @@ export class AgentPortalService {
         eq(agentPrompts.status, 'answered'),
         inArray(agentPrompts.answerMessageId, messageIds),
       ));
+  }
+
+  /**
+   * A close note that exhausts delivery leaves the operator believing the
+   * channel is winding down when nothing received the request. Raise an
+   * attention notice: listAgents derives the badge from event cursors, so this
+   * lights the session up in the portal with no new state and no client work.
+   */
+  private async announceUndeliveredClose(
+    message: AgentMessage,
+    now: string,
+    db: AgentPortalDb,
+  ): Promise<void> {
+    if (message.kind !== 'close') return;
+    const payload = normalizeEvent('attention', {
+      summary: 'The close request could not be delivered to this agent. Use Force end to close the channel.',
+    }).payload;
+    await db.insert(agentEvents).values({
+      sessionId: message.sessionId,
+      clientEventId: `server:close-dead:${message.messageId}`,
+      eventType: 'attention',
+      source: 'portal',
+      payloadEnc: this.encodeJson(payload),
+      createdAt: now,
+    });
   }
 
   private async releaseUndeliveredAnswerPrompt(
@@ -1793,6 +2137,30 @@ function normalizeMessage(value: unknown): string {
     throw new ValidationError(`message exceeds ${AGENT_PORTAL_MESSAGE_MAX_BYTES} bytes`, { param: 'content' });
   }
   return text;
+}
+
+function normalizeCloseNote(value: unknown): string {
+  if (value === undefined || value === null || !String(value).trim()) {
+    return AGENT_PORTAL_DEFAULT_CLOSE_NOTE;
+  }
+  return normalizeRequiredText(value, 'note', AGENT_PORTAL_CLOSE_NOTE_MAX_BYTES);
+}
+
+/**
+ * The close note's message row carries the whole lifecycle, so the portal needs
+ * no extra column to tell a pending close from an honoured one.
+ */
+function closeState(status: string): AgentCloseState {
+  if (status === 'accepted') return 'acknowledged';
+  if (status === 'canceled' || status === 'dead') return 'undeliverable';
+  return 'pending';
+}
+
+/** Keeps the two claim paths from drifting when a new message kind is added. */
+function normalizeClaimKind(value: string): 'message' | 'answer' | 'close' {
+  if (value === 'answer') return 'answer';
+  if (value === 'close') return 'close';
+  return 'message';
 }
 
 function normalizeUuid(value: unknown, param: string): string {
