@@ -35,7 +35,7 @@ export interface RouteContext {
 }
 
 export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  await registerHealthRoutes(app);
+  await registerHealthRoutes(app, ctx);
 
   // Host-facing wrapper + auth surface
   await registerHostApiRoutes(app, ctx);

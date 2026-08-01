@@ -142,13 +142,18 @@ for cache invalidation).
 
 ## Operator bootstrap
 
-Once per environment:
+Fresh installations use the authoritative bootstrap:
 
 ```
-(cd wrappers && make pubkey)       # copies pubkey into the cxx embed slot
-(cd wrappers && make release)      # stages the complete platform matrix
-(cd wrappers && make publish-release PUBLISH_ROOT=/path/to/served/wrapper/v2/bin)
+bin/setup.sh
 ```
+
+It generates an environment-local Ed25519 pair, passes the public PEM as
+`PUBLIC_KEY_FILE` to `make release` (linker injection; tracked `pubkey.pem`
+never changes), publishes the complete platform matrix, imports the private
+PEM encrypted, proves signing/read-back, and deletes plaintext. The lower-level
+`make release` / `make publish-release` targets remain available for explicit
+versioned operator releases and recovery.
 
 After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
 binary manifest and the bakery is live for any host whose `wrapper_track` is

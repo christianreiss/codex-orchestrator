@@ -14,13 +14,14 @@
   import { commandPalette } from "$lib/stores/command-palette";
   import { searchModal } from "$lib/stores/search-modal";
   import { bindGlobalShortcuts } from "$lib/utils/shortcuts";
-  import { authStore } from "$lib/stores/auth";
+  import { authActions, authStore } from "$lib/stores/auth";
   import { hydratePalette } from "$lib/stores/theme";
   import { createWsClient, type WsClientHandle } from "$lib/ws/client";
   import { wireWsToQueryClient } from "$lib/ws/events";
   import { setWsStatus } from "$lib/stores/ws-status";
   import InsecureApprovalsAutoPopup from "$lib/components/hosts/InsecureApprovalsAutoPopup.svelte";
   import { getDocumentTitle } from "$lib/nav";
+  import { getSetupStatus } from "$lib/api/setup";
 
   let { children } = $props();
 
@@ -28,7 +29,7 @@
   const path = $derived(page.url.pathname.replace(base, "") || "/");
 
   // Routes that render outside the AppShell (login, password reset, device-code approval).
-  const STANDALONE = ["/login", "/password/reset", "/cli-auth/verify"];
+  const STANDALONE = ["/setup", "/login", "/password/reset", "/cli-auth/verify"];
   const standalone = $derived(STANDALONE.some((p) => path === p || path.startsWith(p + "/")));
 
   $effect(() => {
@@ -45,6 +46,8 @@
   let unsubscribeShortcuts: (() => void) | null = null;
   let unsubscribeWs: (() => void) | null = null;
   let unsubscribeWsStatus: (() => void) | null = null;
+  let setupLoading = $state(false);
+  let setupError = $state<string | null>(null);
 
   function openNewHostSheet(): void {
     void goto(`${base}/hosts?dialog=new-host`);
@@ -57,8 +60,19 @@
     const unsubscribeAuth = authStore.subscribe((state) => {
       const currentPath = window.location.pathname.replace(base, "") || "/";
       const isStandalone = STANDALONE.some((p) => currentPath === p || currentPath.startsWith(p + "/"));
-      if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
+      if (!state.loading && !state.enforced && currentPath !== "/setup") {
+        void goto(`${base}/setup`, { replaceState: true });
+      } else if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
         void goto(`${base}/login`, { replaceState: true });
+      } else if (!state.loading && state.authenticated && !isStandalone) {
+        setupLoading = true;
+        setupError = null;
+        void getSetupStatus()
+          .then((status) => {
+            if (!status.setup_complete) void goto(`${base}/setup`, { replaceState: true });
+          })
+          .catch((err) => { setupError = err instanceof Error ? err.message : "API unreachable"; })
+          .finally(() => { setupLoading = false; });
       }
     });
 
@@ -119,9 +133,17 @@
 <ModeWatcher defaultMode="system" />
 
 <QueryClientProvider client={queryClient}>
-  {#if standalone}
+  {#if auth.unreachable || setupError}
+    <div class="flex min-h-screen items-center justify-center bg-background p-6">
+      <div class="w-full max-w-lg rounded-lg border border-destructive/40 bg-card p-6 shadow-sm">
+        <h1 class="text-xl font-semibold">API unreachable</h1>
+        <p class="mt-2 text-sm text-muted-foreground">{auth.unreachable ?? setupError}</p>
+        <button class="mt-5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground" onclick={() => { setupError = null; void authActions.refresh(); }}>Retry</button>
+      </div>
+    </div>
+  {:else if standalone}
     {@render children?.()}
-  {:else if auth.loading}
+  {:else if auth.loading || setupLoading}
     <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
       Loading…
     </div>

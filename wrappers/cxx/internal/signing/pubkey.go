@@ -6,6 +6,7 @@ package signing
 import (
 	"crypto/ed25519"
 	"crypto/x509"
+	"encoding/base64"
 	_ "embed"
 	"encoding/pem"
 	"errors"
@@ -14,15 +15,28 @@ import (
 //go:embed pubkey.pem
 var rawPubKey []byte
 
+// buildPublicKeyB64 is set with -ldflags for installation-specific builds.
+// Keeping this separate from pubkey.pem lets bin/setup.sh build a uniquely
+// trusted fleet without ever rewriting a tracked source file.
+var buildPublicKeyB64 string
+
 // PublicKey returns the embedded Ed25519 public key, or an error if the
 // embedded pubkey file is missing/invalid. A binary built without a real key
 // is still callable (so `make cdx` in a fresh checkout works), but it will
 // refuse to verify any config — which is the safe default.
 func PublicKey() (ed25519.PublicKey, error) {
-	if len(rawPubKey) == 0 {
-		return nil, errors.New("no embedded signing public key (run `make pubkey` after wrapper-v2-init-keys.sh)")
+	material := rawPubKey
+	if buildPublicKeyB64 != "" {
+		decoded, err := base64.StdEncoding.DecodeString(buildPublicKeyB64)
+		if err != nil {
+			return nil, errors.New("build signing pubkey is not valid base64")
+		}
+		material = decoded
 	}
-	block, _ := pem.Decode(rawPubKey)
+	if len(material) == 0 {
+		return nil, errors.New("no embedded signing public key (build with PUBLIC_KEY_FILE)")
+	}
+	block, _ := pem.Decode(material)
 	if block == nil {
 		return nil, errors.New("embedded signing pubkey is not PEM-encoded")
 	}

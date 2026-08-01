@@ -13,6 +13,7 @@ export interface AuthState {
   user: User | null;
   roles: string[];
   loading: boolean;
+  unreachable: string | null;
 }
 
 const initial: AuthState = {
@@ -21,6 +22,7 @@ const initial: AuthState = {
   user: null,
   roles: [],
   loading: true,
+  unreachable: null,
 };
 
 const store = writable<AuthState>(initial);
@@ -42,6 +44,7 @@ async function refresh(): Promise<AuthState> {
       user: status.user ?? null,
       roles: status.roles ?? extractRoles(status.user),
       loading: false,
+      unreachable: null,
     };
     store.set(next);
     return next;
@@ -54,11 +57,16 @@ async function refresh(): Promise<AuthState> {
         user: null,
         roles: [],
         loading: false,
+        unreachable: null,
       };
       store.set(next);
       return next;
     }
-    store.update((s) => ({ ...s, loading: false }));
+    store.update((s) => ({
+      ...s,
+      loading: false,
+      unreachable: err instanceof Error ? err.message : "API unreachable",
+    }));
     throw err;
   }
 }

@@ -1,58 +1,25 @@
 {
-    servers :443 {
-        protocols h1 h2
-    }
+	servers :443 {
+		protocols h1 h2
+	}
 
-    servers :80 {
-        protocols h1 h2c
-    }
+	servers :80 {
+		protocols h1 h2c
+	}
 }
 
 {$CADDY_DOMAIN} {
-    import {$CADDY_TLS_FRAGMENT}
+	import {$CADDY_TLS_FRAGMENT}
 
-    encode zstd gzip
-    log
+	encode zstd gzip
+	log
 
-    # Admin scope: requires a client certificate. Successful certs pass mTLS
-    # claims via X-MTLS-* headers; the Node API surfaces them on the request
-    # context. Lack of cert is rejected here (the API never sees the request).
-    @admin path /admin* /admin
-    @admin_with_cert expression {http.request.tls.client.certificate} != ""
+	import {$CADDY_ADMIN_FRAGMENT}
 
-    handle @admin {
-        handle @admin_with_cert {
-            reverse_proxy api:8080 {
-                header_up X-Forwarded-Proto https
-                header_up X-Real-IP {http.request.remote}
-                header_up X-MTLS-Present 1
-                header_up X-MTLS-Fingerprint {http.request.tls.client.fingerprint}
-                header_up X-MTLS-Subject {http.request.tls.client.subject}
-                header_up X-MTLS-Issuer {http.request.tls.client.issuer}
-            }
-        }
-        respond "Client certificate required for /admin" 403
-    }
-
-    # Admin WebSocket (Node Fastify @fastify/websocket plugin). Caddy
-    # transparently upgrades — same backend, same mTLS gate.
-    @adminws path /admin/ws
-    handle @adminws {
-        handle @admin_with_cert {
-            reverse_proxy api:8080 {
-                header_up X-Forwarded-Proto https
-                header_up X-Real-IP {http.request.remote}
-                header_up X-MTLS-Fingerprint {http.request.tls.client.fingerprint}
-                header_up X-MTLS-Subject {http.request.tls.client.subject}
-            }
-        }
-        respond "Client certificate required" 403
-    }
-
-    handle {
-        reverse_proxy api:8080 {
-            header_up X-Forwarded-Proto https
-            header_up X-Real-IP {http.request.remote}
-        }
-    }
+	handle {
+		reverse_proxy api:8080 {
+			header_up X-Forwarded-Proto https
+			header_up X-Real-IP {http.request.remote}
+		}
+	}
 }

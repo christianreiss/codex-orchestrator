@@ -33,13 +33,15 @@ What it does
   - `AUTH_ENCRYPTION_KEY` (libsodium secretbox key) if empty.
   - `INSTALLATION_ID` if empty.
   - Random `DB_USERNAME`, `DB_PASSWORD`, `DB_ROOT_PASSWORD` if defaults are still present.
+  - One random value written to both `AUTH_RUNNER_SHARED_SECRET` and `RUNNER_SHARED_SECRET`.
+- Generates an installation-specific Ed25519 wrapper keypair before compilation, injects its public key into all four `cxx` platform builds without changing tracked source keys, publishes the complete same-version matrix, and imports the private key encrypted into `wrapper_signing_keys`. The plaintext private key is deleted only after encrypted read-back and a signature round-trip; prepare-only or interrupted runs retain it with mode `0600`.
 - Prompts for `DATA_ROOT` (default `/var/docker_data/codex-auth.example.com`) and creates `store`, `store/sql`, `store/logs`, `mysql_data`, `caddy/tls`, `caddy/mtls`, and `backups` under it.
 - Prompts for external URLs used by hosts/runner:
   - `CODEX_SYNC_BASE_URL` (runner container base URL for Codex probes; defaults to the API URL in compose)
   - `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility knob; retained in setup/env but no longer sent to the runner verifier payload)
   - Set `PUBLIC_BASE_URL` for production so installers/wrappers always bake the correct base URL.
 - Optional bundled Caddy frontend (reverse proxy on :80/:443):
-  - Prompts for `ADMIN_ACCESS_MODE`, which the API accepts as `mtls` (default), `cookie`, or `open` — note the installer writes `none` when you decline, which the schema rejects. Whatever the value, it gates nothing on `/admin/*`: it is read only by the `/cli/auth/verify` CLI-approval page, which demands an admin session unless the value is `open`.
+  - Prompts for `ADMIN_ACCESS_MODE`, which the API accepts as `mtls` (default), `cookie`, or `open`. Declining mTLS writes the supported `cookie` mode and selects Caddy's cookie-only admin fragment, so `/admin` is not still certificate-gated at the proxy. The normal admin API is always session-gated once the first owner exists.
   - The client-certificate requirement for `/admin*` comes from bundled Caddy, which rejects requests without a valid cert and forwards `X-MTLS-*` headers to the API.
   - If enabled, asks for `CADDY_DOMAIN` and TLS mode:
     1. **ACME (Let’s Encrypt/ZeroSSL)** — sets `CADDY_ACME_EMAIL`, uses `tls-acme` fragment; requires public 80/443.
@@ -49,11 +51,11 @@ What it does
   1. **Bring your own CA** — copies your CA into `caddy/mtls/ca.crt`.
   2. **Generate new** — creates a CA + `client-admin` cert/key in `caddy/mtls` for browser/API access.
   - Enables the `caddy` compose profile automatically when you leave Caddy on.
-- Builds and/or starts the Docker stack (calls `docker compose [--profile caddy] build --pull` then `up -d`) unless you skip with flags.
+- Builds and starts critical Compose services with bounded waiting, checks MySQL, migrations, runner health, the encrypted active signer, the complete wrapper matrix, local `/healthz`, local `/readyz`, and `PUBLIC_BASE_URL/readyz`, then prints `READY` plus the exact browser URL. Any critical failure prints `INCOMPLETE` and exits non-zero.
 
 Useful flags
 
-- `--prepare-only` — write `.env` and create data dirs, skip build/up.
+- `--prepare-only` — write `.env`, create data dirs and signing material, skip build/up, retain the private key with mode `0600`, print `INCOMPLETE`, and exit 2. Rerun normally to continue.
 - `--no-build` / `--no-up` — control compose phases separately.
 - `--non-interactive` — never prompt; combine with the flags below to supply values.
 - `--data-root PATH` — set `DATA_ROOT` without prompting.
@@ -62,6 +64,7 @@ Useful flags
 - `--caddy-domain DOMAIN` — seed `CADDY_DOMAIN`.
 - TLS options: `--tls-mode 1|2|3`, `--acme-email`, `--tls-cert-path`, `--tls-key-path`, `--tls-cert`, `--tls-key`, `--tls-sans`.
 - mTLS options: `--mtls-mode 1|2`, `--mtls-ca-path`, `--mtls-ca-cn`, `--mtls-client-cn`, `--mtls-required` / `--mtls-optional`.
+- `--skip-public-ready` — explicit staged-deployment bypass for the public readiness probe. Local readiness remains mandatory and the report marks the public check as bypassed.
 - Set `ENV_FILE=/path/to/custom.env` to write somewhere other than `.env`.
 
 Examples
@@ -80,7 +83,7 @@ Heads-up for non-interactive runs
 - Default data root is `/var/docker_data/<domain>/...`; override with `--data-root` when running as non-root or keeping data inside the repo for throwaway VMs. Use a dedicated path for real deployments.
 - First build pulls `mysql:8.0` and `php:8.2-apache`; initial download can take a few minutes.
 
-You can rerun `bin/setup.sh` anytime; it keeps existing values unless you supply different answers/flags.
+You can rerun `bin/setup.sh` anytime; it preserves existing secrets and accepts an already-matching encrypted signer/artifact fleet. It fails closed instead of rotating or overwriting mismatched keys, mixed versions, incomplete matrices, or multiple active database signers.
 
 ## Environment
 
@@ -127,6 +130,7 @@ It checks the git worktree, fast-forwards from the configured upstream, optional
 
 - Starts `api`, `auth-runner`, and `mysql`. Add `--profile caddy` for the TLS proxy (bin/setup.sh toggles this when you keep Caddy enabled).
 - API defaults to `http://localhost:8488`.
+- Setup dashboard: `/admin/setup`. It blocks the normal console until critical infrastructure is ready and the atomic first-owner claim completes. Afterward it remains the provider-auth/first-host/first-sync checklist, mirrored by a compact dashboard card.
 - Admin dashboard: `/admin/` (login-first once admin users exist). With bundled Caddy, client certs are required for `/admin*`.
 - Runner verification is enabled by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`). Leaving that env blank keeps existing verified auth readable but blocks every canonical-changing store. The API keeps canonical Codex/Claude auth fresh from a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default 300s) instead of blocking wrapper startup. Admin seed/admin upload paths run through the same strict runner validation/update path as host `/auth` stores, so all require a configured, reachable runner and a positive live verdict. Set `AUTH_RUNNER_SHARED_SECRET` and matching `RUNNER_SHARED_SECRET` to authenticate API->runner calls.
 - Pending migrations are applied at boot (`RUN_MIGRATIONS_ON_BOOT`, default on), so a deploy of a version that adds schema needs no separate step. Set it to `0` only when you apply them out of band with `node dist/migrate.js`; startup still fails closed while a migration is pending. API startup also fails closed if the required `claude_artifacts` table is absent.

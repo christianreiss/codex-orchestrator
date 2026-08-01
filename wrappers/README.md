@@ -28,11 +28,11 @@ store, publishes immutable version directories by atomic rename, then merges
 the platform manifests without dropping rollback builds. Override `OUTROOT`
 or `PUBLISH_ROOT` only when intentionally staging or publishing elsewhere.
 
-Key bootstrap (one-time, per environment):
+Fresh-install key bootstrap and publication are owned by `bin/setup.sh`. For an
+isolated build test, pass a generated public key without modifying tracked files:
 
 ```
-../scripts/wrapper-v2-init-keys.sh
-make pubkey       # copy generated pubkey into the Go embed slot
+make release PUBLIC_KEY_FILE=/path/to/installation-signing.ed25519.pub
 ```
 
 See `docs/wrapper-v2-architecture.md`.

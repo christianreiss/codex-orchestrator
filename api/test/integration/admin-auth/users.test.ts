@@ -80,6 +80,27 @@ describe('POST /admin/users', () => {
     await app.close();
   });
 
+  it('serializes concurrent first-owner claims and creates exactly one owner', async () => {
+    const { app, store } = await buildAdminTestApp();
+    const claim = (username: string) => app.inject({
+      method: 'POST',
+      url: '/admin/users',
+      payload: {
+        name: username,
+        username,
+        email: `${username}@example.test`,
+        password: 'password-long-enough',
+        access_level: 'owner',
+      },
+    });
+    const responses = await Promise.all([claim('owner-one'), claim('owner-two')]);
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+    expect(store.users).toHaveLength(1);
+    expect(store.users[0]?.accessLevel).toBe('owner');
+    expect(store.users[0]?.active).toBe(1);
+    await app.close();
+  });
+
   it('returns 422 when validation fails (short password)', async () => {
     const { app, store, sessionToken } = await buildAdminTestApp();
     const ownerId = await seedOwner(store);

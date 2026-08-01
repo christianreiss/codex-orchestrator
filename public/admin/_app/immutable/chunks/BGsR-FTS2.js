@@ -1,0 +1,1 @@
+import{t as e}from"./CTtC_Ccw.js";import{n as t}from"./Bm-zZCw5.js";function n(){return t.get(`/admin/setup/status`)}function r(t=!0){return e({queryKey:[`setup`,`status`],queryFn:n,enabled:t,staleTime:1e4,refetchInterval:3e4})}export{r as n,n as t};

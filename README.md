@@ -93,17 +93,18 @@ All you need is Docker and Docker Compose.
 bin/setup.sh
 ```
 
-That's it. The guided installer walks you through `.env` configuration, data directories, TLS setup, and (unless you opt out) builds and starts the whole stack. See [`docs/INSTALL.md`](docs/INSTALL.md) for non-interactive flags and advanced options.
+That's it. The guided installer generates every installation-owned secret, builds a four-platform `cxx` fleet trusted only by this installation, starts the stack, and verifies local plus public readiness. It prints `READY` and the exact `/admin/setup` URL only after every critical check passes; partial runs print `INCOMPLETE` and exit non-zero. See [`docs/INSTALL.md`](docs/INSTALL.md) for non-interactive flags and staged-deployment options.
 
 ### Onboard your first host
 
-1. **Upload your auth** — go to Admin and upload your canonical `~/.codex/auth.json`. You only do this once.
-2. **Register a host** — Admin, Hosts, New Host. You'll get an installer command.
-3. **Run the installer** on the target machine:
+1. **Create the first owner** — open the `/admin/setup` URL printed by `bin/setup.sh`. The unclaimed owner endpoint is intentionally public only while no admin exists, so do not expose an unclaimed installation.
+2. **Upload your auth** — follow the persistent setup checklist to seed canonical Codex and/or Claude credentials. You only do this once per configured engine.
+3. **Register a host** — Admin, Hosts, New Host. You'll get an installer command.
+4. **Run the installer** on the target machine:
    ```bash
    curl https://your-server/install/<token> | bash
    ```
-4. **Done.** Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both aliases backed by one `cxx` install.
+5. **Done.** The checklist clears after the first successful sync. Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both aliases backed by one `cxx` install.
 
 Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback).
 On insecure hosts, every auth-aware cdx/clx invocation shares a session lease;

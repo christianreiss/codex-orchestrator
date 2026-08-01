@@ -77,7 +77,7 @@ export async function registerAdminUsersRoutes(
     { preHandler: [requireAdminOrBootstrap, requireUserManagementRole] },
     async (req: FastifyRequest) => {
       const body = createSchema.parse((req.body ?? {}) as Record<string, unknown>);
-      const user = await users.create({
+      const input = {
         name: body.name,
         username: body.username,
         email: body.email,
@@ -85,7 +85,10 @@ export async function registerAdminUsersRoutes(
         access_level: body.access_level,
         active:
           typeof body.active === 'boolean' ? body.active : body.active === undefined ? true : Boolean(body.active),
-      });
+      };
+      const user = req.admin
+        ? await users.create(input)
+        : await users.createFirstOwner(input);
       return ok({ user });
     },
   );

@@ -411,9 +411,11 @@ callers.
 ## Verifying a deployment
 
 1. `cd wrappers && make cxx && make test` — builds the common binary and runs Go tests.
-2. `scripts/wrapper-v2-init-keys.sh` followed by `cd wrappers && make pubkey` —
-   one-time per environment to generate + persist the Ed25519 signing key and
-   embed the public key into the common binary.
+2. On a fresh installation, `bin/setup.sh` generates the Ed25519 pair, passes
+   the public PEM through `PUBLIC_KEY_FILE` linker injection for the complete
+   platform matrix, imports the private key encrypted, proves read-back and a
+   signature round-trip, then removes plaintext. It does not rewrite tracked
+   `pubkey.pem` and refuses automatic rotation or mixed existing artifacts.
 
 ## Source references
 

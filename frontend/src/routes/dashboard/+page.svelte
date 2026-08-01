@@ -14,6 +14,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import { Button } from "$lib/components/ui/button";
   import { base } from "$app/paths";
+  import OnboardingCard from "./OnboardingCard.svelte";
 
   const overview = overviewQuery();
 
@@ -82,6 +83,7 @@
 </PageHeader>
 
 <div class="flex flex-col gap-6">
+  <OnboardingCard />
   <!-- Fleet + latest-version stat cards -->
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
     <StatCard

@@ -2,7 +2,7 @@
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
 verified: 2026-07-02
-sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -83,6 +83,8 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 | Method | Route | Source |
 |--------|-------|--------|
 | GET | `/admin/auth/status` | api/src/routes/admin/auth/index.ts |
+| GET | `/admin/setup/status` | api/src/routes/admin/setup/index.ts |
+| POST | `/admin/setup/owner` | api/src/routes/admin/setup/index.ts |
 | POST | `/admin/auth/login` | api/src/routes/admin/auth/index.ts |
 | POST | `/admin/auth/login/method` | api/src/routes/admin/auth/index.ts |
 | POST | `/admin/auth/logout` | api/src/routes/admin/auth/index.ts |
@@ -291,7 +293,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | GET | `/healthz` | api/src/routes/health.ts |
 | GET | `/readyz` | api/src/routes/health.ts |
 
-`/healthz` and `/readyz` are unauthenticated liveness/readiness probes — both return `{ ok: true, ts }`.
+`/healthz` is a pure unauthenticated liveness probe. `/readyz` is unauthenticated but returns `503` with secret-free per-check detail until migrations, the runner, encrypted signer, wrapper matrix, and Public Base URL are ready.
 
 ### OpenAI- and Anthropic-compatible APIs
 

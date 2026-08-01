@@ -1,6 +1,6 @@
-import { and, asc, eq, ne, or } from 'drizzle-orm';
+import { and, asc, count, eq, ne, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { adminPasswordResets, adminSessions, adminUsers, type AdminUser } from '../db/schema.js';
+import { adminPasswordResets, adminSessions, adminUsers, schemaMigrations, type AdminUser } from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { hash as hashPassword } from '../security/password.js';
 import { nowIso } from '../util/timestamp.js';
@@ -83,6 +83,8 @@ function normalizeBool(value: unknown, fallback = true): boolean {
 }
 
 export class AdminUsersService {
+  private firstOwnerClaim: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly db: Database,
     private readonly auth: AdminAuthService,
@@ -139,6 +141,57 @@ export class AdminUsersService {
     const sanitized = this.auth.sanitizeUser(created);
     await this.events.record({ type: 'user.created', payload: { user: sanitized } });
     return sanitized;
+  }
+
+  /**
+   * Atomically claims an empty installation. The in-process queue prevents
+   * request races in one API worker; the locked migration-ledger row provides
+   * the cross-worker serialization point without adding bootstrap schema.
+   */
+  async createFirstOwner(
+    input: Omit<CreateUserInput, 'access_level' | 'active'>,
+  ): Promise<SanitizedAdminUser> {
+    const previous = this.firstOwnerClaim;
+    let release!: () => void;
+    this.firstOwnerClaim = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      const name = normalizeName(input.name);
+      const username = normalizeUsername(input.username);
+      const email = normalizeEmail(input.email);
+      const password = typeof input.password === 'string' ? input.password : '';
+      this.auth.validatePasswordOrThrow(password);
+      const passwordHash = await hashPassword(password);
+      let insertedId = 0;
+
+      await this.db.transaction(async (tx) => {
+        await tx.select({ version: schemaMigrations.version }).from(schemaMigrations).limit(1).for('update');
+        const totals = await tx.select({ c: count() }).from(adminUsers);
+        if (Number(totals[0]?.c ?? 0) !== 0) {
+          throw new ConflictError('The first owner has already been claimed', 'first_owner_claimed');
+        }
+        const now = nowIso();
+        const result = await tx.insert(adminUsers).values({
+          name,
+          username,
+          email,
+          passwordHash,
+          accessLevel: ROLE_OWNER,
+          active: 1,
+          createdAt: now,
+          updatedAt: now,
+        });
+        insertedId = Number(result[0]?.insertId ?? 0);
+      });
+
+      const created = await this.auth.findUserById(insertedId);
+      if (!created) throw new NotFoundError('User not found after create', 'user_not_found');
+      const sanitized = this.auth.sanitizeUser(created);
+      await this.events.record({ type: 'user.created', payload: { user: sanitized, bootstrap: true } });
+      return sanitized;
+    } finally {
+      release();
+    }
   }
 
   async update(id: number, input: UpdateUserInput): Promise<SanitizedAdminUser> {

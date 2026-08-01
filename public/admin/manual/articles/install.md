@@ -1,8 +1,8 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-07-01
-sources: README.md, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/install/index.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/hosts/index.ts, api/src/security/keyring.ts, scripts/wrapper-v2-init-keys.sh
+verified: 2026-08-01
+sources: README.md, bin/setup.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, wrappers/Makefile
 ---
 
 Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/setup.sh` walks you through first-time configuration and brings up the stack.
@@ -30,10 +30,11 @@ docker compose --profile caddy up -d
 
 ## First boot
 
-1. **Clone and run setup.** `bin/setup.sh` prompts for `.env` values (public base URL, admin access mode, runner secret, TLS material), writes `.env` in the repo root, and calls `docker compose up -d`.
+1. **Clone and run setup.** `bin/setup.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
 2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
-3. **No admins, no gating.** While `AdminAuthService.isEnforced()` returns false (i.e. `admin_users` is empty), the admin UI serves the first-run screens that let you create the initial admin. The moment you create one, session enforcement flips on for everyone.
-4. **Wrapper signing key.** Run `scripts/wrapper-v2-init-keys.sh` once per environment to generate the Ed25519 keypair used to sign per-host wrapper configs. The keypair is stored in the `wrapper_signing_keys` table by `wrapper-signing-key.ts`. Then `cd wrappers && make pubkey` embeds the public key into the Go binaries at build time.
+3. **Claim the first owner.** `/admin/setup` is the only console surface for an empty install. The claim is serialized, always creates one active owner, and signs it in immediately. Do not expose an unclaimed installation.
+4. **Finish operational onboarding.** Provider auth and the first host do not block the console, but remain in `/admin/setup` and on the dashboard until verified canonical auth, host registration, and first sync are present.
+5. **Wrapper signing lifecycle.** Setup injects the generated public key through Go linker data without modifying tracked `pubkey.pem`, imports the private PEM as a secretbox envelope, verifies DB read-back/signing, and only then removes plaintext. Existing installations are never auto-rotated; mismatches and mixed artifacts fail closed.
 
 ## Environment variables the app reads
 
@@ -49,7 +50,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
 - `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Fails startup if `PUBLIC_BASE_URL` is missing.
-- `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`.
+- `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`; setup also selects the matching Caddy admin fragment so cookie mode is reachable without a client certificate.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
@@ -214,4 +215,4 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 - api/src/routes/admin/overview/index.ts (authUpload, seedCommand, runner probes)
 - api/src/routes/admin/hosts/index.ts (register, quick-register)
 - api/src/security/keyring.ts (encryption keyring)
-- scripts/wrapper-v2-init-keys.sh (Ed25519 keypair bootstrap)
+- bin/setup.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)

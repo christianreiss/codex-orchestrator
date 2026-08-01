@@ -48,6 +48,12 @@ await esbuild.build({
   outfile: resolve(dist, 'migrate.js'),
 });
 
+await esbuild.build({
+  ...sharedBuildOptions,
+  entryPoints: [resolve(root, 'src/ops/setup-signing-key.ts')],
+  outfile: resolve(dist, 'setup-signing-key.js'),
+});
+
 // The migration runner reads its SQL from `migrations/` next to the bundle —
 // `src/db/migrations` under tsx, `dist/migrations` in the image. Copy by
 // directory listing, never by an enumerated list: a migration that gets left
@@ -91,5 +97,5 @@ try {
 }
 
 console.log(
-  `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/migrations/ (${migrations.length} files)`,
+  `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/setup-signing-key.js, dist/migrations/ (${migrations.length} files)`,
 );

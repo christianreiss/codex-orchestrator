@@ -64,6 +64,7 @@ describe("refresh", () => {
       user: null,
       roles: [],
       loading: false,
+      unreachable: null,
     });
     assert.deepEqual(get(authStore), state);
   });
@@ -79,6 +80,7 @@ describe("refresh", () => {
       user: null,
       roles: [],
       loading: false,
+      unreachable: null,
     });
   });
 
@@ -88,6 +90,7 @@ describe("refresh", () => {
     };
     await assert.rejects(authActions.refresh(), /boom/);
     assert.equal(get(authStore).loading, false);
+    assert.equal(get(authStore).unreachable, "boom");
   });
 
   it("prefers the roles the status payload carries itself", async () => {

@@ -190,6 +190,11 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `update` / `--update` | Self-update now (verifies SHA256 before swapping) |
 | `uninstall` / `--uninstall` | Take the effective-`CODEX_HOME` exclusive auth-maintenance lease, remove Codex-local credentials/state, and request engine-scoped server deletion. An authoritative response with Claude remaining removes only `cdx` and retains `cxx`, `clx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another cdx auth session is active and on multi-user hosts without sudo. |
 
+Fresh-install binaries embed the installation-specific verification key via
+the `PUBLIC_KEY_FILE` build path used by `bin/setup.sh`; the tracked fallback
+PEM is not edited. A config signed by another installation therefore fails the
+same signature check as any other untrusted payload.
+
 ### Terminal presentation
 
 Interactive terminals at least 40 columns wide receive the responsive CDX card:

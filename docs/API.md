@@ -528,7 +528,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 
 ## Observability
 - `GET /healthz` — unauthenticated liveness probe: `{ok:true, ts}`. One of the paths that bypasses the global rate-limit bucket.
-- `GET /readyz` — unauthenticated readiness probe with the same `{ok:true, ts}` body.
+- `GET /readyz` — unauthenticated derived readiness probe. Returns `200` only when migrations, runner health, one decryptable encrypted wrapper signer, the complete same-version four-platform wrapper matrix, and `PUBLIC_BASE_URL` are ready; otherwise returns `503` with safe per-check detail. `/healthz` remains pure liveness.
 - `GET /versions` — same versions block as `/auth` (`status:ok`, `data:{...}`) when API kill switch is off.
 - `POST /admin/versions/check` — force fresh GitHub release lookup (bypass cache) and return `{available_client, versions}`.
 - `POST /admin/codex-version` — set fleet Codex version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`.
@@ -550,7 +550,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/auth/password/reset` — consume a reset token with `{token, new_password, confirm_password}`.
   - `GET /admin/passkeys` / `POST /admin/passkeys/{id}/name` / `DELETE /admin/passkeys/{id}` — list, rename, and delete the authenticated admin user’s passkeys.
   - `GET /admin/users` — list admin users.
-  - `POST /admin/users` — create admin user (first user must be admin).
+  - `GET /admin/setup/status` — secret-free infrastructure checks, configured engines, canonical-auth presence, host/sync counts, warnings, and recommended next actions. Public only while `admin_users` is empty; afterward requires an admin session.
+  - `POST /admin/setup/owner` — one-time unauthenticated first-owner claim. Serializes the zero-user check, creates a fixed active `owner`, and immediately issues the normal admin session cookie; later claims return `409 first_owner_claimed`.
+  - `POST /admin/users` — create admin user. The legacy empty-install bootstrap path uses the same atomic fixed-owner claim.
   - `POST /admin/users/{id}` — update admin user.
   - `DELETE /admin/users/{id}` — delete admin user (blocked if last active admin).
   - `POST /admin/users/wipe` — wipe all admin users (requires confirmation `confirm:"WIPE"`).

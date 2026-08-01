@@ -48,7 +48,7 @@ Beyond that, there is no further capability matrix between "has session" and "do
 
 ## First-run path
 
-`AdminAuthService.isEnforced()` returns false until at least one active `owner` or `admin` exists. While it's false, the bootstrap path lets you create the initial admin without a session — the create-user route uses a `requireAdminOrBootstrap` preHandler that allows the call when there are zero admins yet. The first user must be created with `access_level` set to `owner` or `admin` (`api/src/services/admin-users.ts` enforces this).
+`AdminAuthService.isEnforced()` returns false until at least one active `owner` or `admin` exists. While `admin_users` is empty, `/admin/setup/owner` and the legacy `POST /admin/users` bootstrap path enter the same serialized zero-user claim. It locks the installation bootstrap point, rechecks inside the lock, creates a fixed active `owner`, and rejects every concurrent or later unauthenticated claim. Successful `/admin/setup/owner` creation immediately issues the normal session cookie.
 
 ## Managing users in the UI
 

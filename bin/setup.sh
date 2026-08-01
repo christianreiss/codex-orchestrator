@@ -8,10 +8,9 @@ info() { printf '[setup] %s\n' "$*"; }
 warn() { printf '[setup][warn] %s\n' "$*" >&2; }
 fatal() { printf '[setup][error] %s\n' "$*" >&2; exit 1; }
 
-COLOR_OK=""; COLOR_WARN=""; COLOR_RESET=""; COLOR_PROMPT=""
+COLOR_OK=""; COLOR_RESET=""; COLOR_PROMPT=""
 if [[ -t 1 ]]; then
   COLOR_OK="\033[32m\033[1m"
-  COLOR_WARN="\033[33m\033[1m"
   COLOR_RESET="\033[0m"
   COLOR_PROMPT="\033[36m\033[1m"
 fi
@@ -135,6 +134,7 @@ Options:
   --mtls-client-cn CN       Admin client CN when mtls-mode=2
   --mtls-required           Force mTLS required for /admin (default)
   --mtls-optional           Disable the mTLS requirement for /admin
+  --skip-public-ready       Allow a staged install to finish without probing PUBLIC_BASE_URL
   -h, --help       Show this help
 EOF
 }
@@ -160,6 +160,7 @@ parse_args() {
   MTLS_CA_PATH_ARG=""
   MTLS_CA_CN_ARG=""
   MTLS_CLIENT_CN_ARG=""
+  SKIP_PUBLIC_READY=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --prepare-only) BUILD_IMAGES=0; START_STACK=0 ;;
@@ -185,6 +186,7 @@ parse_args() {
       --mtls-ca-path) MTLS_CA_PATH_ARG="$2"; shift ;;
       --mtls-ca-cn) MTLS_CA_CN_ARG="$2"; shift ;;
       --mtls-client-cn) MTLS_CLIENT_CN_ARG="$2"; shift ;;
+      --skip-public-ready) SKIP_PUBLIC_READY=1 ;;
       -h|--help) usage; exit 0 ;;
       *) fatal "Unknown option: $1" ;;
     esac
@@ -264,7 +266,7 @@ ensure_docker() {
 
 check_requirements() {
   ensure_docker
-  local required=(docker grep awk cp chmod mkdir mktemp tail tr head)
+  local required=(docker grep awk cp chmod mkdir mktemp tail tr head curl openssl python3 make base64 go)
   for bin in "${required[@]}"; do
     require_cmd "$bin"
   done
@@ -286,7 +288,7 @@ configure_caddy() {
 
   local mtls_default_choice mtls_env_val
   mtls_env_val="$(read_env_value "ADMIN_ACCESS_MODE" "$env_file" || true)"
-  if [[ "$mtls_env_val" == "none" ]]; then
+  if [[ "$mtls_env_val" == "cookie" || "$mtls_env_val" == "open" || "$mtls_env_val" == "none" ]]; then
     mtls_default_choice="n"
   else
     mtls_default_choice="y"
@@ -294,9 +296,11 @@ configure_caddy() {
 
   if ask_yes_no "Require client mTLS for /admin?" "$mtls_default_choice" "$MTLS_REQUIRED_ARG"; then
     set_env_value "ADMIN_ACCESS_MODE" "mtls" "$env_file"
+    set_env_value "CADDY_ADMIN_FRAGMENT" "/etc/caddy/admin-mtls.caddy" "$env_file"
   else
-    set_env_value "ADMIN_ACCESS_MODE" "none" "$env_file"
-    info "mTLS requirement disabled; ensure /admin is protected another way (VPN, firewall)."
+    set_env_value "ADMIN_ACCESS_MODE" "cookie" "$env_file"
+    set_env_value "CADDY_ADMIN_FRAGMENT" "/etc/caddy/admin-cookie.caddy" "$env_file"
+    info "mTLS requirement disabled; cookie sessions protect /admin after the first-owner claim."
   fi
 
   if ! ask_yes_no "Enable bundled Caddy TLS/mTLS reverse proxy on ports 80/443?" "y" "$CADDY_FORCE"; then
@@ -588,7 +592,7 @@ ensure_installation_id() {
 }
 
 ensure_db_credentials() {
-  local env_file="$1"
+  local env_file="$1" fresh_env="${2:-0}"
   local db_user db_pass db_root db_name updated=0
 
   db_user="$(read_env_value "DB_USERNAME" "$env_file" || true)"
@@ -596,19 +600,19 @@ ensure_db_credentials() {
   db_root="$(read_env_value "DB_ROOT_PASSWORD" "$env_file" || true)"
   db_name="$(read_env_value "DB_DATABASE" "$env_file" || true)"
 
-  if [[ -z "$db_user" || "$db_user" == "codex" ]]; then
+  if [[ -z "$db_user" || ( "$fresh_env" == "1" && "$db_user" == "codex" ) ]]; then
     db_user="codex$(random_secret 6 | tr '[:upper:]' '[:lower:]')"
     set_env_value "DB_USERNAME" "$db_user" "$env_file"
     updated=1
   fi
 
-  if [[ -z "$db_pass" || "$db_pass" == "codex-pass" ]]; then
+  if [[ -z "$db_pass" || ( "$fresh_env" == "1" && "$db_pass" == "codex-pass" ) ]]; then
     db_pass="$(random_secret 24)"
     set_env_value "DB_PASSWORD" "$db_pass" "$env_file"
     updated=1
   fi
 
-  if [[ -z "$db_root" || "$db_root" == "root-pass" ]]; then
+  if [[ -z "$db_root" || ( "$fresh_env" == "1" && "$db_root" == "root-pass" ) ]]; then
     db_root="$(random_secret 24)"
     set_env_value "DB_ROOT_PASSWORD" "$db_root" "$env_file"
     updated=1
@@ -626,6 +630,23 @@ ensure_db_credentials() {
     info "DB_PASSWORD: $(mask_secret "$db_pass")"
     info "DB_ROOT_PASSWORD: $(mask_secret "$db_root")"
   fi
+}
+
+ensure_runner_shared_secret() {
+  local env_file="$1" api_secret runner_secret shared
+  api_secret="$(read_env_value "AUTH_RUNNER_SHARED_SECRET" "$env_file" || true)"
+  runner_secret="$(read_env_value "RUNNER_SHARED_SECRET" "$env_file" || true)"
+  if [[ -n "$api_secret" && -n "$runner_secret" && "$api_secret" != "$runner_secret" ]]; then
+    fatal "AUTH_RUNNER_SHARED_SECRET and RUNNER_SHARED_SECRET differ; refusing to choose one automatically. Make them identical and rerun."
+  fi
+  shared="${api_secret:-$runner_secret}"
+  if [[ -z "$shared" ]]; then
+    shared="$(random_secret 48)"
+    [[ -n "$shared" ]] || fatal "Could not generate the runner shared secret"
+  fi
+  set_env_value "AUTH_RUNNER_SHARED_SECRET" "$shared" "$env_file"
+  set_env_value "RUNNER_SHARED_SECRET" "$shared" "$env_file"
+  chmod 600 "$env_file" 2>/dev/null || true
 }
 
 ensure_data_dirs() {
@@ -663,6 +684,11 @@ ensure_base_urls() {
   [[ -z "$codex_url" ]] && codex_url="https://${default_domain}"
   prompt_value codex_url "External HTTPS URL for Codex Auth API (used by hosts)" "$codex_url" "$CODEX_URL_ARG"
   set_env_value "CODEX_SYNC_BASE_URL" "$codex_url" "$env_file"
+  local public_url
+  public_url="$(read_env_value "PUBLIC_BASE_URL" "$env_file" || true)"
+  if [[ -z "$public_url" || "$public_url" == *"example.com"* ]]; then
+    set_env_value "PUBLIC_BASE_URL" "$codex_url" "$env_file"
+  fi
 
   # Extract host from codex_url for downstream defaults.
   host_from_url="${codex_url#*://}"
@@ -847,6 +873,138 @@ docker_healthcheck() {
   fatal "Docker daemon not reachable; start Docker and rerun"
 }
 
+ensure_wrapper_signing_material() {
+  local data_root="$1"
+  WRAPPER_KEY_DIR="$data_root/store/wrapper/v2/keys"
+  WRAPPER_PRIVATE_KEY="$WRAPPER_KEY_DIR/installation-signing.ed25519"
+  WRAPPER_PUBLIC_KEY="$WRAPPER_KEY_DIR/installation-signing.ed25519.pub"
+  ensure_dir "$WRAPPER_KEY_DIR"
+  chmod 700 "$WRAPPER_KEY_DIR" 2>/dev/null || true
+
+  if [[ -f "$WRAPPER_PRIVATE_KEY" && ! -f "$WRAPPER_PUBLIC_KEY" ]]; then
+    fatal "Wrapper private key exists without its public key at $WRAPPER_KEY_DIR; recover the matching public key before rerunning."
+  fi
+  local legacy_public="$WRAPPER_KEY_DIR/signing.ed25519.pub"
+  if [[ ! -f "$WRAPPER_PUBLIC_KEY" && -f "$legacy_public" ]]; then
+    cp "$legacy_public" "$WRAPPER_PUBLIC_KEY"
+    chmod 644 "$WRAPPER_PUBLIC_KEY"
+    info "Reused the existing installation public key; wrapper trust remains unchanged"
+  elif [[ ! -f "$WRAPPER_PUBLIC_KEY" ]]; then
+    ensure_openssl
+    openssl genpkey -algorithm Ed25519 -outform PEM -out "$WRAPPER_PRIVATE_KEY"
+    openssl pkey -in "$WRAPPER_PRIVATE_KEY" -pubout -outform PEM -out "$WRAPPER_PUBLIC_KEY"
+    chmod 600 "$WRAPPER_PRIVATE_KEY"
+    chmod 644 "$WRAPPER_PUBLIC_KEY"
+    info "Generated installation-specific wrapper signing keypair"
+  elif [[ -f "$WRAPPER_PRIVATE_KEY" ]]; then
+    local derived existing
+    derived="$(openssl pkey -in "$WRAPPER_PRIVATE_KEY" -pubout -outform DER | openssl base64 -A)"
+    existing="$(openssl pkey -pubin -in "$WRAPPER_PUBLIC_KEY" -outform DER | openssl base64 -A)"
+    [[ "$derived" == "$existing" ]] || fatal "Wrapper private/public key mismatch in $WRAPPER_KEY_DIR"
+  fi
+}
+
+wrapper_version() {
+  awk -F'[ ?=]+' '/^VERSION[[:space:]]*\?=/{print $3; exit}' "$ROOT_DIR/wrappers/Makefile"
+}
+
+publish_wrapper_matrix() {
+  local data_root="$1" version publish_root present=0 complete=1 key_b64 platform binary manifest current
+  version="$(wrapper_version)"
+  [[ -n "$version" ]] || fatal "Could not determine wrapper VERSION from wrappers/Makefile"
+  publish_root="$data_root/store/wrapper/v2/bin"
+  key_b64="$(base64 -w0 "$WRAPPER_PUBLIC_KEY" 2>/dev/null || base64 "$WRAPPER_PUBLIC_KEY" | tr -d '\n')"
+  for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+    manifest="$publish_root/cxx/$platform/manifest.json"
+    binary="$publish_root/cxx/$platform/v${version}/cxx"
+    [[ -e "$manifest" || -e "$binary" ]] && present=1
+    if [[ ! -f "$manifest" || ! -x "$binary" ]]; then complete=0; continue; fi
+    current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("current", ""))' "$manifest" 2>/dev/null || true)"
+    [[ "$current" == "$version" ]] || complete=0
+    if ! grep -aFq "$key_b64" "$binary" && ! grep -aFq "$(cat "$WRAPPER_PUBLIC_KEY")" "$binary"; then
+      complete=0
+    fi
+  done
+  if (( complete )); then
+    info "Existing four-platform wrapper matrix matches signing key and version $version"
+    return
+  fi
+  if (( present )); then
+    fatal "Existing wrapper artifacts are incomplete, mixed, or signed for another installation. Refusing automatic overwrite; restore the matching matrix or publish a new explicit version."
+  fi
+  [[ -f "$WRAPPER_PRIVATE_KEY" ]] || fatal "No private signing key remains and no wrapper matrix exists; restore $WRAPPER_PRIVATE_KEY (mode 0600) or recover the installation explicitly."
+  local stage
+  stage="$(mktemp -d)"
+  info "Building installation-trusted cxx $version for four platforms"
+  make -C wrappers release VERSION="$version" OUTROOT="$stage" PUBLIC_KEY_FILE="$WRAPPER_PUBLIC_KEY"
+  make -C wrappers publish-release VERSION="$version" OUTROOT="$stage" PUBLISH_ROOT="$publish_root"
+  rm -rf "$stage"
+}
+
+wait_for_url() {
+  local url="$1" attempts="${2:-45}" ca_args=() body
+  if [[ -f "${DATA_ROOT_SELECTED}/caddy/tls/ca.crt" && "$url" == https://* ]]; then
+    ca_args=(--cacert "${DATA_ROOT_SELECTED}/caddy/tls/ca.crt")
+  fi
+  for ((i=1; i<=attempts; i++)); do
+    if body="$(curl -fsS --max-time 8 "${ca_args[@]}" "$url" 2>/dev/null)"; then
+      printf '%s' "$body"
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+import_wrapper_signer() {
+  local private_in_container="/app/storage/wrapper/v2/keys/installation-signing.ed25519"
+  local public_in_container="/app/storage/wrapper/v2/keys/installation-signing.ed25519.pub"
+  if [[ -f "$WRAPPER_PRIVATE_KEY" ]]; then
+    info "Importing wrapper private key into encrypted database storage"
+    "${COMPOSE[@]}" run --rm -T api node setup-signing-key.js "$private_in_container" "$public_in_container"
+    rm -f -- "$WRAPPER_PRIVATE_KEY"
+    info "Encrypted signing-key read-back succeeded; removed the temporary plaintext private key"
+  else
+    info "Plaintext signing key already removed; verifying the active signer through readiness"
+  fi
+}
+
+verify_stack() {
+  local codex_url="$1" local_health local_ready public_ready="skipped" failed=0 db_status migrations_status runner_status signer_status wrapper_status
+  local_health="$(wait_for_url "http://127.0.0.1:8488/healthz" 45 || true)"
+  [[ -n "$local_health" ]] || failed=1
+  local_ready="$(wait_for_url "http://127.0.0.1:8488/readyz" 45 || true)"
+  [[ -n "$local_ready" ]] || failed=1
+  if (( ! SKIP_PUBLIC_READY )); then
+    public_ready="$(wait_for_url "${codex_url%/}/readyz" 45 || true)"
+    [[ -n "$public_ready" ]] || failed=1
+  fi
+
+  if "${COMPOSE[@]}" exec -T mysql sh -c "mysqladmin ping -h 127.0.0.1 -uroot -p\"\$MYSQL_ROOT_PASSWORD\" --silent" >/dev/null 2>&1; then db_status=OK; else db_status=FAIL; failed=1; fi
+  if "${COMPOSE[@]}" exec -T api node migrate.js --check >/dev/null 2>&1; then migrations_status=OK; else migrations_status=FAIL; failed=1; fi
+  if "${COMPOSE[@]}" exec -T auth-runner python -c 'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=5).status == 200' >/dev/null 2>&1; then runner_status=OK; else runner_status=FAIL; failed=1; fi
+  if [[ -n "$local_ready" ]] && python3 -c 'import json,sys; body=json.load(sys.stdin); raise SystemExit(0 if any(c.get("id")==sys.argv[1] and c.get("ok") for c in body.get("checks", [])) else 1)' signer <<<"$local_ready"; then signer_status=OK; else signer_status=FAIL; failed=1; fi
+  if [[ -n "$local_ready" ]] && python3 -c 'import json,sys; body=json.load(sys.stdin); raise SystemExit(0 if any(c.get("id")==sys.argv[1] and c.get("ok") for c in body.get("checks", [])) else 1)' wrappers <<<"$local_ready"; then wrapper_status=OK; else wrapper_status=FAIL; failed=1; fi
+  printf '\nSetup verification:\n'
+  printf '  %-24s %s\n' 'MySQL' "$db_status"
+  printf '  %-24s %s\n' 'Migrations' "$migrations_status"
+  printf '  %-24s %s\n' 'Auth runner' "$runner_status"
+  printf '  %-24s %s\n' 'Active encrypted signer' "$signer_status"
+  printf '  %-24s %s\n' 'Four wrapper platforms' "$wrapper_status"
+  printf '  %-24s %s\n' 'API liveness' "$(if [[ -n "$local_health" ]]; then echo OK; else echo FAIL; fi)"
+  printf '  %-24s %s\n' 'Local readiness' "$(if [[ -n "$local_ready" ]]; then echo OK; else echo FAIL; fi)"
+  if (( SKIP_PUBLIC_READY )); then
+    printf '  %-24s %s\n' 'Public readiness' 'BYPASSED (staged deployment)'
+  else
+    printf '  %-24s %s\n' 'Public readiness' "$(if [[ -n "$public_ready" ]]; then echo OK; else echo FAIL; fi)"
+  fi
+  if (( failed )); then
+    printf '\nINCOMPLETE\n' >&2
+    return 1
+  fi
+  printf '\nREADY\nOpen %s/admin/setup in your browser.\n' "${codex_url%/}"
+}
+
 start_stack() {
   local compose=("${COMPOSE[@]}")
   local profile_args=()
@@ -859,8 +1017,14 @@ start_stack() {
   fi
 
   if (( START_STACK )); then
-    info "Starting stack (docker compose ${profile_args[*]} up -d)..."
-    "${compose[@]}" "${profile_args[@]}" up -d
+    info "Starting critical stack services with bounded Compose waiting..."
+    local core_services=(mysql auth-runner api)
+    (( USE_CADDY )) && core_services+=(caddy)
+    local up_args=(up -d)
+    if "${compose[@]}" up --help | grep -q -- '--wait'; then up_args+=(--wait --wait-timeout 180); fi
+    "${compose[@]}" "${profile_args[@]}" "${up_args[@]}" "${core_services[@]}"
+    # Missing provider auth is onboarding state, not infrastructure failure.
+    "${compose[@]}" "${profile_args[@]}" up -d quota-cron
     info "Stack status:"
     "${compose[@]}" ps
   else
@@ -889,7 +1053,8 @@ main() {
 
   ensure_encryption_key "$env_path"
   ensure_installation_id "$env_path"
-  ensure_db_credentials "$env_path"
+  ensure_db_credentials "$env_path" "$created_env"
+  ensure_runner_shared_secret "$env_path"
   ensure_env_perms "$env_path"
 
   local default_data_root="/var/docker_data/codex-auth.example.com"
@@ -900,6 +1065,7 @@ main() {
   ensure_base_urls "$env_path"
 
   configure_caddy "$env_path" "$data_root"
+  ensure_wrapper_signing_material "$data_root"
 
   local codex_url runner_url
   codex_url="$(read_env_value "CODEX_SYNC_BASE_URL" "$env_path" || true)"
@@ -909,15 +1075,24 @@ main() {
   ensure_env_perms "$env_path"
 
   if (( START_STACK || BUILD_IMAGES )); then
+    publish_wrapper_matrix "$data_root"
     start_stack
-    printf '\nStack is up. Config saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
+    if (( START_STACK )); then
+      "${COMPOSE[@]}" run --rm -T api node migrate.js
+      import_wrapper_signer
+      verify_stack "$codex_url" || exit 1
+    else
+      printf '\nINCOMPLETE\n' >&2
+      fatal "Images/artifacts prepared but the stack was not started; rerun bin/setup.sh to continue."
+    fi
   else
-    info "Prep complete; Docker steps skipped (per flags)."
+    info "Preparation complete; plaintext wrapper key retained at $WRAPPER_PRIVATE_KEY with mode 0600."
     printf '\nConfig saved to %s (API URL: %s, runner URL: %s, data root: %s).\n' "$env_path" "$codex_url" "$runner_url" "$data_root"
+    printf '\nINCOMPLETE\n' >&2
+    exit 2
   fi
 
-  printf 'Next steps:\n'
-  printf '  - Upload your ~/.codex/auth.json via the admin dashboard (/admin/) and mint installer tokens per host.\n'
+  printf 'Next steps are tracked persistently at /admin/setup: create the first owner, seed provider auth, and register the first host.\n'
   if (( created_env )); then
     printf '\nNOTE: A fresh env file was generated; rerun this script anytime to change values (no manual edits needed).\n'
   fi

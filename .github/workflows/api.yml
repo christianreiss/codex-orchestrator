@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'api/**'
+      - 'bin/**'
       # The api suite is not confined to api/: its doc-truth, contract and
       # liveness scans open docs/, the Go wrappers, the frontend sources, the
       # manual articles under public/, runner/app.py, scripts/deploy.sh, the
@@ -24,6 +25,7 @@ on:
   pull_request:
     paths:
       - 'api/**'
+      - 'bin/**'
       # Same trees as `push`; GitHub Actions has no YAML anchors, so the list
       # is spelled twice and the test above requires both copies to carry it.
       - 'caddy/**'

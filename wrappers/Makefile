@@ -18,6 +18,14 @@ LDFLAGS := -s -w \
 	-X 'main.Commit=$(COMMIT)' \
 	-X 'main.BuildDate=$(DATE)'
 
+# Fresh installations pass an environment-local public key here. The key is
+# base64 encoded so it survives make/shell/ldflags parsing without touching
+# the tracked internal/signing/pubkey.pem fallback used by release CI.
+ifneq ($(strip $(PUBLIC_KEY_FILE)),)
+PUBLIC_KEY_B64 := $(shell base64 -w0 "$(PUBLIC_KEY_FILE)" 2>/dev/null || base64 "$(PUBLIC_KEY_FILE)" | tr -d '\n')
+LDFLAGS += -X 'github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing.buildPublicKeyB64=$(PUBLIC_KEY_B64)'
+endif
+
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
@@ -70,10 +78,10 @@ release:
 publish-release:
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/publish-release.py "$(OUTROOT)" "$(PUBLISH_ROOT)" "$$(echo "$(VERSION)" | sed 's/^v//')"
 
-# Materialize the embedded signing pubkey from storage/wrapper/v2/keys/signing.ed25519.pub.
-# Re-run after the operator rotates keys; commits both files.
+# Legacy developer helper for the tracked fallback key. Fresh installations use
+# PUBLIC_KEY_FILE and must not invoke this target or modify tracked key material.
 pubkey:
 	@if [ ! -f ../storage/wrapper/v2/keys/signing.ed25519.pub ]; then \
-		echo "missing storage/wrapper/v2/keys/signing.ed25519.pub — run scripts/wrapper-v2-init-keys.sh first" >&2; exit 1; \
+		echo "missing storage/wrapper/v2/keys/signing.ed25519.pub" >&2; exit 1; \
 	fi
 	@cp ../storage/wrapper/v2/keys/signing.ed25519.pub cxx/internal/signing/pubkey.pem
