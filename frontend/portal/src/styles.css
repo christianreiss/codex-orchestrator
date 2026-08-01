@@ -77,54 +77,6 @@
   }
 
   /**
-   * Presence.
-   *
-   * The bug this replaces was that colour alone carried the state and two
-   * different states were both green, so an unreachable agent looked live.
-   * Every state here differs in shape as well as colour, and the components
-   * pair each dot with a word. Only `listening` moves.
-   */
-  .presence-dot {
-    @apply relative inline-block h-2 w-2 shrink-0 rounded-full;
-    background: hsl(var(--muted-foreground));
-  }
-  .presence-dot--listening { background: hsl(var(--success)); }
-  .presence-dot--listening::after {
-    content: "";
-    @apply absolute rounded-full;
-    inset: -3px;
-    border: 1.5px solid hsl(var(--success) / .55);
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .presence-dot--listening::after { animation: presence-breathe 2.4s ease-in-out infinite; }
-  }
-  /* Hollow ring: alive, but nothing is listening. */
-  .presence-dot--idle {
-    background: transparent;
-    border: 1.5px solid hsl(var(--warning));
-  }
-  /* Struck through: no heartbeat. */
-  .presence-dot--offline { background: hsl(var(--muted-foreground) / .5); }
-  .presence-dot--offline::after {
-    content: "";
-    @apply absolute left-1/2 top-1/2 block;
-    width: 12px;
-    height: 1.5px;
-    background: hsl(var(--muted-foreground));
-    transform: translate(-50%, -50%) rotate(-45deg);
-  }
-  /* Square: terminal, not a live state at all. */
-  .presence-dot--ended {
-    @apply rounded-none;
-    background: hsl(var(--muted-foreground) / .6);
-  }
-
-  @keyframes presence-breathe {
-    0%, 100% { opacity: .9; transform: scale(1); }
-    50%      { opacity: .35; transform: scale(1.35); }
-  }
-
-  /**
    * Message bubbles. The tail is a two-shape hook: a round-cornered wedge in
    * the bubble colour, then a background-coloured circle that bites the outer
    * edge off it. Pure pseudo-elements, so no SVG and no inline style.
@@ -179,6 +131,69 @@
   /* Native <dialog>; ::backdrop cannot be styled from a Svelte component. */
   .portal-dialog { @apply w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-border bg-card p-0 text-card-foreground shadow-pop; }
   .portal-dialog::backdrop { background: hsl(222 47% 6% / .55); }
+}
+
+/**
+ * Presence.
+ *
+ * The bug this replaces was that colour alone carried the state and two
+ * different states were both green, so an unreachable agent looked live. Every
+ * state here differs in shape as well as colour, and the components pair each
+ * dot with a word. Only `listening` moves.
+ *
+ * Deliberately NOT inside `@layer components`. Tailwind tree-shakes layered
+ * rules whose class name never appears literally in the scanned source, and
+ * these are applied as `presence-dot--{presence}`. Inside the layer all four
+ * modifiers were silently dropped from the bundle and every agent rendered the
+ * same grey dot -- the exact bug this code exists to fix.
+ */
+.presence-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: .5rem;
+  height: .5rem;
+  border-radius: 9999px;
+  background: hsl(var(--muted-foreground));
+}
+.presence-dot--listening { background: hsl(var(--success)); }
+.presence-dot--listening::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 1.5px solid hsl(var(--success) / .55);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .presence-dot--listening::after { animation: presence-breathe 2.4s ease-in-out infinite; }
+}
+/* Hollow ring: alive, but nothing is listening. */
+.presence-dot--idle {
+  background: transparent;
+  border: 1.5px solid hsl(var(--warning));
+}
+/* Struck through: no heartbeat. */
+.presence-dot--offline { background: hsl(var(--muted-foreground) / .5); }
+.presence-dot--offline::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 12px;
+  height: 1.5px;
+  background: hsl(var(--muted-foreground));
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+/* Square: terminal, not a live state at all. */
+.presence-dot--ended {
+  border-radius: 0;
+  background: hsl(var(--muted-foreground) / .6);
+}
+
+@keyframes presence-breathe {
+  0%, 100% { opacity: .9; transform: scale(1); }
+  50%      { opacity: .35; transform: scale(1.35); }
 }
 
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }
