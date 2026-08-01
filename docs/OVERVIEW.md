@@ -76,10 +76,12 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - **`api/src/services/client-config.ts`** — renders/stores engine-scoped canonical client config from structured settings. Codex uses native `config.toml` `model` / `model_reasoning_effort`; Claude uses native `settings.json` `model` / `effortLevel` and deep-merges the fleet-owned paths. `/config/retrieve` bakes a per-host Codex copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry, plus a Codex-only BrowserOS MCP entry when the host toggle is enabled. A successfully injected Codex MCP entry also adds a `[[skills.config]]` entry selecting `skill-creator` with `enabled = false`, removing the built-in local workflow that would otherwise outrank fleet discovery.
 - **`api/src/services/chatgpt-usage.ts` + `api/src/ops/chatgpt-usage-worker.ts`** — uses canonical auth to poll ChatGPT quotas and capture normal plus Spark quota lanes. The `quota-cron` Compose sidecar polls immediately at startup and then on `CHATGPT_USAGE_CRON_INTERVAL` (default 15 minutes); its healthcheck follows a successful-refresh heartbeat rather than only process liveness.
 - Admin dashboard charts use local Chart.js assets (with zoom plugin) for inline quota and usage analytics on the main dashboard; history APIs now support richer range/interval filters for those graphs.
-- Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated) and a username-first flow that requires passkeys for passkey-enabled admins; when exactly one active admin user exists and that user has a passkey, the page opens the passkey prompt directly without username/password or an extra authenticate click. Password recovery starts from login and completes on `/admin/password/reset`; successful recovery expires sessions, reset tokens, and passkeys. Personal session controls live in the desktop sidebar account menu and the mobile navigation sheet: theme selection is always available, while authenticated users also get self-service password change (`/admin/account/password`), personal passkey management (`/admin/account/passkeys`), and logout. Admin users and roles stay under Settings > Users & access; personal passkeys no longer live there.
-- Host management now uses dedicated host detail pages at `/admin/hosts/{id}` (Action Items, Features, Stats, Infos) instead of the legacy host detail modal.
+- Admin dashboard supports login + role-based access once at least one active admin user exists; userless installs behave as before until the first admin is created. Login now uses a dedicated `/admin/login` page with server-side redirects (`/admin/` -> `/admin/login` when unauthenticated) and a username-first flow that requires passkeys for passkey-enabled admins; when exactly one active admin user exists and that user has a passkey, the page opens the passkey prompt directly without username/password or an extra authenticate click. Password recovery starts from login and completes on `/admin/password/reset`; successful recovery expires sessions, reset tokens, and passkeys. Personal session controls live in the desktop sidebar account menu and the mobile navigation sheet: theme selection is always available, while authenticated users also get self-service password change (`/admin/account/password`), personal passkey management (`/admin/account/passkeys`), and logout. Admin users and roles live in the direct `/admin/users` workspace; personal passkeys never live there.
+- Host management uses dedicated task-ordered pages at `/admin/hosts/{id}` for
+  identity, engines, access/security, policy overrides, integrations, and
+  destructive actions instead of the legacy host detail modal.
 - **Drizzle storage + `api/src/security/secret-box.ts`** — MySQL storage with encrypted auth payload bodies and tokens; API keys stored as sha256 + secretbox ciphertext; supports legacy `sbox:v1` plus key-id ciphertext for rotation via `api/src/security/keyring.ts`.
-- **Admin websocket server (optional)** — registered in-process by `api/src/ws/server.ts` and fed by `api/src/ws/publisher.ts`, which streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps `log.created` actions and host/project/shared memory mutations to targeted query invalidations (overview/hosts/settings/skills/projects/agents/memories/users/config/profiles) and falls back to overview+hosts for unknown actions.
+- **Admin websocket server (optional)** — registered in-process by `api/src/ws/server.ts` and fed by `api/src/ws/publisher.ts`, which streams `admin_events` to connected `/admin` clients; `/admin/ws/info` advertises the public `ws/wss` URL and the latest event id. The admin SPA maps event types to targeted query invalidations for logs, hosts, projects, knowledge, access, engine/policy state, messaging, and portal lifecycle; unknown events leave the current workspace untouched rather than forcing a broad reload.
 
 ## How the flow works
 
@@ -257,7 +259,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   current canonical rows are exempt regardless of age. `host_auth_states`
   tracks what each host last saw and `host_auth_digests` caches three recent
   digests per host and engine.
-- Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in Admin Settings → General), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
+- Hosts are pruned when inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in `/admin/policies`), never provisioned within 30 minutes, or when `expires_at` is in the past (temporary hosts; refreshed on successful host contact for a 2-hour idle window); pruning logs `host.pruned` and cascades digests/state/users.
 - Logs, Skills and their `skill_files` bundles, all three memory stores, project
   coordination tables, shared-memory chunks/revisions, ChatGPT snapshots, and
   version flags all live in MySQL; storage is the compose volume. Disabling an
@@ -276,10 +278,36 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - For managed hosts: `New Host` → paste the auto-copied `curl …/install/{token} | bash` command on the host. For disposable VMs: `Quick VM` → choose Codex, Claude, or Both → paste the auto-copied installer. Every host receives one `cxx`; Codex hosts receive `cdx -> cxx`, Claude hosts `clx -> cxx`, and dual-engine hosts both aliases against the same host key. Treat only a final `READY` plus exit 0 as success; `INCOMPLETE` means the named retry must be run (or a fresh single-use installer minted for wrapper/config failures).
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
-- Set fleet CLI model defaults from Settings → Codex or Settings → Claude. Both tabs call `GET/POST /admin/model-defaults/:engine` and constrain effort to the selected model. Codex persists `model` / `model_reasoning_effort` in canonical `config.toml`; Sol/Terra/Luna/GPT-5.5/GPT-5.4/GPT-5.4 mini default to `medium`, while Spark defaults to `high`. Claude persists `model` / `effortLevel` in the deep-merged `settings.json` partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses the same set with default `xhigh`; Sonnet 4.6 persists `low|medium|high`; Haiku 4.5 omits effort. The nearby Claude API defaults (`default_model`, `max_tokens`) also default to Sonnet 5 but configure only the Anthropic-compatible proxy and do not change managed Claude Code sessions.
-- Build/edit `config.toml` from `/admin/config.html`; saved output is baked per host and synced by `cdx` to `${CODEX_HOME:-~/.codex}/config.toml` (managed HTTP MCP entry; secure hosts use the host API key, insecure hosts get a short-lived bearer). New builder drafts default to `model = "gpt-5.6-terra"` with `model_reasoning_effort = "medium"`, `personality = "friendly"`, `[features].apps = true`, `[features].fast_mode = true`, `[features].memories = true`, and `[features].multi_agent = true`; the admin builder keeps `guardian_approval`, `js_repl`, `tui_app_server`, and `prevent_idle_sleep` off until explicitly enabled. `status:missing` deletes the local copy. Legacy feature keys (`steer`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `request_permissions`, `use_linux_sandbox_bwrap`) remain ingest-compatible but are dropped from rendered output.
-- Optionally include `https://github.com/mattpocock/skills` from Skills →
-  Skills. The card is off by default and warns that this is an external
+- Set fleet CLI model defaults from the direct `/admin/engines` workspace. Both
+  engine sections call `GET/POST /admin/model-defaults/:engine` and constrain
+  effort to the selected model. Codex persists `model` /
+  `model_reasoning_effort` in canonical `config.toml`; Sol/Terra/Luna/GPT-5.5/
+  GPT-5.4/GPT-5.4 mini default to `medium`, while Spark defaults to `high`.
+  Claude persists `model` / `effortLevel` in the deep-merged `settings.json`
+  partial and defaults to Sonnet 5 at `high`. Fable 5, Opus 5, Opus 4.8, and
+  Sonnet 5 persist `low|medium|high|xhigh` with default `high`; Opus 4.7 uses
+  the same set with default `xhigh`; Sonnet 4.6 persists `low|medium|high`;
+  Haiku 4.5 omits effort. The nearby Claude API defaults (`default_model`,
+  `max_tokens`) also default to Sonnet 5 but configure only the
+  Anthropic-compatible proxy and do not change managed Claude Code sessions.
+- The retained advanced `/admin/config*` API can render and persist a
+  `config.toml` template for managed automation. Its output is baked per host
+  and synced by `cdx` to `${CODEX_HOME:-~/.codex}/config.toml` (managed HTTP
+  MCP entry; secure hosts use the host API key, insecure hosts get a
+  short-lived bearer). The task-oriented console deliberately exposes the
+  supported model controls only in `/admin/engines`, so it never creates a
+  second generic config/settings owner. New advanced payloads default to
+  `model = "gpt-5.6-terra"` with `model_reasoning_effort = "medium"`,
+  `personality = "friendly"`, `[features].apps = true`,
+  `[features].fast_mode = true`, `[features].memories = true`, and
+  `[features].multi_agent = true`; `guardian_approval`, `js_repl`,
+  `tui_app_server`, and `prevent_idle_sleep` stay off until explicitly enabled.
+  `status:missing` deletes the local copy. Legacy feature keys (`steer`,
+  `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`,
+  `request_permissions`, `use_linux_sandbox_bwrap`) remain ingest-compatible
+  but are dropped from rendered output.
+- Optionally include `https://github.com/mattpocock/skills` from the direct
+  Skills workspace. The card is off by default and warns that this is an external
   instruction supply chain. Fresh source state defaults its six-hour
   auto-update on, while a preference set before inclusion is preserved; turn
   that switch off to pin the current last-known-good SHA, or use **Check now**

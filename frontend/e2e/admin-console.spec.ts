@@ -9,6 +9,33 @@ const user = {
   roles: ["owner"],
 };
 
+/**
+ * Every direct destination from the shared route registry. Keep this explicit
+ * rather than importing the registry into Playwright: a stale test should
+ * fail when a route is renamed without its browser contract being reviewed.
+ */
+const CANONICAL_DESTINATIONS = [
+  { path: "/dashboard", heading: "Overview", title: "Overview" },
+  { path: "/logs/events", heading: "Activity", title: "Activity / Audit trail" },
+  { path: "/hosts", heading: "Hosts", title: "Hosts" },
+  { path: "/engines", heading: "Engines", title: "Engines" },
+  { path: "/policies", heading: "Policies", title: "Policies" },
+  { path: "/projects", heading: "Projects", title: "Projects" },
+  { path: "/agent-messaging", heading: "Agent Messaging", title: "Agent Messaging" },
+  { path: "/agent-portal", heading: "Agent Portal", title: "Agent Portal" },
+  { path: "/skills", heading: "Skills", title: "Skills" },
+  { path: "/instructions", heading: "Fleet Instructions", title: "Fleet Instructions" },
+  { path: "/memories", heading: "Memories", title: "Memories" },
+  { path: "/subagents", heading: "Subagents", title: "Subagents" },
+  { path: "/commands", heading: "Commands", title: "Commands" },
+  { path: "/output-styles", heading: "Output Styles", title: "Output Styles" },
+  { path: "/api-keys", heading: "API Access", title: "API Access" },
+  { path: "/secrets", heading: "Secrets", title: "Secrets" },
+  { path: "/users", heading: "Admin Users", title: "Admin Users" },
+  { path: "/manual", heading: "Manual", title: "Manual" },
+  { path: "/account/password", heading: "Password", title: "Account / Password" },
+] as const;
+
 function fixture(pathname: string): Record<string, unknown> {
   switch (pathname) {
     case "/admin/auth/status":
@@ -19,6 +46,9 @@ function fixture(pathname: string): Record<string, unknown> {
       return { enabled: false };
     case "/admin/theme":
       return { theme: "auto" };
+    case "/admin/openai/keys":
+    case "/admin/claude/keys":
+      return [];
     case "/admin/passkeys":
       return {
         passkeys: [
@@ -444,6 +474,24 @@ async function expectNoSeriousAxeFindings(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await installFixtures(page);
+});
+
+test("every canonical destination deep-links into a bounded desktop workspace", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(`${page.url()}: ${error.stack ?? error.message}`));
+
+  for (const destination of CANONICAL_DESTINATIONS) {
+    await page.goto(`/admin${destination.path}`);
+    await expect(page.getByRole("heading", { name: destination.heading, level: 1, exact: true })).toBeVisible();
+    await expect(page).toHaveTitle(`${destination.title} · Codex Orchestrator`);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      .toBe(true);
+  }
+
+  expect(pageErrors).toEqual([]);
 });
 
 test("desktop shell exposes direct task navigation and the command palette", async ({ page }) => {

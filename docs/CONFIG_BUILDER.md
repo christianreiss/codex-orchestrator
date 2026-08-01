@@ -4,12 +4,22 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 
 ## Surfaces
 
-- Web UI: `/admin/` (Config tab in the admin SPA served for `/admin/*`) — full-form builder for fleet `config.toml` (model defaults, personality, approval policy, sandbox, notices, MCP servers, OTEL, env policy, custom blocks). Profile management lives under **Settings → Profiles**.
-- API: `/admin/config` (GET metadata + `content` + `settings`), `/admin/config/render` (preview without saving, rendered for a placeholder host API key), `/admin/config/store` (persist from normalized `settings`), `/config/retrieve` (host-facing baked download).
+- Console: the direct `/admin/engines` workspace owns the supported Codex
+  model, reasoning-effort, version, quota, and scaling controls. There is no
+  generic Settings, Config, or Profiles tab in the SPA; keeping those broad
+  controls out of the task-oriented console prevents a second editable owner
+  for model defaults.
+- API: `/admin/config` (GET metadata + `content` + `settings`),
+  `/admin/config/render` (preview without saving), `/admin/config/store`
+  (persist normalized `settings`), and `/config/retrieve` (host-facing baked
+  download) retain the full advanced `config.toml` contract for managed
+  automation and integrations.
 
 ## Flow
 
-1. Admin edits the Config tab under `/admin/`. The UI can preview via `/admin/config/render` and POSTs structured `settings` to `/admin/config/store`.
+1. A trusted admin integration reads the advanced document from
+   `/admin/config`, previews a structured `settings` payload through
+   `/admin/config/render`, and stores it through `/admin/config/store`.
 2. Server normalizes and renders TOML, stores both the rendered file and the normalized `settings`, and returns `sha256` + size.
 3. Hosts call `/config/retrieve` with their API key. The server:
    - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
@@ -28,7 +38,9 @@ Default notice mappings:
 
 - Native HTTP MCP transport; no node bridge.
 - Controlled by `orchestrator_mcp_enabled` in the builder (enabled by default).
-- For each host, the server injects a managed entry ahead of any user-configured MCP servers and filters out reserved orchestrator aliases (`codex-memory`, `codex-orchestrator`, `cdx`, `codex-coordinator`) from the UI-configurable list.
+- For each host, the server injects a managed entry ahead of any supplied MCP
+  servers and filters out reserved orchestrator aliases (`codex-memory`,
+  `codex-orchestrator`, `cdx`, `codex-coordinator`) from the persisted list.
 - A usable managed Codex entry also owns the `skill-creator` disable rule described above. It is host-baked policy, not part of the stored operator template, and does not apply to Claude.
 - Keys are injected at bake time only; the server never stores host API keys inside the template. The exact TOML shape is derived from the internal settings and may change; treat it as implementation-defined rather than a user-editable block.
 
@@ -46,7 +58,10 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).
 - `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
-- Additional feature flags may be passed through from the UI `extraFeatures` textarea. The normalizer is a denylist, not an allowlist: every key that is not dropped below survives into normalized `features` and is rendered under `[features]`, so a typo reaches the host verbatim.
+- Additional feature flags may be supplied in the API `features` object. The
+  normalizer is a denylist, not an allowlist: every key that is not dropped
+  below survives into normalized `features` and is rendered under `[features]`,
+  so a typo reaches the host verbatim.
 - Feature values are coerced to booleans (`true`/`1`/`"yes"`/`"on"` and their negatives). A value that is not boolean-ish normalizes to `null` and that key is then omitted from the rendered `[features]` block.
 
 Legacy compatibility:
@@ -95,7 +110,9 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
 - API key + IP binding enforced (same as `/auth`); roaming hosts need `allow_roaming_ips` toggled if their IP changes.
 - Hash short-circuit: if the client sends `sha256` matching the baked file, response is `status:unchanged` with no `content`.
 - Missing config: `status:missing` → client must delete local file to avoid stale defaults.
-- Origin: `/admin/` is behind admin auth/mTLS; host fetches use host API key auth and the same host/IP policy checks used by `/auth`.
+- Origin: `/admin/config*` is behind admin authentication (and deployment
+  mTLS when enabled); host fetches use host API key auth and the same host/IP
+  policy checks used by `/auth`.
 
 ## Quick commands
 
@@ -130,5 +147,8 @@ The builder can also set:
 
 - Accepted values: `friendly`, `pragmatic`, `none`.
 - Input is lowercased; anything outside that set (including a blank or missing value) falls back to `friendly`, so the root key is always rendered.
-- Profiles may optionally override `personality`; leaving the profile field blank inherits the root value.
-- The separate `features.personality` gate remains available through the advanced feature textarea for hosts that need to disable the chooser while keeping a root default in place.
+- Entries in the optional `profiles` API payload may override `personality`;
+  leaving the field blank inherits the root value.
+- The separate `features.personality` gate remains available through the
+  advanced API `features` payload for hosts that need to disable the chooser
+  while keeping a root default in place.

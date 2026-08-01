@@ -17,7 +17,7 @@ Code-managed Skills are the exception: they are synthesized from constants under
 
 ## Optional external source: Matt Pocock skills
 
-Authoring → Skills can subscribe the canonical library to
+The direct Skills workspace can subscribe the canonical library to
 `https://github.com/mattpocock/skills`. This is an **external instruction supply
 chain**, not a bundled default: inclusion is off on every fresh deployment and
 causes no GitHub request while off. Review upstream before enabling it.
@@ -192,4 +192,3 @@ slug and deleting the module is Release B, once the fleet has converged.
   wrote context to host-local files while cdx used MCP — the same guidance, opposite
   substrates. Do not trim it back to "use the MCP tools"; an override has to name
   what it is overriding.
-

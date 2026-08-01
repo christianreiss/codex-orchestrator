@@ -560,7 +560,7 @@ the fleet-managed keys (`model`, `effortLevel`, `mcpServers.<name>`, `env.<VAR>`
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
 this run.
 
-- Settings → Claude and `GET/POST /admin/model-defaults/claude` own the fleet
+- `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet
   `model` / `effortLevel` pair. POST accepts strict
   `{model, reasoning_effort?: string|null}` but translates that common API field
   to Claude Code's native `effortLevel` key on disk. Fable 5, Opus 5, Opus 4.8,

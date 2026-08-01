@@ -53,7 +53,7 @@
 </script>
 
 <PageHeader
-  title="API access"
+  title="API Access"
   subtitle="Manage service availability, compatible endpoints, credentials, and issued API keys."
 >
   {#snippet actions()}

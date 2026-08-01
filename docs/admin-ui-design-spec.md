@@ -122,3 +122,8 @@ control contrast. Playwright fixtures keep browser checks deterministic and Axe
 gates serious and critical findings. The suite covers desktop 1440×900/1920×900
 and a 390px representative mobile flow, including direct navigation, the
 command palette, drawers, tables, and neutral theme controls.
+
+The canonical-route browser sweep visits every direct registry destination at
+1440×900. It requires the exact page heading and document title, a clean
+runtime, and no document-level horizontal overflow, so a page cannot quietly
+fall back to a shell-only, mislabeled, or broken deep link.

@@ -141,7 +141,7 @@ fleet-authored and code-managed Skills are unaffected.
 
 ## Fleet model defaults
 
-Settings → Codex and `GET/POST /admin/model-defaults/codex` manage the default
+`/admin/engines` and `GET/POST /admin/model-defaults/codex` manage the default
 Codex CLI model and its model-dependent persistent effort. The endpoint writes
 Codex's native top-level `config.toml` keys, `model` and
 `model_reasoning_effort`, into the canonical Codex config document; this matches

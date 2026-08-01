@@ -86,9 +86,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - Fleet secrets create, update, soft-delete, value reveal, and the
     `secrets_module_enabled` switch (`api/src/routes/admin/secrets/index.ts`).
     Listing and per-secret metadata reads are session-only like the rest of the
-    tree; only the plaintext reveal and the mutations are gated. There is no
-    secrets view in the admin SPA yet, so v1 is driven by `curl` against
-    `/admin/secrets` with an admin session behind mTLS.
+    tree; only the plaintext reveal and the mutations are gated. The direct
+    `/admin/secrets` workspace exposes the same lifecycle without ever putting
+    plaintext into a list response.
 - Every authenticated role may read Memory Atlas and the user roster. Memory
   reads carry a per-record `capabilities` object (`read`, `create`, `update`,
   `delete`, `append`) that mirrors the same `owner`/`admin` check for the UI.
@@ -190,7 +190,10 @@ Admin routes:
 - Dashboard consumes `log.created` events for targeted data refresh and `toast` events for notifications.
 - Host, project, and shared memory mutations invalidate the shared `memories`
   query root, so both Atlas views and an open inspector refresh together.
-- Config and profiles tabs do not auto-overwrite dirty local edits; they show `Remote update available (unsaved edits)`.
+- WebSocket events invalidate only the owning workspace query keys instead of
+  forcing a dashboard-wide reload. The retained advanced config API uses its
+  documented SHA guard for concurrent updates; it is not represented by a
+  generic Config or Profiles tab in the SPA.
 
 ## Page-by-Page (Code-Backed)
 - **Theme**: neutral System/Light/Dark modes only. The client maps legacy
@@ -245,10 +248,12 @@ Admin routes:
   - Upload canonical auth (requires a configured, reachable runner and a positive live verdict): `POST /admin/auth/upload`.
   - Generate one-time seed command: `POST /admin/auth/seed-command`; body `engine` selects Codex `~/.codex/auth.json` or Claude `~/.claude/.credentials.json`, and generated scripts normalize plain credential files and print server validation errors on upload failure.
   - Seed token TTL: `AUTH_SEED_TOKEN_TTL_SECONDS` (default `900`, fallback if invalid/<=0).
-- **Global Settings**:
-  - cdx silent: `GET/POST /admin/cdx-silent`.
-  - Reverse DNS global flag: `GET/POST /admin/reverse-dns`.
-  - Insecure-approval global flag: `GET/POST /admin/insecure-approval`.
+- **Fleet configuration endpoints** (the UI has no generic Settings hub):
+  - **Engines** owns cdx silent: `GET/POST /admin/cdx-silent`, quota mode,
+    and the Codex/Claude fleet version locks.
+  - **Policies** owns the reverse-DNS global flag: `GET/POST /admin/reverse-dns`,
+    the insecure-approval global flag: `GET/POST /admin/insecure-approval`,
+    pruning, and retention.
   - Projects module: `GET/POST /admin/projects/state`. Enabling it also publishes the managed `coco` skill with embedded toolkit/help through MCP `skill://coco`; disabling it withdraws that managed skill from the MCP resource list.
   - Quota mode: `GET/POST /admin/quota-mode`.
     - `hard_fail` boolean.
@@ -306,7 +311,13 @@ Admin routes:
 - Insecure approval queue is not gated on websocket presence; there is no such heartbeat window. The `insecure_approval_enabled` flag is a settings toggle reported by `GET /admin/overview`, and `GET /admin/insecure-approvals/pending` lists the queue to any admin regardless of it.
 - The dashboard now rehydrates the insecure approval queue from `GET /admin/insecure-approvals/pending` on load and websocket reconnect, so pending requests still show up even if the original live event was missed.
 - A live `auth.insecure.pending` event now rings a short synthesized bell in the admin dashboard when a genuinely new insecure approval request arrives. Browser autoplay/user-gesture policy still applies, so the sound is best-effort rather than guaranteed on a never-interacted tab.
-- The Projects module is deliberately native to codex-orchestrator: Settings → Projects is now a compact index plus module toggle, while each project opens on its own `/admin/projects/<slug>` workspace page. The managed `coco` skill is derived from module state instead of being edited like a normal Skill row, doubles as the operator-facing CoCo toolkit/help document, and now tells operators to keep shared CoCo handoffs in Projects rather than host-scoped MCP memories.
+- The Projects module is deliberately native to codex-orchestrator: the direct
+  `/admin/projects` workspace owns its module toggle and compact index, while
+  each project opens on its own `/admin/projects/<slug>` workspace page. The
+  managed `coco` skill is derived from module state instead of being edited like
+  a normal Skill row, doubles as the operator-facing CoCo toolkit/help document,
+  and now tells operators to keep shared CoCo handoffs in Projects rather than
+  host-scoped MCP memories.
 - Project creation remains API-driven for now; the admin UI intentionally focuses on browsing, opening, and deleting existing projects.
 - Memory Atlas delete is a hard, permanent delete in every scope. There is no
   trash, restore, revision-body diff, or rollback action; the confirmation

@@ -12,6 +12,11 @@
   preferences are migrated client-side to the matching neutral mode while the
   API remains backward-compatible. Shared controls and tables are compacted;
   Projects now uses a sortable full-width operator table.
+- Tightened the direct-route contract: every canonical destination now has a
+  browser test for its exact heading and title, deep-link rendering, clean
+  runtime, and bounded 1440px workspace. API Access now uses that exact label
+  throughout navigation and its page header; operator documentation maps each
+  mutable control to its direct owner instead of retired Settings/Authoring hubs.
 - Followed through on the visual system in the remaining high-density paths:
   the persistent header now exposes semantic route-backed breadcrumbs; Memory
   Atlas, tables, navigation strips, standalone authentication, and the Manual

@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/CUB3-Qy6.js";export{e as component};
