@@ -11,6 +11,9 @@
   import { REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import type { ScalingLane, ScalingReasoningEffort, ScalingTierRule } from "$lib/api/types";
 
+  type Props = { headingLevel?: 2 | 3 };
+  let { headingLevel = 2 }: Props = $props();
+
   const query = scalingQuery();
   let lastSavedAt = $state<Date | null>(null);
   const mutation = scalingMutation({
@@ -69,6 +72,7 @@
     if ($mutation.isSuccess) return "saved" as const;
     return "idle" as const;
   });
+  const activeTier = $derived($query.data?.active_tier ?? null);
 </script>
 
 <SectionCard
@@ -78,6 +82,7 @@
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message ?? tierErrors ?? $query.error?.message}
+  {headingLevel}
 >
   <SwitchRow
     id="scaling-enabled"
@@ -87,15 +92,34 @@
     onCheckedChange={(v) => (enabled = v)}
   />
 
+  <div class="flex flex-wrap gap-x-5 gap-y-1 border-y py-2 text-xs text-muted-foreground" aria-live="polite">
+    <span><span class="font-medium text-foreground">Current state:</span> {$query.data?.enabled ? "active" : "inactive"}</span>
+    {#if activeTier}
+      <span><span class="font-medium text-foreground">Effective tier:</span> {activeTier.at_percent}%</span>
+      {#if activeTier.lane}
+        <span><span class="font-medium text-foreground">Lane:</span> {activeTier.lane}</span>
+      {/if}
+      {#if activeTier.reasoning_effort}
+        <span><span class="font-medium text-foreground">Effort:</span> {activeTier.reasoning_effort}</span>
+      {/if}
+      {#if activeTier.model}
+        <span><span class="font-medium text-foreground">Model:</span> <code>{activeTier.model}</code></span>
+      {/if}
+    {:else}
+      <span>No tier is active at the current fleet usage.</span>
+    {/if}
+  </div>
+
   <RepeatableRows
     bind:rows={tiers}
     newRow={newTier}
     addLabel="Add tier"
     disabled={$query.isPending || $mutation.isPending}
+    class="divide-y border-y"
   >
     {#snippet row(tier, i, patch)}
-      <div class="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-4">
-        <FormField id={`scaling-tier-${i}-percent`} label="At %" class="sm:col-span-1">
+      <div class="grid gap-3 py-3 md:grid-cols-2 xl:grid-cols-4">
+        <FormField id={`scaling-tier-${i}-percent`} label="At %">
           <Input
             id={`scaling-tier-${i}-percent`}
             type="number"
@@ -106,7 +130,7 @@
           />
         </FormField>
 
-        <FormField id={`scaling-tier-${i}-lane`} label="Lane" class="sm:col-span-1">
+        <FormField id={`scaling-tier-${i}-lane`} label="Lane">
           <Select.Root
             type="single"
             value={tier.lane ?? ""}
@@ -126,7 +150,7 @@
           </Select.Root>
         </FormField>
 
-        <FormField id={`scaling-tier-${i}-effort`} label="Reasoning effort" class="sm:col-span-1">
+        <FormField id={`scaling-tier-${i}-effort`} label="Reasoning effort">
           <Select.Root
             type="single"
             value={tier.reasoning_effort ?? ""}
@@ -148,7 +172,7 @@
           </Select.Root>
         </FormField>
 
-        <FormField id={`scaling-tier-${i}-model`} label="Model override" class="sm:col-span-1">
+        <FormField id={`scaling-tier-${i}-model`} label="Model override">
           <Input
             id={`scaling-tier-${i}-model`}
             placeholder="Inherit"

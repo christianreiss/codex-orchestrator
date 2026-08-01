@@ -1,0 +1,1 @@
+import{Vt as e}from"../chunks/CpTjFNj2.js";import{c as t}from"../chunks/BzRrM5z5.js";import{t as n}from"../chunks/5pyZLmHL.js";import{t as r}from"../chunks/B2DZBQZu.js";var i=e({load:()=>a}),a=()=>{throw n(308,`${t}/agent-portal`)};export{r as component,i as universal};

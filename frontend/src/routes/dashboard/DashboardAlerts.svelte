@@ -8,6 +8,7 @@
   import UpgradeModal from "$lib/components/dashboard/UpgradeModal.svelte";
   import {
     insecureApprovalsPendingQuery,
+    releaseVersion,
     versionsCheckMutation,
     type VersionsCheckResponse,
   } from "$lib/api/overview";
@@ -34,7 +35,7 @@
   });
 
   const versionData = $derived(($versions.data as VersionsCheckResponse | undefined) ?? null);
-  const availableVersion = $derived(versionData?.available_client ?? null);
+  const availableVersion = $derived(releaseVersion(versionData?.available_client));
   const installedVersion = $derived(
     currentVersion ??
       versionData?.versions?.client_version ??

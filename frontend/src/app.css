@@ -159,7 +159,6 @@
   .setting-boundary__head { @apply mb-3 max-w-3xl; }
   .setting-boundary__head h2 { @apply text-sm font-semibold; }
   .setting-boundary__head p { @apply mt-1 text-sm text-muted-foreground; }
-  .settings-grid { @apply grid gap-0 xl:grid-cols-2 xl:divide-x xl:divide-border; }
 
   .md-prose { color: hsl(var(--foreground)); line-height: 1.7; font-size: .95rem; }
   .md-prose h1 { margin: 2rem 0 1rem; font-size: 1.5rem; font-weight: 700; scroll-margin-top: 1.5rem; }

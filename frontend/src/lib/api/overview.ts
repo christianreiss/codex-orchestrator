@@ -80,9 +80,28 @@ export interface InsecureApprovalsPending {
   requests: InsecureApprovalRequest[];
 }
 
+export interface AvailableClientRelease {
+  version?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  fetched_at?: string | null;
+  cached?: boolean;
+  [key: string]: unknown;
+}
+
 export interface VersionsCheckResponse {
-  available_client?: string | null;
+  available_client?: AvailableClientRelease | string | null;
   versions: OverviewVersions;
+}
+
+/**
+ * Version checks historically returned the version string directly. The
+ * current Fastify route returns the cached upstream release record, so keep
+ * the dashboard tolerant while presenting only the human-useful version.
+ */
+export function releaseVersion(value: AvailableClientRelease | string | null | undefined): string | null {
+  if (typeof value === "string") return value;
+  return typeof value?.version === "string" ? value.version : null;
 }
 
 export const overviewKeys = {

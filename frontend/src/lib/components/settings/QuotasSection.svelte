@@ -7,6 +7,9 @@
   import SectionCard from "./SectionCard.svelte";
   import { quotaModeMutation, quotaModeQuery } from "$lib/api/settings";
 
+  type Props = { headingLevel?: 2 | 3 };
+  let { headingLevel = 2 }: Props = $props();
+
   const query = quotaModeQuery();
   let lastSavedAt = $state<Date | null>(null);
   const mutation = quotaModeMutation({
@@ -66,6 +69,7 @@
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message}
+  {headingLevel}
 >
   <div class="grid gap-3 sm:grid-cols-2">
     <div class="grid gap-1.5">

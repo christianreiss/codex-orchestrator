@@ -153,6 +153,21 @@ describe("versionsCheckMutation", () => {
   });
 });
 
+describe("releaseVersion", () => {
+  it("reads the current release-record response", () => {
+    assert.equal(overview.releaseVersion({ version: "0.125.0", cached: true }), "0.125.0");
+  });
+
+  it("keeps accepting the legacy string response", () => {
+    assert.equal(overview.releaseVersion("0.124.0"), "0.124.0");
+  });
+
+  it("does not invent a version from a malformed response", () => {
+    assert.equal(overview.releaseVersion({ version: null }), null);
+    assert.equal(overview.releaseVersion(null), null);
+  });
+});
+
 describe("overviewKeys", () => {
   it("namespaces all three keys under the overview root", () => {
     assert.deepEqual(overview.overviewKeys, {
@@ -196,6 +211,7 @@ describe("module surface", () => {
     "insecureApprovalsPendingQuery",
     "overviewKeys",
     "overviewQuery",
+    "releaseVersion",
     "versionsCheckMutation",
   ];
 

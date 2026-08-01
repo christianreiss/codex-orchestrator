@@ -71,7 +71,8 @@ Agent Messaging and Agent Portal changes invalidate only their own query roots.
 - Detail pages progress through full-width task sections. A detail route can
   have peer tabs, but a second sidebar tier is not permitted.
 - Engine and policy pages use labeled setting boundaries and explicit save
-  status rather than nested configuration cards.
+  status rather than nested configuration cards. Related controls stay in one
+  full-width task sequence; do not split paired settings into desktop columns.
 - Agent Messaging uses one master state at the top with Addresses,
   Conversations, and Deliveries as peer operational views sharing URL filters.
 - Memories has alternate Atlas and Inventory views. Editors provide a wide

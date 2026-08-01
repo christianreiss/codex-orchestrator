@@ -12,6 +12,9 @@
     claudeVersionsQuery,
   } from "$lib/api/settings";
 
+  type Props = { headingLevel?: 2 | 3 };
+  let { headingLevel = 2 }: Props = $props();
+
   const query = claudeVersionsQuery();
   let lastSavedAt = $state<Date | null>(null);
 
@@ -81,6 +84,7 @@
   {status}
   savedAt={lastSavedAt}
   error={$setM.error?.message}
+  {headingLevel}
 >
   {#snippet headerAction()}
     <Button

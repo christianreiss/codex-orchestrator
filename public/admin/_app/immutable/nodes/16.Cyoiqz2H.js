@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/ATOURGav2.js";export{e as component};

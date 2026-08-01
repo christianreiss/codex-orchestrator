@@ -15,9 +15,10 @@
 
   type Props = {
     engine: ModelDefaultsEngine;
+    headingLevel?: 2 | 3;
   };
 
-  let { engine }: Props = $props();
+  let { engine, headingLevel = 2 }: Props = $props();
 
   // Each tab mounts a dedicated, engine-fixed instance of this component.
   const stableEngine = untrack(() => engine);
@@ -97,6 +98,7 @@
   {status}
   savedAt={lastSavedAt}
   error={$mutation.error?.message}
+  {headingLevel}
 >
   {#if $query.isError}
     <p class="text-sm text-destructive">{$query.error.message}</p>

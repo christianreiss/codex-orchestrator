@@ -64,6 +64,44 @@ function fixture(pathname: string): Record<string, unknown> {
         reasoning_effort: "high",
         catalog: [{ model: "claude-opus-4-1", persistent_efforts: ["medium", "high"], default_effort: "high" }],
       };
+    case "/admin/versions/check":
+      return {
+        available_client: { version: "0.125.0", updated_at: "2026-08-01T08:00:00Z", source: "github" },
+        versions: {
+          client_version: "0.125.0",
+          client_version_enforce_exact: false,
+          reported_client_version: "0.125.0",
+        },
+        claude_available_client: { version: "2.1.170" },
+        claude_versions: {
+          client_version: "2.1.170",
+          client_version_enforce_exact: false,
+          reported_client_version: "2.1.170",
+        },
+      };
+    case "/admin/quota-mode":
+      return { hard_fail: true, limit_percent: 95, week_partition: 7 };
+    case "/admin/scaling":
+      return {
+        enabled: true,
+        rules: {
+          enabled: true,
+          tiers: [
+            {
+              at_percent: 75,
+              lane: "spark",
+              reasoning_effort: "high",
+              model: "gpt-5.6-sol",
+            },
+          ],
+        },
+        active_tier: {
+          at_percent: 75,
+          lane: "spark",
+          reasoning_effort: "high",
+          model: "gpt-5.6-sol",
+        },
+      };
     case "/admin/overview":
       return {
         totals: { hosts: 2 },
@@ -441,6 +479,33 @@ test("Claude client settings use one full-width operator workflow", async ({ pag
   await page.reload();
   await expect(page.getByRole("heading", { name: "Claude client", level: 2 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+});
+
+test("engine policy settings stay sequential and show the effective scaling tier", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/engines#quota-enforcement");
+
+  await expect(page.getByRole("heading", { name: "Quota and scaling", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Quotas", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Scaling", level: 3 })).toBeVisible();
+  await expect(page.getByLabel("At %")).toHaveValue("75");
+  await expect(page.locator("#scaling")).toContainText(/Current state:\s*active/);
+  await expect(page.locator("#scaling")).toContainText(/Effective tier:\s*75%/);
+  await expect(page.locator("#scaling")).toContainText(/Lane:\s*spark/);
+
+  const quotaBox = await page.locator("#quotas").boundingBox();
+  const scalingBox = await page.locator("#scaling").boundingBox();
+  expect(quotaBox).not.toBeNull();
+  expect(scalingBox).not.toBeNull();
+  expect(scalingBox!.y).toBeGreaterThanOrEqual(quotaBox!.y + quotaBox!.height);
+  expect(Math.abs(quotaBox!.x - scalingBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(quotaBox!.width - scalingBox!.width)).toBeLessThanOrEqual(1);
+  await expectNoSeriousAxeFindings(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Scaling", level: 3 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save scaling" })).toBeVisible();
 });
 
 test("account security uses compact route-backed sections", async ({ page }) => {

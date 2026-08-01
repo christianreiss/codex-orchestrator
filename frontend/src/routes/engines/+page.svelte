@@ -12,8 +12,39 @@
 <PageHeader title="Engines" subtitle="Codex and Claude defaults, versions, quota enforcement, and client configuration." />
 
 <div class="settings-workspace">
-  <section id="codex-defaults" class="setting-boundary"><div class="setting-boundary__head"><h2>Codex</h2><p>Model defaults, effort, and fleet version controls.</p></div><ModelDefaultsSection engine="codex" /><div class="settings-grid"><CodexVersionSection /><CdxSilentSection /></div></section>
-  <section id="claude-defaults" class="setting-boundary"><div class="setting-boundary__head"><h2>Claude</h2><p>Claude Code model defaults and fleet version controls.</p></div><ModelDefaultsSection engine="claude" /><ClaudeVersionSection /></section>
-  <section id="quota-enforcement" class="setting-boundary"><div class="setting-boundary__head"><h2>Quota and scaling</h2><p>Fleet-wide enforcement and capacity policy.</p></div><div class="settings-grid"><QuotasSection /><ScalingSection /></div></section>
-  <section id="claude-client" class="setting-boundary"><div class="setting-boundary__head"><h2>Claude client</h2><p>Owned Claude Code settings are deep-merged; user-authored settings remain intact.</p></div><ClaudeFleetSettings /></section>
+  <section id="codex-defaults" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2>Codex</h2>
+      <p>Model defaults, effort, and fleet version controls.</p>
+    </div>
+    <ModelDefaultsSection engine="codex" headingLevel={3} />
+    <CodexVersionSection headingLevel={3} />
+    <CdxSilentSection bordered={false} />
+  </section>
+
+  <section id="claude-defaults" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2>Claude</h2>
+      <p>Claude Code model defaults and fleet version controls.</p>
+    </div>
+    <ModelDefaultsSection engine="claude" headingLevel={3} />
+    <ClaudeVersionSection headingLevel={3} />
+  </section>
+
+  <section id="quota-enforcement" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2>Quota and scaling</h2>
+      <p>Fleet-wide enforcement and capacity policy.</p>
+    </div>
+    <QuotasSection headingLevel={3} />
+    <ScalingSection headingLevel={3} />
+  </section>
+
+  <section id="claude-client" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2>Claude client</h2>
+      <p>Owned Claude Code settings are deep-merged; user-authored settings remain intact.</p>
+    </div>
+    <ClaudeFleetSettings />
+  </section>
 </div>

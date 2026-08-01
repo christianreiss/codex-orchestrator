@@ -8,6 +8,7 @@
     description?: string;
     headerAction?: Snippet;
     children?: Snippet;
+    headingLevel?: 2 | 3;
     /** "idle" | "saving" | "saved" | "error" */
     status?: "idle" | "saving" | "saved" | "error";
     savedAt?: Date | string | null;
@@ -20,6 +21,7 @@
     description,
     headerAction,
     children,
+    headingLevel = 2,
     status = "idle",
     savedAt = null,
     error = null,
@@ -29,7 +31,11 @@
 <section {id} class="scroll-mt-16 border-b border-border py-4">
     <div class="flex flex-row items-start justify-between gap-3">
       <div class="min-w-0">
-        <h2 class="text-sm font-semibold">{title}</h2>
+        {#if headingLevel === 3}
+          <h3 class="text-sm font-semibold">{title}</h3>
+        {:else}
+          <h2 class="text-sm font-semibold">{title}</h2>
+        {/if}
         {#if description}
           <p class="mt-0.5 text-sm leading-normal text-muted-foreground">
             {description}

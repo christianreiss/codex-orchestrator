@@ -41,6 +41,12 @@
   hooks, and the effective settings preview now follow the task order without
   nested cards or a competing fixed side column. Long serialized previews are
   keyboard-focusable for reliable review in every editor that uses them.
+- Rebuilt the Engines workspace into one ordered, full-width configuration
+  sequence. Codex, Claude, quota, and scaling controls no longer compete in
+  desktop-only columns; scaling tiers use compact divided rows and now surface
+  the live effective tier, lane, effort, and model alongside the editable rules.
+- Fixed the dashboard release alert to consume the current structured release
+  response while retaining compatibility with the earlier string response.
 - Made `bin/setup.sh` the authoritative fresh-install bootstrap: it now preserves or generates every installation secret, keeps API/runner shared secrets identical, uses supported cookie mode when mTLS is declined, builds a uniquely trusted four-platform wrapper fleet, imports its private signer encrypted with verified read-back, waits for the critical Compose services, and prints `READY` only after local and public readiness pass. Partial and prepare-only runs print `INCOMPLETE` and exit non-zero; existing key/artifact mismatches fail closed instead of rotating.
 - Made `--mtls-optional` select Caddy's cookie-session admin path as well as the supported API mode, and preserved all non-empty database credentials on setup reruns.
 - Updated the bundled Caddy ACME fragment to the supported `issuer acme` syntax used by current Caddy 2 images and wired its certificate-path variables into the container.
