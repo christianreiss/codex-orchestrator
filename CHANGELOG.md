@@ -28,6 +28,9 @@
   identity, engines, access, policy overrides, integrations, and destructive
   actions now follow the operator's task order without decorative card stacks.
   The shared destructive-action boundary follows the same compact treatment.
+- Compressed the virtualized Hosts desktop workspace to 40px single-line rows
+  while retaining the complete mobile summary; wide rows keep the machine IP
+  and stable host ID visible without inheriting mobile's taller density.
 - Made project peer views equally dense and task-focused: todo, note, feedback,
   file, and activity records now use sequential lists or a sticky-headed table;
   activity still expands structured event detail in place. Feedback authoring

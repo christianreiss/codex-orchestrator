@@ -225,7 +225,37 @@ function fixture(pathname: string): Record<string, unknown> {
     case "/admin/skills":
       return { skills: [{ slug: "fleet-ops", display_name: "Fleet operations", description: "Operator runbook", status: "ok" }] };
     case "/admin/hosts":
-      return { hosts: [] };
+      return {
+        hosts: [
+          {
+            id: 1,
+            fqdn: "console.example.test",
+            status: "online",
+            last_refresh: "2026-08-01T08:00:00Z",
+            claude_last_refresh: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+            created_at: "2026-07-01T08:00:00Z",
+            client_version: "0.125.0",
+            claude_client_version: "2.1.170",
+            client_version_override: null,
+            claude_client_version_override: null,
+            wrapper_version: "2.4.0",
+            claude_wrapper_version: "2.4.0",
+            ip4: "192.0.2.20",
+            ip6: null,
+            allow_roaming_ips: false,
+            secure: true,
+            vip: false,
+            insecure_enabled_until: null,
+            canonical_digest: "0123456789abcdef",
+            claude_canonical_digest: "abcdef0123456789",
+            engines: "codex,claude",
+            engines_list: ["codex", "claude"],
+            authed: true,
+            auth_outdated: false,
+          },
+        ],
+      };
     case "/admin/hosts/1/detail":
       return {
         host: {
@@ -448,6 +478,27 @@ test("operator tables use the full workspace and the mobile menu retains all rou
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("link", { name: /Output Styles/ })).toBeVisible();
   await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toBeVisible();
+});
+
+test("hosts keep desktop data rows dense without losing the mobile summary", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/hosts");
+  await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+
+  const hostRow = page.getByRole("button", { name: /console\.example\.test/ });
+  await expect(hostRow).toBeVisible();
+  await expect(hostRow).toContainText("192.0.2.20 · #1");
+  const desktopBox = await hostRow.boundingBox();
+  expect(desktopBox).not.toBeNull();
+  expect(desktopBox!.height).toBeLessThanOrEqual(40);
+  await expectNoSeriousAxeFindings(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(hostRow).toBeVisible();
+  const mobileBox = await hostRow.boundingBox();
+  expect(mobileBox).not.toBeNull();
+  expect(mobileBox!.height).toBeGreaterThanOrEqual(68);
 });
 
 test("neutral configuration template has no serious Axe findings", async ({ page }) => {

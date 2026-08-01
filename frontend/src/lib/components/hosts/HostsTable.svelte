@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
@@ -114,14 +115,24 @@
 
   // --- virtualization -----------------------------------------------------
   let scrollEl: HTMLDivElement | undefined = $state();
-  const rowHeight = 68;
+  let desktopDensity = $state(false);
+  const rowHeight = $derived(desktopDensity ? 40 : 68);
+
+  onMount(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const syncDensity = () => (desktopDensity = media.matches);
+    syncDensity();
+    media.addEventListener("change", syncDensity);
+    return () => media.removeEventListener("change", syncDensity);
+  });
 
   const virtualizer = $derived.by(() => {
     if (!scrollEl) return null;
+    const estimateSize = rowHeight;
     return createVirtualizer<HTMLDivElement, HTMLDivElement>({
       count: sorted.length,
       getScrollElement: () => scrollEl ?? null,
-      estimateSize: () => rowHeight,
+      estimateSize: () => estimateSize,
       overscan: 12,
     });
   });
@@ -198,10 +209,15 @@
               onclick={() => openHost(row)}
             >
               <div class="min-w-0">
-                <div class="truncate font-medium">{row.fqdn}</div>
-                <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+                <div class="flex min-w-0 items-center gap-2">
+                  <span class="truncate font-medium">{row.fqdn}</span>
+                  <span class="hidden shrink-0 font-mono text-[11px] text-muted-foreground xl:inline">
+                    {row.ip4 ?? row.ip6 ?? "—"} · #{row.id}
+                  </span>
+                </div>
+                <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted-foreground lg:hidden">
                   <span class="truncate">{row.ip4 ?? row.ip6 ?? "—"} · #{row.id}</span>
-                  <span class="lg:hidden">· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
+                  <span>· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
                   {#each engines as engine}
