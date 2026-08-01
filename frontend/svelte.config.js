@@ -25,6 +25,12 @@ const config = {
         config.include = [
           ...(config.include ?? []),
           "../vite.config.ts",
+          // The portal is a separate Vite app rather than a SvelteKit route,
+          // so svelte-check would not see it otherwise.
+          "../vite.portal.config.ts",
+          "../tailwind.portal.config.ts",
+          "../portal/src/**/*.ts",
+          "../portal/src/**/*.svelte",
         ];
         return config;
       },
