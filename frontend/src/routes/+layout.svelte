@@ -1,4 +1,6 @@
 <script lang="ts">
+  import "$lib/styles/tokens.css";
+  import "$lib/styles/md-prose.css";
   import "../app.css";
   import { onMount, onDestroy } from "svelte";
   import { goto } from "$app/navigation";

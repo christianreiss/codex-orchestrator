@@ -1,0 +1,157 @@
+/**
+ * Shared design tokens for both browser surfaces: the admin console under
+ * /admin and the agent portal under /go.
+ *
+ * These live outside `@layer base` on purpose. Tailwind's `@layer` is a build
+ * directive, not native CSS, so a file with `@layer base` but no matching
+ * `@tailwind base` fails to compile -- and this file is imported by two apps
+ * with separate Tailwind entrypoints.
+ *
+ * The admin toggles dark by putting `.dark` on <html>. The portal cannot: its
+ * CSP is `script-src 'self'`, which blocks the inline bootstrap script that
+ * would otherwise set the class before first paint. `:root[data-auto-scheme]`
+ * solves that with no JS and no flash -- the portal sets the attribute
+ * statically in its HTML shell, and the admin never sets it, so the block is
+ * inert there.
+ */
+
+:root {
+  --background: 210 25% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-strong: 210 24% 96%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 217 91% 42%;
+  --primary-foreground: 0 0% 100%;
+  --primary-hover: 217 91% 35%;
+  --secondary: 214 25% 93%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 214 25% 94%;
+  --muted-foreground: 215 16% 36%;
+  --accent: 214 48% 93%;
+  --accent-foreground: 217 74% 30%;
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --destructive-muted: 0 70% 95%;
+  --destructive-muted-foreground: 0 72% 32%;
+  --success: 142 71% 28%;
+  --success-foreground: 0 0% 100%;
+  --success-muted: 142 38% 93%;
+  --success-muted-foreground: 142 71% 22%;
+  --warning: 31 92% 32%;
+  --warning-foreground: 0 0% 100%;
+  --warning-muted: 38 90% 94%;
+  --warning-muted-foreground: 31 92% 25%;
+  --info: 217 91% 42%;
+  --info-foreground: 0 0% 100%;
+  --info-muted: 214 75% 94%;
+  --info-muted-foreground: 217 74% 30%;
+  --persona-codex: 201 90% 42%;
+  --persona-claude: 272 55% 46%;
+  --border: 214 20% 85%;
+  --input: 215 20% 45%;
+  --ring: 217 91% 42%;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --shadow: none;
+  --shadow-pop: 0 10px 24px hsl(222 47% 11% / 0.14);
+  --ease: ease;
+  --dur: 120ms;
+  --sidebar-bg: 222 47% 11%;
+  --sidebar-fg: 215 20% 82%;
+  --sidebar-active: 213 94% 68%;
+}
+
+.dark {
+  --background: 222 47% 8%;
+  --foreground: 210 40% 96%;
+  --card: 222 35% 12%;
+  --card-foreground: 210 40% 96%;
+  --card-strong: 222 34% 15%;
+  --popover: 222 35% 12%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 213 94% 68%;
+  --primary-foreground: 222 47% 9%;
+  --primary-hover: 213 94% 74%;
+  --secondary: 222 26% 18%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 222 25% 17%;
+  --muted-foreground: 215 20% 70%;
+  --accent: 217 45% 19%;
+  --accent-foreground: 213 94% 78%;
+  --destructive: 0 76% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --destructive-muted: 0 34% 17%;
+  --destructive-muted-foreground: 0 86% 78%;
+  --success: 142 62% 48%;
+  --success-foreground: 222 47% 9%;
+  --success-muted: 142 28% 16%;
+  --success-muted-foreground: 142 69% 73%;
+  --warning: 40 95% 62%;
+  --warning-foreground: 222 47% 9%;
+  --warning-muted: 36 37% 16%;
+  --warning-muted-foreground: 40 95% 72%;
+  --info: 213 94% 68%;
+  --info-foreground: 222 47% 9%;
+  --info-muted: 217 40% 18%;
+  --info-muted-foreground: 213 94% 78%;
+  --border: 222 22% 24%;
+  --input: 215 20% 58%;
+  --ring: 213 94% 68%;
+  --sidebar-bg: 222 47% 6%;
+  --sidebar-fg: 215 20% 78%;
+  --sidebar-active: 213 94% 68%;
+}
+
+/* Kept byte-identical to `.dark` above; a test asserts the two never drift. */
+@media (prefers-color-scheme: dark) {
+  :root[data-auto-scheme] {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 96%;
+    --card: 222 35% 12%;
+    --card-foreground: 210 40% 96%;
+    --card-strong: 222 34% 15%;
+    --popover: 222 35% 12%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 213 94% 68%;
+    --primary-foreground: 222 47% 9%;
+    --primary-hover: 213 94% 74%;
+    --secondary: 222 26% 18%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 222 25% 17%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 217 45% 19%;
+    --accent-foreground: 213 94% 78%;
+    --destructive: 0 76% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-muted: 0 34% 17%;
+    --destructive-muted-foreground: 0 86% 78%;
+    --success: 142 62% 48%;
+    --success-foreground: 222 47% 9%;
+    --success-muted: 142 28% 16%;
+    --success-muted-foreground: 142 69% 73%;
+    --warning: 40 95% 62%;
+    --warning-foreground: 222 47% 9%;
+    --warning-muted: 36 37% 16%;
+    --warning-muted-foreground: 40 95% 72%;
+    --info: 213 94% 68%;
+    --info-foreground: 222 47% 9%;
+    --info-muted: 217 40% 18%;
+    --info-muted-foreground: 213 94% 78%;
+    --border: 222 22% 24%;
+    --input: 215 20% 58%;
+    --ring: 213 94% 68%;
+    --sidebar-bg: 222 47% 6%;
+    --sidebar-fg: 215 20% 78%;
+    --sidebar-active: 213 94% 68%;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root { --border: 215 20% 58%; --input: 215 20% 42%; --muted-foreground: 215 16% 30%; }
+  .dark { --border: 215 20% 44%; --input: 215 20% 65%; --muted-foreground: 215 20% 78%; }
+}

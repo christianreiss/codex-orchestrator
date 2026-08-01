@@ -5,7 +5,11 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
-const css = readFileSync(resolve(ROOT, "frontend/src/app.css"), "utf8");
+// Tokens live in their own file because the portal under /go imports them
+// without the admin's Tailwind entrypoint; app.css still owns the surfaces that
+// re-declare tokens locally, so both are scanned.
+const tokensCss = readFileSync(resolve(ROOT, "frontend/src/lib/styles/tokens.css"), "utf8");
+const css = `${tokensCss}\n${readFileSync(resolve(ROOT, "frontend/src/app.css"), "utf8")}`;
 type Tokens = Record<string, string>;
 function block(anchor: string): Tokens {
   const start = css.indexOf(anchor); assert.ok(start !== -1, `missing ${anchor}`);
@@ -13,8 +17,11 @@ function block(anchor: string): Tokens {
   return Object.fromEntries([...css.slice(open + 1, close).matchAll(/--([\w-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
 }
 const light = block(":root {");
-const dark = { ...light, ...block(".dark {") };
+const darkBlock = block(".dark {");
+const autoDarkBlock = block(":root[data-auto-scheme] {");
+const dark = { ...light, ...darkBlock };
 const sidebar = { ...dark, ...block(".sidebar-surface {") };
+const portalAutoDark = { ...light, ...autoDarkBlock };
 function rgb(value: string): [number, number, number] {
   const match = /^(\d+)\s+(\d+)%\s+(\d+)%$/.exec(value); assert.ok(match, `invalid HSL token ${value}`);
   const [h, s, l] = [Number(match[1]), Number(match[2]) / 100, Number(match[3]) / 100];
@@ -29,7 +36,7 @@ function contrast(a: string, b: string) {
   const [x, y] = [luminance(rgb(a)), luminance(rgb(b))]; return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
 }
 describe("neutral theme contrast", () => {
-  for (const [name, tokens] of Object.entries({ light, dark })) {
+  for (const [name, tokens] of Object.entries({ light, dark, "portal auto dark": portalAutoDark })) {
     it(`${name} retains readable text and visible controls`, () => {
       for (const [fg, bg, min] of [["foreground", "background", 7], ["muted-foreground", "card", 4.5], ["primary-foreground", "primary", 4.5], ["input", "background", 3], ["ring", "background", 3]] as const) {
         assert.ok(contrast(tokens[fg]!, tokens[bg]!) >= min, `${name}: ${fg} on ${bg}`);
@@ -38,6 +45,12 @@ describe("neutral theme contrast", () => {
   }
   it("does not ship branded palette selectors or decorative serif faces", () => {
     assert.doesNotMatch(css, /pink|Source Serif|data-theme/);
+  });
+  // The portal cannot run the admin's inline theme bootstrap (script-src 'self'),
+  // so it gets dark through a media query instead of the .dark class. The two
+  // blocks are duplicated by necessity; this is what stops them drifting.
+  it("keeps the portal's media-query dark block identical to .dark", () => {
+    assert.deepEqual(autoDarkBlock, darkBlock);
   });
   it("keeps navigation labels readable on its dark rail in every mode", () => {
     assert.ok(contrast(sidebar["muted-foreground"]!, sidebar["sidebar-bg"]!) >= 4.5, "sidebar muted label contrast");

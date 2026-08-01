@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/B2i2-l7e2.js";export{e as component};

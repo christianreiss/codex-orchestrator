@@ -1,0 +1,47 @@
+/**
+ * Markdown typography, shared by the admin manual/knowledge views and by agent
+ * messages in the portal thread.
+ *
+ * Plain CSS with no `@layer` wrapper for the same reason as tokens.css: two
+ * apps with separate Tailwind entrypoints import this file directly.
+ *
+ * `.md-prose pre { position: relative }` plus the top padding exists so a copy
+ * button can be overlaid in the corner without reflowing the code.
+ */
+
+.md-prose { color: hsl(var(--foreground)); line-height: 1.7; font-size: .95rem; }
+.md-prose h1 { margin: 2rem 0 1rem; font-size: 1.5rem; font-weight: 700; scroll-margin-top: 1.5rem; }
+.md-prose h2 { margin: 1.75rem 0 .75rem; font-size: 1.25rem; font-weight: 700; scroll-margin-top: 1.5rem; }
+.md-prose h3 { margin: 1.5rem 0 .5rem; font-size: 1.1rem; font-weight: 600; scroll-margin-top: 1.5rem; }
+.md-prose h4 { margin: 1.25rem 0 .5rem; font-size: 1rem; font-weight: 600; }
+.md-prose p { margin: .75rem 0; }
+.md-prose a { color: hsl(var(--primary)); text-decoration: underline; text-underline-offset: 2px; }
+.md-prose a.anchor { color: transparent; text-decoration: none; }
+.md-prose strong { color: hsl(var(--foreground)); font-weight: 600; }
+.md-prose ul { list-style: disc; padding-left: 1.5rem; margin: .75rem 0; }
+.md-prose ol { list-style: decimal; padding-left: 1.5rem; margin: .75rem 0; }
+.md-prose li { margin: .25rem 0; }
+.md-prose blockquote { margin: 1rem 0; padding: .5rem 1rem; border-left: 3px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .4); }
+.md-prose code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85em; padding: .15em .35em; background: hsl(var(--muted)); border-radius: 3px; }
+.md-prose pre { position: relative; margin: 1rem 0; padding: 2.25rem 1rem 1rem; overflow-x: auto; background: hsl(var(--muted)); border: 1px solid hsl(var(--border)); border-radius: 4px; font-size: .85rem; }
+.md-prose pre code { background: transparent; padding: 0; }
+.md-prose table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .9rem; }
+.md-prose th, .md-prose td { border: 1px solid hsl(var(--border)); padding: .5rem .75rem; text-align: left; }
+.md-prose th { background: hsl(var(--muted)); font-weight: 600; }
+.md-prose hr { margin: 2rem 0; border: 0; border-top: 1px solid hsl(var(--border)); }
+.md-prose img { max-width: 100%; height: auto; border-radius: 4px; }
+
+/**
+ * Chat-bubble variant: a message is not a document, so headings must not open
+ * with 2rem of air and the block must not add margin at its own edges.
+ */
+.md-prose-tight { font-size: .875rem; line-height: 1.55; }
+.md-prose-tight > :first-child { margin-top: 0; }
+.md-prose-tight > :last-child { margin-bottom: 0; }
+.md-prose-tight h1,
+.md-prose-tight h2,
+.md-prose-tight h3,
+.md-prose-tight h4 { margin: 1rem 0 .35rem; font-size: 1rem; }
+.md-prose-tight p { margin: .4rem 0; }
+.md-prose-tight ul, .md-prose-tight ol { margin: .4rem 0; }
+.md-prose-tight pre { margin: .6rem 0; }
