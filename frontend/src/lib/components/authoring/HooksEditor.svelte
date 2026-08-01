@@ -77,16 +77,17 @@
 </script>
 
 <div class="space-y-4">
-  {#each groups as group, gi (gi)}
-    <div class="rounded-md border bg-muted/30 p-3">
-      <div class="mb-3 flex items-center gap-2">
+  <div class="divide-y border-y border-border">
+    {#each groups as group, gi (gi)}
+      <section class="py-4" aria-label={`Hook event ${group.event}`}>
+        <div class="flex flex-wrap items-center gap-2">
         <Select.Root
           type="single"
           value={group.event}
           onValueChange={(v) => v && setEvent(gi, v)}
           {disabled}
         >
-          <Select.Trigger class="w-[220px]" aria-label="Hook event">
+          <Select.Trigger class="w-full sm:w-[220px]" aria-label="Hook event">
             <Select.Value placeholder="Event">{group.event}</Select.Value>
           </Select.Trigger>
           <Select.Content>
@@ -111,11 +112,11 @@
         >
           <Trash2 class="h-4 w-4 text-destructive" />
         </Button>
-      </div>
+        </div>
 
-      <div class="space-y-3">
-        {#each group.rows as row, ri (ri)}
-          <div class="space-y-2 rounded-md border bg-background p-2">
+        <div class="mt-3 divide-y border-t">
+          {#each group.rows as row, ri (ri)}
+            <div class="space-y-2 py-3">
             <div class="flex items-center gap-2">
               <Input
                 value={row.matcher}
@@ -141,15 +142,16 @@
               {disabled}
               onItemsChange={(items) => setCommands(gi, ri, items)}
             />
-          </div>
-        {/each}
-        <Button type="button" variant="outline" size="sm" {disabled} onclick={() => addRow(gi)}>
+            </div>
+          {/each}
+        </div>
+        <Button type="button" variant="outline" size="sm" class="mt-3" {disabled} onclick={() => addRow(gi)}>
           <Plus class="h-4 w-4" />
           Add matcher
         </Button>
-      </div>
-    </div>
-  {/each}
+      </section>
+    {/each}
+  </div>
   <Button
     type="button"
     variant="outline"

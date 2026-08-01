@@ -36,6 +36,34 @@ function fixture(pathname: string): Record<string, unknown> {
           },
         ],
       };
+    case "/admin/claude/config":
+      return {
+        status: "ok",
+        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        updated_at: "2026-08-01T08:00:00Z",
+        settings: {
+          env: { OPERATIONS_MODE: "managed" },
+          permissions: { allow: ["Bash(npm run *)"], ask: ["Bash(git push *)"] },
+          permissionMode: "default",
+          statusLine: { type: "command", command: "~/.claude/statusline.sh" },
+          hooks: { SessionStart: [{ matcher: "*", commands: ["~/bin/session-start"] }] },
+          advisorModel: "claude-opus-4-1",
+        },
+      };
+    case "/admin/model-defaults/codex":
+      return {
+        engine: "codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "high",
+        catalog: [{ model: "gpt-5.6-sol", persistent_efforts: ["medium", "high"], default_effort: "high" }],
+      };
+    case "/admin/model-defaults/claude":
+      return {
+        engine: "claude",
+        model: "claude-opus-4-1",
+        reasoning_effort: "high",
+        catalog: [{ model: "claude-opus-4-1", persistent_efforts: ["medium", "high"], default_effort: "high" }],
+      };
     case "/admin/overview":
       return {
         totals: { hosts: 2 },
@@ -392,6 +420,27 @@ test("neutral configuration template has no serious Axe findings", async ({ page
   await expect(page.getByText("Dark", { exact: true })).toBeVisible();
 
   await expectNoSeriousAxeFindings(page);
+});
+
+test("Claude client settings use one full-width operator workflow", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/engines#claude-client");
+  await expect(page.getByRole("heading", { name: "Engines", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude client", level: 2 })).toBeVisible();
+  await expect(page.getByText("Fleet configuration", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Environment variables", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Permissions", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hooks", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "settings.json preview", level: 3 })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "NAME" })).toHaveValue("OPERATIONS_MODE");
+  await expect(page.getByText('"OPERATIONS_MODE": "managed"')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Claude client", level: 2 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
 });
 
 test("account security uses compact route-backed sections", async ({ page }) => {

@@ -62,5 +62,7 @@
   });
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex: scrollable previews need keyboard focus -->
 <pre
+  tabindex="0"
   class={`max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed ${className}`}>{rendered}</pre>

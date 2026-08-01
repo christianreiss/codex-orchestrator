@@ -20,6 +20,7 @@
   import HooksEditor from "$lib/components/authoring/HooksEditor.svelte";
   import type { HooksMap } from "$lib/components/authoring/HooksEditor.svelte";
   import MdPreview from "$lib/components/authoring/MdPreview.svelte";
+  import SaveIndicator from "./SaveIndicator.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Save from "@lucide/svelte/icons/save";
 
@@ -40,6 +41,7 @@
   let advisorModel = $state(ADVISOR_OFF);
   let hooks = $state<HooksMap>({});
   let serverSha = $state<string | null>(null);
+  let savedAt = $state<Date | null>(null);
   let hydrated = $state(false);
 
   function envFromRecord(record: Record<string, string> | undefined): KeyValueRow[] {
@@ -140,6 +142,7 @@
     },
     onSuccess: (result) => {
       serverSha = result.sha256 ?? serverSha;
+      savedAt = new Date();
       toast.success(result.change === "unchanged" ? "No changes to save" : "Settings saved");
       void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() });
     },
@@ -147,36 +150,52 @@
       toast.error(err instanceof ApiError ? err.message : "Failed to save settings");
     },
   });
+
+  const saveStatus = $derived.by(() => {
+    if ($saveMutation.isPending) return "saving" as const;
+    if ($saveMutation.isError) return "error" as const;
+    if (savedAt) return "saved" as const;
+    return "idle" as const;
+  });
 </script>
 
 <section
   id="claude-fleet-settings"
-  class="scroll-mt-24 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 text-sm"
+  class="scroll-mt-24 border-y border-border py-3 text-sm"
 >
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Fleet settings</span>
-    <span class="text-sm">Claude Code settings.json sub-blocks</span>
-  </div>
-  {#if serverSha}
-    <div class="flex flex-col">
-      <span class="text-xs uppercase tracking-wide text-muted-foreground">sha256</span>
-      <span class="font-mono text-xs" title={serverSha}>{serverSha.slice(0, 12)}…</span>
+  <div class="flex flex-wrap items-center gap-3">
+    <div class="min-w-0">
+      <p class="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Fleet configuration</p>
+      <p class="text-sm">Claude Code <span class="font-mono text-xs">settings.json</span> sub-blocks</p>
     </div>
-  {/if}
-  <div class="ml-auto flex items-center gap-2">
-    <Button
-      variant="outline"
-      size="sm"
-      onclick={() => void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() })}
-      disabled={$query.isFetching}
-    >
-      <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-      Refresh
-    </Button>
-    <Button size="sm" onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
-      <Save class="h-4 w-4" />
-      {$saveMutation.isPending ? "Saving…" : "Save"}
-    </Button>
+    {#if serverSha}
+      <div class="border-l pl-3">
+        <span class="block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Revision</span>
+        <span class="font-mono text-xs" title={serverSha}>{serverSha.slice(0, 12)}…</span>
+      </div>
+    {/if}
+    <div class="ml-auto flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => void qc.invalidateQueries({ queryKey: claudeSettingsKeys.config() })}
+        disabled={$query.isFetching}
+      >
+        <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+        Refresh
+      </Button>
+      <Button size="sm" onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
+        <Save class="h-4 w-4" />
+        {$saveMutation.isPending ? "Saving…" : "Save changes"}
+      </Button>
+    </div>
+  </div>
+  <div class="mt-2 max-w-md" aria-live="polite">
+    <SaveIndicator
+      status={saveStatus}
+      {savedAt}
+      error={$saveMutation.error instanceof Error ? $saveMutation.error.message : null}
+    />
   </div>
 </section>
 
@@ -187,86 +206,95 @@
     {$query.error instanceof Error ? $query.error.message : "Failed to load settings"}
   </p>
 {:else}
-  <div class="grid gap-4 lg:grid-cols-[1fr_360px]">
-    <div class="flex flex-col gap-4">
-      <!-- Advisor model (experimental) -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-1 text-sm font-semibold">
+  <div class="divide-y border-b border-border">
+    <section class="py-5" aria-labelledby="advisor-model-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="advisor-model-heading" class="text-sm font-semibold">
           Advisor model
           <Badge variant="secondary" class="ml-1 align-middle">experimental</Badge>
         </h3>
-        <p class="mb-3 text-xs text-muted-foreground">
+        <p class="mt-1 text-sm text-muted-foreground">
           Sets <span class="font-mono">advisorModel</span> in settings.json. When set, the advisor tool
           routes the full transcript to a stronger reviewer model. Off omits the key.
         </p>
-        <ModelSelect bind:value={advisorModel} options={ADVISOR_MODELS} label="Advisor model" placeholder="Off" fallback={ADVISOR_OFF} />
       </div>
+      <ModelSelect bind:value={advisorModel} options={ADVISOR_MODELS} label="Advisor model" placeholder="Off" fallback={ADVISOR_OFF} />
+    </section>
 
-      <!-- Env -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Environment variables</h3>
-        <KeyValueList bind:rows={env} keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
+    <section class="py-5" aria-labelledby="environment-variables-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="environment-variables-heading" class="text-sm font-semibold">Environment variables</h3>
+        <p class="mt-1 text-sm text-muted-foreground">Values are rendered only into fleet-owned Claude settings.</p>
       </div>
+      <KeyValueList bind:rows={env} keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
+    </section>
 
-      <!-- Permission mode -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-1 text-sm font-semibold">Permission mode</h3>
-        <p class="mb-3 text-xs text-muted-foreground">
+    <section class="py-5" aria-labelledby="permission-mode-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="permission-mode-heading" class="text-sm font-semibold">Permission mode</h3>
+        <p class="mt-1 text-sm text-muted-foreground">
           Sets <span class="font-mono">permissions.defaultMode</span> in settings.json — the mode every
           managed Claude host starts in. <span class="font-mono">auto</span> auto-approves tool calls with
           background safety checks; <span class="font-mono">default</span> prompts each time.
         </p>
-        <ModelSelect
-          bind:value={permissionMode}
-          options={CLAUDE_PERMISSION_MODES}
-          label="Permission mode"
-          fallback={DEFAULT_CLAUDE_PERMISSION_MODE}
-        />
       </div>
+      <ModelSelect
+        bind:value={permissionMode}
+        options={CLAUDE_PERMISSION_MODES}
+        label="Permission mode"
+        fallback={DEFAULT_CLAUDE_PERMISSION_MODE}
+      />
+    </section>
 
-      <!-- Permissions -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Permissions</h3>
-        <div class="space-y-3">
-          <div class="space-y-1.5">
-            <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Allow</span>
-            <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
-          </div>
-          <div class="space-y-1.5">
-            <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Ask</span>
-            <RepeatableList bind:items={ask} placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
-          </div>
-          <div class="space-y-1.5">
-            <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Deny</span>
-            <RepeatableList bind:items={deny} placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
-          </div>
+    <section class="py-5" aria-labelledby="permissions-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="permissions-heading" class="text-sm font-semibold">Permissions</h3>
+        <p class="mt-1 text-sm text-muted-foreground">Allow rules run directly, ask rules require confirmation, and deny rules are never offered.</p>
+      </div>
+      <div class="divide-y border-y border-border">
+        <div class="py-4">
+          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Allow</p>
+          <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
+        </div>
+        <div class="py-4">
+          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Ask</p>
+          <RepeatableList bind:items={ask} placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
+        </div>
+        <div class="py-4">
+          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Deny</p>
+          <RepeatableList bind:items={deny} placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
         </div>
       </div>
+    </section>
 
-      <!-- Status line -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Status line</h3>
-        <div class="space-y-1.5">
-          <label for="status-line-command" class="text-xs font-medium">Command</label>
-          <Input id="status-line-command" bind:value={statusLineCommand} placeholder="e.g. ~/.claude/statusline.sh" />
-          <p class="text-xs text-muted-foreground">Type is fixed to <span class="font-mono">command</span>.</p>
+    <section class="py-5" aria-labelledby="status-line-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="status-line-heading" class="text-sm font-semibold">Status line</h3>
+        <p class="mt-1 text-sm text-muted-foreground">Type is fixed to <span class="font-mono text-xs">command</span>.</p>
+      </div>
+      <div class="max-w-2xl space-y-1.5">
+        <label for="status-line-command" class="text-xs font-medium">Command</label>
+        <Input id="status-line-command" bind:value={statusLineCommand} placeholder="e.g. ~/.claude/statusline.sh" />
+      </div>
+    </section>
+
+    <section class="py-5" aria-labelledby="hooks-heading">
+      <div class="mb-3 max-w-3xl">
+        <h3 id="hooks-heading" class="text-sm font-semibold">Hooks</h3>
+        <p class="mt-1 text-sm text-muted-foreground">Run selected commands when matching Claude lifecycle events occur.</p>
+      </div>
+      <HooksEditor bind:hooks />
+    </section>
+
+    <section class="py-5" aria-labelledby="settings-preview-heading">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 id="settings-preview-heading" class="text-sm font-semibold">settings.json preview</h3>
+          <p class="mt-1 text-sm text-muted-foreground">Read-only effective fleet-owned settings before save.</p>
         </div>
-      </div>
-
-      <!-- Hooks -->
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Hooks</h3>
-        <HooksEditor bind:hooks />
-      </div>
-    </div>
-
-    <!-- Preview -->
-    <aside aria-label="Claude settings summary" class="flex flex-col gap-3 lg:sticky lg:top-6 lg:self-start">
-      <div class="flex items-center justify-between text-sm">
-        <span class="font-medium">settings.json preview</span>
         <Badge variant="secondary">read-only</Badge>
       </div>
       <MdPreview json={builtSettings} />
-    </aside>
+    </section>
   </div>
 {/if}
