@@ -40,6 +40,102 @@ function fixture(pathname: string): Record<string, unknown> {
       return { hosts: [] };
     case "/admin/users":
       return { users: [] };
+    case "/admin/agent-messaging/state":
+      return {
+        enabled: true,
+        initial_default: false,
+        addresses: 2,
+        live_addresses: 2,
+        relays: 1,
+        open_conversations: 1,
+        messages: { queued: 0, leased: 0, accepted: 0, dead: 0, ambiguous: 0 },
+        directions: [
+          { source_engine: "codex", target_engine: "claude", total: 3, pending: 0, completed: 3, dead: 0, ambiguous: 0 },
+          { source_engine: "claude", target_engine: "codex", total: 2, pending: 0, completed: 2, dead: 0, ambiguous: 0 },
+        ],
+        delivery: "ordered_at_least_once",
+      };
+    case "/admin/agent-messaging/addresses":
+      return {
+        addresses: [
+          {
+            id: "address-codex",
+            address: "agent:codex-console",
+            alias: "agent:console",
+            engine: "codex",
+            host_id: 1,
+            fqdn: "console.example.test",
+            username: "operator",
+            cwd: "/srv/console",
+            enabled: true,
+            continuity: "native",
+            readiness: "live",
+            adapter_protocol: "mcp",
+            adapter_capabilities: null,
+            binding_generation: 1,
+            current_session_id: "session-1",
+            receive_heartbeat_at: "2026-08-01T08:00:00Z",
+            last_seen_at: "2026-08-01T08:00:00Z",
+            created_at: "2026-08-01T08:00:00Z",
+            queue_depth: 0,
+            host_secure: true,
+            host_enabled: true,
+            host_status: "active",
+            host_engines: ["codex"],
+            eligible: true,
+            ineligible_reason: null,
+          },
+        ],
+      };
+    case "/admin/agent-messaging/conversations":
+      return {
+        conversations: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            address_a_id: "address-codex",
+            address_b_id: "address-claude",
+            created_by_address_id: "address-codex",
+            status: "open",
+            next_sequence: 3,
+            last_activity_at: "2026-08-01T08:00:00Z",
+            canceled_by: null,
+            cancel_reason: null,
+            canceled_at: null,
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+            address_a: { alias: "agent:console", address: "agent:codex-console" },
+            address_b: { alias: "agent:review", address: "agent:claude-review" },
+          },
+        ],
+      };
+    case "/admin/agent-messaging/messages":
+      return {
+        messages: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            conversation_id: "11111111-1111-4111-8111-111111111111",
+            sequence: 1,
+            reply_to_message_id: null,
+            redrive_of_message_id: null,
+            sender: { alias: "agent:console", address: "agent:codex-console" },
+            target: { alias: "agent:review", address: "agent:claude-review" },
+            kind: "message",
+            content_bytes: 48,
+            status: "completed",
+            attempts: 1,
+            expires_at: "2026-08-01T09:00:00Z",
+            last_error_code: null,
+            accepted_at: "2026-08-01T08:00:00Z",
+            completed_at: "2026-08-01T08:00:00Z",
+            ambiguous_at: null,
+            dead_at: null,
+            expired_at: null,
+            canceled_at: null,
+            created_at: "2026-08-01T08:00:00Z",
+            updated_at: "2026-08-01T08:00:00Z",
+          },
+        ],
+      };
     default:
       return { status: "ok" };
   }
@@ -63,6 +159,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
@@ -100,4 +197,26 @@ test("neutral configuration template has no serious Axe findings", async ({ page
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
+});
+
+test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {
+  await page.goto("/admin/agent-messaging?view=conversations");
+  await expect(page.getByRole("heading", { name: "Agent Messaging", level: 1 })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Conversations" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+  await expect(page.getByText("agent:console ↔ agent:review")).toBeVisible();
+
+  await page.getByRole("button", { name: "Deliveries", exact: true }).click();
+  await expect(page).toHaveURL(/view=deliveries/);
+  await expect(page).toHaveURL(/conversation_id=11111111-1111-4111-8111-111111111111/);
+  await expect(page.getByRole("tab", { name: "Deliveries" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByRole("heading", { name: "Deliveries" })).toBeVisible();
+  await expect(page.getByLabel("Filter deliveries by conversation UUID")).toHaveValue(
+    "11111111-1111-4111-8111-111111111111",
+  );
+
+  await page.getByRole("tab", { name: "Addresses" }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page.getByRole("heading", { name: "Addresses" })).toBeVisible();
+  await expect(page.getByText("agent:console", { exact: true })).toBeVisible();
 });

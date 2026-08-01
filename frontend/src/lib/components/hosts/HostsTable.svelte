@@ -134,7 +134,7 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-xl border border-border/75 bg-card text-card-foreground shadow-hairline">
+<div class="overflow-hidden rounded-md border border-border/75 bg-card text-card-foreground">
   <div
     class="grid grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]"
   >

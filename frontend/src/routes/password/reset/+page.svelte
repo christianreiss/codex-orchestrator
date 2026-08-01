@@ -48,7 +48,7 @@
 <main class="standalone-surface flex min-h-full items-center justify-center px-4 py-12">
   <div class="w-full max-w-md">
     <div class="mb-6 flex items-center justify-center gap-3">
-      <BrandMark class="h-10 w-10 shadow-lg shadow-primary/20" />
+      <BrandMark class="h-10 w-10" />
       <span class="text-lg font-semibold tracking-tight">Codex Orchestrator</span>
     </div>
 

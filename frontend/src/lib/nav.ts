@@ -52,6 +52,13 @@ export interface NavSection {
   items: NavItem[];
 }
 
+/** A compact, route-derived trail for the persistent workspace header. */
+export interface Breadcrumb {
+  label: string;
+  /** Canonical route for every ancestor; omit it for the current location. */
+  route?: string;
+}
+
 type NavDefinition = Omit<NavItem, "href">;
 
 function define(item: NavDefinition): NavItem {
@@ -170,36 +177,52 @@ function humanize(segment: string): string {
 
 const CONTEXT_BY_ROUTE = new Map(NAV.map((item) => [item.route, item.label]));
 
-/** Human-readable current location for the compact top bar and document title. */
-export function getPageContext(pathname: string): string {
+function detailTrail(parent: Breadcrumb, detail: string): Breadcrumb[] {
+  return [parent, { label: detail }];
+}
+
+/**
+ * Produces the visible breadcrumb trail from the same registry that owns
+ * navigation and document titles. Detail labels deliberately stay textual:
+ * the parent route is the only stable, linkable ancestor for mutable objects.
+ */
+export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length === 0 || pathname === "/dashboard") return "Overview";
+  if (segments.length === 0 || pathname === "/dashboard") return [{ label: "Overview" }];
   if (pathname === "/logs" || pathname.startsWith("/logs/")) {
-    return pathname.startsWith("/logs/mcp") ? "Activity / MCP requests" : "Activity / Audit trail";
+    return detailTrail({ label: "Activity", route: "/logs/events" }, pathname.startsWith("/logs/mcp") ? "MCP requests" : "Audit trail");
   }
-  if (pathname === "/hosts/new") return "Hosts / Register host";
-  if (pathname.startsWith("/hosts/")) return `Hosts / Host #${humanize(segments[1] ?? "")}`;
+  if (pathname === "/hosts/new") return detailTrail({ label: "Hosts", route: "/hosts" }, "Register host");
+  if (pathname.startsWith("/hosts/")) return detailTrail({ label: "Hosts", route: "/hosts" }, `Host #${humanize(segments[1] ?? "")}`);
   if (pathname.startsWith("/projects/")) {
-    return `Projects / ${humanize(segments[1] ?? "")}${segments[2] ? ` / ${humanize(segments[2])}` : ""}`;
+    const project = humanize(segments[1] ?? "");
+    return segments[2]
+      ? [{ label: "Projects", route: "/projects" }, { label: project, route: `/projects/${encodeURIComponent(segments[1] ?? "")}` }, { label: humanize(segments[2]) }]
+      : detailTrail({ label: "Projects", route: "/projects" }, project);
   }
-  if (pathname.startsWith("/skills/")) return `Skills / ${humanize(segments[1] ?? "")}`;
-  if (pathname.startsWith("/subagents/")) return `Subagents / ${humanize(segments[1] ?? "")}`;
-  if (pathname.startsWith("/commands/")) return `Commands / ${humanize(segments[1] ?? "")}`;
-  if (pathname.startsWith("/output-styles/")) return `Output Styles / ${humanize(segments[1] ?? "")}`;
-  if (pathname.startsWith("/manual/")) return `Manual / ${humanize(segments[1] ?? "")}`;
-  if (pathname.startsWith("/account/")) return `Account / ${segments[1] === "theme" ? "Appearance" : humanize(segments[1] ?? "")}`;
-  if (pathname === "/login") return "Sign in";
-  if (pathname === "/password/reset") return "Reset password";
-  if (pathname.startsWith("/cli-auth")) return "CLI authorization";
-  if (pathname === "/setup") return "Setup";
+  if (pathname.startsWith("/skills/")) return detailTrail({ label: "Skills", route: "/skills" }, humanize(segments[1] ?? ""));
+  if (pathname.startsWith("/subagents/")) return detailTrail({ label: "Subagents", route: "/subagents" }, humanize(segments[1] ?? ""));
+  if (pathname.startsWith("/commands/")) return detailTrail({ label: "Commands", route: "/commands" }, humanize(segments[1] ?? ""));
+  if (pathname.startsWith("/output-styles/")) return detailTrail({ label: "Output Styles", route: "/output-styles" }, humanize(segments[1] ?? ""));
+  if (pathname.startsWith("/manual/")) return detailTrail({ label: "Manual", route: "/manual" }, humanize(segments[1] ?? ""));
+  if (pathname.startsWith("/account/")) return detailTrail({ label: "Account", route: "/account/password" }, segments[1] === "theme" ? "Appearance" : humanize(segments[1] ?? ""));
+  if (pathname === "/login") return [{ label: "Sign in" }];
+  if (pathname === "/password/reset") return [{ label: "Reset password" }];
+  if (pathname.startsWith("/cli-auth")) return [{ label: "CLI authorization" }];
+  if (pathname === "/setup") return [{ label: "Setup" }];
 
   const direct = CONTEXT_BY_ROUTE.get(pathname);
-  if (direct) return direct;
+  if (direct) return [{ label: direct }];
 
   // Compatibility paths stay understandable while the client redirects them.
-  if (pathname.startsWith("/settings")) return "Configuration";
-  if (pathname.startsWith("/authoring")) return "Knowledge";
-  return segments.map(humanize).join(" / ");
+  if (pathname.startsWith("/settings")) return [{ label: "Configuration" }];
+  if (pathname.startsWith("/authoring")) return [{ label: "Knowledge" }];
+  return segments.map((segment) => ({ label: humanize(segment) }));
+}
+
+/** Human-readable current location for the compact top bar and document title. */
+export function getPageContext(pathname: string): string {
+  return getBreadcrumbs(pathname).map((crumb) => crumb.label).join(" / ");
 }
 
 export function getDocumentTitle(pathname: string): string {

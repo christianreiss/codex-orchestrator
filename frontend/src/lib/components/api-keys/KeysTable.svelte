@@ -201,7 +201,7 @@
   </p>
 </div>
 
-<div class="overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm">
+<div class="overflow-hidden rounded-md border border-border/75 bg-card">
   {#if error}
     <div class="p-6 text-sm text-destructive">
       Failed to load keys: {error.message}

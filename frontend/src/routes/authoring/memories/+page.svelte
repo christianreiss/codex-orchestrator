@@ -369,13 +369,13 @@
   </div>
 </div>
 
-<section class="mb-4 space-y-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm" aria-label="Memory filters">
+<section class="mb-4 space-y-4 rounded-md border border-border/70 bg-card p-4" aria-label="Memory filters">
   <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
     <div class="relative min-w-0 flex-1">
       <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input bind:value={searchInput} class="pl-9" aria-label="Search all memories" placeholder="Search keys, titles, summaries, tags…" />
     </div>
-    <div class="flex items-center gap-1 rounded-xl border border-border/70 bg-muted/40 p-1" aria-label="View mode">
+    <div class="flex items-center gap-1 rounded-md border border-border/70 bg-muted/40 p-1" aria-label="View mode">
       <Button size="sm" variant={viewMode === "graph" ? "secondary" : "ghost"} onclick={() => setView("graph")} aria-pressed={viewMode === "graph"}>
         <Network class="h-4 w-4" /> Graph
       </Button>
@@ -457,7 +457,7 @@
 </section>
 
 {#if viewMode === "graph"}
-  <section class="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+  <section class="overflow-hidden rounded-md border border-border/70 bg-card">
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
       <div>
         <h3 class="text-sm font-semibold">Relationship map</h3>
@@ -481,7 +481,7 @@
       </div>
     {:else if memoryNodes.length === 0}
       <div class="grid min-h-[420px] place-items-center p-8 text-center">
-        <div class="max-w-sm"><div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-muted"><Brain class="h-6 w-6 text-muted-foreground" /></div><h3 class="mt-4 font-semibold">{hasFilters ? "No memories match" : "The atlas is empty"}</h3><p class="mt-1 text-sm text-muted-foreground">{hasFilters ? "Adjust filters to reveal another part of the topology." : "Create the first memory to start mapping durable context."}</p>{#if hasFilters}<Button class="mt-4" variant="outline" onclick={clearFilters}>Clear filters</Button>{:else if canCreate}<Button class="mt-4" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />Create memory</Button>{/if}</div>
+        <div class="max-w-sm"><div class="mx-auto grid h-14 w-14 place-items-center rounded-md bg-muted"><Brain class="h-6 w-6 text-muted-foreground" /></div><h3 class="mt-4 font-semibold">{hasFilters ? "No memories match" : "The atlas is empty"}</h3><p class="mt-1 text-sm text-muted-foreground">{hasFilters ? "Adjust filters to reveal another part of the topology." : "Create the first memory to start mapping durable context."}</p>{#if hasFilters}<Button class="mt-4" variant="outline" onclick={clearFilters}>Clear filters</Button>{:else if canCreate}<Button class="mt-4" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />Create memory</Button>{/if}</div>
       </div>
     {:else}
       <MemoryGraph
@@ -495,7 +495,7 @@
     {/if}
   </section>
 {:else}
-  <section class="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+  <section class="overflow-hidden rounded-md border border-border/70 bg-card">
     <div class="border-b border-border/70 px-4 py-3"><h3 class="text-sm font-semibold">Memory inventory</h3><p class="text-xs text-muted-foreground">Keyboard-friendly dense view of the same filtered graph page.</p></div>
     <div class="overflow-x-auto">
       <Table.Root>
@@ -527,7 +527,7 @@
 {/if}
 
 {#if !$graphQuery.isLoading && !$graphQuery.isError && memoryNodes.length > 0 && (serverHasMore || (viewMode === "graph" && graphIsCapped) || (viewMode === "list" && memoryNodes.length > PAGE_SIZE))}
-  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/25 px-4 py-2.5 text-xs text-muted-foreground">
+  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/25 px-4 py-2.5 text-xs text-muted-foreground">
     <p>
       {#if viewMode === "list"}
         {tablePage * PAGE_SIZE + 1}–{Math.min((tablePage + 1) * PAGE_SIZE, memoryNodes.length)} of {memoryNodes.length} loaded
@@ -590,7 +590,7 @@
         <span class="font-mono">{deleteTarget?.id}</span> will be removed from the {deleteTarget?.scope} scope. There is no trash, restore, or rollback.
       </Dialog.Description>
     </Dialog.Header>
-    {#if deleteConflict}<p class="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{deleteConflict}</p>{/if}
+    {#if deleteConflict}<p class="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{deleteConflict}</p>{/if}
     <Dialog.Footer>
       <Button variant="outline" onclick={() => { deleteTarget = null; deleteConflict = null; }} disabled={$deleteMutation.isPending}>Cancel</Button>
       <Button variant="destructive" onclick={() => deleteTarget && $deleteMutation.mutate(deleteTarget)} disabled={$deleteMutation.isPending || !!deleteConflict}>

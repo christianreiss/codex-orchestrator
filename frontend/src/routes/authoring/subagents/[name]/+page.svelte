@@ -109,7 +109,7 @@
   });
 </script>
 
-<PageHeader title={$query.data?.display_name || slug} subtitle={`Subagent · ${slug}`} headingLevel="h2">
+<PageHeader title={$query.data?.display_name || slug} subtitle={`Subagent · ${slug}`}>
   {#snippet actions()}
     <Button variant="outline" href={`${base}/subagents`}>
       <ArrowLeft class="h-4 w-4" />
@@ -125,7 +125,7 @@
     {$query.error instanceof Error ? $query.error.message : "Failed to load subagent"}
   </p>
 {:else}
-  <div class="grid gap-6 lg:grid-cols-[1fr_320px]">
+  <div class="flex flex-col gap-6">
     <!-- Editor + preview -->
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-3">
@@ -144,8 +144,7 @@
       </div>
     </div>
 
-    <!-- Side panel: one consolidated card, not three. -->
-    <aside aria-label="Subagent controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Subagent controls" class="border-t pt-5">
       <Card.Root>
         <Card.Header class="flex-row items-center justify-between gap-2 space-y-0">
           <Card.Title class="text-sm">Frontmatter</Card.Title>
@@ -192,10 +191,7 @@
         </Card.Content>
       </Card.Root>
 
-      <!-- Rides along in the same sticky context as the card above, so Save
-           stays reachable while scrolling the long body textarea without a
-           second, competing sticky element. -->
-      <div class="mt-3 flex items-center justify-end gap-3 rounded-lg border bg-card px-4 py-3 shadow-pop">
+      <div class="mt-3 flex items-center justify-end gap-3 border-t px-1 pt-3">
         <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
           <Save class="h-4 w-4" />
           {$saveMutation.isPending ? "Saving…" : "Save"}

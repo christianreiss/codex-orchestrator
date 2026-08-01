@@ -37,16 +37,16 @@
   ]);
 </script>
 
-<nav class="overflow-x-auto rounded-xl border border-border/60 bg-card/70 p-1" aria-label="Project sections">
+<nav class="overflow-x-auto rounded-md border border-border/60 bg-card/70 p-1" aria-label="Project sections">
   <div class="flex min-w-max gap-1">
     {#each tabs as tab (tab.label)}
       {@const active = tab.match(currentPath)}
       <a
         href={tab.href}
         class={cn(
-          "rounded-lg px-3 py-2 text-sm font-medium transition-all",
+          "rounded-md px-3 py-2 text-sm font-medium transition-colors",
           active
-            ? "bg-accent text-accent-foreground shadow-sm"
+            ? "bg-accent text-accent-foreground"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
         aria-current={active ? "page" : undefined}

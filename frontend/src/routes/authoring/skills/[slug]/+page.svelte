@@ -169,7 +169,7 @@
   }
 </script>
 
-<PageHeader title={displayName || slug} subtitle={`Skill · ${slug}`} headingLevel="h2">
+<PageHeader title={displayName || slug} subtitle={`Skill · ${slug}`}>
   {#snippet actions()}
     <Button variant="outline" href={`${base}/skills`}>
       <ArrowLeft class="h-4 w-4" />
@@ -185,7 +185,7 @@
     {$query.error instanceof Error ? $query.error.message : "Failed to load skill"}
   </p>
 {:else}
-  <div class="grid gap-6 lg:grid-cols-[1fr_320px]">
+  <div class="flex flex-col gap-6">
     <!-- Editor -->
     <div class="flex flex-col gap-3">
       <span class="text-sm font-medium">Manifest (Markdown)</span>
@@ -226,8 +226,7 @@
       </div>
     </div>
 
-    <!-- Side panel: one consolidated card, not three. -->
-    <aside aria-label="Skill controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Skill controls" class="border-t pt-5">
       {#if isManaged}
         <div class="mb-3 rounded-md border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
           {#if sourceType}
@@ -312,10 +311,7 @@
         </Card.Content>
       </Card.Root>
 
-      <!-- Rides along in the same sticky context as the card above, so Save
-           stays reachable while scrolling the long manifest textarea without
-           a second, competing sticky element. -->
-      <div class="mt-3 flex items-center justify-end gap-3 rounded-lg border bg-card px-4 py-3 shadow-pop">
+      <div class="mt-3 flex items-center justify-end gap-3 border-t px-1 pt-3">
         <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending || isManaged}>
           <Save class="h-4 w-4" />
           {$saveMutation.isPending ? "Saving…" : "Save"}

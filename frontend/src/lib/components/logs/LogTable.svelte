@@ -126,7 +126,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
-  class={cn("overflow-x-auto rounded-xl border border-border/70 bg-card shadow-sm", className)}
+  class={cn("overflow-x-auto rounded-md border border-border/70 bg-card", className)}
   role="region"
   aria-label="Log entries"
   tabindex="0"

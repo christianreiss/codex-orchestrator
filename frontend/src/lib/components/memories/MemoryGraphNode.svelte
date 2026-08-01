@@ -66,17 +66,17 @@
 
 <div
   class={cn(
-    "relative h-full w-full overflow-hidden rounded-2xl border shadow-[0_12px_32px_rgba(15,23,42,0.10)] backdrop-blur-sm transition-[border-color,box-shadow,transform] duration-200",
+    "relative h-full w-full overflow-hidden rounded-md border transition-colors duration-150",
     isMemory ? "px-3.5 py-3" : "flex items-center gap-3 px-3.5 py-2.5",
     !accentColor && "border-border/80 bg-card/95",
-    selected && "border-primary ring-2 ring-primary/30 shadow-[0_16px_42px_hsl(var(--primary)/0.22)]",
+    selected && "border-primary ring-2 ring-primary/30",
   )}
   style={containerStyle}
 >
   {#if isMemory}
     <button
       type="button"
-      class="absolute inset-0 z-10 cursor-pointer rounded-2xl bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      class="absolute inset-0 z-10 cursor-pointer rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       aria-label={`Open ${node.scope ?? ""} memory ${data.displayKey}`.trim()}
       onclick={(event) => {
         event.stopPropagation();
@@ -87,7 +87,7 @@
 
   <div
     class={cn(
-      "grid shrink-0 place-items-center rounded-xl border border-current/15 bg-background/70",
+      "grid shrink-0 place-items-center rounded border border-current/15 bg-background",
       isMemory ? "h-8 w-8" : "h-9 w-9",
     )}
     style={iconStyle}

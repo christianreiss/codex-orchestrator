@@ -170,10 +170,10 @@
   );
 </script>
 
-<div class="memory-flow h-[560px] w-full overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_18%_12%,hsl(var(--primary)/0.10),transparent_34%),radial-gradient(circle_at_88%_78%,hsl(var(--accent)/0.18),transparent_36%),hsl(var(--muted)/0.28)] md:h-[640px]">
+<div class="memory-flow h-[560px] w-full overflow-hidden border-t bg-muted/20 md:h-[640px]">
   {#if layouted.tooDense}
     <div class="grid min-h-[520px] place-items-center p-8 text-center">
-      <div class="max-w-md rounded-2xl border border-amber-400/30 bg-background/85 p-6 shadow-sm backdrop-blur">
+      <div class="max-w-md rounded-md border border-warning/25 bg-background p-5">
         <p class="font-semibold text-foreground">This relationship layer is too dense to map safely</p>
         <p class="mt-2 text-sm text-muted-foreground">
           {layouted.visibleNodeCount.toLocaleString()} nodes and {layouted.visibleEdgeCount.toLocaleString()} edges would block the browser. Turn off Tags or Provenance, or narrow the filters. The list view still contains every loaded memory.
@@ -214,7 +214,7 @@
         />
       {/if}
       <Panel position="top-left" class="!m-3">
-        <div class="rounded-xl border border-border/70 bg-background/85 px-3 py-2 text-[10px] text-muted-foreground shadow-sm backdrop-blur-md">
+        <div class="rounded-md border border-border/70 bg-background px-3 py-2 text-[10px] text-muted-foreground">
           <p class="font-semibold text-foreground">Memory topology</p>
           <p>Pan to explore · scroll to move · use controls to zoom</p>
         </div>
@@ -233,17 +233,15 @@
   :global(.memory-flow .svelte-flow__node:focus-visible) {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 4px;
-    border-radius: 1rem;
+    border-radius: var(--radius);
   }
 
   :global(.memory-flow .svelte-flow__controls),
   :global(.memory-flow .svelte-flow__minimap) {
     overflow: hidden;
     border: 1px solid hsl(var(--border) / 0.75);
-    border-radius: 0.85rem;
-    background: hsl(var(--background) / 0.88);
-    box-shadow: 0 12px 28px rgb(15 23 42 / 0.12);
-    backdrop-filter: blur(12px);
+    border-radius: var(--radius);
+    background: hsl(var(--background));
   }
 
   :global(.memory-flow .svelte-flow__controls-button) {

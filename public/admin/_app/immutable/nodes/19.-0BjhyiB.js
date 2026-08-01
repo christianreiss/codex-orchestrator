@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BgD_K-AF.js";export{e as component};

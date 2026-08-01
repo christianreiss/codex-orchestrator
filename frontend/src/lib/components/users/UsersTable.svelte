@@ -58,7 +58,7 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm">
+<div class="overflow-hidden rounded-md border border-border/75 bg-card">
   <Table.Root>
     <Table.Header>
       <Table.Row>

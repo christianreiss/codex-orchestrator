@@ -14,7 +14,7 @@ registerHooks({
 });
 
 const navModule: string = "./nav.ts";
-const { MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV, NAV_FOOTER, NAV_SECTIONS, getDocumentTitle, getPageContext, isActive } =
+const { MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV, NAV_FOOTER, NAV_SECTIONS, getBreadcrumbs, getDocumentTitle, getPageContext, isActive } =
   (await import(navModule)) as typeof import("./nav");
 
 function item(id: string): NavItem {
@@ -63,6 +63,15 @@ describe("location text", () => {
     assert.equal(getPageContext("/projects/fleet/todos"), "Projects / Fleet / Todos");
     assert.equal(getPageContext("/logs/mcp"), "Activity / MCP requests");
     assert.equal(getDocumentTitle("/agent-portal"), "Agent Portal · Codex Orchestrator");
+    assert.deepEqual(getBreadcrumbs("/projects/fleet/todos"), [
+      { label: "Projects", route: "/projects" },
+      { label: "Fleet", route: "/projects/fleet" },
+      { label: "Todos" },
+    ]);
+    assert.deepEqual(getBreadcrumbs("/logs/mcp"), [
+      { label: "Activity", route: "/logs/events" },
+      { label: "MCP requests" },
+    ]);
   });
 });
 

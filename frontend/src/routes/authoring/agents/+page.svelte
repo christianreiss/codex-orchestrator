@@ -200,7 +200,7 @@
     {$query.error instanceof Error ? $query.error.message : "Failed to load AGENTS.md"}
   </p>
 {:else}
-  <div class="grid gap-6 lg:grid-cols-[1fr_320px]">
+  <div class="flex flex-col gap-6">
     <!-- Editor -->
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between text-sm">
@@ -226,8 +226,7 @@
       </div>
     </div>
 
-    <!-- Side panel: one consolidated card, not three. -->
-    <aside aria-label="Agent document controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
+    <aside aria-label="Agent document controls" class="border-t pt-5">
       <Card.Root>
         <Card.Content class="divide-y p-0">
           <div class="space-y-2 p-4">

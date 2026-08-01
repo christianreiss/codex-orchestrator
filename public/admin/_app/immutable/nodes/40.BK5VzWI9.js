@@ -1,1 +1,0 @@
-import{B as e,R as t,lt as n,ut as r}from"../chunks/Dqbbk3fc.js";import"../chunks/xihTtKlq.js";import"../chunks/BkJzZCwM.js";import{t as i}from"../chunks/Cw9blE98.js";import{t as a}from"../chunks/BxCS6bs7.js";var o=e(`<!> <!>`,1);function s(e){var s=o(),c=n(s);i(c,{title:`Output Styles`,subtitle:`Claude-native output styles.`}),a(r(c,2),{}),t(e,s)}export{s as component};

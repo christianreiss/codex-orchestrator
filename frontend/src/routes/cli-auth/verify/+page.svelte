@@ -127,7 +127,7 @@
   <div class="w-full max-w-lg">
     <!-- Brand mark -->
     <div class="mb-8 flex flex-col items-center gap-3">
-      <BrandMark class="h-12 w-12 rounded-2xl shadow-lg shadow-primary/20" />
+      <BrandMark class="h-12 w-12" />
       <div class="text-center">
         <h1 class="text-2xl font-bold tracking-tight">Approve CLI session</h1>
         <p class="mt-1.5 text-sm text-muted-foreground">
@@ -144,7 +144,7 @@
       </div>
     </div>
 
-    <div class="rounded-2xl border border-border/75 bg-card p-6 shadow-pop sm:p-8">
+    <div class="rounded-md border border-border/75 bg-card p-6 sm:p-8">
       {#if phase === "code" || phase === "confirm"}
         <!-- Code input — always visible while looking up / confirming -->
         <form

@@ -19,7 +19,7 @@
   <p class="mb-2 hidden px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground md:block">
     Account
   </p>
-  <ul class="flex gap-1 overflow-x-auto rounded-xl border border-border/60 bg-card/70 p-1 md:flex-col md:gap-0.5 md:p-1.5">
+  <ul class="flex gap-1 overflow-x-auto rounded-md border border-border/60 bg-card/70 p-1 md:flex-col md:gap-0.5 md:p-1.5">
     {#each items as item (item.href)}
       {@const Icon = item.icon}
       {@const active = path === item.href || path.startsWith(item.href + "/")}
@@ -28,9 +28,9 @@
           href={`${base}${item.href}`}
           aria-current={active ? "page" : undefined}
           class={cn(
-            "flex min-h-10 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-all",
+            "flex min-h-10 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors",
             active
-              ? "bg-accent text-accent-foreground shadow-sm"
+              ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >

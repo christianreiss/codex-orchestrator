@@ -1,12 +1,10 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
-  import { base } from "$app/paths";
   import { authStore } from "$lib/stores/auth";
   import {
     agentMessagingStateMutation,
     agentMessagingStateQuery,
   } from "$lib/api/agentMessaging";
-  import { Button } from "$lib/components/ui/button";
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
 
@@ -40,7 +38,7 @@
 
 <SectionCard
   id="agent-messaging"
-  title="Agent Messaging"
+  title="Service state"
   description="Fleet-wide Codex ↔ Claude communication with stable addresses, automatic resume/fresh delivery, encrypted content, and ordered at-least-once semantics. The initial default is off."
   {status}
   savedAt={lastSavedAt}
@@ -63,8 +61,5 @@
     Turning this off revokes relays, cancels queued/in-flight peer work and open conversations, and stops only managed headless deliveries. Interactive Codex and Claude sessions keep running. History and audit metadata remain available.
   </div>
 
-  <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-    <span>32 KiB text · 24h default TTL · 12 delivery attempts · no broadcast or attachments</span>
-    <Button href={`${base}/agent-messaging`} size="sm" variant="outline">Open operations</Button>
-  </div>
+  <p class="text-xs text-muted-foreground">32 KiB text · 24h default TTL · 12 delivery attempts · no broadcast or attachments</p>
 </SectionCard>

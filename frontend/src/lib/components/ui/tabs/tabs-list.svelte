@@ -8,7 +8,7 @@
 
 <TabsPrimitive.List
   class={cn(
-    "inline-flex min-h-10 items-center justify-center rounded-xl border border-border/50 bg-muted/75 p-1 text-muted-foreground",
+    "inline-flex min-h-9 items-center justify-center rounded-md border border-border/70 bg-muted/60 p-0.5 text-muted-foreground",
     className,
   )}
   {...rest}

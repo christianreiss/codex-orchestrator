@@ -10,7 +10,7 @@
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
-  import { getPageContext } from "$lib/nav";
+  import { getBreadcrumbs } from "$lib/nav";
   import { commandPalette } from "$lib/stores/command-palette";
   import { hostsSummary } from "$lib/stores/hosts-summary";
   import { wsStatus } from "$lib/stores/ws-status";
@@ -19,7 +19,7 @@
 
   const activeWindows = $derived($hostsSummary.activeInsecureWindows);
   const path = $derived(page.url.pathname.replace(base, "") || "/");
-  const pageContext = $derived(getPageContext(path));
+  const breadcrumbs = $derived(getBreadcrumbs(path));
   const wsIndicator = $derived.by(() => {
     if ($wsStatus === "open") return { tone: "online" as const, label: "Live", tooltip: "Live updates connected" };
     if ($wsStatus === "connecting" || $wsStatus === "idle") return { tone: "warning" as const, label: "Reconnecting", tooltip: "Reconnecting to live updates" };
@@ -29,7 +29,22 @@
 </script>
 
 <header class="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-3 border-b bg-background px-4 sm:px-6">
-  <div class="min-w-0 truncate text-sm font-medium">{pageContext}</div>
+  <nav class="min-w-0 overflow-hidden" aria-label="Breadcrumb">
+    <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-sm">
+      {#each breadcrumbs as crumb, index (crumb.label + index)}
+        {#if index > 0}
+          <li aria-hidden="true" class="shrink-0 text-muted-foreground/55">/</li>
+        {/if}
+        <li class="min-w-0 truncate">
+          {#if crumb.route}
+            <a href={`${base}${crumb.route}`} class="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{crumb.label}</a>
+          {:else}
+            <span class="font-medium text-foreground" aria-current="page">{crumb.label}</span>
+          {/if}
+        </li>
+      {/each}
+    </ol>
+  </nav>
   <div class="flex shrink-0 items-center gap-1.5">
     <button type="button" class="hidden h-8 w-72 items-center gap-2 rounded-md border bg-card px-2 text-xs text-muted-foreground hover:bg-muted lg:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /><span class="flex-1 text-left">Search or run a command</span><kbd>⌘ K</kbd></button>
     <button type="button" class="grid h-8 w-8 place-items-center rounded-md border lg:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>

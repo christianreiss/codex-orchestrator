@@ -34,7 +34,7 @@
       class={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isActive
-          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+          ? "border-primary bg-primary text-primary-foreground"
           : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
       onclick={() => onchange?.(chip.id)}

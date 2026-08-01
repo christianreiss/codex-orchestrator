@@ -77,7 +77,7 @@
   </aside>
 
   <section class="min-w-0">
-    <div class="rounded-xl border border-border bg-card p-6 shadow-sm md:p-8">
+    <div class="rounded-md border border-border bg-card p-6 md:p-8">
       <p class="flex items-center gap-2 text-sm text-muted-foreground">
         <BookOpen class="h-4 w-4 shrink-0 text-[hsl(var(--sidebar-active))]" />
         Pick an article on the left, or jump into a featured page below — every article is generated live from the codebase.

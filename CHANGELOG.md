@@ -12,6 +12,13 @@
   preferences are migrated client-side to the matching neutral mode while the
   API remains backward-compatible. Shared controls and tables are compacted;
   Projects now uses a sortable full-width operator table.
+- Followed through on the visual system in the remaining high-density paths:
+  the persistent header now exposes semantic route-backed breadcrumbs; Memory
+  Atlas, tables, navigation strips, standalone authentication, and the Manual
+  use the same flat compact surfaces; and Knowledge editors now give the
+  document the full workspace before sequential metadata and save controls.
+  Agent Messaging now keeps master state on one page while Addresses,
+  Conversations, and Deliveries are peer, URL-shareable operational views.
 - Made `bin/setup.sh` the authoritative fresh-install bootstrap: it now preserves or generates every installation secret, keeps API/runner shared secrets identical, uses supported cookie mode when mTLS is declined, builds a uniquely trusted four-platform wrapper fleet, imports its private signer encrypted with verified read-back, waits for the critical Compose services, and prints `READY` only after local and public readiness pass. Partial and prepare-only runs print `INCOMPLETE` and exit non-zero; existing key/artifact mismatches fail closed instead of rotating.
 - Made `--mtls-optional` select Caddy's cookie-session admin path as well as the supported API mode, and preserved all non-empty database credentials on setup reruns.
 - Updated the bundled Caddy ACME fragment to the supported `issuer acme` syntax used by current Caddy 2 images and wired its certificate-path variables into the container.
