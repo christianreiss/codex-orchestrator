@@ -146,7 +146,7 @@
 
 <Sheet.Root bind:open onOpenChange={setOpen}>
   <Sheet.Content side="right" class="flex w-full flex-col overflow-y-auto p-0 sm:max-w-xl">
-    <div class="border-b border-border/70 bg-gradient-to-br from-primary/[0.09] via-background to-background px-5 pb-4 pt-5 sm:px-6">
+    <div class="border-b border-border/70 bg-muted/30 px-5 pb-4 pt-5 sm:px-6">
       <Sheet.Header class="pr-10">
         <div class="flex flex-wrap items-center gap-2">
           <Badge variant="outline" class="capitalize">{node?.scope ?? "Memory"}</Badge>
@@ -168,7 +168,7 @@
         <Skeleton class="h-24 w-full" />
       </div>
     {:else if $detailQuery.isError}
-      <div class="m-5 rounded-xl border border-destructive/35 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+      <div class="m-5 rounded-md border border-destructive/35 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground" role="alert">
         <p class="font-semibold">Could not load this memory</p>
         <p class="mt-1">{$detailQuery.error instanceof Error ? $detailQuery.error.message : "Unknown error"}</p>
         <Button class="mt-3" size="sm" variant="outline" onclick={() => $detailQuery.refetch()}>Try again</Button>
@@ -201,7 +201,7 @@
         </Tabs.List>
 
         <Tabs.Content value="overview" class="space-y-5 pt-3">
-          <dl class="grid gap-x-4 gap-y-3 rounded-xl border border-border/70 bg-muted/25 p-4 text-sm sm:grid-cols-2">
+          <dl class="grid gap-x-4 gap-y-3 border-y border-border/70 bg-muted/25 px-4 py-3 text-sm sm:grid-cols-2">
             <div>
               <dt class="text-xs text-muted-foreground">Immutable key</dt>
               <dd class="mt-0.5 break-all font-mono text-xs">{memory.id}</dd>
@@ -270,13 +270,13 @@
             <p class="text-xs text-muted-foreground">{formatCharacters(memory.content_length)} · full body</p>
             <Button size="sm" variant="outline" onclick={copyContent}><Copy class="h-3.5 w-3.5" />Copy</Button>
           </div>
-          <pre class="max-h-[calc(100vh-16rem)] whitespace-pre-wrap break-words rounded-xl border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5 text-foreground">{memory.content}</pre>
+          <pre class="max-h-[calc(100vh-16rem)] whitespace-pre-wrap break-words border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5 text-foreground">{memory.content}</pre>
         </Tabs.Content>
 
         <Tabs.Content value="metadata" class="space-y-3 pt-3">
           <p class="text-xs text-muted-foreground">Structured labels only; full content is kept on the Content tab.</p>
           {#if metadataEntries && metadataEntries.length > 0}
-            <dl class="divide-y divide-border/70 rounded-xl border border-border/70">
+            <dl class="divide-y divide-border/70 border-y border-border/70">
               {#each metadataEntries as [key, value] (key)}
                 <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm">
                   <dt class="shrink-0 font-mono text-xs text-muted-foreground">{key}</dt>
@@ -285,11 +285,11 @@
               {/each}
             </dl>
           {:else if metadataEntries}
-            <p class="rounded-xl border border-border/70 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+            <p class="border-y border-border/70 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
               No metadata set.
             </p>
           {:else}
-            <pre class="max-h-[calc(100vh-16rem)] overflow-auto rounded-xl border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
+            <pre class="max-h-[calc(100vh-16rem)] overflow-auto border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
           {/if}
         </Tabs.Content>
 
@@ -298,18 +298,18 @@
             <Skeleton class="h-28 w-full" />
             <Skeleton class="h-20 w-full" />
           {:else if $auditQuery.isError}
-            <div class="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+            <div class="border border-destructive/30 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground" role="alert">
               {$auditQuery.error instanceof Error ? $auditQuery.error.message : "Could not load activity"}
             </div>
           {:else if $auditQuery.data}
-            <div class="rounded-xl border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
+            <div class="border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
               <p class="font-semibold">Operational history</p>
               <p class="mt-1">{$auditQuery.data.retention.note}</p>
               <p class="mt-1 opacity-80">Retention-bound · not immutable · no historical bodies</p>
             </div>
 
             {#if $auditQuery.data.activities.length === 0}
-              <p class="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No retained activity for this memory.</p>
+              <p class="border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No retained activity for this memory.</p>
             {:else}
               <ol class="relative ml-2 border-l border-border/80 pl-5">
                 {#each $auditQuery.data.activities as item (item.id)}

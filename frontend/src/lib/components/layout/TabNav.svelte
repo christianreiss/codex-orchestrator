@@ -68,9 +68,9 @@
   <a
     href={item.href}
     class={cn(
-      "inline-flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      "inline-flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       active
-        ? "bg-card text-foreground shadow-sm"
+        ? "bg-card text-foreground"
         : "text-muted-foreground hover:bg-card/50 hover:text-foreground",
     )}
     aria-current={active ? "page" : undefined}
@@ -94,7 +94,7 @@
             {g.group}
           </p>
         {/if}
-        <div class="flex min-w-0 gap-1 overflow-x-auto rounded-xl bg-muted/65 p-1">
+        <div class="flex min-w-0 gap-1 overflow-x-auto rounded-md border border-border/70 bg-muted/60 p-0.5">
           {#each g.items as item (item.href)}
             {@render tab(item)}
           {/each}

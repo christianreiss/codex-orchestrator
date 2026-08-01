@@ -226,7 +226,7 @@
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
-        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-hairline transition-colors hover:bg-accent"
+        class="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-accent"
       >
         <Ellipsis class="h-4 w-4" /> More
       </DropdownMenu.Trigger>

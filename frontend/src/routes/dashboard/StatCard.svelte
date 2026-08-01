@@ -27,7 +27,7 @@
 
 <div
   class={cn(
-    "rounded-xl border border-border/75 bg-card p-4 shadow-hairline",
+    "rounded-md border border-border/75 bg-card p-3",
     className,
   )}
 >

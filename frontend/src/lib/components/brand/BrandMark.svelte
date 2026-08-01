@@ -18,7 +18,7 @@
 <span
   data-brand-mark="switchyard"
   class={cn(
-    "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-[hsl(var(--sidebar-bg))] text-white",
+    "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--sidebar-bg))] text-white",
     className,
   )}
   aria-hidden="true"

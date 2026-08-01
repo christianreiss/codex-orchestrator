@@ -89,7 +89,7 @@
                       <span class="text-xs text-muted-foreground">+</span>
                     {/if}
                     <kbd
-                      class="inline-flex min-w-[1.75rem] items-center justify-center rounded border border-border bg-background px-1.5 py-0.5 text-xs font-mono font-medium text-foreground shadow-sm"
+                      class="inline-flex min-w-[1.75rem] items-center justify-center rounded border border-border bg-background px-1.5 py-0.5 text-xs font-mono font-medium text-foreground"
                     >
                       {key}
                     </kbd>

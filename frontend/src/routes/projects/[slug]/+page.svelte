@@ -5,7 +5,6 @@
   import Save from "@lucide/svelte/icons/save";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import * as Card from "$lib/components/ui/card";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -139,22 +138,20 @@
     </Alert.Description>
   </Alert.Root>
 {:else}
-  <div class="flex flex-col gap-6">
-    <Card.Root>
-      <Card.Header>
+  <div class="divide-y divide-border border-y border-border">
+    <section class="py-5">
+      <header class="mb-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <Card.Title>About</Card.Title>
-            <Card.Description
-              >Title, name, and a short description for this workspace.</Card.Description
-            >
+            <h2 class="text-sm font-semibold">About</h2>
+            <p class="mt-1 text-sm text-muted-foreground">Title, name, and a short description for this workspace.</p>
           </div>
           {#if aboutChanged}
             <Badge variant="warning">Unsaved changes</Badge>
           {/if}
         </div>
-      </Card.Header>
-      <Card.Content class="flex flex-col gap-3">
+      </header>
+      <div class="flex flex-col gap-3">
         <div class="grid gap-1.5">
           <Label for="about-title">Title</Label>
           <Input id="about-title" bind:value={aboutTitle} placeholder={slug} />
@@ -172,8 +169,8 @@
             placeholder="What is this workspace for?"
           />
         </div>
-      </Card.Content>
-      <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
+      </div>
+      <footer class="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3">
         <Button
           variant="outline"
           onclick={() => $assistMutation.mutate()}
@@ -193,30 +190,30 @@
           <Save class="h-4 w-4" />
           {$aboutMutation.isPending ? "Saving…" : "Save"}
         </Button>
-      </Card.Footer>
-    </Card.Root>
+      </footer>
+    </section>
 
-    <Card.Root>
-      <Card.Header>
+    <section class="py-5">
+      <header class="mb-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <Card.Title>Roster</Card.Title>
-            <Card.Description>Markdown describing who is on this project.</Card.Description>
+            <h2 class="text-sm font-semibold">Roster</h2>
+            <p class="mt-1 text-sm text-muted-foreground">Markdown describing who is on this project.</p>
           </div>
           {#if rosterChanged}
             <Badge variant="warning">Unsaved changes</Badge>
           {/if}
         </div>
-      </Card.Header>
-      <Card.Content>
+      </header>
+      <div>
         <Textarea
           bind:value={roster}
           rows={12}
           class="font-mono text-sm"
           placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"}
         />
-      </Card.Content>
-      <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
+      </div>
+      <footer class="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3">
         <Button
           variant="outline"
           onclick={() => $assistMutation.mutate()}
@@ -236,7 +233,7 @@
           <Save class="h-4 w-4" />
           {$rosterMutation.isPending ? "Saving…" : "Save"}
         </Button>
-      </Card.Footer>
-    </Card.Root>
+      </footer>
+    </section>
   </div>
 {/if}

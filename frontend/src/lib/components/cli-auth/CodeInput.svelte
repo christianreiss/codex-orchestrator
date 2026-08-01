@@ -67,7 +67,7 @@
   onkeydown={handleKeydown}
   onpaste={handlePaste}
   class={cn(
-    "block w-full rounded-xl border-2 border-input bg-background px-4 py-5 text-center font-mono text-3xl font-semibold uppercase tracking-[0.35em] text-foreground shadow-sm transition-colors",
+    "block w-full rounded-md border-2 border-input bg-background px-4 py-5 text-center font-mono text-3xl font-semibold uppercase tracking-[0.35em] text-foreground transition-colors",
     "placeholder:text-muted-foreground/40 placeholder:tracking-[0.35em] placeholder:font-normal",
     "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15",
     "disabled:cursor-not-allowed disabled:opacity-60",

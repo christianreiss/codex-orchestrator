@@ -30,7 +30,7 @@
   {#if Icon}
     <div
       class={cn(
-        "flex items-center justify-center rounded-2xl bg-muted text-muted-foreground",
+        "flex items-center justify-center rounded-md bg-muted text-muted-foreground",
         isSm ? "h-9 w-9" : "h-14 w-14",
       )}
     >

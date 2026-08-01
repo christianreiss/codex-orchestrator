@@ -34,6 +34,27 @@ function fixture(pathname: string): Record<string, unknown> {
       return {
         projects: [{ slug: "fleet-console", title: "Fleet console", description: "Admin redesign", updated_at: "2026-08-01T08:00:00Z", latest_seq: 4 }],
       };
+    case "/admin/projects/fleet-console":
+      return {
+        project: {
+          slug: "fleet-console",
+          about: {
+            title: "Fleet console",
+            name: "Operations",
+            description: "A shared workspace for fleet coordination.",
+          },
+          roster_markdown: "# Roster\n- @operator — owner",
+          latest_seq: 4,
+          created_at: "2026-08-01T08:00:00Z",
+          updated_at: "2026-08-01T08:00:00Z",
+          counts: { notes: 2, open_todos: 1, done_todos: 1, files: 3, feedback: 1 },
+        },
+        notes: [],
+        todos: [],
+        files: [],
+        feedback: [{ id: 1, type: "bug", title: "Sample", body: "Sample feedback" }],
+        recent_changes: [],
+      };
     case "/admin/skills":
       return { skills: [{ slug: "fleet-ops", display_name: "Fleet operations", description: "Operator runbook", status: "ok" }] };
     case "/admin/hosts":
@@ -150,6 +171,13 @@ async function installFixtures(page: Page): Promise<void> {
   });
 }
 
+async function expectNoSeriousAxeFindings(page: Page): Promise<void> {
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(
+    results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? "")),
+  ).toEqual([]);
+}
+
 test.beforeEach(async ({ page }) => {
   await installFixtures(page);
 });
@@ -195,8 +223,27 @@ test("neutral configuration template has no serious Axe findings", async ({ page
   await expect(page.getByText("Light", { exact: true })).toBeVisible();
   await expect(page.getByText("Dark", { exact: true })).toBeVisible();
 
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
+  await expectNoSeriousAxeFindings(page);
+});
+
+test("project detail and standalone approval keep their task-focused layouts", async ({ page }) => {
+  await page.goto("/admin/authoring/agents");
+  await expect(page).toHaveURL(/\/admin\/instructions$/);
+  await expect(page.getByRole("heading", { name: "Fleet Instructions" })).toBeVisible();
+
+  await page.goto("/admin/projects/fleet-console");
+  await expect(page.getByRole("heading", { name: "Fleet console", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "About", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Roster", level: 2 })).toBeVisible();
+  await expect(page.getByLabel("Title")).toHaveValue("Fleet console");
+  await expect(page.getByRole("button", { name: "Save", exact: true }).first()).toBeDisabled();
+  await expectNoSeriousAxeFindings(page);
+
+  await page.goto("/admin/cli-auth/verify");
+  await expect(page.getByRole("heading", { name: "Approve CLI session" })).toBeVisible();
+  await expect(page.getByLabel("Device code")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Look up" })).toBeDisabled();
+  await expectNoSeriousAxeFindings(page);
 });
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {

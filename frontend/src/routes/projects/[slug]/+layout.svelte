@@ -65,7 +65,7 @@
     </Button>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
-        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-hairline transition-colors hover:bg-accent"
+        class="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-accent"
         disabled={!$detail.data}
       >
         <Ellipsis class="h-4 w-4" /> More
@@ -92,20 +92,20 @@
     </Alert.Description>
   </Alert.Root>
 {:else}
-  <div class="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-border/75 bg-card p-4 shadow-sm sm:grid-cols-4">
-    <div class="flex flex-col">
+  <div class="mb-4 grid grid-cols-2 border-y border-border sm:grid-cols-4">
+    <div class="flex flex-col border-b border-border px-3 py-2.5 sm:border-b-0 sm:border-r sm:last:border-r-0">
       <span class="text-xs uppercase tracking-wide text-muted-foreground">Notes</span>
       <span class="text-xl font-semibold tabular-nums">{counts?.notes ?? 0}</span>
     </div>
-    <div class="flex flex-col">
+    <div class="flex flex-col border-b border-border px-3 py-2.5 sm:border-b-0 sm:border-r sm:last:border-r-0">
       <span class="text-xs uppercase tracking-wide text-muted-foreground">Open todos</span>
       <span class="text-xl font-semibold tabular-nums">{counts?.open_todos ?? 0}</span>
     </div>
-    <div class="flex flex-col">
+    <div class="flex flex-col px-3 py-2.5 sm:border-r sm:last:border-r-0">
       <span class="text-xs uppercase tracking-wide text-muted-foreground">Bugs</span>
       <span class="text-xl font-semibold tabular-nums">{bugCount}</span>
     </div>
-    <div class="flex flex-col">
+    <div class="flex flex-col px-3 py-2.5">
       <span class="text-xs uppercase tracking-wide text-muted-foreground">Files</span>
       <span class="text-xl font-semibold tabular-nums">{counts?.files ?? 0}</span>
     </div>

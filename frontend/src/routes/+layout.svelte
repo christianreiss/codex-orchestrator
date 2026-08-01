@@ -135,7 +135,7 @@
 <QueryClientProvider client={queryClient}>
   {#if auth.unreachable || setupError}
     <div class="flex min-h-screen items-center justify-center bg-background p-6">
-      <div class="w-full max-w-lg rounded-lg border border-destructive/40 bg-card p-6 shadow-sm">
+      <div class="w-full max-w-lg rounded-md border border-destructive/40 bg-card p-6">
         <h1 class="text-xl font-semibold">API unreachable</h1>
         <p class="mt-2 text-sm text-muted-foreground">{auth.unreachable ?? setupError}</p>
         <button class="mt-5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground" onclick={() => { setupError = null; void authActions.refresh(); }}>Retry</button>
