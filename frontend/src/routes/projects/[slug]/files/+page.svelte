@@ -3,11 +3,11 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Save from "@lucide/svelte/icons/save";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Plus from "@lucide/svelte/icons/plus";
   import FileText from "@lucide/svelte/icons/file-text";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import Upload from "@lucide/svelte/icons/upload";
-  import * as Card from "$lib/components/ui/card";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -40,12 +40,20 @@
   let mimeType = $state("");
   let description = $state("");
   let content = $state("");
+  let createOpen = $state(false);
+  let editingName = $state<string | null>(null);
 
   function resetForm() {
     storedName = "";
     mimeType = "";
     description = "";
     content = "";
+    editingName = null;
+  }
+
+  function openCreate() {
+    resetForm();
+    createOpen = true;
   }
 
   function loadInto(file: ProjectFile) {
@@ -53,7 +61,8 @@
     mimeType = file.mime_type ?? "";
     description = file.description ?? "";
     content = file.content ?? "";
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    editingName = file.stored_name;
+    createOpen = true;
   }
 
   const upsertMut = createMutation({
@@ -66,6 +75,7 @@
       }),
     onSuccess: () => {
       toast.success("File saved");
+      createOpen = false;
       void qc.invalidateQueries({ queryKey: projectKeys.files(slug) });
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
     },
@@ -100,58 +110,20 @@
 
   const files = $derived($filesQuery.data?.files ?? []);
   const canSubmit = $derived(storedName.trim().length > 0 && content.length > 0);
+  const isEditing = $derived(editingName !== null);
 </script>
 
 <div class="flex flex-col gap-6">
-  <Card.Root>
-    <Card.Header>
-      <Card.Title>Upsert file</Card.Title>
-      <Card.Description>
-        Save by <span class="font-mono">stored_name</span>: existing entries are overwritten.
-      </Card.Description>
-    </Card.Header>
-    <Card.Content class="flex flex-col gap-3">
-      <div class="grid gap-3 sm:grid-cols-2">
-        <div class="grid gap-1.5">
-          <Label for="file-name">Stored name</Label>
-          <Input id="file-name" bind:value={storedName} placeholder="docs/spec.md" />
-        </div>
-        <div class="grid gap-1.5">
-          <Label for="file-mime">MIME type</Label>
-          <Input id="file-mime" bind:value={mimeType} placeholder="text/markdown" />
-        </div>
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="file-desc">Description</Label>
-        <Input id="file-desc" bind:value={description} placeholder="Optional description" />
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="file-content">Content</Label>
-        <Textarea
-          id="file-content"
-          bind:value={content}
-          rows={10}
-          class="font-mono text-sm"
-          placeholder="File contents…"
-        />
-      </div>
-    </Card.Content>
-    <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
-      <Button variant="ghost" onclick={resetForm} disabled={!storedName && !content}>
-        <RotateCcw class="h-4 w-4" />
-        Reset
-      </Button>
-      <Button onclick={() => $upsertMut.mutate()} disabled={!canSubmit || $upsertMut.isPending}>
-        <Save class="h-4 w-4" />
-        {$upsertMut.isPending ? "Saving…" : "Save"}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
-
   <section class="flex flex-col gap-3">
-    <h2 class="text-sm font-medium text-muted-foreground">
-      {files.length} {files.length === 1 ? "file" : "files"}
-    </h2>
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-medium text-muted-foreground">
+        {files.length} {files.length === 1 ? "file" : "files"}
+      </h2>
+      <Button size="sm" onclick={openCreate}>
+        <Plus class="h-4 w-4" />
+        New file
+      </Button>
+    </div>
 
     {#if $filesQuery.isLoading}
       <Skeleton class="h-20 w-full" />
@@ -203,8 +175,8 @@
                 <td class="px-3 py-2 text-right">
                   <div class="flex justify-end gap-1">
                     <Button variant="ghost" size="sm" onclick={() => loadInto(file)}>
-                      <Upload class="h-4 w-4" />
-                      Load
+                      <Pencil class="h-4 w-4" />
+                      Edit
                     </Button>
                     <Button
                       variant="ghost"
@@ -225,3 +197,64 @@
     {/if}
   </section>
 </div>
+
+<Sheet.Root
+  bind:open={createOpen}
+  onOpenChange={(next) => {
+    createOpen = next;
+    if (!next) resetForm();
+  }}
+>
+  <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-lg">
+    <Sheet.Header>
+      <Sheet.Title>{isEditing ? "Edit file" : "New file"}</Sheet.Title>
+      <Sheet.Description>
+        Save by <span class="font-mono">stored_name</span>: existing entries are overwritten.
+      </Sheet.Description>
+    </Sheet.Header>
+    <form
+      class="mt-6 flex flex-col gap-3"
+      onsubmit={(e) => {
+        e.preventDefault();
+        $upsertMut.mutate();
+      }}
+    >
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid gap-1.5">
+          <Label for="file-name">Stored name</Label>
+          <Input
+            id="file-name"
+            bind:value={storedName}
+            placeholder="docs/spec.md"
+            disabled={isEditing}
+          />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="file-mime">MIME type</Label>
+          <Input id="file-mime" bind:value={mimeType} placeholder="text/markdown" />
+        </div>
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="file-desc">Description</Label>
+        <Input id="file-desc" bind:value={description} placeholder="Optional description" />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="file-content">Content</Label>
+        <Textarea
+          id="file-content"
+          bind:value={content}
+          rows={12}
+          class="font-mono text-sm"
+          placeholder="File contents…"
+        />
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <Button variant="ghost" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
+        <Button type="submit" disabled={!canSubmit || $upsertMut.isPending}>
+          <Save class="h-4 w-4" />
+          {$upsertMut.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </form>
+  </Sheet.Content>
+</Sheet.Root>

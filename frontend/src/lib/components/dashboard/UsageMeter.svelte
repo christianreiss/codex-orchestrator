@@ -33,7 +33,7 @@
   const live = $derived(Math.max(0, clamped - cached));
   const overLimit = $derived(clamped > 100);
   const meterTone = $derived(
-    overLimit || clamped >= 90 ? "bg-destructive" : clamped >= 70 ? "bg-amber-500" : "bg-primary",
+    overLimit || clamped >= 90 ? "bg-destructive" : clamped >= 70 ? "bg-warning" : "bg-primary",
   );
 </script>
 

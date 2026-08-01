@@ -1,5 +1,70 @@
 # 2026-07-31
 
+- Redesigned the admin UI (`frontend/`, ~35 routes) end to end: a warm
+  cream/espresso "operator console" palette (terracotta/amber primary, all
+  three pink theme variants keep their exact user-designed hue) replaces the
+  generic indigo/violet-on-Inter default, with Inter/JetBrains Mono/Source
+  Serif 4 self-hosted for the first time — nothing was self-hosted before,
+  including Inter, which silently fell back to `system-ui`. A new
+  `tokens.contrast.test.ts` resolves all 6 theme combinations and asserts
+  WCAG contrast so a future token change can't quietly regress one.
+  - **JSON textareas eliminated** except where the value is genuinely
+    freeform or opaque: prune policy is now a plain number input (also fixes
+    a 3-way default disagreement — the settings seed, the overview endpoint,
+    and the actual pruning logic each defaulted differently; all three now
+    agree on 30 days); scaling rules got a structured repeatable-row editor
+    exposing the reasoning-effort enum the JSON form silently dropped invalid
+    values for before; seed-auth gained an `apikey`/`chatgpt` mode toggle so
+    a plain API key no longer requires pasting JSON. Memory metadata (a real
+    `Record<string, unknown>` with nested objects/booleans in production
+    rows) and Codex OAuth upload (opaque machine-generated JWTs) keep a
+    labeled JSON path since typed forms would either lose data or have
+    nothing to type.
+  - `/hosts/[id]` restructured from a page that showed several fields' state
+    2-4× at once (pill, read-only fact, and control together) into header +
+    status chips + identity/reachability facts + per-engine rows with inline
+    popovers + fleet policy overrides + isolated danger zone; added the
+    missing `reasoning_effort_override` control and its mutation, which had
+    no editor anywhere before. `/settings` re-axised from three tabs split by
+    *engine* (General/Codex/Claude) to four split by operator *task*
+    (Availability/Engines/Fleet policy/Claude config), with every old
+    `?tab=`/`#`-anchor deep link still resolving correctly; Agent Portal
+    (full user CRUD with credential reveal/rotate) promoted out of a settings
+    tab into its own `/settings/agent-portal` route.
+  - Introduced a shared list+detail CRUD pattern (search/sort toolbar, two-
+    state empty states, row-overflow menu for destructive actions, sticky
+    save bar) and rolled it out across subagents, skills, commands, output
+    styles, secrets, users, API keys, and agent portal — along with two new
+    shared primitives (`SortableHead`, `RowActions`) neither of which existed
+    before. Riding along: a dead `NewSecretDialog` mount meant creating or
+    editing a secret via the UI silently did nothing; fixed. Memory Atlas
+    lost its marketing hero and four redundant stat cards (the scope filter
+    chips already show the same counts) and unified three separately-styled
+    paging banners (server cursor, graph render cap, client table page) into
+    one status line. The Agents.md editor's Save button sent the *previous*
+    version's sha256 as a same-request integrity check against the *new*
+    edited content — every edit-then-save after the first one failed
+    outright; fixed by dropping the stale hash. Its "restore version" list
+    also had a one-click no-confirmation button sitting next to a safer
+    preview-then-restore dialog; removed the shortcut, so restoring now
+    always shows the content first. Projects' page-level `Delete project`
+    moved out of the header into an overflow menu, isolated from `Back`.
+  - Closed out the remaining pattern rows: `/projects` and `/secrets` had two
+    differently hand-rolled module-enable rows (a bordered one-liner vs. a
+    full card with icon, badge, and count) — both now share one
+    `ModuleSwitchRow` component. `/projects/[slug]`'s notes, files, and
+    feedback sub-tabs had a permanently-expanded create form pushing their
+    list below the fold; each now opens a header-triggered Sheet instead,
+    list always visible first (todos gets a one-field inline quick-add
+    rather than a Sheet, since detail stays editable after creation).
+    `/api-keys`'s bordered "Proxy endpoints" card collapsed to two plain
+    rows, and its kill switch moved out of a full-width card into the tab
+    row itself, next to the OpenAI/Anthropic triggers — this required making
+    `KillSwitchCard`'s query genuinely reactive to its `engine` prop instead
+    of snapshotting it once at mount, since one instance now serves whichever
+    engine tab is active. Also fixed: `MdPreview`'s frontmatter-block strip
+    ran even when nothing was being prepended in its place, which could
+    silently drop an artifact's real frontmatter from its own preview.
 - Added default-off **Agent Messaging** so Codex and Claude lifecycles can
   discover stable one-to-one addresses and exchange/reply to work in all four
   engine directions without a human copy/paste relay. The signed wrapper

@@ -3,6 +3,7 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Save from "@lucide/svelte/icons/save";
+  import Plus from "@lucide/svelte/icons/plus";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
@@ -42,7 +43,6 @@
   );
 
   let formTitle = $state("");
-  let formDetail = $state("");
   let doneCollapsed = $state(false);
 
   const todos = $derived($todosQuery.data?.todos ?? []);
@@ -57,14 +57,14 @@
   }
 
   const createMut = createMutation({
-    mutationFn: () => createTodo(slug, { title: formTitle.trim(), detail: formDetail.trim() }),
+    mutationFn: () => createTodo(slug, { title: formTitle.trim() }),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: projectKeys.todos(slug) });
       const previous = qc.getQueryData(projectKeys.todos(slug));
       const optimistic: ProjectTodo = {
         id: -Date.now(),
         title: formTitle.trim(),
-        detail: formDetail.trim(),
+        detail: "",
         done: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -79,7 +79,6 @@
     onSuccess: () => {
       toast.success("Todo created");
       formTitle = "";
-      formDetail = "";
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: projectKeys.todos(slug) });
@@ -253,33 +252,24 @@
 {/snippet}
 
 <div class="flex flex-col gap-6">
-  <Card.Root>
-    <Card.Header>
-      <Card.Title>New todo</Card.Title>
-      <Card.Description>Title is required; detail is optional.</Card.Description>
-    </Card.Header>
-    <Card.Content class="flex flex-col gap-3">
-      <div class="grid gap-1.5">
-        <Label for="todo-title">Title</Label>
-        <Input id="todo-title" bind:value={formTitle} placeholder="What needs doing?" />
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="todo-detail">Detail</Label>
-        <Textarea
-          id="todo-detail"
-          bind:value={formDetail}
-          rows={3}
-          placeholder="Optional context…"
-        />
-      </div>
-    </Card.Content>
-    <Card.Footer class="flex justify-end gap-2 border-t pt-4">
-      <Button onclick={() => $createMut.mutate()} disabled={!canSubmit || $createMut.isPending}>
-        <Save class="h-4 w-4" />
-        {$createMut.isPending ? "Saving…" : "Save"}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
+  <form
+    class="flex gap-2"
+    onsubmit={(e) => {
+      e.preventDefault();
+      $createMut.mutate();
+    }}
+  >
+    <Input
+      aria-label="New todo title"
+      bind:value={formTitle}
+      placeholder="What needs doing? Add detail after creating."
+      class="flex-1"
+    />
+    <Button type="submit" disabled={!canSubmit || $createMut.isPending}>
+      <Plus class="h-4 w-4" />
+      {$createMut.isPending ? "Adding…" : "Add"}
+    </Button>
+  </form>
 
   {#if $todosQuery.isLoading}
     <Skeleton class="h-24 w-full" />

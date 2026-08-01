@@ -43,7 +43,7 @@
 {#if active}
   <span
     class={cn(
-      "inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-xs text-amber-700 dark:text-amber-300",
+      "inline-flex items-center gap-1 rounded-md border border-warning/25 bg-warning-muted px-1.5 py-0.5 font-mono text-xs text-warning-muted-foreground",
       className,
     )}
   >

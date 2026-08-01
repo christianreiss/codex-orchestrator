@@ -62,6 +62,7 @@ export interface OverviewResponse {
   chatgpt_cached?: boolean;
   insecure_approval_enabled?: boolean;
   auto_update_enabled?: boolean;
+  inactivity_window_days?: number;
   [key: string]: unknown;
 }
 

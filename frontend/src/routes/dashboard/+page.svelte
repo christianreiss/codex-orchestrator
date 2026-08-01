@@ -101,14 +101,14 @@
         >
           <div class="min-w-14 pr-2">
             <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
-              <span class="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true"></span>
+              <span class="h-1.5 w-1.5 rounded-full bg-persona-codex" aria-hidden="true"></span>
               Codex
             </dt>
             <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.codex ?? "—"}</dd>
           </div>
           <div class="min-w-14 pl-2">
             <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
-              <span class="h-1.5 w-1.5 rounded-full bg-orange-400" aria-hidden="true"></span>
+              <span class="h-1.5 w-1.5 rounded-full bg-persona-claude" aria-hidden="true"></span>
               Claude
             </dt>
             <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.claude ?? "—"}</dd>

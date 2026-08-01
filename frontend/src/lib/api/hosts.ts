@@ -380,12 +380,17 @@ export function createModelOverrideMutation(qc: QueryClient) {
     }
   >({
     mutationFn: ({ id, engine, model, reasoning_effort }) => {
+      // Each key is only included when the caller actually means to touch
+      // it, so a reasoning-effort-only save can't silently clear the model
+      // override (and vice versa) — the backend treats an omitted key as
+      // "leave alone" and an explicit `null` as "clear", so collapsing
+      // `undefined` into a forced `null` here would corrupt that contract.
       const body =
         engine === "claude"
-          ? { claude_model_override: model ?? null }
+          ? { ...(model !== undefined ? { claude_model_override: model } : {}) }
           : {
-              model_override: model ?? null,
-              reasoning_effort_override: reasoning_effort ?? undefined,
+              ...(model !== undefined ? { model_override: model } : {}),
+              ...(reasoning_effort !== undefined ? { reasoning_effort_override: reasoning_effort } : {}),
             };
       return api.post(`/admin/hosts/${id}/model`, body);
     },

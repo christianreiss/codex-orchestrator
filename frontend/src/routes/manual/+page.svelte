@@ -78,28 +78,19 @@
 
   <section class="min-w-0">
     <div class="rounded-xl border border-border bg-card p-6 shadow-sm md:p-8">
-      <div class="flex items-start gap-4">
-        <div class="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--sidebar-active))]/10 text-[hsl(var(--sidebar-active))] sm:flex">
-          <BookOpen class="h-5 w-5" />
-        </div>
-        <div class="min-w-0">
-          <h2 class="text-2xl font-semibold tracking-tight">Welcome to the manual</h2>
-          <p class="mt-2 max-w-prose text-sm text-muted-foreground">
-            Pick an article on the left, or jump straight into one of the featured pages below.
-            Every article is generated from the live codebase &mdash; the &ldquo;Source references&rdquo;
-            footer in each one points at the exact files it documents.
-          </p>
-        </div>
-      </div>
+      <p class="flex items-center gap-2 text-sm text-muted-foreground">
+        <BookOpen class="h-4 w-4 shrink-0 text-[hsl(var(--sidebar-active))]" />
+        Pick an article on the left, or jump into a featured page below — every article is generated live from the codebase.
+      </p>
 
       {#if $manifestQuery.isLoading}
-        <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {#each Array(4) as _, i (i)}
             <Skeleton class="h-24 w-full" />
           {/each}
         </div>
       {:else if featured.length}
-        <div class="mt-8">
+        <div class="mt-6">
           <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Featured articles
           </p>

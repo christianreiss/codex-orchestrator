@@ -105,6 +105,19 @@ export const SUBAGENT_COLORS: string[] = [
   "cyan",
 ];
 
+// Codex reasoning-effort tiers. Keep in lock-step with the enum accepted by
+// usage-scaling.ts and the host model-override route — both take a bare
+// string server-side, this is the UI's canonical choice list for it.
+export const REASONING_EFFORT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra high" },
+  { value: "max", label: "Max" },
+  { value: "ultra", label: "Ultra" },
+];
+
 /** Hook event names supported by the Claude settings hooks block. */
 export const HOOK_EVENTS = [
   "PreToolUse",

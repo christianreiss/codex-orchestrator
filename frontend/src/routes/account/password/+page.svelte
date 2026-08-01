@@ -153,7 +153,7 @@
             {#each rules as rule (rule.label)}
               <li
                 class="flex items-center gap-1.5 {rule.ok
-                  ? 'text-green-600 dark:text-green-500'
+                  ? 'text-success'
                   : 'text-muted-foreground'}"
               >
                 {#if rule.ok}
@@ -180,7 +180,7 @@
             aria-invalid={fieldErrors.confirm ? "true" : undefined}
           />
           {#if matchState === "match"}
-            <p class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-500">
+            <p class="flex items-center gap-1.5 text-xs text-success">
               <Check class="h-3.5 w-3.5" /> Passwords match
             </p>
           {:else if matchState === "mismatch"}

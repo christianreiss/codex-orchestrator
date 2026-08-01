@@ -13,7 +13,7 @@ const Close = SheetPrimitive.Close;
 const Portal = SheetPrimitive.Portal;
 
 export const sheetVariants = tv({
-  base: "fixed z-50 gap-4 bg-background p-6 shadow-[0_24px_80px_rgba(15,23,42,0.24)] transition ease-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  base: "fixed z-50 gap-4 bg-background p-6 shadow-pop transition ease-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out",
   variants: {
     side: {
       top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",

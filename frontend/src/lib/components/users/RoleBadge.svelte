@@ -9,20 +9,26 @@
   let { role, label, class: className }: Props = $props();
 
   /**
-   * Color-coded per spec: owner = purple, admin = red, viewer = slate,
-   * fleet_operator = amber, trusted_user = blue, user = gray.
-   * Falls back to gray for unknown roles.
+   * Color-coded per spec: owner = solid primary (apex role, emphasis not
+   * hue -- the warm repaint leaves too little hue distance between accent
+   * and warning to tell them apart, see below), admin = destructive,
+   * viewer = slate, fleet_operator = warning, trusted_user = info,
+   * user = gray. Falls back to gray for unknown roles.
+   *
+   * viewer/user stay on raw slate/gray: they're neutral grays outside the
+   * indigo/violet -> terracotta/amber repaint, not a status signal, so
+   * there's no semantic token for them to move to.
    */
   function variantClasses(r: string | null | undefined): string {
     switch ((r ?? "").toLowerCase()) {
       case "owner":
-        return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-900/50 dark:bg-purple-950/40 dark:text-purple-300";
+        return "border-transparent bg-primary text-primary-foreground";
       case "admin":
-        return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300";
+        return "border-destructive/25 bg-destructive-muted text-destructive-muted-foreground";
       case "fleet_operator":
-        return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300";
+        return "border-warning/25 bg-warning-muted text-warning-muted-foreground";
       case "trusted_user":
-        return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300";
+        return "border-info/25 bg-info-muted text-info-muted-foreground";
       case "viewer":
         return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300";
       case "user":

@@ -13,6 +13,7 @@
   } from "@xyflow/svelte";
   import "@xyflow/svelte/dist/style.css";
   import type { MemoryGraphEdge, MemoryGraphNode } from "$lib/api/memories";
+  import { DEFAULT_NODE_COLOR, EDGE_COLORS, SCOPE_COLORS } from "$lib/constants/graph-palette";
   import MemoryGraphNodeComponent from "./MemoryGraphNode.svelte";
   import {
     MEMORY_NODE_HEIGHT,
@@ -64,11 +65,7 @@
   }
 
   function edgeColor(type: MemoryGraphEdge["type"]): string {
-    if (type === "tagged_with") return "#10b981";
-    if (type === "from_engine" || type === "written_by") return "#d946ef";
-    if (type === "in_project") return "#06b6d4";
-    if (type === "owned_by") return "#f59e0b";
-    return "#8b5cf6";
+    return EDGE_COLORS[type];
   }
 
   function layoutGraph(rawNodes: MemoryGraphNode[], rawEdges: MemoryGraphEdge[]): {
@@ -211,10 +208,7 @@
           zoomable
           nodeColor={(node) => {
             const scope = (node.data as { memory?: MemoryGraphNode })?.memory?.scope;
-            if (scope === "shared") return "#8b5cf6";
-            if (scope === "project") return "#06b6d4";
-            if (scope === "host") return "#f59e0b";
-            return "#64748b";
+            return scope ? SCOPE_COLORS[scope] : DEFAULT_NODE_COLOR;
           }}
           maskColor="hsl(var(--background) / 0.72)"
         />

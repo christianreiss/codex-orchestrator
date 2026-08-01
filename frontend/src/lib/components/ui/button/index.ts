@@ -5,10 +5,10 @@ export const buttonVariants = tv({
   base: "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none",
   variants: {
     variant: {
-      default: "bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 hover:shadow-md hover:shadow-primary/20",
-      destructive: "bg-destructive text-destructive-foreground shadow-sm shadow-destructive/15 hover:bg-destructive/90",
-      outline: "border border-input bg-card/80 shadow-sm hover:border-foreground/15 hover:bg-accent hover:text-accent-foreground",
-      secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/75",
+      default: "bg-primary text-primary-foreground shadow-hairline hover:bg-primary/90 hover:shadow-pop",
+      destructive: "bg-destructive text-destructive-foreground shadow-hairline hover:bg-destructive/90",
+      outline: "border border-input bg-card/80 shadow-hairline hover:border-foreground/15 hover:bg-accent hover:text-accent-foreground",
+      secondary: "bg-secondary text-secondary-foreground shadow-hairline hover:bg-secondary/75",
       ghost: "hover:bg-accent hover:text-accent-foreground",
       link: "text-primary underline-offset-4 hover:underline",
     },

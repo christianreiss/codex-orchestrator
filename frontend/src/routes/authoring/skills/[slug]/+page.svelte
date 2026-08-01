@@ -10,11 +10,14 @@
   import type { SkillDetail } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import DangerZone from "$lib/components/layout/DangerZone.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import * as Card from "$lib/components/ui/card";
   import * as Dialog from "$lib/components/ui/dialog";
+  import RenderedMarkdown from "$lib/components/authoring/RenderedMarkdown.svelte";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Save from "@lucide/svelte/icons/save";
   import Sparkles from "@lucide/svelte/icons/sparkles";
@@ -185,14 +188,7 @@
   <div class="grid gap-6 lg:grid-cols-[1fr_320px]">
     <!-- Editor -->
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between text-sm">
-        <span class="font-medium">Manifest (Markdown)</span>
-        {#if serverSha}
-          <span class="font-mono text-xs text-muted-foreground" title={serverSha}>
-            sha256: {serverSha.slice(0, 12)}…
-          </span>
-        {/if}
-      </div>
+      <span class="text-sm font-medium">Manifest (Markdown)</span>
       <Textarea
         aria-label="Skill manifest"
         class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
@@ -204,12 +200,36 @@
       <p class="text-xs text-muted-foreground">
         Manifest is the source of truth. Save updates the sha256 indicator.
       </p>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={() => (generateOpen = true)}
+          disabled={$generateMutation.isPending || isManaged}
+        >
+          <Sparkles class="h-4 w-4" />
+          Generate (AI)
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={() => (assistOpen = true)}
+          disabled={$assistMutation.isPending || isManaged}
+        >
+          <Wand2 class="h-4 w-4" />
+          Assist (AI)
+        </Button>
+      </div>
+      <div class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Rendered preview</span>
+        <RenderedMarkdown source={manifest} />
+      </div>
     </div>
 
-    <!-- Side panel -->
-    <aside aria-label="Skill controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+    <!-- Side panel: one consolidated card, not three. -->
+    <aside aria-label="Skill controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
       {#if isManaged}
-        <div class="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+        <div class="mb-3 rounded-md border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
           {#if sourceType}
             This skill is synchronized from
             {#if sourceType.toLowerCase().includes("mattpocock")}
@@ -232,9 +252,14 @@
         </div>
       {/if}
 
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Metadata</h3>
-        <div class="space-y-3">
+      <Card.Root>
+        <Card.Header class="flex-row items-center justify-between gap-2 space-y-0">
+          <Card.Title class="text-sm">Metadata</Card.Title>
+          <Badge variant={isManaged ? "secondary" : "success"}>
+            {sourceLabel ?? (isManaged ? "managed" : "active")}
+          </Badge>
+        </Card.Header>
+        <Card.Content class="space-y-3">
           <div class="space-y-1.5">
             <label for="meta-display-name" class="text-xs font-medium">Display name</label>
             <Input id="meta-display-name" bind:value={displayName} disabled={isManaged} />
@@ -248,81 +273,67 @@
               disabled={isManaged}
             />
           </div>
-        </div>
-      </div>
+          {#if serverSha || $query.data?.uri || sourceType}
+            <dl class="space-y-2 border-t pt-3 text-[11px]">
+              {#if serverSha}
+                <div>
+                  <dt class="text-muted-foreground">sha256</dt>
+                  <dd class="break-all font-mono" title={serverSha}>{serverSha.slice(0, 12)}…</dd>
+                </div>
+              {/if}
+              {#if $query.data?.uri}
+                <div>
+                  <dt class="text-muted-foreground">URI</dt>
+                  <dd class="break-all font-mono">{$query.data.uri}</dd>
+                </div>
+              {/if}
+              {#if $query.data?.source_revision}
+                <div>
+                  <dt class="text-muted-foreground">Upstream revision</dt>
+                  <dd class="break-all font-mono" title={$query.data.source_revision}>
+                    {$query.data.source_revision.slice(0, 12)}…
+                  </dd>
+                </div>
+              {/if}
+              {#if $query.data?.source_path}
+                <div>
+                  <dt class="text-muted-foreground">Source path</dt>
+                  <dd class="break-all font-mono">{$query.data.source_path}</dd>
+                </div>
+              {/if}
+              {#if $query.data?.source_license}
+                <div>
+                  <dt class="text-muted-foreground">License</dt>
+                  <dd>{$query.data.source_license}</dd>
+                </div>
+              {/if}
+            </dl>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Actions</h3>
-        <div class="flex flex-col gap-2">
-          <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending || isManaged}>
-            <Save class="h-4 w-4" />
-            {$saveMutation.isPending ? "Saving…" : "Save"}
-          </Button>
-          <Button
-            variant="outline"
-            onclick={() => (generateOpen = true)}
-            disabled={$generateMutation.isPending || isManaged}
-          >
-            <Sparkles class="h-4 w-4" />
-            Generate (AI)
-          </Button>
-          <Button
-            variant="outline"
-            onclick={() => (assistOpen = true)}
-            disabled={$assistMutation.isPending || isManaged}
-          >
-            <Wand2 class="h-4 w-4" />
-            Assist (AI)
-          </Button>
-          <Button
-            variant="destructive"
-            onclick={() => (deleteOpen = true)}
-            disabled={$deleteMutation.isPending || isManaged}
-          >
-            <Trash2 class="h-4 w-4" />
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      <div class="rounded-lg border bg-card p-4 text-xs">
-        <div class="flex items-center gap-2">
-          <Badge variant={isManaged ? "secondary" : "success"}>
-            {sourceLabel ?? (isManaged ? "managed" : "active")}
-          </Badge>
-        </div>
-        {#if $query.data?.uri}
-          <p class="mt-2 break-all font-mono text-[10px] text-muted-foreground">
-            {$query.data.uri}
-          </p>
-        {/if}
-        {#if sourceType}
-          <dl class="mt-3 space-y-2 border-t pt-3 text-[11px]">
-            {#if $query.data?.source_revision}
-              <div>
-                <dt class="text-muted-foreground">Upstream revision</dt>
-                <dd class="break-all font-mono" title={$query.data.source_revision}>
-                  {$query.data.source_revision.slice(0, 12)}…
-                </dd>
-              </div>
-            {/if}
-            {#if $query.data?.source_path}
-              <div>
-                <dt class="text-muted-foreground">Source path</dt>
-                <dd class="break-all font-mono">{$query.data.source_path}</dd>
-              </div>
-            {/if}
-            {#if $query.data?.source_license}
-              <div>
-                <dt class="text-muted-foreground">License</dt>
-                <dd>{$query.data.source_license}</dd>
-              </div>
-            {/if}
-          </dl>
-        {/if}
+      <!-- Rides along in the same sticky context as the card above, so Save
+           stays reachable while scrolling the long manifest textarea without
+           a second, competing sticky element. -->
+      <div class="mt-3 flex items-center justify-end gap-3 rounded-lg border bg-card px-4 py-3 shadow-pop">
+        <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending || isManaged}>
+          <Save class="h-4 w-4" />
+          {$saveMutation.isPending ? "Saving…" : "Save"}
+        </Button>
       </div>
     </aside>
   </div>
+
+  <DangerZone description="Permanently soft-delete this skill. You can re-create it with the same slug later.">
+    <Button
+      variant="destructive"
+      onclick={() => (deleteOpen = true)}
+      disabled={$deleteMutation.isPending || isManaged}
+    >
+      <Trash2 class="h-4 w-4" />
+      Delete skill
+    </Button>
+  </DangerZone>
 {/if}
 
 <!-- Generate dialog -->

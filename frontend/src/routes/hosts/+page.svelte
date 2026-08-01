@@ -214,19 +214,19 @@
     {#if ($hostsSummary.activeInsecureWindows ?? 0) > 0}
       <Button
         variant="outline"
-        class="border-amber-500/35 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+        class="border-warning/25 bg-warning-muted text-warning-muted-foreground hover:bg-warning/15 hover:text-warning-muted-foreground"
         onclick={openInsecureApprovals}
       >
         <ShieldAlert class="h-4 w-4" />
         <span class="hidden sm:inline">Insecure access</span>
-        <span class="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold">
+        <span class="rounded-full bg-warning/20 px-1.5 text-[10px] font-semibold">
           {$hostsSummary.activeInsecureWindows}
         </span>
       </Button>
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
-        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-hairline transition-colors hover:bg-accent"
       >
         <Ellipsis class="h-4 w-4" /> More
       </DropdownMenu.Trigger>
@@ -275,9 +275,17 @@
   <HostsTable
     rows={filtered}
     loading={$hosts.isLoading}
+    isEmpty={allRows.length === 0}
+    filterQuery={searchDebounced}
+    activeFilter={filter}
     {sortField}
     {sortDir}
     onSortChange={setSort}
+    onRegisterHost={openNewHost}
+    onClearFilters={() => {
+      searchInput = "";
+      setFilter("all");
+    }}
   />
 {/if}
 

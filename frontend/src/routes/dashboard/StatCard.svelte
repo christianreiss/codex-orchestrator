@@ -27,7 +27,7 @@
 
 <div
   class={cn(
-    "rounded-xl border border-border/75 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.035),0_10px_28px_rgba(15,23,42,0.035)]",
+    "rounded-xl border border-border/75 bg-card p-4 shadow-hairline",
     className,
   )}
 >

@@ -14,9 +14,11 @@ const config: Config = {
     },
     extend: {
       borderRadius: {
-        lg: "var(--radius)",
+        sm: "var(--radius-sm)",
         md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "var(--radius)",
+        xl: "var(--radius-lg)",
+        "2xl": "var(--radius-xl)",
       },
       colors: {
         background: "hsl(var(--background))",
@@ -48,6 +50,30 @@ const config: Config = {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          muted: "hsl(var(--destructive-muted))",
+          "muted-foreground": "hsl(var(--destructive-muted-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+          muted: "hsl(var(--success-muted))",
+          "muted-foreground": "hsl(var(--success-muted-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+          muted: "hsl(var(--warning-muted))",
+          "muted-foreground": "hsl(var(--warning-muted-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+          muted: "hsl(var(--info-muted))",
+          "muted-foreground": "hsl(var(--info-muted-foreground))",
+        },
+        persona: {
+          codex: "hsl(var(--persona-codex))",
+          claude: "hsl(var(--persona-claude))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -87,7 +113,28 @@ const config: Config = {
           "Roboto",
           "sans-serif",
         ],
+        display: ["Source Serif 4", "ui-serif", "Georgia", "Cambria", "serif"],
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      fontSize: {
+        overline: ["0.6875rem", { lineHeight: "1", letterSpacing: "0.08em", fontWeight: "600" }],
+        caption: ["0.75rem", { lineHeight: "1.4", fontWeight: "500" }],
+        "body-sm": ["0.8125rem", { lineHeight: "1.5" }],
+        body: ["0.875rem", { lineHeight: "1.5" }],
+        "body-lg": ["0.9375rem", { lineHeight: "1.55" }],
+        h3: ["1rem", { lineHeight: "1.3", fontWeight: "600" }],
+        h2: ["1.375rem", { lineHeight: "1.25", letterSpacing: "-0.01em", fontWeight: "500" }],
+        h1: ["1.875rem", { lineHeight: "1.2", letterSpacing: "-0.01em", fontWeight: "500" }],
+      },
+      boxShadow: {
+        hairline: "var(--shadow)",
+        pop: "var(--shadow-pop)",
+      },
+      transitionTimingFunction: {
+        operator: "var(--ease)",
+      },
+      transitionDuration: {
+        operator: "var(--dur)",
       },
     },
   },

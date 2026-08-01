@@ -1,0 +1,1 @@
+import{o as e,s as t}from"./Dqbbk3fc.js";import"./xihTtKlq.js";import{t as n}from"./BiY6hucH.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M15 6a9 9 0 0 0-9 9V3`}],[`circle`,{cx:`18`,cy:`6`,r:`3`}],[`circle`,{cx:`6`,cy:`18`,r:`3`}]];n(r,t({name:`git-branch`},()=>a,{get iconNode(){return o}}))}export{r as t};

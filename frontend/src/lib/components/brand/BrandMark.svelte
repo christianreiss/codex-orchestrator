@@ -18,7 +18,7 @@
 <span
   data-brand-mark="switchyard"
   class={cn(
-    "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-violet-600 to-pink-600 text-white",
+    "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-[hsl(var(--sidebar-bg))] text-white",
     className,
   )}
   aria-hidden="true"
@@ -45,7 +45,7 @@
 
   {#if status}
     <span
-      class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[hsl(var(--sidebar-bg))] bg-emerald-400"
+      class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[hsl(var(--sidebar-bg))] bg-success"
     ></span>
   {/if}
 </span>

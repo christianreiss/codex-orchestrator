@@ -12,10 +12,11 @@
   import { asString, asStringArray } from "$lib/utils/artifact";
   import { ModelSelect } from "$lib/components/ui/model-select";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import DangerZone from "$lib/components/layout/DangerZone.svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import * as Card from "$lib/components/ui/card";
   import * as Select from "$lib/components/ui/select";
   import * as Dialog from "$lib/components/ui/dialog";
   import RepeatableList from "$lib/components/authoring/RepeatableList.svelte";
@@ -128,14 +129,7 @@
     <!-- Editor + preview -->
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-3">
-        <div class="flex items-center justify-between text-sm">
-          <span class="font-medium">Body (Markdown)</span>
-          {#if serverSha}
-            <span class="font-mono text-xs text-muted-foreground" title={serverSha}>
-              sha256: {serverSha.slice(0, 12)}…
-            </span>
-          {/if}
-        </div>
+        <span class="text-sm font-medium">Body (Markdown)</span>
         <Textarea
           aria-label="Subagent body"
           class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
@@ -150,11 +144,16 @@
       </div>
     </div>
 
-    <!-- Side panel -->
-    <aside aria-label="Subagent controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Frontmatter</h3>
-        <div class="space-y-3">
+    <!-- Side panel: one consolidated card, not three. -->
+    <aside aria-label="Subagent controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
+      <Card.Root>
+        <Card.Header class="flex-row items-center justify-between gap-2 space-y-0">
+          <Card.Title class="text-sm">Frontmatter</Card.Title>
+          <Badge variant={$query.data?.deleted_at ? "destructive" : "success"}>
+            {$query.data?.deleted_at ? "deleted" : "active"}
+          </Badge>
+        </Card.Header>
+        <Card.Content class="space-y-3">
           <div class="space-y-1.5">
             <label for="fm-description" class="text-xs font-medium">Description <span class="text-destructive">*</span></label>
             <Textarea id="fm-description" rows={3} bind:value={description} />
@@ -185,30 +184,32 @@
             <span class="text-xs font-medium">Tools</span>
             <RepeatableList bind:items={tools} placeholder="tool name" addLabel="Add tool" />
           </div>
-        </div>
-      </div>
+          {#if serverSha}
+            <p class="border-t pt-3 font-mono text-[11px] text-muted-foreground" title={serverSha}>
+              sha256: {serverSha.slice(0, 12)}…
+            </p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-      <div class="rounded-lg border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">Actions</h3>
-        <div class="flex flex-col gap-2">
-          <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
-            <Save class="h-4 w-4" />
-            {$saveMutation.isPending ? "Saving…" : "Save"}
-          </Button>
-          <Button variant="destructive" onclick={() => (deleteOpen = true)} disabled={$deleteMutation.isPending}>
-            <Trash2 class="h-4 w-4" />
-            Delete
-          </Button>
-        </div>
-      </div>
-
-      <div class="rounded-lg border bg-card p-4 text-xs">
-        <Badge variant={$query.data?.deleted_at ? "destructive" : "success"}>
-          {$query.data?.deleted_at ? "deleted" : "active"}
-        </Badge>
+      <!-- Rides along in the same sticky context as the card above, so Save
+           stays reachable while scrolling the long body textarea without a
+           second, competing sticky element. -->
+      <div class="mt-3 flex items-center justify-end gap-3 rounded-lg border bg-card px-4 py-3 shadow-pop">
+        <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
+          <Save class="h-4 w-4" />
+          {$saveMutation.isPending ? "Saving…" : "Save"}
+        </Button>
       </div>
     </aside>
   </div>
+
+  <DangerZone description="Permanently remove this subagent. You can re-create it with the same slug later.">
+    <Button variant="destructive" onclick={() => (deleteOpen = true)} disabled={$deleteMutation.isPending}>
+      <Trash2 class="h-4 w-4" />
+      Delete subagent
+    </Button>
+  </DangerZone>
 {/if}
 
 <!-- Delete confirm -->

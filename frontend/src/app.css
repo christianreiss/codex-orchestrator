@@ -2,56 +2,164 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Self-hosted variable fonts. Paths are absolute (/admin/fonts/...) because,
+ * unlike app.html, this stylesheet does not get %sveltekit.assets% base-path
+ * rewriting — svelte.config.js pins paths.base to "/admin".
+ */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/admin/fonts/inter-variable-latin-ext.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/admin/fonts/inter-variable-latin.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("/admin/fonts/source-serif-4-variable-latin-ext.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url("/admin/fonts/source-serif-4-variable-latin.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("/admin/fonts/jetbrains-mono-variable-latin-ext.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("/admin/fonts/jetbrains-mono-variable-latin.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @layer base {
   :root {
-    --background: 220 27% 97%;
-    --foreground: 224 38% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 38% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 38% 12%;
-    --primary: 246 72% 58%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 22% 94%;
-    --secondary-foreground: 224 30% 18%;
-    --muted: 220 22% 94%;
-    --muted-foreground: 220 10% 43%;
-    --accent: 244 48% 94%;
-    --accent-foreground: 246 46% 30%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 19% 87%;
-    --input: 220 18% 84%;
-    --ring: 246 72% 58%;
-    --radius: 0.75rem;
-    --sidebar-bg: 228 38% 10%;
-    --sidebar-fg: 220 13% 72%;
-    --sidebar-active: 252 91% 73%;
+    --background: 40 36% 95%;
+    --foreground: 27 20% 9%;
+    --card: 45 100% 99%;
+    --card-foreground: 27 20% 9%;
+    --card-strong: 40 47% 96%;
+    --popover: 45 100% 99%;
+    --popover-foreground: 27 20% 9%;
+    --primary: 17 88% 40%;
+    --primary-foreground: 32 100% 97%;
+    --primary-hover: 15 90% 32%;
+    --secondary: 41 29% 91%;
+    --secondary-foreground: 27 20% 9%;
+    --muted: 41 29% 91%;
+    --muted-foreground: 27 4% 42%;
+    --accent: 26 49% 91%;
+    --accent-foreground: 17 88% 30%;
+    --destructive: 0 74% 42%;
+    --destructive-foreground: 32 100% 97%;
+    --destructive-muted: 8 55% 93%;
+    --destructive-muted-foreground: 0 74% 36%;
+    --success: 142 72% 29%;
+    --success-foreground: 32 100% 97%;
+    --success-muted: 140 30% 92%;
+    --success-muted-foreground: 142 72% 24%;
+    --warning: 26 90% 37%;
+    --warning-foreground: 32 100% 97%;
+    --warning-muted: 35 60% 92%;
+    --warning-muted-foreground: 26 90% 30%;
+    --info: 205 45% 38%;
+    --info-foreground: 32 100% 97%;
+    --info-muted: 205 30% 92%;
+    --info-muted-foreground: 205 50% 28%;
+    --persona-codex: 187 92% 69%;
+    --persona-claude: 31 97% 72%;
+    --border: 36 13% 85%;
+    --input: 36 20% 50%;
+    --ring: 17 88% 40%;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --shadow: 0 1px 0 hsl(27 20% 9% / 0.04);
+    --shadow-pop: 0 8px 24px -8px hsl(27 20% 9% / 0.18);
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --dur: 150ms;
+    --sidebar-bg: 20 13% 11%;
+    --sidebar-fg: 32 8% 68%;
+    --sidebar-active: 38 92% 55%;
   }
 
   .dark {
-    --background: 228 31% 7%;
-    --foreground: 216 25% 94%;
-    --card: 226 26% 11%;
-    --card-foreground: 216 25% 94%;
-    --popover: 226 28% 11%;
-    --popover-foreground: 216 25% 94%;
-    --primary: 248 83% 70%;
-    --primary-foreground: 234 38% 10%;
-    --secondary: 225 20% 16%;
-    --secondary-foreground: 216 25% 94%;
-    --muted: 225 20% 16%;
-    --muted-foreground: 218 12% 65%;
-    --accent: 244 27% 18%;
-    --accent-foreground: 244 73% 82%;
-    --destructive: 0 67% 49%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 224 18% 19%;
-    --input: 224 17% 24%;
-    --ring: 248 83% 70%;
-    --sidebar-bg: 228 42% 6%;
-    --sidebar-fg: 218 12% 67%;
-    --sidebar-active: 252 91% 75%;
+    --background: 20 13% 9%;
+    --foreground: 37 41% 91%;
+    --card: 24 14% 14%;
+    --card-foreground: 37 41% 91%;
+    --card-strong: 24 18% 11%;
+    --popover: 24 14% 14%;
+    --popover-foreground: 37 41% 91%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 20 13% 9%;
+    --primary-hover: 32 95% 44%;
+    --secondary: 24 12% 18%;
+    --secondary-foreground: 37 41% 91%;
+    --muted: 24 14% 16%;
+    --muted-foreground: 32 6% 60%;
+    --accent: 34 46% 14%;
+    --accent-foreground: 38 92% 70%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 32 100% 97%;
+    --destructive-muted: 5 30% 17%;
+    --destructive-muted-foreground: 0 91% 76%;
+    --success: 142 62% 45%;
+    --success-foreground: 20 13% 9%;
+    --success-muted: 145 25% 15%;
+    --success-muted-foreground: 142 77% 73%;
+    --warning: 43 96% 56%;
+    --warning-foreground: 20 13% 9%;
+    --warning-muted: 35 35% 16%;
+    --warning-muted-foreground: 43 96% 68%;
+    --info: 200 55% 62%;
+    --info-foreground: 20 13% 9%;
+    --info-muted: 205 25% 17%;
+    --info-muted-foreground: 200 55% 72%;
+    --border: 28 13% 19%;
+    --input: 28 14% 44%;
+    --ring: 38 92% 50%;
+    --shadow: 0 1px 0 hsl(0 0% 0% / 0.3);
+    --shadow-pop: 0 8px 24px -8px hsl(0 0% 0% / 0.55);
+    --sidebar-bg: 20 14% 7%;
+    --sidebar-fg: 32 8% 68%;
+    --sidebar-active: 38 92% 55%;
   }
 
   * {
@@ -100,11 +208,19 @@
   }
 }
 
-/* Persisted pink palettes use HSL channel tokens, matching the Tailwind theme. */
+/*
+ * Pink palettes override only the accent family (primary/accent/ring/sidebar-active) and
+ * keep their exact hue. Every other token — background, card, border, the new semantic
+ * colors — inherits from :root / .dark, so pink themes ride on the same warm Paper/Ink
+ * canvas as the default themes rather than a separate dedicated pink surface.
+ */
 :root[data-theme="auto-pink"],
 :root[data-theme="bright-pink"] {
   --primary: 330 81% 58%;
-  --primary-foreground: 0 0% 100%;
+  /* Dark plum, not white — white-on-pink here is 3.73:1, fails AA. Reuses
+     the same value the dark pink variants already use for the same reason. */
+  --primary-foreground: 330 40% 10%;
+  --primary-hover: 330 81% 48%;
   --accent: 330 67% 95%;
   --accent-foreground: 330 62% 31%;
   --ring: 330 81% 58%;
@@ -114,30 +230,19 @@
 :root.dark[data-theme="auto-pink"] {
   --primary: 330 83% 66%;
   --primary-foreground: 330 40% 10%;
+  --primary-hover: 330 83% 56%;
   --accent: 330 30% 18%;
   --accent-foreground: 330 70% 82%;
   --ring: 330 83% 66%;
 }
 
 :root[data-theme="dark-pink"] {
-  --background: 330 28% 7%;
-  --foreground: 330 14% 95%;
-  --card: 330 22% 10%;
-  --card-foreground: 330 14% 95%;
-  --popover: 330 22% 10%;
-  --popover-foreground: 330 14% 95%;
   --primary: 330 83% 66%;
   --primary-foreground: 330 40% 10%;
-  --secondary: 330 18% 15%;
-  --secondary-foreground: 330 14% 95%;
-  --muted: 330 18% 15%;
-  --muted-foreground: 330 10% 66%;
+  --primary-hover: 330 83% 56%;
   --accent: 330 30% 18%;
   --accent-foreground: 330 70% 82%;
-  --border: 330 16% 20%;
-  --input: 330 16% 24%;
   --ring: 330 83% 66%;
-  --sidebar-bg: 330 32% 5%;
   --sidebar-active: 330 88% 70%;
 }
 
@@ -147,38 +252,184 @@
   }
 
   .sidebar-surface {
-    background:
-      radial-gradient(circle at 15% 0%, hsl(var(--sidebar-active) / 0.12), transparent 30%),
-      linear-gradient(180deg, hsl(var(--sidebar-bg)), hsl(228 42% 6%));
+    background: hsl(var(--sidebar-bg));
+    border-right: 1px solid hsl(var(--foreground) / 0.06);
   }
 
   .app-main {
     scrollbar-gutter: stable;
-    background:
-      radial-gradient(circle at 88% -12%, hsl(var(--primary) / 0.075), transparent 29rem),
-      hsl(var(--background));
+    background: hsl(var(--background));
   }
 
   .standalone-surface {
-    background:
-      radial-gradient(circle at 15% 10%, hsl(var(--primary) / 0.15), transparent 28rem),
-      radial-gradient(circle at 90% 90%, hsl(190 80% 60% / 0.08), transparent 26rem),
-      hsl(var(--background));
+    background: hsl(var(--background));
   }
 
   .page-enter {
-    animation: page-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: page-enter 1ms both;
+  }
+
+  .eyebrow {
+    @apply text-overline uppercase text-muted-foreground;
+  }
+
+  .section-rule {
+    @apply relative my-8 border-t border-border text-center;
+  }
+
+  .section-rule > span {
+    @apply eyebrow relative -top-[0.55em] inline-block bg-background px-3;
+  }
+
+  /* Rendered-markdown typography, shared by the manual and any other
+     raw-markdown preview (e.g. the skill manifest editor). Scoped to this
+     class so it never bleeds into app chrome. */
+  .md-prose {
+    color: hsl(var(--foreground));
+    line-height: 1.7;
+    font-size: 0.95rem;
+  }
+
+  .md-prose h1 {
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    scroll-margin-top: 1.5rem;
+  }
+  .md-prose h2 {
+    margin-top: 2.25rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    scroll-margin-top: 1.5rem;
+  }
+  .md-prose h3 {
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+    scroll-margin-top: 1.5rem;
+  }
+  .md-prose h4 {
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .md-prose p {
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .md-prose a {
+    color: hsl(var(--sidebar-active));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .md-prose a:hover {
+    text-decoration-thickness: 2px;
+  }
+  .md-prose a.anchor {
+    text-decoration: none;
+    color: transparent;
+  }
+
+  .md-prose strong {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+  }
+
+  .md-prose ul {
+    list-style: disc;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  .md-prose ol {
+    list-style: decimal;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  .md-prose li {
+    margin: 0.25rem 0;
+  }
+
+  .md-prose blockquote {
+    margin: 1rem 0;
+    padding: 0.5rem 1rem;
+    border-left: 3px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    background: hsl(var(--muted) / 0.4);
+    border-radius: 0 0.375rem 0.375rem 0;
+  }
+
+  .md-prose code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    padding: 0.15em 0.35em;
+    background: hsl(var(--muted));
+    border-radius: 0.25rem;
+    color: hsl(var(--foreground));
+  }
+
+  .md-prose pre {
+    position: relative;
+    margin: 1rem 0;
+    padding: 1rem;
+    padding-top: 2.5rem;
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .md-prose pre code {
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+    color: hsl(var(--foreground));
+  }
+
+  .md-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .md-prose th,
+  .md-prose td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+  .md-prose th {
+    background: hsl(var(--muted));
+    font-weight: 600;
+  }
+
+  .md-prose hr {
+    margin: 2rem 0;
+    border: 0;
+    border-top: 1px solid hsl(var(--border));
+  }
+
+  .md-prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
   }
 }
 
 @keyframes page-enter {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -215,13 +466,27 @@
 }
 
 @media (prefers-contrast: more) {
-  :root {
-    --border: 220 17% 66%;
-    --input: 220 17% 58%;
+  /*
+   * dark-pink always ships paired with the .dark class (see
+   * onChoosePreset in lib/stores/theme.ts + account/theme/+page.svelte),
+   * but :root[data-theme="dark-pink"] alone has higher specificity than
+   * plain .dark, so it must live in the dark-base group below — grouping
+   * it here would win the cascade and paint dark-pink's espresso canvas
+   * with light-tuned contrast values.
+   */
+  :root,
+  :root[data-theme="auto-pink"],
+  :root[data-theme="bright-pink"] {
+    --border: 30 20% 60%;
+    --input: 30 20% 52%;
+    --muted-foreground: 27 6% 32%;
   }
 
-  .dark {
-    --border: 220 14% 48%;
-    --input: 220 14% 54%;
+  .dark,
+  :root.dark[data-theme="auto-pink"],
+  :root[data-theme="dark-pink"] {
+    --border: 28 16% 42%;
+    --input: 28 16% 48%;
+    --muted-foreground: 32 8% 70%;
   }
 }

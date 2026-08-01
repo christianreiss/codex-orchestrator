@@ -262,18 +262,18 @@
       </form>
     {:else}
       <div class="mt-6 space-y-4">
-        <div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+        <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-sm">
           <span class="font-mono">{result.host.fqdn ?? fqdn}</span> · token expires {new Date(result.installer.expires_at).toLocaleString()}
         </div>
         <div class="flex flex-wrap gap-1.5">
           {#if vibe.includes("secure")}
-            <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Secure</span>
+            <span class="rounded-full border border-success/25 bg-success-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-success-muted-foreground">Secure</span>
           {/if}
           {#if vibe.includes("temporary")}
-            <span class="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">Temporary</span>
+            <span class="rounded-full border border-info/25 bg-info-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-info-muted-foreground">Temporary</span>
           {/if}
           {#if vibe.includes("insecure-curl")}
-            <span class="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">Insecure</span>
+            <span class="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning-muted-foreground">Insecure</span>
           {/if}
           {#if vibe.includes("vip")}
             <span class="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">VIP</span>

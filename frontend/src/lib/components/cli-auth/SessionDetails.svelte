@@ -15,7 +15,7 @@
   const scopeLabel = $derived(session.secure ? "Secure (mTLS)" : "Insecure (HTTP API key only)");
   const ScopeIcon = $derived(session.secure ? ShieldCheck : ShieldAlert);
   const scopeTone = $derived(
-    session.secure ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
+    session.secure ? "text-success" : "text-warning",
   );
 
   function formatAbsolute(iso: string | null | undefined): string {

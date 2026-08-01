@@ -7,6 +7,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Copy from "@lucide/svelte/icons/copy";
   import Check from "@lucide/svelte/icons/check";
+  import Activity from "@lucide/svelte/icons/activity";
   import { eventLogsQuery, hostsForLogsQuery, buildHostLabelMap } from "$lib/api/logs";
   import { ApiError } from "$lib/api/client";
   import type { AdminAuditLogRow, HostFqdnSummary } from "$lib/api/types";
@@ -185,6 +186,13 @@
     void queryClient.invalidateQueries({ queryKey: ["logs", "events"] });
   }
 
+  function resetFilters() {
+    searchInput = "";
+    actionPrefix = "";
+    hostFilter = "all";
+    timeWindow = "all";
+  }
+
   function rowKey(row: AdminAuditLogRow): string {
     return String(row.id);
   }
@@ -263,7 +271,7 @@
     }}
     title="Copy full JSON payload">
     {#if copiedKey === String(row.id)}
-      <Check class="h-4 w-4 text-emerald-600" />
+      <Check class="h-4 w-4 text-success" />
     {:else}
       <Copy class="h-4 w-4" />
     {/if}
@@ -329,22 +337,25 @@
       </SelectContent>
     </Select>
 
-    <Select
-      type="single"
-      value={String(limit)}
-      onValueChange={(v: unknown) => {
-        const n = Number(v);
-        if (Number.isFinite(n) && n > 0) limit = n;
-      }}>
-      <SelectTrigger class="h-9 w-[92px]">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {#each LIMITS as size (size)}
-          <SelectItem value={String(size)} label={String(size)}>{size}</SelectItem>
-        {/each}
-      </SelectContent>
-    </Select>
+    <div class="flex items-center gap-1.5">
+      <Select
+        type="single"
+        value={String(limit)}
+        onValueChange={(v: unknown) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) limit = n;
+        }}>
+        <SelectTrigger class="h-9 w-[92px]" aria-label="Events fetched per request">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {#each LIMITS as size (size)}
+            <SelectItem value={String(size)} label={String(size)}>{size}</SelectItem>
+          {/each}
+        </SelectContent>
+      </Select>
+      <span class="text-xs text-muted-foreground">most recent</span>
+    </div>
 
     <div class="ml-auto flex items-center gap-2">
       <Button variant="outline" size="sm" onclick={refresh}>
@@ -369,7 +380,11 @@
     rowHeight={44}
     {rowKey}
     loading={result.isPending}
-    emptyMessage="No audit events match."
+    isEmpty={allRows.length === 0}
+    emptyIcon={Activity}
+    emptyMessage="No audit events recorded."
+    emptyFilteredMessage="No events match these filters"
+    onClearFilters={resetFilters}
     virtualize={false} />
 
   <p class="text-xs text-muted-foreground">

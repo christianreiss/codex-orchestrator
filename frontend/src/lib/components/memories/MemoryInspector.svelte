@@ -81,6 +81,18 @@
 
   const memory = $derived($detailQuery.data?.memory ?? null);
 
+  // Renders as a label/value list when every value is scalar; null when
+  // any value is nested/array (the raw-JSON fallback stays truthful there
+  // rather than flattening data a definition list can't represent).
+  const metadataEntries = $derived.by((): Array<[string, unknown]> | null => {
+    const metadata = memory?.metadata;
+    if (!metadata) return [];
+    const entries = Object.entries(metadata);
+    const isScalar = (v: unknown) =>
+      v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+    return entries.every(([, v]) => isScalar(v)) ? entries : null;
+  });
+
   $effect(() => {
     const id = selection?.nodeId ?? "";
     if (id !== previousNodeId) {
@@ -263,7 +275,22 @@
 
         <Tabs.Content value="metadata" class="space-y-3 pt-3">
           <p class="text-xs text-muted-foreground">Structured labels only; full content is kept on the Content tab.</p>
-          <pre class="max-h-[calc(100vh-16rem)] overflow-auto rounded-xl border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
+          {#if metadataEntries && metadataEntries.length > 0}
+            <dl class="divide-y divide-border/70 rounded-xl border border-border/70">
+              {#each metadataEntries as [key, value] (key)}
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm">
+                  <dt class="shrink-0 font-mono text-xs text-muted-foreground">{key}</dt>
+                  <dd class="break-words text-right text-foreground">{String(value)}</dd>
+                </div>
+              {/each}
+            </dl>
+          {:else if metadataEntries}
+            <p class="rounded-xl border border-border/70 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+              No metadata set.
+            </p>
+          {:else}
+            <pre class="max-h-[calc(100vh-16rem)] overflow-auto rounded-xl border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
+          {/if}
         </Tabs.Content>
 
         <Tabs.Content value="activity" class="space-y-3 pt-3">
@@ -275,7 +302,7 @@
               {$auditQuery.error instanceof Error ? $auditQuery.error.message : "Could not load activity"}
             </div>
           {:else if $auditQuery.data}
-            <div class="rounded-xl border border-amber-400/30 bg-amber-500/[0.07] p-3 text-xs text-amber-800 dark:text-amber-200">
+            <div class="rounded-xl border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
               <p class="font-semibold">Operational history</p>
               <p class="mt-1">{$auditQuery.data.retention.note}</p>
               <p class="mt-1 opacity-80">Retention-bound · not immutable · no historical bodies</p>

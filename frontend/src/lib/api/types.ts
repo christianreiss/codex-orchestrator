@@ -107,16 +107,18 @@ export interface ProjectFeedback {
   updated_at?: string | null;
 }
 
+/** Shape is the raw Drizzle row from coordProjectEvents — camelCase, not
+ * the hand-mapped snake_case most other admin responses use. */
 export interface ProjectChange {
   id?: number;
   seq: number;
-  event_type?: string;
+  eventType?: string;
   action: string;
-  entity_type?: string | null;
-  entity_id?: number | string | null;
-  payload?: Record<string, unknown> | null;
-  source_host_id?: number | string | null;
-  created_at?: string | null;
+  entityType?: string | null;
+  entityId?: number | string | null;
+  payloadJson?: Record<string, unknown> | null;
+  sourceHostId?: number | string | null;
+  createdAt?: string | null;
 }
 
 export interface ProjectDetailResponse {
@@ -883,24 +885,32 @@ export interface CodexVersionsCheckResult {
   claude_versions?: CodexVersionsSummary | null;
 }
 
+export type ScalingReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "ultra";
+export type ScalingLane = "normal" | "spark";
+
 export interface ScalingTierRule {
-  threshold_percent?: number;
-  factor?: number;
-  [key: string]: unknown;
+  at_percent: number;
+  lane?: ScalingLane;
+  reasoning_effort?: ScalingReasoningEffort;
+  model?: string | null;
 }
 
 export interface ScalingRules {
-  enabled?: boolean;
-  tiers?: ScalingTierRule[];
-  [key: string]: unknown;
+  enabled: boolean;
+  tiers: ScalingTierRule[];
 }
 
 export interface ScalingStatus {
   enabled: boolean;
   rules: ScalingRules | null;
-  normal?: unknown;
-  spark?: unknown;
-  active_state?: unknown;
+  active_tier?: ScalingTierRule | null;
   [key: string]: unknown;
 }
 

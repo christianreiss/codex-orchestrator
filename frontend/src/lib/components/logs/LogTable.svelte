@@ -1,10 +1,13 @@
 <script lang="ts" generics="TData">
-  import { untrack, type Snippet } from "svelte";
+  import { untrack, type Component, type Snippet } from "svelte";
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
+  import Search from "@lucide/svelte/icons/search";
   import { cn } from "$lib/utils/cn";
+  import { Button } from "$lib/components/ui/button";
+  import { EmptyState } from "$lib/components/ui/empty-state";
   import type { LogTableColumn } from "./log-table-types";
 
   type Props = {
@@ -14,8 +17,18 @@
     rowHeight?: number;
     /** Max height of the scroll viewport. */
     maxHeight?: string;
-    /** Empty-state copy. */
+    /** Empty-state title when there's no data at all. */
     emptyMessage?: string;
+    /** Empty-state description under `emptyMessage`. */
+    emptyDescription?: string;
+    /** Icon shown above the zero-data empty-state title. */
+    emptyIcon?: Component;
+    /** True when the dataset is empty before any filter is applied — distinguishes "no data" from "no matches". Defaults to true so existing callers that don't pass it keep today's single-message behavior. */
+    isEmpty?: boolean;
+    /** Title shown instead of `emptyMessage` once filters reduce the rows to zero. */
+    emptyFilteredMessage?: string;
+    /** Renders a "Reset filters" action in the filtered-to-zero state. */
+    onClearFilters?: () => void;
     /** Show skeleton-loading skeletons while loading. */
     loading?: boolean;
     skeletonRows?: number;
@@ -41,6 +54,11 @@
     rowHeight = 44,
     maxHeight = "60vh",
     emptyMessage = "No rows.",
+    emptyDescription,
+    emptyIcon,
+    isEmpty = true,
+    emptyFilteredMessage = "No rows match these filters.",
+    onClearFilters,
     loading = false,
     skeletonRows = 8,
     expandable = false,
@@ -164,10 +182,14 @@
         </div>
       {/each}
     </div>
+  {:else if rows.length === 0 && isEmpty}
+    <EmptyState icon={emptyIcon} size="sm" title={emptyMessage} description={emptyDescription} />
   {:else if rows.length === 0}
-    <div class="flex items-center justify-center px-6 py-10 text-sm text-muted-foreground">
-      {emptyMessage}
-    </div>
+    <EmptyState icon={Search} size="sm" title={emptyFilteredMessage} description="Try different filters.">
+      {#snippet action()}
+        <Button size="sm" variant="outline" onclick={() => onClearFilters?.()}>Reset filters</Button>
+      {/snippet}
+    </EmptyState>
   {:else if virtualize}
     <div
       bind:this={scrollEl}

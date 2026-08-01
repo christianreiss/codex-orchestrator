@@ -1,25 +1,34 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
-  import { Textarea } from "$lib/components/ui/textarea";
-  import { Label } from "$lib/components/ui/label";
+  import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
+  import { FormField } from "$lib/components/ui/form-field";
   import SectionCard from "./SectionCard.svelte";
   import { prunePolicyMutation } from "$lib/api/settings";
+  import { overviewQuery } from "$lib/api/overview";
 
-  // No GET endpoint exists for the prune policy. The textarea seeds
-  // with the default shape so admins have a template to edit. After
-  // save, the new value is stored server-side; the textarea is the
-  // local source of truth between sessions.
-  let policyJson = $state(`{\n  "inactivity_days": 30\n}`);
-  let parseError = $state<string | null>(null);
+  // No dedicated GET endpoint exists for the prune policy; hydrate from the
+  // same `inactivity_window_days` field /admin/overview already exposes.
+  const query = overviewQuery();
+  let inactivityDays = $state<number>(30);
+  let initialized = false;
+  $effect(() => {
+    const d = $query.data;
+    if (!d || initialized) return;
+    inactivityDays = d.inactivity_window_days ?? 30;
+    initialized = true;
+  });
+
+  let rangeError = $state<string | null>(null);
   let lastSavedAt = $state<Date | null>(null);
 
   const mutation = prunePolicyMutation({
     onSuccess: (data) => {
       lastSavedAt = new Date();
-      // Reflect the clamped value the server returned.
+      // The server clamps out-of-range input rather than rejecting it —
+      // always redisplay what it actually stored, not what was submitted.
       if (data && typeof data.inactivity_window_days === "number") {
-        policyJson = JSON.stringify({ inactivity_days: data.inactivity_window_days }, null, 2);
+        inactivityDays = data.inactivity_window_days;
       }
       toast.success("Prune policy saved");
     },
@@ -27,28 +36,12 @@
   });
 
   function save() {
-    parseError = null;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(policyJson);
-    } catch (err) {
-      parseError = err instanceof Error ? err.message : "Invalid JSON";
-      toast.error("Invalid JSON: " + parseError);
+    rangeError = null;
+    if (!Number.isFinite(inactivityDays) || inactivityDays < 0 || inactivityDays > 60) {
+      rangeError = "Must be an integer between 0 and 60";
       return;
     }
-    if (!parsed || typeof parsed !== "object") {
-      parseError = "Policy must be a JSON object";
-      toast.error(parseError);
-      return;
-    }
-    const obj = parsed as Record<string, unknown>;
-    const days = Number(obj.inactivity_days);
-    if (!Number.isFinite(days) || days < 0 || days > 60) {
-      parseError = "inactivity_days must be an integer between 0 and 60";
-      toast.error(parseError);
-      return;
-    }
-    $mutation.mutate({ inactivity_days: Math.round(days) });
+    $mutation.mutate({ inactivity_days: Math.round(inactivityDays) });
   }
 
   const status = $derived.by(() => {
@@ -62,26 +55,34 @@
 <SectionCard
   id="prune-policy"
   title="Prune policy"
-  description="Inactivity window before stale hosts are pruned. Edited as JSON. Field: inactivity_days (0–60)."
+  description="Hosts that haven't checked in within this window are treated as inactive and pruned."
   {status}
   savedAt={lastSavedAt}
-  error={$mutation.error?.message ?? parseError}
+  error={$mutation.error?.message ?? rangeError}
 >
-  <div class="grid gap-1.5">
-    <Label for="prune-policy-json">Policy (JSON)</Label>
-    <Textarea
-      id="prune-policy-json"
-      class="min-h-[120px] font-mono text-xs"
-      bind:value={policyJson}
-      spellcheck={false}
-      placeholder={`{\n  "inactivity_days": 30\n}`}
+  <FormField
+    id="prune-policy-days"
+    label="Inactivity window (days)"
+    hint="0–60. Hosts silent for longer than this are pruned."
+    error={rangeError ?? undefined}
+    class="max-w-xs"
+  >
+    <Input
+      id="prune-policy-days"
+      type="number"
+      min={0}
+      max={60}
+      step={1}
+      bind:value={inactivityDays}
+      disabled={$query.isPending}
+      aria-describedby={rangeError ? "prune-policy-days-error" : "prune-policy-days-hint"}
+      aria-invalid={rangeError ? "true" : undefined}
     />
-    {#if parseError}
-      <p class="text-xs text-destructive">{parseError}</p>
-    {/if}
-  </div>
+  </FormField>
 
-  <div>
-    <Button size="sm" onclick={save} disabled={$mutation.isPending}>Save prune policy</Button>
+  <div class="pt-2">
+    <Button size="sm" onclick={save} disabled={$query.isPending || $mutation.isPending}>
+      Save prune policy
+    </Button>
   </div>
 </SectionCard>

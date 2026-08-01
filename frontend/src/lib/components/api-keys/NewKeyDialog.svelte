@@ -132,7 +132,7 @@
     {#if issued}
       <Dialog.Header>
         <Dialog.Title class="flex items-center gap-2">
-          <KeyRound class="h-5 w-5 text-emerald-600" />
+          <KeyRound class="h-5 w-5 text-success" />
           Key created
         </Dialog.Title>
         <Dialog.Description>

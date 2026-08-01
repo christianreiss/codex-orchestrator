@@ -5,9 +5,11 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
+  import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Alert from "$lib/components/ui/alert";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import ProjectTabsNav from "$lib/components/projects/ProjectTabsNav.svelte";
@@ -61,10 +63,22 @@
       <ArrowLeft class="h-4 w-4" />
       Back
     </Button>
-    <Button variant="destructive" onclick={() => (confirmOpen = true)} disabled={!$detail.data}>
-      <Trash2 class="h-4 w-4" />
-      Delete project
-    </Button>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-input bg-card/80 px-3 text-sm font-medium shadow-hairline transition-colors hover:bg-accent"
+        disabled={!$detail.data}
+      >
+        <Ellipsis class="h-4 w-4" /> More
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="end" class="w-56">
+        <DropdownMenu.Item
+          onclick={() => (confirmOpen = true)}
+          class="text-destructive focus:bg-destructive-muted focus:text-destructive"
+        >
+          <Trash2 class="h-4 w-4" /> Delete project
+        </DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   {/snippet}
 </PageHeader>
 

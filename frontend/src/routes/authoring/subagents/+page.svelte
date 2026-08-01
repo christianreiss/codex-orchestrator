@@ -11,13 +11,17 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import { EmptyState } from "$lib/components/ui/empty-state";
   import * as Table from "$lib/components/ui/table";
   import * as Sheet from "$lib/components/ui/sheet";
   import * as Dialog from "$lib/components/ui/dialog";
+  import SortableHead from "$lib/components/data-table/SortableHead.svelte";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Search from "@lucide/svelte/icons/search";
+  import Bot from "@lucide/svelte/icons/bot";
 
   const qc = useQueryClient();
 
@@ -27,18 +31,53 @@
   });
 
   const items = $derived($query.data?.artifacts ?? []);
-  const updatedAt = $derived(
-    items
-      .map((s) => s.updated_at ?? null)
-      .filter((v): v is string => !!v)
-      .sort()
-      .reverse()[0] ?? null,
-  );
 
   function status(row: ArtifactView): { label: string; variant: "success" | "destructive" } {
     if (row.deleted_at) return { label: "deleted", variant: "destructive" };
     return { label: "active", variant: "success" };
   }
+
+  // ---- Search ----
+  let search = $state("");
+  const filtered = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((row) =>
+      [row.display_name, row.slug, row.description].some((v) => v?.toLowerCase().includes(q)),
+    );
+  });
+
+  // ---- Sort ----
+  type SortKey = "name" | "status" | "updated";
+  let sortKey = $state<SortKey>("name");
+  let sortDir = $state<"asc" | "desc">("asc");
+  function onSort(key: SortKey) {
+    if (sortKey === key) {
+      sortDir = sortDir === "asc" ? "desc" : "asc";
+    } else {
+      sortKey = key;
+      sortDir = "asc";
+    }
+  }
+  const sorted = $derived.by(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "name":
+          cmp = (a.display_name || a.slug).localeCompare(b.display_name || b.slug);
+          break;
+        case "status":
+          cmp = Number(!!a.deleted_at) - Number(!!b.deleted_at);
+          break;
+        case "updated":
+          cmp = (a.updated_at ?? "").localeCompare(b.updated_at ?? "");
+          break;
+      }
+      if (cmp === 0) cmp = a.slug.localeCompare(b.slug);
+      return cmp * dir;
+    });
+  });
 
   // ---- New subagent sheet ----
   let createOpen = $state(false);
@@ -89,40 +128,53 @@
   });
 </script>
 
-<section class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-border/75 bg-card p-4 text-sm shadow-sm">
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Subagents</span>
-    <span class="text-lg font-semibold">{items.length}</span>
+<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  <div class="relative w-full sm:max-w-sm">
+    <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+    <Input
+      bind:value={search}
+      placeholder="Search by name, slug, description..."
+      class="pl-9"
+      aria-label="Search subagents"
+    />
   </div>
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Last updated</span>
-    <span class="text-sm">{updatedAt ? relativeTime(updatedAt) : "—"}</span>
-  </div>
-  <div class="ml-auto flex items-center gap-2">
+  <div class="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+    <p class="mr-1 text-xs text-muted-foreground">
+      {#if search.trim()}
+        Showing {sorted.length} of {items.length}
+      {:else}
+        {items.length} {items.length === 1 ? "subagent" : "subagents"}
+      {/if}
+    </p>
     <Button
       variant="outline"
-      size="sm"
+      size="icon"
+      aria-label="Refresh"
       onclick={() => void qc.invalidateQueries({ queryKey: subagentsKeys.all })}
       disabled={$query.isFetching}
     >
       <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-      Refresh
     </Button>
     <Button size="sm" onclick={() => (createOpen = true)}>
       <Plus class="h-4 w-4" />
       New subagent
     </Button>
   </div>
-</section>
+</div>
 
 <div class="overflow-hidden rounded-xl border border-border/75 bg-card shadow-sm">
   <Table.Root>
     <Table.Header>
       <Table.Row>
-        <Table.Head>Name</Table.Head>
+        <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
         <Table.Head>Slug</Table.Head>
-        <Table.Head>Status</Table.Head>
-        <Table.Head>Updated</Table.Head>
+        <SortableHead label="Status" active={sortKey === "status"} dir={sortDir} onclick={() => onSort("status")} />
+        <SortableHead
+          label="Updated"
+          active={sortKey === "updated"}
+          dir={sortDir}
+          onclick={() => onSort("updated")}
+        />
         <Table.Head class="text-right">Actions</Table.Head>
       </Table.Row>
     </Table.Header>
@@ -141,12 +193,39 @@
         </Table.Row>
       {:else if items.length === 0}
         <Table.Row>
-          <Table.Cell colspan={5} class="py-6 text-center text-sm text-muted-foreground">
-            No subagents yet. Click "New subagent" to author one.
+          <Table.Cell colspan={5}>
+            <EmptyState
+              icon={Bot}
+              size="sm"
+              title="No subagents yet"
+              description="Subagents are focused, reusable assistants Claude can delegate to. Create one to get started."
+            >
+              {#snippet action()}
+                <Button size="sm" onclick={() => (createOpen = true)}>
+                  <Plus class="h-4 w-4" />
+                  New subagent
+                </Button>
+              {/snippet}
+            </EmptyState>
+          </Table.Cell>
+        </Table.Row>
+      {:else if sorted.length === 0}
+        <Table.Row>
+          <Table.Cell colspan={5}>
+            <EmptyState
+              icon={Search}
+              size="sm"
+              title={`No subagents match "${search.trim()}"`}
+              description="Try a different search."
+            >
+              {#snippet action()}
+                <Button size="sm" variant="outline" onclick={() => (search = "")}>Clear search</Button>
+              {/snippet}
+            </EmptyState>
           </Table.Cell>
         </Table.Row>
       {:else}
-        {#each items as row (row.slug)}
+        {#each sorted as row (row.slug)}
           {@const s = status(row)}
           <Table.Row>
             <Table.Cell class="font-medium">

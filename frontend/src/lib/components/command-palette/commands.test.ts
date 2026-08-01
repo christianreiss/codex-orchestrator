@@ -229,7 +229,7 @@ describe("deep-link navigation commands", () => {
     assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
     assert.ok(deepHrefs.length >= 10, `only ${deepHrefs.length} deep-link commands in the registry`);
     assert.equal(resolves("/dashboard"), true);
-    assert.equal(resolves("/settings?tab=codex"), true);
+    assert.equal(resolves("/settings?tab=engines"), true);
     assert.equal(resolves("/hosts/42"), true);
     assert.equal(resolves("/hosts/42/nope"), false);
   });

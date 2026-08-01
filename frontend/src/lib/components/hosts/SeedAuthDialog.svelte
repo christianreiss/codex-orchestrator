@@ -3,6 +3,7 @@
   import * as Tabs from "$lib/components/ui/tabs";
   import { RadioGroup, RadioGroupItem } from "$lib/components/ui/radio-group";
   import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
   import { useQueryClient } from "@tanstack/svelte-query";
@@ -33,12 +34,21 @@
   const seedCmd = createSeedCommandMutation();
   const uploadAuth = createUploadAuthMutation(qc);
 
+  type UploadMode = "apikey" | "chatgpt";
+
   let activeTab = $state<"upload" | "command">("upload");
   let engine: AuthEngine = $state("codex");
+  // Codex only: an API key is a real value an operator can type; a ChatGPT
+  // session is a pair of opaque JWTs that only ever come from
+  // ~/.codex/auth.json, so that path keeps the paste/upload textarea.
+  let uploadMode = $state<UploadMode>("apikey");
+  let apiKey = $state("");
   let payload = $state("");
   let fileBusy = $state(false);
   let command = $state<string | null>(null);
   let commandExpiresAt = $state<string | null>(null);
+
+  const isApiKeyMode = $derived(engine === "codex" && uploadMode === "apikey");
 
   // Reset state each time the dialog opens. We read `defaultEngine` inside the
   // effect so it picks up parent updates without capturing the initial value.
@@ -46,6 +56,8 @@
     if (open) {
       activeTab = "upload";
       engine = defaultEngine;
+      uploadMode = "apikey";
+      apiKey = "";
       payload = "";
       command = null;
       commandExpiresAt = null;
@@ -81,10 +93,20 @@
   }
 
   async function submitUpload(): Promise<void> {
-    const trimmed = payload.trim();
-    if (!trimmed) {
-      toast.error("Paste auth payload or pick a file first.");
-      return;
+    let trimmed: string;
+    if (isApiKeyMode) {
+      const key = apiKey.trim();
+      if (!key) {
+        toast.error("Paste the OpenAI API key first.");
+        return;
+      }
+      trimmed = JSON.stringify({ OPENAI_API_KEY: key });
+    } else {
+      trimmed = payload.trim();
+      if (!trimmed) {
+        toast.error("Paste auth payload or pick a file first.");
+        return;
+      }
     }
     try {
       await $uploadAuth.mutateAsync({ engine, payload: trimmed });
@@ -151,50 +173,95 @@
           </RadioGroup>
         </div>
 
-        <div class="space-y-1.5">
-          <Label for="seed-upload-payload">
-            {engine === "codex" ? "Canonical Codex auth JSON" : "Canonical Claude auth JSON or API key"}
-          </Label>
-          <Textarea
-            id="seed-upload-payload"
-            class="h-40 font-mono text-xs"
-            placeholder={engine === "codex"
-              ? '{ "OPENAI_API_KEY": "sk-…", … }'
-              : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
-            bind:value={payload}
-          />
-          {#if engine === "claude"}
-            <p class="text-[11px] text-muted-foreground">
-              Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
-            </p>
-          {/if}
-        </div>
+        {#if engine === "codex"}
+          <div class="space-y-2">
+            <Label>Credential type</Label>
+            <RadioGroup
+              value={uploadMode}
+              onValueChange={(v) => (uploadMode = v as UploadMode)}
+              class="flex gap-4"
+            >
+              <label class="flex items-center gap-2 text-sm">
+                <RadioGroupItem value="apikey" id="seed-upload-mode-apikey" />
+                API key
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <RadioGroupItem value="chatgpt" id="seed-upload-mode-chatgpt" />
+                ChatGPT session
+              </label>
+            </RadioGroup>
+          </div>
+        {/if}
 
-        <div class="flex items-center gap-2">
-          <Label
-            for="seed-upload-file"
-            class="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm hover:bg-accent"
-          >
-            <Upload class="h-4 w-4" />
-            {fileBusy ? "Reading…" : "Pick file"}
-          </Label>
-          <input
-            id="seed-upload-file"
-            type="file"
-            accept=".json,.txt,text/plain,application/json"
-            class="hidden"
-            onchange={handleFile}
-          />
-          <p class="text-[11px] text-muted-foreground">
-            Reads the file into the textarea — does not auto-submit.
-          </p>
-        </div>
+        {#if isApiKeyMode}
+          <div class="space-y-1.5">
+            <Label for="seed-upload-apikey">OpenAI API key</Label>
+            <Input
+              id="seed-upload-apikey"
+              type="password"
+              bind:value={apiKey}
+              autocomplete="new-password"
+              placeholder="sk-…"
+            />
+            <p class="text-[11px] text-muted-foreground">
+              Stored as the host's canonical credential, the same key you'd put in
+              <code class="font-mono">OPENAI_API_KEY</code>.
+            </p>
+          </div>
+        {:else}
+          <div class="space-y-1.5">
+            <Label for="seed-upload-payload">
+              {engine === "codex" ? "ChatGPT session auth JSON" : "Canonical Claude auth JSON or API key"}
+            </Label>
+            <Textarea
+              id="seed-upload-payload"
+              class="h-40 font-mono text-xs"
+              placeholder={engine === "codex"
+                ? '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }'
+                : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
+              bind:value={payload}
+            />
+            {#if engine === "codex"}
+              <p class="text-[11px] text-muted-foreground">
+                Paste the contents of <code class="font-mono">~/.codex/auth.json</code> from a
+                ChatGPT-authenticated session. These tokens are machine-generated, never hand-typed.
+              </p>
+            {:else}
+              <p class="text-[11px] text-muted-foreground">
+                Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
+              </p>
+            {/if}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Label
+              for="seed-upload-file"
+              class="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm hover:bg-accent"
+            >
+              <Upload class="h-4 w-4" />
+              {fileBusy ? "Reading…" : "Pick file"}
+            </Label>
+            <input
+              id="seed-upload-file"
+              type="file"
+              accept=".json,.txt,text/plain,application/json"
+              class="hidden"
+              onchange={handleFile}
+            />
+            <p class="text-[11px] text-muted-foreground">
+              Reads the file into the textarea — does not auto-submit.
+            </p>
+          </div>
+        {/if}
 
         <Dialog.Footer>
           <Button variant="ghost" onclick={() => handleOpenChange(false)} disabled={$uploadAuth.isPending}>
             Cancel
           </Button>
-          <Button onclick={submitUpload} disabled={$uploadAuth.isPending || !payload.trim()}>
+          <Button
+            onclick={submitUpload}
+            disabled={$uploadAuth.isPending || (isApiKeyMode ? !apiKey.trim() : !payload.trim())}
+          >
             {$uploadAuth.isPending ? "Uploading…" : "Upload"}
           </Button>
         </Dialog.Footer>

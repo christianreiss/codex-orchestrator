@@ -69,7 +69,7 @@
 
   <section class="min-w-0">
     {#if notFound}
-      <div class="rounded-md border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+      <div class="rounded-md border border-warning/25 bg-warning-muted p-4 text-sm">
         <p class="font-semibold">Article not found</p>
         <p class="mt-1 text-muted-foreground">
           No article in the manifest matches the slug

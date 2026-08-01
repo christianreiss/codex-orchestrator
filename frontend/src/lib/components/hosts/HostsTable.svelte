@@ -5,6 +5,8 @@
   import StatusPill from "./StatusPill.svelte";
   import EngineBadge from "./EngineBadge.svelte";
   import InsecureCountdown from "./InsecureCountdown.svelte";
+  import { EmptyState } from "$lib/components/ui/empty-state";
+  import { Button } from "$lib/components/ui/button";
   import { relativeTime } from "$lib/utils/format";
   import {
     hostEngines,
@@ -13,11 +15,15 @@
     hostStatusKind,
     hostStatusLabel,
     isInsecureWindowActive,
+    type HostFilterId,
   } from "$lib/api/hosts";
   import type { HostListItem } from "$lib/api/types";
   import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Server from "@lucide/svelte/icons/server";
+  import Search from "@lucide/svelte/icons/search";
+  import Plus from "@lucide/svelte/icons/plus";
   import { cn } from "$lib/utils/cn";
 
   export type SortField =
@@ -28,19 +34,43 @@
     | "insecure_enabled_until";
   export type SortDir = "asc" | "desc";
 
+  const FILTER_LABELS: Record<HostFilterId, string> = {
+    all: "",
+    online: "Online",
+    offline: "Offline",
+    secure: "Secure",
+    insecure: "Insecure",
+    unprovisioned: "Unprovisioned",
+    vip: "VIP",
+    roaming: "Roaming",
+  };
+
   type Props = {
     rows: HostListItem[];
     loading?: boolean;
+    /** True once there are zero hosts registered at all — the true zero-data state. */
+    isEmpty?: boolean;
+    /** The active search string, if any — distinguishes "no data" from "no matches". */
+    filterQuery?: string;
+    /** The active filter chip, if not "all". */
+    activeFilter?: HostFilterId;
     sortField?: SortField;
     sortDir?: SortDir;
     onSortChange?: (field: SortField, dir: SortDir) => void;
+    onRegisterHost?: () => void;
+    onClearFilters?: () => void;
   };
   let {
     rows,
     loading = false,
+    isEmpty = false,
+    filterQuery = "",
+    activeFilter = "all",
     sortField = "fqdn",
     sortDir = "asc",
     onSortChange,
+    onRegisterHost,
+    onClearFilters,
   }: Props = $props();
 
   // --- sorting ------------------------------------------------------------
@@ -104,7 +134,7 @@
   }
 </script>
 
-<div class="overflow-hidden rounded-xl border border-border/75 bg-card text-card-foreground shadow-sm">
+<div class="overflow-hidden rounded-xl border border-border/75 bg-card text-card-foreground shadow-hairline">
   <div
     class="grid grid-cols-[minmax(0,1fr)_100px] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_120px_140px_120px]"
   >
@@ -122,9 +152,35 @@
   >
     {#if loading}
       <div class="px-4 py-6 text-sm text-muted-foreground">Loading hosts…</div>
+    {:else if sorted.length === 0 && isEmpty}
+      <div class="flex h-full items-center justify-center">
+        <EmptyState
+          icon={Server}
+          title="No hosts registered"
+          description="Register your first host to start routing inference."
+        >
+          {#snippet action()}
+            <Button size="sm" onclick={() => onRegisterHost?.()}>
+              <Plus class="h-4 w-4" />
+              Register host
+            </Button>
+          {/snippet}
+        </EmptyState>
+      </div>
     {:else if sorted.length === 0}
-      <div class="flex h-full items-center justify-center px-4 py-12 text-sm text-muted-foreground">
-        No hosts match the current filter.
+      <div class="flex h-full items-center justify-center">
+        <EmptyState
+          icon={Search}
+          size="sm"
+          title={filterQuery
+            ? `No hosts match "${filterQuery}"${activeFilter !== "all" ? ` in ${FILTER_LABELS[activeFilter]}` : ""}`
+            : `No hosts in ${FILTER_LABELS[activeFilter]}`}
+          description="Try a different search or filter."
+        >
+          {#snippet action()}
+            <Button size="sm" variant="outline" onclick={() => onClearFilters?.()}>Clear filters</Button>
+          {/snippet}
+        </EmptyState>
       </div>
     {:else}
       <div style="height: {totalSize}px; position: relative; width: 100%;">
@@ -159,7 +215,7 @@
                     />
                   {/each}
                   {#if row.vip}
-                    <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">VIP</span>
+                    <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                   {/if}
                 </div>
               </div>
@@ -175,10 +231,10 @@
                   />
                 {/each}
                 {#if row.vip}
-                  <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">VIP</span>
+                  <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
                 {/if}
                 {#if row.allow_roaming_ips}
-                  <span class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Roam</span>
+                  <span class="rounded bg-info-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info-muted-foreground">Roam</span>
                 {/if}
               </div>
               <div>

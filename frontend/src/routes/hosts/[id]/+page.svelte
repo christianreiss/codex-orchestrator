@@ -4,28 +4,32 @@
   import { base } from "$app/paths";
   import { useQueryClient } from "@tanstack/svelte-query";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import DangerZone from "$lib/components/layout/DangerZone.svelte";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
-  import { Switch } from "$lib/components/ui/switch";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Card from "$lib/components/ui/card";
+  import * as Collapsible from "$lib/components/ui/collapsible";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import EngineBadge from "$lib/components/hosts/EngineBadge.svelte";
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
   import ConfirmDialog from "$lib/components/hosts/ConfirmDialog.svelte";
   import InputDialog from "$lib/components/hosts/InputDialog.svelte";
   import InsecureWindowPopover from "$lib/components/hosts/InsecureWindowPopover.svelte";
+  import ToggleRow from "$lib/components/hosts/ToggleRow.svelte";
+  import OverridePopover from "$lib/components/hosts/OverridePopover.svelte";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Download from "@lucide/svelte/icons/download";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import { relativeTime } from "$lib/utils/format";
   import { autoCopyText } from "$lib/utils/clipboard";
-  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS } from "$lib/constants/models";
+  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import {
     hostDetailQuery,
     hostsKeys,
@@ -91,6 +95,7 @@
     host ? hostCxxWrapperState(host) : { display: "—", drift: false },
   );
 
+  /** Toast on both success and error — reserved for irreversible/high-consequence actions. */
   async function run<T>(
     label: string,
     p: Promise<T>,
@@ -106,6 +111,22 @@
     }
   }
 
+  /**
+   * Toast only on error — for ordinary, reversible settings edits. The
+   * control itself (a switch flipping, a popover/dialog closing) is the
+   * success feedback; a toast on every one of these was the single loudest
+   * noise source on this page.
+   */
+  async function runQuiet<T>(p: Promise<T>): Promise<void> {
+    try {
+      await p;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Action failed";
+      toast.error(msg);
+      throw err;
+    }
+  }
+
   async function refresh(): Promise<void> {
     await qc.invalidateQueries({ queryKey: hostsKeys.detail(id) });
     toast.success("Refreshing…");
@@ -114,10 +135,6 @@
   // Dialog state
   let confirmDeleteOpen = $state(false);
   let confirmReleaseIpBindingOpen = $state(false);
-  let codexDialogOpen = $state(false);
-  let claudeDialogOpen = $state(false);
-  let codexModelDialogOpen = $state(false);
-  let claudeModelDialogOpen = $state(false);
   let agentsDialogOpen = $state(false);
   let installerDialogOpen = $state(false);
   let installerResult = $state<InstallerInfo | null>(null);
@@ -216,13 +233,7 @@
 
   async function setReverseDns(mode: ReverseDnsMode): Promise<void> {
     if (reverseDnsValue === mode) return;
-    const label =
-      mode === "global"
-        ? "Reverse DNS inherits fleet default"
-        : mode === "enabled"
-          ? "Reverse DNS forced on"
-          : "Reverse DNS forced off";
-    await run(label, $reverseDns.mutateAsync({ id, mode }));
+    await runQuiet($reverseDns.mutateAsync({ id, mode }));
   }
 
   async function setHostEngine(engine: HostEngine, enabled: boolean): Promise<void> {
@@ -231,7 +242,45 @@
       ? Array.from(new Set([...current, engine]))
       : current.filter((item) => item !== engine);
     if (next.length === 0) return;
-    await run(`${engine === "codex" ? "Codex" : "Claude"} ${enabled ? "enabled" : "disabled"}`, $hostEnginesMutation.mutateAsync({ id, engines: next }));
+    await runQuiet($hostEnginesMutation.mutateAsync({ id, engines: next }));
+  }
+
+  // Fleet policy overrides — collapsible, auto-expanded once on load only when
+  // it actually contains a non-default value.
+  const policyOverrideCount = $derived.by(() => {
+    if (!host) return 0;
+    let n = 0;
+    if (host.vip) n++;
+    if (host.allow_roaming_ips) n++;
+    if (host.auto_update_override !== null && host.auto_update_override !== undefined) n++;
+    if (host.lane_preference === "exempt") n++;
+    if (reverseDnsValue !== "global") n++;
+    if (host.agents_document_id_override != null) n++;
+    return n;
+  });
+  let policyOpen = $state(false);
+  let policyOpenInitialized = false;
+  $effect(() => {
+    if (host && !policyOpenInitialized) {
+      policyOpen = policyOverrideCount > 0;
+      policyOpenInitialized = true;
+    }
+  });
+
+  async function saveCodexVersion(v: string | null): Promise<void> {
+    await runQuiet($codexVersion.mutateAsync({ id, version: v }));
+  }
+  async function saveClaudeVersion(v: string | null): Promise<void> {
+    await runQuiet($claudeVersion.mutateAsync({ id, version: v }));
+  }
+  async function saveCodexModel(v: string | null): Promise<void> {
+    await runQuiet($modelOverride.mutateAsync({ id, engine: "codex", model: v }));
+  }
+  async function saveClaudeModel(v: string | null): Promise<void> {
+    await runQuiet($modelOverride.mutateAsync({ id, engine: "claude", model: v }));
+  }
+  async function saveReasoningEffort(v: string | null): Promise<void> {
+    await runQuiet($modelOverride.mutateAsync({ id, engine: "codex", reasoning_effort: v }));
   }
 </script>
 
@@ -242,7 +291,7 @@
     <Skeleton class="h-40 w-full" />
   </div>
 {:else if $detail.isError || !host}
-  <div class="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+  <div class="rounded-md border border-destructive/25 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground">
     Failed to load host: {$detail.error?.message ?? "not found"}
   </div>
 {:else}
@@ -261,14 +310,10 @@
     {/snippet}
   </PageHeader>
 
+  <!-- Status line: reachability | security | engines. VIP/roaming/auto-update/
+       BrowserOS are controls further down, not pills — a pill is for state
+       you can't change on this page. -->
   <div class="mb-5 flex flex-wrap items-center gap-1.5">
-    {#if isInsecureWindowActive(host)}
-      <StatusPill tone="warning" label="Insecure" />
-    {:else if host.secure}
-      <StatusPill tone="secure" label="Secure" />
-    {:else}
-      <StatusPill tone="muted" label="Insecure (closed)" />
-    {/if}
     {#if hostStatusKind(host) === "online"}
       <StatusPill tone="online" label="Online" />
     {:else if hostStatusKind(host) === "auth-missing"}
@@ -278,79 +323,53 @@
     {:else}
       <StatusPill tone="offline" label="Offline" />
     {/if}
-    {#if host.vip}
-      <StatusPill tone="info" label="VIP" />
-    {/if}
-    {#if host.allow_roaming_ips}
-      <StatusPill tone="info" label="Roaming" />
-    {/if}
-    {#if host.browseros_mcp_enabled}
-      <StatusPill tone="info" label="BrowserOS" />
-    {/if}
-    {#if host.effective_auto_update_enabled}
-      <StatusPill tone="online" label="Auto-update" />
+    {#if isInsecureWindowActive(host)}
+      <StatusPill tone="warning" label="Insecure" />
+    {:else if host.secure}
+      <StatusPill tone="secure" label="Secure" />
+    {:else}
+      <StatusPill tone="muted" label="Insecure (closed)" />
     {/if}
     {#each hostEngines(host) as engine}
       <EngineBadge {engine} />
     {/each}
   </div>
 
-  <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-    <!-- Stats -->
-    <Card.Root>
-      <Card.Header>
-        <Card.Title>Stats</Card.Title>
-      </Card.Header>
-      <Card.Content class="space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span class="text-muted-foreground">Last contact</span>
-          <span>{relativeTime(hostLatestRefresh(host)) || "—"}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="text-muted-foreground">Last cron check</span>
-          <span>{relativeTime(host.last_cron_check) || "—"}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="text-muted-foreground">API calls (recent)</span>
-          <span>{host.api_calls ?? "—"}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="text-muted-foreground">Insecure window</span>
-          <InsecureCountdown until={host.insecure_enabled_until} />
-        </div>
-      </Card.Content>
-    </Card.Root>
-
-    <!-- Action items -->
-    <Card.Root>
-      <Card.Header>
-        <Card.Title>Action items</Card.Title>
-      </Card.Header>
-      <Card.Content class="text-sm">
-        {#if actionItems.length === 0}
-          <p class="text-muted-foreground">Nothing requires attention.</p>
-        {:else}
+  <div class="grid grid-cols-1 gap-4">
+    {#if actionItems.length > 0}
+      <Card.Root>
+        <Card.Header>
+          <Card.Title>Needs attention</Card.Title>
+        </Card.Header>
+        <Card.Content class="text-sm">
           <ul class="space-y-2">
             {#each actionItems as item}
               <li
                 class="flex items-start gap-2 rounded-md border px-2.5 py-1.5 {item.tone === 'warning'
-                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                  : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'}"
+                  ? 'border-warning/25 bg-warning-muted text-warning-muted-foreground'
+                  : 'border-info/25 bg-info-muted text-info-muted-foreground'}"
               >
                 <AlertTriangle class="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>{item.text}</span>
               </li>
             {/each}
           </ul>
-        {/if}
-      </Card.Content>
-    </Card.Root>
+        </Card.Content>
+      </Card.Root>
+    {/if}
 
-    <!-- Technical context -->
-    <Card.Root class="lg:col-span-2">
-      <Card.Header>
-        <Card.Title>Technical context</Card.Title>
-        <Card.Description>Configuration and runtime state pulled from the host record.</Card.Description>
+    <!-- Identity & reachability: facts only. -->
+    <Card.Root>
+      <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <Card.Title>Identity & reachability</Card.Title>
+          <Card.Description>Network identity and last-contact facts.</Card.Description>
+        </div>
+        {#if host.ip4 || host.ip6}
+          <Button variant="outline" size="sm" onclick={() => (confirmReleaseIpBindingOpen = true)}>
+            Release IP binding
+          </Button>
+        {/if}
       </Card.Header>
       <Card.Content>
         <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -358,91 +377,113 @@
           {@render dt("FQDN", host.fqdn)}
           {@render dt("IP (v4)", host.ip4 ?? "—")}
           {@render dt("IP (v6)", host.ip6 ?? "—")}
-          {@render dt("Codex version", host.client_version_override ?? host.client_version ?? "—")}
-          {@render dt("Claude version", host.claude_client_version_override ?? host.claude_client_version ?? "—")}
-          {@render dt("CXX wrapper", cxxWrapper.display)}
-          {@render dt("Model override", host.model_override ?? "—")}
-          {@render dt("Reasoning override", host.reasoning_effort_override ?? "—")}
-          {@render dt("Claude model", host.claude_model_override ?? "—")}
-          {@render dt("Binary digest", host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—")}
-          {@render dt("VIP", host.vip ? "yes" : "no")}
-          {@render dt("Auto-update", host.effective_auto_update_enabled ? host.auto_update_label || "on" : "off")}
-          {@render dt(
-            "Insecure",
-            host.secure
-              ? "secure"
-              : host.insecure_enabled_until
-                ? `until ${host.insecure_enabled_until}`
-                : "off",
-          )}
-          {@render dt("Roaming", host.allow_roaming_ips ? "allowed" : "static")}
-          {@render dt("Lane", host.lane_preference ?? "—")}
+          {@render dt("Last contact", relativeTime(hostLatestRefresh(host)) || "—")}
+          {@render dt("Last cron check", relativeTime(host.last_cron_check) || "—")}
+          {@render dt("API calls (recent)", host.api_calls != null ? String(host.api_calls) : "—")}
           <div class="flex flex-col">
-            <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Reverse DNS</dt>
-            <dd class="mt-1">
-              <div class="inline-flex overflow-hidden rounded-md border border-input text-[11px]">
-                {#each [
-                  { id: "global", label: "Inherit" },
-                  { id: "enabled", label: "Force on" },
-                  { id: "disabled", label: "Force off" },
-                ] as opt (opt.id)}
-                  <button
-                    type="button"
-                    class="px-2 py-1 transition-colors hover:bg-accent {reverseDnsValue === opt.id
-                      ? 'bg-foreground text-background'
-                      : 'bg-background text-foreground'}"
-                    disabled={$reverseDns.isPending}
-                    aria-pressed={reverseDnsValue === opt.id}
-                    onclick={() => void setReverseDns(opt.id as ReverseDnsMode)}
-                  >
-                    {opt.label}
-                  </button>
-                {/each}
-              </div>
-            </dd>
+            <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Insecure window</dt>
+            <dd class="font-mono text-xs"><InsecureCountdown until={host.insecure_enabled_until} /></dd>
           </div>
-          {@render dt("Agents doc override", host.agents_document_id_override ? String(host.agents_document_id_override) : "—")}
         </dl>
       </Card.Content>
     </Card.Root>
 
-    <!-- Controls -->
-    <Card.Root class="lg:col-span-2">
-      <Card.Header>
-        <Card.Title>Controls</Card.Title>
-        <Card.Description>Optimistic toggles and lifecycle actions.</Card.Description>
-      </Card.Header>
-      <Card.Content>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {@render toggleRow("Secure", host.secure, (v) =>
-            run(v ? "Secure" : "Insecure", $secure.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("Auto-update", host.effective_auto_update_enabled, (v) =>
-            run(v ? "Auto-update on" : "Auto-update off", $autoUpdate.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("VIP", host.vip, (v) =>
-            run(v ? "VIP on" : "VIP off", $vip.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("Roaming", host.allow_roaming_ips, (v) =>
-            run(v ? "Roaming on" : "Roaming off", $roaming.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("Scaling exempt", host.lane_preference === "exempt", (v) =>
-            run("Scaling pref updated", $scaling.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("Curl insecure", host.curl_insecure, (v) =>
-            run("Curl insecure updated", $curlInsecure.mutateAsync({ id, value: v })),
-          )}
-          {@render toggleRow("BrowserOS MCP", host.browseros_mcp_enabled, (v) =>
-            run(v ? "BrowserOS MCP on" : "BrowserOS MCP off", $browserOsMcp.mutateAsync({ id, value: v })),
-          )}
-          {@render engineSwitchRow("Agent Messaging", host.agent_messaging_enabled, hostAgentMessagingToggleDisabled(host), (v) =>
-            run(v ? "Agent Messaging on" : "Agent Messaging off", $agentMessaging.mutateAsync({ id, value: v })),
-          )}
-          {@render engineSwitchRow("Codex", codexEngine, codexSwitchDisabled, (v) => setHostEngine("codex", v))}
-          {@render engineSwitchRow("Claude", claudeEngine, claudeSwitchDisabled, (v) => setHostEngine("claude", v))}
+    <!-- Engines & versions: per-engine overrides via inline popovers, each
+         showing the effective value and where it came from. -->
+    <Card.Root>
+      <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <Card.Title>Engines & versions</Card.Title>
+          <Card.Description>Blank clears an override and inherits the fleet default.</Card.Description>
         </div>
+        <Button variant="outline" size="sm" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
+          <Download class="h-3.5 w-3.5" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
+        </Button>
+      </Card.Header>
+      <Card.Content class="space-y-4">
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+          {@render dt("CXX wrapper", cxxWrapper.display)}
+        </dl>
 
-        <div class="mt-4 flex flex-wrap gap-2 border-t pt-4">
+        {#if codexEngine}
+          <div class="space-y-2">
+            <div class="eyebrow">Codex</div>
+            <OverridePopover
+              label="Version"
+              override={host.client_version_override}
+              inheritedValue={host.client_version}
+              inheritedLabel="detected"
+              placeholder={overview?.versions.client_version ?? "0.30.0"}
+              pending={$codexVersion.isPending}
+              onSave={saveCodexVersion}
+            />
+            <OverridePopover
+              label="Model"
+              override={host.model_override}
+              options={CODEX_MODELS}
+              pending={$modelOverride.isPending}
+              onSave={saveCodexModel}
+            />
+            <OverridePopover
+              label="Reasoning effort"
+              override={host.reasoning_effort_override}
+              options={REASONING_EFFORT_OPTIONS}
+              pending={$modelOverride.isPending}
+              onSave={saveReasoningEffort}
+            />
+            <dl class="text-sm">
+              {@render dt("Binary digest", host.canonical_digest ? host.canonical_digest.slice(0, 16) + "…" : "—")}
+            </dl>
+          </div>
+        {/if}
+
+        {#if claudeEngine}
+          <div class="space-y-2">
+            <div class="eyebrow">Claude</div>
+            <OverridePopover
+              label="Version"
+              override={host.claude_client_version_override}
+              inheritedValue={host.claude_client_version}
+              inheritedLabel="detected"
+              placeholder={overview?.versions.claude_version ?? "1.0.0"}
+              pending={$claudeVersion.isPending}
+              onSave={saveClaudeVersion}
+            />
+            <OverridePopover
+              label="Model"
+              override={host.claude_model_override}
+              options={CLAUDE_MODEL_OPTIONS}
+              pending={$modelOverride.isPending}
+              onSave={saveClaudeModel}
+            />
+            <dl class="text-sm">
+              {@render dt("Binary digest", host.claude_canonical_digest ? host.claude_canonical_digest.slice(0, 16) + "…" : "—")}
+            </dl>
+          </div>
+        {/if}
+      </Card.Content>
+    </Card.Root>
+
+    <!-- Access & security -->
+    <Card.Root>
+      <Card.Header>
+        <Card.Title>Access & security</Card.Title>
+        <Card.Description>How strictly this host's requests are authenticated.</Card.Description>
+      </Card.Header>
+      <Card.Content class="space-y-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ToggleRow
+            label="Secure"
+            checked={host.secure}
+            onchange={(v) => runQuiet($secure.mutateAsync({ id, value: v }))}
+          />
+          <ToggleRow
+            label="Curl insecure"
+            checked={host.curl_insecure}
+            onchange={(v) => runQuiet($curlInsecure.mutateAsync({ id, value: v }))}
+          />
+        </div>
+        <div class="flex flex-wrap gap-2 border-t pt-3">
           {#if isInsecureWindowActive(host)}
             <InsecureWindowPopover
               label="Extend window"
@@ -467,46 +508,139 @@
                 run("Window opened", $insecureEnable.mutateAsync({ id, duration_minutes }))}
             />
           {/if}
-
-          {#if codexEngine}
-            <Button variant="outline" onclick={() => (codexDialogOpen = true)}>
-              Codex version
-            </Button>
-            <Button variant="outline" onclick={() => (codexModelDialogOpen = true)}>
-              Codex model override
-            </Button>
-          {/if}
-          {#if claudeEngine}
-            <Button variant="outline" onclick={() => (claudeDialogOpen = true)}>
-              Claude version
-            </Button>
-            <Button variant="outline" onclick={() => (claudeModelDialogOpen = true)}>
-              Claude model override
-            </Button>
-          {/if}
-
-          <Button variant="outline" onclick={() => (agentsDialogOpen = true)}>
-            Agents version
-          </Button>
-
-          <Button variant="outline" onclick={() => doMintInstaller()} disabled={$mintInstaller.isPending}>
-            <Download class="h-4 w-4" /> {$mintInstaller.isPending ? "Minting…" : "Mint installer"}
-          </Button>
-
-          {#if host.ip4 || host.ip6}
-            <Button variant="outline" onclick={() => (confirmReleaseIpBindingOpen = true)}>
-              Release IP binding
-            </Button>
-          {/if}
-
-          <div class="ml-auto flex gap-2">
-            <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
-              <Trash2 class="h-4 w-4" /> Delete host
-            </Button>
-          </div>
         </div>
       </Card.Content>
     </Card.Root>
+
+    <!-- Fleet policy overrides: collapsible, trigger states what's inside. -->
+    <Card.Root>
+      <Collapsible.Root bind:open={policyOpen}>
+        <Collapsible.Trigger class="w-full">
+          {#snippet child({ props })}
+            <button
+              {...props}
+              type="button"
+              class="group flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-accent/50"
+            >
+              <div>
+                <div class="text-lg font-semibold leading-tight tracking-[-0.02em]">
+                  Fleet policy overrides
+                </div>
+                <p class="mt-1 text-sm text-muted-foreground">
+                  {policyOverrideCount > 0
+                    ? `${policyOverrideCount} set`
+                    : "All inherit fleet defaults"}
+                </p>
+              </div>
+              <ChevronDown
+                class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+              />
+            </button>
+          {/snippet}
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          <Card.Content class="space-y-3 pt-0">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ToggleRow
+                label="VIP"
+                checked={host.vip}
+                onchange={(v) => runQuiet($vip.mutateAsync({ id, value: v }))}
+              />
+              <ToggleRow
+                label="Roaming"
+                checked={host.allow_roaming_ips}
+                onchange={(v) => runQuiet($roaming.mutateAsync({ id, value: v }))}
+              />
+              <ToggleRow
+                label="Auto-update"
+                checked={host.effective_auto_update_enabled}
+                onchange={(v) => runQuiet($autoUpdate.mutateAsync({ id, value: v }))}
+              />
+              <ToggleRow
+                label="Scaling exempt"
+                checked={host.lane_preference === "exempt"}
+                onchange={(v) => runQuiet($scaling.mutateAsync({ id, value: v }))}
+              />
+            </div>
+
+            <div class="flex flex-col gap-1.5 rounded-md border p-2.5">
+              <span class="text-sm">Reverse DNS</span>
+              <div class="inline-flex w-fit overflow-hidden rounded-md border border-input text-[11px]">
+                {#each [
+                  { id: "global", label: "Inherit" },
+                  { id: "enabled", label: "Force on" },
+                  { id: "disabled", label: "Force off" },
+                ] as opt (opt.id)}
+                  <button
+                    type="button"
+                    class="px-2 py-1 transition-colors hover:bg-accent {reverseDnsValue === opt.id
+                      ? 'bg-foreground text-background'
+                      : 'bg-background text-foreground'}"
+                    disabled={$reverseDns.isPending}
+                    aria-pressed={reverseDnsValue === opt.id}
+                    onclick={() => void setReverseDns(opt.id as ReverseDnsMode)}
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between rounded-md border p-2.5">
+              <div class="min-w-0">
+                <div class="text-sm">Agents doc override</div>
+                <div class="truncate font-mono text-xs text-muted-foreground">
+                  {host.agents_document_id_override ?? "No override set"}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onclick={() => (agentsDialogOpen = true)}>
+                Edit
+              </Button>
+            </div>
+          </Card.Content>
+        </Collapsible.Content>
+      </Collapsible.Root>
+    </Card.Root>
+
+    <!-- Integrations -->
+    <Card.Root>
+      <Card.Header>
+        <Card.Title>Integrations</Card.Title>
+      </Card.Header>
+      <Card.Content>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ToggleRow
+            label="BrowserOS MCP"
+            checked={host.browseros_mcp_enabled}
+            onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
+          />
+          <ToggleRow
+            label="Agent Messaging"
+            checked={host.agent_messaging_enabled}
+            disabled={hostAgentMessagingToggleDisabled(host)}
+            onchange={(v) => runQuiet($agentMessaging.mutateAsync({ id, value: v }))}
+          />
+          <ToggleRow
+            label="Codex engine"
+            checked={codexEngine}
+            disabled={codexSwitchDisabled}
+            onchange={(v) => setHostEngine("codex", v)}
+          />
+          <ToggleRow
+            label="Claude engine"
+            checked={claudeEngine}
+            disabled={claudeSwitchDisabled}
+            onchange={(v) => setHostEngine("claude", v)}
+          />
+        </div>
+      </Card.Content>
+    </Card.Root>
+
+    <DangerZone description="Permanently remove this host from the fleet.">
+      <Button variant="destructive" onclick={() => (confirmDeleteOpen = true)}>
+        <Trash2 class="h-4 w-4" /> Delete host
+      </Button>
+    </DangerZone>
   </div>
 
   <ConfirmDialog
@@ -528,56 +662,6 @@
     onConfirm={doDelete}
   />
   <InputDialog
-    bind:open={codexDialogOpen}
-    onOpenChange={(v) => (codexDialogOpen = v)}
-    title="Codex version override"
-    description="Pin a specific Codex client version for this host (semver). Empty clears."
-    label="Version"
-    placeholder={overview?.versions.client_version ?? "0.30.0"}
-    initialValue={host.client_version_override ?? ""}
-    onSubmit={(v) =>
-      run("Version updated", $codexVersion.mutateAsync({ id, version: v }), { rethrow: true })}
-  />
-  <InputDialog
-    bind:open={claudeDialogOpen}
-    onOpenChange={(v) => (claudeDialogOpen = v)}
-    title="Claude version override"
-    description="Pin a specific Claude client version for this host. Empty clears."
-    label="Version"
-    placeholder={overview?.versions.claude_version ?? "1.0.0"}
-    initialValue={host.claude_client_version_override ?? ""}
-    onSubmit={(v) =>
-      run("Version updated", $claudeVersion.mutateAsync({ id, version: v }), { rethrow: true })}
-  />
-  <InputDialog
-    bind:open={codexModelDialogOpen}
-    onOpenChange={(v) => (codexModelDialogOpen = v)}
-    title="Codex model override"
-    description="Pin a specific Codex model. Empty clears the override."
-    label="Model"
-    placeholder="gpt-5.6-terra"
-    options={CODEX_MODELS}
-    initialValue={host.model_override ?? ""}
-    onSubmit={(v) =>
-      run("Model updated", $modelOverride.mutateAsync({ id, engine: "codex", model: v }), {
-        rethrow: true,
-      })}
-  />
-  <InputDialog
-    bind:open={claudeModelDialogOpen}
-    onOpenChange={(v) => (claudeModelDialogOpen = v)}
-    title="Claude model override"
-    description="Pin a specific Claude model. Empty clears the override."
-    label="Model"
-    placeholder="claude-sonnet-5"
-    options={CLAUDE_MODEL_OPTIONS}
-    initialValue={host.claude_model_override ?? ""}
-    onSubmit={(v) =>
-      run("Model updated", $modelOverride.mutateAsync({ id, engine: "claude", model: v }), {
-        rethrow: true,
-      })}
-  />
-  <InputDialog
     bind:open={agentsDialogOpen}
     onOpenChange={(v) => (agentsDialogOpen = v)}
     title="Agents version override"
@@ -587,10 +671,8 @@
     initialValue={host.agents_document_id_override ? String(host.agents_document_id_override) : ""}
     onSubmit={(v) => {
       const parsed = v === null || v === "" ? null : Number.parseInt(v, 10);
-      return run(
-        "Agents version updated",
+      return runQuiet(
         $agentsVersion.mutateAsync({ id, document_id: Number.isFinite(parsed) ? parsed : null }),
-        { rethrow: true },
       );
     }}
   />
@@ -645,32 +727,5 @@
   <div class="flex flex-col">
     <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
     <dd class="font-mono text-xs">{value}</dd>
-  </div>
-{/snippet}
-
-{#snippet toggleRow(label: string, checked: boolean, onchange: (v: boolean) => void | Promise<void>)}
-  <div class="flex items-center justify-between rounded-md border p-2.5">
-    <span class="text-sm">{label}</span>
-    <Switch
-      {checked}
-      onCheckedChange={(v) => {
-        void onchange(Boolean(v));
-      }}
-      aria-label={label}
-    />
-  </div>
-{/snippet}
-
-{#snippet engineSwitchRow(label: string, checked: boolean, disabled: boolean, onchange: (v: boolean) => void | Promise<void>)}
-  <div class="flex items-center justify-between rounded-md border p-2.5">
-    <span class="text-sm">{label}</span>
-    <Switch
-      {checked}
-      {disabled}
-      onCheckedChange={(v) => {
-        void onchange(Boolean(v));
-      }}
-      aria-label="{label} engine"
-    />
   </div>
 {/snippet}

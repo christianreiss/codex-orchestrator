@@ -162,7 +162,9 @@ export function getPageContext(pathname: string): string {
     return segments[1] === "mcp" ? "Activity / MCP requests" : "Activity / Audit trail";
   }
   if (segments[0] === "settings") {
-    return segments[1] === "users" ? "Settings / Users & access" : "Settings";
+    if (segments[1] === "users") return "Settings / Users & access";
+    if (segments[1] === "agent-portal") return "Settings / Agent portal";
+    return "Settings";
   }
   if (segments[0] === "account") {
     if (!segments[1]) return "Account";

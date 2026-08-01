@@ -41,6 +41,16 @@
   import { onMount, onDestroy } from "svelte";
   import type { ChartConfiguration, ChartDataset, Point } from "chart.js";
   import { cn } from "$lib/utils/cn";
+  import {
+    readCssVar,
+    chartPalette,
+    chartTooltipBg,
+    chartTooltipFg,
+    themeVersion,
+  } from "$lib/utils/theme-colors";
+
+  /** Alpha applied to the border palette to derive dataset fill colors. */
+  const FILL_ALPHA = 0.15;
 
   type Series = {
     label: string;
@@ -63,22 +73,12 @@
   let canvas: HTMLCanvasElement | undefined;
   let chart: Chart<"line"> | null = null;
 
-  function readCssVar(name: string, fallback: string): string {
-    if (typeof window === "undefined") return fallback;
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return value !== "" ? `hsl(${value})` : fallback;
-  }
-
   function buildConfig(): ChartConfiguration<"line"> {
     const muted = readCssVar("--muted-foreground", "hsl(220 8.9% 46.1%)");
     const border = readCssVar("--border", "hsl(220 13% 91%)");
 
-    const palette = [
-      "hsl(0 72% 51%)",
-      "hsl(220 8.9% 46.1%)",
-      "hsl(217 91% 60%)",
-      "hsl(38 92% 50%)",
-    ];
+    const borderPalette = chartPalette();
+    const fillPalette = chartPalette(FILL_ALPHA);
 
     const datasets: ChartDataset<"line">[] = series.map((s, i): ChartDataset<"line"> => ({
       label: s.label,
@@ -86,8 +86,8 @@
         x: typeof p.x === "number" ? p.x : new Date(p.x).getTime(),
         y: p.y,
       })),
-      borderColor: s.color ?? palette[i % palette.length],
-      backgroundColor: (s.color ?? palette[i % palette.length]) + "22",
+      borderColor: s.color ?? borderPalette[i % borderPalette.length],
+      backgroundColor: s.color ?? fillPalette[i % fillPalette.length],
       fill: s.fill ?? false,
       tension: 0.3,
       pointRadius: 0,
@@ -102,6 +102,7 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        layout: { padding: 8 },
         interaction: { mode: "index", intersect: false },
         scales: {
           x: {
@@ -130,7 +131,9 @@
             labels: { color: muted, font: { size: 11 }, boxWidth: 8, boxHeight: 8 },
           },
           tooltip: {
-            backgroundColor: "rgba(0,0,0,0.85)",
+            backgroundColor: chartTooltipBg(),
+            titleColor: chartTooltipFg(),
+            bodyColor: chartTooltipFg(),
             titleFont: { size: 11 },
             bodyFont: { size: 11 },
             cornerRadius: 4,
@@ -166,9 +169,12 @@
     chart = null;
   });
 
-  // Rebuild on series change.
+  // Rebuild on series change, and on theme switches (light/dark or a pink
+  // palette variant) even when the underlying data hasn't changed — Chart.js
+  // paints to <canvas>, so a CSS variable change alone won't repaint it.
   $effect(() => {
     if (!chart) return;
+    void $themeVersion;
     const cfg = buildConfig();
     chart.data = cfg.data;
     chart.options = cfg.options as Chart<"line">["options"];

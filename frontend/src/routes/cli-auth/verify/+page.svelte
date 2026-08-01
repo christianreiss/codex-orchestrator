@@ -144,7 +144,7 @@
       </div>
     </div>
 
-    <div class="rounded-2xl border border-border/75 bg-card p-6 shadow-[0_20px_60px_rgba(15,23,42,0.09)] sm:p-8">
+    <div class="rounded-2xl border border-border/75 bg-card p-6 shadow-pop sm:p-8">
       {#if phase === "code" || phase === "confirm"}
         <!-- Code input — always visible while looking up / confirming -->
         <form
@@ -228,7 +228,7 @@
               <Button
                 type="button"
                 size="lg"
-                class="bg-emerald-600 text-white hover:bg-emerald-600/90 focus-visible:ring-emerald-600"
+                class="bg-success text-success-foreground hover:bg-success/90 focus-visible:ring-success"
                 disabled={!canApprove}
                 onclick={doApprove}
               >
@@ -254,7 +254,7 @@
       {:else if phase === "approved"}
         <div class="flex flex-col items-center gap-5 py-4 text-center">
           <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
+            class="flex h-16 w-16 items-center justify-center rounded-full bg-success-muted text-success"
           >
             <Check class="h-9 w-9" />
           </div>
@@ -269,7 +269,7 @@
       {:else if phase === "denied"}
         <div class="flex flex-col items-center gap-5 py-4 text-center">
           <div
-            class="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"
+            class="flex h-16 w-16 items-center justify-center rounded-full bg-destructive-muted text-destructive"
           >
             <XCircle class="h-9 w-9" />
           </div>

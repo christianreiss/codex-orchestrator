@@ -45,7 +45,7 @@
       {error ?? "Save failed"}
     </span>
   {:else if status === "saved"}
-    <span class="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500">
+    <span class="inline-flex items-center gap-1.5 text-success">
       <Check class="h-3 w-3" />
       Saved
     </span>

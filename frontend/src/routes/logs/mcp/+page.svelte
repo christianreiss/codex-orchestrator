@@ -5,6 +5,7 @@
   import { goto } from "$app/navigation";
   import Search from "@lucide/svelte/icons/search";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Workflow from "@lucide/svelte/icons/workflow";
   import { mcpLogsQuery } from "$lib/api/logs";
   import type { McpAccessLogRow } from "$lib/api/types";
   import { relativeTime } from "$lib/utils/format";
@@ -69,6 +70,11 @@
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["logs", "mcp"] });
+  }
+
+  function resetFilters() {
+    searchInput = "";
+    statusFilter = "all";
   }
 
   function rowKey(row: McpAccessLogRow): string {
@@ -178,6 +184,7 @@
       </Select>
     </div>
     <div class="ml-auto flex items-center gap-2">
+      <span class="text-xs text-muted-foreground">200 most recent</span>
       <Button variant="outline" size="sm" onclick={refresh}>
         <RefreshCw class="h-4 w-4" />
         Refresh
@@ -193,7 +200,11 @@
     expandable
     expandContent={expanded}
     loading={result.isPending}
+    isEmpty={allRows.length === 0}
+    emptyIcon={Workflow}
     emptyMessage="No MCP invocations recorded."
+    emptyFilteredMessage="No invocations match these filters"
+    onClearFilters={resetFilters}
     virtualize={false} />
 
   <p class="text-xs text-muted-foreground">

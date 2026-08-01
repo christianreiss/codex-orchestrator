@@ -63,7 +63,7 @@
           disabled={pending !== null}
           onclick={() => spin(["codex"], "codex")}
         >
-          <Cpu class="h-7 w-7 text-sky-500" />
+          <Cpu class="h-7 w-7 text-persona-codex" />
           <span class="text-sm font-semibold">Codex only</span>
           <span class="text-[11px] text-muted-foreground">Default engine</span>
           {#if pending === "codex"}<span class="text-[11px] text-muted-foreground">Working…</span>{/if}
@@ -74,7 +74,7 @@
           disabled={pending !== null}
           onclick={() => spin(["claude"], "claude")}
         >
-          <Sparkles class="h-7 w-7 text-orange-500" />
+          <Sparkles class="h-7 w-7 text-persona-claude" />
           <span class="text-sm font-semibold">Claude only</span>
           <span class="text-[11px] text-muted-foreground">Claude Code</span>
           {#if pending === "claude"}<span class="text-[11px] text-muted-foreground">Working…</span>{/if}
@@ -93,7 +93,7 @@
       </div>
     {:else}
       <div class="space-y-3 py-2">
-        <div class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+        <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-sm">
           Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. Token expires {new Date(result.installer.expires_at).toLocaleString()}.
         </div>
         <label class="block text-xs font-medium text-muted-foreground" for="quickvm-installer">Installer command</label>

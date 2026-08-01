@@ -12,9 +12,8 @@
   import * as Select from "$lib/components/ui/select";
   import * as Dialog from "$lib/components/ui/dialog";
   import Save from "@lucide/svelte/icons/save";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import History from "@lucide/svelte/icons/history";
-  import Info from "@lucide/svelte/icons/info";
+  import * as Card from "$lib/components/ui/card";
 
   const qc = useQueryClient();
 
@@ -55,8 +54,12 @@
   });
 
   // ---- Save ----
+  // `sha256` is a submit-time integrity check against the *new* content being
+  // sent, not an optimistic-concurrency token — the server rejects the write
+  // if the hash doesn't match the payload. Never pass the previous version's
+  // hash here; that mismatches as soon as `content` has any edit in it.
   const saveMutation = createMutation({
-    mutationFn: () => agentsApi.store({ content, sha256: serverSha }),
+    mutationFn: () => agentsApi.store({ content }),
     onSuccess: (result) => {
       serverSha = result.sha256 ?? null;
       toast.success(
@@ -136,9 +139,17 @@
   // ---- Revert ----
   const revertMutation = createMutation({
     mutationFn: (id: number) => agentsApi.revert({ version_id: id }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // Hydrate the editor from the mutation's own result rather than
+      // flipping `hydrated` and waiting on the invalidated query to refetch:
+      // that refetch is async, so the re-hydration effect could otherwise
+      // fire first against the still-stale cached data and mark itself
+      // hydrated before the fresh document arrives, leaving the textarea
+      // showing pre-restore content while the version list looks correct.
+      content = result.content ?? "";
+      serverSha = result.sha256 ?? null;
+      hydrated = true;
       toast.success("Restored version");
-      hydrated = false; // re-hydrate from server
       viewingVersion = null;
       void qc.invalidateQueries({ queryKey: ["agents"] });
     },
@@ -165,35 +176,24 @@
   const currentVersionId = $derived($query.data?.served_id ?? $query.data?.active_id ?? null);
 </script>
 
-<section class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-border/75 bg-card p-4 text-sm shadow-sm">
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Current version</span>
-    <span class="font-mono text-sm">#{currentVersionId ?? "—"}</span>
-  </div>
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Serve mode</span>
+<p class="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+  <span>
+    This editor stores only the canonical base document — Skills, Memory, Projects, BrowserOS, and
+    Secrets guidance is appended per engine and host when served as AGENTS.md or CLAUDE.md.
+  </span>
+  <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 whitespace-nowrap text-xs">
+    <span>·</span>
+    <span>Version <span class="font-mono text-foreground">#{currentVersionId ?? "—"}</span></span>
+    <span>·</span>
     <Badge variant={$query.data?.mode === "locked" ? "warning" : "secondary"}>
       {$query.data?.mode ?? "—"}
     </Badge>
-  </div>
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Size</span>
+    <span>·</span>
     <span>{formatBytes($query.data?.size_bytes ?? 0)}</span>
-  </div>
-  <div class="flex flex-col">
-    <span class="text-xs uppercase tracking-wide text-muted-foreground">Updated</span>
-    <span>{$query.data?.updated_at ? relativeTime($query.data.updated_at) : "—"}</span>
-  </div>
-</section>
-
-<div class="mb-4 flex gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-  <Info class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-  <p>
-    This editor stores only the canonical base document. Skills, Memory, Projects, BrowserOS, and
-    Secrets guidance is appended dynamically for each engine and host when served as AGENTS.md or
-    CLAUDE.md.
-  </p>
-</div>
+    <span>·</span>
+    <span>Updated {$query.data?.updated_at ? relativeTime($query.data.updated_at) : "—"}</span>
+  </span>
+</p>
 
 {#if $query.isError}
   <p class="text-sm text-destructive">
@@ -226,95 +226,91 @@
       </div>
     </div>
 
-    <!-- Side panel -->
-    <aside aria-label="Agent document controls" class="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
-      <div class="rounded-lg border bg-card p-4">
-        <h2 class="mb-3 text-sm font-semibold">Serve mode</h2>
-        <div class="space-y-2">
-          <Select.Root type="single" bind:value={serveMode as string}>
-            <Select.Trigger aria-label="Serve mode">
-              <span>{serveMode === "locked" ? "Locked at version" : "Latest"}</span>
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value="latest" label="Latest" />
-              <Select.Item value="locked" label="Locked at version" />
-            </Select.Content>
-          </Select.Root>
-          {#if serveMode === "locked"}
-            <Input
-              aria-label="Locked version ID"
-              type="number"
-              placeholder="Version ID"
-              bind:value={serveLockedId}
-              min={1}
-            />
-          {/if}
-          <Button size="sm" onclick={applyServeMode} disabled={$serveMutation.isPending}>
-            Apply
-          </Button>
-        </div>
-      </div>
-
-      <div class="rounded-lg border bg-card p-4">
-        <h2 class="mb-3 text-sm font-semibold">Retention</h2>
-        <div class="flex items-end gap-2">
-          <div class="flex-1 space-y-1.5">
-            <label for="retention-days" class="text-xs font-medium">Backups to keep</label>
-            <Input id="retention-days" type="number" min={0} max={200} bind:value={retentionInput} />
+    <!-- Side panel: one consolidated card, not three. -->
+    <aside aria-label="Agent document controls" class="flex flex-col lg:sticky lg:top-6 lg:self-start">
+      <Card.Root>
+        <Card.Content class="divide-y p-0">
+          <div class="space-y-2 p-4">
+            <h2 class="text-sm font-semibold">Serve mode</h2>
+            <Select.Root type="single" bind:value={serveMode as string}>
+              <Select.Trigger aria-label="Serve mode">
+                <span>{serveMode === "locked" ? "Locked at version" : "Latest"}</span>
+              </Select.Trigger>
+              <Select.Content>
+                <Select.Item value="latest" label="Latest" />
+                <Select.Item value="locked" label="Locked at version" />
+              </Select.Content>
+            </Select.Root>
+            {#if serveMode === "locked"}
+              <Input
+                aria-label="Locked version ID"
+                type="number"
+                placeholder="Version ID"
+                bind:value={serveLockedId}
+                min={1}
+              />
+            {/if}
+            <Button size="sm" onclick={applyServeMode} disabled={$serveMutation.isPending}>
+              Apply
+            </Button>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onclick={() => $retentionMutation.mutate()}
-            disabled={$retentionMutation.isPending}
-          >
-            Save
-          </Button>
-        </div>
-      </div>
 
-      <div class="rounded-lg border bg-card p-4">
-        <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <History class="h-4 w-4" />
-          Version history
-        </h2>
-        {#if versions.length === 0}
-          <p class="text-xs text-muted-foreground">No versions yet.</p>
-        {:else}
-          <ul class="space-y-1.5 text-xs">
-            {#each versions as v (v.id)}
-              <li class="flex items-center justify-between gap-2 rounded-md border bg-background px-2 py-1.5">
-                <button
-                  type="button"
-                  class="flex min-w-0 flex-1 flex-col text-left hover:underline"
-                  onclick={() => loadVersion(v.id)}
-                >
-                  <span class="font-mono">#{v.id}</span>
-                  <span class="truncate text-muted-foreground">
-                    {v.updated_at ? relativeTime(v.updated_at) : "—"}
-                  </span>
-                </button>
-                <div class="flex items-center gap-1">
-                  {#if v.is_served}
-                    <Badge variant="success">served</Badge>
-                  {:else if v.is_latest}
-                    <Badge variant="secondary">latest</Badge>
-                  {/if}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Restore version ${v.id}`}
-                    onclick={() => $revertMutation.mutate(v.id)}
-                    disabled={$revertMutation.isPending}
-                  >
-                    <RotateCcw class="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
+          <div class="space-y-2 p-4">
+            <h2 class="text-sm font-semibold">Retention</h2>
+            <div class="flex items-end gap-2">
+              <div class="flex-1 space-y-1.5">
+                <label for="retention-days" class="text-xs font-medium">Backups to keep</label>
+                <Input id="retention-days" type="number" min={0} max={200} bind:value={retentionInput} />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onclick={() => $retentionMutation.mutate()}
+                disabled={$retentionMutation.isPending}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+
+          <div class="space-y-2 p-4">
+            <h2 class="flex items-center gap-2 text-sm font-semibold">
+              <History class="h-4 w-4" />
+              Version history
+            </h2>
+            <p class="text-xs text-muted-foreground">
+              Click a version to preview it before restoring — there is no one-click restore.
+            </p>
+            {#if versions.length === 0}
+              <p class="text-xs text-muted-foreground">No versions yet.</p>
+            {:else}
+              <ul class="space-y-1.5 text-xs">
+                {#each versions as v (v.id)}
+                  <li class="rounded-md border bg-background px-2 py-1.5">
+                    <button
+                      type="button"
+                      class="flex w-full items-center justify-between gap-2 text-left hover:underline"
+                      onclick={() => loadVersion(v.id)}
+                    >
+                      <span class="flex min-w-0 flex-col">
+                        <span class="font-mono">#{v.id}</span>
+                        <span class="truncate text-muted-foreground">
+                          {v.updated_at ? relativeTime(v.updated_at) : "—"}
+                        </span>
+                      </span>
+                      {#if v.is_served}
+                        <Badge variant="success">served</Badge>
+                      {:else if v.is_latest}
+                        <Badge variant="secondary">latest</Badge>
+                      {/if}
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        </Card.Content>
+      </Card.Root>
     </aside>
   </div>
 {/if}

@@ -31,7 +31,7 @@
   <Card.Root>
     <Card.Header class="flex flex-row items-start justify-between gap-3 space-y-0 p-4 pb-3">
       <div class="min-w-0">
-        <Card.Title class="text-base font-semibold tracking-tight">{title}</Card.Title>
+        <Card.Title class="text-h3">{title}</Card.Title>
         {#if description}
           <Card.Description class="mt-0.5 text-sm leading-normal">
             {description}

@@ -229,7 +229,7 @@ export async function registerAdminOverviewRoutes(
       settings.getFlag('reverse_dns_enabled', false),
       settings.getFlag('insecure_approval_enabled', false),
       settings.getFlag('auto_update_enabled', false),
-      settings.getInt('inactivity_window_days', 7),
+      settings.getInt('inactivity_window_days', 30),
       settings.getFlag('log_retention_enabled', false),
       settings.getInt('log_retention_days_logs', 90),
       settings.getInt('log_retention_days_mcp', 90),
@@ -414,7 +414,7 @@ export async function registerAdminOverviewRoutes(
         clientVersions.availableClientVersion(false, 'claude'),
         settings.getFlag('auto_update_enabled', false),
         settings.getFlag('reverse_dns_enabled', false),
-        settings.getInt('inactivity_window_days', 7),
+        settings.getInt('inactivity_window_days', 30),
         runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
         runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
       ]);

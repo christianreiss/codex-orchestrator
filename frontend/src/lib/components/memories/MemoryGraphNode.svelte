@@ -8,6 +8,7 @@
   import Tag from "@lucide/svelte/icons/tag";
   import { relativeTime } from "$lib/utils/format";
   import { cn } from "$lib/utils/cn";
+  import { NODE_KIND_COLORS, SCOPE_COLORS, withAlpha } from "$lib/constants/graph-palette";
   import { formatCharacters, type AtlasFlowNode } from "./atlas-types";
 
   let { data, selected }: NodeProps<AtlasFlowNode> = $props();
@@ -23,24 +24,42 @@
     return "Source engine";
   });
 
-  const accentClass = $derived.by(() => {
+  // Categorical accent color for this node's border/background, sourced from the
+  // shared graph palette. `null` means "no category color" — the plain neutral
+  // theme classes below apply instead (used by bare scope/host/project relation
+  // nodes, as opposed to memory/tag/engine nodes).
+  const accentColor = $derived.by<string | null>(() => {
     if (node.kind === "memory") {
-      if (node.scope === "shared") return "border-violet-400/55 bg-violet-500/[0.09]";
-      if (node.scope === "project") return "border-cyan-400/55 bg-cyan-500/[0.09]";
-      return "border-amber-400/55 bg-amber-500/[0.09]";
+      if (node.scope === "shared") return SCOPE_COLORS.shared;
+      if (node.scope === "project") return SCOPE_COLORS.project;
+      return SCOPE_COLORS.host;
     }
-    if (node.kind === "tag") return "border-emerald-400/45 bg-emerald-500/[0.08]";
-    if (node.kind === "engine") return "border-fuchsia-400/45 bg-fuchsia-500/[0.08]";
-    return "border-border/80 bg-card/95";
+    if (node.kind === "tag") return NODE_KIND_COLORS.tag;
+    if (node.kind === "engine") return NODE_KIND_COLORS.engine;
+    return null;
   });
 
-  const iconClass = $derived.by(() => {
-    if (node.scope === "shared" || node.kind === "scope") return "text-violet-500 dark:text-violet-300";
-    if (node.scope === "project" || node.kind === "project") return "text-cyan-600 dark:text-cyan-300";
-    if (node.scope === "host" || node.kind === "host") return "text-amber-600 dark:text-amber-300";
-    if (node.kind === "tag") return "text-emerald-600 dark:text-emerald-300";
-    return "text-fuchsia-600 dark:text-fuchsia-300";
+  // Colors are custom hex values (not Tailwind palette stops), and are picked
+  // dynamically per node, so they're applied via inline style rather than
+  // Tailwind utility classes — dynamic class names built from interpolated
+  // strings aren't visible to Tailwind's build-time scanner.
+  const containerStyle = $derived.by(() => {
+    if (!accentColor) return undefined;
+    const background = `background-color: ${withAlpha(accentColor, isMemory ? 0.09 : 0.08)};`;
+    // Let the `border-primary` selected-state class win outright instead of
+    // fighting an inline border-color (inline styles always beat classes).
+    if (selected) return background;
+    return `${background} border-color: ${withAlpha(accentColor, isMemory ? 0.55 : 0.45)};`;
   });
+
+  const iconColor = $derived.by<string>(() => {
+    if (node.scope === "shared" || node.kind === "scope") return SCOPE_COLORS.shared;
+    if (node.scope === "project" || node.kind === "project") return SCOPE_COLORS.project;
+    if (node.scope === "host" || node.kind === "host") return SCOPE_COLORS.host;
+    if (node.kind === "tag") return NODE_KIND_COLORS.tag;
+    return NODE_KIND_COLORS.engine;
+  });
+  const iconStyle = $derived(`color: ${iconColor};`);
 </script>
 
 <Handle type="target" position={Position.Left} class="!h-1.5 !w-1.5 !border-0 !bg-muted-foreground/40" />
@@ -49,9 +68,10 @@
   class={cn(
     "relative h-full w-full overflow-hidden rounded-2xl border shadow-[0_12px_32px_rgba(15,23,42,0.10)] backdrop-blur-sm transition-[border-color,box-shadow,transform] duration-200",
     isMemory ? "px-3.5 py-3" : "flex items-center gap-3 px-3.5 py-2.5",
-    accentClass,
-    selected && "border-primary ring-2 ring-primary/30 shadow-[0_16px_42px_rgba(79,70,229,0.22)]",
+    !accentColor && "border-border/80 bg-card/95",
+    selected && "border-primary ring-2 ring-primary/30 shadow-[0_16px_42px_hsl(var(--primary)/0.22)]",
   )}
+  style={containerStyle}
 >
   {#if isMemory}
     <button
@@ -69,8 +89,8 @@
     class={cn(
       "grid shrink-0 place-items-center rounded-xl border border-current/15 bg-background/70",
       isMemory ? "h-8 w-8" : "h-9 w-9",
-      iconClass,
     )}
+    style={iconStyle}
   >
     {#if node.kind === "memory"}<Brain class="h-4 w-4" />
     {:else if node.kind === "scope"}<Globe2 class="h-4 w-4" />

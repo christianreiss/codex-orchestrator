@@ -11,6 +11,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { EmptyState } from "$lib/components/ui/empty-state";
 
   import { ApiError } from "$lib/api/client";
   import {
@@ -211,13 +212,18 @@
           : "Failed to load passkeys."}
       </div>
     {:else if !$passkeysQuery.data || $passkeysQuery.data.length === 0}
-      <div class="flex flex-col items-center gap-3 px-6 py-12 text-center">
-        <Fingerprint class="h-8 w-8 text-muted-foreground" />
-        <p class="text-sm text-muted-foreground">No passkeys registered yet.</p>
-        <Button onclick={startRegistration} disabled={registering || !webauthnSupported}>
-          Register your first passkey
-        </Button>
-      </div>
+      <EmptyState
+        icon={Fingerprint}
+        title="No passkeys registered"
+        description="Sign in without a password using a hardware authenticator or platform biometrics."
+      >
+        {#snippet action()}
+          <Button onclick={startRegistration} disabled={registering || !webauthnSupported}>
+            <Fingerprint class="h-4 w-4" />
+            Add passkey
+          </Button>
+        {/snippet}
+      </EmptyState>
     {:else}
       <Table.Root>
         <Table.Header>

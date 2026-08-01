@@ -259,7 +259,7 @@
         {#if errors.password_confirm}
           <p class={cn("text-xs", "text-destructive")}>{errors.password_confirm}</p>
         {:else if passwordsMatch}
-          <p class="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+          <p class="inline-flex items-center gap-1 text-xs text-success">
             <Check class="h-3 w-3" /> Passwords match
           </p>
         {:else if passwordsMismatch}

@@ -23,8 +23,8 @@
     dim
       ? "border-border bg-muted text-muted-foreground"
       : engine === "claude"
-        ? "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300"
-        : "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        ? "border-persona-claude/30 bg-persona-claude/10 text-foreground"
+        : "border-persona-codex/30 bg-persona-codex/10 text-foreground",
     className,
   )}
 >

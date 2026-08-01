@@ -34,6 +34,20 @@
     return lines.join("\n");
   }
 
+  /**
+   * The `body` prop for collection artifacts is the server's canonical
+   * `ArtifactView.body` — the whole stored file, frontmatter block included
+   * (so hand-authored keys the form doesn't expose still round-trip). Strip
+   * that leading block here so it isn't shown twice under the block we
+   * render from `frontmatter` above.
+   */
+  function stripLeadingFrontmatter(text: string): string {
+    if (!text.startsWith("---\n")) return text;
+    const end = text.indexOf("\n---", 3);
+    if (end === -1) return text;
+    return text.slice(end + 4).replace(/^\n+/, "");
+  }
+
   const rendered = $derived.by(() => {
     if (json !== undefined) {
       try {
@@ -43,8 +57,8 @@
       }
     }
     const fm = frontmatter ? serializeFrontmatter(frontmatter) : "";
-    const head = fm ? `---\n${fm}\n---\n\n` : "";
-    return `${head}${body ?? ""}`;
+    if (!fm) return body ?? "";
+    return `---\n${fm}\n---\n\n${stripLeadingFrontmatter(body ?? "")}`;
   });
 </script>
 

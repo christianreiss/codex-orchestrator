@@ -58,7 +58,7 @@
   {...rest}
 >
   {#if copied}
-    <Check class="h-4 w-4 text-emerald-600" />
+    <Check class="h-4 w-4 text-success" />
   {:else}
     <Copy class="h-4 w-4" />
   {/if}

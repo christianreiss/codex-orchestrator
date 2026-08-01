@@ -3,6 +3,7 @@
   import { goto } from "$app/navigation";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import DangerZone from "$lib/components/layout/DangerZone.svelte";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash from "@lucide/svelte/icons/trash";
@@ -240,15 +241,6 @@
         </span>
       {/if}
     </p>
-    <Button
-      variant="outline"
-      class="text-destructive hover:bg-destructive/10 hover:text-destructive"
-      onclick={() => (wipeOpen = true)}
-      disabled={totalCount === 0}
-    >
-      <Trash class="h-4 w-4" />
-      Wipe all
-    </Button>
     <Button onclick={openAdd}>
       <Plus class="h-4 w-4" />
       Add user
@@ -268,6 +260,8 @@
 <UsersTable
   users={filteredSorted}
   loading={$usersQuery.isLoading}
+  isEmpty={totalCount === 0}
+  filterQuery={debouncedFilter}
   {sortKey}
   {sortDir}
   {pendingActiveIds}
@@ -275,7 +269,19 @@
   onToggleActive={handleToggleActive}
   onEdit={openEdit}
   onDelete={openDelete}
+  onClearFilter={() => (filter = "")}
 />
+
+<DangerZone description="Permanently delete every admin user account. This cannot be undone.">
+  <Button
+    variant="destructive"
+    onclick={() => (wipeOpen = true)}
+    disabled={totalCount === 0}
+  >
+    <Trash class="h-4 w-4" />
+    Wipe all users
+  </Button>
+</DangerZone>
 
 <UserFormDialog
   open={formOpen}

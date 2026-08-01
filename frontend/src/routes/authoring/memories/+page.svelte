@@ -5,20 +5,16 @@
   import { page } from "$app/state";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import Activity from "@lucide/svelte/icons/activity";
   import Brain from "@lucide/svelte/icons/brain";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FilterX from "@lucide/svelte/icons/filter-x";
-  import FolderKanban from "@lucide/svelte/icons/folder-kanban";
   import GitBranch from "@lucide/svelte/icons/git-branch";
-  import Globe2 from "@lucide/svelte/icons/globe-2";
   import List from "@lucide/svelte/icons/list";
   import Network from "@lucide/svelte/icons/network";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
-  import Server from "@lucide/svelte/icons/server";
   import Tags from "@lucide/svelte/icons/tags";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { ApiError } from "$lib/api/client";
@@ -350,45 +346,28 @@
       || projectFilter !== ALL
       || engineFilter !== ALL,
   );
+
+  // Unified paging status line: whether the server has more pages beyond the
+  // currently loaded window, and whether the graph canvas is truncating what
+  // it draws from that window (list view never truncates — it paginates).
+  const serverHasMore = $derived(Boolean($graphQuery.data?.next_cursor) || cursorHistory.length > 0);
+  const graphIsCapped = $derived(memoryNodes.length > GRAPH_RENDER_LIMIT);
 </script>
 
-<section class="relative mb-5 overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
-  <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,hsl(var(--primary)/0.16),transparent_32%),radial-gradient(circle_at_94%_80%,hsl(var(--accent)/0.24),transparent_34%)]"></div>
-  <div class="relative flex flex-col gap-5 p-5 sm:p-6 xl:flex-row xl:items-end xl:justify-between">
-    <div class="max-w-2xl">
-      <div class="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-        <Network class="h-4 w-4" /> Memory Atlas
-      </div>
-      <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">Every memory, mapped through its lifecycle.</h2>
-      <p class="mt-2 text-sm leading-6 text-muted-foreground">
-        Explore explicit scope, ownership, tags, and provenance across fleet documents, project context, and host-local scratch.
-      </p>
-    </div>
-    <div class="flex flex-wrap items-center gap-2">
-      <Button variant="outline" onclick={() => void $graphQuery.refetch()} disabled={$graphQuery.isFetching}>
-        <RefreshCw class={$graphQuery.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
-      </Button>
-      {#if canCreate}
-        <Button onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />Create memory</Button>
-      {/if}
-    </div>
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-muted-foreground">
+    <span class="font-medium text-foreground">{totals.all.toLocaleString()}</span>
+    {totals.all === 1 ? "memory" : "memories"} across fleet, project, and host scope
+  </p>
+  <div class="flex items-center gap-2">
+    <Button variant="outline" size="sm" onclick={() => void $graphQuery.refetch()} disabled={$graphQuery.isFetching}>
+      <RefreshCw class={$graphQuery.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
+    </Button>
+    {#if canCreate}
+      <Button size="sm" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />Create memory</Button>
+    {/if}
   </div>
-</section>
-
-<section class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Memory totals">
-  {#each [
-    { label: "All memories", value: totals.all, icon: Brain, tone: "text-primary", glow: "bg-primary/10" },
-    { label: "Fleet shared", value: totals.shared, icon: Globe2, tone: "text-violet-600 dark:text-violet-300", glow: "bg-violet-500/10" },
-    { label: "Project", value: totals.project, icon: FolderKanban, tone: "text-cyan-600 dark:text-cyan-300", glow: "bg-cyan-500/10" },
-    { label: "Host scratch", value: totals.host, icon: Server, tone: "text-amber-600 dark:text-amber-300", glow: "bg-amber-500/10" },
-  ] as stat (stat.label)}
-    {@const Icon = stat.icon}
-    <article class="flex items-center gap-3 rounded-xl border border-border/70 bg-card p-4 shadow-sm">
-      <div class={cn("grid h-10 w-10 place-items-center rounded-xl", stat.glow, stat.tone)}><Icon class="h-5 w-5" /></div>
-      <div><p class="text-2xl font-semibold tabular-nums">{stat.value.toLocaleString()}</p><p class="text-xs text-muted-foreground">{stat.label}</p></div>
-    </article>
-  {/each}
-</section>
+</div>
 
 <section class="mb-4 space-y-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm" aria-label="Memory filters">
   <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -505,11 +484,6 @@
         <div class="max-w-sm"><div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-muted"><Brain class="h-6 w-6 text-muted-foreground" /></div><h3 class="mt-4 font-semibold">{hasFilters ? "No memories match" : "The atlas is empty"}</h3><p class="mt-1 text-sm text-muted-foreground">{hasFilters ? "Adjust filters to reveal another part of the topology." : "Create the first memory to start mapping durable context."}</p>{#if hasFilters}<Button class="mt-4" variant="outline" onclick={clearFilters}>Clear filters</Button>{:else if canCreate}<Button class="mt-4" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />Create memory</Button>{/if}</div>
       </div>
     {:else}
-      {#if memoryNodes.length > GRAPH_RENDER_LIMIT}
-        <div class="border-b border-amber-400/25 bg-amber-500/[0.06] px-4 py-2 text-xs text-muted-foreground">
-          The map shows the newest {GRAPH_RENDER_LIMIT} of {memoryNodes.length} loaded memories to stay responsive. Narrow the filters or use the list for the complete page.
-        </div>
-      {/if}
       <MemoryGraph
         nodes={mapNodes}
         edges={mapEdges}
@@ -549,16 +523,33 @@
         </Table.Body>
       </Table.Root>
     </div>
-    {#if memoryNodes.length > PAGE_SIZE}
-      <div class="flex items-center justify-between gap-3 border-t border-border/70 px-4 py-3"><p class="text-xs text-muted-foreground">{tablePage * PAGE_SIZE + 1}–{Math.min((tablePage + 1) * PAGE_SIZE, memoryNodes.length)} of {memoryNodes.length} loaded memories</p><div class="flex gap-1"><Button size="sm" variant="outline" onclick={() => (tablePage = Math.max(0, tablePage - 1))} disabled={tablePage === 0} aria-label="Previous table page"><ChevronLeft class="h-4 w-4" /></Button><Button size="sm" variant="outline" onclick={() => (tablePage = Math.min(tablePageCount - 1, tablePage + 1))} disabled={tablePage >= tablePageCount - 1} aria-label="Next table page"><ChevronRight class="h-4 w-4" /></Button></div></div>
-    {/if}
   </section>
 {/if}
 
-{#if $graphQuery.data?.truncated || cursorHistory.length}
-  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.06] px-4 py-3 text-sm">
-    <div><p class="font-medium">Large result set</p><p class="text-xs text-muted-foreground">Graph page {cursorHistory.length + 1} contains {$graphQuery.data?.count ?? memoryNodes.length} records. Narrow filters or move between server pages.</p></div>
-    <div class="flex gap-2"><Button size="sm" variant="outline" onclick={previousServerPage} disabled={!cursorHistory.length}><ChevronLeft class="h-4 w-4" />Previous 500</Button><Button size="sm" variant="outline" onclick={nextServerPage} disabled={!$graphQuery.data?.next_cursor}>Next 500<ChevronRight class="h-4 w-4" /></Button></div>
+{#if !$graphQuery.isLoading && !$graphQuery.isError && memoryNodes.length > 0 && (serverHasMore || (viewMode === "graph" && graphIsCapped) || (viewMode === "list" && memoryNodes.length > PAGE_SIZE))}
+  <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/25 px-4 py-2.5 text-xs text-muted-foreground">
+    <p>
+      {#if viewMode === "list"}
+        {tablePage * PAGE_SIZE + 1}–{Math.min((tablePage + 1) * PAGE_SIZE, memoryNodes.length)} of {memoryNodes.length} loaded
+      {:else if graphIsCapped}
+        Map shows the newest {GRAPH_RENDER_LIMIT} of {memoryNodes.length} loaded — switch to list for the rest
+      {:else}
+        {memoryNodes.length} loaded
+      {/if}
+      {#if serverHasMore}
+        · server page {cursorHistory.length + 1}{$graphQuery.data?.count ? ` of ${$graphQuery.data.count} matching` : ""}
+      {/if}
+    </p>
+    <div class="flex items-center gap-1">
+      {#if viewMode === "list" && memoryNodes.length > PAGE_SIZE}
+        <Button size="sm" variant="outline" onclick={() => (tablePage = Math.max(0, tablePage - 1))} disabled={tablePage === 0} aria-label="Previous table page"><ChevronLeft class="h-4 w-4" /></Button>
+        <Button size="sm" variant="outline" onclick={() => (tablePage = Math.min(tablePageCount - 1, tablePage + 1))} disabled={tablePage >= tablePageCount - 1} aria-label="Next table page"><ChevronRight class="h-4 w-4" /></Button>
+      {/if}
+      {#if serverHasMore}
+        <Button size="sm" variant="outline" onclick={previousServerPage} disabled={!cursorHistory.length}><ChevronLeft class="h-4 w-4" />Previous 500</Button>
+        <Button size="sm" variant="outline" onclick={nextServerPage} disabled={!$graphQuery.data?.next_cursor}>Next 500<ChevronRight class="h-4 w-4" /></Button>
+      {/if}
+    </div>
   </div>
 {/if}
 

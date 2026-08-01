@@ -2,6 +2,7 @@
   import * as Table from "$lib/components/ui/table";
   import { Switch } from "$lib/components/ui/switch";
   import { Button } from "$lib/components/ui/button";
+  import { EmptyState } from "$lib/components/ui/empty-state";
   import { cn } from "$lib/utils/cn";
   import { relativeTime } from "$lib/utils/format";
   import RoleBadge from "./RoleBadge.svelte";
@@ -11,6 +12,8 @@
   import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Search from "@lucide/svelte/icons/search";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
   export type SortKey = "name" | "username" | "role" | "status" | "last_login";
   export type SortDir = "asc" | "desc";
@@ -18,6 +21,10 @@
   type Props = {
     users: AdminUser[];
     loading?: boolean;
+    /** True once there are zero users with no filter applied — should be unreachable while signed in. */
+    isEmpty?: boolean;
+    /** The active search string, if any — distinguishes "no data" from "no matches". */
+    filterQuery?: string;
     sortKey: SortKey;
     sortDir: SortDir;
     pendingActiveIds?: Set<number | string>;
@@ -25,11 +32,14 @@
     onToggleActive: (user: AdminUser, next: boolean) => void;
     onEdit: (user: AdminUser) => void;
     onDelete: (user: AdminUser) => void;
+    onClearFilter?: () => void;
   };
 
   let {
     users,
     loading = false,
+    isEmpty = false,
+    filterQuery = "",
     sortKey,
     sortDir,
     pendingActiveIds = new Set(),
@@ -37,6 +47,7 @@
     onToggleActive,
     onEdit,
     onDelete,
+    onClearFilter,
   }: Props = $props();
 
   function absoluteTime(value: string | null | undefined): string {
@@ -51,7 +62,7 @@
   <Table.Root>
     <Table.Header>
       <Table.Row>
-        <Table.Head class="min-w-[160px]">
+        <Table.Head class="min-w-[160px]" aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
           <button
             type="button"
             class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
@@ -65,7 +76,7 @@
             {/if}
           </button>
         </Table.Head>
-        <Table.Head class="min-w-[140px]">
+        <Table.Head class="min-w-[140px]" aria-sort={sortKey === "username" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
           <button
             type="button"
             class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
@@ -80,7 +91,7 @@
           </button>
         </Table.Head>
         <Table.Head class="hidden lg:table-cell">Email</Table.Head>
-        <Table.Head class="min-w-[140px]">
+        <Table.Head class="min-w-[140px]" aria-sort={sortKey === "role" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
           <button
             type="button"
             class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
@@ -94,7 +105,7 @@
             {/if}
           </button>
         </Table.Head>
-        <Table.Head class="w-[110px]">
+        <Table.Head class="w-[110px]" aria-sort={sortKey === "status" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
           <button
             type="button"
             class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
@@ -108,7 +119,7 @@
             {/if}
           </button>
         </Table.Head>
-        <Table.Head class="hidden xl:table-cell">
+        <Table.Head class="hidden xl:table-cell" aria-sort={sortKey === "last_login" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
           <button
             type="button"
             class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
@@ -134,10 +145,29 @@
             </Table.Cell>
           </Table.Row>
         {/each}
+      {:else if users.length === 0 && isEmpty}
+        <Table.Row>
+          <Table.Cell colspan={7}>
+            <EmptyState
+              icon={TriangleAlert}
+              title="No users"
+              description="This should be unreachable while you're signed in — if you're seeing this, something is wrong with the users list."
+            />
+          </Table.Cell>
+        </Table.Row>
       {:else if users.length === 0}
         <Table.Row>
-          <Table.Cell colspan={7} class="py-12 text-center text-sm text-muted-foreground">
-            No users match your filter.
+          <Table.Cell colspan={7}>
+            <EmptyState
+              icon={Search}
+              size="sm"
+              title={`No users match "${filterQuery}"`}
+              description="Try a different search."
+            >
+              {#snippet action()}
+                <Button size="sm" variant="outline" onclick={() => onClearFilter?.()}>Clear search</Button>
+              {/snippet}
+            </EmptyState>
           </Table.Cell>
         </Table.Row>
       {:else}
@@ -168,7 +198,7 @@
                 <span
                   class={cn(
                     "text-xs",
-                    user.active ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
+                    user.active ? "text-success" : "text-muted-foreground",
                   )}
                 >
                   {user.active ? "Active" : "Inactive"}

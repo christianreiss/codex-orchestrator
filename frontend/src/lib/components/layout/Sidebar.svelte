@@ -40,7 +40,7 @@
   >
     <BrandMark
       status
-      class="shadow-lg shadow-violet-950/30 transition-transform duration-200 group-hover:scale-[1.04]"
+      class="shadow-pop transition-transform duration-200 group-hover:scale-[1.04]"
     />
     <div class="min-w-0">
       <div class="truncate text-sm font-semibold tracking-tight text-white">Codex Orchestrator</div>

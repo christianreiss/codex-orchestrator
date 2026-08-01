@@ -23,6 +23,7 @@
   import { Label } from "$lib/components/ui/label";
   import * as Select from "$lib/components/ui/select";
   import { Textarea } from "$lib/components/ui/textarea";
+  import KeyValueList, { type KeyValueRow } from "$lib/components/authoring/KeyValueList.svelte";
 
   type Props = {
     open: boolean;
@@ -47,7 +48,16 @@
   let summary = $state("");
   let content = $state("");
   let tagsInput = $state("");
+  // Metadata is genuinely Record<string, unknown> server-side — nested
+  // objects/arrays are real, observed data, not a hypothetical. A record
+  // with only scalar values gets the typed KeyValueList editor; a record
+  // with any nested/null value keeps the JSON textarea so nothing already
+  // stored gets silently flattened or dropped. Decided once when the
+  // dialog opens (in hydrate()/reset()), never flips while editing.
+  let metadataMode = $state<"keyvalue" | "json">("keyvalue");
   let metadataInput = $state("{}");
+  let metadataRows = $state<KeyValueRow[]>([]);
+  let metadataTypes: Record<string, "string" | "number" | "boolean"> = {};
   let engine = $state(NONE);
   let validationError = $state<string | null>(null);
   let conflict = $state<{ message: string; currentEtag: string | null } | null>(null);
@@ -72,11 +82,18 @@
     summary = "";
     content = "";
     tagsInput = "";
+    metadataMode = "keyvalue";
     metadataInput = "{}";
+    metadataRows = [];
+    metadataTypes = {};
     engine = NONE;
     validationError = null;
     conflict = null;
     expectedEtag = "";
+  }
+
+  function isScalar(v: unknown): v is string | number | boolean {
+    return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
   }
 
   function hydrate(record: MemoryRecord): void {
@@ -88,11 +105,51 @@
     summary = record.summary ?? "";
     content = record.content ?? "";
     tagsInput = (record.tags ?? []).join(", ");
-    metadataInput = JSON.stringify(record.metadata ?? {}, null, 2);
     engine = record.engine ?? NONE;
     expectedEtag = record.etag;
     validationError = null;
     conflict = null;
+
+    const metadata = record.metadata ?? {};
+    const entries = Object.entries(metadata);
+    // null is deliberately NOT scalar here: KeyValueList has no way to
+    // represent "explicitly null" distinct from an empty string, so a
+    // record containing one falls back to the JSON editor rather than
+    // silently coercing null to "".
+    if (entries.every(([, v]) => isScalar(v))) {
+      metadataMode = "keyvalue";
+      metadataTypes = {};
+      metadataRows = entries.map(([key, value]) => {
+        metadataTypes[key] = typeof value as "string" | "number" | "boolean";
+        return { key, value: String(value) };
+      });
+      metadataInput = JSON.stringify(metadata, null, 2);
+    } else {
+      metadataMode = "json";
+      metadataInput = JSON.stringify(metadata, null, 2);
+      metadataRows = [];
+      metadataTypes = {};
+    }
+  }
+
+  /** Reconstructs typed values from KeyValueList's string rows, preserving
+   *  each key's original type where the edited text still parses as that
+   *  type; falls back to string for new keys or type-changing edits. */
+  function metadataFromRows(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const { key, value } of metadataRows) {
+      const trimmedKey = key.trim();
+      if (!trimmedKey) continue;
+      const originalType = metadataTypes[trimmedKey];
+      if (originalType === "number" && value.trim() !== "" && Number.isFinite(Number(value))) {
+        out[trimmedKey] = Number(value);
+      } else if (originalType === "boolean" && (value === "true" || value === "false")) {
+        out[trimmedKey] = value === "true";
+      } else {
+        out[trimmedKey] = value;
+      }
+    }
+    return out;
   }
 
   $effect(() => {
@@ -109,6 +166,7 @@
   }
 
   function parseMetadata(): Record<string, unknown> | null {
+    if (metadataMode === "keyvalue") return metadataFromRows();
     const raw = metadataInput.trim();
     if (!raw || raw === "null") return null;
     const parsed: unknown = JSON.parse(raw);
@@ -232,6 +290,12 @@
   }
 
   async function copyDraft(): Promise<void> {
+    let metadata: unknown = metadataInput;
+    try {
+      metadata = parseMetadata();
+    } catch {
+      /* fall back to the raw textarea contents if it doesn't parse yet */
+    }
     const draft = JSON.stringify(
       {
         scope,
@@ -242,7 +306,7 @@
         summary: summary || null,
         content,
         tags: parseTags(),
-        metadata: metadataInput,
+        metadata,
         engine: engine === NONE ? null : engine,
       },
       null,
@@ -387,8 +451,26 @@
         </div>
 
         <div class="grid gap-1.5 sm:col-span-2">
-          <Label for="memory-metadata">Metadata (JSON)</Label>
-          <Textarea id="memory-metadata" bind:value={metadataInput} rows={5} class="font-mono text-xs leading-5" spellcheck={false} />
+          <Label>Metadata</Label>
+          {#if metadataMode === "keyvalue"}
+            <KeyValueList bind:rows={metadataRows} keyPlaceholder="key" valuePlaceholder="value" addLabel="Add field" />
+          {:else}
+            <Alert.Root variant="warning">
+              <AlertTriangle class="h-4 w-4" />
+              <Alert.Description>
+                This record has nested or null metadata values that a simple key/value editor
+                can't represent without losing data — edit the raw JSON instead.
+              </Alert.Description>
+            </Alert.Root>
+            <Textarea
+              id="memory-metadata"
+              aria-label="Metadata (JSON)"
+              bind:value={metadataInput}
+              rows={5}
+              class="font-mono text-xs leading-5"
+              spellcheck={false}
+            />
+          {/if}
         </div>
       </div>
 

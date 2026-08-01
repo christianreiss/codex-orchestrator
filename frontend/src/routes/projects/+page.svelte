@@ -4,12 +4,13 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
+  import FolderKanban from "@lucide/svelte/icons/folder-kanban";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
+  import ModuleSwitchRow from "$lib/components/layout/ModuleSwitchRow.svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Switch } from "$lib/components/ui/switch";
-  import { Label } from "$lib/components/ui/label";
   import * as Alert from "$lib/components/ui/alert";
   import { Skeleton } from "$lib/components/ui/skeleton";
+  import { EmptyState } from "$lib/components/ui/empty-state";
   import ProjectCard from "$lib/components/projects/ProjectCard.svelte";
   import ConfirmDialog from "$lib/components/projects/ConfirmDialog.svelte";
   import NewProjectDialog from "$lib/components/projects/NewProjectDialog.svelte";
@@ -118,32 +119,17 @@
   {/snippet}
 </PageHeader>
 
-<div class="mb-6 flex items-center justify-between gap-3 rounded-xl border border-border/75 bg-card p-4 shadow-sm">
-  <div class="flex flex-col">
-    <Label for="projects-enabled" class="text-sm font-medium">Project coordination</Label>
-    <span class="text-xs text-muted-foreground">
-      {enabled
-        ? "Module is enabled. Hosts can create and update workspaces."
-        : "Module is disabled. List is read-only."}
-    </span>
-  </div>
-  <Switch
-    id="projects-enabled"
-    aria-label="Enable Project coordination"
-    checked={enabled}
-    disabled={$stateQuery.isLoading || $stateMutation.isPending}
-    onCheckedChange={(next) => $stateMutation.mutate(next)}
-  />
-</div>
-
-{#if !enabled && !$stateQuery.isLoading}
-  <Alert.Root variant="warning" class="mb-6">
-    <Alert.Title>Project coordination is disabled</Alert.Title>
-    <Alert.Description>
-      Enable the module above to allow projects to be created, edited, or queried.
-    </Alert.Description>
-  </Alert.Root>
-{/if}
+<ModuleSwitchRow
+  id="projects-enabled"
+  label="Project coordination"
+  description={enabled
+    ? "Module is enabled. Hosts can create and update workspaces."
+    : "Module is disabled. List is read-only."}
+  checked={enabled}
+  disabled={$stateQuery.isLoading || $stateMutation.isPending}
+  onCheckedChange={(next) => $stateMutation.mutate(next)}
+  class="mb-6"
+/>
 
 {#if $listQuery.isLoading}
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -159,12 +145,19 @@
     </Alert.Description>
   </Alert.Root>
 {:else if projects.length === 0}
-  <div class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed bg-card/40 py-16 text-center">
-    <p class="text-sm text-muted-foreground">No projects yet.</p>
-    <Button variant="outline" disabled={!enabled} onclick={() => (dialogOpen = true)}>
-      <Plus class="h-4 w-4" />
-      Create the first project
-    </Button>
+  <div class="rounded-xl border border-dashed bg-card/40">
+    <EmptyState
+      icon={FolderKanban}
+      title="No projects yet"
+      description="Projects are shared workspaces agents coordinate through."
+    >
+      {#snippet action()}
+        <Button disabled={!enabled} onclick={() => (dialogOpen = true)}>
+          <Plus class="h-4 w-4" />
+          Create project
+        </Button>
+      {/snippet}
+    </EmptyState>
   </div>
 {:else}
   <div

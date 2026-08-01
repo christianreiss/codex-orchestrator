@@ -3,11 +3,12 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Save from "@lucide/svelte/icons/save";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Plus from "@lucide/svelte/icons/plus";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import * as Card from "$lib/components/ui/card";
+  import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -39,6 +40,7 @@
 
   let formHeader = $state("");
   let formBody = $state("");
+  let createOpen = $state(false);
 
   function resetForm() {
     formHeader = "";
@@ -73,6 +75,7 @@
     onSuccess: () => {
       toast.success("Note saved");
       resetForm();
+      createOpen = false;
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: projectKeys.notes(slug) });
@@ -159,37 +162,16 @@
 </script>
 
 <div class="flex flex-col gap-6">
-  <Card.Root>
-    <Card.Header>
-      <Card.Title>New note</Card.Title>
-      <Card.Description>Header and body are both required.</Card.Description>
-    </Card.Header>
-    <Card.Content class="flex flex-col gap-3">
-      <div class="grid gap-1.5">
-        <Label for="note-header">Header</Label>
-        <Input id="note-header" bind:value={formHeader} placeholder="Short note title" />
-      </div>
-      <div class="grid gap-1.5">
-        <Label for="note-body">Body</Label>
-        <Textarea id="note-body" bind:value={formBody} rows={6} placeholder="Note contents…" />
-      </div>
-    </Card.Content>
-    <Card.Footer class="flex flex-wrap justify-end gap-2 border-t pt-4">
-      <Button variant="ghost" onclick={resetForm} disabled={!formHeader && !formBody}>
-        <RotateCcw class="h-4 w-4" />
-        Reset
-      </Button>
-      <Button onclick={() => $createMut.mutate()} disabled={!canSubmit || $createMut.isPending}>
-        <Save class="h-4 w-4" />
-        {$createMut.isPending ? "Saving…" : "Save"}
-      </Button>
-    </Card.Footer>
-  </Card.Root>
-
   <section class="flex flex-col gap-3">
-    <h2 class="text-sm font-medium text-muted-foreground">
-      {notes.length} {notes.length === 1 ? "note" : "notes"}
-    </h2>
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-medium text-muted-foreground">
+        {notes.length} {notes.length === 1 ? "note" : "notes"}
+      </h2>
+      <Button size="sm" onclick={() => (createOpen = true)}>
+        <Plus class="h-4 w-4" />
+        New note
+      </Button>
+    </div>
 
     {#if $notesQuery.isLoading}
       <Skeleton class="h-24 w-full" />
@@ -266,3 +248,41 @@
     {/if}
   </section>
 </div>
+
+<Sheet.Root
+  bind:open={createOpen}
+  onOpenChange={(next) => {
+    createOpen = next;
+    if (!next) resetForm();
+  }}
+>
+  <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-lg">
+    <Sheet.Header>
+      <Sheet.Title>New note</Sheet.Title>
+      <Sheet.Description>Header and body are both required.</Sheet.Description>
+    </Sheet.Header>
+    <form
+      class="mt-6 flex flex-col gap-3"
+      onsubmit={(e) => {
+        e.preventDefault();
+        $createMut.mutate();
+      }}
+    >
+      <div class="grid gap-1.5">
+        <Label for="note-header">Header</Label>
+        <Input id="note-header" bind:value={formHeader} placeholder="Short note title" />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="note-body">Body</Label>
+        <Textarea id="note-body" bind:value={formBody} rows={8} placeholder="Note contents…" />
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <Button variant="ghost" type="button" onclick={() => (createOpen = false)}>Cancel</Button>
+        <Button type="submit" disabled={!canSubmit || $createMut.isPending}>
+          <Save class="h-4 w-4" />
+          {$createMut.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </form>
+  </Sheet.Content>
+</Sheet.Root>

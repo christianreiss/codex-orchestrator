@@ -25,7 +25,7 @@
 </script>
 
 <nav
-  class="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_32px_rgba(15,23,42,0.06)] backdrop-blur-xl md:hidden"
+  class="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_hsl(var(--foreground)/0.06)] backdrop-blur-xl md:hidden"
   aria-label="Mobile primary navigation"
 >
   <ul class="grid h-[4.5rem] grid-cols-5 px-1">

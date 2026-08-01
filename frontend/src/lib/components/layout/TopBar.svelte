@@ -87,7 +87,7 @@
     {#if activeWindows > 0}
       <a
         href={`${base}/hosts?insecure=1`}
-        class="inline-flex h-10 items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-500/10 px-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-500/15 dark:text-amber-300 sm:px-3"
+        class="inline-flex h-10 items-center gap-2 rounded-xl border border-warning/25 bg-warning-muted px-2.5 text-sm font-medium text-warning-muted-foreground transition-colors hover:bg-warning/15 sm:px-3"
         title="Insecure windows are open"
         aria-label={`${activeWindows} insecure windows open`}
       >

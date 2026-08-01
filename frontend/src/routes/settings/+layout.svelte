@@ -3,46 +3,36 @@
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import { cn } from "$lib/utils/cn";
+  import TabNav, { type TabNavItem } from "$lib/components/layout/TabNav.svelte";
   import Settings from "@lucide/svelte/icons/settings";
   import Users from "@lucide/svelte/icons/users";
+  import Link from "@lucide/svelte/icons/link";
 
   let { children }: { children?: Snippet } = $props();
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const usersActive = $derived(path.startsWith("/settings/users"));
+  const agentPortalActive = $derived(path.startsWith("/settings/agent-portal"));
+
+  const OUTER_TABS: TabNavItem[] = [
+    { href: `${base}/settings`, label: "Fleet configuration", icon: Settings },
+    { href: `${base}/settings/users`, label: "Users", icon: Users },
+    { href: `${base}/settings/agent-portal`, label: "Agent portal", icon: Link },
+  ];
+
+  const title = $derived(
+    usersActive ? "Users & access" : agentPortalActive ? "Agent portal" : "Settings",
+  );
+  const subtitle = $derived(
+    usersActive
+      ? "Manage admin accounts, roles, and access lifecycle."
+      : agentPortalActive
+        ? "One permanent login link per user for the fleet-wide Codex and Claude chat portal. Bookmark it on mobile or desktop; nothing is pushed anywhere."
+        : "Configure fleet-wide behavior, engine defaults, retention, and security policy.",
+  );
 </script>
 
-<PageHeader
-  title={usersActive ? "Users & access" : "Settings"}
-  subtitle={usersActive
-    ? "Manage admin accounts, roles, and access lifecycle."
-    : "Configure fleet-wide behavior, engine defaults, retention, and security policy."}
-  class="mb-4"
-/>
+<PageHeader {title} {subtitle} class="mb-4" />
 
-<nav class="mb-5" aria-label="Settings sections">
-  <div class="inline-flex min-h-11 items-center rounded-xl border border-border/60 bg-muted/70 p-1">
-    <a
-      href={`${base}/settings`}
-      class={cn(
-        "inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
-        !usersActive ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-      )}
-      aria-current={!usersActive ? "page" : undefined}
-    >
-      <Settings class="h-4 w-4" /> Fleet configuration
-    </a>
-    <a
-      href={`${base}/settings/users`}
-      class={cn(
-        "inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
-        usersActive ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-      )}
-      aria-current={usersActive ? "page" : undefined}
-    >
-      <Users class="h-4 w-4" /> Users
-    </a>
-  </div>
-</nav>
+<TabNav items={OUTER_TABS} class="mb-5" />
 
 {@render children?.()}

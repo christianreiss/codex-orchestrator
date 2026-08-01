@@ -1,13 +1,12 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
-  import ServerCog from "@lucide/svelte/icons/server-cog";
   import Plus from "@lucide/svelte/icons/plus";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import { Button } from "$lib/components/ui/button";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import * as Tabs from "$lib/components/ui/tabs";
-  import KillSwitchCard from "$lib/components/api-keys/KillSwitchCard.svelte";
+  import KillSwitchToggle from "$lib/components/api-keys/KillSwitchToggle.svelte";
   import KeysTable from "$lib/components/api-keys/KeysTable.svelte";
   import NewKeyDialog from "$lib/components/api-keys/NewKeyDialog.svelte";
   import type { ApiKeyEngine } from "$lib/api/types";
@@ -63,50 +62,44 @@
   {/snippet}
 </PageHeader>
 
-<section class="rounded-xl border border-border/75 bg-card p-4 shadow-sm sm:p-5">
-  <div class="flex items-start gap-3">
-    <ServerCog class="mt-0.5 h-5 w-5 text-muted-foreground" />
-    <div class="min-w-0 flex-1">
-      <h2 class="text-sm font-semibold tracking-tight">Proxy endpoints</h2>
-      <div class="mt-3 grid gap-3 lg:grid-cols-2">
-        {#each proxyEndpoints as endpoint}
-          <div class="flex min-w-0 items-center gap-3 rounded-xl border border-border/70 bg-background/70 px-3 py-2.5">
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <p class="text-sm font-medium">{endpoint.engine}</p>
-                <p class="text-xs text-muted-foreground">{endpoint.detail}</p>
-              </div>
-              <code class="mt-1 block truncate font-mono text-xs text-muted-foreground">
-                {endpoint.url || endpoint.path}
-              </code>
-            </div>
-            <CopyButton
-              value={endpoint.url || endpoint.path}
-              label="Copy"
-              copiedLabel="Copied"
-              size="sm"
-              toastMessage={`${endpoint.engine} URL copied`}
-            />
-          </div>
-        {/each}
+<div class="flex flex-col gap-2">
+  <h2 class="eyebrow">Proxy endpoints</h2>
+  {#each proxyEndpoints as endpoint}
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5">
+      <div class="min-w-0">
+        <p class="text-sm">
+          <span class="font-medium">{endpoint.engine}</span>
+          <span class="text-muted-foreground"> · {endpoint.detail}</span>
+        </p>
+        <code class="mt-0.5 block truncate font-mono text-xs text-muted-foreground">
+          {endpoint.url || endpoint.path}
+        </code>
       </div>
+      <CopyButton
+        value={endpoint.url || endpoint.path}
+        label="Copy"
+        copiedLabel="Copied"
+        size="sm"
+        toastMessage={`${endpoint.engine} URL copied`}
+      />
     </div>
-  </div>
-</section>
+  {/each}
+</div>
 
 <Tabs.Root class="mt-6" value={activeTab} onValueChange={(v) => (activeTab = v as ApiKeyEngine)}>
-  <Tabs.List>
-    <Tabs.Trigger value="openai">OpenAI</Tabs.Trigger>
-    <Tabs.Trigger value="claude">Anthropic</Tabs.Trigger>
-  </Tabs.List>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <Tabs.List>
+      <Tabs.Trigger value="openai">OpenAI</Tabs.Trigger>
+      <Tabs.Trigger value="claude">Anthropic</Tabs.Trigger>
+    </Tabs.List>
+    <KillSwitchToggle engine={activeTab} />
+  </div>
 
-  <Tabs.Content value="openai" class="space-y-4">
-    <KillSwitchCard engine="openai" />
+  <Tabs.Content value="openai" class="mt-4">
     <KeysTable engine="openai" />
   </Tabs.Content>
 
-  <Tabs.Content value="claude" class="space-y-4">
-    <KillSwitchCard engine="claude" />
+  <Tabs.Content value="claude" class="mt-4">
     <KeysTable engine="claude" />
   </Tabs.Content>
 </Tabs.Root>

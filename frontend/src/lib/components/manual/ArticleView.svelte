@@ -116,7 +116,7 @@
       </div>
     {:else if error}
       <div
-        class="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+        class="rounded-md border border-destructive/25 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground"
       >
         <p class="font-medium">Could not load article</p>
         <p class="mt-1 opacity-80">{error}</p>
@@ -146,7 +146,7 @@
 
       <div
         bind:this={contentRef}
-        class="manual-prose"
+        class="md-prose"
         use:copyCodeBlocks={html}
       >
         {@html html}
@@ -192,137 +192,3 @@
     </aside>
   {/if}
 </div>
-
-<style>
-  /* Article typography — scoped to .manual-prose so it doesn't bleed. */
-  :global(.manual-prose) {
-    color: hsl(var(--foreground));
-    line-height: 1.7;
-    font-size: 0.95rem;
-  }
-
-  :global(.manual-prose h2) {
-    margin-top: 2.25rem;
-    margin-bottom: 0.75rem;
-    font-size: 1.5rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    scroll-margin-top: 1.5rem;
-  }
-  :global(.manual-prose h3) {
-    margin-top: 1.75rem;
-    margin-bottom: 0.5rem;
-    font-size: 1.2rem;
-    font-weight: 600;
-    scroll-margin-top: 1.5rem;
-  }
-  :global(.manual-prose h4) {
-    margin-top: 1.25rem;
-    margin-bottom: 0.5rem;
-    font-size: 1.05rem;
-    font-weight: 600;
-  }
-
-  :global(.manual-prose p) {
-    margin-top: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-
-  :global(.manual-prose a) {
-    color: hsl(var(--sidebar-active));
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  :global(.manual-prose a:hover) {
-    text-decoration-thickness: 2px;
-  }
-  :global(.manual-prose a.anchor) {
-    text-decoration: none;
-    color: transparent;
-  }
-
-  :global(.manual-prose strong) {
-    color: hsl(var(--foreground));
-    font-weight: 600;
-  }
-
-  :global(.manual-prose ul) {
-    list-style: disc;
-    padding-left: 1.5rem;
-    margin: 0.75rem 0;
-  }
-  :global(.manual-prose ol) {
-    list-style: decimal;
-    padding-left: 1.5rem;
-    margin: 0.75rem 0;
-  }
-  :global(.manual-prose li) {
-    margin: 0.25rem 0;
-  }
-
-  :global(.manual-prose blockquote) {
-    margin: 1rem 0;
-    padding: 0.5rem 1rem;
-    border-left: 3px solid hsl(var(--border));
-    color: hsl(var(--muted-foreground));
-    background: hsl(var(--muted) / 0.4);
-    border-radius: 0 0.375rem 0.375rem 0;
-  }
-
-  :global(.manual-prose code) {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.85em;
-    padding: 0.15em 0.35em;
-    background: hsl(var(--muted));
-    border-radius: 0.25rem;
-    color: hsl(var(--foreground));
-  }
-
-  :global(.manual-prose pre) {
-    position: relative;
-    margin: 1rem 0;
-    padding: 1rem;
-    padding-top: 2.5rem;
-    background: hsl(var(--muted));
-    border: 1px solid hsl(var(--border));
-    border-radius: 0.5rem;
-    overflow-x: auto;
-    font-size: 0.85rem;
-    line-height: 1.5;
-  }
-  :global(.manual-prose pre code) {
-    background: transparent;
-    padding: 0;
-    font-size: inherit;
-    color: hsl(var(--foreground));
-  }
-
-  :global(.manual-prose table) {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 1rem 0;
-    font-size: 0.9rem;
-  }
-  :global(.manual-prose th),
-  :global(.manual-prose td) {
-    border: 1px solid hsl(var(--border));
-    padding: 0.5rem 0.75rem;
-    text-align: left;
-  }
-  :global(.manual-prose th) {
-    background: hsl(var(--muted));
-    font-weight: 600;
-  }
-
-  :global(.manual-prose hr) {
-    margin: 2rem 0;
-    border: 0;
-    border-top: 1px solid hsl(var(--border));
-  }
-
-  :global(.manual-prose img) {
-    max-width: 100%;
-    height: auto;
-    border-radius: 0.5rem;
-  }
-</style>
