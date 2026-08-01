@@ -7,6 +7,7 @@
  *   POST   /admin/config/render
  *   POST   /admin/config/store
  *   GET    /admin/agents
+ *   GET    /admin/agents/render
  *   GET    /admin/agents/versions/:id
  *   POST   /admin/agents/store
  *   POST   /admin/agents/serve
@@ -38,9 +39,11 @@ import type { FastifyInstance } from 'fastify';
 import { desc, eq, sql } from 'drizzle-orm';
 import { hosts, mcpAccessLogs, versions } from '../../../db/schema.js';
 import { NotFoundError, ValidationError } from '../../../http/errors.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
 import { AgentsService } from '../../../services/agents.js';
+import { HostAgentsService } from '../../../services/host-agents.js';
+import { assertHostEngineEnabled } from '../../../services/host-engine-policy.js';
 import { ClientConfigService } from '../../../services/client-config.js';
 import { MemoriesService } from '../../../services/memories.js';
 import { SharedMemoriesService } from '../../../services/shared-memories.js';
@@ -90,6 +93,10 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     if (typeof v !== 'string' || v.trim() === '' || !/^\d+$/.test(v.trim())) return null;
     const n = parseInt(v.trim(), 10);
     return n > 0 ? Math.min(n, 200) : null;
+  });
+  const hostAgents = new HostAgentsService(db, {
+    publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
+    keyring: ctx.keyring,
   });
 
   // ── /admin/config ────────────────────────────────────────────────────────
@@ -154,6 +161,32 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   app.get('/admin/agents', { preHandler: app.requireAdmin }, async () => {
     return await agents.adminFetch(ENGINE_CODEX);
   });
+
+  app.get<{ Querystring: { host_id?: string; engine?: string } }>(
+    '/admin/agents/render',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const hostId = parseInteger(req.query.host_id);
+      if (hostId === null || hostId <= 0) {
+        throw new ValidationError('host_id must be a positive integer', { param: 'host_id' });
+      }
+      const engine = req.query.engine ?? ENGINE_CODEX;
+      if (!isEngine(engine)) {
+        throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+      }
+      const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
+      const host = rows[0];
+      if (!host) throw new NotFoundError('Host not found');
+      assertHostEngineEnabled(host, engine);
+
+      return {
+        ...(await hostAgents.renderCurrent(host, engine)),
+        host_id: host.id,
+        host_fqdn: host.fqdn,
+        engine,
+      };
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     '/admin/agents/versions/:id',

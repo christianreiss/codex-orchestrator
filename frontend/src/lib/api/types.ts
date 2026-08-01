@@ -363,6 +363,29 @@ export interface AgentsVersion extends AgentsVersionMeta {
   content: string;
 }
 
+export interface AgentsManagedFeatureSection {
+  present: boolean;
+  reason: string;
+  count?: number;
+  sha256?: string;
+  transport?: "mcp" | "native";
+}
+
+export interface AgentsRenderedDocument {
+  status: "ok" | "missing" | string;
+  host_id: number;
+  host_fqdn: string;
+  engine: "codex" | "claude" | string;
+  version_id?: number;
+  sha256?: string;
+  base_sha256?: string;
+  managed_sha256?: string | null;
+  updated_at?: string | null;
+  size_bytes?: number;
+  content?: string;
+  sections?: Record<string, AgentsManagedFeatureSection>;
+}
+
 export interface AgentsStoreResult {
   status: string;
   version_id?: number | null;

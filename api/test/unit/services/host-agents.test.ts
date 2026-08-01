@@ -109,6 +109,27 @@ function clxAuthHeader(partial: Record<string, unknown>): string {
 }
 
 describe('HostAgentsService.retrieve', () => {
+  it('renders the current effective document for admin preview without creating sync telemetry', async () => {
+    const body = 'Canonical AGENTS body\n';
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, body)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: true })]],
+      [versions, [{ name: 'projects_module_enabled', version: '1' }]],
+    ]);
+
+    const out = await makeService(db).renderCurrent(makeHost({ browserosMcpEnabled: 1 }));
+
+    expect(out['status']).toBe('ok');
+    expect(out['content']).toContain('<!-- cxx:managed-features:start -->');
+    expect(out['content']).toContain('BrowserOS');
+    expect(out['sections']).toMatchObject({
+      skills: { present: true, transport: 'mcp' },
+      projects: { present: true },
+      browseros: { present: true },
+    });
+    expect(logDetails(db, 'agents.retrieve')).toEqual([]);
+  });
+
   it('returns missing and logs agents.retrieve when no document exists', async () => {
     const db = makeDb([[agentsDocuments, []]]);
 

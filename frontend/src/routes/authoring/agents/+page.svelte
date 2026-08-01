@@ -2,7 +2,8 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { agentsApi } from "$lib/api/agents";
-  import type { AgentsVersion, AgentsVersionMeta } from "$lib/api/types";
+  import { hostsListQuery } from "$lib/api/hosts";
+  import type { AgentsRenderedDocument, AgentsVersion, AgentsVersionMeta } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import { relativeTime, formatBytes } from "$lib/utils/format";
   import { Button } from "$lib/components/ui/button";
@@ -13,6 +14,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import Save from "@lucide/svelte/icons/save";
   import History from "@lucide/svelte/icons/history";
+  import Eye from "@lucide/svelte/icons/eye";
   import * as Card from "$lib/components/ui/card";
 
   const qc = useQueryClient();
@@ -21,6 +23,7 @@
     queryKey: ["agents"],
     queryFn: () => agentsApi.get(),
   });
+  const hosts = hostsListQuery();
 
   // Editor content + hydration tracking
   let content = $state("");
@@ -172,6 +175,52 @@
     $revertMutation.mutate(viewingVersion.id);
   }
 
+  // A served document is host-specific: the managed block depends on that
+  // host's engine, MCP, BrowserOS, and module availability. The admin preview
+  // therefore uses the same renderer as the wrapper, rather than composing a
+  // best-effort client-side approximation.
+  const previewHosts = $derived(
+    ($hosts.data?.hosts ?? []).filter((host) => host.engines_list.includes("codex")),
+  );
+  let renderedPreview = $state<AgentsRenderedDocument | null>(null);
+  let renderedPreviewOpen = $state(false);
+  let previewHostId = $state("");
+  const renderedPreviewSections = $derived(
+    Object.entries(renderedPreview?.sections ?? {})
+      .filter(([name]) => name !== "memory_routing")
+      .map(([name, section]) => ({ name, section })),
+  );
+
+  $effect(() => {
+    if (!previewHostId && previewHosts.length > 0) previewHostId = String(previewHosts[0].id);
+  });
+
+  const renderedPreviewMutation = createMutation({
+    mutationFn: (hostId: number) => agentsApi.render(hostId),
+    onSuccess: (data) => {
+      renderedPreview = data;
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof ApiError ? err.message : "Failed to render AGENTS.md";
+      toast.error(msg);
+    },
+  });
+
+  function refreshRenderedPreview() {
+    const hostId = Number(previewHostId);
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      toast.error("Choose a Codex host first");
+      return;
+    }
+    $renderedPreviewMutation.mutate(hostId);
+  }
+
+  function openRenderedPreview() {
+    renderedPreview = null;
+    renderedPreviewOpen = true;
+    refreshRenderedPreview();
+  }
+
   const versions = $derived<AgentsVersionMeta[]>($query.data?.versions ?? []);
   const currentVersionId = $derived($query.data?.served_id ?? $query.data?.active_id ?? null);
 </script>
@@ -219,6 +268,14 @@
         bind:value={content}
       />
       <div class="flex items-center justify-end gap-2">
+        <Button
+          variant="outline"
+          onclick={openRenderedPreview}
+          disabled={$hosts.isPending || previewHosts.length === 0}
+        >
+          <Eye class="h-4 w-4" />
+          Render current
+        </Button>
         <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
           <Save class="h-4 w-4" />
           {$saveMutation.isPending ? "Saving…" : "Save"}
@@ -345,6 +402,95 @@
       <Button onclick={makeVersionCurrent} disabled={$revertMutation.isPending}>
         Make current
       </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<!-- Effective host document preview -->
+<Dialog.Root
+  open={renderedPreviewOpen}
+  onOpenChange={(open) => {
+    renderedPreviewOpen = open;
+    if (!open) renderedPreview = null;
+  }}
+>
+  <Dialog.Content class="sm:max-w-5xl">
+    <Dialog.Header>
+      <Dialog.Title>Current rendered AGENTS.md</Dialog.Title>
+      <Dialog.Description>
+        This is the exact current document the selected Codex host would receive, including its
+        managed feature guidance. Unsaved editor changes are intentionally excluded.
+      </Dialog.Description>
+    </Dialog.Header>
+
+    <div class="space-y-3">
+      <div class="flex flex-wrap items-end gap-2">
+        <div class="min-w-[240px] flex-1 space-y-1.5">
+          <label for="agents-preview-host" class="text-xs font-medium">Codex host</label>
+          <Select.Root
+            type="single"
+            value={previewHostId}
+            onValueChange={(value) => {
+              previewHostId = value ?? "";
+              renderedPreview = null;
+            }}
+          >
+            <Select.Trigger id="agents-preview-host" aria-label="Codex host for rendered AGENTS preview">
+              <Select.Value placeholder="Choose a host">
+                {previewHosts.find((host) => String(host.id) === previewHostId)?.fqdn ?? "Choose a host"}
+              </Select.Value>
+            </Select.Trigger>
+            <Select.Content>
+              {#each previewHosts as host (host.id)}
+                <Select.Item value={String(host.id)} label={host.fqdn}>{host.fqdn} · #{host.id}</Select.Item>
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <Button onclick={refreshRenderedPreview} disabled={$renderedPreviewMutation.isPending || !previewHostId}>
+          <Eye class="h-4 w-4" />
+          {$renderedPreviewMutation.isPending ? "Rendering…" : "Refresh"}
+        </Button>
+      </div>
+
+      {#if $renderedPreviewMutation.isPending}
+        <p class="text-sm text-muted-foreground">Rendering the host-specific document…</p>
+      {:else if renderedPreview?.status === "missing"}
+        <p class="text-sm text-muted-foreground">No AGENTS.md document is currently configured for this host.</p>
+      {:else if renderedPreview}
+        <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span class="font-medium text-foreground">{renderedPreview.host_fqdn}</span>
+          <span>·</span>
+          <span>Version #{renderedPreview.version_id ?? "—"}</span>
+          <span>·</span>
+          <span>{formatBytes(renderedPreview.size_bytes ?? 0)}</span>
+          {#if renderedPreview.sha256}
+            <span>·</span>
+            <span class="font-mono" title={renderedPreview.sha256}>
+              sha256: {renderedPreview.sha256.slice(0, 12)}…
+            </span>
+          {/if}
+        </div>
+        {#if renderedPreviewSections.length > 0}
+          <div class="flex flex-wrap gap-1.5" aria-label="Managed feature state">
+            {#each renderedPreviewSections as { name, section } (name)}
+              <Badge variant={section.present ? "success" : "secondary"}>
+                {name}: {section.present ? "included" : section.reason}
+              </Badge>
+            {/each}
+          </div>
+        {/if}
+        <Textarea
+          aria-label="Current rendered AGENTS.md preview"
+          class="min-h-[55vh] font-mono text-xs"
+          readonly
+          value={renderedPreview.content ?? ""}
+        />
+      {/if}
+    </div>
+
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => (renderedPreviewOpen = false)}>Close</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

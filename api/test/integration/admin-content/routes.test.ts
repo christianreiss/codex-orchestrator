@@ -146,6 +146,13 @@ describe('admin-content routes registration', () => {
     await app.close();
   });
 
+  it('gates rendered AGENTS.md preview behind requireAdmin', async () => {
+    const app = await buildApp({}, { withAdmin: false });
+    const r = await app.inject({ method: 'GET', url: '/admin/agents/render?host_id=1' });
+    expect(r.statusCode).toBe(401);
+    await app.close();
+  });
+
   it('returns 401 on /admin/skills without admin', async () => {
     const app = await buildApp({}, { withAdmin: false });
     const r = await app.inject({ method: 'GET', url: '/admin/skills' });

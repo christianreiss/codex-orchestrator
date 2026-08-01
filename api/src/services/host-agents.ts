@@ -53,10 +53,41 @@ export class HostAgentsService {
     this.secrets = new SecretsService({ db });
   }
 
+  /**
+   * Render the exact current document a host would receive, without recording
+   * a host sync. Admin preview uses this instead of calling `retrieve`, so an
+   * operator opening the preview cannot manufacture telemetry.
+   */
+  async renderCurrent(host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
+    return await this.renderForHost(host, engine, false);
+  }
+
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
-    const row = await this.resolveServedDocument(host, engine);
-    if (!row) {
+    const rendered = await this.renderForHost(host, engine, true);
+    if (rendered['status'] === 'missing') {
       await this.recordLog(host.id, 'agents.retrieve', { status: 'missing' });
+      return rendered;
+    }
+
+    const { content, ...metadata } = rendered;
+    const served = String(content ?? '');
+    const servedSha = String(metadata['sha256'] ?? '');
+    // Compare against the SERVED hash: comparing the canonical one would report
+    // `unchanged` to a host whose on-disk copy predates the managed block.
+    const status = providedSha && safeHashEquals(servedSha, providedSha) ? 'unchanged' : 'updated';
+    const out: Record<string, unknown> = { ...metadata, status };
+    if (status !== 'unchanged') out['content'] = served;
+    await this.recordLog(host.id, 'agents.retrieve', { status, engine });
+    return out;
+  }
+
+  private async renderForHost(
+    host: Host,
+    engine: Engine,
+    recordMissingOverride: boolean,
+  ): Promise<Record<string, unknown>> {
+    const row = await this.resolveServedDocument(host, engine, recordMissingOverride);
+    if (!row) {
       return { status: 'missing' };
     }
 
@@ -66,11 +97,8 @@ export class HostAgentsService {
     const rendered = renderManagedAgentFeatures(body, featureContext);
     const served = rendered.body;
     const servedSha = createHash('sha256').update(served).digest('hex');
-    // Compare against the SERVED hash: comparing the canonical one would report
-    // `unchanged` to a host whose on-disk copy predates the managed block.
-    const status = providedSha && safeHashEquals(servedSha, providedSha) ? 'unchanged' : 'updated';
-    const out: Record<string, unknown> = {
-      status,
+    return {
+      status: 'ok',
       version_id: Number(row.id),
       sha256: servedSha,
       base_sha256: baseSha,
@@ -78,10 +106,8 @@ export class HostAgentsService {
       sections: rendered.sections,
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(served, 'utf8'),
+      content: served,
     };
-    if (status !== 'unchanged') out['content'] = served;
-    await this.recordLog(host.id, 'agents.retrieve', { status, engine });
-    return out;
   }
 
   async retrieveConfig(
@@ -296,7 +322,11 @@ export class HostAgentsService {
     return { engine, skills, memory, projects, browseros, secrets };
   }
 
-  private async resolveServedDocument(host: Host, engine: Engine): Promise<typeof agentsDocuments.$inferSelect | null> {
+  private async resolveServedDocument(
+    host: Host,
+    engine: Engine,
+    recordMissingOverride = true,
+  ): Promise<typeof agentsDocuments.$inferSelect | null> {
     const override = host.agentsDocumentIdOverride;
     if (override && Number(override) > 0) {
       const rows = await this.db
@@ -305,10 +335,12 @@ export class HostAgentsService {
         .where(eq(agentsDocuments.id, Number(override)))
         .limit(1);
       if (rows[0]) return rows[0];
-      await this.recordLog(host.id, 'agents.host_override_missing', {
-        status: 'fallback_latest',
-        override_id: Number(override),
-      });
+      if (recordMissingOverride) {
+        await this.recordLog(host.id, 'agents.host_override_missing', {
+          status: 'fallback_latest',
+          override_id: Number(override),
+        });
+      }
     }
 
     const stateId = engine === ENGINE_CLAUDE ? STATE_ID_CLAUDE : STATE_ID_CODEX;

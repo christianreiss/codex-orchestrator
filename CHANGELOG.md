@@ -1,5 +1,8 @@
 # 2026-08-01
 
+- Added a read-only “Render current” AGENTS.md preview to the admin editor. Operators select a
+  Codex host and see the exact current served document, including host-specific managed guidance
+  and feature diagnostics, without manufacturing wrapper-sync telemetry.
 - Fixed zero-knowledge agent discovery for the fleet secrets store. Managed
   AGENTS.md/CLAUDE.md guidance now covers the complete `secret_*` lifecycle,
   requires a read-only `secret_list` check before capability claims, and remains
