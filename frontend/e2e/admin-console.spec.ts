@@ -19,6 +19,23 @@ function fixture(pathname: string): Record<string, unknown> {
       return { enabled: false };
     case "/admin/theme":
       return { theme: "auto" };
+    case "/admin/passkeys":
+      return {
+        passkeys: [
+          {
+            id: 1,
+            name: "Operator laptop",
+            created_at: "2026-07-30T08:00:00Z",
+            last_used_at: "2026-08-01T08:00:00Z",
+          },
+          {
+            id: 2,
+            name: "Hardware key",
+            created_at: "2026-07-15T08:00:00Z",
+            last_used_at: null,
+          },
+        ],
+      };
     case "/admin/overview":
       return {
         totals: { hosts: 2 },
@@ -375,6 +392,34 @@ test("neutral configuration template has no serious Axe findings", async ({ page
   await expect(page.getByText("Dark", { exact: true })).toBeVisible();
 
   await expectNoSeriousAxeFindings(page);
+});
+
+test("account security uses compact route-backed sections", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/account/password");
+  const accountNav = page.getByRole("navigation", { name: "Account settings" });
+  await expect(accountNav.getByRole("link", { name: "Password" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.getByRole("heading", { name: "Change password", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reset by email", level: 2 })).toBeVisible();
+  await expect(page.getByLabel("Current password")).toBeVisible();
+
+  await page.goto("/admin/account/passkeys");
+  await expect(accountNav.getByRole("link", { name: "Passkeys" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.getByRole("heading", { name: "Registered credentials", level: 2 })).toBeVisible();
+  await expect(page.getByRole("table")).toBeVisible();
+  await expect(page.getByText("Operator laptop", { exact: true })).toBeVisible();
+  await expect(page.getByText("Hardware key", { exact: true })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(accountNav.getByRole("link", { name: "Passkeys" })).toBeVisible();
 });
 
 test("project detail and standalone approval keep their task-focused layouts", async ({ page }) => {

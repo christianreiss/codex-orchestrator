@@ -3,7 +3,7 @@
   let { children } = $props();
 </script>
 
-<div class="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)] md:gap-10">
+<div class="space-y-5">
   <AccountSideNav />
   <div class="min-w-0">
     {@render children?.()}

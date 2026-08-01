@@ -4,7 +4,6 @@
   import { format } from "date-fns";
 
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import * as Card from "$lib/components/ui/card";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Table from "$lib/components/ui/table";
   import * as Tooltip from "$lib/components/ui/tooltip";
@@ -193,25 +192,25 @@
   </Alert>
 {/if}
 
-<Card.Root>
-  <Card.Header>
-    <Card.Title>Registered credentials</Card.Title>
-    <Card.Description>
+<section aria-labelledby="registered-passkeys-heading">
+  <div class="mb-3 max-w-3xl">
+    <h2 id="registered-passkeys-heading" class="text-sm font-semibold">Registered credentials</h2>
+    <p class="mt-1 text-sm text-muted-foreground">
       Passkeys let you sign in without a password, using a hardware authenticator or
       platform biometrics. Each device is shown below — click the pencil to rename.
       Note: users with a registered passkey must sign in with that passkey.
-    </Card.Description>
-  </Card.Header>
-  <Card.Content class="p-0">
-    {#if $passkeysQuery.isLoading}
-      <div class="px-6 py-10 text-center text-sm text-muted-foreground">Loading…</div>
-    {:else if $passkeysQuery.isError}
-      <div class="px-6 py-10 text-center text-sm text-destructive">
-        {$passkeysQuery.error instanceof Error
-          ? $passkeysQuery.error.message
-          : "Failed to load passkeys."}
-      </div>
-    {:else if !$passkeysQuery.data || $passkeysQuery.data.length === 0}
+    </p>
+  </div>
+  {#if $passkeysQuery.isLoading}
+    <div class="border-y px-3 py-8 text-center text-sm text-muted-foreground">Loading…</div>
+  {:else if $passkeysQuery.isError}
+    <div class="border-y px-3 py-8 text-center text-sm text-destructive">
+      {$passkeysQuery.error instanceof Error
+        ? $passkeysQuery.error.message
+        : "Failed to load passkeys."}
+    </div>
+  {:else if !$passkeysQuery.data || $passkeysQuery.data.length === 0}
+    <div class="border-y">
       <EmptyState
         icon={Fingerprint}
         title="No passkeys registered"
@@ -224,9 +223,11 @@
           </Button>
         {/snippet}
       </EmptyState>
-    {:else}
+    </div>
+  {:else}
+    <div class="border-y border-border">
       <Table.Root>
-        <Table.Header>
+        <Table.Header class="sticky top-0 z-10 bg-background">
           <Table.Row>
             <Table.Head>Name</Table.Head>
             <Table.Head>Created</Table.Head>
@@ -333,9 +334,9 @@
           {/each}
         </Table.Body>
       </Table.Root>
-    {/if}
-  </Card.Content>
-</Card.Root>
+    </div>
+  {/if}
+</section>
 
 <!-- Name the freshly registered passkey -->
 <PasskeyNameDialog

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import * as Card from "$lib/components/ui/card";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -110,115 +109,113 @@
 
 <PageHeader title="Password" subtitle="Change your account password" />
 
-<div class="space-y-6">
-  <Card.Root>
-    <Card.Header>
-      <Card.Title>Change password</Card.Title>
-      <Card.Description>
+<div class="max-w-2xl divide-y border-y border-border">
+  <section class="py-5" aria-labelledby="change-password-heading">
+    <div class="mb-4">
+      <h2 id="change-password-heading" class="text-sm font-semibold">Change password</h2>
+      <p class="mt-1 text-sm text-muted-foreground">
         Use a strong, unique password. {PASSWORD_POLICY_TEXT}
-      </Card.Description>
-    </Card.Header>
-    <Card.Content>
-      <form class="space-y-5" onsubmit={onSubmit} novalidate>
-        {#if formError}
-          <Alert variant="destructive">
-            <AlertDescription>{formError}</AlertDescription>
-          </Alert>
+      </p>
+    </div>
+    <form class="space-y-5" onsubmit={onSubmit} novalidate>
+      {#if formError}
+        <Alert variant="destructive">
+          <AlertDescription>{formError}</AlertDescription>
+        </Alert>
+      {/if}
+
+      <div class="space-y-2">
+        <Label for="current">Current password</Label>
+        <Input
+          id="current"
+          type="password"
+          autocomplete="current-password"
+          bind:value={current}
+          aria-invalid={fieldErrors.current ? "true" : undefined}
+        />
+        {#if fieldErrors.current}
+          <p class="text-xs text-destructive">{fieldErrors.current}</p>
         {/if}
+      </div>
 
-        <div class="space-y-2">
-          <Label for="current">Current password</Label>
-          <Input
-            id="current"
-            type="password"
-            autocomplete="current-password"
-            bind:value={current}
-            aria-invalid={fieldErrors.current ? "true" : undefined}
-          />
-          {#if fieldErrors.current}
-            <p class="text-xs text-destructive">{fieldErrors.current}</p>
-          {/if}
-        </div>
+      <div class="space-y-2">
+        <Label for="next">New password</Label>
+        <Input
+          id="next"
+          type="password"
+          autocomplete="new-password"
+          bind:value={next}
+          aria-invalid={fieldErrors.next ? "true" : undefined}
+        />
+        <ul class="mt-1 space-y-0.5 text-xs">
+          {#each rules as rule (rule.label)}
+            <li
+              class="flex items-center gap-1.5 {rule.ok
+                ? 'text-success'
+                : 'text-muted-foreground'}"
+            >
+              {#if rule.ok}
+                <Check class="h-3.5 w-3.5" />
+              {:else}
+                <X class="h-3.5 w-3.5 opacity-50" />
+              {/if}
+              <span>{rule.label}</span>
+            </li>
+          {/each}
+        </ul>
+        {#if fieldErrors.next}
+          <p class="text-xs text-destructive">{fieldErrors.next}</p>
+        {/if}
+      </div>
 
-        <div class="space-y-2">
-          <Label for="next">New password</Label>
-          <Input
-            id="next"
-            type="password"
-            autocomplete="new-password"
-            bind:value={next}
-            aria-invalid={fieldErrors.next ? "true" : undefined}
-          />
-          <ul class="mt-1 space-y-0.5 text-xs">
-            {#each rules as rule (rule.label)}
-              <li
-                class="flex items-center gap-1.5 {rule.ok
-                  ? 'text-success'
-                  : 'text-muted-foreground'}"
-              >
-                {#if rule.ok}
-                  <Check class="h-3.5 w-3.5" />
-                {:else}
-                  <X class="h-3.5 w-3.5 opacity-50" />
-                {/if}
-                <span>{rule.label}</span>
-              </li>
-            {/each}
-          </ul>
-          {#if fieldErrors.next}
-            <p class="text-xs text-destructive">{fieldErrors.next}</p>
-          {/if}
-        </div>
+      <div class="space-y-2">
+        <Label for="confirm">Confirm new password</Label>
+        <Input
+          id="confirm"
+          type="password"
+          autocomplete="new-password"
+          bind:value={confirm}
+          aria-invalid={fieldErrors.confirm ? "true" : undefined}
+        />
+        {#if matchState === "match"}
+          <p class="flex items-center gap-1.5 text-xs text-success">
+            <Check class="h-3.5 w-3.5" /> Passwords match
+          </p>
+        {:else if matchState === "mismatch"}
+          <p class="flex items-center gap-1.5 text-xs text-destructive">
+            <X class="h-3.5 w-3.5" /> Passwords do not match
+          </p>
+        {/if}
+        {#if fieldErrors.confirm && matchState !== "mismatch"}
+          <p class="text-xs text-destructive">{fieldErrors.confirm}</p>
+        {/if}
+      </div>
 
-        <div class="space-y-2">
-          <Label for="confirm">Confirm new password</Label>
-          <Input
-            id="confirm"
-            type="password"
-            autocomplete="new-password"
-            bind:value={confirm}
-            aria-invalid={fieldErrors.confirm ? "true" : undefined}
-          />
-          {#if matchState === "match"}
-            <p class="flex items-center gap-1.5 text-xs text-success">
-              <Check class="h-3.5 w-3.5" /> Passwords match
-            </p>
-          {:else if matchState === "mismatch"}
-            <p class="flex items-center gap-1.5 text-xs text-destructive">
-              <X class="h-3.5 w-3.5" /> Passwords do not match
-            </p>
-          {/if}
-          {#if fieldErrors.confirm && matchState !== "mismatch"}
-            <p class="text-xs text-destructive">{fieldErrors.confirm}</p>
-          {/if}
-        </div>
+      <div class="flex justify-end border-t pt-4">
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Saving…" : "Change password"}
+        </Button>
+      </div>
+    </form>
+  </section>
 
-        <div class="flex justify-end">
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Saving…" : "Change password"}
-          </Button>
-        </div>
-      </form>
-    </Card.Content>
-  </Card.Root>
-
-  <Card.Root>
-    <Card.Header>
-      <Card.Title class="flex items-center gap-2 text-base">
-        <Mail class="h-4 w-4 text-muted-foreground" />
-        Reset by email
-      </Card.Title>
-      <Card.Description>
-        Lost access? Send a one-time reset token to your registered admin email. A separate
-        page consumes the token to set a new password.
-      </Card.Description>
-    </Card.Header>
-    <Card.Content>
+  <section class="py-5" aria-labelledby="reset-password-heading">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 id="reset-password-heading" class="flex items-center gap-2 text-sm font-semibold">
+          <Mail class="h-4 w-4 text-muted-foreground" />
+          Reset by email
+        </h2>
+        <p class="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Lost access? Send a one-time reset token to your registered admin email. A separate
+          page consumes the token to set a new password.
+        </p>
+      </div>
       <Button variant="outline" onclick={() => (resetOpen = true)}>
         Send reset email
       </Button>
-    </Card.Content>
-  </Card.Root>
+    </div>
+  </section>
 </div>
 
 <Dialog.Root bind:open={resetOpen}>

@@ -15,11 +15,8 @@
   const path = $derived(page.url.pathname.replace(base, "") || "/");
 </script>
 
-<nav class="md:sticky md:top-24 md:self-start" aria-label="Account settings">
-  <p class="mb-2 hidden px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground md:block">
-    Account
-  </p>
-  <ul class="flex gap-1 overflow-x-auto rounded-md border border-border/60 bg-card/70 p-1 md:flex-col md:gap-0.5 md:p-1.5">
+<nav aria-label="Account settings" class="border-b border-border">
+  <ul class="flex -mb-px overflow-x-auto">
     {#each items as item (item.href)}
       {@const Icon = item.icon}
       {@const active = path === item.href || path.startsWith(item.href + "/")}
@@ -28,10 +25,10 @@
           href={`${base}${item.href}`}
           aria-current={active ? "page" : undefined}
           class={cn(
-            "flex min-h-10 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            "flex min-h-11 items-center gap-2 whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium transition-colors sm:min-h-9",
             active
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              ? "border-primary text-foreground"
+              : "text-muted-foreground hover:border-border hover:text-foreground",
           )}
         >
           <Icon class="h-4 w-4" />
