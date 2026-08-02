@@ -346,21 +346,39 @@ describe('SharedMemoriesService.read', () => {
     expect(out['next_offset']).toBeNull();
   });
 
-  it('truncates a large document and hands back a resumable offset', async () => {
+  it('paginates a complete document with one stable full-document digest', async () => {
     const db = makeDb();
     const body = 'paragraph text. '.repeat(5000);
-    await service(db).write({ slug: 'big', content: body }, host);
+    const storedBody = body.trim();
+    const created = (await service(db).write({ slug: 'big', content: body }, host)) as {
+      memory: { sha256: string };
+    };
 
-    const first = (await service(db).read({ slug: 'big', max_chars: 1000 }, host)) as Record<string, unknown>;
-    expect(String(first['content'])).toHaveLength(1000);
-    expect(first['truncated']).toBe(true);
-    expect(first['next_offset']).toBe(1000);
+    let offset = 0;
+    let complete = false;
+    const windows: string[] = [];
+    while (!complete) {
+      const page = (await service(db).read({ slug: 'big', offset, max_chars: 1000 }, host)) as {
+        content: string;
+        offset: number;
+        next_offset: number | null;
+        truncated: boolean;
+        memory: { sha256: string; content_length: number };
+      };
+      expect(page.offset).toBe(offset);
+      expect(page.memory.sha256).toBe(created.memory.sha256);
+      expect(page.memory.content_length).toBe(storedBody.length);
+      windows.push(page.content);
+      if (!page.truncated) {
+        expect(page.next_offset).toBeNull();
+        complete = true;
+        continue;
+      }
+      expect(page.next_offset).toBe(offset + page.content.length);
+      offset = page.next_offset!;
+    }
 
-    const second = (await service(db).read({ slug: 'big', offset: first['next_offset'], max_chars: 1000 }, host)) as Record<
-      string,
-      unknown
-    >;
-    expect(String(first['content']) + String(second['content'])).toBe(body.slice(0, 2000));
+    expect(windows.join('')).toBe(storedBody);
   });
 
   it('reads an exact chunk and a chunk range', async () => {

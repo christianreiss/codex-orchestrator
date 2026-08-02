@@ -349,6 +349,15 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('resource_update');
     expect(list).toContain('resource_delete');
 
+    const create = reg.list().find((tool) => tool.name === 'resource_create');
+    const update = reg.list().find((tool) => tool.name === 'resource_update');
+    const remove = reg.list().find((tool) => tool.name === 'resource_delete');
+    expect(create?.inputSchema.properties).toMatchObject({ expected_sha256: { type: 'string' } });
+    expect(update?.inputSchema.properties).toMatchObject({ expected_sha256: { type: 'string' } });
+    expect(create?.description).toMatch(/existing shared:\/\/ document.*replaces the ENTIRE body/i);
+    expect(update?.description).toMatch(/shared:\/\/ replaces the ENTIRE body/i);
+    expect(remove?.description).toMatch(/shared:\/\/ only when the whole record is invalid or superseded/i);
+
     const read = await reg.dispatch('resource_read', { uri: 'skill://agentic' }, host);
     expect(read).toMatchObject({ isError: false });
     expect((read as { content: Array<{ text: string }> }).content[0]!.text).toContain('Skill');
@@ -576,6 +585,17 @@ describe('shared_memory_* tools', () => {
     expect(required('shared_memory_delete')).toEqual(['slug']);
   });
 
+  it('warns that replacement needs one stable complete read', () => {
+    const description = (name: string) => reg.list().find((tool) => tool.name === name)?.description ?? '';
+    expect(description('shared_memory_read')).toMatch(/offset 0 without chunk selectors/i);
+    expect(description('shared_memory_read')).toMatch(/same memory\.sha256 on every window/i);
+    expect(description('shared_memory_write')).toMatch(/replaces its ENTIRE body/i);
+    expect(description('shared_memory_write')).toMatch(/excerpt, preview, chunk, or partial read/i);
+    expect(description('shared_memory_write')).toMatch(/restart the full read/i);
+    expect(description('shared_memory_delete')).toMatch(/only when the whole record is invalid/i);
+    expect(description('shared_memory_delete')).toMatch(/not merely because one fact inside it is stale/i);
+  });
+
   it('reports a missing required field instead of dispatching', async () => {
     const res = await reg.dispatch('shared_memory_write', { slug: 'x' }, host);
     expect((res as { isError: boolean }).isError).toBe(true);
@@ -674,6 +694,18 @@ describe('secret_* tools', () => {
       'secret_search',
       'secret_store',
     ]);
+  });
+
+  it('describes transport that keeps plaintext out of shell and process metadata', () => {
+    const get = reg.list().find((tool) => tool.name === 'secret_get');
+    expect(get?.description).toMatch(/tool-native secret parameter/i);
+    expect(get?.description).toMatch(
+      /stdin, an inherited file descriptor, or a process-scoped environment variable/i,
+    );
+    expect(get?.description).toMatch(/shell command text, argv, a URL/i);
+    expect(get?.description).toMatch(/do not enable shell tracing/i);
+    expect(get?.description).toMatch(/sanitize subprocess output/i);
+    expect(get?.description).toMatch(/unset process-scoped variables immediately/i);
   });
 
   // The discovery premise: an agent that knows nothing must be able to find out

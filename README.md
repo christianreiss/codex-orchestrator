@@ -2,7 +2,7 @@
 
 **One command to rule your AI fleet — Codex and Claude, side by side.**
 
-Codex Orchestrator is a self-hosted PHP/MySQL service that keeps OpenAI Codex and Anthropic Claude Code running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` (Codex) and `clx` (Claude) handle the rest — syncing credentials, config, skills, and usage data while serving everything canonically through MCP so you never have to copy a token by hand again.
+Codex Orchestrator is a self-hosted Node.js/MySQL service that keeps OpenAI Codex and Anthropic Claude Code running smoothly across every machine you own. Upload your auth once, register your hosts, and let `cdx` (Codex) and `clx` (Claude) handle the rest — syncing credentials, config, skills, and usage data while serving everything canonically through MCP so you never have to copy a token by hand again.
 
 A host can run Codex, Claude, or both. The orchestrator manages both engines from a single admin dashboard.
 
@@ -233,7 +233,7 @@ Skills are stored centrally and delivered in each engine's native form — no ma
 - **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude Skills.
 - **Admin authoring** — create, edit, and delete skills from `/admin/skills`. Descriptions and drafts can be AI-generated via the runner.
 - **Integrity tracking** — every skill carries a SHA256 hash so the sync pipeline knows when content has actually changed.
-- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance requires `skill_list` first and routes management requests and workflow questions to `skill://skill-manager`. Claude continues to use its native synced Skill directories.
+- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests and workflow questions to `skill://skill-manager`, without reordering higher-level runtime requirements for built-in/system Skills. Claude continues to use its native synced Skill directories.
 
 ## Dynamic AGENTS.md and CLAUDE.md
 
@@ -241,7 +241,7 @@ The agent document is version-controlled on the server as canonical base Markdow
 
 - **Versioned** — every save creates a new immutable version. The admin can revert to any previous version or lock serving to a specific one.
 - **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
-- **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the concise hints that apply: authoritative MCP-first Skill discovery, MCP memory routing, Projects/CoCo, and Codex-only BrowserOS. Codex is told to consult `skill_list` before local/system Skill files and to read `skill://skill-manager` for management work; Claude receives native Skill-path wording. Memory records are authoritative for recorded decisions and handoffs, while mutable code/runtime facts still require current verification and stale records are updated or deleted instead of duplicated. BrowserOS appears only for Codex hosts with both the host toggle and orchestrator MCP enabled. Skills and Memories themselves stay in their canonical stores and are never inventoried in the document.
+- **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the concise hints that apply: authoritative MCP-first fleet-Skill discovery, MCP memory routing, Projects/CoCo, Codex-only BrowserOS, and the fleet secrets workflow. Codex consults `skill_list` before host-local copies for fleet-Skill work and reads `skill://skill-manager` for management; Claude receives native Skill-path wording. Memory records are authoritative for recorded decisions and handoffs, while mutable code/runtime facts still require current verification. Replacing an existing shared-memory document requires an offset-zero complete read with one stable digest so partial windows cannot amputate it. Secrets stay out of shell text, argv, URLs, files, logs, and durable memory. BrowserOS appears only for Codex hosts with both the host toggle and orchestrator MCP enabled. Canonical inventories are never embedded in the document.
 - **Change detection** — the wrapper sends its local SHA256; the server responds with `unchanged` (skip write) or `updated` (atomic file replace). Three hashes are tracked: base document, managed sections, and final combined.
 - **Seeded on boot** — if the database is empty, the server seeds from the repo's `AGENTS.md` file on first start.
 - **Admin dashboard** — edit the canonical base, view version history, and control serve mode at `/admin/agents`; host-specific hints are appended only when the document is served.

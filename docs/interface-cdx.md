@@ -83,13 +83,17 @@ block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 
 The block is concise guidance, not state replication. When applicable it makes
-the orchestrator MCP authoritative for Skills and requires `skill_list` before
-answering or acting on any Skill-related request, ahead of host-local or system
-`SKILL.md` files. Workflow, create, update, and delete requests are routed
-through `skill://skill-manager`; other manifests and support files use
-`skill_retrieve` and `skill://<slug>/<path>`. The same block routes durable
-memory through the MCP `shared_memory_*`, `project_memory_*`, and host-local
-`memory_*` scopes, points enabled project coordination at `#coco` /
+the orchestrator MCP authoritative for fleet Skills and requires `skill_list`
+before consulting host-local copies for fleet-Skill work. Workflow, create,
+update, and delete requests are routed through `skill://skill-manager`; other
+manifests and support files use `skill_retrieve` and
+`skill://<slug>/<path>`. Higher-level runtime requirements for built-in/system
+Skills still take precedence. The same block routes durable memory through the
+MCP `shared_memory_*`, `project_memory_*`, and host-local `memory_*` scopes. A
+whole-body shared-memory replacement requires a complete read from offset 0
+through `truncated:false`, with one stable `memory.sha256`; excerpts, previews,
+chunks, and other partial reads must never be written back. The block points
+enabled project coordination at `#coco` /
 `project_*`, and advertises BrowserOS only when both the host toggle and
 orchestrator MCP are active. It routes working credentials — API tokens,
 database passwords, service accounts — at the fleet secrets store via
@@ -97,10 +101,14 @@ database passwords, service accounts — at the fleet secrets store via
 `secret_delete`, ahead of asking the operator or reading env files, config files,
 or shell history. Availability and write-capability questions require a read-only
 `secret_list` probe; its status distinguishes disabled from enabled-but-empty.
-The block also states the handling rules
-(never echo a value into output, a commit, a log, a file, or any memory scope).
+The block prefers a tool-native secret parameter, then stdin, an inherited
+descriptor, or a process-scoped environment variable. It forbids shell text,
+argv, URLs, source, logged requests, shell tracing, files, output, and memory
+scopes; subprocess output is sanitized and temporary variables are removed.
 That paragraph appears when the `secrets_module_enabled` switch is on and
-orchestrator MCP is reachable, even when no secret is visible yet. It never lists individual Skills, memories, projects, or secrets. Recorded decisions, conventions, runbooks, and handoffs are
+orchestrator MCP is reachable, even when no secret is visible yet. It never
+lists individual Skills, memories, projects, or secrets. Recorded decisions,
+conventions, runbooks, and handoffs are
 authoritative over agent assumptions, but mutable code and runtime facts must be
 verified against the present repository or system; stale records are updated or
 deleted instead of duplicated.

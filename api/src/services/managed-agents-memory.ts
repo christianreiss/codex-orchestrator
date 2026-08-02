@@ -69,12 +69,21 @@ that is where the answer lives. \`memory_*\` is host-local scratch and is NOT a 
 it cannot be listed, so it can never tell you what exists.
 
 **When a record is wrong, fix it then.** If something you read here contradicts what you just
-verified, correcting it is part of the task you are already doing — not follow-up work. You have the
-slug and the truth in hand now; you will not have them later. Rewrite the same slug with
-\`shared_memory_write\`, passing \`expected_sha256\` from your read so a concurrent writer fails loudly
-instead of losing text. Use \`shared_memory_delete\` when a record is superseded or was proven wrong:
-deleting is part of the job, because wrong context is worse than no context. Never leave a corrected
-fact standing beside the stale one — near-duplicates are how this corpus rots into uselessness.
+verified, correcting it is part of the task you are already doing — not follow-up work. Before
+replacing an existing shared document through \`shared_memory_write\`, \`resource_create\`, or
+\`resource_update\` on \`shared://\`, reconstruct its complete current body: start
+\`shared_memory_read\` at offset 0 without chunk selectors, concatenate every window through
+\`next_offset\` until \`truncated\` is false, and require the same \`memory.sha256\` on every window.
+Preserve all unaffected content.
+
+Never replace a document from a search excerpt, preview, isolated chunk, or other partial read: every
+shared write path replaces the entire body. Pass the stable digest as \`expected_sha256\`. On a
+conflict or a changed digest between windows, restart the complete read and reapply the correction.
+Use \`shared_memory_delete\` or \`resource_delete\` on \`shared://\` only when the whole record is
+invalid or superseded, not because one fact inside it is stale. If the complete body cannot be loaded
+and preserved safely, do not overwrite it; report the blocked correction. Never leave a corrected
+fact beside the stale one — near-duplicates are how this corpus rots into uselessness, and wrong
+context is worse than no context.
 
 **Writing something down.** Anything the next agent — on another host, in another session — would
 want belongs in \`shared_memory_write\`, or \`shared_memory_append\` to grow a document that already

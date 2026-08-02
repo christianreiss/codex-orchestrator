@@ -148,12 +148,13 @@ trigger applies, and follow its instructions.`,
     context.skills,
     `## Skills
 
-The orchestrator MCP is authoritative for fleet Skills. Before answering or acting on any
-Skill-related request, call \`skill_list\` first — before reading any host-local or system
-\`SKILL.md\`. For requests to create, update, delete, or explain the Skill-management workflow,
-read \`skill://skill-manager\` with \`resource_read\` and follow it. Use \`skill_retrieve\` for
-other manifests and \`skill://{slug}/<path>\` for support files. An unqualified "Skill" means a
-fleet Skill; do not substitute Codex's built-in \`skill-creator\`.`,
+The orchestrator MCP is authoritative for fleet Skills. For a fleet-Skill request, call
+\`skill_list\` before consulting host-local Skill copies. For requests to create, update, delete,
+or explain the fleet Skill-management workflow, read \`skill://skill-manager\` with \`resource_read\`
+and follow it. Use \`skill_retrieve\` for other manifests and \`skill://{slug}/<path>\` for support
+files. An unqualified "Skill" means a fleet Skill; do not substitute Codex's built-in
+\`skill-creator\`. Higher-level runtime requirements for built-in or system Skills still take
+precedence.`,
     'mcp',
   );
 }
@@ -228,9 +229,13 @@ from a partial tool list. Save a new credential, or rotate one this host owns, w
 Retire a credential this host owns with \`secret_delete\`. A capability question is read-only:
 never create, rotate, or delete anything without explicit user intent and the required value.
 
-**Handling one.** Pass the value straight into the command or request that needs it, then drop it.
-Never write a secret value into your reply, a commit, a log, or any file. Never copy one into
-\`shared_memory_*\`, \`project_memory_*\`, or \`memory_*\`. Refer to secrets by slug, never by value.`,
+**Using one.** Prefer a tool-native secret parameter. Otherwise use stdin, an inherited file
+descriptor, or a process-scoped environment variable. Never interpolate a secret into shell command
+text, argv, a URL, source code, or a logged request. Do not enable shell tracing while handling it;
+sanitize subprocess output before reporting it, and unset process-scoped secret variables
+immediately after use. Never write a secret value into your reply, a commit, a log, or any file.
+Never copy one into \`shared_memory_*\`, \`project_memory_*\`, or \`memory_*\`. Refer to secrets by
+slug, never by value.`,
     'mcp',
   );
 }

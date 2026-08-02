@@ -72,12 +72,26 @@ describe('managed memory block', () => {
     // a checkpoint competes with finishing, which produced zero corrections.
     expect(block).toMatch(/contradicts what you just\s+verified/i);
     expect(block).toMatch(/part of the task you are already doing/i);
-    // Update and delete must both name their tool and their trigger.
-    expect(block).toMatch(/rewrite the same slug with\s+`shared_memory_write`/i);
-    expect(block).toMatch(/`shared_memory_delete` when a record is superseded or was proven wrong/i);
-    expect(block).toMatch(/wrong context is worse than no context/i);
-    expect(block).toMatch(/near-duplicates are how this corpus rots/i);
+    // Every whole-body surface must name its tool and safe trigger.
+    expect(block).toMatch(/through `shared_memory_write`, `resource_create`, or\s+`resource_update` on `shared:\/\/`/i);
+    expect(block).toMatch(/`shared_memory_delete` or `resource_delete` on `shared:\/\/` only when the whole record is\s+invalid or superseded/i);
+    expect(block).toMatch(/wrong\s+context is worse than no context/i);
+    expect(block).toMatch(/near-duplicates\s+are how this corpus rots/i);
   });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])(
+    'requires a stable complete read before replacement, for %s',
+    (engine) => {
+      const block = buildManagedMemoryBlock(engine);
+      expect(block).toMatch(/start\s+`shared_memory_read` at offset 0 without chunk selectors/i);
+      expect(block).toMatch(/through\s+`next_offset` until `truncated` is false/i);
+      expect(block).toMatch(/same `memory\.sha256` on every window/i);
+      expect(block).toMatch(/search excerpt, preview, isolated chunk, or other partial read/i);
+      expect(block).toMatch(/every\s+shared write path replaces the entire body/i);
+      expect(block).toMatch(/conflict or a changed digest between windows, restart the complete read/i);
+      expect(block).toMatch(/complete body cannot be loaded\s+and preserved safely, do not overwrite it/i);
+    },
+  );
 
   it.each([ENGINE_CODEX, ENGINE_CLAUDE])('carries the hard rules that %s agents never saw', (engine) => {
     const block = buildManagedMemoryBlock(engine);

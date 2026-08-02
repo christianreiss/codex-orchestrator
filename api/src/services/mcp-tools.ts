@@ -386,7 +386,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_read',
         description:
-          'Read a shared memory document by slug, after finding it with shared_memory_list or shared_memory_search. Returns a bounded window (max_chars, default 32000) — use chunk/from_chunk/to_chunk or the returned next_offset to walk a large document.',
+          'Read a shared memory document by slug, after finding it with shared_memory_list or shared_memory_search. Returns a bounded window (max_chars, default 32000). For inspection, use chunk/from_chunk/to_chunk as needed. Before a whole-document replacement, start at offset 0 without chunk selectors, follow next_offset until truncated is false, and require the same memory.sha256 on every window.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -406,7 +406,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_write',
         description:
-          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces it — that is how you correct a record whose facts have changed, and it is preferred over creating a near-duplicate slug beside it, so search before you create. Pass expected_sha256 from your prior read so a concurrent writer fails loudly instead of losing text. To add new material to a document that is still accurate, prefer shared_memory_append. Up to 1 MiB.',
+          'Record something the whole fleet should know, in a document every host and both engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces its ENTIRE body. Never replace from a search excerpt, preview, chunk, or partial read. First reconstruct the complete body with shared_memory_read from offset 0 through every next_offset, require one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read and reapply the correction. To add new material to an accurate document, prefer shared_memory_append. Search before creating a near-duplicate slug. Up to 1 MiB.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -449,7 +449,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_delete',
         description:
-          'Retire a shared memory document whose content is superseded, was proven wrong, or has been replaced by another record. Deleting is part of curating the corpus: a document that states something untrue is worse than no document, because the next agent cannot tell it is stale. Soft delete — the slug stays reserved and a later write revives it, so this is recoverable.',
+          'Retire a shared memory document only when the whole record is invalid, superseded, or replaced by another record — not merely because one fact inside it is stale. Deleting is part of curating the corpus: a document that states something untrue is worse than no document, because the next agent cannot tell it is stale. Soft delete — the slug stays reserved and a later write revives it, so this is recoverable.',
         inputSchema: {
           type: 'object',
           properties: { slug: { type: 'string' } },
@@ -518,7 +518,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'secret_get',
         description:
-          'Fetch the plaintext of one fleet credential by slug, after finding it with secret_list or secret_search. Returns a live credential — handle it as one: use it for the call you are making right now and nothing else, and never echo it into a shell command you print, a log line, a commit, a file on disk, a memory, a project note, a comment, or any other tool output. Do not cache it or copy it anywhere: revocation in this store is instant, so a copy you kept is a credential that has stopped working, and a credential you wrote down is one nobody can revoke. Call this again if you need it later. Every call is recorded in the fleet MCP audit log against this host and this slug, whether or not it succeeds.',
+          'Fetch the plaintext of one fleet credential by slug, after finding it with secret_list or secret_search. Use it only for the call you are making now. Prefer a tool-native secret parameter; otherwise use stdin, an inherited file descriptor, or a process-scoped environment variable. Never put the value in shell command text, argv, a URL, source code, a logged request, a reply, a commit, a file, memory, project data, comments, or other tool output. Do not enable shell tracing; sanitize subprocess output and unset process-scoped variables immediately. Do not cache it: revocation is instant, so call this again if needed later. Every call is recorded in the fleet MCP audit log against this host and slug, whether or not it succeeds.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -1025,10 +1025,14 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     inputs.push({
       definition: {
         name: 'resource_create',
-        description: 'Create a writable MCP resource (memory:// only)',
+        description: 'Create or upsert a writable memory://, shared://{slug}, or project://{slug}/memory/{key} resource. On an EXISTING shared:// document this replaces the ENTIRE body: first read it completely from offset 0 through every next_offset with one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. Never replace from an excerpt, preview, chunk, or partial read.',
         inputSchema: {
           type: 'object',
-          properties: { uri: { type: 'string' }, text: { type: 'string' } },
+          properties: {
+            uri: { type: 'string' },
+            text: { type: 'string' },
+            expected_sha256: { type: 'string' },
+          },
           required: ['uri', 'text'],
         },
       },
@@ -1037,10 +1041,14 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     inputs.push({
       definition: {
         name: 'resource_update',
-        description: 'Update a writable MCP resource (memory:// only)',
+        description: 'Update a writable memory://, shared://{slug}, or project://{slug}/memory/{key} resource. Updating shared:// replaces the ENTIRE body: first read it completely from offset 0 through every next_offset with one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read; never replace from an excerpt, preview, chunk, or partial read.',
         inputSchema: {
           type: 'object',
-          properties: { uri: { type: 'string' }, text: { type: 'string' } },
+          properties: {
+            uri: { type: 'string' },
+            text: { type: 'string' },
+            expected_sha256: { type: 'string' },
+          },
           required: ['uri', 'text'],
         },
       },
@@ -1049,7 +1057,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     inputs.push({
       definition: {
         name: 'resource_delete',
-        description: 'Delete a writable MCP resource (memory:// only)',
+        description: 'Delete a writable memory://, shared://{slug}, or project://{slug}/memory/{key} resource. Delete shared:// only when the whole record is invalid or superseded, not because one fact inside it is stale.',
         inputSchema: {
           type: 'object',
           properties: { uri: { type: 'string' } },

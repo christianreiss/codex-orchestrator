@@ -96,6 +96,20 @@ describe('managed #coco skill names only real MCP surfaces', () => {
       'project://{slug}/memory/{key}',
     ]);
   });
+
+  it('requires a stable full-document read before replacing shared memory', () => {
+    const manifest = managedCocoManifest();
+    expect(manifest).toMatch(/complete body from offset 0 through every next_offset/i);
+    expect(manifest).toMatch(/one stable memory\.sha256/i);
+    expect(manifest).toMatch(/resource_create\/resource_update on shared:\/\//i);
+    expect(manifest).toMatch(/never replace from an excerpt, preview, chunk, or partial read/i);
+    expect(manifest).toMatch(/shared_memory_delete or resource_delete on shared:\/\/ only when the whole record is invalid or superseded/i);
+
+    const bootstrap = [guidance.instructions, ...guidance.quickstart].join('\n');
+    expect(bootstrap).toMatch(/complete body from offset 0 through every next_offset/i);
+    expect(bootstrap).toMatch(/one stable memory\.sha256/i);
+    expect(bootstrap).toMatch(/resource_create\/resource_update on shared:\/\//i);
+  });
 });
 
 describe('buildManagedCocoSkill', () => {

@@ -1,5 +1,13 @@
 # 2026-08-02
 
+- Published canonical Fleet AGENTS version 55 with explicit Hard Stop Lines, repository-only
+  precedence, a non-overridable safety floor, domain-specific evidence hierarchy, bounded SSH
+  authority, and shared-worktree Git rules. Hardened the generated feature guidance too: existing
+  shared-memory documents now require a stable offset-zero complete read before whole-body
+  replacement through either shared-memory tool surface, fleet-Skill discovery no longer claims precedence over higher-level built-in/system
+  Skill requirements, and secret use stays out of shell text, argv, URLs, logged requests, files,
+  logs, and durable memory. The live MCP integration test now pins all five `secret_*` tools at the
+  route boundary.
 - Fixed Fleet Instructions navigation against the real admin host-list payload. `GET /admin/hosts`
   now includes its documented parsed `engines_list`, while the AGENTS.md editor also falls back to
   the canonical comma-separated `engines` field so mixed-version or cached responses cannot crash

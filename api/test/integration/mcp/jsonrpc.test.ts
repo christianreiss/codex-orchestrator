@@ -166,6 +166,9 @@ describe('MCP capability split', () => {
     expect(names).toContain('memory_store');
     expect(names).toContain('skill_store');
     expect(names).toContain('skill_delete');
+    expect(names).toEqual(
+      expect.arrayContaining(['secret_list', 'secret_search', 'secret_get', 'secret_store', 'secret_delete']),
+    );
     expect(names).not.toContain('fs_read_file');
     expect(names).not.toContain('fs_write_file');
     await app.close();

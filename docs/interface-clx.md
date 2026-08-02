@@ -227,15 +227,19 @@ The Claude block points Skill discovery at the native managed
 transport. With orchestrator MCP enabled it routes durable fleet, workstream,
 and host facts through `shared_memory_*`, `project_memory_*`, and `memory_*`
 instead of Claude's local `~/.claude/projects/.../memory/` / `MEMORY.md`; enabled
-Projects add the `#coco` / `project_*` hint. BrowserOS remains Codex-only. The
+Projects add the `#coco` / `project_*` hint. A whole-body shared-memory
+replacement requires a complete read from offset 0 through `truncated:false`,
+with one stable `memory.sha256`; excerpts, previews, chunks, and other partial
+reads must never be written back. BrowserOS remains Codex-only. The
 fleet secrets paragraph — the complete `secret_list` / `secret_search` /
 `secret_get` / `secret_store` / `secret_delete` lifecycle, with a read-only
-capability probe and the rules against echoing a value anywhere — is
-byte-identical to the Codex one, since neither engine ships a native credential
-store to defer to; it appears whenever `secrets_module_enabled` and orchestrator
-MCP are on, including when this engine can see no secrets yet. The
-block never inventories individual Skills, memories, projects, or secrets. Recorded
-decisions, conventions, runbooks, and handoffs are authoritative over agent
+capability probe and rules that keep values out of shell text, argv, URLs,
+source, logged requests, tracing, files, output, and memory — is byte-identical
+to the Codex one, since neither engine ships a native credential store to defer
+to; it appears whenever `secrets_module_enabled` and orchestrator MCP are on,
+including when this engine can see no secrets yet. The block never inventories
+individual Skills, memories, projects, or secrets. Recorded decisions,
+conventions, runbooks, and handoffs are authoritative over agent
 assumptions, but mutable code and runtime facts must be verified against the
 present repository or system; stale records are updated or deleted instead of
 duplicated.

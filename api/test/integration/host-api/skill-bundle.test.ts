@@ -225,10 +225,14 @@ describe('fresh Codex Skill bootstrap', () => {
 
       expect((body['agents'] as Record<string, unknown>)['status']).toBe('updated');
       expect(agents).toMatch(/orchestrator MCP is authoritative/i);
-      expect(agents).toMatch(/call `skill_list` first/i);
-      expect(agents).toMatch(/before reading any host-local or system/i);
+      expect(agents).toMatch(
+        /fleet-Skill request, call\s+`skill_list` before consulting host-local Skill copies/i,
+      );
+      expect(agents).toMatch(
+        /higher-level runtime requirements for built-in or system Skills still take\s+precedence/i,
+      );
       expect(agents).toContain('skill://skill-manager');
-      expect(agents).toContain('built-in `skill-creator`');
+      expect(agents).toMatch(/built-in\s+`skill-creator`/i);
       expect((body['config'] as Record<string, unknown>)['status']).toBe('updated');
       expect(config).toContain('[mcp_servers.cdx]');
       expect(config).toContain('url = "https://o.example/mcp"');

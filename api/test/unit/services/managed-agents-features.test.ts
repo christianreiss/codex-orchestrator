@@ -91,9 +91,13 @@ describe('renderManagedAgentFeatures', () => {
     expect(out.body).toContain('skill://skill-manager');
     expect(out.body).toContain('skill://{slug}');
     expect(out.body).toMatch(/MCP is authoritative/i);
-    expect(out.body).toMatch(/call `skill_list` first/i);
-    expect(out.body).toMatch(/before reading any host-local or system/i);
-    expect(out.body).toContain('built-in `skill-creator`');
+    expect(out.body).toMatch(
+      /fleet-Skill request, call\s+`skill_list` before consulting host-local Skill copies/i,
+    );
+    expect(out.body).toMatch(/built-in\s+`skill-creator`/i);
+    expect(out.body).toMatch(
+      /higher-level runtime requirements for built-in or system Skills still take\s+precedence/i,
+    );
     expect(out.body).not.toContain('~/.claude/skills');
     expect(out.sections.skills.transport).toBe('mcp');
   });
@@ -134,7 +138,10 @@ describe('renderManagedAgentFeatures', () => {
       // The curation contract survives the render, not just the raw builder —
       // this is the text that replaced the retired #context skill.
       expect(out.body).toMatch(/contradicts what you just\s+verified/i);
-      expect(out.body).toMatch(/wrong context is worse than no context/i);
+      expect(out.body).toMatch(/wrong\s+context is worse than no context/i);
+      expect(out.body).toMatch(/offset 0 without chunk selectors/i);
+      expect(out.body).toMatch(/same `memory\.sha256` on every window/i);
+      expect(out.body).toMatch(/replaces the entire body/i);
     }
     expect(codex.body).toContain("Codex's own local memories feature");
     expect(codex.body).not.toContain('~/.claude/projects');
@@ -342,7 +349,15 @@ describe('managed Secrets guidance', () => {
     // agent reads here first.
     expect(out.body).toMatch(/never write a secret value into your reply/i);
     expect(out.body).toMatch(/never copy one into/i);
-    expect(out.body).toMatch(/by slug, never by value/i);
+    expect(out.body).toMatch(/by\s+slug, never by value/i);
+    expect(out.body).toMatch(/tool-native secret parameter/i);
+    expect(out.body).toMatch(
+      /stdin, an inherited file\s+descriptor, or a process-scoped environment variable/i,
+    );
+    expect(out.body).toMatch(/shell command\s+text, argv, a URL, source code, or a logged request/i);
+    expect(out.body).toMatch(/do not enable shell tracing/i);
+    expect(out.body).toMatch(/sanitize subprocess output/i);
+    expect(out.body).toMatch(/unset process-scoped secret variables/i);
     // It must not promise a local copy exists; MCP is the only channel.
     expect(out.body).toMatch(/nothing is written to this machine's disk/i);
   });
