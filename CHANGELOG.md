@@ -1,5 +1,7 @@
 # 2026-08-02
 
+- Replaced the current rendered AGENTS.md textarea with a sanitized, keyboard-scrollable, fully
+  styled Markdown document preview and added one-click copying of the exact served source.
 - Published canonical Fleet AGENTS version 55 with explicit Hard Stop Lines, repository-only
   precedence, a non-overridable safety floor, domain-specific evidence hierarchy, bounded SSH
   authority, and shared-worktree Git rules. Hardened the generated feature guidance too: existing

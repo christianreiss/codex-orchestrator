@@ -13,8 +13,9 @@
   type Props = {
     source: string;
     class?: string;
+    ariaLabel?: string;
   };
-  let { source, class: className = "" }: Props = $props();
+  let { source, class: className = "", ariaLabel = "Rendered Markdown preview" }: Props = $props();
 
   // Strip a leading YAML frontmatter block before rendering — otherwise
   // `---` read as Markdown (not YAML) is Setext heading syntax and the
@@ -29,7 +30,13 @@
   });
 </script>
 
-<div class={`md-prose max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 ${className}`}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div
+  role="region"
+  aria-label={ariaLabel}
+  tabindex="0"
+  class={`md-prose max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 ${className}`}
+>
   {#if body}
     {@html html}
   {:else}

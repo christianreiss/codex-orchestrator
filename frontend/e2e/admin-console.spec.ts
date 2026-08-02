@@ -9,6 +9,10 @@ const user = {
   roles: ["owner"],
 };
 
+const RENDERED_AGENTS_CONTENT =
+  "# Fleet policy\n\nRendered for `console.example.test`.\n\n- Preserve unrelated changes.\n" +
+  "- Keep every rendered rule readable.\n".repeat(32);
+
 /**
  * Every direct destination from the shared route registry. Keep this explicit
  * rather than importing the registry into Playwright: a stale test should
@@ -285,6 +289,35 @@ function fixture(pathname: string): Record<string, unknown> {
           },
         ],
       };
+    case "/admin/agents":
+      return {
+        status: "ok",
+        mode: "latest",
+        active_id: 55,
+        served_id: 55,
+        latest_id: 55,
+        backup_limit: 20,
+        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        updated_at: "2026-08-02T08:00:00Z",
+        size_bytes: 84,
+        content: "# Canonical fleet policy\n",
+        versions: [],
+      };
+    case "/admin/agents/render":
+      return {
+        status: "ok",
+        host_id: 1,
+        host_fqdn: "console.example.test",
+        engine: "codex",
+        version_id: 55,
+        sha256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        size_bytes: RENDERED_AGENTS_CONTENT.length,
+        content: RENDERED_AGENTS_CONTENT,
+        sections: {
+          skills: { present: true, reason: "included", count: 4 },
+          memory: { present: true, reason: "included" },
+        },
+      };
     case "/admin/hosts/1/detail":
       return {
         host: {
@@ -528,6 +561,27 @@ test("desktop navigation switches from Skills to Fleet Instructions with a legac
   await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Render current" })).toBeEnabled();
   expect(pageErrors).toEqual([]);
+});
+
+test("rendered AGENTS preview is a document and copies its exact Markdown", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/admin/instructions");
+  await page.getByRole("button", { name: "Render current" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Current rendered AGENTS.md" });
+  await expect(dialog).toBeVisible();
+  const document = dialog.getByRole("article", { name: "Current rendered AGENTS.md document" });
+  await expect(document.getByRole("heading", { name: "Fleet policy", level: 1 })).toBeVisible();
+  await expect(document.getByText("Preserve unrelated changes.")).toBeVisible();
+  await expect(document.getByRole("region", { name: "Rendered AGENTS.md content" })).toHaveAttribute(
+    "tabindex",
+    "0",
+  );
+  await expect(dialog.getByRole("textbox", { name: "Current rendered AGENTS.md preview" })).toHaveCount(0);
+  await expectNoSeriousAxeFindings(page);
+
+  await dialog.getByRole("button", { name: "Copy document" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(RENDERED_AGENTS_CONTENT);
 });
 
 test("operator tables use the full workspace and the mobile menu retains all routes", async ({ page }) => {

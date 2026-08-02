@@ -10,6 +10,8 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import { CopyButton } from "$lib/components/ui/copy-button";
+  import RenderedMarkdown from "$lib/components/authoring/RenderedMarkdown.svelte";
   import * as Select from "$lib/components/ui/select";
   import * as Dialog from "$lib/components/ui/dialog";
   import Save from "@lucide/svelte/icons/save";
@@ -458,18 +460,27 @@
       {:else if renderedPreview?.status === "missing"}
         <p class="text-sm text-muted-foreground">No AGENTS.md document is currently configured for this host.</p>
       {:else if renderedPreview}
-        <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span class="font-medium text-foreground">{renderedPreview.host_fqdn}</span>
-          <span>·</span>
-          <span>Version #{renderedPreview.version_id ?? "—"}</span>
-          <span>·</span>
-          <span>{formatBytes(renderedPreview.size_bytes ?? 0)}</span>
-          {#if renderedPreview.sha256}
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span class="font-medium text-foreground">{renderedPreview.host_fqdn}</span>
             <span>·</span>
-            <span class="font-mono" title={renderedPreview.sha256}>
-              sha256: {renderedPreview.sha256.slice(0, 12)}…
-            </span>
-          {/if}
+            <span>Version #{renderedPreview.version_id ?? "—"}</span>
+            <span>·</span>
+            <span>{formatBytes(renderedPreview.size_bytes ?? 0)}</span>
+            {#if renderedPreview.sha256}
+              <span>·</span>
+              <span class="font-mono" title={renderedPreview.sha256}>
+                sha256: {renderedPreview.sha256.slice(0, 12)}…
+              </span>
+            {/if}
+          </div>
+          <CopyButton
+            value={renderedPreview.content ?? ""}
+            label="Copy document"
+            copiedLabel="Copied"
+            size="sm"
+            toastMessage="Rendered AGENTS.md copied"
+          />
         </div>
         {#if renderedPreviewSections.length > 0}
           <div class="flex flex-wrap gap-1.5" aria-label="Managed feature state">
@@ -480,12 +491,13 @@
             {/each}
           </div>
         {/if}
-        <Textarea
-          aria-label="Current rendered AGENTS.md preview"
-          class="min-h-[55vh] font-mono text-xs"
-          readonly
-          value={renderedPreview.content ?? ""}
-        />
+        <article aria-label="Current rendered AGENTS.md document">
+          <RenderedMarkdown
+            source={renderedPreview.content ?? ""}
+            ariaLabel="Rendered AGENTS.md content"
+            class="min-h-[55vh] bg-background p-6 sm:p-8"
+          />
+        </article>
       {/if}
     </div>
 
