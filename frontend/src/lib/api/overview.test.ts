@@ -168,6 +168,31 @@ describe("releaseVersion", () => {
   });
 });
 
+describe("outdatedClientVersions", () => {
+  it("compares the concrete release with reported host versions", () => {
+    assert.deepEqual(
+      overview.outdatedClientVersions("0.146.0", [
+        { version: "0.145.0", count: 2 },
+        { version: "0.146.0", count: 3 },
+        { version: "0.147.0", count: 1 },
+      ]),
+      [{ version: "0.145.0", count: 2 }],
+    );
+  });
+
+  it("never treats the latest policy alias as an installed version", () => {
+    assert.deepEqual(
+      overview.outdatedClientVersions("0.146.0", [{ version: "latest", count: 4 }]),
+      [],
+    );
+  });
+
+  it("ignores malformed releases and empty telemetry buckets", () => {
+    assert.deepEqual(overview.outdatedClientVersions("latest", [{ version: "0.145.0", count: 2 }]), []);
+    assert.deepEqual(overview.outdatedClientVersions("0.146.0", [{ version: "0.145.0", count: 0 }]), []);
+  });
+});
+
 describe("overviewKeys", () => {
   it("namespaces all three keys under the overview root", () => {
     assert.deepEqual(overview.overviewKeys, {
@@ -209,6 +234,7 @@ describe("module surface", () => {
   const EXPECTED_EXPORTS = [
     "engineInstallCounts",
     "insecureApprovalsPendingQuery",
+    "outdatedClientVersions",
     "overviewKeys",
     "overviewQuery",
     "releaseVersion",

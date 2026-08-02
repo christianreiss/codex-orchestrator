@@ -23,9 +23,14 @@ export interface OverviewVersions {
   [key: string]: unknown;
 }
 
+export interface VersionCount {
+  version: string;
+  count: number;
+}
+
 export interface VersionDistribution {
-  codex: Array<{ version: string; count: number }>;
-  claude: Array<{ version: string; count: number }>;
+  codex: VersionCount[];
+  claude: VersionCount[];
   install: { both: number; codex_only: number; claude_only: number; neither: number };
 }
 
@@ -102,6 +107,34 @@ export interface VersionsCheckResponse {
 export function releaseVersion(value: AvailableClientRelease | string | null | undefined): string | null {
   if (typeof value === "string") return value;
   return typeof value?.version === "string" ? value.version : null;
+}
+
+function numericVersion(value: string): number[] | null {
+  const match = value.trim().match(/^v?(\d+(?:\.\d+)+)(?:[-+].*)?$/);
+  return match?.[1]?.split(".").map((segment) => Number.parseInt(segment, 10)) ?? null;
+}
+
+/** Reported host versions strictly older than the concrete upstream release. */
+export function outdatedClientVersions(
+  available: string | null | undefined,
+  reported: VersionCount[] | null | undefined,
+): VersionCount[] {
+  const availableParts = available ? numericVersion(available) : null;
+  if (!availableParts) return [];
+
+  return (reported ?? []).filter(({ version, count }) => {
+    if (count <= 0) return false;
+    const reportedParts = numericVersion(version);
+    if (!reportedParts) return false; // `latest` is a policy alias, not telemetry.
+    const length = Math.max(availableParts.length, reportedParts.length);
+    for (let index = 0; index < length; index += 1) {
+      const current = reportedParts[index] ?? 0;
+      const latest = availableParts[index] ?? 0;
+      if (current < latest) return true;
+      if (current > latest) return false;
+    }
+    return false;
+  });
 }
 
 export const overviewKeys = {

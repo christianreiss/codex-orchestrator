@@ -8,15 +8,18 @@
   import UpgradeModal from "$lib/components/dashboard/UpgradeModal.svelte";
   import {
     insecureApprovalsPendingQuery,
+    outdatedClientVersions,
     releaseVersion,
     versionsCheckMutation,
+    type AvailableClientRelease,
+    type VersionCount,
     type VersionsCheckResponse,
   } from "$lib/api/overview";
 
   type Props = {
-    currentVersion?: string | null;
+    reportedVersions?: VersionCount[];
   };
-  let { currentVersion = null }: Props = $props();
+  let { reportedVersions = [] }: Props = $props();
 
   const pending = insecureApprovalsPendingQuery();
   const versions = versionsCheckMutation();
@@ -36,33 +39,14 @@
 
   const versionData = $derived(($versions.data as VersionsCheckResponse | undefined) ?? null);
   const availableVersion = $derived(releaseVersion(versionData?.available_client));
-  const installedVersion = $derived(
-    currentVersion ??
-      versionData?.versions?.client_version ??
-      versionData?.versions?.cdx_version ??
-      null,
+  const availableUrl = $derived(
+    typeof versionData?.available_client === "object"
+      ? ((versionData.available_client as AvailableClientRelease | null)?.url ?? null)
+      : null,
   );
-
-  function isNewer(a: string | null | undefined, b: string | null | undefined): boolean {
-    if (!a || !b) return false;
-    if (a === b) return false;
-    // Lexicographic on semver-ish strings is good enough for "is it different & newer".
-    // Strip leading 'v' and compare numeric segments where possible.
-    const aClean = a.replace(/^v/, "").split(/[.\-]/).map((s) => parseInt(s, 10));
-    const bClean = b.replace(/^v/, "").split(/[.\-]/).map((s) => parseInt(s, 10));
-    const len = Math.max(aClean.length, bClean.length);
-    for (let i = 0; i < len; i++) {
-      const an = Number.isFinite(aClean[i]) ? aClean[i] : 0;
-      const bn = Number.isFinite(bClean[i]) ? bClean[i] : 0;
-      if (an > bn) return true;
-      if (an < bn) return false;
-    }
-    return false;
-  }
-
-  const upgradeAvailable = $derived(
-    probed && availableVersion !== null && isNewer(availableVersion, installedVersion),
-  );
+  const outdatedVersions = $derived(outdatedClientVersions(availableVersion, reportedVersions));
+  const outdatedHostCount = $derived(outdatedVersions.reduce((sum, item) => sum + item.count, 0));
+  const upgradeAvailable = $derived(probed && outdatedHostCount > 0);
 
   const pendingCount = $derived($pending.data?.requests?.length ?? 0);
   const pendingError = $derived($pending.isError);
@@ -102,8 +86,8 @@
     {#if upgradeAvailable}
       <AlertBanner
         variant="info"
-        title="Update available"
-        description={`Codex orchestrator ${availableVersion} is ready (you have ${installedVersion ?? "an older version"}).`}
+        title="Codex CLI update available"
+        description={`Codex CLI ${availableVersion} is the latest release; ${outdatedHostCount} ${outdatedHostCount === 1 ? "host reports" : "hosts report"} an older version.`}
       >
         {#snippet icon()}
           <Rocket class="h-4 w-4" />
@@ -118,7 +102,8 @@
 
 <UpgradeModal
   bind:open={upgradeOpen}
-  currentVersion={installedVersion}
   availableVersion={availableVersion}
+  releaseUrl={availableUrl}
+  {outdatedVersions}
   notes={null}
 />
