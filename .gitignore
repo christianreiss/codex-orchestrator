@@ -25,3 +25,5 @@ __pycache__/
 # part of the product that ships to the fleet — tool, runtime state, knowledge
 # and run transcripts all stay out of git.
 /improver/
+
+/.playwright-mcp/
