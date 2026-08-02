@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/C0ibLO_z2.js";export{e as component};

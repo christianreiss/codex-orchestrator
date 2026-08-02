@@ -1,7 +1,6 @@
 # Admin Console Design Specification
 
-**Status:** current implementation contract, 2026-08-02. Supersedes the
-2026-08-01 version.
+**Status:** current implementation contract, 2026-08-01.
 
 The admin console is a static Svelte 5/SvelteKit SPA built from `frontend/` into
 the committed `public/admin/` directory. Fastify serves the SPA for browser
@@ -18,11 +17,9 @@ and a grouped navigation sheet.
 
 The visual system is neutral zinc/slate with restrained blue interaction color.
 Light, dark, and system modes use the same semantics. Inter is interface text;
-JetBrains Mono is reserved for technical values. That role explicitly includes
-large operational numerals in dashboard stat tiles, not only small inline
-values like key prefixes or timestamps. Semantic colors indicate real state
-only. Decorative gradients, glass, entry motion, serif display type, oversized
-radii, and card-within-card presentation are out of scope.
+JetBrains Mono is reserved for technical values. Semantic colors indicate real
+state only. Decorative gradients, glass, entry motion, serif display type,
+oversized radii, and card-within-card presentation are out of scope.
 
 Desktop controls are 32–36px high. Dense table rows are 36–40px when their
 content is single-line. Overlays may use a shadow; ordinary surfaces use
@@ -66,23 +63,6 @@ Overview reports health and exceptions only. It links to the relevant owner; it
 does not duplicate controls. WebSocket invalidation follows the same ownership:
 Agent Messaging and Agent Portal changes invalidate only their own query roots.
 
-## Persona color usage
-
-Persona color (Codex/Claude) is a closed, deliberate vocabulary, not a general
-accent available anywhere in the UI. It appears only in:
-
-- `frontend/src/lib/components/brand/BrandMark.svelte` — the source mark.
-- `frontend/src/lib/components/hosts/EngineBadge.svelte` — the host engine
-  chip, and the reference implementation for any new engine-distinguishing UI.
-- `frontend/src/routes/dashboard/StatCard.svelte`'s accent edge, plus the
-  Hosts tile's breakdown numerals on the dashboard.
-- `frontend/src/lib/components/dashboard/RunnerCard.svelte`'s engine-row edge.
-- `frontend/src/lib/components/hosts/QuickVmDialog.svelte`'s per-engine option
-  icons (pre-existing).
-
-Anywhere else that wants to distinguish Codex from Claude should reuse
-`EngineBadge.svelte` rather than inventing a new treatment.
-
 ## Templates and primitives
 
 - Lists use a full-width toolbar plus dense, sortable table, sticky header,
@@ -99,10 +79,6 @@ Anywhere else that wants to distinguish Codex from Claude should reuse
   writing area and keep history/metadata in dedicated detail surfaces.
 - Activity keeps Audit and MCP as peer views with shareable filters. Raw JSON
   belongs in an opened detail, not an always-expanded table cell.
-- Dashboard metric tiles use JetBrains Mono tabular numerals, carry no
-  decorative per-tile icon, and show a solid persona-colored left edge only
-  when the tile reports on a single engine — aggregate tiles stay
-  neutral-edged.
 
 Shared primitives live under `frontend/src/lib/components/layout/`,
 `data-table/`, and `ui/`. Prefer them over one-off spacing or card styles.

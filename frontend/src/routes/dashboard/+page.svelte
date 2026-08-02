@@ -6,6 +6,9 @@
   import DashboardAlerts from "./DashboardAlerts.svelte";
   import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
   import { engineInstallCounts, overviewQuery } from "$lib/api/overview";
+  import Server from "@lucide/svelte/icons/server";
+  import Package from "@lucide/svelte/icons/package";
+  import Bot from "@lucide/svelte/icons/bot";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Activity from "@lucide/svelte/icons/activity";
   import Plus from "@lucide/svelte/icons/plus";
@@ -82,13 +85,16 @@
 <div class="flex flex-col gap-6">
   <OnboardingCard />
   <!-- Fleet + latest-version stat cards -->
-  <div class="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
     <StatCard
       label="Hosts"
       value={stats?.hosts ?? 0}
       hint={refreshHint}
       loading={$overview.isPending}
     >
+      {#snippet icon()}
+        <Server class="h-4 w-4" />
+      {/snippet}
       {#snippet breakdown()}
         <dl
           class="grid grid-cols-2 divide-x divide-border/70 text-right leading-none"
@@ -100,14 +106,14 @@
               <span class="h-1.5 w-1.5 rounded-full bg-persona-codex" aria-hidden="true"></span>
               Codex
             </dt>
-            <dd class="mt-1 text-sm font-semibold tabular-nums text-persona-codex">{installs?.codex ?? "—"}</dd>
+            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.codex ?? "—"}</dd>
           </div>
           <div class="min-w-14 pl-2">
             <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
               <span class="h-1.5 w-1.5 rounded-full bg-persona-claude" aria-hidden="true"></span>
               Claude
             </dt>
-            <dd class="mt-1 text-sm font-semibold tabular-nums text-persona-claude">{installs?.claude ?? "—"}</dd>
+            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.claude ?? "—"}</dd>
           </div>
         </dl>
       {/snippet}
@@ -117,15 +123,21 @@
       value={codexLatest ?? "—"}
       hint={codexChecked}
       loading={$overview.isPending}
-      accent="codex"
-    />
+    >
+      {#snippet icon()}
+        <Package class="h-4 w-4" />
+      {/snippet}
+    </StatCard>
     <StatCard
       label="Claude latest"
       value={claudeLatest ?? "—"}
       hint={claudeChecked}
       loading={$overview.isPending}
-      accent="claude"
-    />
+    >
+      {#snippet icon()}
+        <Bot class="h-4 w-4" />
+      {/snippet}
+    </StatCard>
   </div>
 
   <!-- Alerts row -->

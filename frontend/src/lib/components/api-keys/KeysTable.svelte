@@ -1,14 +1,11 @@
 <script lang="ts">
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import { goto } from "$app/navigation";
-  import { base } from "$app/paths";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Power from "@lucide/svelte/icons/power";
   import PowerOff from "@lucide/svelte/icons/power-off";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Search from "@lucide/svelte/icons/search";
-  import Rocket from "@lucide/svelte/icons/rocket";
   import * as Table from "$lib/components/ui/table";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Switch } from "$lib/components/ui/switch";
@@ -131,14 +128,6 @@
     $toggleMutation.mutate({ id: Number(record.id), active: next });
   }
 
-  function useInBootstrap(record: AdminApiKey) {
-    const params = new URLSearchParams({
-      engine: engineKey,
-      existingKeyId: String(record.id),
-    });
-    void goto(`${base}/bootstrap?${params.toString()}`);
-  }
-
   function formatExpires(s: string | null | undefined): string {
     if (!s) return "Never";
     const d = new Date(s);
@@ -159,7 +148,9 @@
   const filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => r.name?.toLowerCase().includes(q));
+    return rows.filter(
+      (r) => r.name?.toLowerCase().includes(q) || r.key_prefix?.toLowerCase().includes(q),
+    );
   });
 
   // ---- Sort ----
@@ -196,7 +187,7 @@
     <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
     <Input
       bind:value={search}
-      placeholder="Search by name..."
+      placeholder="Search by name, key prefix..."
       class="pl-9"
       aria-label={`Search ${engineLabel(engine)} keys`}
     />
@@ -220,6 +211,7 @@
       <Table.Header>
         <Table.Row>
           <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
+          <Table.Head>Key prefix</Table.Head>
           <Table.Head class="text-right">Rate limit</Table.Head>
           <Table.Head class="text-center">Active</Table.Head>
           <Table.Head class="text-right">Uses</Table.Head>
@@ -230,21 +222,21 @@
             onclick={() => onSort("last_used")}
           />
           <Table.Head>Expires</Table.Head>
-          <Table.Head class="w-[120px] text-right">Actions</Table.Head>
+          <Table.Head class="w-[80px] text-right">Actions</Table.Head>
         </Table.Row>
       </Table.Header>
       <Table.Body>
         {#if isLoading}
           {#each Array(3) as _, i (i)}
             <Table.Row>
-              {#each Array(7) as _2, j (j)}
+              {#each Array(8) as _2, j (j)}
                 <Table.Cell><Skeleton class="h-4 w-full" /></Table.Cell>
               {/each}
             </Table.Row>
           {/each}
         {:else if rows.length === 0}
           <Table.Row>
-            <Table.Cell colspan={7}>
+            <Table.Cell colspan={8}>
               <EmptyState
                 icon={KeyRound}
                 size="sm"
@@ -255,7 +247,7 @@
           </Table.Row>
         {:else if sorted.length === 0}
           <Table.Row>
-            <Table.Cell colspan={7}>
+            <Table.Cell colspan={8}>
               <EmptyState
                 icon={Search}
                 size="sm"
@@ -273,6 +265,12 @@
             {@const active = isActive(record)}
             <Table.Row>
               <Table.Cell class="font-medium">{record.name}</Table.Cell>
+              <Table.Cell>
+                <code
+                  class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+                  >{record.key_prefix}</code
+                >
+              </Table.Cell>
               <Table.Cell class="text-right tabular-nums">
                 {record.rate_limit_rpm}/min
               </Table.Cell>
@@ -326,15 +324,6 @@
                     {:else}
                       <Power class="h-4 w-4" />
                     {/if}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Use in bootstrap"
-                    title="Use in bootstrap"
-                    onclick={() => useInBootstrap(record)}
-                  >
-                    <Rocket class="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"

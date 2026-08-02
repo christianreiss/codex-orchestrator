@@ -20,7 +20,6 @@ import { registerAdminOverviewSettingsRoutes } from './admin-overview-settings/i
 import { registerAdminContentRoutes } from './admin-content/index.js';
 import { registerAdminManualRoutes } from './admin/manual/index.js';
 import { registerAdminMemoriesRoutes } from './admin/memories/index.js';
-import { registerAdminDoctorRoutes } from './admin/doctor/index.js';
 import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAgentPortalRoutes } from './agent-portal/index.js';
 import { registerAgentMessagingRoutes } from './agent-messaging/index.js';
@@ -57,7 +56,6 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminSecretsRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
-  await registerAdminDoctorRoutes(app, ctx);
 
   // SPA fallback last (catches HTML GET /admin/* that didn't match a JSON
   // route). registerStaticAdminRoutes installs its own setNotFoundHandler

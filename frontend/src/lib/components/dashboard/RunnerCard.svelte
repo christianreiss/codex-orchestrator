@@ -17,7 +17,6 @@
     CardTitle,
     CardDescription,
   } from "$lib/components/ui/card";
-  import { cn } from "$lib/utils/cn";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { Skeleton } from "$lib/components/ui/skeleton";
@@ -115,11 +114,6 @@
     if (token === "fail" || token === "unconfigured") return "destructive";
     return "secondary";
   }
-
-  const ACCENT_EDGE: Record<EngineKey, string> = {
-    codex: "bg-persona-codex",
-    claude: "bg-persona-claude",
-  };
 
   function pending(engine: EngineKey): boolean {
     return engine === "codex" ? $runCodex.isPending : $runClaude.isPending;
@@ -220,11 +214,7 @@
 
       <div class="grid gap-3 md:grid-cols-2">
         {#each engineRows as row (row.engine)}
-          <div class="relative overflow-hidden rounded-md border bg-muted/20 p-3">
-            <span
-              class={cn("absolute inset-y-0 left-0 w-0.5", ACCENT_EDGE[row.engine])}
-              aria-hidden="true"
-            ></span>
+          <div class="rounded-md border bg-muted/20 p-3">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="text-sm font-medium">{row.label}</div>

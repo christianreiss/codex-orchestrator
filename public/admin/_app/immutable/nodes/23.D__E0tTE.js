@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/BMgwNCSW.js";export{e as component};
