@@ -606,7 +606,8 @@ export interface HostListItem {
   claude_model_override: string | null;
   claude_reasoning_effort_override: string | null;
   engines: string;
-  engines_list: HostEngine[] | string[];
+  /** Structured on current servers; optional while an older host-list payload is cached or served. */
+  engines_list?: HostEngine[] | string[];
   auto_update_override: boolean | null;
   effective_auto_update_enabled: boolean;
   auto_update_state: HostAutoUpdateState;

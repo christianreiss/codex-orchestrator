@@ -325,7 +325,7 @@ describe("hostEngines", () => {
   });
 
   it("falls back to the comma string, trimming each entry", () => {
-    assert.deepEqual(hostEngines({ engines_list: [], engines: " codex , claude " }), [
+    assert.deepEqual(hostEngines({ engines: " codex , claude " }), [
       "codex",
       "claude",
     ]);

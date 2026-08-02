@@ -1,5 +1,9 @@
 # 2026-08-02
 
+- Fixed Fleet Instructions navigation against the real admin host-list payload. `GET /admin/hosts`
+  now includes its documented parsed `engines_list`, while the AGENTS.md editor also falls back to
+  the canonical comma-separated `engines` field so mixed-version or cached responses cannot crash
+  client-side navigation and leave the previous Skills page visible.
 - Redid the admin console's visual identity and added a Bootstrap page and a Doctor page. Badge and
   StatusPill no longer render as fully-rounded pills (`rounded-md`, matching the console's existing
   4–8px radius rule); dashboard stat tiles dropped their decorative corner icons in favor of

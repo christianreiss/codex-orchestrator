@@ -282,7 +282,6 @@ function fixture(pathname: string): Record<string, unknown> {
             canonical_digest: "0123456789abcdef",
             claude_canonical_digest: "abcdef0123456789",
             engines: "codex,claude",
-            engines_list: ["codex", "claude"],
             authed: true,
             auth_outdated: false,
           },
@@ -514,6 +513,23 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await page.keyboard.press("Control+K");
   await expect(page.getByPlaceholder("Type a command or search hosts, projects, skills, users…")).toBeVisible();
   await expect(page.getByText("Agent Portal", { exact: true })).toBeVisible();
+});
+
+test("desktop navigation switches from Skills to Fleet Instructions with a legacy host list", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/admin/skills");
+  await expect(page.getByRole("heading", { name: "Skills", level: 1, exact: true })).toBeVisible();
+
+  await page
+    .getByRole("navigation", { name: "Primary navigation" })
+    .getByRole("link", { name: "Fleet Instructions" })
+    .click();
+
+  await expect(page).toHaveURL(/\/admin\/instructions$/);
+  await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Render current" })).toBeEnabled();
+  expect(pageErrors).toEqual([]);
 });
 
 test("operator tables use the full workspace and the mobile menu retains all routes", async ({ page }) => {

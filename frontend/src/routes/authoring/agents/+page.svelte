@@ -2,7 +2,7 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { agentsApi } from "$lib/api/agents";
-  import { hostsListQuery } from "$lib/api/hosts";
+  import { hostEngines, hostsListQuery } from "$lib/api/hosts";
   import type { AgentsRenderedDocument, AgentsVersion, AgentsVersionMeta } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import { relativeTime, formatBytes } from "$lib/utils/format";
@@ -180,7 +180,7 @@
   // therefore uses the same renderer as the wrapper, rather than composing a
   // best-effort client-side approximation.
   const previewHosts = $derived(
-    ($hosts.data?.hosts ?? []).filter((host) => host.engines_list.includes("codex")),
+    ($hosts.data?.hosts ?? []).filter((host) => hostEngines(host).includes("codex")),
   );
   let renderedPreview = $state<AgentsRenderedDocument | null>(null);
   let renderedPreviewOpen = $state(false);

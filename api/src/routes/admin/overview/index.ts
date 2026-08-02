@@ -372,6 +372,7 @@ export async function registerAdminOverviewRoutes(
           claude_model_override: h.claudeModelOverride,
           claude_reasoning_effort_override: h.claudeReasoningEffortOverride,
           engines: h.engines,
+          engines_list: hostEngines(h.engines),
           auto_update_override: h.autoUpdateOverride === null ? null : h.autoUpdateOverride === 1,
           canonical_digest: h.authDigest,
           claude_canonical_digest: h.claudeAuthDigest,
