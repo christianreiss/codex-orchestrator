@@ -18,9 +18,11 @@ import {
   Link,
   MessageSquareShare,
   Palette,
+  Rocket,
   Server,
   Settings,
   ShieldCheck,
+  Stethoscope,
   Terminal,
   Users,
 } from "@lucide/svelte";
@@ -77,6 +79,11 @@ const REGISTRY: NavDefinition[] = [
     match: /^\/logs(?:\/|$)/, mobilePriority: 4,
   },
   {
+    id: "doctor", group: "Monitor", route: "/doctor", label: "Doctor",
+    description: "Server-side self-diagnostic: connectivity, encryption, and proxy checks",
+    keywords: ["diagnostic", "health", "encryption", "test console", "keyring"], icon: Stethoscope,
+  },
+  {
     id: "hosts", group: "Fleet", route: "/hosts", label: "Hosts",
     description: "Machines, credentials, and host policy", keywords: ["machines", "installers", "auth"], icon: Server,
     mobilePriority: 2,
@@ -125,6 +132,11 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "output-styles", group: "Knowledge", route: "/output-styles", label: "Output Styles",
     description: "Claude-native response styles", keywords: ["claude", "style"], icon: Palette,
+  },
+  {
+    id: "bootstrap", group: "Access", route: "/bootstrap", label: "Bootstrap",
+    description: "Issue a key and point a coding AI at this fleet - base URL, credential, and project context in one document.",
+    keywords: ["coding ai", "bootstrap", "room", "project", "onboard", "point"], icon: Rocket,
   },
   {
     id: "api-access", group: "Access", route: "/api-keys", label: "API Access",

@@ -15,8 +15,10 @@
   type Props = {
     open: boolean;
     onOpenChange?: (open: boolean) => void;
+    /** When set, replaces the default post-create navigation to /projects/[slug]. */
+    onCreated?: (slug: string) => void;
   };
-  let { open = $bindable(), onOpenChange }: Props = $props();
+  let { open = $bindable(), onOpenChange, onCreated }: Props = $props();
 
   const qc = useQueryClient();
 
@@ -74,7 +76,8 @@
       void qc.invalidateQueries({ queryKey: projectKeys.list });
       setOpen(false);
       reset();
-      void goto(`${base}/projects/${encodeURIComponent(createdSlug)}`);
+      if (onCreated) onCreated(createdSlug);
+      else void goto(`${base}/projects/${encodeURIComponent(createdSlug)}`);
     },
     onError: (err) => {
       if (err instanceof ApiError) toast.error(err.message);

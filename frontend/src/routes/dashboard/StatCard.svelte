@@ -12,6 +12,8 @@
     breakdown?: Snippet;
     class?: string;
     loading?: boolean;
+    /** Persona-colored left edge; "neutral" renders no edge. */
+    accent?: "codex" | "claude" | "neutral";
   };
 
   let {
@@ -22,15 +24,25 @@
     breakdown,
     class: className,
     loading = false,
+    accent = "neutral",
   }: Props = $props();
+
+  const ACCENT_EDGE: Record<"codex" | "claude" | "neutral", string> = {
+    codex: "bg-persona-codex",
+    claude: "bg-persona-claude",
+    neutral: "",
+  };
 </script>
 
 <div
   class={cn(
-    "rounded-md border border-border/75 bg-card p-3",
+    "relative overflow-hidden rounded-md border border-border/75 bg-card p-3",
     className,
   )}
 >
+  {#if accent !== "neutral"}
+    <span class={cn("absolute inset-y-0 left-0 w-0.5", ACCENT_EDGE[accent])} aria-hidden="true"></span>
+  {/if}
   <div class="flex items-start justify-between gap-2">
     <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
     {#if icon}
@@ -41,7 +53,7 @@
     {#if loading}
       <div class="h-7 w-16 animate-pulse rounded bg-muted"></div>
     {:else}
-      <span class="text-2xl font-semibold tabular-nums leading-none">{value}</span>
+      <span class="text-2xl font-mono font-semibold tabular-nums tracking-tight leading-none">{value}</span>
     {/if}
     {#if breakdown}
       <div class="shrink-0">{@render breakdown()}</div>

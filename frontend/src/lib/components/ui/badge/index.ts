@@ -2,7 +2,7 @@ import Root from "./badge.svelte";
 import { tv, type VariantProps } from "tailwind-variants";
 
 export const badgeVariants = tv({
-  base: "inline-flex min-h-5 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.01em] transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  base: "inline-flex min-h-5 items-center rounded-md border px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.01em] transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   variants: {
     variant: {
       default: "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",

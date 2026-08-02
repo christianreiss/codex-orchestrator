@@ -17,6 +17,7 @@ const user = {
 const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
   { path: "/logs/events", heading: "Activity", title: "Activity / Audit trail" },
+  { path: "/doctor", heading: "Doctor", title: "Doctor" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
   { path: "/engines", heading: "Engines", title: "Engines" },
   { path: "/policies", heading: "Policies", title: "Policies" },
@@ -29,6 +30,7 @@ const CANONICAL_DESTINATIONS = [
   { path: "/subagents", heading: "Subagents", title: "Subagents" },
   { path: "/commands", heading: "Commands", title: "Commands" },
   { path: "/output-styles", heading: "Output Styles", title: "Output Styles" },
+  { path: "/bootstrap", heading: "Bootstrap", title: "Bootstrap" },
   { path: "/api-keys", heading: "API Access", title: "API Access" },
   { path: "/secrets", heading: "Secrets", title: "Secrets" },
   { path: "/users", heading: "Admin Users", title: "Admin Users" },
@@ -714,4 +716,72 @@ test("Agent Messaging uses peer URL-backed operational views", async ({ page }) 
   await expect(page).not.toHaveURL(/view=/);
   await expect(page.getByRole("heading", { name: "Addresses" })).toBeVisible();
   await expect(page.getByText("agent:console", { exact: true })).toBeVisible();
+});
+
+test("bootstrap composes an env document from a fresh key handoff", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  const createdAt = Date.now();
+  await page.addInitScript((seed) => {
+    sessionStorage.setItem("bootstrap:pending-key", JSON.stringify(seed));
+  }, { engine: "openai", keyId: 42, key: "sk-test-1234567890", name: "ci-runner", createdAt });
+
+  await page.goto("/admin/bootstrap");
+  await expect(page.getByRole("heading", { name: "Bootstrap", level: 1, exact: true })).toBeVisible();
+  await expect(page).toHaveTitle("Bootstrap · Codex Orchestrator");
+
+  // The NewKeyDialog handoff pre-fills Context and jumps straight to the document.
+  await expect(page.getByLabel("Issued to")).toHaveValue("ci-runner");
+  await expect(page.getByRole("heading", { name: "Bootstrap document", level: 2 })).toBeVisible();
+  await expect(page.getByText("OPENAI_API_KEY=sk-test-1234567890")).toBeVisible();
+  await expect(page.getByText("Save this key somewhere safe")).toBeVisible();
+
+  // The one-time handoff is consumed -- a reload must not re-show it.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Bootstrap document", level: 2 })).not.toBeVisible();
+
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
+  await expectNoSeriousAxeFindings(page);
+});
+
+test("bootstrap deep-links into the existing-key tab from a table row action", async ({ page }) => {
+  await page.goto("/admin/bootstrap?engine=claude&existingKeyId=7");
+  await expect(page.getByRole("heading", { name: "Bootstrap", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Use an existing key" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByText("Existing keys never expose their plaintext again")).toBeVisible();
+});
+
+test("bootstrap deep link wins over a consumed in-session handoff", async ({ page }) => {
+  const createdAt = Date.now();
+  await page.addInitScript((seed) => {
+    sessionStorage.setItem("bootstrap:pending-key", JSON.stringify(seed));
+  }, { engine: "openai", keyId: 1, key: "sk-old-key-999", name: "old-name", createdAt });
+
+  await page.goto("/admin/bootstrap");
+  await expect(page.getByText("OPENAI_API_KEY=sk-old-key-999")).toBeVisible();
+
+  // Client-side nav to a different route, then client-side nav back to
+  // bootstrap with a specific existingKeyId -- module-scope state (the
+  // `consumedHandoff` cache) survives both hops, unlike a full reload, so
+  // this reproduces KeysTable's "Use in bootstrap" row action clicked from
+  // /api-keys on a later visit in the same tab, after an earlier handoff.
+  await page.evaluate(() => {
+    const a = document.createElement("a");
+    a.href = "/admin/dashboard";
+    document.body.appendChild(a);
+    a.click();
+  });
+  await expect(page).toHaveURL(/\/admin\/dashboard/);
+
+  await page.evaluate(() => {
+    const a = document.createElement("a");
+    a.href = "/admin/bootstrap?engine=claude&existingKeyId=42";
+    document.body.appendChild(a);
+    a.click();
+  });
+
+  await expect(page.getByRole("tab", { name: "Use an existing key" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByText("OPENAI_API_KEY=sk-old-key-999")).not.toBeVisible();
 });

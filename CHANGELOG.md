@@ -1,5 +1,18 @@
 # 2026-08-02
 
+- Redid the admin console's visual identity and added a Bootstrap page and a Doctor page. Badge and
+  StatusPill no longer render as fully-rounded pills (`rounded-md`, matching the console's existing
+  4–8px radius rule); dashboard stat tiles dropped their decorative corner icons in favor of
+  JetBrains Mono numerals and a persona-colored accent edge on single-engine tiles. The API keys
+  table no longer shows the non-secret key-prefix column. A new `/bootstrap` page lets an operator
+  pick a user context and a project, then generates a ready-to-paste "point your coding AI at this
+  fleet" document (base URL, env vars, project context) from an issued or existing API key —
+  creating a key now hands off straight to that document instead of a bare reveal dialog. A new
+  `/doctor` page (`GET /admin/doctor`, `POST /admin/doctor/test-key`) surfaces read-only fleet
+  health (database, runner, signer, wrapper matrix, encryption keyring, proxy kill-switch state,
+  issued-key counts) plus a Test console that fires a live probe using a pasted key only — it never
+  decrypts a stored key by id. Doctor has no mutating controls; every remediation links to the route
+  that owns that setting.
 - Added a default-off Policies toggle for API keys deliberately supplied in chat. When enabled,
   both served AGENTS.md and CLAUDE.md receive managed guidance to use operator-provided test,
   scoped, or LAN-only keys without generic security lectures, while avoiding unnecessary echoing,
