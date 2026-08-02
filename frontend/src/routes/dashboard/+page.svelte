@@ -135,7 +135,7 @@
   </div>
 
   <!-- Alerts row -->
-  <DashboardAlerts reportedVersions={$overview.data?.version_distribution?.codex ?? []} />
+  <DashboardAlerts />
 
   <!-- Usage + runner cards -->
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">

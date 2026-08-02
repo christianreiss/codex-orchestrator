@@ -1,8 +1,8 @@
 # 2026-08-02
 
-- Fixed the dashboard's contradictory Codex update alert: `latest` is now treated as a fleet policy
-  alias rather than an installed version, update availability is based on concrete host telemetry,
-  and the copy and release link correctly identify the OpenAI Codex CLI instead of the orchestrator.
+- Removed the non-actionable Codex CLI update banner and release modal from the dashboard. Managed
+  hosts update automatically, so version differences remain fleet telemetry instead of prompting
+  operators to visit GitHub.
 - Added a versioned Fleet Policy Builder for AGENTS.md with mandatory Codex Orchestrator identity,
   safety-floor, and Hard Stop blocks; toggleable operating modules; custom instructions; exact
   unsaved host previews; fresh-install defaults; and a guarded, rollback-safe version 55 conversion.

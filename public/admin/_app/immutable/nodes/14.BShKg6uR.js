@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/CbB0GLto2.js";export{e as component};

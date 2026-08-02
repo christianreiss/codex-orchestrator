@@ -38,7 +38,8 @@ The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "
 
 - **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review").
 - **Could not check insecure approvals** (destructive) — shown instead of the warning banner when that query itself errors, with a "Retry" button.
-- **Codex CLI update available** (info) — on mount, `versionsCheckMutation()` makes a one-shot network call to check the latest Codex CLI release and compares it only with concrete host-reported versions in `version_distribution.codex`. Policy selectors such as `latest` are ignored. The banner and modal show how many hosts report older versions and link to the actual OpenAI Codex release.
+
+Codex CLI updates do not produce a dashboard alert: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action.
 
 ## ChatGPT usage card
 
