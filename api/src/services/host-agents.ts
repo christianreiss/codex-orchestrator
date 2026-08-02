@@ -18,6 +18,7 @@ import { ProjectsService } from './projects.js';
 import { SecretsService } from './secrets.js';
 import { SettingsService } from './settings.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
+import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
   renderManagedAgentFeatures,
   type ManagedAgentFeatureContext,
@@ -245,22 +246,29 @@ export class HostAgentsService {
    * config, host, and engine policy stays here.
    */
   private async resolveManagedFeatureContext(host: Host, engine: Engine): Promise<ManagedAgentFeatureContext> {
-    const [configRows, skillCount, projectsEnabled, secretsEnabled, secretCount] =
-      await Promise.all([
-        this.db
-          .select()
-          .from(clientConfigDocuments)
-          .where(eq(clientConfigDocuments.engine, engine))
-          .orderBy(desc(clientConfigDocuments.id))
-          .limit(1),
-        this.skills.availableCount(engine).catch(() => null),
-        this.projects.getEnabled().catch(() => null),
-        // Both `.catch(() => null)` for the same reason as their neighbours: a
-        // box mid-deploy whose `secrets` table does not exist yet would
-        // otherwise 500 every host's bootstrap, not just its guidance block.
-        this.secrets.getEnabled().catch(() => null),
-        this.secrets.availableCount(engine).catch(() => null),
-      ]);
+    const [
+      configRows,
+      skillCount,
+      projectsEnabled,
+      secretsEnabled,
+      secretCount,
+      apiKeysInChatEnabled,
+    ] = await Promise.all([
+      this.db
+        .select()
+        .from(clientConfigDocuments)
+        .where(eq(clientConfigDocuments.engine, engine))
+        .orderBy(desc(clientConfigDocuments.id))
+        .limit(1),
+      this.skills.availableCount(engine).catch(() => null),
+      this.projects.getEnabled().catch(() => null),
+      // Both `.catch(() => null)` for the same reason as their neighbours: a
+      // box mid-deploy whose `secrets` table does not exist yet would
+      // otherwise 500 every host's bootstrap, not just its guidance block.
+      this.secrets.getEnabled().catch(() => null),
+      this.secrets.availableCount(engine).catch(() => null),
+      this.settings.getFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, false).catch(() => null),
+    ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
     const rawSettings = configRow?.settings && typeof configRow.settings === 'object'
@@ -319,7 +327,15 @@ export class HostAgentsService {
             ? state(false, 'secrets_disabled')
             : state(true, 'ok', secretCount);
 
-    return { engine, skills, memory, projects, browseros, secrets };
+    // This is operator policy, not an MCP capability. It therefore applies to
+    // both engines even when no managed MCP configuration exists for the host.
+    const apiKeysInChat = apiKeysInChatEnabled === null
+      ? state(false, 'service_unavailable')
+      : apiKeysInChatEnabled
+        ? state(true, 'ok')
+        : state(false, 'disabled');
+
+    return { engine, skills, memory, projects, browseros, secrets, apiKeysInChat };
   }
 
   private async resolveServedDocument(

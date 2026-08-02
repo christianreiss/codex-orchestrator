@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
+import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
@@ -25,6 +26,7 @@ export interface ManagedAgentFeatureContext {
   projects: ManagedFeatureState;
   browseros: ManagedFeatureState;
   secrets: ManagedFeatureState;
+  apiKeysInChat: ManagedFeatureState;
 }
 
 export interface ManagedAgentFeatureSection {
@@ -43,6 +45,7 @@ export interface ManagedAgentFeatureSections {
   projects: ManagedAgentFeatureSection;
   browseros: ManagedAgentFeatureSection;
   secrets: ManagedAgentFeatureSection;
+  api_keys_in_chat: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -232,6 +235,11 @@ Never write a secret value into your reply, a commit, a log, or any file. Never 
   );
 }
 
+function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+  if (!context.apiKeysInChat.enabled) return null;
+  return present(context.apiKeysInChat, API_KEYS_IN_CHAT_GUIDANCE);
+}
+
 function stripManagedContent(body: string): { body: string; changed: boolean } {
   let stripped = body.replace(OWN_BLOCK, '');
   stripped = stripped.replace(LEGACY_BLOCK, '');
@@ -243,8 +251,9 @@ function stripManagedContent(body: string): { body: string; changed: boolean } {
 
 /**
  * Render enabled feature guidance in fixed provider order: Skills, Memory,
- * Projects, BrowserOS, Secrets. The returned managed digest covers the exact
- * delimited block appended to the body, including its final newline.
+ * Projects, BrowserOS, Secrets, API keys in chat. The returned managed digest
+ * covers the exact delimited block appended to the body, including its final
+ * newline.
  */
 export function renderManagedAgentFeatures(
   baseBody: string,
@@ -255,6 +264,7 @@ export function renderManagedAgentFeatures(
   const projects = projectsSection(context);
   const browseros = browserOsSection(context);
   const secrets = secretsSection(context);
+  const apiKeysInChat = apiKeysInChatSection(context);
 
   const skillsMetadata = skills?.metadata ?? absent(context.skills);
   const memoryMetadata = memory?.metadata ?? absent(context.memory);
@@ -271,12 +281,13 @@ export function renderManagedAgentFeatures(
     projects: projectsMetadata,
     browseros: browserOsMetadata,
     secrets: secrets?.metadata ?? absent(context.secrets),
+    api_keys_in_chat: apiKeysInChat?.metadata ?? absent(context.apiKeysInChat),
   };
 
   // Appended last on purpose: provider order is part of `managed_sha256`, so
-  // inserting anywhere else would churn every host's document for four sections
-  // that did not change.
-  const renderedSections = [skills, memory, projects, browseros, secrets]
+  // inserting anywhere else would churn every host's document for preceding
+  // sections that did not change.
+  const renderedSections = [skills, memory, projects, browseros, secrets, apiKeysInChat]
     .filter((section): section is RenderedSection => section !== null)
     .map((section) => section.text);
   const stripped = stripManagedContent(baseBody);

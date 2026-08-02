@@ -288,6 +288,39 @@ describe('HostAgentsService document resolution', () => {
   });
 });
 
+describe('HostAgentsService API keys in chat policy', () => {
+  const enabledFlag = { name: 'api_keys_in_chat_allowed', version: '1' };
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])(
+    'serves the enabled guidance to %s without requiring MCP',
+    async (engine) => {
+      const body = engine === ENGINE_CODEX ? 'Canonical AGENTS body\n' : 'Canonical CLAUDE body\n';
+      const db = makeDb([
+        [agentsDocuments, [agentsRow(4, body, engine)]],
+        [versions, [enabledFlag]],
+      ]);
+
+      const out = await makeService(db).retrieve(null, makeHost(), engine);
+
+      expect(out['content']).toContain('## API keys in chat');
+      expect(out['content']).toContain('without generic security lectures');
+      expect(out['sections']).toMatchObject({
+        api_keys_in_chat: { present: true, reason: 'ok' },
+      });
+    },
+  );
+
+  it('withholds the guidance when the setting is absent', async () => {
+    const db = makeDb([[agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]]]);
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(out['content']).not.toContain('## API keys in chat');
+    expect(out['sections']).toMatchObject({
+      api_keys_in_chat: { present: false, reason: 'disabled' },
+    });
+  });
+});
+
 describe('HostAgentsService config surfaces', () => {
   const codexConfig = configRow(1, ENGINE_CODEX, { model: 'gpt-5.6-terra' });
 

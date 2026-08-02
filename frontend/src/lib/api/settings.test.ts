@@ -119,6 +119,7 @@ const KEYS = {
   versionsCheck: ["settings", "versions-check"],
   reverseDns: ["settings", "reverse-dns"],
   autoUpdate: ["settings", "auto-update"],
+  apiKeysInChat: ["settings", "api-keys-in-chat"],
   cdxSilent: ["settings", "cdx-silent"],
   insecureApproval: ["settings", "insecure-approval"],
   quotaMode: ["settings", "quota-mode"],
@@ -215,6 +216,13 @@ const QUERY_CASES: QueryCase[] = [
     queryKey: KEYS.cdxSilent,
     method: "GET",
     path: "/admin/cdx-silent",
+  },
+  {
+    name: "apiKeysInChatQuery",
+    build: () => asQuery(settings.apiKeysInChatQuery()),
+    queryKey: KEYS.apiKeysInChat,
+    method: "GET",
+    path: "/admin/api-keys-in-chat",
   },
   {
     name: "insecureApprovalQuery",
@@ -358,6 +366,13 @@ const MUTATION_CASES: MutationCase[] = [
     invalidates: [KEYS.cdxSilent],
   },
   {
+    name: "apiKeysInChatMutation",
+    build: (opts) => asMutation(settings.apiKeysInChatMutation(opts)),
+    variables: true,
+    request: { method: "POST", path: "/admin/api-keys-in-chat", body: { enabled: true } },
+    invalidates: [KEYS.apiKeysInChat],
+  },
+  {
     name: "insecureApprovalMutation",
     build: (opts) => asMutation(settings.insecureApprovalMutation(opts)),
     variables: true,
@@ -485,6 +500,9 @@ describe("mutation builders", () => {
 describe("module surface", () => {
   /** Every runtime export, so a new pair cannot slip past the tables above. */
   const EXPECTED_EXPORTS = [
+    "apiKeysInChatMutation",
+    "apiKeysInChatQuery",
+    "apiKeysInChatQueryKey",
     "apiStateMutation",
     "apiStateQuery",
     "apiStateQueryKey",

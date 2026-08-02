@@ -89,6 +89,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       projects: enabled,
       browseros: enabled,
       secrets: { ...enabled, count: 1 },
+      apiKeysInChat: enabled,
     }).body,
   })),
   {

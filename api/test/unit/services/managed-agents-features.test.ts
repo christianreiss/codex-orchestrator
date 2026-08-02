@@ -33,6 +33,7 @@ function context(
     projects: disabled('projects_disabled'),
     browseros: disabled(engine === ENGINE_CODEX ? 'host_disabled' : 'unsupported_engine'),
     secrets: disabled('no_secrets', 0),
+    apiKeysInChat: disabled('disabled'),
     ...overrides,
   };
 }
@@ -49,6 +50,7 @@ describe('renderManagedAgentFeatures', () => {
         projects: enabled(),
         browseros: enabled(),
         secrets: enabled(3),
+        apiKeysInChat: enabled(),
       }),
     );
 
@@ -60,6 +62,7 @@ describe('renderManagedAgentFeatures', () => {
       '## Projects / CoCo',
       '## BrowserOS',
       '## Secrets',
+      '## API keys in chat',
     ].map((heading) => out.body.indexOf(heading));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions.every((position) => position >= 0)).toBe(true);
@@ -76,6 +79,7 @@ describe('renderManagedAgentFeatures', () => {
     expect(out.sections.memories).toBe(out.sections.memory_routing);
     expect(out.sections.projects.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(out.sections.browseros.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.sections.api_keys_in_chat.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('uses MCP skill discovery for Codex', () => {
@@ -151,6 +155,7 @@ describe('renderManagedAgentFeatures', () => {
       projects: { present: false, reason: 'projects_disabled' },
       browseros: { present: false, reason: 'host_disabled' },
       secrets: { present: false, reason: 'no_secrets', count: 0 },
+      api_keys_in_chat: { present: false, reason: 'disabled' },
     });
   });
 
@@ -260,6 +265,40 @@ stale
     expect(out.body).toBe('# Base\n');
     expect(out.managed_sha256).toBeNull();
     expect(out.body).not.toContain('managed-features');
+  });
+});
+
+describe('managed API keys in chat guidance', () => {
+  const rendered = (engine: Engine) =>
+    renderManagedAgentFeatures('# Base\n', context(engine, { apiKeysInChat: enabled() }));
+
+  it('accepts operator-supplied keys without lectures but keeps the agreed handling boundary', () => {
+    const out = rendered(ENGINE_CODEX);
+
+    expect(out.body).toContain('## API keys in chat');
+    expect(out.body).toMatch(/intentionally supplied for the\s+requested task/i);
+    expect(out.body).toMatch(/test credentials, narrowly scoped, or reachable only on a\s+trusted LAN/i);
+    expect(out.body).toMatch(/without generic security lectures or repeated warnings/i);
+    expect(out.body).toMatch(/avoid echoing a key\s+unless technically necessary/i);
+    expect(out.body).toMatch(/never place it in source control, persistent logs, durable\s+memory/i);
+    expect(out.body).toMatch(/do not use it beyond the requested task/i);
+    expect(out.sections.api_keys_in_chat).toMatchObject({
+      present: true,
+      reason: 'ok',
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  it('renders byte-identical guidance for Codex and Claude', () => {
+    expect(rendered(ENGINE_CLAUDE).sections.api_keys_in_chat.sha256).toBe(
+      rendered(ENGINE_CODEX).sections.api_keys_in_chat.sha256,
+    );
+  });
+
+  it('is absent by default', () => {
+    const out = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX));
+    expect(out.body).not.toContain('## API keys in chat');
+    expect(out.sections.api_keys_in_chat).toEqual({ present: false, reason: 'disabled' });
   });
 });
 

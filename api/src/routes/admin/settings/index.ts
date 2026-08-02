@@ -29,6 +29,7 @@ import {
   CLAUDE_DEFAULT_MODEL,
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
+import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
 
 /**
  * The only values `/admin/theme` accepts. The legacy palette values remain
@@ -120,6 +121,19 @@ export async function registerAdminSettingsRoutes(
     await settings.setFlag('cdx_silent', silent);
     await recordLog(ctx, 'admin.cdx_silent', { silent });
     return ok({ silent });
+  });
+
+  // ── api-keys-in-chat ─────────────────────────────────────────────────────
+  app.get('/admin/api-keys-in-chat', { preHandler: app.requireAdmin }, async () => {
+    return ok({ enabled: await settings.getFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, false) });
+  });
+  app.post('/admin/api-keys-in-chat', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { enabled?: unknown };
+    const enabled = normalizeBool(body.enabled);
+    if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
+    await settings.setFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, enabled);
+    await recordLog(ctx, 'admin.api_keys_in_chat', { enabled });
+    return ok({ enabled });
   });
 
   // ── theme ─────────────────────────────────────────────────────────────────

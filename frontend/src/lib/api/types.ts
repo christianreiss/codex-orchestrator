@@ -823,6 +823,10 @@ export interface AutoUpdateValue {
   enabled: boolean;
 }
 
+export interface ApiKeysInChatValue {
+  enabled: boolean;
+}
+
 export interface InsecureApprovalValue {
   enabled: boolean;
 }

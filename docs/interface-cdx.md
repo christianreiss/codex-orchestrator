@@ -103,7 +103,15 @@ That paragraph appears when the `secrets_module_enabled` switch is on and
 orchestrator MCP is reachable, even when no secret is visible yet. It never lists individual Skills, memories, projects, or secrets. Recorded decisions, conventions, runbooks, and handoffs are
 authoritative over agent assumptions, but mutable code and runtime facts must be
 verified against the present repository or system; stale records are updated or
-deleted instead of duplicated. Feature changes alter the served/managed hashes
+deleted instead of duplicated.
+
+The independent `api_keys_in_chat_allowed` fleet policy does not require MCP.
+When enabled, the block tells Codex that API keys deliberately supplied by the
+operator may be used without generic security lectures, on the assumption that
+they are test, narrowly scoped, or LAN-only credentials. It still directs Codex
+to avoid unnecessary echoing or persistence and to limit use to the requested
+task. The policy is default-off and byte-identical across engines. Feature
+changes alter the served/managed hashes
 without altering the canonical base hash.
 
 ## Skill delivery

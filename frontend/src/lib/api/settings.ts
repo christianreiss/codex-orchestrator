@@ -16,6 +16,7 @@ import {
 import { api } from "./client";
 import type {
   ApiStateValue,
+  ApiKeysInChatValue,
   AutoUpdateValue,
   CdxSilentValue,
   ClaudeSettingsValue,
@@ -279,6 +280,31 @@ export function cdxSilentMutation(opts: MutationOpts<CdxSilentValue, boolean> = 
     ...opts,
     onSettled: (...args) => {
       void qc.invalidateQueries({ queryKey: cdxSilentQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
+/* ─────────────────── 6a. API keys supplied in chat ─────────────────── */
+
+export const apiKeysInChatQueryKey = ["settings", "api-keys-in-chat"] as const;
+
+export function apiKeysInChatQuery() {
+  return createQuery<ApiKeysInChatValue>({
+    queryKey: apiKeysInChatQueryKey,
+    queryFn: () => api.get<ApiKeysInChatValue>("/admin/api-keys-in-chat"),
+  });
+}
+
+export function apiKeysInChatMutation(
+  opts: MutationOpts<ApiKeysInChatValue, boolean> = {},
+) {
+  const qc = useQueryClient();
+  return createMutation<ApiKeysInChatValue, Error, boolean>({
+    mutationFn: makeToggle<ApiKeysInChatValue>("/admin/api-keys-in-chat", "enabled"),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: apiKeysInChatQueryKey });
       opts.onSettled?.(...args);
     },
   });

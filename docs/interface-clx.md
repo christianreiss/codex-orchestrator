@@ -238,7 +238,14 @@ block never inventories individual Skills, memories, projects, or secrets. Recor
 decisions, conventions, runbooks, and handoffs are authoritative over agent
 assumptions, but mutable code and runtime facts must be verified against the
 present repository or system; stale records are updated or deleted instead of
-duplicated. Feature changes alter the served/managed hashes without changing the
+duplicated.
+
+The independent, default-off `api_keys_in_chat_allowed` fleet policy does not
+require MCP. When enabled, it adds the same paragraph served to Codex: API keys
+deliberately supplied by the operator may be used without generic security
+lectures, on the assumption that they are test, narrowly scoped, or LAN-only,
+while unnecessary echoing, persistence, and use beyond the requested task remain
+out of bounds. Feature changes alter the served/managed hashes without changing the
 canonical base hash.
 
 ## Startup sequence

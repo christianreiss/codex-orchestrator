@@ -1,3 +1,10 @@
+# 2026-08-02
+
+- Added a default-off Policies toggle for API keys deliberately supplied in chat. When enabled,
+  both served AGENTS.md and CLAUDE.md receive managed guidance to use operator-provided test,
+  scoped, or LAN-only keys without generic security lectures, while avoiding unnecessary echoing,
+  persistence, or use beyond the requested task.
+
 # 2026-08-01
 
 - Added a read-only “Render current” AGENTS.md preview to the admin editor. Operators select a
