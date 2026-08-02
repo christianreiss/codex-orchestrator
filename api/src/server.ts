@@ -8,6 +8,7 @@ import { Keyring } from './security/keyring.js';
 import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { retireManagedContextRow } from './ops/retire-context-skill.js';
+import { ensureAgentPolicy } from './ops/ensure-agent-policy.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
 import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
@@ -34,6 +35,10 @@ export async function buildServer() {
 
   // Schema first: the boot checks below probe tables that migrations create.
   await runBootMigrations(env, pool);
+  const agentPolicy = await ensureAgentPolicy(db);
+  if (agentPolicy.status === 'created_default' || agentPolicy.status === 'converted_v55') {
+    console.warn(`[boot] agent policy ${agentPolicy.status} as version ${agentPolicy.version_id ?? 'unknown'}`);
+  }
   await runBootChecks(env, db);
   // Must run before the first /skills request of this process: `context` is no
   // longer served as a managed skill, so any surviving legacy row would stop

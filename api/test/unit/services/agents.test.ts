@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { agentsDocuments, agentsDocumentState } from '../../../src/db/schema.js';
 import { ApiError, NotFoundError, ValidationError } from '../../../src/http/errors.js';
 import { AgentsService } from '../../../src/services/agents.js';
+import { defaultAgentPolicyComposition } from '../../../src/services/agent-policy-composer.js';
 import type { Engine } from '../../../src/util/engine.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
@@ -305,6 +306,29 @@ describe('agents store', () => {
     // Unknown engines fall back to codex rather than rejecting.
     await svc.store('beta', null, null, 'gemini');
     expect((db.tables.get(agentsDocuments) ?? [])[0]).toMatchObject({ engine: 'codex' });
+  });
+
+  it('stores builder provenance with the rendered body and rehydrates it in admin views', async () => {
+    const db = makeDb();
+    const svc = makeService(db);
+    const composition = {
+      ...defaultAgentPolicyComposition(),
+      enabled_modules: ['operating_contract', 'security'] as const,
+      custom_instructions: 'Keep this custom rule.',
+    };
+
+    const created = await svc.storeComposition(composition);
+    expect(created.status).toBe('created');
+    const row = (db.tables.get(agentsDocuments) ?? [])[0];
+    expect(row).toBeDefined();
+    if (!row) throw new Error('expected stored agents document');
+    expect(row.builderState).toEqual(composition);
+    expect(row.body).toContain('## Custom Instructions');
+
+    const view = await svc.adminFetch();
+    expect(view.builder_state).toEqual(composition);
+    expect(view.builder_catalog.modules).toHaveLength(10);
+    expect(view.versions[0]?.builder_mode).toBe(true);
   });
 
   it('publishes agents.stored for a new version and stays quiet on a dedup', async () => {

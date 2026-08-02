@@ -450,13 +450,16 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(r.statusCode).toBe(200);
     const body = JSON.parse(r.payload);
     const servedAgents = String(body.agents.content);
-    expect(servedAgents).toBe(agentsBody);
+    expect(servedAgents).toContain(agentsBody);
+    expect(servedAgents).toContain('## Fleet Management');
+    expect(servedAgents).toContain('## Hard Stop Lines');
     expect(body.agents).toMatchObject({
       status: 'updated',
-      sha256: agentsSha,
       base_sha256: agentsSha,
-      managed_sha256: null,
       sections: {
+        fleet_identity: { present: true, reason: 'mandatory' },
+        safety_floor: { present: true, reason: 'mandatory' },
+        hard_stops: { present: true, reason: 'mandatory' },
         skills: { present: false, reason: 'mcp_disabled' },
         memories: { present: false, reason: 'mcp_disabled' },
         memory_routing: { present: false, reason: 'mcp_disabled' },
@@ -464,6 +467,8 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         browseros: { present: false, reason: 'mcp_disabled' },
       },
     });
+    expect(body.agents.sha256).not.toBe(agentsSha);
+    expect(body.agents.managed_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(servedAgents).not.toContain('cxx:managed-features');
     await app.close();
   });

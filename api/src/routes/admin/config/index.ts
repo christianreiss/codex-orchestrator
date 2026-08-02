@@ -8,6 +8,8 @@
  *   POST   /admin/config/store
  *   GET    /admin/agents
  *   GET    /admin/agents/render
+ *   POST   /admin/agents/compose
+ *   POST   /admin/agents/render
  *   GET    /admin/agents/versions/:id
  *   POST   /admin/agents/store
  *   POST   /admin/agents/serve
@@ -188,6 +190,46 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
+  app.post<{ Body: { composition?: unknown } }>(
+    '/admin/agents/compose',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      return agents.compose(body.composition);
+    },
+  );
+
+  app.post<{ Body: { host_id?: unknown; engine?: unknown; composition?: unknown; content?: unknown } }>(
+    '/admin/agents/render',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const hostId = parseInteger(body.host_id);
+      if (hostId === null || hostId <= 0) {
+        throw new ValidationError('host_id must be a positive integer', { param: 'host_id' });
+      }
+      const engine = body.engine ?? ENGINE_CODEX;
+      if (!isEngine(engine)) {
+        throw new ValidationError('engine must be codex or claude', { param: 'engine' });
+      }
+      const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
+      const host = rows[0];
+      if (!host) throw new NotFoundError('Host not found');
+      assertHostEngineEnabled(host, engine);
+      const base = body.composition !== undefined
+        ? agents.compose(body.composition).content
+        : typeof body.content === 'string'
+          ? body.content
+          : '';
+      return {
+        ...(await hostAgents.renderDraft(host, base, engine)),
+        host_id: host.id,
+        host_fqdn: host.fqdn,
+        engine,
+      };
+    },
+  );
+
   app.get<{ Params: { id: string } }>(
     '/admin/agents/versions/:id',
     { preHandler: app.requireAdmin },
@@ -200,11 +242,14 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
-  app.post<{ Body: { content?: unknown; body?: unknown; sha256?: unknown; engine?: unknown } }>(
+  app.post<{ Body: { content?: unknown; body?: unknown; sha256?: unknown; engine?: unknown; composition?: unknown } }>(
     '/admin/agents/store',
     { preHandler: app.requireAdmin },
     async (req) => {
       const payload = req.body && typeof req.body === 'object' ? req.body : {};
+      if (payload.composition !== undefined) {
+        return await agents.storeComposition(payload.composition, null, payload.engine ?? ENGINE_CODEX);
+      }
       const content = typeof payload.content === 'string' ? payload.content : typeof payload.body === 'string' ? payload.body : '';
       return await agents.store(content, payload.sha256 ?? null, null, payload.engine ?? ENGINE_CODEX);
     },

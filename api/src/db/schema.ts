@@ -444,6 +444,7 @@ export const agentsDocuments = mysqlTable(
     id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
     sha256: char('sha256', { length: 64 }).notNull(),
     body: longtext('body').notNull(),
+    builderState: json('builder_state').$type<Record<string, unknown> | null>(),
     sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),

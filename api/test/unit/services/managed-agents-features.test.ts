@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   MANAGED_FEATURES_END,
   MANAGED_FEATURES_START,
+  MANAGED_POLICY_END,
+  MANAGED_POLICY_START,
   renderManagedAgentFeatures,
   type ManagedAgentFeatureContext,
   type ManagedFeatureState,
@@ -67,8 +69,11 @@ describe('renderManagedAgentFeatures', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions.every((position) => position >= 0)).toBe(true);
 
-    const managed = out.body.slice(out.body.indexOf(MANAGED_FEATURES_START));
-    expect(out.managed_sha256).toBe(sha256(managed));
+    const policy = out.body.slice(0, out.body.indexOf(MANAGED_POLICY_END) + MANAGED_POLICY_END.length + 1);
+    const features = out.body.slice(out.body.indexOf(MANAGED_FEATURES_START));
+    expect(out.policy_sha256).toBe(sha256(policy));
+    expect(out.features_sha256).toBe(sha256(features));
+    expect(out.managed_sha256).toBe(sha256(`${policy}${features}`));
     expect(out.sections.skills).toMatchObject({
       present: true,
       reason: 'ok',
@@ -149,13 +154,20 @@ describe('renderManagedAgentFeatures', () => {
     expect(claude.body).toContain('MEMORY.md');
   });
 
-  it('reports disabled providers without emitting a managed block', () => {
+  it('always emits fleet policy while reporting disabled capability providers', () => {
     const base = '# Untouched\n\nKeep this trailing whitespace.  \n';
     const out = renderManagedAgentFeatures(base, context(ENGINE_CODEX));
 
-    expect(out.body).toBe(base);
-    expect(out.managed_sha256).toBeNull();
+    expect(out.body).toContain(MANAGED_POLICY_START);
+    expect(out.body).toContain('# Untouched');
+    expect(out.body).not.toContain(MANAGED_FEATURES_START);
+    expect(out.managed_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.policy_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.features_sha256).toBeNull();
     expect(out.sections).toMatchObject({
+      fleet_identity: { present: true, reason: 'mandatory' },
+      safety_floor: { present: true, reason: 'mandatory' },
+      hard_stops: { present: true, reason: 'mandatory' },
       skills: { present: false, reason: 'no_skills', count: 0 },
       memories: { present: false, reason: 'mcp_disabled' },
       memory_routing: { present: false, reason: 'mcp_disabled' },
@@ -269,8 +281,10 @@ stale
     ).body;
     const out = renderManagedAgentFeatures(enabledBody, context(ENGINE_CODEX));
 
-    expect(out.body).toBe('# Base\n');
-    expect(out.managed_sha256).toBeNull();
+    expect(out.body).toContain('# Base');
+    expect(out.body).toContain(MANAGED_POLICY_START);
+    expect(out.managed_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.features_sha256).toBeNull();
     expect(out.body).not.toContain('managed-features');
   });
 });

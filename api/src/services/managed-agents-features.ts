@@ -9,9 +9,12 @@ import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
+import { MANAGED_POLICY_MARKDOWN } from './agent-policy-composer.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
+export const MANAGED_POLICY_START = '<!-- cxx:managed-policy:start -->';
+export const MANAGED_POLICY_END = '<!-- cxx:managed-policy:end -->';
 
 export interface ManagedFeatureState {
   enabled: boolean;
@@ -38,6 +41,9 @@ export interface ManagedAgentFeatureSection {
 }
 
 export interface ManagedAgentFeatureSections {
+  fleet_identity: ManagedAgentFeatureSection;
+  safety_floor: ManagedAgentFeatureSection;
+  hard_stops: ManagedAgentFeatureSection;
   skills: ManagedAgentFeatureSection;
   memories: ManagedAgentFeatureSection;
   /** Compatibility alias for clients that consumed the former memory block. */
@@ -50,7 +56,9 @@ export interface ManagedAgentFeatureSections {
 
 export interface RenderManagedAgentFeaturesResult {
   body: string;
-  managed_sha256: string | null;
+  managed_sha256: string;
+  policy_sha256: string;
+  features_sha256: string | null;
   sections: ManagedAgentFeatureSections;
 }
 
@@ -61,6 +69,10 @@ interface RenderedSection {
 
 const OWN_BLOCK = new RegExp(
   `${escapeRegExp(MANAGED_FEATURES_START)}[\\s\\S]*?${escapeRegExp(MANAGED_FEATURES_END)}[ \\t]*(?:\\r?\\n)?`,
+  'g',
+);
+const OWN_POLICY_BLOCK = new RegExp(
+  `${escapeRegExp(MANAGED_POLICY_START)}[\\s\\S]*?${escapeRegExp(MANAGED_POLICY_END)}[ \\t]*(?:\\r?\\n)?`,
   'g',
 );
 
@@ -246,7 +258,8 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
 }
 
 function stripManagedContent(body: string): { body: string; changed: boolean } {
-  let stripped = body.replace(OWN_BLOCK, '');
+  let stripped = body.replace(OWN_POLICY_BLOCK, '');
+  stripped = stripped.replace(OWN_BLOCK, '');
   stripped = stripped.replace(LEGACY_BLOCK, '');
   for (const legacyMemoryBlock of LEGACY_MEMORY_BLOCKS) {
     stripped = stripped.split(legacyMemoryBlock).join('');
@@ -279,7 +292,15 @@ export function renderManagedAgentFeatures(
       ? context.browseros
       : { ...context.browseros, enabled: false, reason: 'unsupported_engine' };
   const browserOsMetadata = browseros?.metadata ?? absent(browserOsState);
+  const policySection = (text: string): ManagedAgentFeatureSection => ({
+    present: true,
+    reason: 'mandatory',
+    sha256: sha256(text),
+  });
   const sections: ManagedAgentFeatureSections = {
+    fleet_identity: policySection('## Fleet Management'),
+    safety_floor: policySection('## Instruction Precedence and Safety Floor'),
+    hard_stops: policySection('## Hard Stop Lines'),
     skills: skillsMetadata,
     memories: memoryMetadata,
     memory_routing: memoryMetadata,
@@ -296,22 +317,21 @@ export function renderManagedAgentFeatures(
     .filter((section): section is RenderedSection => section !== null)
     .map((section) => section.text);
   const stripped = stripManagedContent(baseBody);
-
-  if (renderedSections.length === 0) {
-    if (!stripped.changed) return { body: baseBody, managed_sha256: null, sections };
-    const cleaned = stripped.body.replace(/\s+$/, '');
-    return {
-      body: cleaned === '' ? '' : `${cleaned}\n`,
-      managed_sha256: null,
-      sections,
-    };
-  }
-
-  const managedBlock = `${MANAGED_FEATURES_START}\n${renderedSections.join('\n\n')}\n${MANAGED_FEATURES_END}\n`;
-  const cleaned = stripped.body.replace(/\s+$/, '');
+  const policyBlock = `${MANAGED_POLICY_START}\n${MANAGED_POLICY_MARKDOWN}\n${MANAGED_POLICY_END}\n`;
+  const managedBlock = renderedSections.length === 0
+    ? ''
+    : `${MANAGED_FEATURES_START}\n${renderedSections.join('\n\n')}\n${MANAGED_FEATURES_END}\n`;
+  // The managed prefix/suffix own the surrounding blank lines. Trimming the
+  // canonical middle makes a served document safe to feed back through this
+  // renderer without accumulating one blank line per sync.
+  const cleaned = stripped.body.trim();
+  const middle = cleaned === '' ? '' : `\n${cleaned}\n`;
+  const tail = managedBlock === '' ? '' : `\n${managedBlock}`;
   return {
-    body: cleaned === '' ? managedBlock : `${cleaned}\n\n${managedBlock}`,
-    managed_sha256: sha256(managedBlock),
+    body: `${policyBlock}${middle}${tail}`,
+    managed_sha256: sha256(`${policyBlock}${managedBlock}`),
+    policy_sha256: sha256(policyBlock),
+    features_sha256: managedBlock === '' ? null : sha256(managedBlock),
     sections,
   };
 }

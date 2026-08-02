@@ -19,6 +19,11 @@ import { NotFoundError, ValidationError } from '../http/errors.js';
 import { ENGINE_CODEX, type Engine, parseEngine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
+import {
+  agentPolicyCatalog,
+  renderAgentPolicyBase,
+  type AgentPolicyComposition,
+} from './agent-policy-composer.js';
 
 export const AGENTS_MODE_LATEST = 'latest';
 export const AGENTS_MODE_LOCKED = 'locked';
@@ -41,6 +46,7 @@ export interface AgentsVersionPayload {
   is_latest: boolean;
   is_active: boolean;
   is_served: boolean;
+  builder_mode: boolean;
 }
 
 export interface AgentsAdminView {
@@ -55,6 +61,8 @@ export interface AgentsAdminView {
   updated_at?: string | null;
   size_bytes?: number;
   content?: string;
+  builder_state?: AgentPolicyComposition | null;
+  builder_catalog: ReturnType<typeof agentPolicyCatalog>;
   versions: AgentsVersionPayload[];
 }
 
@@ -190,6 +198,7 @@ export class AgentsService {
       is_latest: latest !== null && latest.id === v.id,
       is_active: state.activeDocumentId !== null && state.activeDocumentId === v.id,
       is_served: served !== null && served.id === v.id,
+      builder_mode: v.builderState !== null,
     }));
 
     if (served === null) {
@@ -201,6 +210,8 @@ export class AgentsService {
         served_id: null,
         latest_id: latest ? latest.id : null,
         backup_limit: backupLimit,
+        builder_state: null,
+        builder_catalog: agentPolicyCatalog(),
         versions: versionPayloads,
       };
     }
@@ -217,11 +228,13 @@ export class AgentsService {
       updated_at: served.updatedAt,
       size_bytes: Buffer.byteLength(served.body, 'utf8'),
       content: served.body,
+      builder_state: (served.builderState as AgentPolicyComposition | null) ?? null,
+      builder_catalog: agentPolicyCatalog(),
       versions: versionPayloads,
     };
   }
 
-  async adminFetchVersion(versionId: number, engine: Engine = ENGINE_CODEX): Promise<AgentsVersionPayload & { content: string }> {
+  async adminFetchVersion(versionId: number, engine: Engine = ENGINE_CODEX): Promise<AgentsVersionPayload & { content: string; builder_state: AgentPolicyComposition | null }> {
     if (!versionId || versionId <= 0) {
       throw new ValidationError('version_id is required', { param: 'version_id' });
     }
@@ -252,7 +265,23 @@ export class AgentsService {
       is_active: state.activeDocumentId !== null && state.activeDocumentId === row.id,
       is_served: served !== null && served.id === row.id,
       content: row.body,
+      builder_mode: row.builderState !== null,
+      builder_state: (row.builderState as AgentPolicyComposition | null) ?? null,
     };
+  }
+
+  compose(composition: unknown): ReturnType<typeof renderAgentPolicyBase> {
+    return renderAgentPolicyBase(composition);
+  }
+
+  async storeComposition(
+    composition: unknown,
+    sourceHostId: number | null = null,
+    rawEngine: unknown = ENGINE_CODEX,
+  ): Promise<AgentsStoreResult> {
+    const rendered = renderAgentPolicyBase(composition);
+    const engine: Engine = parseEngine(rawEngine, ENGINE_CODEX);
+    return await this.storeDocument(rendered.content, rendered.sha256, sourceHostId, engine, rendered.composition);
   }
 
   async store(content: unknown, providedSha: unknown, sourceHostId: number | null = null, rawEngine: unknown = ENGINE_CODEX): Promise<AgentsStoreResult> {
@@ -266,6 +295,16 @@ export class AgentsService {
     if (typeof providedSha === 'string' && providedSha.trim() !== '' && providedSha.trim().toLowerCase() !== sha) {
       throw new ValidationError('sha256 does not match AGENTS.md contents', { param: 'sha256' });
     }
+    return await this.storeDocument(body, sha, sourceHostId, engine, null);
+  }
+
+  private async storeDocument(
+    body: string,
+    sha: string,
+    sourceHostId: number | null,
+    engine: Engine,
+    builderState: AgentPolicyComposition | null,
+  ): Promise<AgentsStoreResult> {
 
     // Dedup: if the most recent row for this engine is identical content, treat as unchanged.
     const latest = await this.db
@@ -275,7 +314,8 @@ export class AgentsService {
       .orderBy(desc(agentsDocuments.id))
       .limit(1);
     const existing = latest[0];
-    if (existing && existing.sha256 === sha) {
+    const sameBuilderState = JSON.stringify(existing?.builderState ?? null) === JSON.stringify(builderState);
+    if (existing && existing.sha256 === sha && sameBuilderState) {
       return {
         status: 'unchanged',
         version_id: existing.id,
@@ -290,6 +330,7 @@ export class AgentsService {
     const inserted = await this.db.insert(agentsDocuments).values({
       sha256: sha,
       body,
+      builderState: builderState as Record<string, unknown> | null,
       sourceHostId,
       engine,
       createdAt: nowTs,
@@ -361,6 +402,7 @@ export class AgentsService {
     const inserted = await this.db.insert(agentsDocuments).values({
       sha256: sha,
       body,
+      builderState: source.builderState ?? null,
       sourceHostId: null,
       engine,
       createdAt: nowTs,

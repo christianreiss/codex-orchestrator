@@ -63,6 +63,26 @@ export class HostAgentsService {
     return await this.renderForHost(host, engine, false);
   }
 
+  /** Render an unsaved canonical base with the selected host's live feature gates. */
+  async renderDraft(host: Host, baseBody: string, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
+    const featureContext = await this.resolveManagedFeatureContext(host, engine);
+    const rendered = renderManagedAgentFeatures(baseBody, featureContext);
+    const servedSha = createHash('sha256').update(rendered.body).digest('hex');
+    return {
+      status: 'ok',
+      version_id: null,
+      sha256: servedSha,
+      base_sha256: createHash('sha256').update(baseBody).digest('hex'),
+      managed_sha256: rendered.managed_sha256,
+      policy_sha256: rendered.policy_sha256,
+      features_sha256: rendered.features_sha256,
+      sections: rendered.sections,
+      updated_at: null,
+      size_bytes: Buffer.byteLength(rendered.body, 'utf8'),
+      content: rendered.body,
+    };
+  }
+
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
     const rendered = await this.renderForHost(host, engine, true);
     if (rendered['status'] === 'missing') {
@@ -104,6 +124,8 @@ export class HostAgentsService {
       sha256: servedSha,
       base_sha256: baseSha,
       managed_sha256: rendered.managed_sha256,
+      policy_sha256: rendered.policy_sha256,
+      features_sha256: rendered.features_sha256,
       sections: rendered.sections,
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(served, 'utf8'),

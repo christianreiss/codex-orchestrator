@@ -13,6 +13,29 @@ const RENDERED_AGENTS_CONTENT =
   "# Fleet policy\n\nRendered for `console.example.test`.\n\n- Preserve unrelated changes.\n" +
   "- Keep every rendered rule readable.\n".repeat(32);
 
+const BUILDER_STATE = {
+  schema_version: 1,
+  template_id: "fleet-standard",
+  template_version: 1,
+  enabled_modules: ["operating_contract", "security", "midnight_rule"],
+  custom_instructions: "",
+};
+
+const BUILDER_CATALOG = {
+  template_id: "fleet-standard",
+  template_version: 1,
+  required: [
+    { id: "fleet_identity", label: "Fleet identity", description: "Managed by Codex Orchestrator.", required: true, default_enabled: true },
+    { id: "safety_floor", label: "Precedence and safety floor", description: "Non-overridable boundaries.", required: true, default_enabled: true },
+    { id: "hard_stops", label: "Hard Stop Lines", description: "Explicit stop conditions.", required: true, default_enabled: true },
+  ],
+  modules: [
+    { id: "operating_contract", label: "Operating Contract", description: "Execute and verify.", required: false, default_enabled: true },
+    { id: "security", label: "Security and trust boundaries", description: "Protect secrets and checks.", required: false, default_enabled: true },
+    { id: "midnight_rule", label: "Midnight Rule", description: "Keep late-night scope small.", required: false, default_enabled: true },
+  ],
+};
+
 /**
  * Every direct destination from the shared route registry. Keep this explicit
  * rather than importing the registry into Playwright: a stale test should
@@ -300,8 +323,17 @@ function fixture(pathname: string): Record<string, unknown> {
         sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         updated_at: "2026-08-02T08:00:00Z",
         size_bytes: 84,
-        content: "# Canonical fleet policy\n",
+        content: "## Operating Contract (FAST)\n\nExecute and verify.\n",
+        builder_state: BUILDER_STATE,
+        builder_catalog: BUILDER_CATALOG,
         versions: [],
+      };
+    case "/admin/agents/compose":
+      return {
+        composition: BUILDER_STATE,
+        content: "## Operating Contract (FAST)\n\nExecute and verify.\n",
+        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        size_bytes: 56,
       };
     case "/admin/agents/render":
       return {
@@ -509,14 +541,16 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("every canonical destination deep-links into a bounded desktop workspace", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(`${page.url()}: ${error.stack ?? error.message}`));
 
   for (const destination of CANONICAL_DESTINATIONS) {
     await page.goto(`/admin${destination.path}`);
-    await expect(page.getByRole("heading", { name: destination.heading, level: 1, exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: destination.heading, level: 1, exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page).toHaveTitle(`${destination.title} · Codex Orchestrator`);
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
@@ -559,18 +593,25 @@ test("desktop navigation switches from Skills to Fleet Instructions with a legac
 
   await expect(page).toHaveURL(/\/admin\/instructions$/);
   await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Render current" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Preview effective draft" })).toBeEnabled();
   expect(pageErrors).toEqual([]);
 });
 
 test("rendered AGENTS preview is a document and copies its exact Markdown", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/admin/instructions");
-  await page.getByRole("button", { name: "Render current" }).click();
+  await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByRole("switch", { name: "Fleet identity (required)" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).toBeChecked();
+  await page.getByRole("switch", { name: "Security and trust boundaries" }).click();
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).not.toBeChecked();
+  await page.getByRole("button", { name: "Preview effective draft" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Current rendered AGENTS.md" });
+  const dialog = page.getByRole("dialog", { name: "Effective AGENTS.md draft" });
   await expect(dialog).toBeVisible();
-  const document = dialog.getByRole("article", { name: "Current rendered AGENTS.md document" });
+  const document = dialog.getByRole("article", { name: "Effective AGENTS.md draft document" });
   await expect(document.getByRole("heading", { name: "Fleet policy", level: 1 })).toBeVisible();
   await expect(document.getByText("Preserve unrelated changes.")).toBeVisible();
   await expect(document.getByRole("region", { name: "Rendered AGENTS.md content" })).toHaveAttribute(

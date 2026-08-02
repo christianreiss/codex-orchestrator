@@ -78,7 +78,7 @@ at build time, then loads the config:
 The admin editor and version history store only canonical base Markdown. During
 `/agents/retrieve` or bundled startup sync, the server derives the effective
 Codex/host feature state and appends at most one
-`<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->`
+`<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always prefixes the served document with Codex Orchestrator fleet identity, instruction precedence/safety floor, and Hard Stop Lines. The canonical builder/raw base follows, then `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->` carries host capability guidance.
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 

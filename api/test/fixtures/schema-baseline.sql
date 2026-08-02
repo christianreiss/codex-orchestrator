@@ -339,6 +339,7 @@ CREATE TABLE `agents_documents` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`sha256` char(64) NOT NULL,
 	`body` longtext NOT NULL,
+	`builder_state` json,
 	`source_host_id` bigint unsigned,
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,

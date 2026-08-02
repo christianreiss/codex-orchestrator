@@ -1,5 +1,8 @@
 # 2026-08-02
 
+- Added a versioned Fleet Policy Builder for AGENTS.md with mandatory Codex Orchestrator identity,
+  safety-floor, and Hard Stop blocks; toggleable operating modules; custom instructions; exact
+  unsaved host previews; fresh-install defaults; and a guarded, rollback-safe version 55 conversion.
 - Replaced the current rendered AGENTS.md textarea with a sanitized, keyboard-scrollable, fully
   styled Markdown document preview and added one-click copying of the exact served source.
 - Published canonical Fleet AGENTS version 55 with explicit Hard Stop Lines, repository-only

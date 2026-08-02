@@ -4,7 +4,14 @@
  * Backs the AGENTS.md editor with version history + serve mode.
  */
 import { api } from "./client";
-import type { AgentsDocument, AgentsRenderedDocument, AgentsVersion, AgentsStoreResult } from "./types";
+import type {
+  AgentPolicyComposition,
+  AgentPolicyComposeResult,
+  AgentsDocument,
+  AgentsRenderedDocument,
+  AgentsVersion,
+  AgentsStoreResult,
+} from "./types";
 
 export const agentsApi = {
   get(): Promise<AgentsDocument> {
@@ -18,7 +25,21 @@ export const agentsApi = {
       `/admin/agents/render?host_id=${encodeURIComponent(String(hostId))}&engine=${encodeURIComponent(engine)}`,
     );
   },
-  store(payload: { content: string; sha256?: string | null }): Promise<AgentsStoreResult> {
+  compose(composition: AgentPolicyComposition): Promise<AgentPolicyComposeResult> {
+    return api.post<AgentPolicyComposeResult>("/admin/agents/compose", { composition });
+  },
+  renderDraft(
+    hostId: number,
+    draft: { composition: AgentPolicyComposition } | { content: string },
+    engine: "codex" | "claude" = "codex",
+  ): Promise<AgentsRenderedDocument> {
+    return api.post<AgentsRenderedDocument>("/admin/agents/render", {
+      host_id: hostId,
+      engine,
+      ...draft,
+    });
+  },
+  store(payload: { content: string; sha256?: string | null } | { composition: AgentPolicyComposition }): Promise<AgentsStoreResult> {
     return api.post<AgentsStoreResult>("/admin/agents/store", payload);
   },
   serve(payload: { mode: "latest" | "locked"; version_id?: number | null }): Promise<AgentsDocument> {

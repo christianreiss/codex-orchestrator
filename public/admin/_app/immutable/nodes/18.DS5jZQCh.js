@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/DyXI-h_C2.js";export{e as component};

@@ -342,6 +342,42 @@ export interface AgentsVersionMeta {
   is_latest?: boolean;
   is_active?: boolean;
   is_served?: boolean;
+  builder_mode?: boolean;
+}
+
+export type AgentPolicyModuleId =
+  | "operating_contract"
+  | "remote_access"
+  | "fast_loop"
+  | "evidence_and_commands"
+  | "security"
+  | "git_shared_worktree"
+  | "failure_handling"
+  | "no_execution_access"
+  | "response_style"
+  | "midnight_rule";
+
+export interface AgentPolicyComposition {
+  schema_version: 1;
+  template_id: "fleet-standard";
+  template_version: 1;
+  enabled_modules: AgentPolicyModuleId[];
+  custom_instructions: string;
+}
+
+export interface AgentPolicyCatalogItem {
+  id: string;
+  label: string;
+  description: string;
+  required: boolean;
+  default_enabled: boolean;
+}
+
+export interface AgentPolicyCatalog {
+  template_id: "fleet-standard";
+  template_version: 1;
+  required: AgentPolicyCatalogItem[];
+  modules: AgentPolicyCatalogItem[];
 }
 
 export interface AgentsDocument {
@@ -355,12 +391,15 @@ export interface AgentsDocument {
   updated_at?: string | null;
   size_bytes?: number;
   content?: string;
+  builder_state?: AgentPolicyComposition | null;
+  builder_catalog?: AgentPolicyCatalog;
   versions: AgentsVersionMeta[];
   pruned_count?: number;
 }
 
 export interface AgentsVersion extends AgentsVersionMeta {
   content: string;
+  builder_state?: AgentPolicyComposition | null;
 }
 
 export interface AgentsManagedFeatureSection {
@@ -380,6 +419,8 @@ export interface AgentsRenderedDocument {
   sha256?: string;
   base_sha256?: string;
   managed_sha256?: string | null;
+  policy_sha256?: string | null;
+  features_sha256?: string | null;
   updated_at?: string | null;
   size_bytes?: number;
   content?: string;
@@ -393,6 +434,13 @@ export interface AgentsStoreResult {
   updated_at?: string | null;
   size_bytes?: number;
   pruned_count?: number;
+}
+
+export interface AgentPolicyComposeResult {
+  composition: AgentPolicyComposition;
+  content: string;
+  sha256: string;
+  size_bytes: number;
 }
 
 // Claude collection artifacts (subagents / commands / output-styles)

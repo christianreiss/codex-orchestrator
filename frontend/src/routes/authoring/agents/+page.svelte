@@ -3,13 +3,22 @@
   import { toast } from "svelte-sonner";
   import { agentsApi } from "$lib/api/agents";
   import { hostEngines, hostsListQuery } from "$lib/api/hosts";
-  import type { AgentsRenderedDocument, AgentsVersion, AgentsVersionMeta } from "$lib/api/types";
+  import type {
+    AgentPolicyComposition,
+    AgentPolicyModuleId,
+    AgentsDocument,
+    AgentsRenderedDocument,
+    AgentsVersion,
+    AgentsVersionMeta,
+  } from "$lib/api/types";
   import { ApiError } from "$lib/api/client";
   import { relativeTime, formatBytes } from "$lib/utils/format";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Badge } from "$lib/components/ui/badge";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Label } from "$lib/components/ui/label";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import RenderedMarkdown from "$lib/components/authoring/RenderedMarkdown.svelte";
   import * as Select from "$lib/components/ui/select";
@@ -31,6 +40,31 @@
   let content = $state("");
   let serverSha = $state<string | null>(null);
   let hydrated = $state(false);
+  let builderMode = $state(false);
+  let enabledModules = $state<AgentPolicyModuleId[]>([]);
+  let customInstructions = $state("");
+  let composedDraft = $state("");
+  let composeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const draftComposition = $derived<AgentPolicyComposition>({
+    schema_version: 1,
+    template_id: "fleet-standard",
+    template_version: 1,
+    enabled_modules: enabledModules,
+    custom_instructions: customInstructions,
+  });
+
+  function hydrateDocument(data: AgentsDocument | undefined): void {
+    if (!data) return;
+    content = data.content ?? "";
+    serverSha = data.sha256 ?? null;
+    const builder = data.builder_state;
+    builderMode = Boolean(builder);
+    enabledModules = builder?.enabled_modules ? [...builder.enabled_modules] : [];
+    customInstructions = builder?.custom_instructions ?? "";
+    composedDraft = builder ? data.content ?? "" : "";
+    hydrated = true;
+  }
 
   // Version preview state
   let viewingVersion = $state<AgentsVersion | null>(null);
@@ -47,16 +81,41 @@
 
   $effect(() => {
     const data = $query.data;
-    if (data && !hydrated && data.status !== "missing") {
-      content = data.content ?? "";
-      serverSha = data.sha256 ?? null;
-      hydrated = true;
-    } else if (data && !hydrated && data.status === "missing") {
-      content = "";
-      serverSha = null;
-      hydrated = true;
-    }
+    if (data && !hydrated) hydrateDocument(data);
   });
+
+  const composeMutation = createMutation({
+    mutationFn: (composition: AgentPolicyComposition) => agentsApi.compose(composition),
+    onSuccess: (result) => {
+      composedDraft = result.content;
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof ApiError ? err.message : "Failed to compose policy";
+      toast.error(msg);
+    },
+  });
+
+  $effect(() => {
+    if (!hydrated || !builderMode) return;
+    const composition = draftComposition;
+    clearTimeout(composeTimer);
+    composeTimer = setTimeout(() => $composeMutation.mutate(composition), 150);
+    return () => clearTimeout(composeTimer);
+  });
+
+  function setModule(id: string, enabled: boolean): void {
+    const moduleId = id as AgentPolicyModuleId;
+    enabledModules = enabled
+      ? Array.from(new Set([...enabledModules, moduleId]))
+      : enabledModules.filter((candidate) => candidate !== moduleId);
+  }
+
+  function useFleetStandard(): void {
+    const modules = $query.data?.builder_catalog?.modules ?? [];
+    enabledModules = modules.filter((module) => module.default_enabled).map((module) => module.id as AgentPolicyModuleId);
+    customInstructions = content.trim();
+    builderMode = true;
+  }
 
   // ---- Save ----
   // `sha256` is a submit-time integrity check against the *new* content being
@@ -64,9 +123,12 @@
   // if the hash doesn't match the payload. Never pass the previous version's
   // hash here; that mismatches as soon as `content` has any edit in it.
   const saveMutation = createMutation({
-    mutationFn: () => agentsApi.store({ content }),
+    mutationFn: () => builderMode
+      ? agentsApi.store({ composition: draftComposition })
+      : agentsApi.store({ content }),
     onSuccess: (result) => {
       serverSha = result.sha256 ?? null;
+      if (builderMode) content = composedDraft;
       toast.success(
         result.status === "unchanged"
           ? "No changes to save"
@@ -153,6 +215,10 @@
       // showing pre-restore content while the version list looks correct.
       content = result.content ?? "";
       serverSha = result.sha256 ?? null;
+      builderMode = Boolean(result.builder_state);
+      enabledModules = result.builder_state?.enabled_modules ? [...result.builder_state.enabled_modules] : [];
+      customInstructions = result.builder_state?.custom_instructions ?? "";
+      composedDraft = result.builder_state ? result.content ?? "" : "";
       hydrated = true;
       toast.success("Restored version");
       viewingVersion = null;
@@ -198,7 +264,10 @@
   });
 
   const renderedPreviewMutation = createMutation({
-    mutationFn: (hostId: number) => agentsApi.render(hostId),
+    mutationFn: (hostId: number) => agentsApi.renderDraft(
+      hostId,
+      builderMode ? { composition: draftComposition } : { content },
+    ),
     onSuccess: (data) => {
       renderedPreview = data;
     },
@@ -252,23 +321,120 @@
   </p>
 {:else}
   <div class="flex flex-col gap-6">
-    <!-- Editor -->
-    <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between text-sm">
-        <label for="agents-document" class="font-medium">AGENTS.md (Markdown)</label>
+    <div class="flex flex-col gap-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div>
+          <h2 class="font-semibold">Fleet policy builder</h2>
+          <p class="text-xs text-muted-foreground">
+            Required fleet safeguards are server-managed. Optional modules and custom instructions form the canonical base.
+          </p>
+        </div>
         {#if serverSha}
-          <span class="font-mono text-xs text-muted-foreground" title={serverSha}>
-            sha256: {serverSha.slice(0, 12)}…
-          </span>
+          <span class="font-mono text-xs text-muted-foreground" title={serverSha}>sha256: {serverSha.slice(0, 12)}…</span>
         {/if}
       </div>
-      <Textarea
-        id="agents-document"
-        class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
-        spellcheck="false"
-        autocomplete="off"
-        bind:value={content}
-      />
+
+      {#if builderMode}
+        <div class="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+          <div class="space-y-4">
+            <Card.Root>
+              <Card.Content class="divide-y p-0">
+                <div class="space-y-1 p-4">
+                  <h3 class="text-sm font-semibold">Always included</h3>
+                  <p class="text-xs text-muted-foreground">These guarantees cannot be disabled by the UI or API.</p>
+                </div>
+                {#each $query.data?.builder_catalog?.required ?? [] as item (item.id)}
+                  <div class="flex items-center justify-between gap-3 p-4">
+                    <div class="min-w-0">
+                      <Label for={`agents-required-${item.id}`} class="text-sm font-medium">{item.label}</Label>
+                      <p class="mt-0.5 text-xs text-muted-foreground">{item.description}</p>
+                    </div>
+                    <Switch
+                      id={`agents-required-${item.id}`}
+                      checked
+                      disabled
+                      aria-label={`${item.label} (required)`}
+                    />
+                  </div>
+                {/each}
+              </Card.Content>
+            </Card.Root>
+
+            <Card.Root>
+              <Card.Content class="divide-y p-0">
+                <div class="space-y-1 p-4">
+                  <h3 class="text-sm font-semibold">Optional operating modules</h3>
+                  <p class="text-xs text-muted-foreground">Changes stay in this draft until you save a new version.</p>
+                </div>
+                {#each $query.data?.builder_catalog?.modules ?? [] as item (item.id)}
+                  <div class="flex items-center justify-between gap-3 p-4">
+                    <div class="min-w-0">
+                      <Label for={`agents-module-${item.id}`} class="text-sm font-medium">{item.label}</Label>
+                      <p class="mt-0.5 text-xs text-muted-foreground">{item.description}</p>
+                    </div>
+                    <Switch
+                      id={`agents-module-${item.id}`}
+                      checked={enabledModules.includes(item.id as AgentPolicyModuleId)}
+                      onCheckedChange={(value) => setModule(item.id, Boolean(value))}
+                      aria-label={item.label}
+                    />
+                  </div>
+                {/each}
+              </Card.Content>
+            </Card.Root>
+
+            <div class="space-y-1.5">
+              <Label for="agents-custom-instructions">Custom instructions</Label>
+              <Textarea
+                id="agents-custom-instructions"
+                class="min-h-40 resize-y font-mono text-sm leading-relaxed"
+                placeholder="Repository-independent fleet instructions that are not covered by a module…"
+                spellcheck="false"
+                bind:value={customInstructions}
+              />
+            </div>
+          </div>
+
+          <div class="min-w-0 space-y-2 xl:sticky xl:top-20 xl:self-start">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-semibold">Generated canonical base</h3>
+                <p class="text-xs text-muted-foreground">The required prefix and host capabilities appear in the effective preview.</p>
+              </div>
+              <CopyButton value={composedDraft} label="Copy base" copiedLabel="Copied" size="sm" />
+            </div>
+            <article aria-label="Generated AGENTS.md base document">
+              <RenderedMarkdown
+                source={composedDraft}
+                ariaLabel="Generated AGENTS.md base content"
+                class="min-h-[65vh] bg-background p-6 sm:p-8"
+              />
+            </article>
+          </div>
+        </div>
+      {:else}
+        <Card.Root>
+          <Card.Content class="space-y-4 p-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-semibold">Legacy Markdown document</h3>
+                <p class="text-xs text-muted-foreground">
+                  This version predates the policy builder. The required fleet policy is still added when served.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onclick={useFleetStandard}>Convert draft to Fleet Standard</Button>
+            </div>
+            <Textarea
+              id="agents-document"
+              class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
+              spellcheck="false"
+              autocomplete="off"
+              bind:value={content}
+            />
+          </Card.Content>
+        </Card.Root>
+      {/if}
+
       <div class="flex items-center justify-end gap-2">
         <Button
           variant="outline"
@@ -276,9 +442,9 @@
           disabled={$hosts.isPending || previewHosts.length === 0}
         >
           <Eye class="h-4 w-4" />
-          Render current
+          Preview effective draft
         </Button>
-        <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending}>
+        <Button onclick={() => $saveMutation.mutate()} disabled={$saveMutation.isPending || $composeMutation.isPending}>
           <Save class="h-4 w-4" />
           {$saveMutation.isPending ? "Saving…" : "Save"}
         </Button>
@@ -418,10 +584,10 @@
 >
   <Dialog.Content class="sm:max-w-5xl">
     <Dialog.Header>
-      <Dialog.Title>Current rendered AGENTS.md</Dialog.Title>
+      <Dialog.Title>Effective AGENTS.md draft</Dialog.Title>
       <Dialog.Description>
-        This is the exact current document the selected Codex host would receive, including its
-        managed feature guidance. Unsaved editor changes are intentionally excluded.
+        This is the exact document the selected Codex host would receive if this draft were saved,
+        including mandatory fleet policy and live managed feature guidance.
       </Dialog.Description>
     </Dialog.Header>
 
@@ -491,7 +657,7 @@
             {/each}
           </div>
         {/if}
-        <article aria-label="Current rendered AGENTS.md document">
+          <article aria-label="Effective AGENTS.md draft document">
           <RenderedMarkdown
             source={renderedPreview.content ?? ""}
             ariaLabel="Rendered AGENTS.md content"

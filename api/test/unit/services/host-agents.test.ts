@@ -224,8 +224,10 @@ describe('HostAgentsService.retrieve', () => {
 
     const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }));
 
-    expect(out['content']).toBe('Canonical AGENTS body\n');
-    expect(out['managed_sha256']).toBeNull();
+    expect(out['content']).toContain('Canonical AGENTS body');
+    expect(out['content']).toContain('## Fleet Management');
+    expect(out['managed_sha256']).toMatch(/^[0-9a-f]{64}$/);
+    expect(out['features_sha256']).toBeNull();
     expect(out['sections']).toMatchObject({
       skills: { present: false, reason: 'mcp_disabled' },
       memories: { present: false, reason: 'mcp_disabled' },
