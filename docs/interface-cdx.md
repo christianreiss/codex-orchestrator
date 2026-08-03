@@ -102,9 +102,10 @@ database passwords, service accounts — at the fleet secrets store via
 or shell history. Availability and write-capability questions require a read-only
 `secret_list` probe; its status distinguishes disabled from enabled-but-empty.
 The block prefers a tool-native secret parameter, then stdin, an inherited
-descriptor, or a process-scoped environment variable. It forbids shell text,
-argv, URLs, source, logged requests, shell tracing, files, output, and memory
-scopes; subprocess output is sanitized and temporary variables are removed.
+descriptor, or a process-scoped environment variable. An explicitly requested
+task may render a secret into its requested configuration, file, log, or
+response destination; diagnostic subprocess output is sanitized, temporary
+variables are removed, and shell tracing remains disabled.
 That paragraph appears when the `secrets_module_enabled` switch is on and
 orchestrator MCP is reachable, even when no secret is visible yet. It never
 lists individual Skills, memories, projects, or secrets. Recorded decisions,

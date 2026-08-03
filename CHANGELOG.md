@@ -1,3 +1,10 @@
+# 2026-08-03
+
+- Removed the blanket fleet-policy prohibition on writing secret values to files, logs, or replies.
+  Managed AGENTS/CLAUDE guidance, MCP initialization, and `secret_get` now permit a value to be
+  persisted or relayed when an explicitly requested task requires it; the secret store itself still
+  never writes plaintext to a host automatically, and diagnostic shell-tracing safeguards remain.
+
 # 2026-08-02
 
 - Added a versioned Fleet Policy Builder for AGENTS.md with mandatory Codex Orchestrator identity,

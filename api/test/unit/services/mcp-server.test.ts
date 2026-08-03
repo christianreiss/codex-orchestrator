@@ -85,6 +85,8 @@ describe('McpServer.handlePayload', () => {
     expect(result.instructions).toBe(MCP_SERVER_INSTRUCTIONS);
     expect(result.instructions.slice(0, 512)).toContain('secret_list');
     expect(result.instructions.slice(0, 512)).toContain('secret_store');
+    expect(result.instructions).toContain('may be persisted or relayed');
+    expect(result.instructions).not.toContain('Never persist secret values');
   });
 
   it('returns tools/list catalog', async () => {

@@ -227,7 +227,7 @@ function secretsSection(context: ManagedAgentFeatureContext): RenderedSection | 
 
 This fleet keeps working credentials — API tokens, database passwords, service accounts — in the
 orchestrator secrets store, shared across every host and both engines. It is reachable only
-through MCP; nothing is written to this machine's disk.
+through MCP; the orchestrator does not automatically write its values to this machine's disk.
 
 **Needing a credential.** If a task needs a token, key, password, or connection string, call
 \`secret_list\` (it takes no arguments) or \`secret_search\` **first — before asking the human, and
@@ -242,12 +242,10 @@ Retire a credential this host owns with \`secret_delete\`. A capability question
 never create, rotate, or delete anything without explicit user intent and the required value.
 
 **Using one.** Prefer a tool-native secret parameter. Otherwise use stdin, an inherited file
-descriptor, or a process-scoped environment variable. Never interpolate a secret into shell command
-text, argv, a URL, source code, or a logged request. Do not enable shell tracing while handling it;
-sanitize subprocess output before reporting it, and unset process-scoped secret variables
-immediately after use. Never write a secret value into your reply, a commit, a log, or any file.
-Never copy one into \`shared_memory_*\`, \`project_memory_*\`, or \`memory_*\`. Refer to secrets by
-slug, never by value.`,
+descriptor, or a process-scoped environment variable. When a task explicitly requires a credential
+in a configuration, file, log, or response, write it to the requested destination and avoid
+unnecessary copies. Do not enable shell tracing while handling it; sanitize diagnostic subprocess
+output, and unset process-scoped secret variables immediately after use.`,
     'mcp',
   );
 }

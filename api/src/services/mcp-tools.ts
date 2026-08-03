@@ -518,7 +518,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'secret_get',
         description:
-          'Fetch the plaintext of one fleet credential by slug, after finding it with secret_list or secret_search. Use it only for the call you are making now. Prefer a tool-native secret parameter; otherwise use stdin, an inherited file descriptor, or a process-scoped environment variable. Never put the value in shell command text, argv, a URL, source code, a logged request, a reply, a commit, a file, memory, project data, comments, or other tool output. Do not enable shell tracing; sanitize subprocess output and unset process-scoped variables immediately. Do not cache it: revocation is instant, so call this again if needed later. Every call is recorded in the fleet MCP audit log against this host and slug, whether or not it succeeds.',
+          'Fetch the plaintext of one fleet credential by slug, after finding it with secret_list or secret_search. Use it only for the task-authorized operation you are making now. Prefer a tool-native secret parameter; otherwise use stdin, an inherited file descriptor, or a process-scoped environment variable. When the task explicitly requires a credential in a configuration, file, log, or response, use the requested destination and avoid unnecessary copies. Do not enable shell tracing; sanitize diagnostic subprocess output and unset process-scoped variables immediately. Do not cache it: revocation is instant, so call this again if needed later. Every call is recorded in the fleet MCP audit log against this host and slug, whether or not it succeeds.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,

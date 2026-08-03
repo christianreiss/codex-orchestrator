@@ -352,28 +352,28 @@ describe('managed Secrets guidance', () => {
     });
   });
 
-  it('states the trigger and every hard rule', () => {
+  it('states the trigger and task-scoped credential handling', () => {
     const out = rendered(ENGINE_CODEX);
     // Look here *first* — the sentence that changes behaviour.
     expect(out.body).toMatch(/before asking the human/i);
     expect(out.body).toMatch(/before hunting through env files/i);
     expect(out.body).toMatch(/whether the store is available/i);
     expect(out.body).toMatch(/capability question is read-only/i);
-    // And the handling rules, which the tool descriptions repeat but which an
-    // agent reads here first.
-    expect(out.body).toMatch(/never write a secret value into your reply/i);
-    expect(out.body).toMatch(/never copy one into/i);
-    expect(out.body).toMatch(/by\s+slug, never by value/i);
+    // The old blanket ban on writing secret values was unworkable for
+    // task-authorized configuration and handoff work. The rendered policy
+    // instead scopes any persistence to the requested task destination.
+    expect(out.body).toMatch(/task explicitly requires a credential/i);
+    expect(out.body).toMatch(/configuration, file, log, or response/i);
+    expect(out.body).not.toMatch(/never write a secret value into your reply/i);
     expect(out.body).toMatch(/tool-native secret parameter/i);
     expect(out.body).toMatch(
       /stdin, an inherited file\s+descriptor, or a process-scoped environment variable/i,
     );
-    expect(out.body).toMatch(/shell command\s+text, argv, a URL, source code, or a logged request/i);
     expect(out.body).toMatch(/do not enable shell tracing/i);
-    expect(out.body).toMatch(/sanitize subprocess output/i);
+    expect(out.body).toMatch(/sanitize diagnostic subprocess\s+output/i);
     expect(out.body).toMatch(/unset process-scoped secret variables/i);
-    // It must not promise a local copy exists; MCP is the only channel.
-    expect(out.body).toMatch(/nothing is written to this machine's disk/i);
+    // The store does not create a local copy; task-authorized work may.
+    expect(out.body).toMatch(/does not automatically write its values to this machine's disk/i);
   });
 
   it('does not enumerate individual secrets', () => {
