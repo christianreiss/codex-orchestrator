@@ -601,7 +601,6 @@ describe('wrapper-v2 routes', () => {
     expect(r.statusCode).toBe(200);
     expect(String(r.headers['content-type'])).toMatch(/^application\/json/);
     expect(r.headers['cache-control']).toBe('no-store');
-    expect(r.headers.etag).toBeTruthy();
     expect(r.headers['x-config-version']).toBeTruthy();
     expect(r.headers['x-signature-algo']).toBe('ed25519');
     expect(r.headers['x-signature']).toBeTruthy();
@@ -621,6 +620,11 @@ describe('wrapper-v2 routes', () => {
       'https://api.test.example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
     );
     expect(body.payload.etag).toMatch(/^[a-f0-9]{64}$/);
+    // The validator is the payload digest, quoted for the HTTP header and raw
+    // for `x-sha256`. It is NOT the digest of the wire body: the payload is
+    // hashed before its own `etag` field is folded in (wrapper-config.ts).
+    expect(r.headers.etag).toBe(`"${body.payload.etag}"`);
+    expect(r.headers['x-sha256']).toBe(body.payload.etag);
     expect(body.signature.algo).toBe('ed25519');
 
     // Signature verifies via public key
@@ -1152,6 +1156,128 @@ describe('wrapper-v2 routes', () => {
     });
     expect(r.statusCode).toBe(304);
     await app.close();
+  });
+
+  // These run against `buildProductionApp`, i.e. the real
+  // `registerWrapperV2Routes`, so they pin the header code that actually
+  // ships rather than the in-file fork above.
+  describe('ETag <-> SHA256 binding (production routes)', () => {
+    function productionApp(host: Host): Promise<FastifyInstance> {
+      return buildProductionApp(
+        { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+        makeSigner(kp.privateKey),
+        host,
+        BIN_ROOT,
+      );
+    }
+
+    it('GET /wrapper/v2/config binds ETag and x-sha256 to the payload digest', async () => {
+      const host = fakeHost();
+      const app = await productionApp(host);
+      try {
+        const r = await app.inject({ method: 'GET', url: '/wrapper/v2/config' });
+        expect(r.statusCode).toBe(200);
+        const body = JSON.parse(r.payload) as {
+          payload: Record<string, unknown> & { etag: string };
+        };
+        expect(body.payload.etag).toMatch(/^[a-f0-9]{64}$/);
+
+        // Pin the digest to the payload itself, not merely to the `etag`
+        // field. Without this, any change to what gets hashed still yields a
+        // 64-hex value that the header faithfully mirrors, and the binding
+        // silently becomes a digest of something that is not this config.
+        const { etag: _etag, ...draft } = body.payload;
+        expect(body.payload.etag).toBe(
+          createHash('sha256').update(canonicalStringify(draft)).digest('hex'),
+        );
+
+        expect(r.headers.etag).toBe(`"${body.payload.etag}"`);
+        expect(r.headers['x-sha256']).toBe(body.payload.etag);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it.each([
+      ['/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx', 'codex'],
+      ['/wrapper/v2/bin/codex/linux-amd64/v1.0.0/cdx', 'codex'],
+      // Compatibility URL with no split artifact: streams the common cxx
+      // bytes, so the validator must describe those bytes, not the engine.
+      ['/wrapper/v2/bin/claude/linux-amd64/v1.0.1/clx', 'codex,claude'],
+    ])('GET %s binds ETag and x-sha256 to the bytes it serves', async (url, engines) => {
+      const host = fakeHost();
+      host.engines = engines;
+      const app = await productionApp(host);
+      try {
+        const r = await app.inject({ method: 'GET', url });
+        expect(r.statusCode).toBe(200);
+        // Hash the raw buffer: the fixtures end in a newline that the
+        // recorded size_bytes counts, so a trim here would diverge.
+        const sha = createHash('sha256').update(r.rawPayload).digest('hex');
+        expect(r.headers['x-sha256']).toBe(sha);
+        expect(r.headers.etag).toBe(`"${sha}"`);
+        expect(Number(r.headers['content-length'])).toBe(r.rawPayload.length);
+        expect(r.headers['cache-control']).toBe('public, max-age=86400, immutable');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('answers a matching If-None-Match with 304, the same ETag and no body', async () => {
+      const host = fakeHost();
+      const app = await productionApp(host);
+      const url = '/wrapper/v2/bin/codex/linux-amd64/v1.0.0/cdx';
+      try {
+        const first = await app.inject({ method: 'GET', url });
+        expect(first.statusCode).toBe(200);
+        const sha = createHash('sha256').update(first.rawPayload).digest('hex');
+
+        const second = await app.inject({
+          method: 'GET',
+          url,
+          headers: { 'if-none-match': `"${sha}"` },
+        });
+        expect(second.statusCode).toBe(304);
+        expect(second.headers.etag).toBe(`"${sha}"`);
+        expect(second.payload).toBe('');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('GET /wrapper/v2/manifest/:engine advertises digests that match the served bytes', async () => {
+      const host = fakeHost();
+      const app = await productionApp(host);
+      try {
+        const r = await app.inject({ method: 'GET', url: '/wrapper/v2/manifest/codex' });
+        expect(r.statusCode).toBe(200);
+        expect(r.headers['cache-control']).toBe('no-store');
+        // Deliberate: the manifest is `no-store`, so it carries no validator.
+        // Only the binary and config routes are contracted to emit one.
+        expect(r.headers.etag).toBeUndefined();
+
+        const body = JSON.parse(r.payload) as {
+          platforms: Record<string, { sha256: string; size_bytes: number; url_path: string }>;
+        };
+        const entries = Object.entries(body.platforms);
+        expect(entries.length).toBeGreaterThan(0);
+        for (const [platform, entry] of entries) {
+          const bin = await app.inject({
+            method: 'GET',
+            url: new URL(entry.url_path).pathname,
+          });
+          expect(bin.statusCode, platform).toBe(200);
+          expect(createHash('sha256').update(bin.rawPayload).digest('hex'), platform).toBe(
+            entry.sha256,
+          );
+          expect(bin.rawPayload.length, platform).toBe(entry.size_bytes);
+          expect(bin.headers['x-sha256'], platform).toBe(entry.sha256);
+          expect(bin.headers.etag, platform).toBe(`"${entry.sha256}"`);
+        }
+      } finally {
+        await app.close();
+      }
+    });
   });
 
   it('rejects /wrapper/v2/bin with a mismatched binary name', async () => {
