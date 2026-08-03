@@ -83,6 +83,16 @@
   process, so a key added by the ops script reaches the running API without a restart — the ops
   script reads through its own instance, so `list` alone could never prove that. The runbook, and
   what it cannot promise, are in `docs/wrapper-v2-architecture.md`.
+- Documented `hosts.wrapper_track` as vestigial instead of building the admin toggle the TODO
+  asked for. No code reads the column as a kill-switch: outside the Drizzle mirror and its index,
+  the only read is a read-only passthrough into the `GET /admin/hosts` list payload, its value is
+  unvalidated free text, and the `'disabled'` value the TODO described never existed. The real
+  per-host gates on the wrapper v2 routes are the configured signing key (503
+  `wrapper_v2_unavailable`) and `hosts.engines` via `assertHostEngineEnabled` (403
+  `engine_disabled`), so `docs/wrapper-v2-architecture.md` no longer claims the bakery goes live
+  when a host's track is flipped to `v2`. Both docs now also warn that the wrapper track setting
+  in `wrapper-config.ts` (no real loader, always `stable`) is an unrelated name collision. The
+  column, its index and the admin payload field stay as they are.
 
 # 2026-08-02
 
