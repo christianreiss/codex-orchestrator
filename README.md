@@ -6,7 +6,7 @@ Codex Orchestrator is a self-hosted Node.js/MySQL service that keeps OpenAI Code
 
 A host can run Codex, Claude, or both. The orchestrator manages both engines from a single admin dashboard.
 
-> **Claude Code support is in beta.** Codex (`cdx`) is the mature, battle-tested path. Claude Code (`clx`) — native account-login auth, on-disk skill sync, and the `/anthropic/v1/` proxy — is newer and still stabilizing. Expect the occasional rough edge and fleet binary bump; please report anything that breaks.
+> **Both engines are first-class.** `cdx` and `clx` are two personas of the same `cxx` wrapper binary, so auth, config, skills, agent documents, MCP, usage, and the safety controls are at parity across both — each delivered in its engine's native form. Claude Code arrived later, so a handful of surfaces stay engine-specific; the matrix below is the exact list. Please report anything that breaks.
 
 [![Codex wrapper status showing fleet sync, policy, versions, and quota checks before launch](docs/img/cdx-cli.png)](docs/img/cdx-cli.png)
 
@@ -54,12 +54,12 @@ Legend: ✅ supported · 🅱️ beta · — not supported
 
 | Capability | Codex (`cdx`) | Claude (`clx`) |
 |---|---|---|
-| Daily-driver wrapper | ✅ | 🅱️ |
-| Auth sync (account-login) | ✅ `auth.json` | 🅱️ native `claudeAiOauth` |
-| Config sync | ✅ `config.toml` | 🅱️ `settings.json` (deep-merge, keeps your keys) |
+| Daily-driver wrapper | ✅ | ✅ |
+| Auth sync (account-login) | ✅ `auth.json` | ✅ native `claudeAiOauth` |
+| Config sync | ✅ `config.toml` | ✅ `settings.json` (deep-merge, keeps your keys) |
 | Per-host API key + IP binding | ✅ | ✅ |
 | Wrapper self-update & version pinning | ✅ | ✅ |
-| Shared skills | ✅ via MCP `skill://` | 🅱️ on-disk `~/.claude/skills/` |
+| Shared skills | ✅ via MCP `skill://` | ✅ on-disk `~/.claude/skills/` |
 | Agent doc sync | ✅ `AGENTS.md` | ✅ `CLAUDE.md` (shared pipeline) |
 | MCP memory & project tools | ✅ | ✅ |
 | Usage / token tracking | ✅ | ✅ |
@@ -67,10 +67,10 @@ Legend: ✅ supported · 🅱️ beta · — not supported
 | Compatible passthrough API | ✅ `/v1/` (OpenAI) | ✅ `/anthropic/v1/` (Anthropic) |
 | ChatGPT quota snapshots & warnings | ✅ | — (native API limits only) |
 | Lanes & profiles (`lane`, `profile`) | ✅ | — |
-| Native collections (subagents / commands / output-styles) | — | 🅱️ |
+| Native collections (subagents / commands / output-styles) | — | ✅ |
 | Advisor model (experimental reviewer) | — | 🅱️ `advisorModel` (opus/sonnet/haiku) |
 
-The core fleet machinery — auth, config, per-host keys, skills, MCP memory, usage, and the safety controls — is at parity across both engines. The 🅱️ rows are the newer Claude paths that are still stabilizing. Quota snapshots and lanes/profiles are Codex-only; Claude's native on-disk collections (subagents, commands, output-styles) have no Codex analogue.
+The core fleet machinery — auth, config, per-host keys, skills, MCP memory, usage, and the safety controls — is at parity across both engines, because `cdx` and `clx` are personas of one `cxx` binary. Quota snapshots and lanes/profiles are Codex-only; Claude's native on-disk collections (subagents, commands, output-styles) have no Codex analogue. The one remaining 🅱️ row is the advisor model, which surfaces an experimental Claude Code feature and stays off unless you set it.
 
 ## Is this for me?
 
