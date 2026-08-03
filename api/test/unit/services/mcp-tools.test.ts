@@ -702,9 +702,13 @@ describe('secret_* tools', () => {
     expect(get?.description).toMatch(
       /stdin, an inherited file descriptor, or a process-scoped environment variable/i,
     );
-    expect(get?.description).toMatch(/shell command text, argv, a URL/i);
+    // Task-authorized persistence is permitted, so the blanket "never put the
+    // value anywhere" clause is deliberately gone; what remains is the steer
+    // toward the requested destination and away from incidental copies.
+    expect(get?.description).toMatch(/use the requested destination and avoid unnecessary copies/i);
+    expect(get?.description).not.toMatch(/never put the value in shell command text/i);
     expect(get?.description).toMatch(/do not enable shell tracing/i);
-    expect(get?.description).toMatch(/sanitize subprocess output/i);
+    expect(get?.description).toMatch(/sanitize diagnostic subprocess output/i);
     expect(get?.description).toMatch(/unset process-scoped variables immediately/i);
   });
 
