@@ -398,3 +398,75 @@ Keep the immutable `bin/codex` and `bin/claude` trees available until the fleet
 migration and rollback window are closed. Editing DB pointers while a complete
 `bin/cxx` matrix remains active is ineffective because boot derives and
 rewrites those compatibility keys from the published artifact store.
+
+## Observability
+
+The bakery emits OpenTelemetry spans. They are **off by default**, and off means
+nothing is loaded: with `OTEL_TRACES_ENABLED` unset, `initTracing` returns before
+its first `await import(...)`, so no OpenTelemetry package is imported, no
+provider is registered, no exporter exists and no socket is opened.
+`withSpan` then calls its callback directly.
+
+Turn it on with two variables (`api/src/env.ts`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_TRACES_ENABLED` | `false` | The only switch. Nothing else can enable tracing. |
+| `OTEL_SERVICE_NAME` | `codex-orchestrator-api` | `service.name` on the resource. |
+
+Everything else — where spans go, headers, timeouts, sampling — comes from the
+spec-standard `OTEL_EXPORTER_OTLP_*` and `OTEL_TRACES_SAMPLER*` variables, which
+the SDK reads itself. The default exporter is OTLP over HTTP
+(`http://localhost:4318/v1/traces`) behind a batching processor;
+`app.addHook('onClose')` flushes it, so a SIGTERM does not drop the last batch.
+
+Instrumentation is **manual**. `api/scripts/build.ts` bundles and minifies the
+server, so the auto-instrumentation packages have nothing recognisable to
+monkey-patch. Spans are opened explicitly:
+
+```
+GET /wrapper/v2/config          route handler; http.request_id, wrapper.host_id,
+└── wrapper.config.bake         wrapper.engine, wrapper.config_version
+    ├── wrapper.config.collect  the Promise.all fan-out (documents, skills,
+    │                           settings, binary resolution, messaging flag)
+    ├── wrapper.config.bump_version   the SELECT … FOR UPDATE + UPDATE
+    └── wrapper.config.sign     canonicalStringify + etag + one signature per
+                                active key; wrapper.signer_count
+```
+
+`bakeForHost` is the root when nothing above it opened a span (the legacy
+`/wrapper/download` transition script bakes this way). Both typed exits set span
+status `ERROR` and an `error.type` attribute: `WrapperSigningUnavailableError` on
+the bake span, `WrapperBinaryUnavailableError` on both `wrapper.config.collect`
+(where `wrapperBlock` raises it) and the bake span it propagates through.
+
+`http.request_id` is the same value the request-id plugin echoes as
+`x-request-id` and pino stamps on every log line for the request, so a trace and
+its logs join on it without a log-correlation exporter.
+
+**No secret ever reaches a span.** Attributes are limited to host id, engine,
+schema version, config version and the *count* of active signers. The resolved
+`orchestrator.api_key`, any signature value, any key id or fingerprint, and the
+canonical JSON bytes are all excluded, and error status carries only the error's
+class name — never its message. A span leaves the process for a collector this
+repo does not control, so it is a lower-trust sink than a log line;
+`test/unit/observability/tracing.test.ts` sweeps every attribute of every
+finished span to keep it that way.
+
+The tracing toggle is deliberately **not** part of the baked config payload.
+`wrappers/schemas/host-config-v1.json` is `additionalProperties: false` at every
+level and the payload is signature-covered, so an observability flag there would
+be a wire-contract change for every deployed binary. It is an API-side env var
+and nothing else.
+
+The four `@opentelemetry/*` packages are listed twice in `api/scripts/build.ts`:
+once in esbuild's `external` array and once in the runtime-dependency allowlist
+that produces `dist/package.json`. Both lists must stay in sync — a package in
+the first but not the second ships an image with an unresolvable import, and a
+`npm run build` that succeeds does not catch it. After changing either list,
+check that these two agree:
+
+```sh
+grep -o '@opentelemetry/[a-z-]*' dist/server.js | sort -u
+grep -o '@opentelemetry/[a-z-]*' dist/package.json | sort -u
+```

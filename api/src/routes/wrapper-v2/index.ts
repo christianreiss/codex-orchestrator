@@ -30,6 +30,7 @@ import {
   isCxxBinaryUrl,
 } from '../../services/wrapper-transition.js';
 import { publishHostEvent } from '../../services/ws-bridge.js';
+import { withSpan } from '../../observability/tracing.js';
 import {
   assertHostEngineEnabled,
   hostEnginesList,
@@ -144,84 +145,100 @@ export async function registerWrapperV2Routes(
   // With `?sig=1` returns just the detached base64 signature value as
   // text/plain (matches the legacy `config.json.sig` file shape), for the
   // primary key or — with `&kid=` / `&fingerprint=` — for a named active key.
-  app.get('/wrapper/v2/config', { preHandler: [app.requireHost] }, async (req, reply) => {
-    await unavailableGuard();
-    const host = req.authHost;
-    if (!host)
-      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    const engine = engineFromQuery(req);
-    assertHostEngineEnabled(host, engine);
-    const baseUrl = resolvePublicBaseUrl(req);
-    const query = req.query as { sig?: string; kid?: string; fingerprint?: string };
-    const sigOnly = isTruthyFlag(query.sig);
-    const selector = readSignatureSelector(query);
-    // Checked before the bake: baking bumps `hosts.config_version`, and a
-    // malformed request should not move server state.
-    if (selector && !sigOnly) {
-      throw new ValidationError(
-        'kid/fingerprint select a detached signature and require sig=1; the full response body already lists every active signature under `signatures`',
-        { param: selector.param },
-      );
-    }
-    const platform = resolveWrapperPlatform(req.headers);
+  app.get('/wrapper/v2/config', { preHandler: [app.requireHost] }, async (req, reply) =>
+    // Trace root for the request. `http.request_id` is the same value the
+    // request-id plugin echoes in `x-request-id` and pino stamps on every log
+    // line for this request, so a trace and its logs join on it.
+    withSpan(
+      'GET /wrapper/v2/config',
+      {
+        'http.request.method': 'GET',
+        'http.route': '/wrapper/v2/config',
+        'http.request_id': typeof req.id === 'string' ? req.id : String(req.id),
+      },
+      async (span) => {
+        await unavailableGuard();
+        const host = req.authHost;
+        if (!host)
+          throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+        const engine = engineFromQuery(req);
+        assertHostEngineEnabled(host, engine);
+        span.setAttribute('wrapper.host_id', host.id);
+        span.setAttribute('wrapper.engine', engine);
+        const baseUrl = resolvePublicBaseUrl(req);
+        const query = req.query as { sig?: string; kid?: string; fingerprint?: string };
+        const sigOnly = isTruthyFlag(query.sig);
+        const selector = readSignatureSelector(query);
+        // Checked before the bake: baking bumps `hosts.config_version`, and a
+        // malformed request should not move server state.
+        if (selector && !sigOnly) {
+          throw new ValidationError(
+            'kid/fingerprint select a detached signature and require sig=1; the full response body already lists every active signature under `signatures`',
+            { param: selector.param },
+          );
+        }
+        const platform = resolveWrapperPlatform(req.headers);
 
-    let result;
-    try {
-      result = await configService.bakeForHost(host, engine, baseUrl, platform);
-    } catch (err) {
-      if (err instanceof WrapperSigningUnavailableError) {
-        throw new ServiceUnavailableError(
-          'wrapper v2 signing key not configured',
-          'wrapper_v2_unavailable',
-        );
-      }
-      if (err instanceof WrapperBinaryUnavailableError) {
-        throw new ServiceUnavailableError(err.message, 'wrapper_binary_unavailable');
-      }
-      throw err;
-    }
+        let result;
+        try {
+          result = await configService.bakeForHost(host, engine, baseUrl, platform);
+        } catch (err) {
+          if (err instanceof WrapperSigningUnavailableError) {
+            throw new ServiceUnavailableError(
+              'wrapper v2 signing key not configured',
+              'wrapper_v2_unavailable',
+            );
+          }
+          if (err instanceof WrapperBinaryUnavailableError) {
+            throw new ServiceUnavailableError(err.message, 'wrapper_binary_unavailable');
+          }
+          throw err;
+        }
 
-    if (result.bumped) {
-      publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
-    }
+        if (result.bumped) {
+          publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
+        }
+        span.setAttribute('wrapper.config_version', result.configVersion);
 
-    // The signature actually being served. Without a selector this is the
-    // primary — byte-identical to `result.signature` — so the default response
-    // is unchanged for every deployed binary.
-    const served = selectSignature(result.signatures, selector);
+        // The signature actually being served. Without a selector this is the
+        // primary — byte-identical to `result.signature` — so the default response
+        // is unchanged for every deployed binary.
+        const served = selectSignature(result.signatures, selector);
 
-    reply.envelopeRaw = true;
-    reply.header('cache-control', 'no-store');
-    reply.header('etag', `"${result.payload.etag}"`);
-    reply.header('x-sha256', result.payload.etag);
-    reply.header('x-config-version', String(result.configVersion));
-    // The `x-signature*` headers always describe the bytes this response
-    // serves, so a `?sig=1&kid=` reply can never disagree with its own body.
-    reply.header('x-signature-algo', served.algo);
-    reply.header('x-signature-kid', served.kid);
-    reply.header('x-signature', served.value);
-    reply.header('x-signature-fingerprint', served.fingerprint);
+        reply.envelopeRaw = true;
+        reply.header('cache-control', 'no-store');
+        reply.header('etag', `"${result.payload.etag}"`);
+        reply.header('x-sha256', result.payload.etag);
+        reply.header('x-config-version', String(result.configVersion));
+        // The `x-signature*` headers always describe the bytes this response
+        // serves, so a `?sig=1&kid=` reply can never disagree with its own body.
+        reply.header('x-signature-algo', served.algo);
+        reply.header('x-signature-kid', served.kid);
+        reply.header('x-signature', served.value);
+        reply.header('x-signature-fingerprint', served.fingerprint);
 
-    if (sigOnly) {
-      reply.header('content-type', 'text/plain; charset=utf-8');
-      reply.header('content-length', Buffer.byteLength(served.value));
-      return served.value;
-    }
+        if (sigOnly) {
+          reply.header('content-type', 'text/plain; charset=utf-8');
+          reply.header('content-length', Buffer.byteLength(served.value));
+          return served.value;
+        }
 
-    reply.header('content-type', 'application/json');
-    // `signatures` is additive and sits beside the envelope, never inside the
-    // signed `payload`: `payload` and `signature` keep the exact bytes they had
-    // before multi-sign existed, and the Go client decodes into a struct that
-    // reads only those two keys with no `DisallowUnknownFields` anywhere, so an
-    // already-deployed wrapper ignores the new key.
-    const body = canonicalStringify({
-      payload: result.payload,
-      signature: result.signature,
-      signatures: result.signatures,
-    });
-    reply.header('content-length', Buffer.byteLength(body));
-    return body;
-  });
+        reply.header('content-type', 'application/json');
+        // `signatures` is additive and sits beside the envelope, never inside the
+        // signed `payload`: `payload` and `signature` keep the exact bytes they had
+        // before multi-sign existed, and the Go client decodes into a struct that
+        // reads only those two keys with no `DisallowUnknownFields` anywhere, so an
+        // already-deployed wrapper ignores the new key.
+        const body = canonicalStringify({
+          payload: result.payload,
+          signature: result.signature,
+          signatures: result.signatures,
+        });
+        reply.header('content-length', Buffer.byteLength(body));
+        return body;
+      },
+    ),
+  );
 
   // GET /wrapper/v2/download — binary for the calling host's platform.
   app.get('/wrapper/v2/download', { preHandler: [app.requireHost] }, (req, reply) =>

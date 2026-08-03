@@ -14,7 +14,12 @@ const sharedBuildOptions: Omit<esbuild.BuildOptions, 'entryPoints' | 'outfile'> 
   format: 'esm',
   minify: true,
   sourcemap: true,
-  // Native addons + sodium WASM must be marked external (loaded at runtime)
+  // Native addons + sodium WASM must be marked external (loaded at runtime).
+  // The @opentelemetry/* entries are external for a different reason: they are
+  // `await import()`ed only when OTEL_TRACES_ENABLED is set, and bundling them
+  // would pull the SDK into the image's hot path for every operator who leaves
+  // tracing off. Anything listed here MUST also appear in the runtime
+  // dependency allowlist below, or the image ships an unresolvable import.
   external: [
     '@node-rs/argon2',
     'libsodium-wrappers',
@@ -24,6 +29,10 @@ const sharedBuildOptions: Omit<esbuild.BuildOptions, 'entryPoints' | 'outfile'> 
     'bcryptjs',
     '@simplewebauthn/server',
     'nodemailer',
+    '@opentelemetry/api',
+    '@opentelemetry/exporter-trace-otlp-http',
+    '@opentelemetry/resources',
+    '@opentelemetry/sdk-trace-node',
   ],
   banner: {
     js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
@@ -83,6 +92,8 @@ const runtimePkg = {
   engines: pkg.engines,
   dependencies: Object.fromEntries(
     Object.entries(pkg.dependencies as Record<string, string>).filter(([name]) =>
+      // Mirror of the esbuild `external` list above: every specifier that stays
+      // external has to be installable inside the image.
       [
         '@node-rs/argon2',
         'libsodium-wrappers',
@@ -92,6 +103,10 @@ const runtimePkg = {
         '@simplewebauthn/server',
         'nodemailer',
         'pino-pretty',
+        '@opentelemetry/api',
+        '@opentelemetry/exporter-trace-otlp-http',
+        '@opentelemetry/resources',
+        '@opentelemetry/sdk-trace-node',
       ].includes(name),
     ),
   ),

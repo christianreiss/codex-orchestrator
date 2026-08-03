@@ -1,5 +1,25 @@
 # 2026-08-03
 
+- The wrapper config bakery can now emit OpenTelemetry spans, **off by default** and gated only by
+  the new `OTEL_TRACES_ENABLED` env var (plus `OTEL_SERVICE_NAME`, default
+  `codex-orchestrator-api`). Off is total: `initTracing` returns before its first dynamic import, so
+  with the flag unset no OpenTelemetry package is loaded, no provider is registered, no exporter
+  exists and no socket is opened — `withSpan` calls straight through to its callback. Destination,
+  headers and sampling come from the spec-standard `OTEL_EXPORTER_OTLP_*` / `OTEL_TRACES_SAMPLER*`
+  variables that the SDK reads itself. The tree is `GET /wrapper/v2/config` → `wrapper.config.bake`
+  → {`wrapper.config.collect`, `wrapper.config.bump_version`, `wrapper.config.sign`};
+  `WrapperSigningUnavailableError` and `WrapperBinaryUnavailableError` set span status `ERROR` with
+  an `error.type` attribute. The `x-request-id` correlation id rides on the request span as
+  `http.request_id`, so traces join the existing pino logs. Instrumentation is manual because
+  `api/scripts/build.ts` bundles and minifies — auto-instrumentation has nothing to monkey-patch.
+  **No secret reaches a span**: attributes are host id, engine, schema version, config version and
+  the count of active signers only, never the resolved `api_key`, a signature value, a kid, a
+  fingerprint, the canonical bytes or an error message. The toggle is deliberately not routed
+  through the baked payload — `wrappers/schemas/host-config-v1.json` is `additionalProperties:
+  false` and signature-covered, so a flag there would be a wire-contract change for every deployed
+  binary. Four `@opentelemetry/*` packages were added; they are `external` to esbuild **and** in the
+  runtime-dependency allowlist in `api/scripts/build.ts`, and those two lists must stay in sync or
+  the image ships an unresolvable import that a green `npm run build` will not catch.
 - Removed the blanket fleet-policy prohibition on writing secret values to files, logs, or replies.
   Managed AGENTS/CLAUDE guidance, MCP initialization, and `secret_get` now permit a value to be
   persisted or relayed when an explicitly requested task requires it; the secret store itself still

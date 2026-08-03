@@ -32,6 +32,13 @@ const NON_API_VARS: Record<string, string> = {
   CADDY_TLS_KEY_FILE: 'caddy/tls-custom.caddy',
   CODEX_DEBUG: 'wrappers/cxx/internal/app/codex/main.go',
   CODEX_DEPLOY_BACKUP_DIR: 'scripts/deploy.sh',
+  // Spec-standard OpenTelemetry knob, read by the SDK itself rather than by
+  // `env.ts`. Deliberately not mirrored into the schema: re-declaring it would
+  // invite a second source of truth for a value we only ever pass through.
+  // Verified consumer, not a guess — `loadDefaultConfig()` in
+  // node_modules/@opentelemetry/sdk-trace-base/build/src/config.js, reached
+  // through the NodeTracerProvider that api/src/observability/tracing.ts builds.
+  OTEL_TRACES_SAMPLER: '@opentelemetry/sdk-trace-base config.js, via api/src/observability/tracing.ts',
 };
 
 /** `SMTP_HOST`, but not the `X-MTLS-*` header prefix or a bare `TLS`. */
