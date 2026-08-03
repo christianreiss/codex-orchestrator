@@ -20,6 +20,7 @@ import {
   createWrapperConfigService,
   canonicalStringify,
   WRAPPER_CONFIG_SCHEMA_VERSION,
+  WRAPPER_CONFIG_TTL_SECONDS,
   WrapperSigningUnavailableError,
 } from '../../../src/services/wrapper-config.js';
 import type {
@@ -499,6 +500,99 @@ describe('wrapper-config', () => {
     expect(result.bumped).toBe(true);
     expect(result.configVersion).toBe(12);
     expect(dbState.updates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  describe('config lifetime', () => {
+    /**
+     * Bakes with a wrapper-binary lookup that pushes the clock forward. It runs
+     * inside the bake, after the stamps are taken, so any second clock read
+     * would land on the far side of the drift and betray itself.
+     */
+    function bakeWithMidBakeClockDrift(driftMs: number) {
+      const host = fakeHost({ configVersion: 4 });
+      const binaries = fakeBinaries();
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries: {
+          ...binaries,
+          async resolveCurrentBuild(engine, os, arch) {
+            vi.setSystemTime(new Date(Date.now() + driftMs));
+            return binaries.resolveCurrentBuild(engine, os, arch);
+          },
+        },
+        signing: makeSigningService({
+          kid: '1',
+          fingerprint: FAKE_FINGERPRINT,
+          publicKey: 'pk',
+          sign() {
+            return Buffer.alloc(64);
+          },
+        }),
+        installationId: 'inst-ttl',
+      });
+      return svc.bakeForHost(host, 'codex', 'https://api.example.com');
+    }
+
+    it('stamps expires_at exactly one TTL after issued_at, from a single clock read', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // Late in a second, then drifting past it mid-bake: two separate clock
+      // reads would straddle the boundary and the signed lifetime would come
+      // out a second short of the advertised TTL.
+      vi.setSystemTime(new Date('2026-08-03T09:00:00.900Z'));
+      try {
+        const result = await bakeWithMidBakeClockDrift(200);
+
+        expect(result.payload.issued_at).toBe('2026-08-03T09:00:00Z');
+        expect(result.payload.expires_at).toBe('2026-09-02T09:00:00Z');
+        expect(WRAPPER_CONFIG_TTL_SECONDS).toBe(30 * 24 * 60 * 60);
+        expect(
+          Date.parse(result.payload.expires_at!) - Date.parse(result.payload.issued_at),
+        ).toBe(WRAPPER_CONFIG_TTL_SECONDS * 1000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('emits expires_at in the second-precision RFC3339 shape the wrapper parses', async () => {
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign() {
+          return Buffer.alloc(64);
+        },
+      };
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({
+          hosts: [fakeHost()],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries: fakeBinaries(),
+        signing: makeSigningService(signer),
+        installationId: 'inst-ttl-shape',
+      });
+
+      const result = await svc.bakeForHost(fakeHost(), 'claude', 'https://api.example.com');
+
+      // Go parses this with time.RFC3339; a millisecond suffix would still
+      // parse, but keeping both stamps in one shape is the contract.
+      expect(result.payload.expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(result.payload.issued_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(Date.parse(result.payload.expires_at!)).toBeGreaterThan(Date.now());
+    });
   });
 
   describe('multi-active signing keys', () => {

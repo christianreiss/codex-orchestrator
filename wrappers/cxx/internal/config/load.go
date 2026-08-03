@@ -14,6 +14,29 @@ import (
 	"time"
 )
 
+// ErrExpired marks an on-disk config whose expires_at has passed. Recovery code
+// matches it with errors.Is/errors.As so it never depends on message wording.
+var ErrExpired = errors.New("config expired")
+
+// ExpiredError reports an expired config found on disk.
+//
+// Config carries the parsed document so a caller can refetch a replacement
+// using credentials that are still authentic — an expiry is a property of the
+// reading host's clock, not evidence of tampering. It is populated ONLY when
+// the detached signature was verified, so a caller that seeds from it can
+// never be seeded from unverified bytes.
+type ExpiredError struct {
+	ExpiresAt time.Time
+	Path      string
+	Config    *Config
+}
+
+func (e *ExpiredError) Error() string {
+	return fmt.Sprintf("config expired at %s", e.ExpiresAt.UTC().Format(time.RFC3339))
+}
+
+func (e *ExpiredError) Unwrap() error { return ErrExpired }
+
 // Load reads a config from configPath, verifies the detached Ed25519 signature
 // in configPath+".sig" against pubkey, then validates schema invariants.
 // Set allowUnsignedForTests=true ONLY in unit tests with a nil pubkey.
@@ -30,6 +53,7 @@ func LoadForEngine(configPath string, pubkey ed25519.PublicKey, allowUnsignedFor
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
+	signatureVerified := false
 	if !allowUnsignedForTests {
 		if pubkey == nil {
 			return nil, errors.New("no signing public key available; refusing to load unsigned config")
@@ -42,6 +66,7 @@ func LoadForEngine(configPath string, pubkey ed25519.PublicKey, allowUnsignedFor
 		if err := VerifyDetached(raw, sigRaw, pubkey); err != nil {
 			return nil, fmt.Errorf("config signature invalid: %w", err)
 		}
+		signatureVerified = true
 	}
 
 	cfg := &Config{}
@@ -54,6 +79,21 @@ func LoadForEngine(configPath string, pubkey ed25519.PublicKey, allowUnsignedFor
 	cfg.sourcePath = configPath
 	if absolute, absErr := filepath.Abs(configPath); absErr == nil {
 		cfg.sourcePath = absolute
+	}
+	// Expiry is enforced here and deliberately NOT in ValidateForEngine: the
+	// same validator runs on bytes just downloaded from the orchestrator, and a
+	// freshly signed config must never be rejected because this host's clock
+	// runs ahead. Only a config sitting on disk can have genuinely aged out.
+	expiresAt, hasExpiry, expiryErr := cfg.expiresAtTime()
+	if expiryErr != nil {
+		return nil, fmt.Errorf("validate config: %w", expiryErr)
+	}
+	if hasExpiry && time.Now().After(expiresAt) {
+		expired := &ExpiredError{ExpiresAt: expiresAt, Path: cfg.sourcePath}
+		if signatureVerified {
+			expired.Config = cfg
+		}
+		return nil, expired
 	}
 	return cfg, nil
 }
@@ -162,14 +202,28 @@ func (c *Config) ValidateForEngine(expectedEngine string) error {
 	if c.Wrapper.BinaryURL == "" {
 		return errors.New("wrapper.binary_url required")
 	}
-	if c.ExpiresAt != nil && strings.TrimSpace(*c.ExpiresAt) != "" {
-		expiresAt, err := time.Parse(time.RFC3339, *c.ExpiresAt)
-		if err != nil {
-			return fmt.Errorf("expires_at invalid: %w", err)
-		}
-		if time.Now().After(expiresAt) {
-			return fmt.Errorf("config expired at %s", expiresAt.Format(time.RFC3339))
-		}
+	// Only the shape of expires_at is a property of the signed document. Whether
+	// it has already passed depends on the reading host's clock, so that check
+	// lives in LoadForEngine — see the comment there.
+	if _, _, err := c.expiresAtTime(); err != nil {
+		return err
 	}
 	return nil
+}
+
+// expiresAtTime parses expires_at. ok is false when the field is absent or
+// blank, which means the config never expires.
+func (c *Config) expiresAtTime() (time.Time, bool, error) {
+	if c.ExpiresAt == nil {
+		return time.Time{}, false, nil
+	}
+	raw := strings.TrimSpace(*c.ExpiresAt)
+	if raw == "" {
+		return time.Time{}, false, nil
+	}
+	expiresAt, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("expires_at invalid: %w", err)
+	}
+	return expiresAt, true, nil
 }

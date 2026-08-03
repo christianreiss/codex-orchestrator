@@ -1,5 +1,30 @@
 # 2026-08-03
 
+- Baked wrapper configs now carry a 30-day `expires_at` (`WRAPPER_CONFIG_TTL_SECONDS`), derived
+  from the same clock read as `issued_at` so the signed lifetime is exactly the TTL. Any bake
+  renews it, so a host in normal contact never approaches it. Expiry was previously a dormant,
+  unrecoverable hard fail, so the recovery landed first: it is now enforced only when loading a
+  config from disk (`config.LoadForEngine`) and no longer inside `Config.ValidateForEngine`, which
+  also runs on freshly downloaded bytes — a host whose clock ran ahead would otherwise reject every
+  replacement config it fetched, including the one meant to fix it. `ValidateForEngine` still
+  rejects a non-RFC3339 `expires_at`. An expired config now returns a typed `*config.ExpiredError`
+  and `fleetconfig.LoadOrRecover` refetches with the expired config's own `orchestrator.base_url`
+  and `api_key`, persists the reply and reloads, so `cdx`/`clx` startup and the `cxx cron` seed
+  loader heal themselves and print `signed config had expired; refreshed it from the orchestrator`.
+  Those credentials are trusted only because the detached signature verified first — an
+  unverifiable config never reaches the network, and every other load failure is returned unchanged.
+  A host whose clock is more than a full TTL ahead of the orchestrator's calls even a just-issued
+  config expired, so the recovery accepts a signature-verified replacement that still reads as
+  expired: having reached the orchestrator is stronger proof of freshness than a comparison against
+  a known-wrong clock. `GET /wrapper/v2/config` bakes unconditionally, so the server can never serve
+  an already-expired config into that loop.
+  When the refresh also fails the wrapper hard-fails with the operator instruction ahead of the
+  cause (`re-run the host installer to reseed <path>; automatic refresh failed: …`), because the
+  rendered failure is truncated. Rollout ordering matters: binaries older than this change enforce
+  expiry with no recovery path, and a fresh config is a full TTL away from expiring, which is the
+  margin `wrapper.binary_url` auto-update has to carry the fleet onto a self-healing binary. Hosts
+  offline longer than that need a manual installer re-run. Details in
+  `docs/wrapper-v2-architecture.md`.
 - Wrapper signing keys can now be rotated without rebuilding the fleet's binaries first. Several
   rows in `wrapper_signing_keys` may be active at once and every one of them signs the same
   canonical config bytes, while the primary key — explicitly the oldest active row, where selection

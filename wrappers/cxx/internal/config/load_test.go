@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,17 +174,27 @@ func TestDefaultPathFallsBackToHome(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsExpiredConfig(t *testing.T) {
+// Validate runs on freshly downloaded bytes too, where a past expires_at can
+// only mean the reading host's clock is ahead. Rejecting there would make a
+// skewed clock refuse every replacement config it fetches.
+func TestValidateAcceptsAlreadyExpiredConfig(t *testing.T) {
 	c := validCfg()
 	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	c.ExpiresAt = &past
 
-	err := c.Validate()
-	if err == nil {
-		t.Fatal("expected expired config to be rejected")
+	if err := c.Validate(); err != nil {
+		t.Fatalf("expected a freshly signed but expired-looking config to validate: %v", err)
 	}
-	if !strings.Contains(err.Error(), "config expired at") {
-		t.Fatalf("expected expiry complaint, got %v", err)
+}
+
+func TestValidateRejectsUnparseableExpiresAt(t *testing.T) {
+	c := validCfg()
+	broken := "not-a-timestamp"
+	c.ExpiresAt = &broken
+
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "expires_at invalid") {
+		t.Fatalf("expected expires_at shape complaint, got %v", err)
 	}
 }
 
@@ -194,6 +205,72 @@ func TestValidateAcceptsUnexpiredConfig(t *testing.T) {
 
 	if err := c.Validate(); err != nil {
 		t.Fatalf("expected unexpired config to validate: %v", err)
+	}
+}
+
+func TestLoadForEngineRejectsExpiredConfigOnDisk(t *testing.T) {
+	fixture := validCfg()
+	expiry := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	past := expiry.Format(time.RFC3339)
+	fixture.ExpiresAt = &past
+	cfgPath, pub := writeSignedFixture(t, t.TempDir(), fixture)
+
+	cfg, err := LoadForEngine(cfgPath, pub, false, EngineCodex)
+	if cfg != nil {
+		t.Fatal("expired config must not be returned as usable")
+	}
+	if !errors.Is(err, ErrExpired) {
+		t.Fatalf("expected ErrExpired, got %v", err)
+	}
+	var expired *ExpiredError
+	if !errors.As(err, &expired) {
+		t.Fatalf("expected *ExpiredError, got %T", err)
+	}
+	if !expired.ExpiresAt.Equal(expiry) {
+		t.Fatalf("ExpiresAt=%s, want %s", expired.ExpiresAt, expiry)
+	}
+	// The signature verified, so the recovery path may reuse these credentials.
+	if expired.Config == nil || expired.Config.Orchestrator.APIKey != fixture.Orchestrator.APIKey {
+		t.Fatalf("expected the verified config to be offered as a refetch seed, got %+v", expired.Config)
+	}
+	if expired.Path != cfgPath {
+		t.Fatalf("Path=%q, want %q", expired.Path, cfgPath)
+	}
+}
+
+// A config nobody verified must never become a refetch seed: its base_url and
+// api_key would be attacker-chosen.
+func TestLoadForEngineWithheldSeedForUnverifiedExpiredConfig(t *testing.T) {
+	fixture := validCfg()
+	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	fixture.ExpiresAt = &past
+	cfgPath := filepath.Join(t.TempDir(), "cdx.json")
+	raw, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = LoadForEngine(cfgPath, nil, true, EngineCodex)
+	var expired *ExpiredError
+	if !errors.As(err, &expired) {
+		t.Fatalf("expected *ExpiredError, got %v", err)
+	}
+	if expired.Config != nil {
+		t.Fatal("an unverified expired config must not be offered as a refetch seed")
+	}
+}
+
+func TestLoadForEngineAcceptsUnexpiredConfigOnDisk(t *testing.T) {
+	fixture := validCfg()
+	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	fixture.ExpiresAt = &future
+	cfgPath, pub := writeSignedFixture(t, t.TempDir(), fixture)
+
+	if _, err := LoadForEngine(cfgPath, pub, false, EngineCodex); err != nil {
+		t.Fatalf("unexpired config rejected: %v", err)
 	}
 }
 

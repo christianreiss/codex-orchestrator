@@ -163,6 +163,74 @@ flipped to `'v2'`.
 `bin/setup.sh` imports THE key of an installation and refuses to replace it.
 Replacing one is rotation, below.
 
+## Config lifetime and expiry recovery
+
+Every baked config carries `expires_at = issued_at + 30 days`
+(`WRAPPER_CONFIG_TTL_SECONDS` in `api/src/services/wrapper-config.ts`). Both
+stamps come from one clock read, so the signed lifetime is exactly the TTL and
+never a second short of it. `GET /wrapper/v2/config` bakes unconditionally on
+every request — there is no stored payload to serve — so the server can never
+hand out an already-expired config, and any host that talks to the orchestrator
+leaves with a full fresh window. The TTL bounds how long a config that has
+fallen out of contact stays usable; expiring is not a routine event.
+
+**Where expiry is enforced.** Only on disk, in
+`config.LoadForEngine` (`wrappers/cxx/internal/config/load.go`). The shared
+`Config.ValidateForEngine` deliberately does NOT check it: the same validator
+runs on bytes just downloaded from `/wrapper/v2/config`, and a host whose clock
+runs ahead would then reject every replacement config it fetches — including
+the one meant to fix it. `ValidateForEngine` still rejects an `expires_at` that
+is not RFC3339, because that is a property of the signed document rather than
+of the reader's clock.
+
+**Automatic recovery.** An expired config is not tampering, so
+`LoadForEngine` returns a typed `*config.ExpiredError` carrying the parsed
+document, and `fleetconfig.LoadOrRecover` refetches with the expired config's
+own `orchestrator.base_url` and `api_key`, persists the reply, and reloads.
+`cdx`/`clx` startup goes through it and prints `signed config had expired;
+refreshed it from the orchestrator` once, so a host heals on its next
+invocation. The `cxx cron` coordinator heals along its own route and stays
+silent: its seed loader simply accepts an expired-but-signature-valid config —
+preferring an unexpired sibling-engine config, falling back to the expired one
+— and the authoritative refresh it seeds is what replaces the file.
+
+The long-running helpers (`agentbus`, `agentportal`, the MCP bridge) still load
+the config directly and hard-fail on expiry. That is deliberate: they are
+spawned by a parent that has already recovered, so they never see an expired
+config in practice, and giving each of them its own refetch path would multiply
+the number of processes that can talk to `/wrapper/v2/config` on startup.
+
+A host whose clock is more than a full TTL ahead of the orchestrator's calls
+even a just-issued config expired. `LoadOrRecover` therefore accepts a
+replacement that still reads as expired after it was persisted: having reached
+the orchestrator and verified its signature is stronger proof of freshness than
+a timestamp compared against a clock that is known-wrong. Refusing it would
+hard-fail every invocation with no route back. A reload that fails for any
+other reason — signature, schema, engine — is still a hard failure, because
+that is disk corruption rather than skew.
+
+Security invariant: `ExpiredError.Config` is populated ONLY after the detached
+Ed25519 signature verified, so the credentials used to seed the refetch are
+always authentic. A config that fails signature verification is an ordinary
+hard failure and never reaches the network. Any other load failure — missing
+file, wrong engine, bad schema version — is returned unchanged and does not
+trigger a refetch.
+
+**When recovery fails** (orchestrator unreachable, host API key revoked, engine
+disabled), the wrapper hard-fails with the operator instruction first and the
+cause second, because the rendered failure is truncated: `re-run the host
+installer to reseed <path>; automatic refresh failed: …`. The procedure is to
+re-run this host's installer from Admin → Host Detail, which writes a freshly
+signed config and its `.sig`. Nothing on the server needs repairing — the
+bakery re-bakes on demand.
+
+**Rollout ordering.** Binaries older than this change enforce expiry inside
+`ValidateForEngine` and have no recovery path at all, so a host that expires on
+one of them needs a manual installer re-run. A fresh config is always a full
+TTL away from expiring, so the normal `wrapper.binary_url` auto-update has ~30
+days of margin to carry the fleet onto a binary that can self-heal. Hosts that
+are offline for longer than that window are the ones to re-seed by hand.
+
 ## Signing-key rotation
 
 A `cxx` binary embeds exactly one public key at build time, so retiring a

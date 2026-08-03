@@ -11,7 +11,7 @@ import {
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import {
@@ -45,6 +45,17 @@ import { isTruthyFlagValue } from './settings.js';
  */
 
 export const WRAPPER_CONFIG_SCHEMA_VERSION = 1;
+
+/**
+ * How long a baked config stays usable on a host, in seconds (30 days).
+ *
+ * The wrapper enforces this only when loading a config from disk — never on
+ * bytes it has just fetched — so a host whose clock is ahead cannot lock itself
+ * out. An expired config is recoverable without an operator: the wrapper
+ * refetches using the expired config's own (still signature-verified)
+ * credentials. See docs/wrapper-v2-architecture.md.
+ */
+export const WRAPPER_CONFIG_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export interface ConfigSignature {
   algo: 'ed25519';
@@ -314,7 +325,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       }
 
       const apiKey = resolveApiKey(host);
-      const issuedAt = nowIso();
+      // One clock read for both stamps: reading the clock twice could put
+      // issued_at and expires_at on opposite sides of a second boundary, so the
+      // signed lifetime would not be exactly the advertised TTL.
+      const issuedAtDate = new Date();
+      const issuedAt = isoOffsetSeconds(0, issuedAtDate);
+      const expiresAt = isoOffsetSeconds(WRAPPER_CONFIG_TTL_SECONDS, issuedAtDate);
 
       const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled] = await Promise.all([
         activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -335,7 +351,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
         engine,
         issued_at: issuedAt,
-        expires_at: null,
+        expires_at: expiresAt,
         orchestrator: {
           base_url: publicBaseUrl.replace(/\/+$/, ''),
           api_key: apiKey,

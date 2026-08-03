@@ -111,6 +111,65 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 	return &Fetched{Config: &cfg, Payload: payload, Signature: envelope.Signature.Value}, nil
 }
 
+// LoadOrRecover loads engine's signed config from path and self-heals the one
+// failure an operator cannot repair remotely: an expired config.
+//
+// Expiry is not tampering. config.LoadForEngine attaches the parsed document to
+// *config.ExpiredError only after its detached signature verified, so an
+// expired config's orchestrator.base_url and api_key are still authentic and
+// may seed exactly one refetch. Every other load failure — missing file, bad
+// signature, wrong engine — is returned untouched and never seeds anything.
+//
+// The bool reports whether a refresh happened so the caller can tell the
+// operator the config was renewed underneath them.
+func LoadOrRecover(ctx context.Context, path string, pubkey ed25519.PublicKey, engine string) (*config.Config, bool, error) {
+	cfg, err := config.LoadForEngine(path, pubkey, false, engine)
+	if err == nil {
+		return cfg, false, nil
+	}
+	var expired *config.ExpiredError
+	if !errors.As(err, &expired) || expired.Config == nil {
+		return nil, false, err
+	}
+	fetched, fetchErr := fetchWithKey(ctx, expired.Config, engine, pubkey)
+	if fetchErr != nil {
+		return nil, false, expiredRecoveryError(expired, path, fetchErr)
+	}
+	if persistErr := Persist(ctx, fetched); persistErr != nil {
+		return nil, false, expiredRecoveryError(expired, path, persistErr)
+	}
+	// Reload rather than returning the fetched config: it proves the bytes that
+	// landed on disk verify and validate, and it is what stamps the source path
+	// long-running capabilities re-read later.
+	cfg, reloadErr := config.LoadForEngine(path, pubkey, false, engine)
+	if reloadErr != nil {
+		var stillExpired *config.ExpiredError
+		if errors.As(reloadErr, &stillExpired) && stillExpired.Config != nil {
+			// The orchestrator just handed us this document and its signature
+			// verified, so it is as fresh as a config can be. A host clock more
+			// than a full TTL ahead of the server's sees even that as expired;
+			// refusing it here would brick the host on every invocation with no
+			// way back. Reaching the orchestrator is the stronger freshness
+			// proof, so it wins over the timestamp.
+			return stillExpired.Config, true, nil
+		}
+		return nil, false, expiredRecoveryError(expired, path, reloadErr)
+	}
+	return cfg, true, nil
+}
+
+// expiredRecoveryError leads with the operator instruction and trails with the
+// cause: the rendered failure is truncated to a couple of hundred characters,
+// and a verbose transport error must not be what survives.
+func expiredRecoveryError(expired *config.ExpiredError, path string, cause error) error {
+	target := path
+	if persisted, err := config.DefaultPathForEngine(expired.Config.Engine); err == nil && persisted != path {
+		target = fmt.Sprintf("%s (a refreshed config is written to %s)", path, persisted)
+	}
+	return fmt.Errorf("%w: re-run the host installer to reseed %s; automatic refresh failed: %v",
+		expired, target, cause)
+}
+
 func responseCode(body []byte) string {
 	var envelope struct {
 		Code  string `json:"code"`

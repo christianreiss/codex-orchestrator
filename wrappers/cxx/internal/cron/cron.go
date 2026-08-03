@@ -5,6 +5,7 @@ package cron
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -281,7 +282,19 @@ func loadAnySeedConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadAnySeedConfigWithKey(pubkey)
+}
+
+// loadAnySeedConfigWithKey picks the seed the authoritative refresh fetches
+// with. An expired config is accepted as a last resort: it is still signed, so
+// its orchestrator credentials are authentic, and the refresh it seeds is
+// exactly what replaces it. Without this, expiry would be unrecoverable — the
+// self-heal path needs a seed and the only seed on the host is the expired one.
+// The unexpired config of the sibling engine is always preferred, so the fallback
+// is a second pass rather than first-match.
+func loadAnySeedConfigWithKey(pubkey ed25519.PublicKey) (*config.Config, error) {
 	var errs []error
+	var expiredSeed *config.Config
 	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
 		path, pathErr := config.DefaultPathForEngine(engine)
 		if pathErr != nil {
@@ -292,7 +305,14 @@ func loadAnySeedConfig() (*config.Config, error) {
 		if loadErr == nil {
 			return cfg, nil
 		}
+		var expired *config.ExpiredError
+		if expiredSeed == nil && errors.As(loadErr, &expired) && expired.Config != nil {
+			expiredSeed = expired.Config
+		}
 		errs = append(errs, loadErr)
+	}
+	if expiredSeed != nil {
+		return expiredSeed, nil
 	}
 	return nil, fmt.Errorf("no usable signed cxx engine config found: %w", errors.Join(errs...))
 }
