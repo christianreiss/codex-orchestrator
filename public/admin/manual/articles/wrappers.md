@@ -67,7 +67,8 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 `app.requireHost`:
 
 - `GET /wrapper/v2/meta` (alias `GET /wrapper`) — engine-scoped projection of
-  the common platform matrix, with signing key id.
+  the common platform matrix, with the primary signing key's id and its
+  fingerprint (sha256 of the raw Ed25519 public key).
 - `GET /wrapper/v2/config[?engine=<engine>][&sig=1]` — returns the signed
   per-host config JSON (or its detached `.sig` file when `sig=1`). `engine`
   defaults to `codex`; each wrapper's peer-reconciliation code fetches the

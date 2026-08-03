@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
+  createHash,
   generateKeyPairSync,
   createPrivateKey,
   createPublicKey,
@@ -41,12 +42,19 @@ interface FakeRow {
 }
 
 function makeFakeDb(rows: FakeRow[]) {
-  // Minimal Drizzle-shaped builder: .select().from(t).where(eq).limit(n)
+  // Minimal Drizzle-shaped builder: .select().from(t).where(eq).orderBy(…).
+  // The service orders by created_at then id and takes no limit, because the
+  // primary signer is defined as the OLDEST active row rather than whichever
+  // one the storage engine happened to hand back first.
   return {
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async (_n: number) => rows.filter((r) => r.active === 1),
+          orderBy: async (..._args: unknown[]) =>
+            rows
+              .filter((r) => r.active === 1)
+              .slice()
+              .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id),
         }),
       }),
     }),
@@ -157,6 +165,107 @@ describe('wrapper-signing-key', () => {
     ]);
     const svc = createWrapperSigningKeyService({ db, keyring });
     expect(await svc.available()).toBe(true);
+  });
+
+  it('orders several active keys oldest-first and keeps the oldest primary', async () => {
+    const keyring = makeKeyring();
+    const older = generateKeyPairSync('ed25519');
+    const newer = generateKeyPairSync('ed25519');
+    // Row order is deliberately newest-first: the storage engine returns rows
+    // in whatever order it likes, so the service has to sort them itself.
+    const db = makeFakeDb([
+      {
+        id: 9,
+        algo: 'ed25519',
+        publicKey: newer.publicKey.export({ format: 'pem', type: 'spki' }) as string,
+        privateKeyEnc: encrypt(newer.privateKey.export({ format: 'pem', type: 'pkcs8' }) as string, keyring),
+        active: 1,
+        createdAt: '2026-07-01T00:00:00Z',
+        rotatedAt: null,
+      },
+      {
+        id: 3,
+        algo: 'ed25519',
+        publicKey: older.publicKey.export({ format: 'pem', type: 'spki' }) as string,
+        privateKeyEnc: encrypt(older.privateKey.export({ format: 'pem', type: 'pkcs8' }) as string, keyring),
+        active: 1,
+        createdAt: '2026-05-01T00:00:00Z',
+        rotatedAt: null,
+      },
+    ]);
+
+    const svc = createWrapperSigningKeyService({ db, keyring });
+    const all = await svc.allActive();
+    expect(all.map((signer) => signer.kid)).toEqual(['3', '9']);
+    expect((await svc.active())?.kid).toBe('3');
+    expect(await svc.available()).toBe(true);
+
+    for (const [signer, pair] of [
+      [all[0]!, older],
+      [all[1]!, newer],
+    ] as const) {
+      const sig = signer.sign('rotation-payload');
+      expect(cryptoVerify(null, Buffer.from('rotation-payload', 'utf8'), pair.publicKey, sig)).toBe(true);
+    }
+  });
+
+  it('fingerprints the raw 32-byte public key with sha256', async () => {
+    const keyring = makeKeyring();
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const jwk = publicKey.export({ format: 'jwk' }) as { x?: string };
+    const raw = Buffer.from(jwk.x!.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    expect(raw).toHaveLength(32);
+
+    const db = makeFakeDb([
+      {
+        id: 11,
+        algo: 'ed25519',
+        publicKey: publicKey.export({ format: 'pem', type: 'spki' }) as string,
+        privateKeyEnc: encrypt(privateKey.export({ format: 'pem', type: 'pkcs8' }) as string, keyring),
+        active: 1,
+        createdAt: '2026-05-16T00:00:00Z',
+        rotatedAt: null,
+      },
+    ]);
+    const signer = await createWrapperSigningKeyService({ db, keyring }).active();
+    expect(signer?.publicKey).toBe(raw.toString('base64'));
+    expect(signer?.fingerprint).toBe(createHash('sha256').update(raw).digest('hex'));
+    expect(signer?.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('skips an unreadable extra key but refuses to promote past an unreadable primary', async () => {
+    const keyring = makeKeyring();
+    const good = generateKeyPairSync('ed25519');
+    const goodRow = {
+      id: 3,
+      algo: 'ed25519',
+      publicKey: good.publicKey.export({ format: 'pem', type: 'spki' }) as string,
+      privateKeyEnc: encrypt(good.privateKey.export({ format: 'pem', type: 'pkcs8' }) as string, keyring),
+      active: 1,
+      createdAt: '2026-05-01T00:00:00Z',
+      rotatedAt: null,
+    };
+    const brokenRow = { ...goodRow, id: 9, privateKeyEnc: 'not-a-key', createdAt: '2026-07-01T00:00:00Z' };
+
+    const withBrokenExtra = createWrapperSigningKeyService({
+      db: makeFakeDb([goodRow, brokenRow]),
+      keyring,
+    });
+    expect((await withBrokenExtra.allActive()).map((s) => s.kid)).toEqual(['3']);
+
+    // Reversed ages: the broken row is now the primary. Promoting the readable
+    // key would sign configs the fleet's embedded public key cannot verify, so
+    // the signer reports itself unavailable instead.
+    const withBrokenPrimary = createWrapperSigningKeyService({
+      db: makeFakeDb([
+        { ...brokenRow, createdAt: '2026-04-01T00:00:00Z' },
+        goodRow,
+      ]),
+      keyring,
+    });
+    expect(await withBrokenPrimary.allActive()).toEqual([]);
+    expect(await withBrokenPrimary.active()).toBeNull();
+    expect(await withBrokenPrimary.available()).toBe(false);
   });
 
   it('invalidate() clears the cache so subsequent active() reloads', async () => {

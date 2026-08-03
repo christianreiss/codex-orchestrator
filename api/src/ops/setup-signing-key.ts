@@ -6,19 +6,16 @@ import { createDb } from '../db/client.js';
 import { wrapperSigningKeys } from '../db/schema.js';
 import { Keyring } from '../security/keyring.js';
 import { decrypt, encrypt, isEnvelope } from '../security/secret-box.js';
-import { createWrapperSigningKeyService, toKeyObject } from '../services/wrapper-signing-key.js';
+import { createWrapperSigningKeyService, publicKeyB64 } from '../services/wrapper-signing-key.js';
 import { nowIso } from '../util/timestamp.js';
 
-function publicKeyB64(material: string): string {
-  const trimmed = material.trim();
-  if (/^[A-Za-z0-9+/]{43}=$/.test(trimmed) && Buffer.from(trimmed, 'base64').length === 32) {
-    return trimmed;
+/** `publicKeyB64` for a row whose stored material may be unparseable. */
+function publicKeyB64OrNull(material: string): string | null {
+  try {
+    return publicKeyB64(material);
+  } catch {
+    return null;
   }
-  const key = trimmed.includes('PRIVATE KEY') ? toKeyObject(trimmed) : null;
-  const publicKey = key ? createPublicKey(key) : createPublicKey(trimmed);
-  const jwk = publicKey.export({ format: 'jwk' }) as { x?: string };
-  if (!jwk.x) throw new Error('signing material is not an Ed25519 key');
-  return Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('base64');
 }
 
 async function main(): Promise<void> {
@@ -45,21 +42,21 @@ async function main(): Promise<void> {
         .from(wrapperSigningKeys)
         .where(eq(wrapperSigningKeys.active, 1))
         .for('update');
-      if (active.length > 1) {
-        throw new Error('multiple active wrapper signing keys; deactivate the obsolete rows manually before rerunning setup');
-      }
-
-      if (active.length === 1) {
-        const row = active[0]!;
-        if (publicKeyB64(row.publicKey) !== expected) {
-          throw new Error('active database signing key does not match this installation; automatic rotation is refused');
-        }
+      // Several keys may be active at once (rotation is additive), so setup
+      // adopts the row matching THIS installation's key rather than assuming
+      // there is only one. Setup is not the rotation entry point: an active set
+      // that does not contain this key is still refused, and never appended to.
+      const row = active.find((candidate) => publicKeyB64OrNull(candidate.publicKey) === expected);
+      if (row) {
         if (!row.privateKeyEnc || !isEnvelope(row.privateKeyEnc)) {
           throw new Error('active signing key is not encrypted; repair it explicitly before rerunning setup');
         }
         const readBack = decrypt(row.privateKeyEnc, keyring);
         if (publicKeyB64(readBack) !== expected) throw new Error('encrypted signing-key read-back mismatch');
         return row.id;
+      }
+      if (active.length > 0) {
+        throw new Error('active database signing key does not match this installation; automatic rotation is refused');
       }
 
       const result = await tx.insert(wrapperSigningKeys).values({
@@ -76,8 +73,11 @@ async function main(): Promise<void> {
     });
 
     const signerService = createWrapperSigningKeyService({ db, keyring });
-    const signer = await signerService.active();
-    if (!signer || signer.kid !== String(keyId) || signer.publicKey !== expected) {
+    // The imported key need not be the primary (oldest) one when a rotation is
+    // in flight, so the read-back looks it up by id instead of assuming `[0]`.
+    const signers = await signerService.allActive();
+    const signer = signers.find((candidate) => candidate.kid === String(keyId));
+    if (!signer || signer.publicKey !== expected) {
       throw new Error('active signer read-back did not match the imported key');
     }
     const payload = randomBytes(48);

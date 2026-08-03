@@ -36,6 +36,12 @@ import { isTruthyFlagValue } from './settings.js';
  * route serializes it once with `canonicalStringify`). The returned
  * `signature.value` is base64 of the raw 64-byte Ed25519 signature over the
  * same canonical bytes.
+ *
+ * When more than one signing key is active the same canonical bytes are signed
+ * by each of them and the extra signatures ride in `signatures`. They are
+ * deliberately NOT part of `WrapperConfigPayload`: the signature is a sibling
+ * of the signed payload, so adding signers changes no signed byte and no
+ * already-deployed binary. `signature` stays the primary (oldest) key's.
  */
 
 export const WRAPPER_CONFIG_SCHEMA_VERSION = 1;
@@ -44,6 +50,17 @@ export interface ConfigSignature {
   algo: 'ed25519';
   value: string;
   kid: string;
+}
+
+/**
+ * A signature plus the fingerprint of the key that produced it. Kept separate
+ * from `ConfigSignature` because that type is serialized onto the wire as-is:
+ * the served `{payload, signature}` body must keep exactly the three keys
+ * deployed wrappers already parse.
+ */
+export interface ConfigSignerSignature extends ConfigSignature {
+  /** sha256 of the raw 32-byte Ed25519 public key, lowercase hex. */
+  fingerprint: string;
 }
 
 export interface WrapperConfigPayload {
@@ -93,6 +110,11 @@ export interface WrapperConfigPayload {
 export interface BakeResult {
   payload: WrapperConfigPayload;
   signature: ConfigSignature;
+  /**
+   * One signature per active key over the same canonical bytes, oldest key
+   * first. `signatures[0]` is `signature` with the signer's fingerprint added.
+   */
+  signatures: ConfigSignerSignature[];
   /** Whether `hosts.config_version` was bumped by this call (vs. served fresh). */
   bumped: boolean;
   /** The (possibly newly-bumped) config_version. */
@@ -286,8 +308,8 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
 
   return {
     async bakeForHost(host, engine, publicBaseUrl, platform) {
-      const signer = await deps.signing.active();
-      if (!signer) {
+      const signers = await deps.signing.allActive();
+      if (signers.length === 0) {
         throw new WrapperSigningUnavailableError();
       }
 
@@ -350,11 +372,19 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       const etag = createHash('sha256').update(canonicalForHashing).digest('hex');
       const payload: WrapperConfigPayload = { ...draft, etag } as WrapperConfigPayload;
       const canonicalForSigning = canonicalStringify(payload);
-      const sigBytes = signer.sign(canonicalForSigning);
-      const signature: ConfigSignature = {
+      const signatures: ConfigSignerSignature[] = signers.map((signer) => ({
         algo: 'ed25519',
-        value: sigBytes.toString('base64'),
+        value: signer.sign(canonicalForSigning).toString('base64'),
         kid: signer.kid,
+        fingerprint: signer.fingerprint,
+      }));
+      const primary = signatures[0]!;
+      // Rebuilt key-by-key rather than spread: `signature` is serialized onto
+      // the wire and must keep exactly the keys deployed wrappers parse.
+      const signature: ConfigSignature = {
+        algo: primary.algo,
+        value: primary.value,
+        kid: primary.kid,
       };
 
       await stampBakedAt(deps.db, host.id, newVersion, bakedAt);
@@ -362,6 +392,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       return {
         payload,
         signature,
+        signatures,
         bumped: true,
         configVersion: newVersion,
         canonicalJson: canonicalForSigning,

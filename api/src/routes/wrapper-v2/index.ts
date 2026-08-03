@@ -129,7 +129,14 @@ export async function registerWrapperV2Routes(
     const data = await meta.forEngine(engine, baseUrl);
     const signer = await signing.active();
     reply.header('cache-control', 'no-store');
-    return { ...data, signing_kid: signer?.kid ?? null };
+    // `signing_kid` is the primary key's DB row id; the fingerprint is the
+    // sha256 of its raw Ed25519 public key, which is what a client can compare
+    // against the key its binary embeds.
+    return {
+      ...data,
+      signing_kid: signer?.kid ?? null,
+      signing_fingerprint: signer?.fingerprint ?? null,
+    };
   }
 
   // GET /wrapper/v2/config — signed per-host config JSON.
@@ -174,6 +181,11 @@ export async function registerWrapperV2Routes(
     reply.header('x-signature-algo', result.signature.algo);
     reply.header('x-signature-kid', result.signature.kid);
     reply.header('x-signature', result.signature.value);
+    // Fingerprint of the key that produced `x-signature`. Additive: the body
+    // and the `?sig=1` bytes are untouched, so deployed binaries are unaffected.
+    if (result.signatures[0]) {
+      reply.header('x-signature-fingerprint', result.signatures[0].fingerprint);
+    }
 
     if (sigOnly) {
       reply.header('content-type', 'text/plain; charset=utf-8');

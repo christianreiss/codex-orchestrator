@@ -1,3 +1,19 @@
+# 2026-08-03
+
+- Wrapper signing keys can now be rotated without rebuilding the fleet's binaries first. Several
+  rows in `wrapper_signing_keys` may be active at once and every one of them signs the same
+  canonical config bytes, while the primary key — explicitly the oldest active row, where selection
+  used to be an unordered `LIMIT 1` — keeps producing the `signature`, the `?sig=1` body and the
+  `x-signature` header a deployed binary verifies. The extra signatures stay out of
+  `WrapperConfigPayload`, so no signed byte, no `etag` and no entry in `host-config-v1.json`
+  changes, and the Go verification path is untouched. `/wrapper/v2/meta` now also reports
+  `signing_fingerprint` and config responses carry `x-signature-fingerprint` — sha256 of the raw
+  Ed25519 public key, which is what identifies key material across installations; the docs calling
+  the DB row id a "fingerprint" were wrong and are corrected. New `api/src/ops/rotate-signing-key.ts`
+  (`add`/`list`/`retire`, shipped in the image) is the rotation entry point, `bin/setup.sh` adopts
+  the row matching its own key instead of assuming there is only one, and the setup signer check
+  passes on a multi-key installation. The runbook is in `docs/wrapper-v2-architecture.md`.
+
 # 2026-08-02
 
 - Added a versioned Fleet Policy Builder for AGENTS.md with mandatory Codex Orchestrator identity,

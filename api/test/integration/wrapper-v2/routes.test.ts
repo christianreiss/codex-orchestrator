@@ -160,10 +160,19 @@ function fakeDb(host: Host): Database {
   return db as unknown as Database;
 }
 
+/** The raw 32-byte Ed25519 public key behind a public or private key object. */
+function rawPublicKey(key: import('node:crypto').KeyObject): Buffer {
+  const pub = key.type === 'public' ? key : createPublicKey(key);
+  const jwk = pub.export({ format: 'jwk' }) as { x?: string };
+  return Buffer.from(jwk.x!.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
 function makeSigner(privateKey: import('node:crypto').KeyObject): WrapperSigner {
+  const raw = rawPublicKey(privateKey);
   return {
     kid: '1',
-    publicKey: 'pk',
+    fingerprint: createHash('sha256').update(raw).digest('hex'),
+    publicKey: raw.toString('base64'),
     sign(payload) {
       const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
       const { sign } = require('node:crypto') as typeof import('node:crypto');
@@ -176,6 +185,9 @@ function signingService(signer: WrapperSigner | null): WrapperSigningKeyService 
   return {
     async active() {
       return signer;
+    },
+    async allActive() {
+      return signer ? [signer] : [];
     },
     async available() {
       return signer !== null;
@@ -791,6 +803,55 @@ describe('wrapper-v2 routes', () => {
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('advertises the primary signing fingerprint without altering the signed shapes', async () => {
+    const host = fakeHost();
+    const signer = makeSigner(kp.privateKey);
+    const app = await buildProductionApp(
+      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+      signer,
+      host,
+      BIN_ROOT,
+    );
+    try {
+      const fingerprint = createHash('sha256').update(rawPublicKey(kp.publicKey)).digest('hex');
+      expect(signer.fingerprint).toBe(fingerprint);
+
+      const metaResponse = await app.inject({ method: 'GET', url: '/wrapper/v2/meta' });
+      expect(metaResponse.statusCode).toBe(200);
+      const meta = JSON.parse(metaResponse.payload) as {
+        signing_kid: string | null;
+        signing_fingerprint: string | null;
+      };
+      expect(meta.signing_kid).toBe('1');
+      expect(meta.signing_fingerprint).toBe(fingerprint);
+
+      const configResponse = await app.inject({
+        method: 'GET',
+        url: '/wrapper/v2/config?engine=codex',
+        headers: { 'x-wrapper-platform': 'linux-amd64' },
+      });
+      expect(configResponse.statusCode).toBe(200);
+      expect(configResponse.headers['x-signature-fingerprint']).toBe(fingerprint);
+      // The served body keeps exactly the three signature keys deployed
+      // wrappers parse; the fingerprint rides in a header instead.
+      const body = JSON.parse(configResponse.payload) as { signature: Record<string, string> };
+      expect(Object.keys(body.signature).sort()).toEqual(['algo', 'kid', 'value']);
+      expect(body.signature.value).toBe(configResponse.headers['x-signature']);
+
+      const sigResponse = await app.inject({
+        method: 'GET',
+        url: '/wrapper/v2/config?engine=codex&sig=1',
+        headers: { 'x-wrapper-platform': 'linux-amd64' },
+      });
+      expect(sigResponse.statusCode).toBe(200);
+      expect(sigResponse.headers['content-type']).toBe('text/plain; charset=utf-8');
+      expect(sigResponse.payload).toBe(sigResponse.headers['x-signature']);
+      expect(sigResponse.headers['x-signature-fingerprint']).toBe(fingerprint);
+    } finally {
+      await app.close();
     }
   });
 

@@ -220,12 +220,16 @@ function fakeBinaries(): WrapperBinRegistry {
 function fakeSigning(): WrapperSigningKeyService {
   const signer: WrapperSigner = {
     kid: '1',
+    fingerprint: 'f'.repeat(64),
     publicKey: 'pk',
     sign: () => Buffer.alloc(64),
   };
   return {
     async active() {
       return signer;
+    },
+    async allActive() {
+      return [signer];
     },
     async available() {
       return true;

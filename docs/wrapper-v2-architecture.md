@@ -100,14 +100,15 @@ storage/wrapper/v2/
 ```
 
 Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
-`config_version` advances; the active Ed25519 signing key lives in the
-`wrapper_signing_keys` table and is loaded by `wrapper-signing-key.ts`.
+`config_version` advances; the active Ed25519 signing keys live in the
+`wrapper_signing_keys` table and are loaded by `wrapper-signing-key.ts`. More
+than one row may be active at a time — see [Signing-key rotation](#signing-key-rotation).
 
 ## Endpoints
 
 | Method | Path                                              | Notes                                   |
 |--------|---------------------------------------------------|-----------------------------------------|
-| GET    | `/wrapper/v2/meta`                                | manifest + signing fingerprint          |
+| GET    | `/wrapper/v2/meta`                                | manifest + primary `signing_kid` and `signing_fingerprint` |
 | GET    | `/wrapper/v2/config[?sig=1]`                      | signed per-host config or signature     |
 | GET    | `/wrapper/v2/download`                            | Go binary for this host's platform      |
 | GET    | `/wrapper/v2/manifest/{engine}`                   | per-platform inventory                  |
@@ -159,7 +160,54 @@ After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
 binary manifest and the bakery is live for any host whose `wrapper_track` is
 flipped to `'v2'`.
 
-## cxx rollout and rollback
+`bin/setup.sh` imports THE key of an installation and refuses to replace it.
+Replacing one is rotation, below.
+
+## Signing-key rotation
+
+A `cxx` binary embeds exactly one public key at build time, so retiring a
+signing key before every host runs a binary that knows its replacement breaks
+config verification fleet-wide. The server side removes that coupling by
+signing with several keys at once instead:
+
+- Any number of rows in `wrapper_signing_keys` may have `active = 1`. Every one
+  of them signs the same canonical config bytes.
+- The **primary** key is the OLDEST active row (`created_at`, then `id`). Its
+  signature is the one served as `signature` in `{payload, signature}`, as the
+  `?sig=1` body, and in `x-signature` — the bytes a deployed binary verifies.
+- Extra signatures never enter the payload, so adding a key changes no signed
+  byte, no `etag`, and nothing in `wrappers/schemas/host-config-v1.json`. An
+  already-deployed binary cannot tell the difference.
+- `GET /wrapper/v2/meta` reports the primary key's `signing_kid` (its DB row id)
+  and `signing_fingerprint` (sha256 of the raw 32-byte Ed25519 public key,
+  lowercase hex). `GET /wrapper/v2/config` returns the same fingerprint in
+  `x-signature-fingerprint`. The fingerprint, not the row id, is what identifies
+  key material across installations.
+
+The rotation entry point is `api/src/ops/rotate-signing-key.ts`, built into the
+image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`. Run
+the runbook in this order — reversing steps 1 and 4 is the outage:
+
+1. **Add the new key while the old one keeps signing.** Generate an Ed25519
+   pair, then `node rotate-signing-key.js add NEW_PRIVATE.pem NEW_PUBLIC.pem`.
+   Both keys now sign; the old key is still primary, so nothing on any host
+   changes yet. Delete the plaintext private key afterwards.
+2. **Ship binaries that embed the new public key.** Build and publish with
+   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/setup.sh` does, then roll
+   the fleet forward.
+3. **Confirm adoption.** `node rotate-signing-key.js list` prints every active
+   key's `kid` and `fingerprint`; compare the new fingerprint against what the
+   updated hosts embed before continuing. Do not proceed while any host still
+   verifies only against the old key.
+4. **Retire the old key.** `node rotate-signing-key.js retire OLD_KEY_ID` stamps
+   `rotated_at`, clears `active`, and the newer key becomes primary — its
+   signature now fills `signature`/`.sig`. Retiring the only active key is
+   refused, because that leaves the bakery returning `503`.
+
+Rollback before step 4 is free: retire the new key instead and the primary never
+moved. After step 4 it costs a round trip — `add` re-inserts the old key with a
+fresh `created_at`, so it comes back as a secondary signer; retiring the newer
+key afterwards is what makes it primary again.
 
 Build into a staging directory outside the served `bin/cxx` root; a tag's CI
 archive is a single-version release fragment, not a replacement store. After
