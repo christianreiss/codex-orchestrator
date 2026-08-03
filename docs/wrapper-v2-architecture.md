@@ -406,6 +406,16 @@ by default. The API's toggle is `OTEL_TRACES_ENABLED`; the `cxx` binary's is
 `CXX_OTEL_TRACES_ENABLED`, and that prefix is not cosmetic — see
 [Wrapper spans (`cxx`)](#wrapper-spans-cxx).
 
+Two things to know before you go looking for traces:
+
+- **The released `cxx` cannot trace.** Its SDK is behind the `cxx_otel` build
+  tag and `make release` builds untagged, so `CXX_OTEL_TRACES_ENABLED` on a
+  fleet-installed binary does nothing. See
+  [Build tag: the released binary has no SDK](#build-tag-the-released-binary-has-no-sdk).
+- **The two halves are two separate traces.** No trace context crosses the
+  wrapper → API boundary. See
+  [Known limitation: no trace context crosses the boundary](#known-limitation-no-trace-context-crosses-the-boundary).
+
 ### Bakery spans (API)
 
 The bakery emits OpenTelemetry spans. They are **off by default**, and off means
@@ -481,15 +491,73 @@ grep -o '@opentelemetry/[a-z-]*' dist/package.json | sort -u
 ### Wrapper spans (`cxx`)
 
 The `cxx` binary emits its own spans from
-`wrappers/cxx/internal/observability/tracing`. Off by default, and off is total:
-with `CXX_OTEL_TRACES_ENABLED` unset, `tracing.Init` returns before it builds an
-exporter or a provider, so no socket is opened, no background goroutine starts,
-and `tracing.Start` hands back the caller's context plus a zero-sized no-op
-span. The disabled path costs one atomic load.
+`wrappers/cxx/internal/observability/tracing` — **in a build that was compiled
+with `-tags cxx_otel`**. Read the next section first; the default binary, the
+one the fleet installs, has no SDK in it at all.
+
+In a traced build, tracing is still off unless `CXX_OTEL_TRACES_ENABLED` is
+truthy, and off is total: `tracing.Init` returns before it builds an exporter or
+a provider, so no socket is opened, no background goroutine starts, and
+`tracing.Start` hands back the caller's context plus a zero-sized no-op span.
+The disabled path costs one atomic load.
 
 `Init` is called from `lifecycle.Run` in each persona, not from `main`, so
 `cdx cron`, `cdx update`, `clx uninstall` and every other subcommand pay
 nothing.
+
+#### Build tag: the released binary has no SDK
+
+The package is one exported API over two implementations in the same directory:
+
+| File | Constraint | Contents |
+| --- | --- | --- |
+| `tracing.go` | none | Env contract, `Config`/`ConfigFromEnv`, `Attr`, the `Span` interface, `ErrorType`. Imports no OpenTelemetry. |
+| `tracing_stub.go` | `//go:build !cxx_otel` | **The default.** `Init` returns a no-op, `Enabled` returns false, `Start` returns the caller's context. Imports no OpenTelemetry. |
+| `tracing_otel.go` | `//go:build cxx_otel` | The real exporter, provider and span types. The only file that imports `go.opentelemetry.io`. |
+
+The exported names are identical in both, so no call site branches and neither
+persona lifecycle knows which half it was compiled against.
+
+`cxx` is sha256-manifested and self-distributes: every host re-downloads the
+whole binary on each wrapper update. Linking the SDK unconditionally cost
+**+7.2 MB (+79%)** on `linux/amd64`, already under `-trimpath -ldflags "-s -w"`,
+for a feature that is off by default — so the tag is what keeps that off the
+fleet. `make cxx`, `make release`, and the `build` and `release` jobs in
+`.github/workflows/wrappers.yml` all build **untagged**, deliberately. Do not add
+the tag to any of them.
+
+The consequence, which will surprise somebody eventually: **setting
+`CXX_OTEL_TRACES_ENABLED` on a fleet-installed `cxx` produces no spans.** The
+stub logs one debug line saying the binary was not compiled with tracing, and
+that is all. To get spans, build your own:
+
+```sh
+cd wrappers && make cxx-traced        # -> wrappers/bin/cxx-traced
+# or
+cd wrappers/cxx && go build -tags cxx_otel -o /tmp/cxx ./cmd/cxx
+```
+
+Two guards keep the default build honest:
+
+- `cmd/cxx/otel_linkage_test.go` (`!cxx_otel`) reads the test binary's own module
+  list via `debug.ReadBuildInfo` and fails if any `go.opentelemetry.io/*` module
+  is linked. `make test` runs it.
+- The authoritative check is on the artifact itself:
+
+  ```sh
+  cd wrappers/cxx
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /tmp/cxx-default ./cmd/cxx
+  go version -m /tmp/cxx-default | grep -c opentelemetry   # must be 0
+  ```
+
+Because the tag hides the SDK from the *linker* but not from the *module graph*,
+`go.mod`, `go.sum` and `go list -m all` (58 modules) look the same either way.
+That is expected: build tags prune what is compiled, not what is required.
+
+`make test` and CI's untagged `go vet` do not compile `tracing_otel.go` at all,
+so the tracing egress guard and the span-hygiene tests would go unexercised.
+`make test-traced` (`go vet -tags cxx_otel` + `go test -tags cxx_otel`) runs
+them, and the `test` job in CI invokes it as a separate step.
 
 #### Why the variables are `CXX_`-prefixed
 
@@ -610,25 +678,69 @@ this repository does not control, so it is a lower-trust sink than a log line.
 
 #### Binary cost
 
-The SDK and the OTLP/HTTP exporter are linked unconditionally — Go has no
-conditional linking — so the cost is paid by every host whether or not tracing
-is ever switched on. Measured at v0.7.7 with `make release`:
+This is the number the build tag exists for. All figures are bytes from
 
-| Platform | Before | After | Delta |
-| --- | --- | --- | --- |
-| linux/amd64 | 9.09 MB | 16.30 MB | +7.21 MB (+79%) |
-| linux/arm64 | 8.39 MB | 15.21 MB | +6.82 MB (+81%) |
-| darwin/amd64 | 9.28 MB | 16.87 MB | +7.60 MB (+82%) |
-| darwin/arm64 | 8.60 MB | 15.82 MB | +7.22 MB (+84%) |
+```sh
+CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> go build -trimpath -ldflags "-s -w" -o <out> ./cmd/cxx
+```
 
-Modules linked into `cmd/cxx` go from 4 to 24; `go list -m all` goes from 4 to
-58. Almost all of that is `go.opentelemetry.io/proto/otlp` dragging in
-`google.golang.org/grpc`, `google.golang.org/protobuf` and `genproto` — the
-tracing SDK by itself costs about 0.6 MB.
+on Go 1.25, comparing this branch's default build and its `-tags cxx_otel` build
+against the same command on `main` (which has no tracing at all):
 
-**This is a real cost for a self-updating fleet**: every host downloads roughly
-7 MB more on every wrapper bump. If that outweighs the tracing, the lever is the
-exporter, not the instrumentation — an OTLP/JSON exporter over `net/http` would
-drop grpc and protobuf entirely and bring the delta back to well under 1 MB, at
-the price of hand-maintaining the wire encoding. The instrumentation, the
-`CXX_OTEL_*` contract and the tests are exporter-agnostic and would not change.
+| Platform | `main` | Default build | Delta | `-tags cxx_otel` | Delta vs default |
+| --- | --- | --- | --- | --- | --- |
+| linux/amd64 | 9,093,304 | 9,109,688 | +16,384 (+0.2%) | 16,285,880 | +7,176,192 (+78.8%) |
+| linux/arm64 | 8,388,792 | 8,388,792 | 0 | 15,204,536 | +6,815,744 (+81.2%) |
+| darwin/amd64 | 9,275,584 | 9,288,032 | +12,448 (+0.1%) | 16,862,640 | +7,574,608 (+81.6%) |
+| darwin/arm64 | 8,596,610 | 8,629,810 | +33,200 (+0.4%) | 15,801,234 | +7,171,424 (+83.1%) |
+
+The `make release` LDFLAGS add a few more bytes of version stamping on top of
+every column equally; the deltas are what matter. **The released artifact is the
+"Default build" column**: the fleet pays the +0.2%, not the +79%.
+
+`go version -m` on the default build reports 3 dependency modules and zero
+`go.opentelemetry.io` entries — identical to `main`. The tagged build reports 23
+and 8. Almost all of the difference is `go.opentelemetry.io/proto/otlp` dragging
+in `google.golang.org/grpc`, `google.golang.org/protobuf` and `genproto`.
+
+Attribution, measured the same way with three throwaway `main` packages pinned to
+the same v1.44.0 versions (linux/amd64):
+
+| Program | Size | Increment |
+| --- | --- | --- |
+| stdlib only | 1,495,224 | — |
+| `+ go.opentelemetry.io/otel/sdk/trace` | 4,432,056 | +2,936,832 (~2.8 MiB) — the SDK alone |
+| `+ .../otlptrace/otlptracehttp` | 13,332,664 | +8,900,608 (~8.5 MiB) — the OTLP exporter |
+
+Those isolated increments overstate the in-context cost, because `cxx` already
+links `net/http` and `crypto/tls`; that is why the real delta is 7.2 MB rather
+than 11.8 MB. Note in particular that the **SDK alone is ~2.8 MiB**, not the
+"about 0.6 MB" an earlier draft of this document claimed.
+
+If the exporter's share is ever worth attacking, the lever is the exporter and
+not the instrumentation — the `CXX_OTEL_*` contract, the call sites and the tests
+are exporter-agnostic. No alternative exporter has been built or measured here,
+so this document makes no claim about what one would cost.
+
+#### Known limitation: no trace context crosses the boundary
+
+**The wrapper and the API emit two disconnected traces.** `cxx` does not inject a
+W3C `traceparent` header on its outbound orchestrator calls, and the API does not
+extract one, so a `cdx` run and the `wrapper.config.bake` it triggers land in a
+collector as two unrelated trees, joinable only by host id and wall-clock time.
+That removes the main thing distributed tracing offers over the structured pino
+logs this repository already has; what is left is per-phase timing within each
+process.
+
+This is deliberate, not an oversight. Closing it means injection in four separate
+HTTP clients on the wrapper side (`internal/persona/codex/orchestrator`,
+`internal/persona/claude/orchestrator`, `internal/agentbus`,
+`internal/agentportal`), a propagator and remote-parent extraction on the API
+side — across the `initTracing` boundary whose entire design point is that
+nothing is imported while tracing is off — and tests for both. It was scoped out
+of the change that put the SDK behind a build tag.
+
+If you pick it up: the wrapper-side seam wants a `tracing.Inject(ctx, http.Header)`
+in the exported API, no-op in `tracing_stub.go` and `propagation.TraceContext` in
+`tracing_otel.go`, so call sites stay build-mode-agnostic like every other entry
+point here.

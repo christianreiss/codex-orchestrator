@@ -1,9 +1,16 @@
 # 2026-08-03
 
-- The `cxx` wrapper can now emit its own OpenTelemetry spans, **off by default** and gated only by
-  `CXX_OTEL_TRACES_ENABLED`. Off is total: `tracing.Init` returns before it builds an exporter or a
-  provider, so no socket is opened, no goroutine starts, and `tracing.Start` returns the caller's
-  context plus a zero-sized no-op span. `Init` is called from `lifecycle.Run` in each persona, not
+- The `cxx` wrapper can now emit its own OpenTelemetry spans, **off by default at build time and at
+  run time**, and gated only by `CXX_OTEL_TRACES_ENABLED`. The SDK sits behind the `cxx_otel` build
+  tag: `internal/observability/tracing` is one exported API over two implementations, a default stub
+  (`//go:build !cxx_otel`) that imports nothing from `go.opentelemetry.io`, and the real pipeline
+  (`//go:build cxx_otel`). **`make release` and the release CI job build untagged, so the artifact
+  the fleet auto-installs cannot trace at all** — setting `CXX_OTEL_TRACES_ENABLED` on it logs one
+  debug line and does nothing else. To get spans, build your own with `make cxx-traced` or
+  `go build -tags cxx_otel ./cmd/cxx`. Run time is gated separately and identically in both builds:
+  `tracing.Init` returns before it builds an exporter or a provider, so no socket is opened, no
+  goroutine starts, and `tracing.Start` returns the caller's context plus a zero-sized no-op span.
+  `Init` is called from `lifecycle.Run` in each persona, not
   from `main`, so `cdx cron`, `clx update` and every other subcommand pay nothing. The tree is
   `cxx.lifecycle.run` → `cxx.lifecycle.bootstrap` → {`cxx.sync.bootstrap`,
   `cxx.apply.claude_artifacts` → `cxx.apply.collection`, `cxx.apply.claude_skills`}, with
@@ -31,15 +38,42 @@
   records the error's Go *type*, never its message, and `tracing.Attr` has no constructor taking
   `[]byte`, `error` or `any`. Retries are off and the shutdown flush is capped at two seconds so an
   unreachable collector cannot hold up an interactive shell, and `Init` never fails a run.
-  **Cost, which is real for a self-updating fleet:** the SDK and the OTLP/HTTP exporter link
-  unconditionally, so every host pays whether or not tracing is ever switched on. `make release`
-  grows all four platforms by roughly 7 MB (linux/amd64 9.09 → 16.30 MB, +79%; linux/arm64 8.39 →
-  15.21 MB; darwin/amd64 9.28 → 16.87 MB; darwin/arm64 8.60 → 15.82 MB), modules linked into
-  `cmd/cxx` go from 4 to 24 and `go list -m all` from 4 to 58. Nearly all of it is
-  `go.opentelemetry.io/proto/otlp` pulling in grpc, protobuf and genproto; the tracing SDK alone is
-  about 0.6 MB. If that outweighs the tracing, the lever is the exporter — an OTLP/JSON exporter
-  over `net/http` would bring the delta under 1 MB — not the instrumentation, which is
-  exporter-agnostic.
+  **Cost, and why the tag exists.** `cxx` is sha256-manifested and self-distributes, so every host
+  re-downloads the whole binary on each wrapper update; linking the SDK unconditionally would have
+  charged the entire fleet for a feature nobody had switched on. All figures below are bytes from
+  `CGO_ENABLED=0 GOOS=… GOARCH=… go build -trimpath -ldflags "-s -w" -o … ./cmd/cxx`, measured on
+  Go 1.25, comparing this branch against `main`:
+
+  | platform | `main` | default build | delta | `-tags cxx_otel` | delta vs default |
+  | --- | --- | --- | --- | --- | --- |
+  | linux/amd64 | 9,093,304 | 9,109,688 | +16,384 (+0.2%) | 16,285,880 | +7,176,192 (+78.8%) |
+  | linux/arm64 | 8,388,792 | 8,388,792 | 0 | 15,204,536 | +6,815,744 (+81.2%) |
+  | darwin/amd64 | 9,275,584 | 9,288,032 | +12,448 (+0.1%) | 16,862,640 | +7,574,608 (+81.6%) |
+  | darwin/arm64 | 8,596,610 | 8,629,810 | +33,200 (+0.4%) | 15,801,234 | +7,171,424 (+83.1%) |
+
+  Dependency modules linked into `cmd/cxx` (`go version -m`, counting `dep` lines only — the
+  previous entry's "4 to 24" counted the main module too) stay at 3 in the default build, exactly as
+  on `main`, with **zero** `go.opentelemetry.io` entries; the tagged build has 23 and 8.
+  `go list -m all` reports 58 either way — build tags do not prune the module *graph*, only
+  what the linker sees, so `go.sum` and the dependency-review surface still grow. A `cmd/cxx` test
+  (`TestDefaultBuildLinksNoOpenTelemetry`, `!cxx_otel`) scans the binary's own module list, so
+  `make test` fails if anything reintroduces the SDK into the default build.
+
+  Where the 7 MB goes, measured the same way with three throwaway `main` packages pinned to the same
+  v1.44.0 versions (linux/amd64): stdlib-only 1,495,224 B; adding `sdk/trace` 4,432,056 B
+  (**+2,936,832 B, ~2.8 MiB, for the SDK alone** — the previous entry's "about 0.6 MB" understated
+  it by roughly 5x); adding `otlptracehttp` 13,332,664 B (+8,900,608 B for the exporter, which is
+  `go.opentelemetry.io/proto/otlp` pulling in grpc, protobuf and genproto). Those isolated deltas
+  overstate the in-context cost — `cxx` already links `net/http` and `crypto/tls`, which is why the
+  real delta is 7.2 MB rather than 11.8 MB. The claim that an OTLP/JSON exporter "would bring the
+  delta under 1 MB" is removed: no such exporter was built, so the number was a guess.
+  **Known limitation: the two halves do not join.** No W3C trace context crosses the wrapper → API
+  boundary, so a `cdx` run and the bake it triggers are two disconnected traces, correlated only by
+  host id and timestamp. Adding `traceparent` would mean injection in four separate HTTP clients on
+  the wrapper side (`persona/codex/orchestrator`, `persona/claude/orchestrator`, `agentbus`,
+  `agentportal`) plus a propagator and remote-parent extraction across the API's deliberately lazy
+  import boundary; that is a second feature and was left out on purpose. Until it exists, tracing
+  here buys per-phase timings the existing pino logs do not have, not cross-service correlation.
 - The wrapper config bakery can now emit OpenTelemetry spans, **off by default** and gated only by
   the new `OTEL_TRACES_ENABLED` env var (plus `OTEL_SERVICE_NAME`, default
   `codex-orchestrator-api`). Off is total: `initTracing` returns before its first dynamic import, so

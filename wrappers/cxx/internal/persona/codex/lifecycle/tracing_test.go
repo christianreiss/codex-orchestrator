@@ -1,4 +1,10 @@
+//go:build cxx_otel
+
 package lifecycle
+
+// These tests drive the real OpenTelemetry pipeline, so they only build under
+// -tags cxx_otel. The default build has no SDK to drive; its inert counterpart
+// is tracing_default_test.go.
 
 import (
 	"context"
