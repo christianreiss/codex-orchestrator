@@ -116,7 +116,6 @@ git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 declare -a ROOT_DOCS=(
   "AGENTS.md"
   "README.md"
-  "TODO.md"
 )
 declare -a ROOT_INFRA_FILES=(
   "Dockerfile"
