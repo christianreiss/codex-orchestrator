@@ -107,9 +107,11 @@ describe("Agent Messaging query builders", () => {
     );
 
     assert.equal(messaging.agentAddressIneligibleReasonLabel("master_disabled"), "Fleet switch is off");
-    assert.equal(messaging.agentAddressIneligibleReasonLabel("host_insecure"), "Host is not secure");
     assert.equal(messaging.agentAddressIneligibleReasonLabel("host_inactive"), "Host is not active");
-    assert.equal(messaging.agentAddressIneligibleReasonLabel("host_disabled"), "Host Agent Messaging is off");
+    assert.equal(
+      messaging.agentAddressIneligibleReasonLabel("insecure_window_closed"),
+      "Insecure host — allowed window is closed",
+    );
     assert.equal(
       messaging.agentAddressIneligibleReasonLabel("engine_disabled"),
       "Address engine is disabled on this host",

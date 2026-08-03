@@ -318,7 +318,6 @@ const FIXTURES: Fixture[] = [
       secure: 1,
       curlInsecure: 0,
       browserosMcpEnabled: 1,
-      agentMessagingEnabled: 1,
       engines: 'codex,claude',
       modelOverride: 'gpt-5.4-codex',
       reasoningEffortOverride: 'high',
@@ -336,10 +335,11 @@ const FIXTURES: Fixture[] = [
     settings: { silent: false, adminTheme: 'dark', autoUpdate: true, track: 'stable' },
   },
   {
-    // secure=0 AND curl_insecure=1. The baker cannot emit agent messaging for
-    // such a host even with the global flag on, which is the point: this pins
-    // that the producer never creates the combination `ValidateForEngine`
-    // rejects (`agent_messaging.enabled` with `host.secure:false`).
+    // secure=0 AND curl_insecure=1. The baker emits agent messaging for such a
+    // host, which is the point: the fleet switch is the only switch, and an
+    // insecure host is authorized per operation against its allowed window.
+    // This pins the combination older wrappers rejected, so the Go side keeps
+    // proving that `ValidateForEngine` accepts it.
     name: 'host-codex-insecure',
     engine: 'codex',
     host: host({
@@ -349,7 +349,6 @@ const FIXTURES: Fixture[] = [
       secure: 0,
       curlInsecure: 1,
       browserosMcpEnabled: 0,
-      agentMessagingEnabled: 1,
       engines: 'codex',
       modelOverride: null,
       reasoningEffortOverride: null,
@@ -377,8 +376,6 @@ const FIXTURES: Fixture[] = [
       secure: 1,
       curlInsecure: 0,
       browserosMcpEnabled: 0,
-      // Host opt-out with the global flag on: agent_messaging stays disabled.
-      agentMessagingEnabled: 0,
       engines: 'claude',
       claudeModelOverride: 'claude-opus-4.7',
       configVersion: 7,
@@ -388,7 +385,8 @@ const FIXTURES: Fixture[] = [
       agentsDocumentId: 10,
       clientConfigId: 3,
       skills: [SHARED_SKILL, CODEX_SKILL, CLAUDE_SKILL, RETIRED_SKILL],
-      agentMessagingFlag: '1',
+      // Fleet switch off: the only way agent_messaging is dormant now.
+      agentMessagingFlag: '0',
     },
     settings: { silent: false, adminTheme: 'auto', autoUpdate: true, track: 'stable' },
   },
@@ -481,10 +479,11 @@ describe('wrapper config golden fixtures', () => {
 
     expect(insecure!.payload.host.secure).toBe(false);
     expect(insecure!.payload.orchestrator.allow_insecure).toBe(true);
-    expect(insecure!.payload.agent_messaging.enabled).toBe(false);
+    expect(insecure!.payload.agent_messaging.enabled).toBe(true);
     expect(insecure!.payload.documents.client_config).toBeNull();
     expect(insecure!.payload.skills).toEqual([]);
 
+    expect(claude!.payload.agent_messaging.enabled).toBe(false);
     expect(claude!.payload.engine).toBe('claude');
     expect(claude!.payload.engine_options.claude_model_override).toBe('claude-opus-4.7');
     expect('model_override' in claude!.payload.engine_options).toBe(false);

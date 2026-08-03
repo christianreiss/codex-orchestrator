@@ -68,17 +68,16 @@ export interface AgentAddress {
 
 export type AgentAddressIneligibleReason =
   | "master_disabled"
-  | "host_insecure"
+  | "insecure_window_closed"
   | "host_inactive"
-  | "host_disabled"
   | "engine_disabled";
 
 /** Host-enriched address returned by the admin operations listing. */
 export interface AgentAdminAddress extends AgentAddress {
   queue_depth: number;
   host_secure: boolean;
-  host_enabled: boolean;
   host_status: string;
+  host_window_until: string | null;
   host_engines: AgentEngine[];
   eligible: boolean;
   ineligible_reason: AgentAddressIneligibleReason | string | null;
@@ -160,9 +159,10 @@ export function agentAddressToggleDisabled(
 export function agentAddressIneligibleReasonLabel(reason: string | null): string | null {
   if (reason === null) return null;
   if (reason === "master_disabled") return "Fleet switch is off";
-  if (reason === "host_insecure") return "Host is not secure";
   if (reason === "host_inactive") return "Host is not active";
-  if (reason === "host_disabled") return "Host Agent Messaging is off";
+  if (reason === "insecure_window_closed") {
+    return "Insecure host — allowed window is closed";
+  }
   if (reason === "engine_disabled") return "Address engine is disabled on this host";
   return "Address is not eligible";
 }

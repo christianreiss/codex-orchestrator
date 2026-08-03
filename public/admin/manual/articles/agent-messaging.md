@@ -3,7 +3,7 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: How Codex and Claude agents address each other, how ordered delivery behaves, and how operators control and audit the bus.
 tags: [agents, messaging, codex, claude, operations]
-verified: 2026-07-31
+verified: 2026-08-03
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
@@ -13,8 +13,10 @@ Codex, and Claude to Claude. It is separate from Agent Portal: Portal carries
 ordinary human text into one root session, while Agent Messaging addresses one
 managed agent from another.
 
-The feature is deliberately inert after deployment. Both the fleet master
-switch and every host's switch default off.
+The feature is deliberately inert after deployment: the fleet master switch
+defaults off. It is also the **only** switch. Turning it on turns the bus on
+for the whole fleet, including insecure hosts — there is no per-host gate to
+flip afterwards.
 
 ## Eligibility gates
 
@@ -22,22 +24,48 @@ All of these must be true before an address can be discovered or used:
 
 1. The fleet Agent Messaging switch is on.
 2. The address's host is active.
-3. The host is secure.
-4. Agent Messaging is enabled for that host.
-5. The address's engine is still enabled on that host.
-6. The address is enabled and not archived.
+3. If the host is **insecure**, its allowed window is currently open.
+4. The address's engine is still enabled on that host.
+5. The address is enabled and not archived.
 
 The server rechecks those rules inside send, bind, claim, renew, and
 acknowledgement transactions. The address table shows the authoritative
 `eligible` value and an `ineligible_reason`; the browser does not guess from
 stale host data.
 
-Disabling any layer is an operational shutdown, not just a discovery filter.
-Queued and leased messages in scope are canceled, accepted messages become
-ambiguous, open conversations are canceled, relevant relays are revoked, and
-session/address generations advance so stale workers cannot continue with an
-old binding. Host deletion, making a host insecure/inactive, and removing an
-engine use the same atomic cleanup path.
+## Insecure hosts and the allowed window
+
+An insecure host is not disqualified, only time-bounded. It is authorized per
+operation for as long as `insecure_enabled_until` is in the future — the same
+window used elsewhere for insecure hosts, opened from Host Detail.
+
+The window is **read, never extended**. Agent Messaging does not slide it and
+does not raise approval requests, because the background relay polls
+continuously: extending on each hit would hold the window open permanently,
+and "only in the window" would mean "always."
+
+When the window closes, calls fail loudly rather than going quiet. The bridge
+and relay credentials are refused with `agent_messaging_insecure_window_closed`,
+and the address table shows that as the ineligible reason. The `agent_*` tools
+stay present on the host throughout: whether the MCP server is installed is a
+provisioning decision made by the fleet switch, so the toolset does not appear
+and disappear every few minutes.
+
+Nothing is destroyed. Queued work stays queued, open conversations stay open,
+and delivery resumes when an operator reopens the window — or the messages
+expire on their own TTL.
+
+## Operational shutdown
+
+Disabling the fleet switch, deactivating or deleting a host, removing an
+engine, or disabling an address *is* an operational shutdown, not just a
+discovery filter. Queued and leased messages in scope are canceled, accepted
+messages become ambiguous, open conversations are canceled, relevant relays are
+revoked, and session/address generations advance so stale workers cannot
+continue with an old binding.
+
+A closed allowed window is deliberately **not** in that list, and neither is
+demoting a host to insecure.
 
 ## Stable addresses and lifecycle
 
@@ -89,8 +117,8 @@ Open **Operate → Agent Messaging** to inspect:
 
 - Fleet enabled state, eligible/live address counts, relay and queue counts.
 - Direction totals for all four Codex/Claude combinations.
-- Stable addresses, alias, host/security/engine state, readiness, eligibility
-  reason, and queue depth.
+- Stable addresses, alias, host security/engine state, the host's allowed
+  window, readiness, eligibility reason, and queue depth.
 - Conversation status and sequence metadata.
 - Delivery status, attempts, size, expiry, sender/target, error code, and
   terminal timestamps.
@@ -106,9 +134,11 @@ broadcast a reveal event. The page holds only one closeable plaintext reveal at
 a time and clears it whenever the caller's role, filters, or loaded result set
 changes.
 
-The Settings page owns the fleet switch. Host Detail owns the per-host switch
-and shows the host's security and engine gates. Re-enabling a host or address
-never resurrects canceled/ambiguous work automatically.
+The Settings page owns the fleet switch — the only Agent Messaging switch.
+Host Detail owns the insecure window and shows the host's security and engine
+state. Re-enabling the fleet switch or an address never resurrects
+canceled/ambiguous work automatically; reopening a window needs no resurrection
+because nothing was canceled.
 
 ## Routes at a glance
 
@@ -146,7 +176,6 @@ Admin routes:
 - `GET /admin/agent-messaging/messages`
 - `POST /admin/agent-messaging/messages/{id}/reveal`
 - `POST /admin/agent-messaging/messages/{id}/redrive`
-- `POST /admin/hosts/{id}/agent-messaging`
 
 ## Storage and retention
 
@@ -155,7 +184,8 @@ Admin routes:
 `agent_bus_messages` stores the encrypted body, routing, lease, outcome, and
 redrive history; and `agent_bus_relays` stores one generation-fenced relay per
 host user. `agent_sessions.agent_bus_address_id` connects the shared wrapper
-lifecycle to the bus.
+lifecycle to the bus. `hosts.agent_messaging_enabled` is the retired per-host
+switch and is no longer read.
 
 Message bodies and delivery error text are libsodium secretbox ciphertext at
 rest. The maintenance worker expires TTLs, retries expired unaccepted leases,

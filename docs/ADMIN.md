@@ -145,7 +145,9 @@ Admin routes:
 - Deliveries: `GET /admin/agent-messaging/messages`,
   `POST /admin/agent-messaging/messages/{id}/reveal`,
   `POST /admin/agent-messaging/messages/{id}/redrive`.
-- Host gate: `POST /admin/hosts/{id}/agent-messaging`.
+- No per-host gate. The fleet switch is the only switch; an insecure host is
+  authorized per operation while its allowed window is open, which is managed
+  from Host Detail like every other insecure-window decision.
 
 ## Agent Portal Operations
 

@@ -52,6 +52,9 @@ type Host struct {
 	FQDN                  string   `json:"fqdn"`
 	Secure                bool     `json:"secure"`
 	BrowserOSMCPEnabled   bool     `json:"browseros_mcp_enabled,omitempty"`
+	// AgentMessagingEnabled is the retired per-host Agent Messaging switch. It
+	// is still decoded so configs signed before the fleet switch became the
+	// only switch keep loading, but nothing reads it.
 	AgentMessagingEnabled bool     `json:"agent_messaging_enabled,omitempty"`
 	Engines               string   `json:"engines,omitempty"`
 	EnginesList           []string `json:"engines_list,omitempty"`

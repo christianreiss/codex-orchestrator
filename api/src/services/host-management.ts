@@ -692,8 +692,10 @@ export class HostManagementService {
         patch.insecureGraceUntil = null;
       }
     }
+    // Demoting a host to insecure no longer suspends Agent Messaging. Insecure
+    // is not disqualifying, only window-bounded: in-flight work stays queued
+    // and resumes when an operator reopens the window, or expires on its TTL.
     await this.db.transaction(async (tx) => {
-      if (!secure) await suspendAgentMessagingRuntimeLocked(tx, id, 'host_insecure');
       await tx.update(hosts).set(patch).where(eq(hosts.id, id));
     });
     await this.writeLog(id, 'admin.host.secure', { fqdn: host.fqdn, secure });

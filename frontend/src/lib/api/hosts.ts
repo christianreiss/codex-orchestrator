@@ -176,7 +176,6 @@ type BoolToggleField =
   | "scaling_exempt"
   | "curl_insecure"
   | "browseros_mcp"
-  | "agent_messaging"
   | "allow";
 
 type ToggleEndpointPath =
@@ -333,22 +332,6 @@ export function createBrowserOsMcpToggleMutation(qc: QueryClient) {
     detailField: "browseros_mcp_enabled",
     bodyKey: "browseros_mcp",
   });
-}
-
-export function createAgentMessagingToggleMutation(qc: QueryClient) {
-  return makeBoolToggle(qc, {
-    endpoint: "agent-messaging",
-    detailField: "agent_messaging_enabled",
-    bodyKey: "enabled",
-    extraInvalidations: [["agent-messaging"]],
-  });
-}
-
-/** An ineligible host may still turn messaging off; only a new enable is blocked. */
-export function hostAgentMessagingToggleDisabled(
-  host: Pick<HostDetail, "agent_messaging_enabled" | "secure" | "status">,
-): boolean {
-  return !host.agent_messaging_enabled && (!host.secure || host.status !== "active");
 }
 
 // --- version / model / reverse-dns / agents-version ----------------------

@@ -167,8 +167,9 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "channel_preview_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
-  // engines / engines_list for peer reconciliation and
-  // agent_messaging_enabled as the per-host eligibility gate
+  // engines / engines_list for peer reconciliation. host.agent_messaging_enabled
+  // is a retired compatibility field mirroring the effective value, kept only so
+  // wrappers older than 0.7.8 keep accepting the config; it gates nothing.
 }
 ```
 
@@ -648,12 +649,14 @@ belong in common packages; Claude-only behavior stays under the Claude persona
 packages. There is one build artifact, while the signed config and runtime
 behavior remain engine-specific.
 
-## Agent Messaging lifecycle (cxx 0.7.7)
+## Agent Messaging lifecycle (cxx 0.7.8)
 
 Agent Messaging is a separate, default-off bridge between Claude and Codex. It
-requires the global switch, a secure host, the per-host eligibility switch, and
-the target engine to remain enabled. The signed `agent_messaging.enabled` value
-is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
+requires the global switch — the only switch — an active host, and the target
+engine to remain enabled. An **insecure** host is eligible too, but only while
+its allowed window (`insecure_enabled_until`) is open; outside it the server
+refuses with `agent_messaging_insecure_window_closed`. The signed
+`agent_messaging.enabled` value is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
 stdio MCP server (`cxx agent mcp`) and allow its seven tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;

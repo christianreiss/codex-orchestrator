@@ -112,3 +112,28 @@ func TestValidateRequiresBaseURL(t *testing.T) {
 		t.Fatal("expected base_url required")
 	}
 }
+
+// The fleet switch is the only Agent Messaging switch. An insecure host is
+// authorized per operation while its allowed window is open, so the wrapper
+// must not reject a signed config that enables the bus without host.secure.
+func TestValidateAcceptsAgentMessagingOnInsecureHost(t *testing.T) {
+	c := validCfg()
+	c.Host.Secure = false
+	c.Host.AgentMessagingEnabled = false
+	c.AgentMessaging = AgentMessaging{Enabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 86400}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("expected insecure host to validate: %v", err)
+	}
+}
+
+func TestValidateStillBoundsAgentMessagingRanges(t *testing.T) {
+	c := validCfg()
+	c.AgentMessaging = AgentMessaging{Enabled: true, RelayPollSeconds: 0, QueuedTTLSeconds: 86400}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected relay_poll_seconds bound to be enforced")
+	}
+	c.AgentMessaging = AgentMessaging{Enabled: true, RelayPollSeconds: 25, QueuedTTLSeconds: 59}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected queued_ttl_seconds bound to be enforced")
+	}
+}

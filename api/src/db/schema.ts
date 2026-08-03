@@ -57,6 +57,9 @@ export const hosts = mysqlTable(
     insecureWindowMinutes: int('insecure_window_minutes'),
     curlInsecure: tinyint('curl_insecure').notNull().default(0),
     browserosMcpEnabled: tinyint('browseros_mcp_enabled').notNull().default(0),
+    /** Retired per-host Agent Messaging switch. Nothing reads it: the fleet
+     *  switch is the only switch, and an insecure host is bounded by its
+     *  allowed window. Kept until a follow-up migration drops the column. */
     agentMessagingEnabled: tinyint('agent_messaging_enabled').notNull().default(0),
     expiresAt: varchar('expires_at', { length: 100 }),
     vip: tinyint('vip').notNull().default(0),

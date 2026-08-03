@@ -171,8 +171,10 @@ export class HostAgentsService {
     const managedMcpToken = settings && this.publicBaseUrl && apiKey && !host.secure
       ? (await this.mcpSessions.issue(host.id)).token
       : null;
-    const agentMessagingEnabled = host.secure === 1
-      && host.agentMessagingEnabled === 1
+    // Provisioning only: the fleet switch decides whether the bus is wired
+    // into the rendered config. Insecure hosts are authorized per operation
+    // against their allowed window, not by withholding the MCP server.
+    const agentMessagingEnabled = host.status === 'active'
       && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
     if (settings && this.publicBaseUrl && apiKey) {
       rendered = renderTomlForHost({
@@ -230,8 +232,10 @@ export class HostAgentsService {
       return { status: 'missing', owned_paths: [], partial: {} };
     }
     const managedMcpToken = !host.secure ? (await this.mcpSessions.issue(host.id)).token : null;
-    const agentMessagingEnabled = host.secure === 1
-      && host.agentMessagingEnabled === 1
+    // Provisioning only: the fleet switch decides whether the bus is wired
+    // into the rendered config. Insecure hosts are authorized per operation
+    // against their allowed window, not by withholding the MCP server.
+    const agentMessagingEnabled = host.status === 'active'
       && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
     const rendered = renderClaudeSettingsPartialForHost({
       settings,

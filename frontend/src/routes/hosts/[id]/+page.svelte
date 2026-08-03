@@ -47,8 +47,6 @@
     createScalingExemptToggleMutation,
     createCurlInsecureToggleMutation,
     createBrowserOsMcpToggleMutation,
-    createAgentMessagingToggleMutation,
-    hostAgentMessagingToggleDisabled,
     createModelOverrideMutation,
     createCodexVersionMutation,
     createClaudeVersionMutation,
@@ -78,7 +76,6 @@
   const scaling = createScalingExemptToggleMutation(qc);
   const curlInsecure = createCurlInsecureToggleMutation(qc);
   const browserOsMcp = createBrowserOsMcpToggleMutation(qc);
-  const agentMessaging = createAgentMessagingToggleMutation(qc);
   const modelOverride = createModelOverrideMutation(qc);
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
@@ -605,12 +602,6 @@
           label="BrowserOS MCP"
           checked={host.browseros_mcp_enabled}
           onchange={(v) => runQuiet($browserOsMcp.mutateAsync({ id, value: v }))}
-        />
-        <ToggleRow
-          label="Agent Messaging"
-          checked={host.agent_messaging_enabled}
-          disabled={hostAgentMessagingToggleDisabled(host)}
-          onchange={(v) => runQuiet($agentMessaging.mutateAsync({ id, value: v }))}
         />
         <ToggleRow
           label="Codex engine"

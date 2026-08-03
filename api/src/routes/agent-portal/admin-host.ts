@@ -16,7 +16,7 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
-import { createAgentMessagingService } from '../../services/agent-messaging.js';
+import { createAgentMessagingService, messagingHostEligible } from '../../services/agent-messaging.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
 const JSON_OBJECT_SCHEMA = z.object({}).catchall(z.unknown());
@@ -206,7 +206,7 @@ export async function registerAgentPortalAdminHostRoutes(
       });
     }
     let messagingResult: Record<string, unknown> = { enabled: false };
-    if (messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1) {
+    if (messagingEnabled && messagingHostEligible(host)) {
       messagingResult = await messaging.registerSession(host, {
         engine,
         username: body.username,

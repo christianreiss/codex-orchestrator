@@ -339,11 +339,14 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 Agent Messaging lets any eligible managed agent address any other one, covering
 all four paths: Codex to Codex, Codex to Claude, Claude to Codex, and Claude to
 Claude. It is separate from the human-facing Agent Portal and defaults off at
-the fleet and per-host layers. Effective eligibility requires the fleet switch,
-an active secure host, that host's Agent Messaging switch, the address engine
-still enabled on the host, and the address itself enabled. Every send, bind,
-claim, and acknowledgement rechecks those gates; changing host security,
-status, or engines atomically withdraws runtime eligibility.
+the fleet layer, which is the only layer — there is no per-host switch.
+Effective eligibility requires the fleet switch, an active host, the address
+engine still enabled on that host, and the address itself enabled. An insecure
+host is eligible only while its allowed window is open; that window is read,
+never extended, so a polling relay cannot hold its own access open. Every send,
+bind, claim, and acknowledgement rechecks those gates. Changing host status or
+engines atomically withdraws runtime eligibility; a closed window does not —
+it refuses calls and leaves the queue to drain when the window reopens.
 
 Wrapper lifecycles bind a stable canonical `agent:<uuid>` address. Native
 resumes recover the same upstream identity; a fresh matching lifecycle may

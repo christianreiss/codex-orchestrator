@@ -647,13 +647,15 @@ that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
   `Pragma: no-cache`, and reveal events are audit-only rather than broadcast.
 - `POST /admin/agent-messaging/messages/{id}/redrive` — explicitly create a new
   delivery from a `dead` or `ambiguous` row.
-- `POST /admin/hosts/{id}/agent-messaging` — set the per-host gate; enabling
-  requires an active secure host.
+There is no per-host gate: the fleet switch is the only switch, and an insecure
+host is authorized per operation against its allowed window.
 
-Disabling the fleet, a host, an address, a host engine, or host security/status
+Disabling the fleet, an address, a host engine, or a host's active status
 atomically cancels queued/leased work, marks accepted work ambiguous, cancels
 affected conversations, revokes relays where applicable, and generation-fences
-session bindings. A graceful session finish unbinds without deleting its stable
+session bindings. A closed allowed window is deliberately not one of these: it
+refuses calls with `agent_messaging_insecure_window_closed` and leaves the
+queue to drain when the window reopens. A graceful session finish unbinds without deleting its stable
 address, and the relay process handles SIGINT/SIGTERM by stopping its server
 generation. Version 1 performs queue maintenance and state transitions only:
 terminal messages, canceled conversations, dormant addresses, and their audit

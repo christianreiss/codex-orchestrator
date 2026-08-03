@@ -460,12 +460,16 @@ reveal require `owner` or `admin`:
   plaintext reveal with `Cache-Control: no-store` and `Pragma: no-cache`.
 - `POST /admin/agent-messaging/messages/{id}/redrive` — create a fresh queued
   message from a `dead` or `ambiguous` original.
-- `POST /admin/hosts/{id}/agent-messaging` — set the per-host gate; enabling
-  requires the host to be active and secure.
+There is no per-host gate. Once the fleet switch is on, every active host is
+eligible, including insecure ones; an insecure host's calls are authorized per
+operation while `insecure_enabled_until` is in the future, and are otherwise
+refused with `agent_messaging_insecure_window_closed`.
 
-Turning off any eligibility layer cancels queued/leased work, marks accepted
-work ambiguous, cancels affected conversations, revokes relevant relays, and
-generation-fences bindings. Graceful session finish keeps the stable address
+Turning off the fleet switch, deactivating a host, disabling an engine, or
+disabling an address cancels queued/leased work, marks accepted work ambiguous,
+cancels affected conversations, revokes relevant relays, and generation-fences
+bindings. A closed allowed window does none of that: the queue is left intact
+and drains when the window reopens. Graceful session finish keeps the stable address
 dormant; graceful relay shutdown stops its server generation. Content and
 delivery errors are Secretbox-encrypted. Terminal messages, canceled
 conversations, dormant addresses, and audit history are retained: version 1

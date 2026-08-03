@@ -76,7 +76,6 @@ const PINNED_GATED_ROUTES = [
   'POST /admin/agent-portal/users/:id',
   'POST /admin/agent-portal/users/:id/enabled',
   'POST /admin/agent-portal/users/:id/rotate',
-  'POST /admin/hosts/:id/agent-messaging',
   'POST /admin/hosts/:id/engines',
   'POST /admin/hosts/:id/secure',
   'POST /admin/hosts/register',

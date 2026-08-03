@@ -479,12 +479,16 @@ participate in these leases and is the explicit coordination boundary.
 5. Bump `wrappers/cxx/cmd/cxx`'s `Version` via `-ldflags`.
 6. CI publishes the new binary; existing hosts pick it up via `--update`.
 
-## Agent Messaging lifecycle (cxx 0.7.7)
+## Agent Messaging lifecycle (cxx 0.7.8)
 
 Agent Messaging is a separate, default-off bridge between Codex and Claude. It
-requires the global switch, a secure host, the per-host eligibility switch, and
-the target engine to remain enabled. The signed `agent_messaging.enabled` value
-is the wrapper's local gate. When enabled, managed Codex config contains the
+requires the global switch — the only switch — an active host, and the target
+engine to remain enabled. An **insecure** host is eligible too, but only while
+its allowed window (`insecure_enabled_until`) is open; outside it the server
+refuses with `agent_messaging_insecure_window_closed`. The signed
+`agent_messaging.enabled` value is the wrapper's local gate;
+`host.agent_messaging_enabled` is a retired compatibility field that mirrors it
+and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
 stdio MCP server `cxx-agent` (`cxx agent mcp`) with these tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;

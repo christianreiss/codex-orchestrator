@@ -1,5 +1,55 @@
 # 2026-08-03
 
+- Made `0016_add_agents_builder_state.sql` idempotent. It was the only additive migration shipping a
+  bare `ALTER TABLE ... ADD COLUMN` instead of the information_schema guard `0015` and `0017` use, so
+  replaying it against a schema that already has the column died with `ER_DUP_FIELDNAME` — which is
+  every database provisioned from `test/fixtures/schema-baseline.sql`, and any host migrated by hand
+  before its baseline run. That broke all seven `db-migrations/migrator.test.ts` cases, including the
+  one that exists specifically to assert "can re-apply every migration against an already-migrated
+  schema". Pre-existing and unrelated to Agent Messaging; the real-MySQL suite is now 533/533.
+  **Editing a shipped migration changes its checksum**, so a database that already applied `0016`
+  will report it as `drifted` on the next run. The remedy is one `--reapply 16`, which is now a
+  guarded no-op; the runner never re-executes a drifted file on its own.
+- Agent Messaging is now governed by the fleet switch alone. The per-host gate is gone: turning the
+  fleet switch on turns the bus on for every active host, **including insecure ones**, which are
+  authorized per operation for as long as their allowed window (`hosts.insecure_enabled_until`) is
+  open. The window is read, never extended — `insecure-window.ts:enforce` slides `enabled_until` on
+  every hit, so having the bus call it would let the 25-second relay poll hold the window open
+  permanently and mint approval requests from a background daemon; `insecureWindowActive()` moved to
+  `insecure-window.ts` as the shared read-only predicate. Eligibility now lives in exactly two
+  places, `messagingHostEligible()` and its SQL twin `messagingHostEligibleSql()`, instead of a
+  dozen inline `secure === 1 && agentMessagingEnabled === 1` copies; the SQL one is handed a `Date`
+  rather than an ISO string on purpose, because drizzle's `datetime` column round-trips through
+  `toISOString()` and a `T`/`Z` string would compare wrong against a MySQL DATETIME and silently
+  return the wrong host set. Three new real-MySQL durability cases cover exactly that.
+- Provisioning was split from authorization. Whether the `cxx-agent` MCP server is baked into a
+  host's config is decided by the fleet switch plus host status and engine, never by the window, so
+  the `agent_*` tools stay stably present; a call made outside the window fails loudly with
+  `agent_messaging_insecure_window_closed` at the bridge or relay credential instead of the toolset
+  flickering every few minutes.
+- Demoting a host to insecure no longer suspends the bus. `host_insecure` is gone as a cleanup
+  reason: queued work stays queued, conversations stay open, and delivery resumes when an operator
+  reopens the window or expires on its TTL. Fleet-disable, host deactivation, host deletion, engine
+  removal, host-key rotation and address-disable keep the atomic cancel/ambiguous/revoke/fence path.
+- **cxx 0.7.8 must reach a host before that host can use the bus while insecure.** Older wrappers
+  reject the *entire* signed config with `agent_messaging requires an enabled secure host` when
+  `agent_messaging.enabled` arrives without `host.secure`, so `config.ValidateForEngine` dropped that
+  veto — eligibility is a server decision. `wrapper-config.ts` keeps emitting
+  `host.agent_messaging_enabled` as a compatibility shim mirroring the effective value, so 0.7.7
+  hosts do not break mid-rollout; remove it once the fleet is fully on 0.7.8.
+- Hardened the relay lane, which this change newly exposes: an insecure host never started a relay
+  before (`agent_messaging.enabled` was false for it), and now does. `retryDelay` treated everything
+  except `agent_messaging_disabled`/503 as transient and retried after 3 seconds, so every insecure
+  host with a shut window would have re-registered twenty times a minute against its own 120 req/60s
+  budget; a closed window now backs off 30 seconds like the shut door it is. The same code joins
+  `definitiveChannelRenewalError`, because losing the window mid-delivery cannot be recovered by
+  renewing on a ticker. `registerRelay` and `authenticateRelay` already recheck eligibility, so both
+  relay edges refuse a closed window — covered by a new real-MySQL case.
+- Removed `POST /admin/hosts/{id}/agent-messaging`, the Host Detail toggle, and the
+  `host_insecure`/`host_disabled` ineligible reasons (replaced by `insecure_window_closed`). The
+  `hosts.agent_messaging_enabled` column is retained and unread; dropping it is a follow-up
+  migration, and it is the only irreversible part of this change.
+
 - Added round-trip golden config fixtures under `wrappers/testdata/`: `host-codex.json`,
   `host-codex-insecure.json` and `host-claude.json`, each with its detached `.json.sig`, plus a
   `README.md` stating the determinism contract. `docs/wrapper-v2-architecture.md` and

@@ -173,7 +173,6 @@ function hostToWire(h: Host): Record<string, unknown> {
     scaling_exempt: h.scalingExempt === 1,
     curl_insecure: h.curlInsecure === 1,
     browseros_mcp_enabled: h.browserosMcpEnabled === 1,
-    agent_messaging_enabled: h.agentMessagingEnabled === 1,
     auto_update_override:
       h.autoUpdateOverride === null || h.autoUpdateOverride === undefined ? null : h.autoUpdateOverride === 1,
     reverse_dns_mode: tinyintToModeString(h.reverseDnsMode ?? null),

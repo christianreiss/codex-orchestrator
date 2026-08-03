@@ -266,7 +266,10 @@ func definitiveChannelRenewalError(err error) bool {
 		return false
 	}
 	switch apiErr.Code {
-	case "agent_messaging_lease_lost", "agent_messaging_message_expired", "agent_messaging_conversation_canceled", "agent_messaging_disabled", "agent_session_finished":
+	// agent_messaging_insecure_window_closed belongs with the definitive codes:
+	// the host lost authorization mid-delivery, so renewing on a ticker cannot
+	// recover the lease — only an operator reopening the window can.
+	case "agent_messaging_lease_lost", "agent_messaging_message_expired", "agent_messaging_conversation_canceled", "agent_messaging_disabled", "agent_messaging_insecure_window_closed", "agent_session_finished":
 		return true
 	default:
 		return false

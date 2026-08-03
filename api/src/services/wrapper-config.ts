@@ -360,6 +360,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ]),
       );
 
+    // Provisioning gate only. The fleet switch is the only switch, so the bus
+    // is baked in for every active host running this engine — including
+    // insecure ones, whose calls the server authorizes per operation against
+    // their allowed window. Gating the bake on the window instead would make
+    // the agent_* tools appear and disappear every few minutes.
+    const messagingBaked =
+      messagingEnabled && host.status === 'active' && hostEnginesList(host.engines).includes(engine);
+
     // Bump config_version atomically; the new value becomes part of the
     // payload so the etag/signature change visibly when state changes.
     const newVersion = await withSpan('wrapper.config.bump_version', {}, () =>
@@ -384,13 +392,17 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         fqdn: host.fqdn,
         secure: Boolean(host.secure),
         browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
-        agent_messaging_enabled: Boolean(host.agentMessagingEnabled),
+        // Compatibility shim for wrappers older than 0.7.8, which reject the
+        // whole signed config when agent_messaging.enabled arrives without
+        // this flag. It mirrors the effective value and carries no decision;
+        // remove it once the fleet is fully on 0.7.8.
+        agent_messaging_enabled: messagingBaked,
         engines: host.engines,
         engines_list: hostEnginesList(host.engines),
       },
       engine_options: engineOptions(host, engine, { silent, adminTheme }),
       agent_messaging: {
-        enabled: messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1,
+        enabled: messagingBaked,
         relay_poll_seconds: 25,
         queued_ttl_seconds: 86_400,
         channel_preview_enabled: false,

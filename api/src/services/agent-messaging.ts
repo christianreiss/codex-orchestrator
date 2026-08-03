@@ -48,6 +48,7 @@ import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { hostEnginesList } from './host-engine-policy.js';
+import { insecureWindowActive } from './insecure-window.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 
 export const AGENT_MESSAGING_ENABLED_KEY = 'agent_messaging_enabled';
@@ -161,7 +162,7 @@ export class AgentMessagingService {
             receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
             hostStatus: hosts.status,
             hostSecure: hosts.secure,
-            hostEnabled: hosts.agentMessagingEnabled,
+            hostWindowUntil: hosts.insecureEnabledUntil,
             hostEngines: hosts.engines,
           })
           .from(agentBusAddresses)
@@ -172,7 +173,7 @@ export class AgentMessagingService {
             tokenExpiresAt: agentBusRelays.tokenExpiresAt,
             hostStatus: hosts.status,
             hostSecure: hosts.secure,
-            hostEnabled: hosts.agentMessagingEnabled,
+            hostWindowUntil: hosts.insecureEnabledUntil,
           })
           .from(agentBusRelays)
           .innerJoin(hosts, eq(hosts.id, agentBusRelays.hostId))
@@ -190,17 +191,21 @@ export class AgentMessagingService {
       ]);
     const eligibleAddresses = enabled
       ? addressRows.filter((row) =>
-        row.hostStatus === 'active' &&
-        row.hostSecure === 1 &&
-        row.hostEnabled === 1 &&
+        messagingHostEligible({
+          status: row.hostStatus,
+          secure: row.hostSecure,
+          insecureEnabledUntil: row.hostWindowUntil,
+        }) &&
         hostEnginesList(row.hostEngines).includes(row.engine as Engine),
       )
       : [];
     const eligibleRelays = enabled
       ? relayRows.filter((row) =>
-        row.hostStatus === 'active' &&
-        row.hostSecure === 1 &&
-        row.hostEnabled === 1 &&
+        messagingHostEligible({
+          status: row.hostStatus,
+          secure: row.hostSecure,
+          insecureEnabledUntil: row.hostWindowUntil,
+        }) &&
         row.tokenExpiresAt != null &&
         row.tokenExpiresAt > now,
       )
@@ -352,89 +357,16 @@ export class AgentMessagingService {
     return { enabled, ...result };
   }
 
-  async setHostEnabled(hostId: number, enabled: boolean): Promise<Record<string, unknown>> {
-    const now = nowIso();
-    const result = await this.db.transaction(async (tx) => {
-      const hostRows = await tx.select().from(hosts).where(eq(hosts.id, hostId)).limit(1).for('update');
-      const host = hostRows[0];
-      if (!host) throw new NotFoundError('Host not found', 'host_not_found');
-      if (enabled && (host.secure !== 1 || host.status !== 'active')) {
-        throw new ConflictError('Agent Messaging requires an active secure host', 'agent_messaging_secure_host_required');
-      }
-      await tx
-        .update(hosts)
-        .set({
-          agentMessagingEnabled: enabled ? 1 : 0,
-          configVersion: Number(host.configVersion ?? 0) + 1,
-          updatedAt: now,
-        })
-        .where(eq(hosts.id, hostId));
-      if (enabled) return { canceled: 0, ambiguous: 0, relays: 0, bindings: 0 };
-      const addressRows = await tx.select({ id: agentBusAddresses.id }).from(agentBusAddresses).where(eq(agentBusAddresses.hostId, hostId)).for('update');
-      const addressIds = addressRows.map((row) => row.id);
-      let canceled = 0;
-      let ambiguous = 0;
-      if (addressIds.length > 0) {
-        const scope = or(inArray(agentBusMessages.senderAddressId, addressIds), inArray(agentBusMessages.targetAddressId, addressIds));
-        const [pending, uncertain] = await Promise.all([
-          tx.select({ value: count() }).from(agentBusMessages).where(and(inArray(agentBusMessages.status, [...CANCELABLE_MESSAGE_STATUSES]), scope)),
-          tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'accepted'), scope)),
-        ]);
-        canceled = Number(pending[0]?.value ?? 0);
-        ambiguous = Number(uncertain[0]?.value ?? 0);
-        await tx
-          .update(agentBusMessages)
-          .set({ status: 'canceled', cancelRequestedAt: now, canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
-          .where(and(inArray(agentBusMessages.status, [...CANCELABLE_MESSAGE_STATUSES]), scope));
-        await tx
-          .update(agentBusMessages)
-          .set({ status: 'ambiguous', ambiguousAt: now, lastErrorCode: 'host_disabled_after_accept', leaseOwner: null, leaseUntil: null, updatedAt: now })
-          .where(and(eq(agentBusMessages.status, 'accepted'), scope));
-        await tx
-          .update(agentBusAddresses)
-          .set({ currentSessionId: null, readiness: 'disabled', receiveHeartbeatAt: null, bindingGeneration: sql`${agentBusAddresses.bindingGeneration} + 1`, updatedAt: now })
-          .where(inArray(agentBusAddresses.id, addressIds));
-        await tx
-          .update(agentBusConversations)
-          .set({
-            status: 'canceled',
-            canceledBy: 'system:host-disabled',
-            cancelReason: 'Agent Messaging disabled for host',
-            canceledAt: now,
-            updatedAt: now,
-          })
-          .where(and(
-            eq(agentBusConversations.status, 'open'),
-            or(
-              inArray(agentBusConversations.addressAId, addressIds),
-              inArray(agentBusConversations.addressBId, addressIds),
-            ),
-          ));
-      }
-      const relayRows = await tx.select({ value: count() }).from(agentBusRelays).where(and(eq(agentBusRelays.hostId, hostId), eq(agentBusRelays.status, 'active')));
-      await tx
-        .update(agentBusRelays)
-        .set({ status: 'revoked', tokenHash: null, tokenExpiresAt: null, stopRequestedAt: now, updatedAt: now })
-        .where(and(eq(agentBusRelays.hostId, hostId), eq(agentBusRelays.status, 'active')));
-      await tx
-        .update(agentSessions)
-        .set({ adapterProtocol: null, adapterCapabilities: null, receiveHeartbeatAt: null, bindingGeneration: sql`${agentSessions.bindingGeneration} + 1`, updatedAt: now })
-        .where(eq(agentSessions.hostId, hostId));
-      return { canceled, ambiguous, relays: Number(relayRows[0]?.value ?? 0), bindings: addressIds.length };
-    });
-    wsPublisher.publish('agent_messaging.host.changed', { host_id: hostId, enabled, ...result });
-    wsPublisher.publish('host.updated', { id: hostId });
-    return { host_id: hostId, enabled, ...result };
-  }
-
   /**
-   * Revoke runtime eligibility without changing the administrator's per-host
-   * preference. Host security/status and engine demotions call this so work
-   * cannot sit invisibly in-flight and later replay when eligibility returns.
+   * Revoke runtime eligibility so work cannot sit invisibly in-flight and
+   * later replay when eligibility returns. Host status and engine demotions
+   * call this. A secure-to-insecure demotion deliberately does not: an
+   * insecure host is window-bounded, not disqualified, so its queue is left
+   * intact to drain when the window reopens.
    */
   async suspendHostRuntime(
     hostId: number,
-    reason: 'host_insecure' | 'host_inactive' | 'engine_disabled',
+    reason: 'host_inactive' | 'engine_disabled',
     engines?: Engine[],
   ): Promise<Record<string, unknown>> {
     const result = await this.db.transaction(async (tx) =>
@@ -764,9 +696,7 @@ export class AgentMessagingService {
     const predicates = [
       eq(agentBusAddresses.enabled, 1),
       isNull(agentBusAddresses.archivedAt),
-      eq(hosts.status, 'active'),
-      eq(hosts.secure, 1),
-      eq(hosts.agentMessagingEnabled, 1),
+      messagingHostEligibleSql(),
       ne(agentBusAddresses.id, currentAddressId),
     ];
     if (filters.engine) predicates.push(eq(agentBusAddresses.engine, filters.engine));
@@ -1224,9 +1154,7 @@ export class AgentMessagingService {
         eq(agentBusAddresses.username, relay.username),
         eq(agentBusAddresses.enabled, 1),
         isNull(agentBusAddresses.archivedAt),
-        eq(hosts.status, 'active'),
-        eq(hosts.secure, 1),
-        eq(hosts.agentMessagingEnabled, 1),
+        messagingHostEligibleSql(),
         isNull(agentBusAddresses.currentSessionId),
       ));
     if (rows.length === 0) return null;
@@ -1416,8 +1344,8 @@ export class AgentMessagingService {
         address: agentBusAddresses,
         fqdn: hosts.fqdn,
         hostSecure: hosts.secure,
-        hostEnabled: hosts.agentMessagingEnabled,
         hostStatus: hosts.status,
+        hostWindowUntil: hosts.insecureEnabledUntil,
         hostEngines: hosts.engines,
       })
       .from(agentBusAddresses)
@@ -1435,19 +1363,25 @@ export class AgentMessagingService {
         ...publicAddress(row.address, row.fqdn),
         current_session_id: row.address.currentSessionId,
         host_secure: row.hostSecure === 1,
-        host_enabled: row.hostEnabled === 1,
         host_status: row.hostStatus,
+        host_window_until: row.hostWindowUntil,
         host_engines: hostEnginesList(row.hostEngines),
         eligible:
           masterEnabled &&
-          row.hostSecure === 1 &&
-          row.hostEnabled === 1 &&
-          row.hostStatus === 'active' &&
+          messagingHostEligible({
+            status: row.hostStatus,
+            secure: row.hostSecure,
+            insecureEnabledUntil: row.hostWindowUntil,
+          }) &&
           hostEnginesList(row.hostEngines).includes(row.address.engine as Engine),
         ineligible_reason: addressIneligibleReason(
           masterEnabled,
+          messagingHostEligible({
+            status: row.hostStatus,
+            secure: row.hostSecure,
+            insecureEnabledUntil: row.hostWindowUntil,
+          }),
           row.hostSecure === 1,
-          row.hostEnabled === 1,
           row.hostStatus,
           hostEnginesList(row.hostEngines),
           row.address.engine as Engine,
@@ -1491,12 +1425,10 @@ export class AgentMessagingService {
         const host = hostRows[0];
         if (
           !host ||
-          host.status !== 'active' ||
-          host.secure !== 1 ||
-          host.agentMessagingEnabled !== 1 ||
+          !messagingHostEligible(host) ||
           !hostEnginesList(host.engines).includes(address.engine as Engine)
         ) {
-          throw new ConflictError('Agent Messaging requires an enabled active secure host', 'agent_messaging_host_ineligible');
+          throw new ConflictError('Agent Messaging requires an eligible active host', 'agent_messaging_host_ineligible');
         }
       }
       await tx
@@ -2081,7 +2013,7 @@ export class AgentMessagingService {
   private async assertAddressEligibleLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<void> {
     if (address.enabled !== 1 || address.archivedAt) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     const rows = await db.select().from(hosts).where(eq(hosts.id, address.hostId)).limit(1).for('update');
-    if (!rows[0] || rows[0].status !== 'active' || rows[0].secure !== 1 || rows[0].agentMessagingEnabled !== 1) {
+    if (!rows[0] || !messagingHostEligible(rows[0])) {
       throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     }
     if (!hostEnginesList(rows[0].engines).includes(address.engine as Engine)) {
@@ -2090,8 +2022,13 @@ export class AgentMessagingService {
   }
 
   private assertEligibleHost(host: Host): void {
-    if (host.status !== 'active' || host.secure !== 1 || host.agentMessagingEnabled !== 1) {
-      throw new ForbiddenError('Agent Messaging requires an enabled active secure host', 'agent_messaging_host_ineligible');
+    if (!messagingHostEligible(host)) {
+      throw new ForbiddenError(
+        host.secure === 1
+          ? 'Agent Messaging requires an active host'
+          : 'Agent Messaging on an insecure host requires an open allowed window',
+        host.secure === 1 ? 'agent_messaging_host_ineligible' : 'agent_messaging_insecure_window_closed',
+      );
     }
   }
 
@@ -2234,7 +2171,7 @@ export class AgentMessagingService {
 export async function suspendAgentMessagingRuntimeLocked(
   db: AgentMessagingDb,
   hostId: number,
-  reason: 'host_insecure' | 'host_inactive' | 'host_auth_rotated' | 'engine_disabled',
+  reason: 'host_inactive' | 'host_auth_rotated' | 'engine_disabled',
   engines?: Engine[],
 ): Promise<{ canceled: number; ambiguous: number; conversations: number; relays: number; bindings: number }> {
   const now = nowIso();
@@ -2496,18 +2433,45 @@ function conversationIncludes(conversation: AgentBusConversation, addressId: str
   return conversation.addressAId === addressId || conversation.addressBId === addressId;
 }
 
+/**
+ * The single host-eligibility rule for Agent Messaging. The fleet switch is
+ * the only switch: once it is on the bus is on for every host, including
+ * insecure ones. An insecure host is authorized per operation for as long as
+ * its allowed window is open, which is read, never extended — see
+ * `insecureWindowActive`. Status and engine remain gates because an inactive
+ * host or a removed engine has no agent to address.
+ */
+export function messagingHostEligible(
+  host: Pick<Host, 'status' | 'secure' | 'insecureEnabledUntil'>,
+): boolean {
+  return host.status === 'active' && (host.secure === 1 || insecureWindowActive(host));
+}
+
+/**
+ * The SQL half of `messagingHostEligible`, for queries that select candidate
+ * hosts instead of checking one row. `gt` is given a `Date` on purpose:
+ * drizzle's `datetime` column maps it through `toISOString()`, matching how
+ * the window was stored. Passing an ISO string here would compare the `T`/`Z`
+ * form against a MySQL DATETIME and silently return the wrong host set.
+ */
+function messagingHostEligibleSql(now: Date = new Date()) {
+  return and(
+    eq(hosts.status, 'active'),
+    or(eq(hosts.secure, 1), gt(hosts.insecureEnabledUntil, now)),
+  );
+}
+
 function addressIneligibleReason(
   masterEnabled: boolean,
+  eligible: boolean,
   secure: boolean,
-  hostEnabled: boolean,
   hostStatus: string,
   engines: Engine[],
   engine: Engine,
 ): string | null {
   if (!masterEnabled) return 'master_disabled';
-  if (!secure) return 'host_insecure';
   if (hostStatus !== 'active') return 'host_inactive';
-  if (!hostEnabled) return 'host_disabled';
+  if (!secure && !eligible) return 'insecure_window_closed';
   if (!engines.includes(engine)) return 'engine_disabled';
   return null;
 }

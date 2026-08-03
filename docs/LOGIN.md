@@ -100,13 +100,15 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
     `POST /admin/agent-messaging/addresses/{id}/enabled`,
     `POST /admin/agent-messaging/conversations/{id}/cancel`,
     `POST /admin/agent-messaging/messages/{id}/redrive`,
-    `POST /admin/agent-messaging/messages/{id}/reveal`, and
-    `POST /admin/hosts/{id}/agent-messaging`. Host registration/API-key
-    rotation and device approval (`POST /admin/hosts/register`,
-    `POST /cli/auth/approve`), host deletion, and the host engine/secure-state
-    transitions (`DELETE /admin/hosts/{id}`, `POST /admin/hosts/{id}/engines`,
-    `POST /admin/hosts/{id}/secure`) share this gate because they can
-    generation-fence or atomically revoke Agent Messaging work. State,
+    and `POST /admin/agent-messaging/messages/{id}/reveal`. Host
+    registration/API-key rotation and device approval
+    (`POST /admin/hosts/register`, `POST /cli/auth/approve`), host deletion,
+    and the host engine/secure-state transitions (`DELETE /admin/hosts/{id}`,
+    `POST /admin/hosts/{id}/engines`, `POST /admin/hosts/{id}/secure`) share
+    this gate because they can generation-fence or atomically revoke Agent
+    Messaging work, or — for `secure` — decide whether a host is authorized
+    outright or only inside its allowed window. There is no per-host Agent
+    Messaging gate: the fleet switch is the only switch. State,
     address, conversation, and message listings are session-only and
     metadata-only, so viewer/legacy roles may inspect them. Reveal is an
     explicit audited mutation whose plaintext response is `no-store` and

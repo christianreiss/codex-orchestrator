@@ -109,7 +109,10 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
        VALUES ('${AGENT_MESSAGING_ENABLED_KEY}', '1', '2026-07-31T00:00:00.000Z')
        ON DUPLICATE KEY UPDATE version = '1', updated_at = VALUES(updated_at)`,
     );
-    await db.update(hosts).set({ agentMessagingEnabled: 1, secure: 1, status: 'active' }).where(eq(hosts.id, host.id));
+    await db
+      .update(hosts)
+      .set({ secure: 1, status: 'active', insecureEnabledUntil: null })
+      .where(eq(hosts.id, host.id));
     host = (await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1))[0]!;
   });
 
@@ -381,6 +384,128 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     await expect(service.listAddresses(source.sessionId, source.bridgeToken)).rejects.toMatchObject({
       code: 'agent_messaging_disabled',
     });
+  });
+
+  // The allowed window is a MySQL DATETIME written through drizzle's
+  // toISOString mapping. These three run against real MySQL on purpose: a
+  // client-side ISO string in the eligibility filter would compare the T/Z
+  // form against a DATETIME and silently return the wrong host set, which no
+  // in-memory fake can catch.
+  it('keeps an insecure host eligible while its allowed window is open', async () => {
+    const source = await register('codex', 'window-open-source');
+    const target = await register('claude', 'window-open-target');
+    await db
+      .update(hosts)
+      .set({ secure: 0, insecureEnabledUntil: new Date(Date.now() + 10 * 60_000) })
+      .where(eq(hosts.id, host.id));
+
+    const listed = await service.listAddresses(source.sessionId, source.bridgeToken);
+    expect((listed.addresses as Array<{ address: string }>).map((row) => row.address)).toContain(
+      target.address,
+    );
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'insecure but inside the window', clientMessageId: randomUUID(),
+    });
+    expect(sent.message).toMatchObject({ status: 'queued' });
+  });
+
+  it('denies an insecure host once its allowed window has closed, without canceling queued work', async () => {
+    const source = await register('codex', 'window-closed-source');
+    const target = await register('claude', 'window-closed-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'wait for the window', clientMessageId: randomUUID(),
+    });
+    await db
+      .update(hosts)
+      .set({ secure: 0, insecureEnabledUntil: new Date(Date.now() - 60_000) })
+      .where(eq(hosts.id, host.id));
+
+    // A closed window fails loudly at the bridge credential rather than
+    // silently returning nothing: the tools stay present, the call is denied.
+    await expect(
+      service.listAddresses(source.sessionId, source.bridgeToken),
+    ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+    await expect(
+      service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address, content: 'still closed', clientMessageId: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+
+    // The queue survives a closed window; it is not an operational shutdown.
+    expect((await db.select().from(agentBusMessages).where(
+      eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)),
+    ))[0]).toMatchObject({ status: 'queued' });
+    expect((await db.select().from(agentBusConversations))[0]).toMatchObject({ status: 'open' });
+  });
+
+  it('resumes delivery when the operator reopens the window', async () => {
+    const source = await register('codex', 'window-reopen-source');
+    const target = await register('claude', 'window-reopen-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'deliver after reopen', clientMessageId: randomUUID(),
+    });
+    const messageId = String((sent.message as Record<string, unknown>).id);
+    await db
+      .update(hosts)
+      .set({ secure: 0, insecureEnabledUntil: new Date(Date.now() - 60_000) })
+      .where(eq(hosts.id, host.id));
+    await expect(
+      service.claimForSession(target.sessionId, target.bridgeToken, randomUUID()),
+    ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+
+    await db
+      .update(hosts)
+      .set({ insecureEnabledUntil: new Date(Date.now() + 10 * 60_000) })
+      .where(eq(hosts.id, host.id));
+    const delivery = await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID());
+    expect(delivery).toMatchObject({ message_id: messageId });
+  });
+
+  // The relay is the lane that runs unattended, so a closed window has to stop
+  // it at both the registration and the polling edge. Before the fleet switch
+  // became the only switch an insecure host never started a relay at all; now
+  // it does, and this is what keeps it from claiming outside its window.
+  it('refuses relay registration and relay claims while the allowed window is closed', async () => {
+    const target = await register('claude', 'relay-window-target');
+    const source = await register('codex', 'relay-window-source');
+    await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'not for a closed window', clientMessageId: randomUUID(),
+    });
+    const relay = await service.registerRelay(host, {
+      username: target.username,
+      instanceId: randomUUID(),
+      wrapperVersion: 'test',
+    });
+
+    const closed = (await db
+      .update(hosts)
+      .set({ secure: 0, insecureEnabledUntil: new Date(Date.now() - 60_000) })
+      .where(eq(hosts.id, host.id))
+      .then(() => db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1)))[0]!;
+
+    await expect(
+      service.claimForRelay(String(relay.relay_id), String(relay.relay_token), randomUUID()),
+    ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+    await expect(
+      service.registerRelay(closed, {
+        username: target.username,
+        instanceId: randomUUID(),
+        wrapperVersion: 'test',
+      }),
+    ).rejects.toMatchObject({ code: 'agent_messaging_insecure_window_closed' });
+
+    // Reopening the window restores the relay lane without a redrive.
+    await db
+      .update(hosts)
+      .set({ insecureEnabledUntil: new Date(Date.now() + 10 * 60_000) })
+      .where(eq(hosts.id, host.id));
+    const reopened = (await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1))[0]!;
+    const revived = await service.registerRelay(reopened, {
+      username: target.username,
+      instanceId: randomUUID(),
+      wrapperVersion: 'test',
+    });
+    expect(revived).toMatchObject({ enabled: true });
   });
 
   it('atomically fences messaging when the admin registration path rotates a host key', async () => {

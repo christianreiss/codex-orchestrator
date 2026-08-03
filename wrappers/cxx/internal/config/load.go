@@ -180,9 +180,10 @@ func (c *Config) ValidateForEngine(expectedEngine string) error {
 		return errors.New("host.fqdn required")
 	}
 	if c.AgentMessaging.Enabled {
-		if !c.Host.Secure || !c.Host.AgentMessagingEnabled {
-			return errors.New("agent_messaging requires an enabled secure host")
-		}
+		// Eligibility is a server decision. The fleet switch alone enables the
+		// bus, and an insecure host is authorized per operation while its
+		// allowed window is open, so neither host.secure nor the retired
+		// per-host flag may veto a signed config here.
 		if c.AgentMessaging.RelayPollSeconds < 1 || c.AgentMessaging.RelayPollSeconds > 25 {
 			return errors.New("agent_messaging.relay_poll_seconds must be between 1 and 25")
 		}

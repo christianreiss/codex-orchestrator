@@ -583,7 +583,17 @@ func truncateUTF8(value string, maxBytes int) string {
 
 func retryDelay(err error) time.Duration {
 	var apiErr *APIError
-	if errors.As(err, &apiErr) && (apiErr.Code == "agent_messaging_disabled" || apiErr.Status == http.StatusServiceUnavailable) {
+	if !errors.As(err, &apiErr) {
+		return 3 * time.Second
+	}
+	// A shut door, not a transient fault. An insecure host outside its allowed
+	// window is refused for as long as the window stays closed, which is
+	// minutes to hours; retrying every 3 seconds would make every such host
+	// hammer the API and burn its own request-rate budget for nothing.
+	switch {
+	case apiErr.Code == "agent_messaging_disabled",
+		apiErr.Code == "agent_messaging_insecure_window_closed",
+		apiErr.Status == http.StatusServiceUnavailable:
 		return 30 * time.Second
 	}
 	return 3 * time.Second

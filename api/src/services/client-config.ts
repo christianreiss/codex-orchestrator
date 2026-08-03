@@ -420,8 +420,11 @@ function injectManagedMcp(
       }
     }
   }
-  const agentMessagingEnabled = opts.agentMessagingEnabled === true
-    && (opts.host === null || (opts.host.secure === 1 && opts.host.agentMessagingEnabled === 1));
+  // Provisioning, not authorization. The MCP server is injected whenever the
+  // fleet switch is on so the agent_* tools are stably present; an insecure
+  // host's calls are authorized per operation against its allowed window,
+  // which would otherwise add and remove tools every few minutes.
+  const agentMessagingEnabled = opts.agentMessagingEnabled === true;
   if (agentMessagingEnabled) {
     managedNames.add('cxx-agent');
     managedEntries.push({

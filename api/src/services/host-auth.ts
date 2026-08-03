@@ -9,7 +9,7 @@ import { extractApiKey, hashApiKey } from '../util/api-key-helpers.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { AuthFailureTracker } from './auth-failure-tracker.js';
-import type { InsecureWindowService } from './insecure-window.js';
+import { insecureWindowActive, type InsecureWindowService } from './insecure-window.js';
 import { SettingsService } from './settings.js';
 import { assertReverseDnsMatch } from './reverse-dns.js';
 import type { Env } from '../env.js';
@@ -205,13 +205,6 @@ async function enforceReverseDns(
   } catch {
     throw new UnauthorizedError('Reverse DNS check failed', 'reverse_dns_failed');
   }
-}
-
-function insecureWindowActive(host: Host): boolean {
-  const until = host.insecureEnabledUntil;
-  if (!until) return false;
-  const ms = until instanceof Date ? until.getTime() : new Date(until).getTime();
-  return Number.isFinite(ms) && ms >= Date.now();
 }
 
 function ipFamily(ip: string): 'ipv4' | 'ipv6' | null {

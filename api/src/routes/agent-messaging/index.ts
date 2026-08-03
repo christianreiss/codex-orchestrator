@@ -163,24 +163,9 @@ export async function registerAgentMessagingRoutes(
       return result;
     },
   );
-  app.post(
-    '/admin/hosts/:id/agent-messaging',
-    { preHandler: [app.requireAdmin, requireAgentMessagingMutationRole] },
-    async (req) => {
-      const hostId = positiveId(req.params);
-      const body = z.object({ enabled: z.boolean() }).strict().parse(req.body ?? {});
-      const result = await messaging.setHostEnabled(hostId, body.enabled);
-      await events.record(
-        {
-          type: 'agent_messaging.host.changed',
-          hostId,
-          payload: { enabled: body.enabled, admin_user_id: actor(req) },
-        },
-        { broadcast: false },
-      );
-      return result;
-    },
-  );
+  // There is no per-host switch. The fleet switch above is the only switch;
+  // an insecure host is bounded by its allowed window, which is managed on
+  // Host Detail like every other insecure-window decision.
 
   // Session-bound model/adapter API. All routes require the short-lived bridge
   // capability inherited through the private cxx Unix broker.

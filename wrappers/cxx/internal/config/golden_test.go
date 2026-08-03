@@ -158,8 +158,11 @@ func goldenFixtures() []goldenFixture {
 					ReasoningEffortOverride: nil,
 					AdminThemeHint:          nil,
 				},
+				// An insecure host now carries the bus. Loading this fixture is
+				// the cross-check that Validate no longer vetoes the pairing of
+				// agent_messaging.enabled with host.secure:false.
 				AgentMessaging: AgentMessaging{
-					Enabled:               false,
+					Enabled:               true,
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,
 					ChannelPreviewEnabled: false,

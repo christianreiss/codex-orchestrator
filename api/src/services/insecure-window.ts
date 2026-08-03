@@ -36,6 +36,23 @@ const PENDING_APPROVAL_TTL_MS = 5 * 60_000;
 
 export type InsecureCommand = 'auth' | 'store' | 'retrieve' | 'mcp' | 'host_lane_get' | 'host_lane_set' | string;
 
+/**
+ * True while the host's allowed window is open. This is the read-only view of
+ * the window: unlike `enforce`, it neither slides `insecure_enabled_until` nor
+ * opens an approval request, so a polling caller cannot hold its own window
+ * open forever. Callers that authorize per operation (Agent Messaging) use
+ * this; callers that represent real host traffic use `enforce`.
+ *
+ * The window is `insecure_enabled_until` only. `insecure_grace_until` is a
+ * separate tail used by the auth lane and does not grant access here.
+ */
+export function insecureWindowActive(host: Pick<Host, 'insecureEnabledUntil'>): boolean {
+  const until = host.insecureEnabledUntil;
+  if (!until) return false;
+  const ms = until instanceof Date ? until.getTime() : new Date(until).getTime();
+  return Number.isFinite(ms) && ms >= Date.now();
+}
+
 export interface InsecureWindowService {
   /**
    * Ensures the host is currently allowed to make insecure-mode requests.

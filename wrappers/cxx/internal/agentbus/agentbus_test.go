@@ -363,6 +363,31 @@ func TestChannelRenewalRetainsCorrelationOnTransientFailure(t *testing.T) {
 	if !definitiveChannelRenewalError(&APIError{Status: http.StatusConflict, Code: "agent_messaging_lease_lost"}) {
 		t.Fatal("definitive lease loss was treated as transient")
 	}
+	// Losing the allowed window mid-delivery cannot be recovered by renewing on
+	// a ticker; only an operator reopening it can.
+	if !definitiveChannelRenewalError(&APIError{Status: http.StatusForbidden, Code: "agent_messaging_insecure_window_closed"}) {
+		t.Fatal("a closed allowed window was treated as transient")
+	}
+}
+
+// An insecure host outside its allowed window is refused for as long as the
+// window stays shut. Before the fleet switch became the only switch such a host
+// never started a relay at all; now it does, so the closed-window refusal must
+// back off like a shut door rather than like a transient fault.
+func TestRelayBacksOffHardWhileTheAllowedWindowIsClosed(t *testing.T) {
+	closed := &APIError{Status: http.StatusForbidden, Code: "agent_messaging_insecure_window_closed"}
+	if got := retryDelay(closed); got != 30*time.Second {
+		t.Fatalf("closed allowed window retried after %v, want 30s", got)
+	}
+	if got := retryDelay(&APIError{Status: http.StatusConflict, Code: "agent_messaging_disabled"}); got != 30*time.Second {
+		t.Fatalf("fleet-disabled retried after %v, want 30s", got)
+	}
+	if got := retryDelay(&APIError{Status: http.StatusBadGateway, Code: "upstream_hiccup"}); got != 3*time.Second {
+		t.Fatalf("transient failure retried after %v, want 3s", got)
+	}
+	if got := retryDelay(errors.New("connection reset")); got != 3*time.Second {
+		t.Fatalf("transport failure retried after %v, want 3s", got)
+	}
 }
 
 func TestSendRejectsMessageContentInArgvBeforeSocketAccess(t *testing.T) {

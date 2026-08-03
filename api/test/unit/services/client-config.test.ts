@@ -191,12 +191,11 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).toContain('[mcp_servers.user-custom]');
   });
 
-  it('injects the local Agent Messaging MCP only for an eligible enabled host', () => {
+  it('injects the local Agent Messaging MCP whenever the fleet switch is on', () => {
     const host = {
       id: 7,
       fqdn: 'host.example',
       secure: 1,
-      agentMessagingEnabled: 1,
     };
     const enabled = renderTomlForHost({
       settings: { orchestrator_mcp_enabled: false },
@@ -211,19 +210,27 @@ describe('client-config: renderToml', () => {
     // A local messaging server does not imply that fleet Skills are reachable.
     expect(enabled.content).not.toContain('[[skills.config]]');
 
-    for (const ineligible of [
-      { ...host, secure: 0 },
-      { ...host, agentMessagingEnabled: 0 },
-    ]) {
-      const rendered = renderTomlForHost({
-        settings: { orchestrator_mcp_enabled: false },
-        host: ineligible as never,
-        baseUrl: null,
-        apiKey: null,
-        agentMessagingEnabled: true,
-      });
-      expect(rendered.content).not.toContain('cxx-agent');
-    }
+    // Injection is provisioning, not authorization. An insecure host keeps the
+    // agent_* tools; the server denies its calls per operation while the
+    // allowed window is closed. Gating the tools on the window instead would
+    // add and remove them every few minutes.
+    const insecure = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: { ...host, secure: 0 } as never,
+      baseUrl: null,
+      apiKey: null,
+      agentMessagingEnabled: true,
+    });
+    expect(insecure.content).toContain('[mcp_servers.cxx-agent]');
+
+    const fleetOff = renderTomlForHost({
+      settings: { orchestrator_mcp_enabled: false },
+      host: host as never,
+      baseUrl: null,
+      apiKey: null,
+      agentMessagingEnabled: false,
+    });
+    expect(fleetOff.content).not.toContain('cxx-agent');
   });
 
   it('revalidates effort when a Codex host overrides the fleet model', () => {
