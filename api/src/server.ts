@@ -24,7 +24,7 @@ import { makeClientIpPlugin } from './http/plugins/client-ip.js';
 import { makeRateLimiter, makeRateLimitPlugin } from './http/plugins/rate-limit.js';
 import { makeAuthHostPlugin } from './http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from './http/plugins/auth-admin.js';
-import { authMtlsPlugin } from './http/plugins/auth-mtls.js';
+import { makeAuthMtlsPlugin } from './http/plugins/auth-mtls.js';
 import { corsPlugin } from './http/plugins/cors.js';
 
 import { registerAllRoutes } from './routes/index.js';
@@ -89,7 +89,7 @@ export async function buildServer() {
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
   await app.register(requestIdPlugin);
   await app.register(makeClientIpPlugin(env));
-  await app.register(authMtlsPlugin);
+  await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
   await app.register(makeRateLimitPlugin(env));

@@ -24,9 +24,13 @@
  *    `test/integration/db-migrations/migrator.test.ts` enforces it by applying
  *    every file twice.
  *
- * There is no `0000_baseline.sql`: 0003 and 0006 carry foreign keys to
- * `coord_projects`/`hosts`, so the runner evolves an existing schema rather
- * than creating one from nothing. See `db/README.md`.
+ * There is no `0000_baseline.sql`, and there deliberately is not one: 0003 and
+ * 0006 carry foreign keys to `coord_projects`/`hosts`, so the migrations evolve
+ * an existing schema rather than creating one from nothing. The starting schema
+ * comes from `baseline/schema.sql` instead, applied once by `--init-schema`
+ * against a database with no application tables and never entered in the
+ * ledger. Keeping it out of the sequence is what stops an existing deployment
+ * seeing a new pending migration. See `db/README.md`.
  */
 
 import { createHash } from 'node:crypto';
@@ -85,8 +89,22 @@ export interface MigrationOutcome {
   durationMs: number;
 }
 
+/**
+ * Result of the `--init-schema` pass. `applied: false` with a reason is the
+ * normal outcome on every run after the first — an installer has to be safe to
+ * re-run, so meeting a populated database is success, not an error.
+ */
+export interface BaselineOutcome {
+  applied: boolean;
+  reason: string;
+  statements: number;
+  durationMs: number;
+}
+
 export interface MigrationReport {
   ledgerCreated: boolean;
+  /** Present only when `--init-schema` was requested. */
+  baseline: BaselineOutcome | null;
   outcomes: MigrationOutcome[];
   drifted: MigrationState[];
   orphaned: MigrationState[];
@@ -116,6 +134,16 @@ export interface RunMigrationsOptions {
   baselineThrough?: string | null;
   /** Versions to execute again even though the ledger says they are applied. */
   reapply?: string[];
+  /**
+   * Create the starting schema from `baseline/schema.sql` when the database
+   * holds no application tables, then migrate on top as usual. A no-op against
+   * any database that already has them, so a fresh-install script can re-run.
+   * Mutually exclusive with `baselineThrough`, which records without executing
+   * and would leave an empty database claiming to be migrated.
+   */
+  initSchema?: boolean;
+  /** Override the baseline location; defaults to `defaultBaselineFile()`. */
+  baselineFile?: string;
 }
 
 const silentLogger: MigrationLogger = {
@@ -166,6 +194,44 @@ function versionKey(version: string): string {
  */
 export function defaultMigrationsDir(): string {
   return resolve(import.meta.dirname, 'migrations');
+}
+
+/**
+ * The baseline sits beside this module in both layouts for the same reason
+ * `migrations/` does: `src/db/baseline` under tsx, `dist/baseline` in the image,
+ * where `scripts/build.ts` copies it next to the bundle. Resolving it any other
+ * way is how you ship a command that works in a checkout and throws in the
+ * container.
+ */
+export function defaultBaselineFile(): string {
+  return resolve(import.meta.dirname, 'baseline', 'schema.sql');
+}
+
+/** Parsed the same way a migration is, so both paths agree on statement splitting. */
+export async function loadBaseline(file?: string): Promise<string[]> {
+  const path = file?.trim() || defaultBaselineFile();
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (cause) {
+    throw new Error(`baseline schema is unreadable: ${path}`, { cause });
+  }
+  const statements = splitSqlStatements(raw);
+  if (statements.length === 0) throw new Error(`baseline schema contains no statements: ${path}`);
+  return statements;
+}
+
+/**
+ * Every table in the current database except the runner's own ledger. The ledger
+ * is excluded because a `--check` or an aborted earlier run can create it before
+ * any schema exists — treating it as "the database is populated" would make
+ * init unreachable exactly when it is needed.
+ */
+async function applicationTables(conn: PoolConnection): Promise<string[]> {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    'SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
+  );
+  return rows.map((row) => String(row.name)).filter((name) => name !== LEDGER_TABLE);
 }
 
 export async function loadMigrations(dir?: string): Promise<MigrationFile[]> {
@@ -240,23 +306,38 @@ export async function runMigrations(
   if (baselineThrough && !files.some((file) => file.version === baselineThrough)) {
     throw new Error(`--baseline ${baselineThrough} does not match any migration version`);
   }
+  const initSchema = options.initSchema === true;
+  if (initSchema && baselineThrough) {
+    // --baseline records without executing. Against the empty database
+    // --init-schema exists for, it would mark every migration applied over a
+    // schema that was never created.
+    throw new Error('--init-schema cannot be combined with --baseline');
+  }
   const reapply = new Set(options.reapply ?? []);
   for (const version of reapply) {
     if (!files.some((file) => file.version === version)) {
       throw new Error(`--reapply ${version} does not match any migration version`);
     }
   }
+  // Read before taking the lock so a missing artifact fails fast and loudly
+  // rather than after a lock acquisition that can block for two minutes.
+  const baselineStatements = initSchema ? await loadBaseline(options.baselineFile) : null;
 
   const conn = await pool.getConnection();
   try {
     await acquireLock(conn, lockTimeout);
     try {
+      const baseline = baselineStatements
+        ? await applyBaseline(conn, baselineStatements, { dryRun, logger })
+        : null;
+
       const ledgerCreated = !(await ledgerExists(conn));
       if (ledgerCreated && !dryRun) await createLedger(conn);
       const ledger = ledgerCreated ? new Map<string, LedgerRow>() : await readLedger(conn);
 
       const report: MigrationReport = {
         ledgerCreated,
+        baseline,
         outcomes: [],
         drifted: [],
         orphaned: buildStates(files, ledger).filter((state) => state.status === 'orphaned'),
@@ -344,6 +425,58 @@ export async function runMigrations(
   } finally {
     conn.release();
   }
+}
+
+/**
+ * Create the starting schema, but only into a database that has no application
+ * tables. The check and the write happen under the migration lock the caller
+ * already holds, so two installers racing the same empty database cannot both
+ * decide it is empty.
+ *
+ * A populated database is reported, not rejected: `bin/install.sh` re-runs its
+ * steps, and an installer that fails the second time it is invoked is not one
+ * anybody can recover a half-finished install with.
+ */
+async function applyBaseline(
+  conn: PoolConnection,
+  statements: string[],
+  ctx: { dryRun: boolean; logger: MigrationLogger },
+): Promise<BaselineOutcome> {
+  const existing = await applicationTables(conn);
+  if (existing.length > 0) {
+    const reason = `schema already present (${existing.length} table(s))`;
+    ctx.logger.info({ tables: existing.length }, `baseline skipped: ${reason}`);
+    return { applied: false, reason, statements: 0, durationMs: 0 };
+  }
+
+  if (ctx.dryRun) {
+    return {
+      applied: false,
+      reason: 'dry run: database is empty, baseline would be applied',
+      statements: statements.length,
+      durationMs: 0,
+    };
+  }
+
+  const started = Date.now();
+  for (const [offset, statement] of statements.entries()) {
+    try {
+      await conn.query(statement);
+    } catch (cause) {
+      // Same shape as a migration failure so log-scrapers and operators read one
+      // format. The baseline has no version, so its filename stands in.
+      throw new MigrationFailure(
+        'baseline/schema.sql',
+        offset + 1,
+        statements.length,
+        statement,
+        cause,
+      );
+    }
+  }
+  const durationMs = Date.now() - started;
+  ctx.logger.info({ statements: statements.length, durationMs }, 'baseline schema created');
+  return { applied: true, reason: 'created from baseline/schema.sql', statements: statements.length, durationMs };
 }
 
 async function applyStatements(conn: PoolConnection, file: MigrationFile): Promise<number> {

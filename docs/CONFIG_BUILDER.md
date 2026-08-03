@@ -111,7 +111,7 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
 - Hash short-circuit: if the client sends `sha256` matching the baked file, response is `status:unchanged` with no `content`.
 - Missing config: `status:missing` → client must delete local file to avoid stale defaults.
 - Origin: `/admin/config*` is behind admin authentication (and deployment
-  mTLS when enabled); host fetches use host API key auth and the same host/IP
+  the admin session); host fetches use host API key auth and the same host/IP
   policy checks used by `/auth`.
 
 ## Quick commands

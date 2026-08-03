@@ -5,9 +5,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 ## Access & Auth
 - UI shell served by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`. Admin session state is hydrated client-side via `/admin/auth/status`.
 - Every guarded `/admin/*` route is gated by the admin session cookie through `requireAdmin` (`api/src/http/plugins/auth-admin.ts`). No admin route checks a client certificate.
-- `ADMIN_ACCESS_MODE` accepts `mtls` (default), `cookie`, or `open`, and `api/src/routes/cli-auth/index.ts` is the only file that reads it: any value except `open` makes `/cli/auth/verify` require an admin session. It has no effect on `/admin/*`.
-- The client-certificate gate is proxy-layer, in the optional `caddy` compose profile (`caddy/Caddyfile`): it answers `/admin*` without a validated cert with `403 Client certificate required for /admin` and injects `X-MTLS-*` on what it forwards. A plain `docker compose up` does not start that profile.
-- `authMtlsPlugin` (`api/src/http/plugins/auth-mtls.ts`) parses those headers into `req.mtls` — `present` is just a non-empty `X-MTLS-Fingerprint`, `X-MTLS-Present` is not read at all — and nothing else in `api/src` consults `req.mtls`.
+- `ADMIN_ACCESS_MODE` accepts `cookie` (default) or `open`, and `api/src/routes/cli-auth/index.ts` is the only file that reads it: any value except `open` makes `/cli/auth/verify` require an admin session. It has no effect on `/admin/*`.
+- There is no client-certificate gate here any more. The bundled `caddy` profile terminates TLS and reverse-proxies; it does not request client certificates, and this server neither issues nor verifies them.
+- `authMtlsPlugin` (`api/src/http/plugins/auth-mtls.ts`) publishes the `X-MTLS-*` claims an upstream proxy may forward into `req.mtls` — `present` is just a non-empty `X-MTLS-Fingerprint` — and only when the connecting peer is inside `TRUSTED_PROXY_CIDRS`, because a direct caller can set those headers too. Nothing else in `api/src` consults `req.mtls`.
 - Admin login enforcement starts only after at least one active admin exists (`countAdmins(true) > 0`).
 - If login is enforced:
   - `/admin/` redirects to `/admin/login` when no valid session.

@@ -40,7 +40,7 @@ store, publishes immutable version directories by atomic rename, then merges
 the platform manifests without dropping rollback builds. Override `OUTROOT`
 or `PUBLISH_ROOT` only when intentionally staging or publishing elsewhere.
 
-Fresh-install key bootstrap and publication are owned by `bin/setup.sh`. For an
+Fresh-install key bootstrap and publication are owned by `bin/install.sh`. For an
 isolated build test, pass a generated public key without modifying tracked files:
 
 ```

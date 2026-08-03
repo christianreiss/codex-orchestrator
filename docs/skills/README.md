@@ -123,7 +123,7 @@ request, use the fleet inventory instead of Codex's built-in local
 `skill-creator`, and retrieve again after a mutation to verify it.
 
 ```bash
-# 1. Log in (the API binds 127.0.0.1:8488; through Caddy add --cert/--key for mTLS)
+# 1. Log in (the API binds 127.0.0.1:8488; through Caddy use the public https URL)
 curl -sc /tmp/cj -X POST http://127.0.0.1:8488/admin/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"<user>","password":"<password>"}'

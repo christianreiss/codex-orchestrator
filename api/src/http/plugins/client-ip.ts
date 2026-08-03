@@ -29,6 +29,27 @@ export function makeClientIpPlugin(env: Env) {
   );
 }
 
+/**
+ * "Is the direct caller a proxy we told this server to believe?" — the same
+ * question `resolveClientIp` asks before honouring `X-Forwarded-For`, exported
+ * because every other header a front proxy injects on our behalf needs the
+ * identical answer. `auth-mtls` uses it to decide whether `X-MTLS-*` is
+ * testimony from our own edge or something a client typed.
+ *
+ * Fails closed twice over: no `TRUST_X_FORWARDED`, or no CIDRs to match against,
+ * means nothing is trusted. An allowlist that is empty by accident must not read
+ * as "trust everyone".
+ */
+export function makeTrustedProxyCheck(env: Env): (req: FastifyRequest) => boolean {
+  const trustForwarded = env.TRUST_X_FORWARDED;
+  const cidrs = parseCidrs(env.TRUSTED_PROXY_CIDRS);
+
+  return (req) => {
+    if (!trustForwarded || cidrs.length === 0) return false;
+    return ipMatches(normaliseIp(req.socket.remoteAddress ?? ''), cidrs);
+  };
+}
+
 interface ParsedCidr {
   range: [ipaddr.IPv4 | ipaddr.IPv6, number];
 }

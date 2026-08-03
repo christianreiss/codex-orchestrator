@@ -3,7 +3,8 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseMtls } from '../../../src/security/mtls.js';
-import { authMtlsPlugin } from '../../../src/http/plugins/auth-mtls.js';
+import { makeAuthMtlsPlugin } from '../../../src/http/plugins/auth-mtls.js';
+import type { Env } from '../../../src/env.js';
 
 /**
  * `parseMtls` reads whatever `x-mtls-*` headers arrive and verifies none of
@@ -110,9 +111,26 @@ describe('parseMtls header parsing', () => {
 });
 
 describe('authMtlsPlugin wiring', () => {
-  async function buildProbe() {
+  const CLAIM_HEADERS = {
+    'x-mtls-fingerprint': 'AA:BB:CC',
+    'x-mtls-subject': 'CN=worker.example.com',
+    'x-mtls-issuer': 'CN=Internal CA',
+  };
+
+  /**
+   * `light-my-request` reports `127.0.0.1` as the peer, so a CIDR covering it
+   * models "the request arrived from our own reverse proxy" and any other CIDR
+   * models "it arrived from somewhere else".
+   */
+  async function buildProbe(env: Partial<Env> = {}) {
     const app = Fastify({ logger: false });
-    await app.register(authMtlsPlugin);
+    await app.register(
+      makeAuthMtlsPlugin({
+        TRUST_X_FORWARDED: true,
+        TRUSTED_PROXY_CIDRS: '127.0.0.0/8',
+        ...env,
+      } as Env),
+    );
     app.get('/probe', async (req) => req.mtls);
     await app.ready();
     return app;
@@ -122,15 +140,7 @@ describe('authMtlsPlugin wiring', () => {
     const app = await buildProbe();
     expect(app.hasRequestDecorator('mtls')).toBe(true);
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/probe',
-      headers: {
-        'x-mtls-fingerprint': 'AA:BB:CC',
-        'x-mtls-subject': 'CN=worker.example.com',
-        'x-mtls-issuer': 'CN=Internal CA',
-      },
-    });
+    const res = await app.inject({ method: 'GET', url: '/probe', headers: CLAIM_HEADERS });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       present: true,
@@ -147,6 +157,34 @@ describe('authMtlsPlugin wiring', () => {
     expect(res.statusCode).toBe(200);
     // The decorator's placeholder is `null`; seeing the parsed shape here is
     // what proves the hook ran on a request that carried no `x-mtls-*` at all.
+    expect(res.json()).toEqual({ present: false });
+    await app.close();
+  });
+
+  /**
+   * This server verifies no certificate — the headers are a proxy's report, and
+   * a report is only worth the hop that made it. A caller who reaches the port
+   * directly can type the same bytes our edge does, so the claims have to be
+   * discarded unless the peer is one we were told to believe.
+   */
+  it('discards claims from a peer outside TRUSTED_PROXY_CIDRS', async () => {
+    const app = await buildProbe({ TRUSTED_PROXY_CIDRS: '10.9.9.0/24' });
+    const res = await app.inject({ method: 'GET', url: '/probe', headers: CLAIM_HEADERS });
+    expect(res.json()).toEqual({ present: false });
+    await app.close();
+  });
+
+  it('discards claims when forwarded headers are not trusted at all', async () => {
+    const app = await buildProbe({ TRUST_X_FORWARDED: false });
+    const res = await app.inject({ method: 'GET', url: '/probe', headers: CLAIM_HEADERS });
+    expect(res.json()).toEqual({ present: false });
+    await app.close();
+  });
+
+  // An allowlist left empty by accident must not read as "trust everyone".
+  it('discards claims when trust is on but no CIDRs are configured', async () => {
+    const app = await buildProbe({ TRUSTED_PROXY_CIDRS: '' });
+    const res = await app.inject({ method: 'GET', url: '/probe', headers: CLAIM_HEADERS });
     expect(res.json()).toEqual({ present: false });
     await app.close();
   });

@@ -87,6 +87,9 @@ const state = (version: string, filename: string, status: MigrationStatusKind): 
 
 const report = (overrides: Partial<MigrationReport> = {}): MigrationReport => ({
   ledgerCreated: false,
+  // Boot never asks for `initSchema` — provisioning is an installer action, not
+  // something a restarting container decides to do — so this stays null here.
+  baseline: null,
   outcomes: [],
   drifted: [],
   orphaned: [],

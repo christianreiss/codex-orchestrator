@@ -4,13 +4,15 @@ import { resolve } from 'node:path';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 
 /**
- * `test/fixtures/schema-baseline.sql` is generated from `src/db/schema.ts` (see
- * the fixture header) and is what `npm run test:db:setup` provisions the
- * DB-backed suites from. Nothing enforced the pairing: `migration-schema-drift`
- * checks the shipped migrations against the baseline, but a table or column that
- * reaches the mirror without a regenerated fixture stays invisible locally —
- * `npm run test:db` needs a real database — and only surfaces as a confusing
- * runtime error in the GitHub `db` job.
+ * `src/db/baseline/schema.sql` is generated from `src/db/schema.ts` (see the
+ * baseline header) and is what `npm run test:db:setup` provisions the DB-backed
+ * suites from — and, since it became a shipped artifact, what
+ * `migrate.js --init-schema` provisions a fresh installation from. Nothing
+ * enforced the pairing: `migration-schema-drift` checks the shipped migrations
+ * against the baseline, but a table or column that reaches the mirror without a
+ * regenerated baseline stays invisible locally — `npm run test:db` needs a real
+ * database — and only surfaces as a confusing runtime error in the GitHub `db`
+ * job, or now as a broken fresh install.
  *
  * This is the `schema.ts` half of that check — table and column additions only,
  * read out of the two files as text. Types, defaults, indexes and constraints
@@ -18,7 +20,7 @@ import { splitSqlStatements } from '../../../src/db/migration-sql.js';
  */
 
 const SCHEMA = resolve(import.meta.dirname, '../../../src/db/schema.ts');
-const BASELINE = resolve(import.meta.dirname, '../../fixtures/schema-baseline.sql');
+const BASELINE = resolve(import.meta.dirname, '../../../src/db/baseline/schema.sql');
 
 /** Matches both the wrapped call and the one-line `mysqlTable('versions', {`. */
 const MYSQL_TABLE = /mysqlTable\(\s*'([^']+)'\s*,\s*\{/g;

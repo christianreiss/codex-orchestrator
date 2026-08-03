@@ -109,8 +109,8 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/mcp/memories/*` manages host-scoped memory records; `/mcp` serves JSON-RPC MCP tools/resources (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 
-5. **Admin panel (mTLS default)**
-   - Admin access mode defaults to `mtls` (`ADMIN_ACCESS_MODE`); admin session/capability checks gate mutating routes.
+5. **Admin panel (session-gated)**
+   - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is read only by `/cli/auth/verify` and has never gated `/admin/*`.
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.
    - `/admin/quota-mode` manages `quota_hard_fail`, `quota_limit_percent` (clamped 50–100), and `quota_week_partition` (`off|5|7`); `/admin/hosts/{id}/vip` forces warn-only behavior for VIP hosts.

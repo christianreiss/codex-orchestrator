@@ -27,6 +27,13 @@ import {
 
 const IS_GET_LOCK = /^SELECT GET_LOCK/;
 const IS_RELEASE_LOCK = /^SELECT RELEASE_LOCK/;
+/**
+ * Two different information_schema reads have to be told apart. The table
+ * listing `--init-schema` uses is the narrower pattern and is matched first:
+ * `IS_LEDGER_PROBE` is unanchored and would otherwise swallow the listing and
+ * answer it with a `present` count.
+ */
+const IS_TABLE_LIST = /^SELECT TABLE_NAME AS name/;
 const IS_LEDGER_PROBE = /information_schema\.TABLES/;
 const IS_CREATE_LEDGER = new RegExp(`^CREATE TABLE IF NOT EXISTS ${LEDGER_TABLE}\\b`);
 const IS_READ_LEDGER = new RegExp(`^SELECT version, name, checksum, applied_at, applied_by FROM ${LEDGER_TABLE}`);
@@ -49,6 +56,12 @@ interface LedgerRowShape {
 interface FakePoolOptions {
   /** Omitted models a database with no `schema_migrations` table yet. */
   ledger?: LedgerRowShape[];
+  /**
+   * Application tables information_schema reports — what `--init-schema` reads
+   * to decide whether the database still needs provisioning. Defaults to none,
+   * i.e. an empty database.
+   */
+  tables?: string[];
   /** What GET_LOCK answers: 1 acquired, 0 timeout, null error. */
   getLock?: unknown;
   releaseLockError?: unknown;
@@ -63,6 +76,7 @@ class FakePool {
   connections = 0;
   released = 0;
   ledger: Map<string, LedgerRowShape> | null;
+  tables: string[];
 
   private readonly getLock: unknown;
   private readonly releaseLockError: unknown;
@@ -70,6 +84,7 @@ class FakePool {
 
   constructor(options: FakePoolOptions = {}) {
     this.ledger = options.ledger ? new Map(options.ledger.map((row) => [row.version, row])) : null;
+    this.tables = [...(options.tables ?? [])];
     this.getLock = 'getLock' in options ? options.getLock : 1;
     this.releaseLockError = options.releaseLockError ?? null;
     this.failStatement = options.failStatement ?? null;
@@ -98,6 +113,10 @@ class FakePool {
     if (IS_RELEASE_LOCK.test(sql)) {
       if (this.releaseLockError) throw this.releaseLockError;
       return [[{ released: 1 }], []];
+    }
+    if (IS_TABLE_LIST.test(sql)) {
+      const names = this.ledger ? [...this.tables, LEDGER_TABLE] : [...this.tables];
+      return [names.map((name) => ({ name })), []];
     }
     if (IS_LEDGER_PROBE.test(sql)) return [[{ present: this.ledger ? 1 : 0 }], []];
     if (IS_CREATE_LEDGER.test(sql)) {
@@ -494,5 +513,144 @@ describe('runMigrations against a fake pool', () => {
       ),
     ).toBe(true);
     expectDrained(fake);
+  });
+
+  /**
+   * `--init-schema` is the only way a fresh install gets a schema at all: the
+   * migrations extend an existing one and 0003/0006 carry foreign keys, so an
+   * empty database cannot be built by replaying them. These branches decide
+   * whether `bin/install.sh` produces a working stack or a crash-looping one,
+   * and whether re-running it over a live database is safe.
+   */
+  describe('--init-schema', () => {
+    const BASELINE = 'CREATE TABLE hosts (id INT);\nCREATE TABLE admin_users (id INT);\n';
+
+    const withBaseline = async (name: string): Promise<{ dir: string; baselineFile: string }> => {
+      const dir = await fixture(name);
+      const baselineFile = join(root, `${name}-baseline.sql`);
+      await writeFile(baselineFile, BASELINE, 'utf8');
+      return { dir, baselineFile };
+    };
+
+    it('creates the schema on an empty database, then migrates on top', async () => {
+      const { dir, baselineFile } = await withBaseline('init-empty');
+      const fake = new FakePool();
+      const logger = recordingLogger();
+
+      const report = await runMigrations(asPool(fake), {
+        dir,
+        logger,
+        baselineFile,
+        initSchema: true,
+        appliedBy: 'unit',
+      });
+
+      expect(report.baseline).toMatchObject({ applied: true, statements: 2 });
+      // Baseline first, migrations after — the other order would run 0003's
+      // foreign keys against tables that do not exist yet.
+      expect(fake.executed).toEqual([
+        'CREATE TABLE hosts (id INT)',
+        'CREATE TABLE admin_users (id INT)',
+        ...MAIN_STATEMENTS,
+      ]);
+      expect(report.outcomes.map((outcome) => outcome.action)).toEqual(['applied', 'applied', 'applied']);
+      expectDrained(fake);
+    });
+
+    // An installer that fails the second time it runs is not one anybody can
+    // recover a half-finished install with.
+    it('skips the baseline when application tables already exist, and still migrates', async () => {
+      const { dir, baselineFile } = await withBaseline('init-populated');
+      const fake = new FakePool({ tables: ['hosts', 'admin_users'] });
+      const logger = recordingLogger();
+
+      const report = await runMigrations(asPool(fake), {
+        dir,
+        logger,
+        baselineFile,
+        initSchema: true,
+        appliedBy: 'unit',
+      });
+
+      expect(report.baseline).toMatchObject({ applied: false, statements: 0 });
+      expect(report.baseline?.reason).toContain('schema already present');
+      expect(fake.executed).toEqual(MAIN_STATEMENTS);
+      expectDrained(fake);
+    });
+
+    /**
+     * The ledger can exist before any schema does — a `--check` against an empty
+     * database creates it, and so does an aborted earlier init. Counting it as
+     * "populated" would make init unreachable exactly when it is needed.
+     */
+    it('does not count the migration ledger as an application table', async () => {
+      const { dir, baselineFile } = await withBaseline('init-ledger-only');
+      const fake = new FakePool({ ledger: [] });
+      const logger = recordingLogger();
+
+      const report = await runMigrations(asPool(fake), {
+        dir,
+        logger,
+        baselineFile,
+        initSchema: true,
+        appliedBy: 'unit',
+      });
+
+      expect(report.baseline?.applied).toBe(true);
+      expectDrained(fake);
+    });
+
+    it('writes nothing under --dry-run but reports what it would do', async () => {
+      const { dir, baselineFile } = await withBaseline('init-dry');
+      const fake = new FakePool();
+
+      const report = await runMigrations(asPool(fake), {
+        dir,
+        baselineFile,
+        initSchema: true,
+        dryRun: true,
+        appliedBy: 'unit',
+      });
+
+      expect(report.baseline).toMatchObject({ applied: false, statements: 2 });
+      expect(report.baseline?.reason).toContain('dry run');
+      expect(fake.executed).toEqual([]);
+      expectDrained(fake);
+    });
+
+    // `--baseline` records migrations without executing them. Combined with an
+    // empty database it would mark the whole set applied over a schema that was
+    // never created — the one failure mode init exists to prevent.
+    it('refuses to combine with --baseline', async () => {
+      const { dir, baselineFile } = await withBaseline('init-conflict');
+      const fake = new FakePool();
+
+      await expect(
+        runMigrations(asPool(fake), {
+          dir,
+          baselineFile,
+          initSchema: true,
+          baselineThrough: '0002',
+          appliedBy: 'unit',
+        }),
+      ).rejects.toThrow('--init-schema cannot be combined with --baseline');
+      // Rejected before the lock is taken, so nothing to drain.
+      expect(fake.connections).toBe(0);
+    });
+
+    it('fails loudly when the baseline artifact is missing from the build', async () => {
+      const dir = await fixture('init-missing');
+      const fake = new FakePool();
+
+      await expect(
+        runMigrations(asPool(fake), {
+          dir,
+          baselineFile: join(root, 'does-not-exist.sql'),
+          initSchema: true,
+          appliedBy: 'unit',
+        }),
+      ).rejects.toThrow('baseline schema is unreadable');
+      expect(fake.connections).toBe(0);
+    });
   });
 });

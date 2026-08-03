@@ -37,7 +37,7 @@ async function getVerify(options: VerifyOptions = {}) {
   if (admin) app.resolveAdmin = async () => admin;
   const env = {
     PUBLIC_BASE_URL: options.publicBaseUrl,
-    ADMIN_ACCESS_MODE: options.adminAccessMode ?? 'mtls',
+    ADMIN_ACCESS_MODE: options.adminAccessMode ?? 'cookie',
   } as Env;
   // The verify handler touches neither the DB nor the keyring; the services
   // this registrar builds only capture them.

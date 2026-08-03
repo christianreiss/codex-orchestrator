@@ -27,10 +27,10 @@
     },
     {
       "slug": "admin-login",
-      "title": "Admin login and mTLS",
+      "title": "Admin login and access",
       "section": "Admin access and identity",
-      "summary": "Access modes, mTLS enforcement, the session cookie, and the login / logout flow.",
-      "tags": ["auth", "login", "mtls"],
+      "summary": "The session cookie, access modes, the login / logout flow, and what happened to client certificates.",
+      "tags": ["auth", "login", "session"],
       "verified": "2026-04-19"
     },
     {

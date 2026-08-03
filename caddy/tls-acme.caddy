@@ -2,9 +2,4 @@ tls {
 	issuer acme {
 		email {$CADDY_ACME_EMAIL}
 	}
-
-	client_auth {
-		mode verify_if_given
-		trust_pool file {$CADDY_MTLS_CA_FILE}
-	}
 }

@@ -1,17 +1,23 @@
--- Test-only baseline schema. NOT a migration — the runner never sees this file
--- and it carries no ledger version. It exists so an empty MySQL becomes a valid
--- starting point for `npm run test:db`: 0003 and 0006 carry foreign keys to
--- `coord_projects`/`hosts`, so the migrations evolve an existing schema and
--- cannot build one from nothing. See `src/db/README.md`.
+-- Baseline schema. NOT a migration — it carries no ledger version and the runner
+-- never picks it up from `migrations/`. It is how an empty MySQL becomes
+-- something the migrations can evolve: 0003 and 0006 carry foreign keys to
+-- `coord_projects`/`hosts`, so they extend an existing schema and cannot build
+-- one from nothing. See `src/db/README.md`.
+--
+-- Applied in exactly two places, both of which run the full migration set on top
+-- afterwards: `node dist/migrate.js --init-schema` (fresh installs, driven by
+-- `bin/install.sh`) and `npm run test:db:setup` (the DB-backed suites). Both
+-- refuse a database that already carries application tables, so this file can
+-- never overwrite a populated schema.
 --
 -- Generated from `src/db/schema.ts`, not hand-written. Regenerate after any
 -- schema change, from `api/`, with:
 --
 --   npx drizzle-kit generate --dialect=mysql --schema=./src/db/schema.ts --out=/tmp/baseline
---   { sed -n '1,/^$/p' test/fixtures/schema-baseline.sql;          \
+--   { sed -n '1,/^$/p' src/db/baseline/schema.sql;                 \
 --     sed 's/--> statement-breakpoint//' /tmp/baseline/0000_*.sql; \
---   } > /tmp/baseline/schema-baseline.sql
---   mv /tmp/baseline/schema-baseline.sql test/fixtures/schema-baseline.sql
+--   } > /tmp/baseline/schema.sql
+--   mv /tmp/baseline/schema.sql src/db/baseline/schema.sql
 --
 -- The `sed` drops drizzle's own statement separator, which is not SQL and is not
 -- a MySQL comment either (`--` only opens one when whitespace follows); what is
@@ -22,7 +28,8 @@
 -- mysql-core can express neither FULLTEXT indexes nor foreign keys, so a
 -- database built from it is exactly the "push-built" database 0003 and 0006
 -- carry their backstops for — which is what makes the real-DB suites meaningful
--- against it.
+-- against it, and what makes a fresh install identical in shape to every
+-- existing one.
 
 CREATE TABLE `admin_events` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,

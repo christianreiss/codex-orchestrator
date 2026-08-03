@@ -1,6 +1,9 @@
 /**
- * `npm run test:db:setup` — applies `schema-baseline.sql` to the test database
- * so `npm run migrate && npm run test:db` can run against an empty MySQL.
+ * `npm run test:db:setup` — applies `src/db/baseline/schema.sql` to the test
+ * database so `npm run migrate && npm run test:db` can run against an empty
+ * MySQL. It is the same baseline and the same statement splitting that
+ * `migrate.js --init-schema` uses to provision a fresh installation, resolved
+ * through `loadBaseline()` so the two can never read different files.
  *
  * The target is resolved by the suites' own `readDbConfig()`, so
  * `TEST_DATABASE_URL` and the `DB_*` fallback mean exactly what they mean to
@@ -11,17 +14,14 @@
  * emits plain `CREATE TABLE`/`CREATE INDEX` — MySQL has no
  * `CREATE INDEX IF NOT EXISTS`, so there is no honest way to make a re-run a
  * no-op. Against a database that already has tables it fails on the first one
- * and names it.
+ * and names it. (`--init-schema` checks information_schema first and skips
+ * instead, because an installer has to be re-runnable; a test setup step does
+ * not, and the louder failure is more useful here.)
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import mysql from 'mysql2/promise';
-import { splitSqlStatements } from '../../src/db/migration-sql.js';
+import { loadBaseline } from '../../src/db/migrator.js';
 import { readDbConfig } from '../helpers/test-db.js';
-
-const BASELINE = join(dirname(fileURLToPath(import.meta.url)), 'schema-baseline.sql');
 
 async function main(): Promise<number> {
   const cfg = readDbConfig();
@@ -32,7 +32,7 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const statements = splitSqlStatements(readFileSync(BASELINE, 'utf8'));
+  const statements = await loadBaseline();
   const conn = await mysql.createConnection({ ...cfg, multipleStatements: false });
   try {
     for (const statement of statements) {

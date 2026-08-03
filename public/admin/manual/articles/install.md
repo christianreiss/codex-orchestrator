@@ -2,10 +2,10 @@
 title: Installing and bootstrapping
 section: Orientation
 verified: 2026-08-01
-sources: README.md, bin/setup.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, wrappers/Makefile
+sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, wrappers/Makefile
 ---
 
-Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/setup.sh` walks you through first-time configuration and brings up the stack.
+Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/install.sh` walks you through first-time configuration and brings up the stack.
 
 ## Stack overview
 
@@ -30,7 +30,7 @@ docker compose --profile caddy up -d
 
 ## First boot
 
-1. **Clone and run setup.** `bin/setup.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
+1. **Clone and run setup.** `bin/install.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
 2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
 3. **Claim the first owner.** `/admin/setup` is the only console surface for an empty install. The claim is serialized, always creates one active owner, and signs it in immediately. Do not expose an unclaimed installation.
 4. **Finish operational onboarding.** Provider auth and the first host do not block the console, but remain in `/admin/setup` and on the dashboard until verified canonical auth, host registration, and first sync are present.
@@ -50,7 +50,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
 - `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Fails startup if `PUBLIC_BASE_URL` is missing.
-- `ADMIN_ACCESS_MODE` — `mtls` (default), `cookie`, or `open`; setup also selects the matching Caddy admin fragment so cookie mode is reachable without a client certificate.
+- `ADMIN_ACCESS_MODE` — `cookie` (default) or `open`; it decides only whether `/cli/auth/verify` requires an admin session.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
@@ -127,9 +127,9 @@ Caddy is configured via `caddy/Caddyfile`. The domain is set with `$CADDY_DOMAIN
 - `tls-acme.caddy` — Let's Encrypt ACME
 - `tls-custom.caddy` — custom certificate files (paths configured via `$CADDY_TLS_DIR`)
 
-**mTLS is enforced at the Caddy layer**, not by the Node API alone. For `/admin*` paths, Caddy requires a valid client certificate before forwarding the request. Requests without a client cert receive a `403` response from Caddy directly. On successful cert verification, Caddy injects `X-MTLS-Present`, `X-MTLS-Fingerprint`, `X-MTLS-Subject`, and `X-MTLS-Issuer` headers upstream. The admin WebSocket at `/admin/ws` is behind the same mTLS gate. All other paths are plain reverse-proxied to the API.
+**Caddy terminates TLS and reverse-proxies every path to the API**, including `/admin*` and the admin WebSocket at `/admin/ws`. It does not request client certificates; the admin console is protected by its session cookie.
 
-Client certificates and CA material are configured via `$CADDY_MTLS_DIR`.
+If a proxy you run in front terminates mTLS, it may forward `X-MTLS-Fingerprint`, `X-MTLS-Subject` and `X-MTLS-Issuer`. The API records those on `req.mtls` when the peer is inside `TRUSTED_PROXY_CIDRS` and ignores them otherwise; no route authorizes on them.
 
 ## Seeding the canonical auth
 
@@ -202,7 +202,7 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 
 - README.md (quick start)
 - docker-compose.yml (stack definition)
-- caddy/Caddyfile (TLS and mTLS proxy config)
+- caddy/Caddyfile (TLS termination and reverse-proxy config)
 - api/src/env.ts (all env var definitions and validation)
 - api/src/server.ts (Fastify boot)
 - api/src/db/schema.ts (Drizzle schema — single source of truth)
@@ -215,4 +215,4 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 - api/src/routes/admin/overview/index.ts (authUpload, seedCommand, runner probes)
 - api/src/routes/admin/hosts/index.ts (register, quick-register)
 - api/src/security/keyring.ts (encryption keyring)
-- bin/setup.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)
+- bin/install.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)

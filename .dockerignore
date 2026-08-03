@@ -3,3 +3,19 @@ vendor
 storage/*.sqlite
 storage/*.db
 .env
+
+# The build stage installs its own dependencies and copies them in from `deps`
+# (Dockerfile:14). Letting the context's copy through means the very next
+# `COPY api ./api` overwrites that tree with whatever the host happens to have —
+# a different platform's native builds, or, in a git worktree, a symlink that
+# BuildKit refuses to write over a directory at all.
+**/node_modules
+
+# Regenerated inside the image; shipping the host's copy only invalidates cache.
+api/dist
+api/coverage
+frontend/build
+frontend/.svelte-kit
+
+# `public/` is deliberately NOT excluded: `public/admin` is the committed,
+# prebuilt admin SPA and the image serves it straight from there.

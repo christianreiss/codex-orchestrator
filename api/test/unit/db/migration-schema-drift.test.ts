@@ -6,8 +6,9 @@ import { loadMigrations } from '../../../src/db/migrator.js';
 
 /**
  * AGENTS.md requires a migration to land with the matching `schema.ts` update in
- * the same commit, and `test/fixtures/schema-baseline.sql` is generated from
- * `schema.ts` and provisions the DB-backed suites. Nothing enforced the pairing:
+ * the same commit, and `src/db/baseline/schema.sql` is generated from
+ * `schema.ts`, provisions the DB-backed suites, and provisions every fresh
+ * installation through `migrate.js --init-schema`. Nothing enforced the pairing:
  * the double-apply test in `test/integration/db-migrations/` needs a real
  * database, so a migration shipped without the schema update would leave
  * production ahead of both the mirror and the baseline with every gate green.
@@ -15,10 +16,10 @@ import { loadMigrations } from '../../../src/db/migrator.js';
  * This is the static half of that check — table and column additions only, read
  * out of the shipped SQL and looked up in the baseline. Types, defaults, indexes
  * and constraints are not compared; the baseline cannot express FULLTEXT or
- * foreign keys anyway (see the header of the fixture).
+ * foreign keys anyway (see the header of the baseline).
  */
 
-const BASELINE = resolve(import.meta.dirname, '../../fixtures/schema-baseline.sql');
+const BASELINE = resolve(import.meta.dirname, '../../../src/db/baseline/schema.sql');
 
 /** Anchored: a `CREATE TABLE` quoted inside a CALL argument is not a creation. */
 const CREATE_TABLE = /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i;
