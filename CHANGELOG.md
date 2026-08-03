@@ -1,5 +1,37 @@
 # 2026-08-03
 
+- Turned `/admin/setup` into a nine-step first-run wizard, so opening the console for the first
+  time walks an operator from a bare install to a configured fleet instead of handing them a
+  three-item checklist. Infrastructure and the owner claim still block; engines, credentials, fleet
+  defaults, agent policy, modules, collaboration and the optional first host are all skippable,
+  because "no" is a complete answer to most of them. Position and completion persist in a
+  `setup_wizard_state` blob (new `GET`/`POST /admin/setup/wizard`), so an interrupted run resumes
+  from the dashboard card and a finished or dismissed one stops nagging. That state exists because
+  neither existing notion could carry it: `setup_complete` is `criticalComplete && ownerCreated` and
+  goes true at step two of nine, and a `next_action` can only be complete-when-done, which would
+  leave anyone who declined every optional module staring at a permanently unfinished list.
+- Fixed the checklist's main action, which pointed at a page that could not perform it.
+  `auth_codex`/`auth_claude` linked to `/admin/api-keys` — a page that manages *proxy bearer keys*
+  and has never had any canonical-auth UI. The only seeding UI in the product sat behind a dropdown
+  on the hosts page with no deep link. It is now `/admin/setup?step=auth`, and the form itself moved
+  to a shared `SeedAuthPanel` mounted by both the wizard and the hosts dialog.
+- Made credential seeding report what actually happened. `/admin/auth/upload` answers 200 even when
+  the live runner probe leaves a candidate `pending` or `failed`, and the checklist counts only
+  `verified` — so the old unconditional success toast left operators looking at a red checklist with
+  no explanation. The panel now reads `verification_state` (added to `UploadAuthResponse`, which had
+  omitted it) and distinguishes all three outcomes, and it says so up front when the auth runner is
+  down rather than letting every attempt fail with an identical 503.
+- Added an explicit "Which engines will this fleet run?" step — Codex, Claude, both, or neither.
+  Claude could previously never be seeded from the checklist at all: the auth steps were derived from
+  `DEFAULT_HOST_ENGINES`, which defaults to `codex`, while the server reports canonical auth for both
+  engines regardless. "Neither" is a real answer that skips the credentials step rather than erroring.
+- Gave the buried `config_missing` failure a visible step. A fresh install has no fleet client-config
+  row; without one the managed feature context disables skills, memory, projects and secrets *before
+  their own switches are read*, so enabling Projects on a new install provably did nothing. The only
+  thing that creates that row is `POST /admin/model-defaults/:engine`, and the GET returns a default
+  that was never persisted — which is how a console looks configured while every managed feature is
+  dark. The wizard's Fleet defaults step saves codex defaults unconditionally, including when the
+  operator answered "neither" on engines, because this is MCP activation and not credentials.
 - Replaced both installers with one guided, resumable `bin/install.sh`, and made a fresh install
   actually possible. It walks twelve steps from an empty Docker host to a working console — secrets,
   data root, TLS, wrapper fleet, **database schema**, stack, first owner, verification — and prints

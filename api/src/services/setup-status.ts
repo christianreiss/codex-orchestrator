@@ -20,6 +20,7 @@ import {
 } from './wrapper-bin-registry.js';
 import { createWrapperSigningKeyService } from './wrapper-signing-key.js';
 import { parseEnginesInput } from './host-management.js';
+import { createSetupWizardService, type SetupWizardState } from './setup-wizard.js';
 import { ENGINE_CODEX } from '../util/engine.js';
 
 export interface SetupCheck {
@@ -41,6 +42,12 @@ export interface SetupStatus {
   public_base_url: string | null;
   warnings: string[];
   next_actions: Array<{ id: string; complete: boolean; label: string; href: string }>;
+  /**
+   * First-run wizard progress. Separate from `setup_complete`, which only
+   * covers infrastructure and the owner claim and therefore goes true at step
+   * two of nine. See `setup-wizard.ts`.
+   */
+  wizard: SetupWizardState;
 }
 
 export class SetupStatusService {
@@ -52,7 +59,7 @@ export class SetupStatusService {
   ) {}
 
   async status(requestOrigin?: string | null): Promise<SetupStatus> {
-    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, hostRows] =
+    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, hostRows, wizard] =
       await Promise.all([
         this.migrationCheck(),
         this.runnerCheck(),
@@ -64,6 +71,9 @@ export class SetupStatusService {
         this.db
           .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh })
           .from(hosts),
+        // Carried here so the dashboard resume card and the wizard itself can
+        // decide what to show from one request instead of two.
+        createSetupWizardService(this.db).get(),
       ]);
 
     const publicBaseUrl = normalizePublicUrl(this.env.PUBLIC_BASE_URL);
@@ -96,7 +106,10 @@ export class SetupStatusService {
         id: `auth_${engine}`,
         complete: engine === 'claude' ? claudeAuth : codexAuth,
         label: `Seed canonical ${engine === 'claude' ? 'Claude' : 'Codex'} authentication`,
-        href: '/admin/api-keys',
+        // The wizard's auth step, not /admin/api-keys — that page manages proxy
+        // bearer keys and has never had any canonical-auth UI, so this link
+        // used to send the operator somewhere the task could not be done.
+        href: '/admin/setup?step=auth',
       })),
       { id: 'first_host', complete: hostRows.length > 0, label: 'Register the first host', href: '/admin/hosts?dialog=new-host' },
       { id: 'first_sync', complete: syncedHosts > 0, label: 'Confirm the first successful host sync', href: '/admin/hosts' },
@@ -113,6 +126,7 @@ export class SetupStatusService {
       public_base_url: publicBaseUrl,
       warnings,
       next_actions: nextActions,
+      wizard,
     };
   }
 

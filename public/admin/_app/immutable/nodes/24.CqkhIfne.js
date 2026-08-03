@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BUVGpviw.js";export{e as component};

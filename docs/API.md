@@ -556,6 +556,8 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/users` — list admin users.
   - `GET /admin/setup/status` — secret-free infrastructure checks, configured engines, canonical-auth presence, host/sync counts, warnings, and recommended next actions. Public only while `admin_users` is empty; afterward requires an admin session.
   - `POST /admin/setup/owner` — one-time unauthenticated first-owner claim. Serializes the zero-user check, creates a fixed active `owner`, and immediately issues the normal admin session cookie; later claims return `409 first_owner_claimed`.
+  - `GET /admin/setup/wizard` — first-run wizard progress: `{completed_at, dismissed_at, last_step, engines}`. Same visibility rule as `/admin/setup/status`, and mirrored on that response as `wizard` so the console needs only one request.
+  - `POST /admin/setup/wizard` — merge-update of that blob with `{last_step?, engines?, completed?, dismissed?}`. Position and completion only: every question the wizard asks is answered against the endpoint that owns it (model defaults, module switches, host registration). `completed`/`dismissed` are booleans in and timestamps out.
   - `POST /admin/users` — create admin user. The legacy empty-install bootstrap path uses the same atomic fixed-owner claim.
   - `POST /admin/users/{id}` — update admin user.
   - `DELETE /admin/users/{id}` — delete admin user (blocked if last active admin).

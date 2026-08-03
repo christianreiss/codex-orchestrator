@@ -119,14 +119,33 @@ options.
 
 ### Onboard your first host
 
-1. **Create the first owner** — `bin/install.sh` does this for you. If you skipped it, open the `/admin/setup` URL it printed. The unclaimed owner endpoint is intentionally public only while no admin exists, so do not expose an unclaimed installation.
-2. **Upload your auth** — follow the persistent setup checklist to seed canonical Codex and/or Claude credentials. You only do this once per configured engine.
-3. **Register a host** — Admin, Hosts, New Host. You'll get an installer command.
-4. **Run the installer** on the target machine:
+Open the console and the setup wizard walks you through it — nine steps, the
+first two required and the rest skippable:
+
+1. **Infrastructure** — the six readiness checks, with the command that fixes
+   each one. Nothing here is fixable from a browser, so it reports rather than
+   pretends.
+2. **Owner** — the one-time claim, which also signs you in.
+3. **Engines** — Codex, Claude, both, or neither.
+4. **Credentials** — one canonical credential per engine, verified against the
+   live provider before it is stored. A bad value fails here, not on a host at
+   3am.
+5. **Fleet defaults** — model and reasoning effort. This is also the write that
+   activates MCP for the fleet; skills, memory, projects and secrets stay dark
+   until it lands.
+6. **Agent policy** — the seeded fleet policy, plus a box for your house rules.
+7. **Modules** — Projects and Secrets, both off until you say otherwise.
+8. **Collaboration** — the agent portal (you ↔ agent) and agent messaging
+   (agent ↔ agent). Also off by default, deliberately.
+9. **First host** — optional. Registering one mints its API key and a one-time
+   installer command:
    ```bash
    curl https://your-server/install/<token> | bash
    ```
-5. **Done.** The checklist clears after the first successful sync. Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both aliases backed by one `cxx` install.
+
+Progress is saved, so leaving mid-way is fine — the dashboard offers to resume.
+Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both
+aliases backed by one `cxx` install.
 
 Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback).
 On insecure hosts, every auth-aware cdx/clx invocation shares a session lease;

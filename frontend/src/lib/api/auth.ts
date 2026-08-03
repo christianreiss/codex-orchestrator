@@ -27,11 +27,24 @@ export interface SeedCommandResponse {
   expires_at?: string;
 }
 
-/** The subset this UI reads of the upload route's `StoreAuthCandidateResult` + `{ received, size }`. */
+/**
+ * The subset this UI reads of the upload route's `StoreAuthCandidateResult` +
+ * `{ received, size }`.
+ *
+ * `verification_state` is the field that matters and was previously missing
+ * here: the route answers 200 even when the live runner probe leaves the
+ * candidate `pending` or `failed`, and the setup checklist counts only
+ * `verified`. Reading `status` alone reports success for credentials that will
+ * never be served.
+ */
 export interface UploadAuthResponse {
   status?: string;
   received?: boolean;
   size?: number;
+  verification_state?: "pending" | "verified" | "failed" | "unknown";
+  runner_applied?: boolean;
+  runner_skipped_reason?: string;
+  engine?: AuthEngine;
 }
 
 export interface SeedCommandVars {

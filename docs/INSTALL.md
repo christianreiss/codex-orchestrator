@@ -50,7 +50,7 @@ Twelve, in order, each independently re-runnable:
 | `wrappers` | Generates this installation's Ed25519 keypair, then cross-compiles and publishes `cxx` for four platforms with that public key baked in. |
 | `datatier` | Builds images, starts `mysql` and `auth-runner`, waits for both to be healthy. |
 | `schema` | `migrate.js --init-schema` — creates the schema on an empty database, then migrates. |
-| `apptier` | Starts `api` (and `caddy`), waits for health, starts `quota-cron` without waiting. |
+| `apptier` | Starts `api` (and `caddy`), waits for health, starts `quota-cron` without waiting. Starts only — image building happens in `datatier`. |
 | `signer` | Imports the private signing key encrypted into the database, then deletes the plaintext copy. |
 | `owner` | Creates the first owner through the one-time claim and signs it in. |
 | `verify` | `/healthz`, all six critical `/readyz` checks, and the public URL. |
@@ -76,6 +76,12 @@ sets the old one aside and rebuilds. It refuses — without touching anything �
 once the plaintext signing key has been removed, because replacing a signing key
 means rolling every deployed host in the same window. See
 `docs/wrapper-v2-architecture.md`.
+
+**Picking up changed code**: image building lives in `datatier`, not `apptier`.
+`--only apptier` restarts the API against the image it already has, so after
+editing the API or rebuilding the admin SPA (`cd frontend && npm run build`) run
+`--only datatier` first — otherwise the container keeps serving the previous
+build and the change appears not to have worked.
 
 ### Non-interactive and scripted installs
 
@@ -240,10 +246,11 @@ uncommitted tree.
 - Starts `api`, `auth-runner`, `mysql` and `quota-cron`. Add `--profile caddy`
   for the TLS proxy.
 - API defaults to `http://localhost:8488`.
-- Setup dashboard: `/admin/setup`. It blocks the normal console until critical
-  infrastructure is ready and the atomic first-owner claim completes. Afterwards
-  it remains the provider-auth / first-host / first-sync checklist, mirrored by a
-  compact dashboard card.
+- Setup wizard: `/admin/setup`. Nine steps from a bare console to a configured
+  fleet — infrastructure, owner, engines, credentials, fleet defaults, agent
+  policy, modules, collaboration, first host. The first two block; everything
+  after is skippable, and progress is saved so an interrupted run resumes from
+  the dashboard card. See "The first-run wizard" below.
 - Admin dashboard: `/admin/` — login-first once admin users exist.
 - Runner verification is on by default (`AUTH_RUNNER_URL=http://auth-runner:8080/verify`).
   Leaving it blank keeps existing verified auth readable but blocks every
@@ -291,18 +298,52 @@ from anyone else. Nothing in the API authorizes on them today.
 - `scripts/deploy.sh --backup` writes a one-off MySQL dump before a rollout. Set
   `CODEX_DEPLOY_BACKUP_DIR` to choose a destination; the default is `./backups`.
 
-## First-Time Flow
+## The first-run wizard
 
-`bin/install.sh` leaves you at a working console with an owner account. What
-remains is provider auth and your first host, both tracked on the dashboard:
+Opening the console for the first time lands on `/admin/setup`. Nine steps:
 
-1. Log into Codex on a trusted machine to create `~/.codex/auth.json`.
-2. Open the admin dashboard and click **New Host** to mint an API key plus a
-   one-time installer command.
-3. Upload your `~/.codex/auth.json` through the dashboard ("Seed auth.json"), or
-   generate the one-time `curl | bash` seed command.
-4. Run the installer command on each target host — a fresh token per host. The
-   wrapper is baked with base URL and API key; no `sync.env` is written.
+| Step | What it does | Blocking |
+|------|--------------|----------|
+| Infrastructure | The six readiness checks, each with the command that fixes it. | **yes** |
+| Owner | The one-time first-owner claim; issues the session inline. | **yes** |
+| Engines | Codex, Claude, both, or neither. Drives the next step. | no |
+| Credentials | One canonical credential per selected engine. | no |
+| Fleet defaults | Model and effort — **and the write that activates MCP**. | no |
+| Agent policy | The seeded fleet policy, plus optional house rules. | no |
+| Modules | Projects and Secrets. | no |
+| Collaboration | Agent portal and agent messaging. | no |
+| First host | Optional. Registers a host and prints its installer command. | no |
+
+Everything after the owner has **Skip**, because "no" is a complete answer to
+most of it. Position is saved server-side, so an interrupted run resumes from
+the dashboard card; finishing or dismissing hides that card for good.
+
+### Why "Fleet defaults" is not cosmetic
+
+A fresh install has no fleet client-config row. Without one the managed feature
+context reports `config_missing`, and skills, memory, projects and secrets all
+resolve disabled *before their own switches are read* — so enabling Projects on
+a brand-new install does nothing at all. `POST /admin/model-defaults/codex` is
+the only thing that creates that row, and the GET happily returns a default that
+was never persisted, which is how a console can look configured while every
+managed feature is dark.
+
+The wizard therefore saves codex defaults on that step **unconditionally**,
+including when you answered "neither" on the engines step: it is about MCP
+activation, not credentials.
+
+### Seeding credentials by hand
+
+The wizard's credentials step is also reachable afterwards from Hosts → More →
+**Seed canonical auth**, which opens the same panel in a dialog. Either way:
+
+1. Log into Codex on a trusted machine to create `~/.codex/auth.json`, or have
+   an OpenAI / Anthropic API key ready.
+2. Paste it, pick the file, or mint a one-time `curl | bash` seed command for a
+   machine you cannot paste from.
+3. Every candidate is verified against the live provider before it is stored.
+   A `pending` or `failed` result is reported as such — the checklist counts only
+   verified credentials, so a stored-but-unverified value keeps the step open.
 
 ## Uninstalling a Host
 
