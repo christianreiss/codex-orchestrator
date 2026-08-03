@@ -143,13 +143,13 @@ describe('docs/interface-db.md column catalog', () => {
   it('reads the columns out of both files', () => {
     const schema = schemaColumns();
     expect(schema.get('versions')).toEqual(['name', 'version', 'updated_at']); // The one-line table.
-    expect(schema.get('hosts')).toContain('config_baked_at');
+    expect(schema.get('hosts')).toContain('wrapper_track');
     // Index names live in the second argument, outside the column object.
     expect(schema.get('hosts')).not.toContain('idx_hosts_updated_at');
 
     const documented = documentedColumns(schema.keys());
     expect(documented.get('versions')).toEqual(['name', 'version', 'updated_at']);
-    expect(documented.get('hosts')).toContain('config_baked_at');
+    expect(documented.get('hosts')).toContain('wrapper_track');
     // A `versions` key, an index name and another table's column carry no type
     // here, so none of them is read as a column of the bullet that names it.
     expect(documented.get('versions')).not.toContain('client_available');

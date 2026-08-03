@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import {
   hosts as hostsTable,
   agentsDocuments,
@@ -11,7 +11,7 @@ import {
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import {
@@ -30,20 +30,48 @@ import { isTruthyFlagValue } from './settings.js';
  * client_config_document (per engine) + the engine's published skills, plus
  * wrapper binary info from the registry. The result is sha-256'd, signed with
  * the active wrapper key (Ed25519), and persisted into `hosts.config_version`
- * + `hosts.config_baked_at` only when the bake mutates state.
+ * only when the bake mutates state.
  *
  * The returned `payload` is the canonical JSON object (object form — the
  * route serializes it once with `canonicalStringify`). The returned
  * `signature.value` is base64 of the raw 64-byte Ed25519 signature over the
  * same canonical bytes.
+ *
+ * When more than one signing key is active the same canonical bytes are signed
+ * by each of them and the extra signatures ride in `signatures`. They are
+ * deliberately NOT part of `WrapperConfigPayload`: the signature is a sibling
+ * of the signed payload, so adding signers changes no signed byte and no
+ * already-deployed binary. `signature` stays the primary (oldest) key's.
  */
 
 export const WRAPPER_CONFIG_SCHEMA_VERSION = 1;
+
+/**
+ * How long a baked config stays usable on a host, in seconds (30 days).
+ *
+ * The wrapper enforces this only when loading a config from disk — never on
+ * bytes it has just fetched — so a host whose clock is ahead cannot lock itself
+ * out. An expired config is recoverable without an operator: the wrapper
+ * refetches using the expired config's own (still signature-verified)
+ * credentials. See docs/wrapper-v2-architecture.md.
+ */
+export const WRAPPER_CONFIG_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export interface ConfigSignature {
   algo: 'ed25519';
   value: string;
   kid: string;
+}
+
+/**
+ * A signature plus the fingerprint of the key that produced it. Kept separate
+ * from `ConfigSignature` because that type is serialized onto the wire as-is:
+ * the served `{payload, signature}` body must keep exactly the three keys
+ * deployed wrappers already parse.
+ */
+export interface ConfigSignerSignature extends ConfigSignature {
+  /** sha256 of the raw 32-byte Ed25519 public key, lowercase hex. */
+  fingerprint: string;
 }
 
 export interface WrapperConfigPayload {
@@ -93,6 +121,11 @@ export interface WrapperConfigPayload {
 export interface BakeResult {
   payload: WrapperConfigPayload;
   signature: ConfigSignature;
+  /**
+   * One signature per active key over the same canonical bytes, oldest key
+   * first. `signatures[0]` is `signature` with the signer's fingerprint added.
+   */
+  signatures: ConfigSignerSignature[];
   /** Whether `hosts.config_version` was bumped by this call (vs. served fresh). */
   bumped: boolean;
   /** The (possibly newly-bumped) config_version. */
@@ -107,7 +140,7 @@ export interface BakePlatform {
 }
 
 export interface WrapperConfigService {
-  /** Bake config for a host. Bumps `config_version` and stamps `config_baked_at`. */
+  /** Bake config for a host. Bumps `config_version`. */
   bakeForHost(
     host: Host,
     engine: Engine,
@@ -286,13 +319,18 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
 
   return {
     async bakeForHost(host, engine, publicBaseUrl, platform) {
-      const signer = await deps.signing.active();
-      if (!signer) {
+      const signers = await deps.signing.allActive();
+      if (signers.length === 0) {
         throw new WrapperSigningUnavailableError();
       }
 
       const apiKey = resolveApiKey(host);
-      const issuedAt = nowIso();
+      // One clock read for both stamps: reading the clock twice could put
+      // issued_at and expires_at on opposite sides of a second boundary, so the
+      // signed lifetime would not be exactly the advertised TTL.
+      const issuedAtDate = new Date();
+      const issuedAt = isoOffsetSeconds(0, issuedAtDate);
+      const expiresAt = isoOffsetSeconds(WRAPPER_CONFIG_TTL_SECONDS, issuedAtDate);
 
       const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled] = await Promise.all([
         activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -307,13 +345,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       // Bump config_version atomically; the new value becomes part of the
       // payload so the etag/signature change visibly when state changes.
       const newVersion = await bumpConfigVersion(deps.db, host.id);
-      const bakedAt = nowIso();
 
       const draft: Omit<WrapperConfigPayload, 'etag'> = {
         schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
         engine,
         issued_at: issuedAt,
-        expires_at: null,
+        expires_at: expiresAt,
         orchestrator: {
           base_url: publicBaseUrl.replace(/\/+$/, ''),
           api_key: apiKey,
@@ -350,18 +387,25 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       const etag = createHash('sha256').update(canonicalForHashing).digest('hex');
       const payload: WrapperConfigPayload = { ...draft, etag } as WrapperConfigPayload;
       const canonicalForSigning = canonicalStringify(payload);
-      const sigBytes = signer.sign(canonicalForSigning);
-      const signature: ConfigSignature = {
+      const signatures: ConfigSignerSignature[] = signers.map((signer) => ({
         algo: 'ed25519',
-        value: sigBytes.toString('base64'),
+        value: signer.sign(canonicalForSigning).toString('base64'),
         kid: signer.kid,
+        fingerprint: signer.fingerprint,
+      }));
+      const primary = signatures[0]!;
+      // Rebuilt key-by-key rather than spread: `signature` is serialized onto
+      // the wire and must keep exactly the keys deployed wrappers parse.
+      const signature: ConfigSignature = {
+        algo: primary.algo,
+        value: primary.value,
+        kid: primary.kid,
       };
-
-      await stampBakedAt(deps.db, host.id, newVersion, bakedAt);
 
       return {
         payload,
         signature,
+        signatures,
         bumped: true,
         configVersion: newVersion,
         canonicalJson: canonicalForSigning,
@@ -401,18 +445,6 @@ async function bumpConfigVersion(db: Database, hostId: number): Promise<number> 
     await tx.update(hostsTable).set({ configVersion: next }).where(eq(hostsTable.id, hostId));
     return next;
   });
-}
-
-async function stampBakedAt(
-  db: Database,
-  hostId: number,
-  configVersion: number,
-  bakedAt: string,
-): Promise<void> {
-  await db
-    .update(hostsTable)
-    .set({ configBakedAt: bakedAt })
-    .where(and(eq(hostsTable.id, hostId), eq(hostsTable.configVersion, configVersion)));
 }
 
 /**

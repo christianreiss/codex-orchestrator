@@ -254,7 +254,10 @@ canonical base hash.
 
 ## Startup sequence
 
-Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — runtime FQDN guard,
+Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — signed config load
+with in-place recovery from an expired config (refetched with its own still
+signature-valid credentials, announced as `signed config had expired; refreshed
+it from the orchestrator`), runtime FQDN guard,
 single-instance flock on `$XDG_RUNTIME_DIR/clx.lock` (or
 `/tmp/clx-<uid>.lock`), bundle
 (`/sync/bootstrap` with `include_auth=true`; resource envelopes are unwrapped

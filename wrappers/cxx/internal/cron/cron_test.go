@@ -2,6 +2,10 @@ package cron
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -519,5 +524,101 @@ func TestSudoInvocationTargetsInstallUsersCrontab(t *testing.T) {
 	}
 	if name, got := crontabCommandSpecFor(1000, "chris", "-"); name != "sudo" || !reflect.DeepEqual(got, []string{"-n", "crontab", "-u", "chris", "-"}) {
 		t.Fatalf("sudo cross-user command=%q %q", name, got)
+	}
+}
+
+func writeCronSeedFixture(t *testing.T, path string, engine string, expiresAt time.Time, priv ed25519.PrivateKey) {
+	t.Helper()
+	cfg := &config.Config{
+		SchemaVersion: config.SchemaVersion,
+		Engine:        engine,
+		Orchestrator: config.Orchestrator{
+			BaseURL: "https://orchestrator.example.com",
+			APIKey:  "seed-api-key-" + engine,
+		},
+		Host: config.Host{ID: 7, FQDN: "host.example.com"},
+		Wrapper: config.Wrapper{
+			Version:      "0.7.0",
+			BinaryURL:    "https://orchestrator.example.com/cxx",
+			BinarySHA256: strings.Repeat("a", 64),
+		},
+	}
+	stamp := expiresAt.UTC().Format(time.RFC3339)
+	cfg.ExpiresAt = &stamp
+	payload, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, payload))
+	if err := os.WriteFile(path+".sig", []byte(sig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cronSeedPaths(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	codexPath := filepath.Join(dir, "cdx.json")
+	claudePath := filepath.Join(dir, "clx.json")
+	t.Setenv("CDX_CONFIG_PATH", codexPath)
+	t.Setenv("CLX_CONFIG_PATH", claudePath)
+	return codexPath, claudePath
+}
+
+// The self-heal that replaces an expired config needs a seed, and on a host
+// whose only config has expired that seed is the expired config itself. It is
+// still signed, so its orchestrator credentials are authentic.
+func TestSeedLoaderAcceptsAnExpiredButSignedConfig(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexPath, _ := cronSeedPaths(t)
+	writeCronSeedFixture(t, codexPath, config.EngineCodex, time.Now().Add(-time.Hour), priv)
+
+	seed, err := loadAnySeedConfigWithKey(pub)
+	if err != nil {
+		t.Fatalf("expired config refused as a refresh seed: %v", err)
+	}
+	if seed.Engine != config.EngineCodex || seed.Orchestrator.APIKey != "seed-api-key-codex" {
+		t.Fatalf("seed=%+v", seed)
+	}
+}
+
+func TestSeedLoaderPrefersAnUnexpiredSiblingEngine(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexPath, claudePath := cronSeedPaths(t)
+	writeCronSeedFixture(t, codexPath, config.EngineCodex, time.Now().Add(-time.Hour), priv)
+	writeCronSeedFixture(t, claudePath, config.EngineClaude, time.Now().Add(24*time.Hour), priv)
+
+	seed, err := loadAnySeedConfigWithKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed.Engine != config.EngineClaude {
+		t.Fatalf("seed engine=%q, want the unexpired claude config", seed.Engine)
+	}
+}
+
+func TestSeedLoaderRejectsAnExpiredConfigSignedByAnotherKey(t *testing.T) {
+	trusted, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, forged, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexPath, _ := cronSeedPaths(t)
+	writeCronSeedFixture(t, codexPath, config.EngineCodex, time.Now().Add(-time.Hour), forged)
+
+	if seed, err := loadAnySeedConfigWithKey(trusted); err == nil {
+		t.Fatalf("unverifiable config used as a seed: %+v", seed)
 	}
 }

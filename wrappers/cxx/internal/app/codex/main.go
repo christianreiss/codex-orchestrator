@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
@@ -339,9 +340,15 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		f.configPath = config.DefaultPath()
 	}
 	pubkey, _ := signing.PublicKey()
-	cfg, err := config.Load(f.configPath, pubkey, false)
+	// An expired config is recoverable without an operator: LoadOrRecover
+	// refetches with the expired config's own (still signature-verified)
+	// credentials before giving up.
+	cfg, refreshed, err := fleetconfig.LoadOrRecover(ctx, f.configPath, pubkey, config.EngineCodex)
 	if err != nil {
 		return configLoadFailure(sub, "cdx", f.configPath, Version, err, stdout, stderr, f.minimal)
+	}
+	if refreshed {
+		fmt.Fprintln(stderr, "cdx: signed config had expired; refreshed it from the orchestrator")
 	}
 
 	// Honour silent flag baked into config too.

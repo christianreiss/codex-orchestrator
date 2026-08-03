@@ -78,7 +78,6 @@ function fakeHost(): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 0,
-    configBakedAt: null,
     wrapperTrack: 'v2',
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
@@ -160,10 +159,19 @@ function fakeDb(host: Host): Database {
   return db as unknown as Database;
 }
 
-function makeSigner(privateKey: import('node:crypto').KeyObject): WrapperSigner {
+/** The raw 32-byte Ed25519 public key behind a public or private key object. */
+function rawPublicKey(key: import('node:crypto').KeyObject): Buffer {
+  const pub = key.type === 'public' ? key : createPublicKey(key);
+  const jwk = pub.export({ format: 'jwk' }) as { x?: string };
+  return Buffer.from(jwk.x!.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
+function makeSigner(privateKey: import('node:crypto').KeyObject, kid = '1'): WrapperSigner {
+  const raw = rawPublicKey(privateKey);
   return {
-    kid: '1',
-    publicKey: 'pk',
+    kid,
+    fingerprint: createHash('sha256').update(raw).digest('hex'),
+    publicKey: raw.toString('base64'),
     sign(payload) {
       const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
       const { sign } = require('node:crypto') as typeof import('node:crypto');
@@ -172,13 +180,20 @@ function makeSigner(privateKey: import('node:crypto').KeyObject): WrapperSigner 
   };
 }
 
-function signingService(signer: WrapperSigner | null): WrapperSigningKeyService {
+function signingService(
+  signer: WrapperSigner | null,
+  ...extra: WrapperSigner[]
+): WrapperSigningKeyService {
+  const signers = signer ? [signer, ...extra] : [];
   return {
     async active() {
-      return signer;
+      return signers[0] ?? null;
+    },
+    async allActive() {
+      return [...signers];
     },
     async available() {
-      return signer !== null;
+      return signers.length > 0;
     },
     invalidate() {},
   };
@@ -263,6 +278,7 @@ async function buildProductionApp(
   signer: WrapperSigner,
   authHost: Host,
   binRoot: string,
+  extraSigners: WrapperSigner[] = [],
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(envelopePlugin);
@@ -272,7 +288,7 @@ async function buildProductionApp(
   });
   await registerWrapperV2Routes(app, ctx, {
     binRoot,
-    signingService: signingService(signer),
+    signingService: signingService(signer, ...extraSigners),
   });
   return app;
 }
@@ -792,6 +808,211 @@ describe('wrapper-v2 routes', () => {
       await app.close();
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('advertises the primary signing fingerprint without altering the signed shapes', async () => {
+    const host = fakeHost();
+    const signer = makeSigner(kp.privateKey);
+    const app = await buildProductionApp(
+      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+      signer,
+      host,
+      BIN_ROOT,
+    );
+    try {
+      const fingerprint = createHash('sha256').update(rawPublicKey(kp.publicKey)).digest('hex');
+      expect(signer.fingerprint).toBe(fingerprint);
+
+      const metaResponse = await app.inject({ method: 'GET', url: '/wrapper/v2/meta' });
+      expect(metaResponse.statusCode).toBe(200);
+      const meta = JSON.parse(metaResponse.payload) as {
+        signing_kid: string | null;
+        signing_fingerprint: string | null;
+      };
+      expect(meta.signing_kid).toBe('1');
+      expect(meta.signing_fingerprint).toBe(fingerprint);
+
+      const configResponse = await app.inject({
+        method: 'GET',
+        url: '/wrapper/v2/config?engine=codex',
+        headers: { 'x-wrapper-platform': 'linux-amd64' },
+      });
+      expect(configResponse.statusCode).toBe(200);
+      expect(configResponse.headers['x-signature-fingerprint']).toBe(fingerprint);
+      // The served body keeps exactly the three signature keys deployed
+      // wrappers parse; the fingerprint rides in a header instead.
+      const body = JSON.parse(configResponse.payload) as { signature: Record<string, string> };
+      expect(Object.keys(body.signature).sort()).toEqual(['algo', 'kid', 'value']);
+      expect(body.signature.value).toBe(configResponse.headers['x-signature']);
+
+      const sigResponse = await app.inject({
+        method: 'GET',
+        url: '/wrapper/v2/config?engine=codex&sig=1',
+        headers: { 'x-wrapper-platform': 'linux-amd64' },
+      });
+      expect(sigResponse.statusCode).toBe(200);
+      expect(sigResponse.headers['content-type']).toBe('text/plain; charset=utf-8');
+      expect(sigResponse.payload).toBe(sigResponse.headers['x-signature']);
+      expect(sigResponse.headers['x-signature-fingerprint']).toBe(fingerprint);
+    } finally {
+      await app.close();
+    }
+  });
+
+  describe('multi-active signing keys on the wire', () => {
+    const CONFIG_URL = '/wrapper/v2/config?engine=codex';
+    const HEADERS = { 'x-wrapper-platform': 'linux-amd64' };
+
+    interface Envelope {
+      payload: Record<string, unknown>;
+      signature: { algo: string; value: string; kid: string };
+      signatures: Array<{ algo: string; value: string; kid: string; fingerprint: string }>;
+    }
+
+    async function twoKeyApp(secondPrivateKey: import('node:crypto').KeyObject) {
+      const host = fakeHost();
+      return buildProductionApp(
+        { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+        makeSigner(kp.privateKey, '1'),
+        host,
+        BIN_ROOT,
+        [makeSigner(secondPrivateKey, '2')],
+      );
+    }
+
+    it('adds `signatures` beside the envelope without moving a single existing byte', async () => {
+      const second = generateKeyPairSync('ed25519');
+      const app = await twoKeyApp(second.privateKey);
+      try {
+        const response = await app.inject({ method: 'GET', url: CONFIG_URL, headers: HEADERS });
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.payload) as Envelope;
+
+        // The pre-multi-sign body, byte for byte, with `signatures` appended
+        // after it — that is the whole compatibility claim, pinned exactly.
+        const legacy = canonicalStringify({ payload: body.payload, signature: body.signature });
+        expect(response.payload).toBe(
+          `${legacy.slice(0, -1)},"signatures":${canonicalStringify(body.signatures)}}`,
+        );
+        expect(Object.keys(body.signature).sort()).toEqual(['algo', 'kid', 'value']);
+        expect('signatures' in body.payload).toBe(false);
+        expect(response.headers['content-length']).toBe(
+          String(Buffer.byteLength(response.payload)),
+        );
+
+        // The primary stays primary and stays the `signature`.
+        expect(body.signatures.map((s) => s.kid)).toEqual(['1', '2']);
+        expect(body.signature.value).toBe(body.signatures[0]!.value);
+        expect(response.headers['x-signature']).toBe(body.signature.value);
+
+        // The secondary signs the SAME canonical payload bytes and verifies
+        // under its own key — which is what makes it useful to a client.
+        const canonical = Buffer.from(canonicalStringify(body.payload), 'utf8');
+        expect(
+          cryptoVerify(
+            null,
+            canonical,
+            second.publicKey,
+            Buffer.from(body.signatures[1]!.value, 'base64'),
+          ),
+        ).toBe(true);
+        expect(
+          cryptoVerify(
+            null,
+            canonical,
+            kp.publicKey,
+            Buffer.from(body.signatures[0]!.value, 'base64'),
+          ),
+        ).toBe(true);
+        // Cross-key verification must fail, or "several signatures" is theatre.
+        expect(
+          cryptoVerify(
+            null,
+            canonical,
+            kp.publicKey,
+            Buffer.from(body.signatures[1]!.value, 'base64'),
+          ),
+        ).toBe(false);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('?sig=1 defaults to the primary and selects by kid or fingerprint', async () => {
+      const second = generateKeyPairSync('ed25519');
+      const secondary = makeSigner(second.privateKey, '2');
+      const primary = makeSigner(kp.privateKey, '1');
+      const app = await twoKeyApp(second.privateKey);
+      try {
+        const byDefault = await app.inject({
+          method: 'GET',
+          url: `${CONFIG_URL}&sig=1`,
+          headers: HEADERS,
+        });
+        expect(byDefault.statusCode).toBe(200);
+        expect(byDefault.headers['x-signature-kid']).toBe('1');
+        expect(byDefault.headers['x-signature-fingerprint']).toBe(primary.fingerprint);
+        expect(byDefault.payload).toBe(byDefault.headers['x-signature']);
+
+        for (const [label, url, expected] of [
+          ['kid', `${CONFIG_URL}&sig=1&kid=2`, secondary],
+          // Fingerprints are compared case-insensitively: operators paste them
+          // out of `rotate-signing-key list` and out of build logs.
+          [
+            'fingerprint',
+            `${CONFIG_URL}&sig=1&fingerprint=${secondary.fingerprint.toUpperCase()}`,
+            secondary,
+          ],
+          ['explicit primary kid', `${CONFIG_URL}&sig=1&kid=1`, primary],
+        ] as const) {
+          const response = await app.inject({ method: 'GET', url, headers: HEADERS });
+          expect(response.statusCode, label).toBe(200);
+          expect(response.headers['content-type']).toBe('text/plain; charset=utf-8');
+          expect(response.headers['x-signature-kid'], label).toBe(expected.kid);
+          expect(response.headers['x-signature-fingerprint'], label).toBe(expected.fingerprint);
+          // Headers describe the bytes actually served, never the primary's.
+          expect(response.payload, label).toBe(response.headers['x-signature']);
+          expect(response.headers['content-length'], label).toBe(
+            String(Buffer.byteLength(response.payload)),
+          );
+        }
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('refuses an unknown key instead of quietly handing back the primary', async () => {
+      const second = generateKeyPairSync('ed25519');
+      const app = await twoKeyApp(second.privateKey);
+      try {
+        for (const url of [
+          `${CONFIG_URL}&sig=1&kid=404`,
+          `${CONFIG_URL}&sig=1&fingerprint=${'0'.repeat(64)}`,
+        ]) {
+          const response = await app.inject({ method: 'GET', url, headers: HEADERS });
+          expect(response.statusCode, url).toBe(404);
+          expect(JSON.parse(response.payload)).toMatchObject({
+            status: 'error',
+            code: 'signing_key_not_found',
+          });
+        }
+
+        // A selector without `sig=1` would return the primary's `signature`
+        // under a request that asked for another key: rejected, not ignored.
+        const withoutSig = await app.inject({
+          method: 'GET',
+          url: `${CONFIG_URL}&kid=2`,
+          headers: HEADERS,
+        });
+        expect(withoutSig.statusCode).toBe(422);
+        expect(JSON.parse(withoutSig.payload)).toMatchObject({
+          status: 'error',
+          code: 'validation_failed',
+        });
+      } finally {
+        await app.close();
+      }
+    });
   });
 
   it('GET /wrapper/v2/manifest/:engine returns 404 for unknown engines', async () => {

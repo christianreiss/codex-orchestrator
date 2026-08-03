@@ -4,6 +4,85 @@
   Managed AGENTS/CLAUDE guidance, MCP initialization, and `secret_get` now permit a value to be
   persisted or relayed when an explicitly requested task requires it; the secret store itself still
   never writes plaintext to a host automatically, and diagnostic shell-tracing safeguards remain.
+- Expired-config recovery now writes the replacement to the path it loaded from
+  (`fleetconfig.PersistTo`) instead of always to `config.DefaultPathForEngine`. With
+  `--config <path>`, `CDX_CONFIG_PATH` or `CLX_CONFIG_PATH` pointing anywhere else, the refreshed
+  bytes landed on the default path while the reload re-read the untouched expired file. That reload
+  fell into the clock-skew acceptance branch, so the wrapper printed `signed config had expired;
+  refreshed it from the orchestrator` and then ran on the stale document — stale `api_key`,
+  `base_url` and `binary_sha256` — refetching on every invocation and never converging. The skew
+  branch is now gated on the document at the path being byte-for-byte the payload just fetched, so
+  the anti-brick guarantee for a host whose clock runs more than a full TTL ahead still holds but can
+  no longer cover a misdirected write. `fleetconfig.Persist` keeps resolving the engine default and
+  is unchanged for the peer installers and the cron coordinator. One behaviour divergence follows:
+  a `--config <path>` run no longer repairs the default-path config as a side effect, and the
+  long-running helpers (`agentbus`, `agentportal`, the MCP bridge) resolve their config through
+  `DefaultPathForEngine`, so on such a host they still need the default path reseeded separately.
+- Dropped the `hosts.config_baked_at` column (migration
+  `0017_drop_hosts_config_baked_at.sql`). It was stamped on every bake and read by nothing: no
+  code branched on it, it carried no index, it was not part of the signed config payload and
+  `hostToWire` never put it on the wire. `hosts.config_version` remains the value that moves the
+  etag and the signature. **There is no rollback** — re-adding the column restores no timestamp.
+  **Deploy this in two steps.** `scripts/deploy.sh` applies migrations with the freshly built image
+  *before* `docker compose up` swaps the containers, and the api also migrates itself on boot via
+  `RUN_MIGRATIONS_ON_BOOT`. Drizzle emits explicit column lists, so the still-running *outgoing*
+  container selects `config_baked_at` on every host lookup and throws `ER_BAD_FIELD_ERROR` for the
+  entire deploy window. Ship a build that no longer references the column but does **not** contain
+  `0017`, wait until every instance is on it, then ship and apply the migration. The migration is
+  guarded on `information_schema.columns`, so re-applying it is a no-op.
+- Baked wrapper configs now carry a 30-day `expires_at` (`WRAPPER_CONFIG_TTL_SECONDS`), derived
+  from the same clock read as `issued_at` so the signed lifetime is exactly the TTL. Any bake
+  renews it, so a host in normal contact never approaches it. Expiry was previously a dormant,
+  unrecoverable hard fail, so the recovery landed first: it is now enforced only when loading a
+  config from disk (`config.LoadForEngine`) and no longer inside `Config.ValidateForEngine`, which
+  also runs on freshly downloaded bytes — a host whose clock ran ahead would otherwise reject every
+  replacement config it fetched, including the one meant to fix it. `ValidateForEngine` still
+  rejects a non-RFC3339 `expires_at`. An expired config now returns a typed `*config.ExpiredError`
+  and `fleetconfig.LoadOrRecover` refetches with the expired config's own `orchestrator.base_url`
+  and `api_key`, persists the reply and reloads, so `cdx`/`clx` startup and the `cxx cron` seed
+  loader heal themselves and print `signed config had expired; refreshed it from the orchestrator`.
+  Those credentials are trusted only because the detached signature verified first — an
+  unverifiable config never reaches the network, and every other load failure is returned unchanged.
+  A host whose clock is more than a full TTL ahead of the orchestrator's calls even a just-issued
+  config expired, so the recovery accepts a signature-verified replacement that still reads as
+  expired: having reached the orchestrator is stronger proof of freshness than a comparison against
+  a known-wrong clock. `GET /wrapper/v2/config` bakes unconditionally, so the server can never serve
+  an already-expired config into that loop.
+  When the refresh also fails the wrapper hard-fails with the operator instruction ahead of the
+  cause (`re-run the host installer to reseed <path>; automatic refresh failed: …`), because the
+  rendered failure is truncated. Rollout ordering matters: binaries older than this change enforce
+  expiry with no recovery path, and a fresh config is a full TTL away from expiring, which is the
+  margin `wrapper.binary_url` auto-update has to carry the fleet onto a self-healing binary. Hosts
+  offline longer than that need a manual installer re-run. Details in
+  `docs/wrapper-v2-architecture.md`.
+- Several rows in `wrapper_signing_keys` may now be active at once, and every one of them signs the
+  same canonical config bytes. The primary key — explicitly the oldest active row, where selection
+  used to be an unordered `LIMIT 1` — keeps producing the `signature`, the `?sig=1` body and the
+  `x-signature` header a deployed binary verifies. `GET /wrapper/v2/config` lists every active
+  signature in a new top-level `signatures` array beside the unchanged `{payload, signature}`, and
+  `?sig=1&kid=<id>` / `?sig=1&fingerprint=<hex>` serve the detached signature of one named active
+  key, defaulting to the primary; an unknown key is a `404 signing_key_not_found` and never a silent
+  fall back to the primary, and a selector without `sig=1` is rejected rather than ignored. The
+  extra signatures stay out of `WrapperConfigPayload`, so no signed byte, no `etag` and no entry in
+  `host-config-v1.json` changes; `payload` and `signature` keep their exact bytes and the Go
+  verification path is untouched (it decodes into a struct reading only those two keys, with no
+  `DisallowUnknownFields` anywhere in the Go tree).
+  **This does not decouple rotation from the binary rebuild.** A `cxx` binary verifies with the ONE
+  public key embedded at build time and no shipped binary reads `signatures` yet, so the old key
+  must stay active — and primary — until every host runs a binary embedding the new key. Retiring it
+  before that breaks config verification fleet-wide. What multi-sign buys is a server that can hold
+  the replacement key and emit its signature ahead of the flip; consuming it in `cxx` is the
+  follow-up that would make a rotation seamless.
+  `/wrapper/v2/meta` now also reports `signing_fingerprint` and config responses carry
+  `x-signature-fingerprint` — sha256 of the raw Ed25519 public key, which is what identifies key
+  material across installations; the docs calling the DB row id a "fingerprint" were wrong and are
+  corrected. New `api/src/ops/rotate-signing-key.ts` (`add`/`list`/`retire`, shipped in the image) is
+  the rotation entry point, `bin/setup.sh` adopts the row matching its own key instead of assuming
+  there is only one, and the setup signer check passes on a multi-key installation. The API caches
+  the active signer set for 30 seconds (`SIGNER_CACHE_TTL_MS`) instead of for the lifetime of the
+  process, so a key added by the ops script reaches the running API without a restart — the ops
+  script reads through its own instance, so `list` alone could never prove that. The runbook, and
+  what it cannot promise, are in `docs/wrapper-v2-architecture.md`.
 
 # 2026-08-02
 

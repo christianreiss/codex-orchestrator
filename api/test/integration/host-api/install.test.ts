@@ -87,7 +87,6 @@ describe('GET /install/:token', () => {
         claudeModelOverride: null,
         claudeReasoningEffortOverride: null,
         claudeLastRefresh: null,
-        configBakedAt: null,
       },
     ]);
     db.tables.set(installTokens, [
@@ -211,7 +210,6 @@ describe('GET /install/:token', () => {
         claudeModelOverride: null,
         claudeReasoningEffortOverride: null,
         claudeLastRefresh: null,
-        configBakedAt: null,
       },
     ]);
     db.tables.set(installTokens, [

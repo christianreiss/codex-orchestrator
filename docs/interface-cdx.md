@@ -11,7 +11,7 @@
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/wrapper/v2/meta` | per-platform manifest + signing fingerprint |
+| GET | `/wrapper/v2/meta` | per-platform manifest + the primary key's `signing_kid` (DB row id) and `signing_fingerprint` (sha256 of the raw Ed25519 public key, lowercase hex) |
 | GET | `/wrapper/v2/config[?sig=1]` | signed per-host config JSON (or detached signature) |
 | GET | `/wrapper/v2/download` | raw Go binary for the calling host's detected platform |
 | GET | `/wrapper/download` | legacy shell-transition launcher that writes v2 config, installs the binary, then execs it |
@@ -28,13 +28,22 @@ matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
 installer and the legacy transition launcher write the result to
 `~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
 On startup the Go binary verifies the signature against the public key embedded
-at build time, then loads the config:
+at build time, then loads the config. The binary is single-key: it verifies with
+that one embedded key and reads only `payload` and `signature` from the response.
+When the orchestrator has several signing keys active, `signature`/`.sig` carry
+the primary (oldest) key's signature, so adding a key changes nothing here — but
+retiring the primary promotes the next key and this binary then rejects every
+config it fetches unless it was rebuilt with the new key. Selecting a specific
+key's signature (`signatures[]`, `?sig=1&kid=`) is a server capability `cxx` does
+not use yet. See “Signing-key rotation” in `docs/wrapper-v2-architecture.md`.
+The config:
 
 ```jsonc
 {
   "schema_version": 1,
   "engine": "codex",
   "issued_at": "...",
+  "expires_at": "...", // issued_at + 30 days; enforced on disk load only
   "orchestrator": {
     "base_url": "https://orch.example.com",
     "api_key": "sk-codex-...",
@@ -415,7 +424,7 @@ participate in these leases and is the explicit coordination boundary.
 
 ## Startup sequence
 
-1. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. `status`/`doctor` use the structured blocked report described above; other commands exit 2 with a concise sanitized error. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
+1. Load the signed config; refuse to proceed if the Ed25519 signature is invalid. `status`/`doctor` use the structured blocked report described above; other commands exit 2 with a concise sanitized error. A config past its `expires_at` (30 days after it was baked) is instead recovered in place: its signature is still valid, so the wrapper refetches with its own `orchestrator.base_url`/`api_key`, persists the replacement, reloads, and reports `signed config had expired; refreshed it from the orchestrator`. Expiry is checked only for the on-disk config, never for freshly fetched bytes, so a skewed host clock cannot refuse its own replacement. When `host.browseros_mcp_enabled=true`, the startup context shows a BrowserOS chip and synced `config.toml` contains the local BrowserOS HTTP MCP server entry.
 2. `flock` on `$XDG_RUNTIME_DIR/cdx.lock` (or `/tmp/cdx-<uid>.lock`) to enforce single-instance per host, then run the FQDN guard before any sync (`CODEX_ALLOW_FQDN_MISMATCH=1` is the explicit override). If the lock is held, the wrapper enters sync-paused mode for managed AGENTS/config/skills writes, wrapper/engine updates, and peer reconciliation, and surfaces neutral `SYNC PAUSED` on the boot screen without hiding API/auth/runner health. It is normal contention that needs no operator action; warning colour is reserved for actionable conditions. The pause explanation appears once in SYSTEM; a distinct result/error still receives the normal footer. Auth remains active but follows the full replacement gate: materialize only verified canonical auth, preserve a newer usable local generation, require definitive-rejection authority for an older verified repair, and compare-and-swap against the request generation plus active-child lease. An absent or structurally unusable native auth file suppresses its cached digest and candidate, forcing canonical repair even during a sync-paused run; only the server's insecure-host window policy may block that repair. The explicit `--allow-concurrent-sync` escape hatch allows normal managed writes without the run lock and is visibly announced. The `cdx` lock is independent from `clx.lock`; Codex and Claude sessions must not pause each other's managed sync.
 3. Bundle sync (`POST /sync/bootstrap` with `include_auth=true`, `home`, `username`, AGENTS+config digests, and an optional `auth_candidate`) — auth + AGENTS + config in one round-trip. When a candidate is present, its auth/intent transaction remains locked across the bounded bundle request; an already committed same-generation logout omits it, while a distinct login clears old intent only after `auth_stored`/equivalent acceptance. Resource envelopes are unwrapped before local writes, so effective `CODEX_HOME/AGENTS.md` and `CODEX_HOME/config.toml` contain only the served `content` bodies. On 404/405/501 the wrapper falls back to the legacy per-resource pulls (`/auth`, `/agents/retrieve`, `/config/retrieve`). The fallback converges two ways: preserve newer local auth and attempt store; only a validation-shaped 400/422 plus the already-retrieved verified canonical permits older replacement. Transient/security/rate failures preserve local auth, while `runner_updated_auth_invalid` fails closed.
 4. Pass the bundle response through the typed decision matrix (`internal/orchestrator/auth_decide.go`). Handles `valid`, `outdated`, `updated`, `unchanged`, `missing`, `upload_required`, `disabled`, `invalid`, `insecure` (opens the in-place approval-pending box, 5 s refresh), `insecure-denied`, `concurrent`, and `offline` (uses cached `auth.json` within 24 h, or 7 d on secure hosts). Approval polling only repaints an interactive, non-dumb stderr with a measured width of at least 40 columns; other contexts fail immediately with Admin → Host Detail guidance instead of hanging or emitting cursor controls. Honours `versions.api_disabled` and `installation_id` mismatch as hard stops. A server `verification_state=failed` (the background runner worker reached ChatGPT and the canonical token did not authenticate) overrides any green digest status: the launch is refused with a re-login message and the boot-screen auth marker turns red. Startup does not wait on live runner verification; `/auth` and `/sync/bootstrap` expose the stored verdict but include canonical credential bytes only when it is `verified`. Pending/failed runner readbacks remain server-side quarantine and cannot be materialized. When ChatGPT quota metadata is available, the boot screen uses provider-duration labels, explicit unknown resets, the host-effective active lane, provider allow/limit flags, snapshot freshness, and a wrapped burn-rate projection. Current quota state can warn/block only for the active lane; projections remain advisory.
@@ -440,7 +449,8 @@ participate in these leases and is the explicit coordination boundary.
 
 ## Refusal modes
 
-- Missing or tampered signature → `config signature invalid`; exit 2 without launching `codex`.
+- Missing or tampered signature → `config signature invalid`; exit 2 without launching `codex`. An unverifiable config is never used to seed a refetch.
+- Expired config whose automatic refresh also failed → `config expired at ...: re-run the host installer to reseed <path>; automatic refresh failed: ...`; exit 2. Re-run this host's installer from Admin → Host Detail; nothing on the server needs repairing.
 - Unreadable signed config during `status`/`doctor` → structured blocked report
   with sanitized, bounded path/cause text; exit 1. Other commands print a
   concise sanitized config failure and exit 2.

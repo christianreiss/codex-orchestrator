@@ -27,7 +27,7 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
   `wrapper-config.ts` composes and signs it (Ed25519, key from the
   `wrapper_signing_keys` table via `wrapper-signing-key.ts`), re-baking and
   re-signing on every `GET /wrapper/v2/config` fetch and unconditionally
-  bumping `hosts.config_version` (and stamping `config_baked_at`) each time —
+  bumping `hosts.config_version` each time —
   it is a monotonic per-bake counter, not a content-change flag. Codex hosts
   can opt into BrowserOS MCP per host; enabled hosts get a local
   `browseros` MCP entry in their synced `config.toml` and a startup chip in `cdx`.
@@ -67,9 +67,13 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 `app.requireHost`:
 
 - `GET /wrapper/v2/meta` (alias `GET /wrapper`) — engine-scoped projection of
-  the common platform matrix, with signing key id.
-- `GET /wrapper/v2/config[?engine=<engine>][&sig=1]` — returns the signed
-  per-host config JSON (or its detached `.sig` file when `sig=1`). `engine`
+  the common platform matrix, with the primary signing key's id and its
+  fingerprint (sha256 of the raw Ed25519 public key).
+- `GET /wrapper/v2/config[?engine=<engine>][&sig=1[&kid=<id>|&fingerprint=<hex>]]`
+  — returns the signed per-host config JSON (or its detached `.sig` file when
+  `sig=1`). The JSON body carries `signature` (the primary key's, unchanged) plus
+  a `signatures` array with one entry per active signing key; `kid`/`fingerprint`
+  pick which key's detached signature `sig=1` returns. `engine`
   defaults to `codex`; each wrapper's peer-reconciliation code fetches the
   *other* engine's config through this same endpoint with `?engine=<peer>`.
 - `GET /wrapper/v2/download` — streams the raw wrapper binary for the calling

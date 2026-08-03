@@ -131,7 +131,6 @@ function fakeHost(): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 4,
-    configBakedAt: null,
     wrapperTrack: 'v2',
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
@@ -220,12 +219,16 @@ function fakeBinaries(): WrapperBinRegistry {
 function fakeSigning(): WrapperSigningKeyService {
   const signer: WrapperSigner = {
     kid: '1',
+    fingerprint: 'f'.repeat(64),
     publicKey: 'pk',
     sign: () => Buffer.alloc(64),
   };
   return {
     async active() {
       return signer;
+    },
+    async allActive() {
+      return [signer];
     },
     async available() {
       return true;

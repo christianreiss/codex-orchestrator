@@ -152,15 +152,23 @@ export class SetupStatusService {
   }
 
   private async signerCheck(): Promise<SetupCheck> {
+    // Several keys may be active at once during a rotation; all of them sign,
+    // so the check passes only when every active row is encrypted and loadable.
     const activeRows = await this.db.select().from(wrapperSigningKeys).where(eq(wrapperSigningKeys.active, 1));
-    const encrypted = activeRows.length === 1 && isEnvelope(activeRows[0]?.privateKeyEnc);
-    const signer = encrypted
-      ? await createWrapperSigningKeyService({ db: this.db, keyring: this.keyring }).active()
-      : null;
-    const ok = encrypted && signer !== null;
+    const encrypted = activeRows.length > 0 && activeRows.every((row) => isEnvelope(row.privateKeyEnc));
+    const signers = encrypted
+      ? await createWrapperSigningKeyService({ db: this.db, keyring: this.keyring }).allActive()
+      : [];
+    const ok = encrypted && signers.length === activeRows.length;
     return {
       id: 'signer', label: 'Wrapper signer', ok, critical: true,
-      detail: ok ? `active key ${signer!.kid}` : activeRows.length === 0 ? 'no active encrypted signing key' : `${activeRows.length} active signing keys`,
+      detail: ok
+        ? signers.length === 1
+          ? `active key ${signers[0]!.kid}`
+          : `${signers.length} active keys, primary ${signers[0]!.kid}`
+        : activeRows.length === 0
+          ? 'no active encrypted signing key'
+          : `${activeRows.length - signers.length} of ${activeRows.length} active signing keys unusable`,
     };
   }
 

@@ -1,5 +1,12 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { generateKeyPairSync, createPublicKey, verify as cryptoVerify } from 'node:crypto';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import {
+  createHash,
+  generateKeyPairSync,
+  createPublicKey,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+  type KeyObject,
+} from 'node:crypto';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const sodium = require('libsodium-wrappers') as typeof import('libsodium-wrappers');
@@ -13,6 +20,7 @@ import {
   createWrapperConfigService,
   canonicalStringify,
   WRAPPER_CONFIG_SCHEMA_VERSION,
+  WRAPPER_CONFIG_TTL_SECONDS,
   WrapperSigningUnavailableError,
 } from '../../../src/services/wrapper-config.js';
 import type {
@@ -25,6 +33,9 @@ import type {
   EngineManifest,
   PlatformManifest,
 } from '../../../src/services/wrapper-bin-registry.js';
+
+/** Stand-in for a real key fingerprint where the test never inspects it. */
+const FAKE_FINGERPRINT = 'f'.repeat(64);
 
 function makeKeyring(): Keyring {
   const raw = sodium.randombytes_buf(32);
@@ -78,7 +89,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 4,
-    configBakedAt: null,
     wrapperTrack: 'v2',
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
@@ -134,13 +144,17 @@ function fakeBinaries(): WrapperBinRegistry {
   };
 }
 
-function makeSigningService(signer: WrapperSigner | null): WrapperSigningKeyService {
+function makeSigningService(...signers: Array<WrapperSigner | null>): WrapperSigningKeyService {
+  const active = signers.filter((signer): signer is WrapperSigner => signer !== null);
   return {
     async active() {
-      return signer;
+      return active[0] ?? null;
+    },
+    async allActive() {
+      return [...active];
     },
     async available() {
-      return signer !== null;
+      return active.length > 0;
     },
     invalidate() {},
   };
@@ -291,6 +305,7 @@ describe('wrapper-config', () => {
 
     const signer: WrapperSigner = {
       kid: '7',
+      fingerprint: FAKE_FINGERPRINT,
       publicKey: 'pk-b64',
       sign(payload) {
         const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
@@ -350,6 +365,7 @@ describe('wrapper-config', () => {
     const plaintext = 'sk-codex-decrypted-wrapper-key';
     const signer: WrapperSigner = {
       kid: '1',
+      fingerprint: FAKE_FINGERPRINT,
       publicKey: 'pk',
       sign() {
         return Buffer.alloc(64);
@@ -387,6 +403,7 @@ describe('wrapper-config', () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = {
       kid: '1',
+      fingerprint: FAKE_FINGERPRINT,
       publicKey: 'pk',
       sign(payload) {
         const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
@@ -421,6 +438,7 @@ describe('wrapper-config', () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = {
       kid: '1',
+      fingerprint: FAKE_FINGERPRINT,
       publicKey: 'pk',
       sign(payload) {
         const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
@@ -453,6 +471,7 @@ describe('wrapper-config', () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = {
       kid: '1',
+      fingerprint: FAKE_FINGERPRINT,
       publicKey: 'pk',
       sign(p) {
         const buf = typeof p === 'string' ? Buffer.from(p, 'utf8') : Buffer.from(p);
@@ -480,5 +499,204 @@ describe('wrapper-config', () => {
     expect(result.bumped).toBe(true);
     expect(result.configVersion).toBe(12);
     expect(dbState.updates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  describe('config lifetime', () => {
+    function bakeOnce() {
+      const host = fakeHost({ configVersion: 4 });
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries: fakeBinaries(),
+        signing: makeSigningService({
+          kid: '1',
+          fingerprint: FAKE_FINGERPRINT,
+          publicKey: 'pk',
+          sign() {
+            return Buffer.alloc(64);
+          },
+        }),
+        installationId: 'inst-ttl',
+      });
+      return svc.bakeForHost(host, 'codex', 'https://api.example.com');
+    }
+
+    /**
+     * Runs fn with every argument-less `new Date()` advancing the fake clock by
+     * driftMs afterwards, so no two clock reads can observe the same instant.
+     * `new Date(value)` is left alone: the stamps derive from one read through
+     * it, and only a genuine second read of *now* must be detectable.
+     */
+    async function withDriftOnEveryClockRead<T>(driftMs: number, fn: () => Promise<T>): Promise<T> {
+      const RealDate = globalThis.Date;
+      globalThis.Date = new Proxy(RealDate, {
+        construct(target, args, newTarget) {
+          const instance = Reflect.construct(target, args, newTarget);
+          if (args.length === 0) vi.setSystemTime(RealDate.now() + driftMs);
+          return instance;
+        },
+      }) as DateConstructor;
+      try {
+        return await fn();
+      } finally {
+        globalThis.Date = RealDate;
+      }
+    }
+
+    it('stamps expires_at exactly one TTL after issued_at, from a single clock read', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-08-03T09:00:00.900Z'));
+      try {
+        // A drift of more than a second per read: a second read of the clock
+        // lands in a different truncated second than the first no matter where
+        // in a second the bake starts, so the signed lifetime would not come
+        // out as exactly the advertised TTL.
+        const result = await withDriftOnEveryClockRead(1500, bakeOnce);
+
+        expect(WRAPPER_CONFIG_TTL_SECONDS).toBe(30 * 24 * 60 * 60);
+        expect(
+          Date.parse(result.payload.expires_at!) - Date.parse(result.payload.issued_at),
+        ).toBe(WRAPPER_CONFIG_TTL_SECONDS * 1000);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('emits expires_at in the second-precision RFC3339 shape the wrapper parses', async () => {
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign() {
+          return Buffer.alloc(64);
+        },
+      };
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({
+          hosts: [fakeHost()],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries: fakeBinaries(),
+        signing: makeSigningService(signer),
+        installationId: 'inst-ttl-shape',
+      });
+
+      const result = await svc.bakeForHost(fakeHost(), 'claude', 'https://api.example.com');
+
+      // Go parses this with time.RFC3339; a millisecond suffix would still
+      // parse, but keeping both stamps in one shape is the contract.
+      expect(result.payload.expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(result.payload.issued_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(Date.parse(result.payload.expires_at!)).toBeGreaterThan(Date.now());
+    });
+  });
+
+  describe('multi-active signing keys', () => {
+    /** A signer backed by a real Ed25519 key, fingerprinted like the service. */
+    function realSigner(kid: string, privateKey: KeyObject): WrapperSigner {
+      const jwk = createPublicKey(privateKey).export({ format: 'jwk' }) as { x?: string };
+      const raw = Buffer.from(jwk.x!.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      return {
+        kid,
+        fingerprint: createHash('sha256').update(raw).digest('hex'),
+        publicKey: raw.toString('base64'),
+        sign(payload) {
+          const buf =
+            typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
+          return cryptoSign(null, buf, privateKey);
+        },
+      };
+    }
+
+    function bake(...signers: WrapperSigner[]) {
+      const host = fakeHost({ configVersion: 4 });
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries: fakeBinaries(),
+        signing: makeSigningService(...signers),
+        installationId: 'inst-rotation',
+      });
+      return svc.bakeForHost(host, 'codex', 'https://api.example.com');
+    }
+
+    it('leaves the signed bytes and the primary signature byte-identical', async () => {
+      const older = generateKeyPairSync('ed25519');
+      const newer = generateKeyPairSync('ed25519');
+      const primary = realSigner('3', older.privateKey);
+      const secondary = realSigner('9', newer.privateKey);
+
+      // `issued_at`/`expires_at` come from the wall clock, so the two
+      // bakes are only comparable with the clock pinned. Ed25519 is
+      // deterministic, so identical bytes under one key give an identical
+      // signature — that is the compatibility guarantee being asserted.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-08-03T09:00:00Z'));
+      try {
+        const single = await bake(primary);
+        const multi = await bake(primary, secondary);
+
+        expect(multi.canonicalJson).toBe(single.canonicalJson);
+        expect(multi.signature).toEqual(single.signature);
+        expect(multi.signature.value).toBe(single.signature.value);
+        // The served `{payload, signature}` body must keep exactly the three
+        // keys deployed wrappers parse — the fingerprint rides beside it.
+        expect(Object.keys(multi.signature).sort()).toEqual(['algo', 'kid', 'value']);
+
+        expect(single.signatures).toHaveLength(1);
+        expect(multi.signatures).toHaveLength(2);
+        expect(multi.signatures.map((sig) => sig.kid)).toEqual(['3', '9']);
+        expect(multi.signatures[0]!.value).toBe(single.signature.value);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('signs the same canonical bytes with every active key', async () => {
+      const older = generateKeyPairSync('ed25519');
+      const newer = generateKeyPairSync('ed25519');
+      const result = await bake(
+        realSigner('3', older.privateKey),
+        realSigner('9', newer.privateKey),
+      );
+
+      const bytes = Buffer.from(result.canonicalJson, 'utf8');
+      for (const [signature, pair] of [
+        [result.signatures[0]!, older],
+        [result.signatures[1]!, newer],
+      ] as const) {
+        expect(signature.algo).toBe('ed25519');
+        expect(
+          cryptoVerify(null, bytes, pair.publicKey, Buffer.from(signature.value, 'base64')),
+          `signature ${signature.kid}`,
+        ).toBe(true);
+        const jwk = pair.publicKey.export({ format: 'jwk' }) as { x?: string };
+        const raw = Buffer.from(jwk.x!.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        expect(signature.fingerprint).toBe(createHash('sha256').update(raw).digest('hex'));
+      }
+      // Cross-check: the fingerprints differ, so they identify the keys apart.
+      expect(result.signatures[0]!.fingerprint).not.toBe(result.signatures[1]!.fingerprint);
+      // A second key must never leak into the signed payload.
+      expect('signatures' in result.payload).toBe(false);
+    });
   });
 });

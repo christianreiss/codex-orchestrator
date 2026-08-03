@@ -100,14 +100,15 @@ storage/wrapper/v2/
 ```
 
 Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
-`config_version` advances; the active Ed25519 signing key lives in the
-`wrapper_signing_keys` table and is loaded by `wrapper-signing-key.ts`.
+`config_version` advances; the active Ed25519 signing keys live in the
+`wrapper_signing_keys` table and are loaded by `wrapper-signing-key.ts`. More
+than one row may be active at a time — see [Signing-key rotation](#signing-key-rotation).
 
 ## Endpoints
 
 | Method | Path                                              | Notes                                   |
 |--------|---------------------------------------------------|-----------------------------------------|
-| GET    | `/wrapper/v2/meta`                                | manifest + signing fingerprint          |
+| GET    | `/wrapper/v2/meta`                                | manifest + primary `signing_kid` and `signing_fingerprint` |
 | GET    | `/wrapper/v2/config[?sig=1]`                      | signed per-host config or signature     |
 | GET    | `/wrapper/v2/download`                            | Go binary for this host's platform      |
 | GET    | `/wrapper/v2/manifest/{engine}`                   | per-platform inventory                  |
@@ -133,9 +134,6 @@ does not serve fails the suite.
 `hosts.config_version` — bumped by `wrapper-config.ts` so the binary sees a new
 version every time the input changes.
 
-`hosts.config_baked_at` — timestamp of the last bake (informational; not used
-for cache invalidation).
-
 `hosts.wrapper_track` — `legacy|v2`.
 
 `wrapper_signing_keys`, `wrapper_v2_binaries` — operator-facing inventory.
@@ -158,6 +156,199 @@ versioned operator releases and recovery.
 After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
 binary manifest and the bakery is live for any host whose `wrapper_track` is
 flipped to `'v2'`.
+
+`bin/setup.sh` imports THE key of an installation and refuses to replace it.
+Replacing one is rotation, below.
+
+## Config lifetime and expiry recovery
+
+Every baked config carries `expires_at = issued_at + 30 days`
+(`WRAPPER_CONFIG_TTL_SECONDS` in `api/src/services/wrapper-config.ts`). Both
+stamps come from one clock read, so the signed lifetime is exactly the TTL and
+never a second short of it. `GET /wrapper/v2/config` bakes unconditionally on
+every request — there is no stored payload to serve — so the server can never
+hand out an already-expired config, and any host that talks to the orchestrator
+leaves with a full fresh window. The TTL bounds how long a config that has
+fallen out of contact stays usable; expiring is not a routine event.
+
+**Where expiry is enforced.** Only on disk, in
+`config.LoadForEngine` (`wrappers/cxx/internal/config/load.go`). The shared
+`Config.ValidateForEngine` deliberately does NOT check it: the same validator
+runs on bytes just downloaded from `/wrapper/v2/config`, and a host whose clock
+runs ahead would then reject every replacement config it fetches — including
+the one meant to fix it. `ValidateForEngine` still rejects an `expires_at` that
+is not RFC3339, because that is a property of the signed document rather than
+of the reader's clock.
+
+**Automatic recovery.** An expired config is not tampering, so
+`LoadForEngine` returns a typed `*config.ExpiredError` carrying the parsed
+document, and `fleetconfig.LoadOrRecover` refetches with the expired config's
+own `orchestrator.base_url` and `api_key`, persists the reply **to the path it
+loaded from**, and reloads. That path is not always the engine default:
+`--config`, `CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` all reach
+`LoadOrRecover`, so it persists through `fleetconfig.PersistTo` rather than
+`fleetconfig.Persist`, which resolves `config.DefaultPathForEngine` and is what
+the peer installers and the cron coordinator still use.
+`cdx`/`clx` startup goes through it and prints `signed config had expired;
+refreshed it from the orchestrator` once, so a host heals on its next
+invocation. The `cxx cron` coordinator heals along its own route and stays
+silent: its seed loader simply accepts an expired-but-signature-valid config —
+preferring an unexpired sibling-engine config, falling back to the expired one
+— and the authoritative refresh it seeds is what replaces the file.
+
+The long-running helpers (`agentbus`, `agentportal`, the MCP bridge) still load
+the config directly and hard-fail on expiry. That is deliberate: they are
+spawned by a parent that has already recovered, so they never see an expired
+config in practice, and giving each of them its own refetch path would multiply
+the number of processes that can talk to `/wrapper/v2/config` on startup.
+
+A host whose clock is more than a full TTL ahead of the orchestrator's calls
+even a just-issued config expired. `LoadOrRecover` therefore accepts a
+replacement that still reads as expired after it was persisted: having reached
+the orchestrator and verified its signature is stronger proof of freshness than
+a timestamp compared against a clock that is known-wrong. Refusing it would
+hard-fail every invocation with no route back. That acceptance is gated on the
+document at the path being byte-for-byte the payload just fetched, so skew stays
+distinguishable from a refresh that never landed there — otherwise the branch
+would quietly return whatever expired document happened to be on disk and the
+host would refetch on every invocation without ever converging. A reload that
+fails for any other reason — signature, schema, engine — is still a hard
+failure, because that is disk corruption rather than skew.
+
+Security invariant: `ExpiredError.Config` is populated ONLY after the detached
+Ed25519 signature verified, so the credentials used to seed the refetch are
+always authentic. A config that fails signature verification is an ordinary
+hard failure and never reaches the network. Any other load failure — missing
+file, wrong engine, bad schema version — is returned unchanged and does not
+trigger a refetch.
+
+**When recovery fails** (orchestrator unreachable, host API key revoked, engine
+disabled), the wrapper hard-fails with the operator instruction first and the
+cause second, because the rendered failure is truncated: `re-run the host
+installer to reseed <path>; automatic refresh failed: …`. The procedure is to
+re-run this host's installer from Admin → Host Detail, which writes a freshly
+signed config and its `.sig`. Nothing on the server needs repairing — the
+bakery re-bakes on demand.
+
+**Rollout ordering.** Binaries older than this change enforce expiry inside
+`ValidateForEngine` and have no recovery path at all, so a host that expires on
+one of them needs a manual installer re-run. A fresh config is always a full
+TTL away from expiring, so the normal `wrapper.binary_url` auto-update has ~30
+days of margin to carry the fleet onto a binary that can self-heal. Hosts that
+are offline for longer than that window are the ones to re-seed by hand.
+
+## Signing-key rotation
+
+**What multi-sign does and does not buy.** A `cxx` binary verifies with the ONE
+public key embedded in it at build time. Multi-sign is a server-side capability:
+the orchestrator can hold several signing keys and emit a signature for each, so
+the replacement key's signature exists and is fetchable *before* the fleet is
+rebuilt. It does **not** let you retire the old key before the fleet is rebuilt,
+and it does not by itself make a rotation seamless. The binary coupling is still
+there; what multi-sign removes is the need to have the new key's signature and
+the new binaries appear in the same instant.
+
+The mechanics:
+
+- Any number of rows in `wrapper_signing_keys` may have `active = 1`. Every one
+  of them signs the same canonical config bytes.
+- The **primary** key is the OLDEST active row (`created_at`, then `id`). Its
+  signature is the one served as `signature` in `{payload, signature}`, as the
+  default `?sig=1` body, and in `x-signature` — the bytes a deployed binary
+  verifies. The ordering is a compatibility invariant, not a detail: promoting a
+  newer key hands every host a signature its embedded public key rejects. It is
+  pinned by a unit test whose fake DB honours the `orderBy` arguments it is
+  given, so flipping `asc` to `desc` in `wrapper-signing-key.ts` fails the suite.
+- Extra signatures never enter the payload. `GET /wrapper/v2/config` lists them
+  in a top-level `signatures` array *beside* `{payload, signature}`, so no signed
+  byte, no `etag`, and nothing in `wrappers/schemas/host-config-v1.json` changes,
+  and `payload` and `signature` keep their exact bytes. Deployed binaries ignore
+  the new key: `fleetconfig.go` decodes into a struct reading only `payload` and
+  `signature`, and nothing in the Go tree sets `DisallowUnknownFields`.
+- `?sig=1&kid=<id>` or `?sig=1&fingerprint=<hex>` serves the detached signature
+  of one named active key; without a selector it stays the primary's. An unknown
+  key is a `404 signing_key_not_found` rather than a fall back to the primary —
+  a client that asked for key X and was handed key Y's signature would write a
+  `.sig` its own public key cannot verify. A selector without `sig=1` is a `422`:
+  the full response body already carries every signature in `signatures`.
+- `GET /wrapper/v2/meta` reports the primary key's `signing_kid` (its DB row id)
+  and `signing_fingerprint` (sha256 of the raw 32-byte Ed25519 public key,
+  lowercase hex). `GET /wrapper/v2/config` returns the fingerprint of whichever
+  signature it served in `x-signature-fingerprint`; the `x-signature*` headers
+  always describe the served bytes, so a selected `?sig=1` reply never disagrees
+  with its own body. The fingerprint, not the row id, is what identifies key
+  material across installations.
+- The API re-reads the active key set every `SIGNER_CACHE_TTL_MS` (30 s). The
+  ops script runs in its own process, so without that bound a key it added would
+  not reach the running API until someone restarted it.
+
+**The constraint the runbook cannot design away.** With single-key binaries and
+one served `signature`, exactly one population can verify at any instant: while
+the old key is primary, only binaries embedding the old key verify; the moment it
+is retired, only binaries embedding the new key do. There is no overlap window,
+and a host that self-updates onto a new-key binary early fails at startup, since
+its on-disk `.sig` came from the old key and a bad signature is a hard failure
+with no recovery path (only expiry has one — see above). So steps 3 and 4 below
+are **coupled**: they are one maintenance window, not two independently safe
+steps. Making them separable requires the client to fetch the signature matching
+the key it embeds — which `signatures` / `?sig=1&kid=` now makes possible and
+which no shipped `cxx` does yet. That is the follow-up, and until it lands the
+honest promise is a *staged*, not a seamless, rotation.
+
+**The installer is not an escape hatch from that window.** The installer and the
+legacy transition launcher (`wrapper-transition.ts`) take the `.sig` sidecar from
+`signature.value` in the response body — the PRIMARY key's — and never pass a
+selector, while the binary they install is whatever is currently published. So
+they pair *the published binary* with *the primary key*, which is a repair only
+while those two agree: before the new-key binaries are published, or after the
+old key is retired. Run inside the step 3→4 window it reproduces the breakage
+rather than fixing it. Nothing on the server records which public key a published
+binary was built with, so this cannot be resolved server-side; an installer that
+knows its target fingerprint can ask for the matching signature with
+`?sig=1&fingerprint=<hex>`.
+
+The rotation entry point is `api/src/ops/rotate-signing-key.ts`, built into the
+image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`.
+
+1. **Add the new key while the old one keeps signing.** Generate an Ed25519
+   pair, then `node rotate-signing-key.js add NEW_PRIVATE.pem NEW_PUBLIC.pem`.
+   Both keys now sign; the old key is still primary, so nothing on any host
+   changes. This step is genuinely reversible and genuinely zero-impact — it is
+   the only one that is. Delete the plaintext private key afterwards.
+2. **Verify against the RUNNING API, not the database.** `rotate-signing-key
+   list` reads through its own service instance and will print the new key even
+   if the API is still serving the old set, so it cannot detect a stale cache.
+   Ask the API itself, with a host API key:
+
+   ```sh
+   curl -sH "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" \
+     | jq -r '.signatures[].fingerprint'
+   ```
+
+   The new fingerprint must appear. If it does not within `SIGNER_CACHE_TTL_MS`,
+   the API is not serving the key you added — stop and find out why instead of
+   continuing on the ops script's green.
+3. **Build binaries embedding the new public key.** Build and publish with
+   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/setup.sh` does. Do **not**
+   let hosts pick them up yet: until the old key is retired those binaries reject
+   every config the API serves.
+4. **Flip: retire the old key and roll the fleet in one window.**
+   `node rotate-signing-key.js retire OLD_KEY_ID` stamps `rotated_at`, clears
+   `active`, and the newer key becomes primary — its signature now fills
+   `signature`/`.sig`. Retiring the only active key is refused, because that
+   leaves the bakery returning `503`. Every host still on an old-key binary now
+   fails config verification until it is on the new binary with a freshly fetched
+   config. Once the new key is primary, the published binaries and the primary
+   key agree again, so re-running the host installer from Admin → Host Detail is
+   a valid repair for anything that does not converge on its own — it writes a
+   fresh config and a `.sig` from the (now new) primary key alongside a binary
+   that embeds it. Before this step it is not: see the note above.
+
+Rollback before step 4 is free: retire the new key instead and the primary never
+moved. After step 4 it costs a round trip — `add` re-inserts the old key with a
+fresh `created_at`, so it comes back as a secondary signer; retiring the newer
+key afterwards is what makes it primary again, and the fleet has to move back
+onto old-key binaries with it.
 
 ## cxx rollout and rollback
 

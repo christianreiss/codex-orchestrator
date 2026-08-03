@@ -1,33 +1,67 @@
-import { createPrivateKey, createPublicKey, type KeyObject, sign as cryptoSign } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  type KeyObject,
+  sign as cryptoSign,
+} from 'node:crypto';
+import { asc, eq } from 'drizzle-orm';
 import { wrapperSigningKeys } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { decrypt, isEnvelope } from '../security/secret-box.js';
 
 /**
- * Loads the active Ed25519 wrapper-signing key from `wrapper_signing_keys`.
+ * Loads the active Ed25519 wrapper-signing keys from `wrapper_signing_keys`.
  *
  * The `private_key_enc` column holds an `sbox:v1:…` envelope around either a
  * PEM-encoded PKCS#8 private key or the raw 32-byte seed (legacy operator
  * tooling sometimes wrote the bare seed). Both are accepted.
  *
- * Returns `null` when no active key exists — the routes turn that into a 503
- * response so operators can see the kill switch from the outside.
+ * More than one row may be active at a time so a key can be rotated without a
+ * fleet-wide binary rebuild: every active key signs the baked config, and the
+ * PRIMARY key — the oldest active row — is the one whose signature keeps the
+ * `signature` field and the `.sig` file. Ordering is explicit (`created_at`,
+ * then `id`) because promoting a newer key would hand hosts a signature the
+ * public key embedded in their binary rejects.
+ *
+ * Returns `null`/`[]` when no active key loads — the routes turn that into a
+ * 503 response so operators can see the kill switch from the outside.
+ *
+ * The loaded set is cached for `SIGNER_CACHE_TTL_MS` rather than for the
+ * lifetime of the process. `registerWrapperV2Routes` builds one service at boot
+ * and `rotate-signing-key` runs in a SEPARATE process, so a cache that never
+ * expired meant the running API kept signing with the pre-rotation key set until
+ * someone restarted it — and the rotation runbook's verification step, which
+ * reads through the ops script's own instance, reported a false green.
  */
+
+/**
+ * How long a loaded signer set is reused before the table is re-read.
+ *
+ * Short enough that a rotation converges without a restart, long enough that
+ * the config bakery does not turn every request into a query. Rotation is rare
+ * and operator-driven, so waiting out one TTL is an acceptable price for not
+ * hitting the DB on the hot path.
+ */
+export const SIGNER_CACHE_TTL_MS = 30_000;
 
 export interface WrapperSigner {
   /** Stable identifier embedded in signatures (the DB row id). */
   kid: string;
-  /** Base64-encoded raw Ed25519 public key (32 bytes), if the column held PEM. */
+  /** sha256 of the raw 32-byte Ed25519 public key, lowercase hex. */
+  fingerprint: string;
+  /** Base64-encoded raw Ed25519 public key (32 bytes). */
   publicKey: string;
   /** Sign `payload` (UTF-8) with Ed25519. Returns the raw 64-byte signature. */
   sign(payload: string | Uint8Array): Buffer;
 }
 
 export interface WrapperSigningKeyService {
-  /** Returns a signer for the currently-active row or null if none. */
+  /** Returns a signer for the primary (oldest) active row or null if none. */
   active(): Promise<WrapperSigner | null>;
+  /** Returns every loadable active signer, oldest first. Primary is `[0]`. */
+  allActive(): Promise<WrapperSigner[]>;
   /** Returns true when the service can sign right now. */
   available(): Promise<boolean>;
   /** Invalidate any cached signer (used on rotation). */
@@ -37,45 +71,41 @@ export interface WrapperSigningKeyService {
 export interface WrapperSigningKeyDeps {
   db: Database;
   keyring: Keyring;
+  /** Cache lifetime override in ms (tests). Defaults to `SIGNER_CACHE_TTL_MS`. */
+  cacheTtlMs?: number;
+  /** Monotonic-enough clock, injectable so the TTL is testable without timers. */
+  now?: () => number;
 }
 
 export function createWrapperSigningKeyService(
   deps: WrapperSigningKeyDeps,
 ): WrapperSigningKeyService {
-  let cached: WrapperSigner | null | undefined;
+  const ttlMs = deps.cacheTtlMs ?? SIGNER_CACHE_TTL_MS;
+  const now = deps.now ?? (() => Date.now());
+  let cached: WrapperSigner[] | undefined;
+  let cachedAt = 0;
 
-  async function load(): Promise<WrapperSigner | null> {
-    if (cached !== undefined) return cached;
-    const rows = await deps.db
-      .select()
-      .from(wrapperSigningKeys)
-      .where(eq(wrapperSigningKeys.active, 1))
-      .limit(1);
-    const row = rows[0];
-    if (!row || !row.privateKeyEnc) {
-      cached = null;
-      return cached;
-    }
+  function toSigner(row: { id: number; privateKeyEnc: string | null }): WrapperSigner | null {
+    if (!row.privateKeyEnc) return null;
     let pkBytes: string;
     try {
       pkBytes = isEnvelope(row.privateKeyEnc)
         ? decrypt(row.privateKeyEnc, deps.keyring)
         : row.privateKeyEnc;
     } catch {
-      cached = null;
-      return cached;
+      return null;
     }
 
     const keyObj = toKeyObject(pkBytes);
-    if (!keyObj) {
-      cached = null;
-      return cached;
-    }
+    if (!keyObj) return null;
 
-    const publicKey = derivePublicKeyB64(keyObj, row.publicKey);
-    cached = {
+    const raw = rawPublicKey(keyObj);
+    if (!raw) return null;
+
+    return {
       kid: String(row.id),
-      publicKey,
+      fingerprint: createHash('sha256').update(raw).digest('hex'),
+      publicKey: raw.toString('base64'),
       sign(payload: string | Uint8Array): Buffer {
         const buf =
           typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
@@ -83,21 +113,57 @@ export function createWrapperSigningKeyService(
         return cryptoSign(null, buf, keyObj);
       },
     };
+  }
+
+  async function load(): Promise<WrapperSigner[]> {
+    if (cached !== undefined && now() - cachedAt < ttlMs) return cached;
+    const rows = await deps.db
+      .select()
+      .from(wrapperSigningKeys)
+      .where(eq(wrapperSigningKeys.active, 1))
+      .orderBy(asc(wrapperSigningKeys.createdAt), asc(wrapperSigningKeys.id));
+    const signers = rows.map((row) => toSigner(row));
+    // An unreadable PRIMARY row is the whole signer being down, exactly as it
+    // was when only one row could ever be active: silently promoting the next
+    // key would sign configs the fleet's embedded public key cannot verify.
+    // A later key that fails to load is simply not offered as an extra
+    // signature.
+    cached = signers[0] ? signers.filter((signer): signer is WrapperSigner => signer !== null) : [];
+    cachedAt = now();
     return cached;
   }
 
   return {
-    active() {
-      return load();
+    async active() {
+      return (await load())[0] ?? null;
+    },
+    async allActive() {
+      return [...(await load())];
     },
     async available() {
-      const s = await load();
-      return s !== null;
+      return (await load()).length > 0;
     },
     invalidate() {
       cached = undefined;
     },
   };
+}
+
+/**
+ * Normalizes any accepted Ed25519 public-key material — base64 raw, a public
+ * SPKI PEM, or a private PEM — to the base64 raw 32-byte public key. Throws
+ * when the material is not an Ed25519 key.
+ */
+export function publicKeyB64(material: string): string {
+  const trimmed = material.trim();
+  if (/^[A-Za-z0-9+/]{43}=$/.test(trimmed) && Buffer.from(trimmed, 'base64').length === 32) {
+    return trimmed;
+  }
+  const key = trimmed.includes('PRIVATE KEY') ? toKeyObject(trimmed) : null;
+  const publicKey = key ? createPublicKey(key) : createPublicKey(trimmed);
+  const raw = rawPublicKey(publicKey);
+  if (!raw) throw new Error('signing material is not an Ed25519 key');
+  return raw.toString('base64');
 }
 
 /**
@@ -160,16 +226,20 @@ function wrapSeedInPkcs8(seed: Buffer): Buffer {
   return Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
 }
 
-function derivePublicKeyB64(keyObj: KeyObject, fallback: string): string {
+/**
+ * The raw 32-byte Ed25519 public key behind `keyObj` (public or private), or
+ * null when it is not an Ed25519 key. Both `WrapperSigner.publicKey` and its
+ * fingerprint are derived from these bytes so the two can never disagree.
+ */
+function rawPublicKey(keyObj: KeyObject): Buffer | null {
   try {
-    const pub = createPublicKey(keyObj);
-    // raw 32-byte ed25519 public key for JWK base64url -> base64 transform
+    const pub = keyObj.type === 'public' ? keyObj : createPublicKey(keyObj);
+    // raw 32-byte ed25519 public key from the JWK base64url `x` coordinate
     const jwk = pub.export({ format: 'jwk' }) as { x?: string };
-    if (jwk.x) {
-      return Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('base64');
-    }
+    if (!jwk.x) return null;
+    const raw = Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    return raw.length === 32 ? raw : null;
   } catch {
-    /* fall through */
+    return null;
   }
-  return fallback;
 }

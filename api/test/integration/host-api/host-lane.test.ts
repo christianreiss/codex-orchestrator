@@ -60,7 +60,6 @@ function setupHost(db: ReturnType<typeof createDbFake>): void {
       claudeReasoningEffortOverride: null,
       claudeLastRefresh: null,
       configVersion: 0,
-      configBakedAt: null,
       wrapperTrack: 'v2',
       createdAt: now,
       updatedAt: now,
