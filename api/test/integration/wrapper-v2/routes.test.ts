@@ -956,8 +956,20 @@ describe('wrapper-v2 routes', () => {
       try {
         const r = await app.inject({ method: 'GET', url: '/wrapper/v2/config' });
         expect(r.statusCode).toBe(200);
-        const body = JSON.parse(r.payload) as { payload: { etag: string } };
+        const body = JSON.parse(r.payload) as {
+          payload: Record<string, unknown> & { etag: string };
+        };
         expect(body.payload.etag).toMatch(/^[a-f0-9]{64}$/);
+
+        // Pin the digest to the payload itself, not merely to the `etag`
+        // field. Without this, any change to what gets hashed still yields a
+        // 64-hex value that the header faithfully mirrors, and the binding
+        // silently becomes a digest of something that is not this config.
+        const { etag: _etag, ...draft } = body.payload;
+        expect(body.payload.etag).toBe(
+          createHash('sha256').update(canonicalStringify(draft)).digest('hex'),
+        );
+
         expect(r.headers.etag).toBe(`"${body.payload.etag}"`);
         expect(r.headers['x-sha256']).toBe(body.payload.etag);
       } finally {
