@@ -155,6 +155,48 @@ func TestPersistAndRemoveEngineConfig(t *testing.T) {
 	}
 }
 
+// The two writers are deliberately different: Persist resolves the engine
+// default for the peer installers and the cron coordinator, PersistTo writes
+// exactly where it is told for a caller that loaded from --config or
+// CDX_CONFIG_PATH/CLX_CONFIG_PATH. Collapsing PersistTo back onto the default
+// is the regression this pins.
+func TestPersistToWritesThePathItIsGivenAndPersistTheEngineDefault(t *testing.T) {
+	defaultPath := filepath.Join(t.TempDir(), "clx.json")
+	t.Setenv("CLX_CONFIG_PATH", defaultPath)
+	requested := filepath.Join(t.TempDir(), "elsewhere.json")
+
+	cfg := validConfig(config.EngineClaude, "https://example.invalid/cxx")
+	payload, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := &Fetched{Config: cfg, Payload: payload, Signature: "signed"}
+
+	if err := PersistTo(context.Background(), requested, item); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(requested); err != nil || string(got) != string(payload) {
+		t.Fatalf("payload at %s: err=%v body=%s", requested, err, got)
+	}
+	if got, err := os.ReadFile(requested + ".sig"); err != nil || string(got) != "signed" {
+		t.Fatalf("signature at %s.sig: err=%v body=%q", requested, err, got)
+	}
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("PersistTo also wrote the engine default %s: %v", defaultPath, err)
+	}
+
+	if err := Persist(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(defaultPath); err != nil || string(got) != string(payload) {
+		t.Fatalf("Persist did not write the engine default %s: err=%v body=%s", defaultPath, err, got)
+	}
+
+	if err := PersistTo(context.Background(), "  ", item); err == nil {
+		t.Fatal("a blank path was accepted")
+	}
+}
+
 // A host whose clock runs ahead sees a brand-new config as already expired.
 // The fresh-fetch path must not reject it, or that host could never obtain a
 // replacement for the config its clock also considers expired on disk.
@@ -252,6 +294,130 @@ func TestLoadOrRecoverAcceptsAReplacementASkewedClockStillCallsExpired(t *testin
 	}
 	if cfg.IssuedAt != served.IssuedAt {
 		t.Fatalf("issued_at=%q, want the served document %q", cfg.IssuedAt, served.IssuedAt)
+	}
+}
+
+// --config and CDX_CONFIG_PATH/CLX_CONFIG_PATH let a caller load a config from
+// somewhere other than the engine default. The refresh has to land on that same
+// file: writing it to the default path instead leaves the reload re-reading the
+// untouched expired document, which the recovery would then hand back as if it
+// were fresh — refetching on every invocation and never converging.
+func TestLoadOrRecoverPersistsToThePathItLoadedFrom(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := validConfig(config.EngineCodex, "https://example.invalid/cxx-fresh")
+	fresh.IssuedAt = time.Now().UTC().Format(time.RFC3339)
+	fresh.ExpiresAt = rfc3339(time.Now().Add(30 * 24 * time.Hour))
+	fresh.Wrapper.Version = "0.8.0"
+	freshPayload, err := json.Marshal(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(signedBundle(t, fresh, priv))
+	}))
+	defer srv.Close()
+
+	// The default path and the loaded path deliberately diverge.
+	defaultPath := filepath.Join(t.TempDir(), "cdx.json")
+	t.Setenv("CDX_CONFIG_PATH", defaultPath)
+	path := filepath.Join(t.TempDir(), "cdx.json")
+	stale := validConfig(config.EngineCodex, "https://example.invalid/cxx-stale")
+	stale.Orchestrator.BaseURL = srv.URL
+	stale.ExpiresAt = rfc3339(time.Now().Add(-time.Hour))
+	stale.Wrapper.Version = "0.7.0"
+	writeSignedConfigFile(t, path, stale, priv)
+
+	cfg, refreshed, err := LoadOrRecover(context.Background(), path, pub, config.EngineCodex)
+	if err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+	if !refreshed {
+		t.Fatal("expected the caller to be told the config was refreshed")
+	}
+	if cfg.Wrapper.Version != fresh.Wrapper.Version || cfg.Wrapper.BinaryURL != fresh.Wrapper.BinaryURL {
+		t.Fatalf("returned the stale document: wrapper=%+v, want %+v", cfg.Wrapper, fresh.Wrapper)
+	}
+	if cfg.ExpiresAt == nil || *cfg.ExpiresAt != *fresh.ExpiresAt {
+		t.Fatalf("expires_at=%v, want %v", cfg.ExpiresAt, *fresh.ExpiresAt)
+	}
+	if onDisk, err := os.ReadFile(path); err != nil || string(onDisk) != string(freshPayload) {
+		t.Fatalf("%s was not rewritten: err=%v body=%s", path, err, onDisk)
+	}
+	// Nothing may be written to the engine default the caller opted out of.
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("the refresh also landed on the default path %s: %v", defaultPath, err)
+	}
+}
+
+// The reload verifies the detached signature, so the sidecar has to travel with
+// the payload to whichever path the recovery wrote.
+func TestLoadOrRecoverWritesTheSignatureSidecarBesideThePath(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := validConfig(config.EngineCodex, "https://example.invalid/cxx")
+	fresh.ExpiresAt = rfc3339(time.Now().Add(30 * 24 * time.Hour))
+	freshPayload, err := json.Marshal(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSig := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, freshPayload))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(signedBundle(t, fresh, priv))
+	}))
+	defer srv.Close()
+
+	defaultSig := filepath.Join(t.TempDir(), "cdx.json")
+	t.Setenv("CDX_CONFIG_PATH", defaultSig)
+	path := filepath.Join(t.TempDir(), "cdx.json")
+	stale := validConfig(config.EngineCodex, "https://example.invalid/cxx")
+	stale.Orchestrator.BaseURL = srv.URL
+	stale.ExpiresAt = rfc3339(time.Now().Add(-time.Hour))
+	writeSignedConfigFile(t, path, stale, priv)
+
+	if _, _, err := LoadOrRecover(context.Background(), path, pub, config.EngineCodex); err != nil {
+		t.Fatalf("recovery failed: %v", err)
+	}
+	sig, err := os.ReadFile(path + ".sig")
+	if err != nil || string(sig) != wantSig {
+		t.Fatalf("sidecar at %s.sig: err=%v body=%q want %q", path, err, sig, wantSig)
+	}
+	if _, err := os.Stat(defaultSig + ".sig"); !os.IsNotExist(err) {
+		t.Fatalf("a sidecar also landed on the default path: %v", err)
+	}
+}
+
+// The clock-skew acceptance is an anti-brick guarantee, not a licence to return
+// whatever happens to sit at path. It is gated on the on-disk bytes being the
+// ones just fetched, which is what keeps skew distinguishable from a refresh
+// that never landed here.
+func TestPersistedIsFetchedOnlyAcceptsTheDocumentJustFetched(t *testing.T) {
+	dir := t.TempDir()
+	fetched := &Fetched{
+		Config:    validConfig(config.EngineCodex, "https://example.invalid/cxx"),
+		Payload:   []byte(`{"engine":"codex"}`),
+		Signature: "signed",
+	}
+	match := filepath.Join(dir, "match.json")
+	if err := os.WriteFile(match, fetched.Payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "other.json")
+	if err := os.WriteFile(other, []byte(`{"engine":"codex"} `), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !persistedIsFetched(match, fetched) {
+		t.Fatal("the freshly persisted payload was not recognised")
+	}
+	if persistedIsFetched(other, fetched) {
+		t.Fatal("a different document was accepted as the freshly persisted one")
+	}
+	if persistedIsFetched(filepath.Join(dir, "absent.json"), fetched) {
+		t.Fatal("a missing file was accepted as the freshly persisted one")
 	}
 }
 

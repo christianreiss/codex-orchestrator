@@ -4,6 +4,7 @@
 package fleetconfig
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -135,7 +136,10 @@ func LoadOrRecover(ctx context.Context, path string, pubkey ed25519.PublicKey, e
 	if fetchErr != nil {
 		return nil, false, expiredRecoveryError(expired, path, fetchErr)
 	}
-	if persistErr := Persist(ctx, fetched); persistErr != nil {
+	// Persist to the path we loaded from, not to the engine default: a caller
+	// that passed --config/CDX_CONFIG_PATH would otherwise refresh a different
+	// file and reload the untouched expired one forever.
+	if persistErr := PersistTo(ctx, path, fetched); persistErr != nil {
 		return nil, false, expiredRecoveryError(expired, path, persistErr)
 	}
 	// Reload rather than returning the fetched config: it proves the bytes that
@@ -144,13 +148,15 @@ func LoadOrRecover(ctx context.Context, path string, pubkey ed25519.PublicKey, e
 	cfg, reloadErr := config.LoadForEngine(path, pubkey, false, engine)
 	if reloadErr != nil {
 		var stillExpired *config.ExpiredError
-		if errors.As(reloadErr, &stillExpired) && stillExpired.Config != nil {
-			// The orchestrator just handed us this document and its signature
-			// verified, so it is as fresh as a config can be. A host clock more
-			// than a full TTL ahead of the server's sees even that as expired;
-			// refusing it here would brick the host on every invocation with no
-			// way back. Reaching the orchestrator is the stronger freshness
-			// proof, so it wins over the timestamp.
+		// Accept a still-expired reload ONLY when the document on disk is
+		// byte-for-byte the one the orchestrator just signed for us. Then it is
+		// as fresh as a config can be, and a host clock more than a full TTL
+		// ahead of the server's is the only thing that can call it expired;
+		// refusing it would brick the host on every invocation with no way
+		// back, and reaching the orchestrator is the stronger freshness proof.
+		// Any other still-expired document means the refresh did not land here,
+		// and returning it would silently run on a stale config instead.
+		if errors.As(reloadErr, &stillExpired) && stillExpired.Config != nil && persistedIsFetched(path, fetched) {
 			return stillExpired.Config, true, nil
 		}
 		return nil, false, expiredRecoveryError(expired, path, reloadErr)
@@ -158,16 +164,26 @@ func LoadOrRecover(ctx context.Context, path string, pubkey ed25519.PublicKey, e
 	return cfg, true, nil
 }
 
+// persistedIsFetched reports whether path holds exactly the payload just
+// fetched. It is what separates genuine clock skew from a refreshed config that
+// never reached path, so the anti-brick acceptance can never cover a stale read.
+func persistedIsFetched(path string, fetched *Fetched) bool {
+	if fetched == nil {
+		return false
+	}
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(onDisk, fetched.Payload)
+}
+
 // expiredRecoveryError leads with the operator instruction and trails with the
 // cause: the rendered failure is truncated to a couple of hundred characters,
 // and a verbose transport error must not be what survives.
 func expiredRecoveryError(expired *config.ExpiredError, path string, cause error) error {
-	target := path
-	if persisted, err := config.DefaultPathForEngine(expired.Config.Engine); err == nil && persisted != path {
-		target = fmt.Sprintf("%s (a refreshed config is written to %s)", path, persisted)
-	}
 	return fmt.Errorf("%w: re-run the host installer to reseed %s; automatic refresh failed: %v",
-		expired, target, cause)
+		expired, path, cause)
 }
 
 func responseCode(body []byte) string {
@@ -191,9 +207,8 @@ func responseCode(body []byte) string {
 	return ""
 }
 
-// Persist atomically replaces the signed config files for one engine. The
-// payload rename is last, so a concurrent reader sees either the old payload
-// or the fully written new payload; signature mismatch fails closed.
+// Persist atomically replaces the signed config files at the engine's default
+// location.
 func Persist(ctx context.Context, fetched *Fetched) error {
 	if fetched == nil || fetched.Config == nil {
 		return errors.New("nil fetched config")
@@ -201,6 +216,19 @@ func Persist(ctx context.Context, fetched *Fetched) error {
 	path, err := config.DefaultPathForEngine(fetched.Config.Engine)
 	if err != nil {
 		return err
+	}
+	return PersistTo(ctx, path, fetched)
+}
+
+// PersistTo atomically replaces the signed config files at path. The payload
+// rename is last, so a concurrent reader sees either the old payload or the
+// fully written new payload; signature mismatch fails closed.
+func PersistTo(ctx context.Context, path string, fetched *Fetched) error {
+	if fetched == nil || fetched.Config == nil {
+		return errors.New("nil fetched config")
+	}
+	if strings.TrimSpace(path) == "" {
+		return errors.New("empty config path")
 	}
 	return layout.WithTargetLock(ctx, path, func() error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

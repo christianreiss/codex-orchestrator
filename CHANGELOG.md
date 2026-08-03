@@ -1,5 +1,19 @@
 # 2026-08-03
 
+- Expired-config recovery now writes the replacement to the path it loaded from
+  (`fleetconfig.PersistTo`) instead of always to `config.DefaultPathForEngine`. With
+  `--config <path>`, `CDX_CONFIG_PATH` or `CLX_CONFIG_PATH` pointing anywhere else, the refreshed
+  bytes landed on the default path while the reload re-read the untouched expired file. That reload
+  fell into the clock-skew acceptance branch, so the wrapper printed `signed config had expired;
+  refreshed it from the orchestrator` and then ran on the stale document — stale `api_key`,
+  `base_url` and `binary_sha256` — refetching on every invocation and never converging. The skew
+  branch is now gated on the document at the path being byte-for-byte the payload just fetched, so
+  the anti-brick guarantee for a host whose clock runs more than a full TTL ahead still holds but can
+  no longer cover a misdirected write. `fleetconfig.Persist` keeps resolving the engine default and
+  is unchanged for the peer installers and the cron coordinator. One behaviour divergence follows:
+  a `--config <path>` run no longer repairs the default-path config as a side effect, and the
+  long-running helpers (`agentbus`, `agentportal`, the MCP bridge) resolve their config through
+  `DefaultPathForEngine`, so on such a host they still need the default path reseeded separately.
 - Dropped the `hosts.config_baked_at` column (migration
   `0017_drop_hosts_config_baked_at.sql`). It was stamped on every bake and read by nothing: no
   code branched on it, it carried no index, it was not part of the signed config payload and

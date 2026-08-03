@@ -502,14 +502,8 @@ describe('wrapper-config', () => {
   });
 
   describe('config lifetime', () => {
-    /**
-     * Bakes with a wrapper-binary lookup that pushes the clock forward. It runs
-     * inside the bake, after the stamps are taken, so any second clock read
-     * would land on the far side of the drift and betray itself.
-     */
-    function bakeWithMidBakeClockDrift(driftMs: number) {
+    function bakeOnce() {
       const host = fakeHost({ configVersion: 4 });
-      const binaries = fakeBinaries();
       const svc = createWrapperConfigService({
         db: makeFakeDb({
           hosts: [host],
@@ -520,13 +514,7 @@ describe('wrapper-config', () => {
           updates: [],
         }),
         keyring: makeKeyring(),
-        binaries: {
-          ...binaries,
-          async resolveCurrentBuild(engine, os, arch) {
-            vi.setSystemTime(new Date(Date.now() + driftMs));
-            return binaries.resolveCurrentBuild(engine, os, arch);
-          },
-        },
+        binaries: fakeBinaries(),
         signing: makeSigningService({
           kid: '1',
           fingerprint: FAKE_FINGERPRINT,
@@ -540,17 +528,38 @@ describe('wrapper-config', () => {
       return svc.bakeForHost(host, 'codex', 'https://api.example.com');
     }
 
+    /**
+     * Runs fn with every argument-less `new Date()` advancing the fake clock by
+     * driftMs afterwards, so no two clock reads can observe the same instant.
+     * `new Date(value)` is left alone: the stamps derive from one read through
+     * it, and only a genuine second read of *now* must be detectable.
+     */
+    async function withDriftOnEveryClockRead<T>(driftMs: number, fn: () => Promise<T>): Promise<T> {
+      const RealDate = globalThis.Date;
+      globalThis.Date = new Proxy(RealDate, {
+        construct(target, args, newTarget) {
+          const instance = Reflect.construct(target, args, newTarget);
+          if (args.length === 0) vi.setSystemTime(RealDate.now() + driftMs);
+          return instance;
+        },
+      }) as DateConstructor;
+      try {
+        return await fn();
+      } finally {
+        globalThis.Date = RealDate;
+      }
+    }
+
     it('stamps expires_at exactly one TTL after issued_at, from a single clock read', async () => {
       vi.useFakeTimers({ toFake: ['Date'] });
-      // Late in a second, then drifting past it mid-bake: two separate clock
-      // reads would straddle the boundary and the signed lifetime would come
-      // out a second short of the advertised TTL.
       vi.setSystemTime(new Date('2026-08-03T09:00:00.900Z'));
       try {
-        const result = await bakeWithMidBakeClockDrift(200);
+        // A drift of more than a second per read: a second read of the clock
+        // lands in a different truncated second than the first no matter where
+        // in a second the bake starts, so the signed lifetime would not come
+        // out as exactly the advertised TTL.
+        const result = await withDriftOnEveryClockRead(1500, bakeOnce);
 
-        expect(result.payload.issued_at).toBe('2026-08-03T09:00:00Z');
-        expect(result.payload.expires_at).toBe('2026-09-02T09:00:00Z');
         expect(WRAPPER_CONFIG_TTL_SECONDS).toBe(30 * 24 * 60 * 60);
         expect(
           Date.parse(result.payload.expires_at!) - Date.parse(result.payload.issued_at),

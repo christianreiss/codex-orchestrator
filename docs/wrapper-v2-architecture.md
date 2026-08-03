@@ -183,7 +183,12 @@ of the reader's clock.
 **Automatic recovery.** An expired config is not tampering, so
 `LoadForEngine` returns a typed `*config.ExpiredError` carrying the parsed
 document, and `fleetconfig.LoadOrRecover` refetches with the expired config's
-own `orchestrator.base_url` and `api_key`, persists the reply, and reloads.
+own `orchestrator.base_url` and `api_key`, persists the reply **to the path it
+loaded from**, and reloads. That path is not always the engine default:
+`--config`, `CDX_CONFIG_PATH` and `CLX_CONFIG_PATH` all reach
+`LoadOrRecover`, so it persists through `fleetconfig.PersistTo` rather than
+`fleetconfig.Persist`, which resolves `config.DefaultPathForEngine` and is what
+the peer installers and the cron coordinator still use.
 `cdx`/`clx` startup goes through it and prints `signed config had expired;
 refreshed it from the orchestrator` once, so a host heals on its next
 invocation. The `cxx cron` coordinator heals along its own route and stays
@@ -202,9 +207,13 @@ even a just-issued config expired. `LoadOrRecover` therefore accepts a
 replacement that still reads as expired after it was persisted: having reached
 the orchestrator and verified its signature is stronger proof of freshness than
 a timestamp compared against a clock that is known-wrong. Refusing it would
-hard-fail every invocation with no route back. A reload that fails for any
-other reason — signature, schema, engine — is still a hard failure, because
-that is disk corruption rather than skew.
+hard-fail every invocation with no route back. That acceptance is gated on the
+document at the path being byte-for-byte the payload just fetched, so skew stays
+distinguishable from a refresh that never landed there — otherwise the branch
+would quietly return whatever expired document happened to be on disk and the
+host would refetch on every invocation without ever converging. A reload that
+fails for any other reason — signature, schema, engine — is still a hard
+failure, because that is disk corruption rather than skew.
 
 Security invariant: `ExpiredError.Config` is populated ONLY after the detached
 Ed25519 signature verified, so the credentials used to seed the refetch are
