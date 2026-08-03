@@ -83,7 +83,7 @@ binary  ─POST /auth, ...──> existing host API surface (untouched)
 wrappers/                     # Go workspace
 ├── cxx/                      # Common binary and both personas
 ├── schemas/host-config-v1.json
-├── testdata/                 # round-trip fixtures
+├── testdata/                 # golden baked configs + .sig, consumed both sides
 └── Makefile
 
 api/src/services/
@@ -103,6 +103,30 @@ Per-host config is baked on demand by `wrapper-config.ts` whenever the host's
 `config_version` advances; the active Ed25519 signing keys live in the
 `wrapper_signing_keys` table and are loaded by `wrapper-signing-key.ts`. More
 than one row may be active at a time — see [Signing-key rotation](#signing-key-rotation).
+
+### Golden config fixtures
+
+`wrappers/testdata/` holds three baked configs — `host-codex.json`,
+`host-codex-insecure.json`, `host-claude.json` — as the exact signed bytes, each
+with its detached `.json.sig`. They are consumed by both sides:
+`api/test/unit/contract/wrapper-config-golden.test.ts` bakes them with the clock,
+the DB, the binary registry, the installation id and a checked-in TEST-ONLY
+Ed25519 seed all frozen, and asserts `BakeResult.canonicalJson` byte-for-byte;
+`wrappers/cxx/internal/config/golden_test.go` verifies the signature for real,
+loads each file through `config.LoadForEngine`, and compares every decoded field
+to a literal. A baked byte cannot move without a fixture diff.
+
+Go decodes neither `documents`, `skills` nor `etag`, and cannot byte-compare a
+re-marshal (`encoding/json` emits declaration order; `canonicalStringify` sorts
+keys). That asymmetry is asserted rather than assumed: the Go test pins the
+fixture's top-level key set to `config.Config`'s json tags plus a named
+allowlist of those three.
+
+Regenerate with
+`cd api && UPDATE_GOLDEN=1 npx vitest run test/unit/contract/wrapper-config-golden.test.ts`;
+never hand-edit a fixture. `expires_at` is `issued_at + WRAPPER_CONFIG_TTL_SECONDS`,
+so the TTL constant is part of the fixtures' identity — see
+`wrappers/testdata/README.md` for the full determinism contract.
 
 ## Endpoints
 
