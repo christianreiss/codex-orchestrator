@@ -208,6 +208,9 @@
 
 # 2026-08-02
 
+- Removed the non-actionable Codex CLI update banner and release modal from the dashboard. Managed
+  hosts update automatically, so version differences remain fleet telemetry instead of prompting
+  operators to visit GitHub.
 - Added a versioned Fleet Policy Builder for AGENTS.md with mandatory Codex Orchestrator identity,
   safety-floor, and Hard Stop blocks; toggleable operating modules; custom instructions; exact
   unsaved host previews; fresh-install defaults; and a guarded, rollback-safe version 55 conversion.

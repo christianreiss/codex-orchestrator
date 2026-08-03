@@ -30,7 +30,7 @@ The dashboard renders three stat cards sourced from a single `overviewQuery()` c
 | Codex latest | `versions.cdx_version_available` | Latest upstream Codex CLI version (GitHub releases) — **not** the installed version. |
 | Claude latest | `versions.claude_version_available` | Latest upstream Claude Code CLI version (npm) — **not** the installed version. |
 
-The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its Codex count is `both + codex_only`; its Claude count is `both + claude_only`. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Exact installed client versions (`versions.client_version` / `cdx_version`, `versions.claude_version`) are not shown on a stat card; they surface in the "Update available" alert banner and its `UpgradeModal` (see Alerts, below).
+The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its Codex count is `both + codex_only`; its Claude count is `both + claude_only`. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The two "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` (both are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
 
 ## Alerts
 
@@ -38,7 +38,8 @@ The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "
 
 - **Insecure approvals** (warning) — `insecureApprovalsPendingQuery()` counts hosts awaiting insecure-window approval. When the count is non-zero a warning banner lists the count and links to `/hosts?insecure=1` ("Review").
 - **Could not check insecure approvals** (destructive) — shown instead of the warning banner when that query itself errors, with a "Retry" button.
-- **Update available** (info) — on mount, `versionsCheckMutation()` makes a one-shot network call to check the latest release and compares `available_client` against the installed `client_version` / `cdx_version`. When a newer version is detected an info banner appears with a "View" button that opens the `UpgradeModal` showing current and available versions.
+
+Codex CLI updates do not produce a dashboard alert: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action.
 
 ## ChatGPT usage card
 

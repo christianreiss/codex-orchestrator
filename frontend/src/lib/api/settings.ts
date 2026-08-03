@@ -175,9 +175,7 @@ export function modelDefaultsMutation(
 // cache), so the Claude and Codex "read" queries below share one query key
 // and a long staleTime -- otherwise they'd each independently re-trigger the
 // same forced upstream lookup on every stale remount. Explicit re-checks go
-// through claudeVersionsCheckMutation / codexVersionsCheckMutation (mirrors
-// overview.ts's versionsCheckMutation, which exposes this same endpoint as
-// a mutation for the same reason).
+// through claudeVersionsCheckMutation / codexVersionsCheckMutation.
 export const versionsCheckQueryKey = ["settings", "versions-check"] as const;
 export const claudeVersionsQueryKey = versionsCheckQueryKey;
 

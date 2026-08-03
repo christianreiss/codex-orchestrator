@@ -29,12 +29,6 @@
 
   const installs = $derived(engineInstallCounts($overview.data?.version_distribution));
 
-  const currentVersion = $derived(
-    ($overview.data?.versions?.client_version as string | null | undefined) ??
-      ($overview.data?.versions?.cdx_version as string | null | undefined) ??
-      null,
-  );
-
   // Live upstream latest versions (GitHub for Codex, npm for Claude), surfaced
   // by /admin/overview from the 1h-cached availableClientVersion lookup.
   const codexLatest = $derived($overview.data?.versions?.cdx_version_available ?? null);
@@ -141,7 +135,7 @@
   </div>
 
   <!-- Alerts row -->
-  <DashboardAlerts {currentVersion} />
+  <DashboardAlerts />
 
   <!-- Usage + runner cards -->
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">

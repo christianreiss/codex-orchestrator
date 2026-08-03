@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BtwoFouE.js";export{e as component};

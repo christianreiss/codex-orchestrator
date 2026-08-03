@@ -163,8 +163,8 @@ function fixture(pathname: string): Record<string, unknown> {
       return {
         totals: { hosts: 2 },
         last_refresh: "2026-08-01T08:00:00Z",
-        versions: { cdx_version_available: "1.0.0", claude_version_available: "2.0.0" },
-        version_distribution: { codex: [], claude: [], install: { both: 1, codex_only: 1, claude_only: 0, neither: 0 } },
+        versions: { client_version: "latest", cdx_version_available: "1.0.0", claude_version_available: "2.0.0" },
+        version_distribution: { codex: [{ version: "0.125.0", count: 2 }], claude: [], install: { both: 1, codex_only: 1, claude_only: 0, neither: 0 } },
       };
     case "/admin/insecure-approvals/pending":
       return { requests: [] };
@@ -564,7 +564,8 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   for (const width of [1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/admin/dashboard");
-    await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Codex CLI update available", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 

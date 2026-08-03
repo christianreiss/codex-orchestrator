@@ -13,9 +13,6 @@ const queryStubSource = `
 export function createQuery(options) {
   return options;
 }
-export function createMutation(options) {
-  return options;
-}
 `;
 
 const clientStubSource = `
@@ -65,12 +62,6 @@ interface BuiltQuery {
   retry?: number;
 }
 
-/** What the stubbed `createMutation` hands back in place of a store. */
-interface BuiltMutation {
-  mutationFn: (variables: unknown) => Promise<unknown>;
-  onSuccess?: (data: unknown, variables: unknown, context: unknown) => void;
-}
-
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // imports need specifiers TypeScript rejects statically; hiding them behind
 // variables keeps both happy. Types come from the casts.
@@ -81,7 +72,6 @@ const overviewModule: string = "./overview.ts";
 const overview = (await import(overviewModule)) as typeof import("./overview");
 
 const asQuery = (built: unknown): BuiltQuery => built as unknown as BuiltQuery;
-const asMutation = (built: unknown): BuiltMutation => built as unknown as BuiltMutation;
 
 interface QueryCase {
   /** The exported builder, as the surface test matches it. */
@@ -137,43 +127,11 @@ describe("query builders", () => {
   });
 });
 
-describe("versionsCheckMutation", () => {
-  it("posts /admin/versions/check with no body", async () => {
-    const built = asMutation(overview.versionsCheckMutation());
-    await built.mutationFn(undefined);
-
-    // The probe carries no payload at all, not even an empty object.
-    assert.deepEqual(calls, [{ method: "POST", path: "/admin/versions/check", body: undefined }]);
-  });
-
-  it("refreshes nothing on success", () => {
-    // The dashboard reads the fresh versions off the mutation's own `data`, so
-    // the builder takes no QueryClient and invalidates nothing.
-    assert.equal(asMutation(overview.versionsCheckMutation()).onSuccess, undefined);
-  });
-});
-
-describe("releaseVersion", () => {
-  it("reads the current release-record response", () => {
-    assert.equal(overview.releaseVersion({ version: "0.125.0", cached: true }), "0.125.0");
-  });
-
-  it("keeps accepting the legacy string response", () => {
-    assert.equal(overview.releaseVersion("0.124.0"), "0.124.0");
-  });
-
-  it("does not invent a version from a malformed response", () => {
-    assert.equal(overview.releaseVersion({ version: null }), null);
-    assert.equal(overview.releaseVersion(null), null);
-  });
-});
-
 describe("overviewKeys", () => {
-  it("namespaces all three keys under the overview root", () => {
+  it("namespaces both keys under the overview root", () => {
     assert.deepEqual(overview.overviewKeys, {
       root: ["overview"],
       insecure: ["overview", "insecure-approvals"],
-      versionsCheck: ["overview", "versions-check"],
     });
   });
 });
@@ -211,8 +169,6 @@ describe("module surface", () => {
     "insecureApprovalsPendingQuery",
     "overviewKeys",
     "overviewQuery",
-    "releaseVersion",
-    "versionsCheckMutation",
   ];
 
   it("exports exactly the documented surface", () => {
@@ -220,10 +176,7 @@ describe("module surface", () => {
   });
 
   it("drives every exported query and mutation builder", () => {
-    const driven = new Set([
-      ...QUERY_CASES.map((queryCase) => queryCase.name),
-      "versionsCheckMutation",
-    ]);
+    const driven = new Set(QUERY_CASES.map((queryCase) => queryCase.name));
     const exported = Object.keys(overview).filter(
       (name) => name.endsWith("Query") || name.endsWith("Mutation"),
     );
