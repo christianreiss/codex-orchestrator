@@ -586,6 +586,16 @@ func retryDelay(err error) time.Duration {
 	if !errors.As(err, &apiErr) {
 		return 3 * time.Second
 	}
+	// Being rate limited is the one failure a 3-second retry actively makes
+	// worse: every attempt spends more of the budget that is already gone, so
+	// the relay keeps itself locked out. Honour the server's Retry-After when
+	// it sent one, clamped so neither a tiny nor an absurd value gets through.
+	if apiErr.Status == http.StatusTooManyRequests {
+		if hint := apiErr.RetryAfter; hint > 0 {
+			return min(max(hint, 5*time.Second), 5*time.Minute)
+		}
+		return 30 * time.Second
+	}
 	// A shut door, not a transient fault. An insecure host outside its allowed
 	// window is refused for as long as the window stays closed, which is
 	// minutes to hours; retrying every 3 seconds would make every such host

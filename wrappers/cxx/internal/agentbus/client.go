@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,6 +27,21 @@ type APIError struct {
 	Code    string
 	Message string
 	Path    string
+	// RetryAfter carries the server's Retry-After header when it sent one.
+	// Zero means it did not; it is a hint, and callers still clamp it.
+	RetryAfter time.Duration
+}
+
+// parseRetryAfter reads the delta-seconds form of Retry-After. The HTTP-date
+// form is deliberately not accepted: this API only ever sends seconds, and
+// trusting a clock-dependent value from the wire would let a skewed server
+// park the relay for hours.
+func parseRetryAfter(raw string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func (e *APIError) Error() string {
@@ -128,7 +144,13 @@ func doJSON(
 		if failure.Message == "" {
 			failure.Message = http.StatusText(resp.StatusCode)
 		}
-		return &APIError{Status: resp.StatusCode, Code: failure.Code, Message: failure.Message, Path: path}
+		return &APIError{
+			Status:     resp.StatusCode,
+			Code:       failure.Code,
+			Message:    failure.Message,
+			Path:       path,
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
 		return nil

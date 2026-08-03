@@ -1,5 +1,14 @@
 # 2026-08-03
 
+- The Agent Messaging relay treated `429 rate_limited` as an ordinary transient fault and retried
+  after **3 seconds** — the one failure where a fast retry is strictly self-defeating, because the
+  budget is already spent and each attempt keeps the relay locked out. Observed live on
+  2026-08-03: a relay that tripped the 120/60s per-IP bucket re-registered every 3 seconds and
+  never recovered on its own, on a host that was also running interactive sessions. `retryDelay`
+  now honours the server's `Retry-After` (which the API already sends and the client discarded),
+  clamped to 5s..5m, and falls back to 30 seconds when there is no hint. `parseRetryAfter` accepts
+  only the delta-seconds form; the HTTP-date form is rejected so a skewed clock cannot park the
+  relay for hours.
 - Turning the fleet Agent Messaging switch on used to break Agent Portal for every session that
   was already running. The shared `POST /host/agent-sessions/{id}/heartbeat` calls the portal and
   the messaging heartbeat in one request, but it gated the messaging half on the *fleet switch*

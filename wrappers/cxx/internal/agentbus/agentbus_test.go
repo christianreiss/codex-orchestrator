@@ -390,6 +390,46 @@ func TestRelayBacksOffHardWhileTheAllowedWindowIsClosed(t *testing.T) {
 	}
 }
 
+// A 429 is the one failure a fast retry makes strictly worse: the budget is
+// already spent, so every extra attempt keeps the relay locked out. Observed
+// live on 2026-08-03, where a rate-limited relay re-registered every 3 seconds
+// and never recovered on its own.
+func TestRelayBacksOffWhenRateLimited(t *testing.T) {
+	limited := &APIError{Status: http.StatusTooManyRequests, Code: "rate_limited"}
+	if got := retryDelay(limited); got != 30*time.Second {
+		t.Fatalf("rate limited without a hint retried after %v, want 30s", got)
+	}
+
+	withHint := &APIError{Status: http.StatusTooManyRequests, Code: "rate_limited", RetryAfter: 42 * time.Second}
+	if got := retryDelay(withHint); got != 42*time.Second {
+		t.Fatalf("rate limited retried after %v, want the server's 42s hint", got)
+	}
+
+	// Clamped at both ends: a server that says "1s" must not reopen the hot
+	// loop, and one that says "an hour" must not park the relay indefinitely.
+	tiny := &APIError{Status: http.StatusTooManyRequests, RetryAfter: time.Second}
+	if got := retryDelay(tiny); got != 5*time.Second {
+		t.Fatalf("tiny Retry-After produced %v, want the 5s floor", got)
+	}
+	huge := &APIError{Status: http.StatusTooManyRequests, RetryAfter: time.Hour}
+	if got := retryDelay(huge); got != 5*time.Minute {
+		t.Fatalf("huge Retry-After produced %v, want the 5m ceiling", got)
+	}
+}
+
+func TestParseRetryAfterAcceptsOnlyDeltaSeconds(t *testing.T) {
+	if got := parseRetryAfter("17"); got != 17*time.Second {
+		t.Fatalf("parseRetryAfter(17) = %v, want 17s", got)
+	}
+	// The HTTP-date form is rejected on purpose: this API only sends seconds,
+	// and a skewed clock must not be able to park the relay.
+	for _, raw := range []string{"", "  ", "0", "-5", "Wed, 21 Oct 2026 07:28:00 GMT", "soon"} {
+		if got := parseRetryAfter(raw); got != 0 {
+			t.Fatalf("parseRetryAfter(%q) = %v, want 0", raw, got)
+		}
+	}
+}
+
 func TestSendRejectsMessageContentInArgvBeforeSocketAccess(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	secret := "must-not-enter-argv"
