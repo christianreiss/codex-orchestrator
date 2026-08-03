@@ -53,6 +53,7 @@ async function main(): Promise<number> {
       logger,
       appliedBy: 'cli',
       dryRun: options.dryRun,
+      initSchema: options.initSchema,
       baselineThrough: options.baseline,
       reapply: options.reapply,
       lockTimeoutSeconds: options.lockTimeout ?? env.MIGRATIONS_LOCK_TIMEOUT,
@@ -63,6 +64,13 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    if (report.baseline) {
+      out(
+        report.baseline.applied
+          ? `  baseline   db/baseline/schema.sql (${report.baseline.statements} statement(s), ${report.baseline.durationMs}ms)`
+          : `  baseline   skipped — ${report.baseline.reason}`,
+      );
+    }
     if (report.outcomes.length === 0) {
       out(`nothing to do: ${report.alreadyApplied} migration(s) already applied`);
     } else {

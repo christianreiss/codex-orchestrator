@@ -50,7 +50,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
 
 Fresh-install binaries embed the installation-specific verification key via
-the `PUBLIC_KEY_FILE` build path used by `bin/setup.sh`; the tracked fallback
+the `PUBLIC_KEY_FILE` build path used by `bin/install.sh`; the tracked fallback
 PEM is not edited. Claude and Codex aliases therefore share the same unique
 installation trust root and reject configs signed by another installation.
 

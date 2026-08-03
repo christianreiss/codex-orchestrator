@@ -32,7 +32,9 @@ let cached: TestDbHandle | null | undefined = undefined;
  *
  * Exported so `test/fixtures/apply-schema-baseline.ts` resolves the target the
  * same way the suites do; a setup script that picked a different database than
- * the tests would be worse than none.
+ * the tests would be worse than none. That script applies
+ * `src/db/baseline/schema.sql` — the same artifact `migrate.js --init-schema`
+ * provisions a fresh installation from.
  */
 export function readDbConfig(): mysql.PoolOptions | null {
   // Require an explicit signal so we don't accidentally hit production DB.

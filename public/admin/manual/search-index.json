@@ -137,13 +137,18 @@
         },
         {
             "slug": "admin-login",
-            "title": "Admin login and mTLS",
+            "title": "Admin login and access",
             "section": "Admin access and identity",
-            "summary": "Access modes, mTLS enforcement, the session cookie, and the login / logout flow.",
+            "summary": "The session cookie, access modes, the login / logout flow, and what happened to client certificates.",
             "anchors": [
                 {
                     "id": "access-modes",
                     "text": "Access modes",
+                    "level": 2
+                },
+                {
+                    "id": "client-certificates",
+                    "text": "Client certificates",
                     "level": 2
                 },
                 {
@@ -4189,9 +4194,6 @@
         "is.": [
             10
         ],
-        "ismtlssatisfied": [
-            3
-        ],
         "issued": [
             13
         ],
@@ -4890,10 +4892,6 @@
             0,
             2,
             7
-        ],
-        "mtls": [
-            0,
-            3
         ],
         "multiple": [
             7

@@ -145,7 +145,10 @@ describe('docs/SECURITY.md environment reference', () => {
     expect(keys.has('SMTP_SECURE')).toBe(true); // The last key before superRefine.
 
     expect(processEnvVars().has('TOKEN_MIN_LENGTH')).toBe(true); // runner-validation.ts
-    expect(accessModes()).toEqual(new Set(['mtls', 'cookie', 'open']));
+    // `mtls` was removed when this server stopped issuing client certificates;
+    // it had always been a third spelling of `cookie` on the one route that
+    // reads this value.
+    expect(accessModes()).toEqual(new Set(['cookie', 'open']));
     expect(documentedAccessModes()).toContain('open');
   });
 });

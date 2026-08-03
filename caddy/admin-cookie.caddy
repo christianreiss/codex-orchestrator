@@ -1,8 +1,0 @@
-@admin path /admin* /admin
-
-handle @admin {
-	reverse_proxy api:8080 {
-		header_up X-Forwarded-Proto https
-		header_up X-Real-IP {http.request.remote}
-	}
-}

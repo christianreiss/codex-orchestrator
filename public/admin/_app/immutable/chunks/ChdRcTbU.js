@@ -1,0 +1,1 @@
+import{n as e}from"./CXwZXPJH2.js";async function t(e){try{return await navigator.clipboard.writeText(e),!0}catch{return!1}}async function n(n,r,i){let a=await t(n);e.success(a?r:i),a||e.error(`Auto-copy failed`)}export{t as n,n as t};

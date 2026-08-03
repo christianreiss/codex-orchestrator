@@ -287,7 +287,7 @@ The following variables are read from the process environment at startup. They c
 
 | Variable | Description |
 |---|---|
-| `ADMIN_ACCESS_MODE` | `'mtls'` \| `'cookie'` \| `'open'` — how admin sessions are authenticated. |
+| `ADMIN_ACCESS_MODE` | `'cookie'` \| `'open'` — whether `/cli/auth/verify` requires an admin session. Does not gate `/admin/*`. |
 | `ENCRYPTION_ACTIVE_KEY` | Required. Active encryption key for at-rest data. |
 | `ENCRYPTION_KEYS`, `ENCRYPTION_ACTIVE_KID` | Key rotation support. |
 | `AUTH_RUNNER_URL` + `AUTH_RUNNER_SHARED_SECRET` | Runner integration. |

@@ -87,24 +87,65 @@ If you only use one AI tool on one laptop, this is probably overkill — but we 
 
 ## Get started in 5 minutes
 
-All you need is Docker and Docker Compose.
+All you need is Docker with the Compose v2 plugin, plus `curl` and `openssl`.
 
 ```bash
-bin/setup.sh
+bin/install.sh
 ```
 
-That's it. The guided installer generates every installation-owned secret, builds a four-platform `cxx` fleet trusted only by this installation, starts the stack, and verifies local plus public readiness. It prints `READY` and the exact `/admin/setup` URL only after every critical check passes; partial runs print `INCOMPLETE` and exit non-zero. See [`docs/INSTALL.md`](docs/INSTALL.md) for non-interactive flags and staged-deployment options.
+That's it. The guided installer walks twelve steps: it generates every
+installation-owned secret, wires TLS, builds a four-platform `cxx` fleet trusted
+only by this installation, provisions the database schema, starts the stack,
+creates your first owner, and verifies readiness. It prints `READY` and the
+console URL only after every critical check passes; anything short of that prints
+`INCOMPLETE` and exits non-zero.
+
+Every step is re-runnable, so an interrupted install resumes rather than starting
+over. `bin/install.sh doctor` diagnoses an existing one and names the command
+that fixes each problem.
+
+Driving it from a script or an agent:
+
+```bash
+bin/install.sh --json --non-interactive \
+  --url https://codex.example.com --tls acme --acme-email ops@example.com \
+  --admin-name "Ada Lovelace" --admin-user ada --admin-email ada@example.com \
+  --admin-pass-file /run/secrets/owner-password
+```
+
+One JSON object per step on stdout, human output on stderr. See
+[`docs/INSTALL.md`](docs/INSTALL.md) for every flag and for staged-deployment
+options.
 
 ### Onboard your first host
 
-1. **Create the first owner** — open the `/admin/setup` URL printed by `bin/setup.sh`. The unclaimed owner endpoint is intentionally public only while no admin exists, so do not expose an unclaimed installation.
-2. **Upload your auth** — follow the persistent setup checklist to seed canonical Codex and/or Claude credentials. You only do this once per configured engine.
-3. **Register a host** — Admin, Hosts, New Host. You'll get an installer command.
-4. **Run the installer** on the target machine:
+Open the console and the setup wizard walks you through it — nine steps, the
+first two required and the rest skippable:
+
+1. **Infrastructure** — the six readiness checks, with the command that fixes
+   each one. Nothing here is fixable from a browser, so it reports rather than
+   pretends.
+2. **Owner** — the one-time claim, which also signs you in.
+3. **Engines** — Codex, Claude, both, or neither.
+4. **Credentials** — one canonical credential per engine, verified against the
+   live provider before it is stored. A bad value fails here, not on a host at
+   3am.
+5. **Fleet defaults** — model and reasoning effort. This is also the write that
+   activates MCP for the fleet; skills, memory, projects and secrets stay dark
+   until it lands.
+6. **Agent policy** — the seeded fleet policy, plus a box for your house rules.
+7. **Modules** — Projects and Secrets, both off until you say otherwise.
+8. **Collaboration** — the agent portal (you ↔ agent) and agent messaging
+   (agent ↔ agent). Also off by default, deliberately.
+9. **First host** — optional. Registering one mints its API key and a one-time
+   installer command:
    ```bash
    curl https://your-server/install/<token> | bash
    ```
-5. **Done.** The checklist clears after the first successful sync. Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both aliases backed by one `cxx` install.
+
+Progress is saved, so leaving mid-way is fine — the dashboard offers to resume.
+Codex hosts run `cdx`, Claude hosts run `clx`, and dual-engine hosts get both
+aliases backed by one `cxx` install.
 
 Secure hosts keep auth on disk and work offline (24h fresh window, 7d fallback).
 On insecure hosts, every auth-aware cdx/clx invocation shares a session lease;
@@ -200,7 +241,7 @@ Codex Orchestrator takes security seriously so you can focus on building things:
 - **Encryption**: All auth payloads use libsodium secretbox. Keys are rotated with KID tracking.
 - **Runner validation**: A sidecar service validates auth before writes are accepted — transparent to reads.
 - **Rate limiting**: All non-admin routes are rate-limited, with a dedicated bucket for auth failures.
-- **mTLS admin access**: The admin API defaults to mutual TLS. Passkey (WebAuthn) login is available too.
+- **Session-gated admin**: `/admin/*` is protected by the admin session cookie. Passkey (WebAuthn) login is available too. This server issues and verifies no certificates of its own; a proxy in front may terminate mTLS and forward `X-MTLS-*`, which the API reads from trusted peers only.
 - **IP binding**: Each host's API key locks to its IP on first use, with optional roaming support.
 
 For the full API surface, MCP details, and architecture deep-dive, check the docs below.
@@ -250,7 +291,7 @@ The agent document is version-controlled on the server as canonical base Markdow
 
 | Doc | What's inside |
 |-----|---------------|
-| [`INSTALL.md`](docs/INSTALL.md) | Setup, Docker services, TLS, mTLS, backups |
+| [`INSTALL.md`](docs/INSTALL.md) | Install wizard, Docker services, TLS, backups |
 | [`USAGE.md`](docs/USAGE.md) | Host user and operator workflows |
 | [`OVERVIEW.md`](docs/OVERVIEW.md) | Architecture, auth flow, sync pipeline |
 | [`API.md`](docs/API.md) | Full HTTP API reference |

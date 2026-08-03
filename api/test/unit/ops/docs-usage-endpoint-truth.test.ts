@@ -31,7 +31,9 @@ const PARAM = ':param';
  */
 const UNREGISTERED_PATHS: Record<string, string> = {
   '/admin': 'admin SPA — served by the /admin/ static mount and its HTML fallback, not a route',
-  '/admin*': 'proxy-side match for the optional caddy profile mTLS rule, not a route',
+  // `/admin*` used to be here for the caddy profile's client-certificate rule.
+  // That rule is gone — the proxy now has one handler for every path — so the
+  // doc no longer names the pattern and the exemption went with it.
   '/usr/local/bin': "the installer's default BIN_DIR on the host, not an HTTP path",
 };
 

@@ -52,7 +52,7 @@ services:
       RUN_MIGRATIONS_ON_BOOT: ${RUN_MIGRATIONS_ON_BOOT:-1}
       MIGRATIONS_LOCK_TIMEOUT: ${MIGRATIONS_LOCK_TIMEOUT:-120}
       RUN_BACKFILLS_ON_BOOT: ${RUN_BACKFILLS_ON_BOOT:-0}
-      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-mtls}
+      ADMIN_ACCESS_MODE: ${ADMIN_ACCESS_MODE:-cookie}
       ADMIN_WS_ENABLED: ${ADMIN_WS_ENABLED:-1}
       DATA_ROOT: /app/storage
     volumes:
@@ -159,22 +159,27 @@ services:
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN:-codex-auth.example.com}
       CADDY_TLS_FRAGMENT: ${CADDY_TLS_FRAGMENT:-/etc/caddy/tls-acme.caddy}
-      CADDY_ADMIN_FRAGMENT: ${CADDY_ADMIN_FRAGMENT:-/etc/caddy/admin-mtls.caddy}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-ops@example.com}
-      CADDY_MTLS_CA_FILE: ${CADDY_MTLS_CA_FILE:-/etc/caddy/mtls/ca.crt}
       CADDY_TLS_CERT_FILE: ${CADDY_TLS_CERT_FILE:-/etc/caddy/tls/tls.crt}
       CADDY_TLS_KEY_FILE: ${CADDY_TLS_KEY_FILE:-/etc/caddy/tls/tls.key}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/tls-acme.caddy:/etc/caddy/tls-acme.caddy:ro
       - ./caddy/tls-custom.caddy:/etc/caddy/tls-custom.caddy:ro
-      - ./caddy/admin-mtls.caddy:/etc/caddy/admin-mtls.caddy:ro
-      - ./caddy/admin-cookie.caddy:/etc/caddy/admin-cookie.caddy:ro
-      - ${CADDY_MTLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/mtls}:/etc/caddy/mtls:ro
       - ${CADDY_TLS_DIR:-/var/docker_data/codex-auth.example.com/caddy/tls}:/etc/caddy/tls:ro
+      # ACME state: the account key and every issued certificate. Without these
+      # two, `docker compose down` throws away the certificates and the next `up`
+      # asks Let's Encrypt for new ones — five duplicates a week and the site
+      # loses HTTPS until the rate limit rolls off.
+      - caddy_data:/data
+      - caddy_config:/config
     networks:
       - codex_auth
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 networks:
   codex_auth:

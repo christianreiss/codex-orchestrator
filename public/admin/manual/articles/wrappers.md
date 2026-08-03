@@ -415,7 +415,7 @@ callers.
 ## Verifying a deployment
 
 1. `cd wrappers && make cxx && make test` — builds the common binary and runs Go tests.
-2. On a fresh installation, `bin/setup.sh` generates the Ed25519 pair, passes
+2. On a fresh installation, `bin/install.sh` generates the Ed25519 pair, passes
    the public PEM through `PUBLIC_KEY_FILE` linker injection for the complete
    platform matrix, imports the private key encrypted, proves read-back and a
    signature round-trip, then removes plaintext. It does not rewrite tracked

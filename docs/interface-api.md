@@ -183,6 +183,8 @@
 - `GET /readyz` — unauthenticated derived readiness probe; returns 503 until migrations, runner, encrypted signer, complete four-platform wrapper matrix, and Public Base URL checks pass. `/healthz` remains liveness-only.
 - `GET /admin/setup/status` — public only before the first admin exists, then session-gated; returns secret-free readiness, configured engines, verified canonical-auth presence, host/sync counts, warnings, and next actions.
 - `POST /admin/setup/owner` — serialized one-time empty-install claim; creates a fixed active owner and returns an authenticated session cookie.
+- `GET /admin/setup/wizard` — first-run wizard progress (`completed_at`, `dismissed_at`, `last_step`, `engines`); same visibility rule as `/admin/setup/status`, and mirrored there as `wizard`.
+- `POST /admin/setup/wizard` — merge-update of that blob (`last_step?`, `engines?`, `completed?`, `dismissed?`). Stored in the `versions` K/V table without publishing `settings.changed`, because step position is not a setting anything should react to. Separate from `setup_complete`, which covers only infrastructure and the owner claim and therefore goes true at step two of nine.
 - CLI device auth — the `cdx`/`clx` device-code login flow, which mints a host without an admin-issued installer token:
   - `POST /cli/auth/start` — wrapper begins a login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, the user code, and `verify_url`. Exempt from the API kill switch and rate-limited per IP.
   - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.

@@ -59,6 +59,107 @@
   `.content` — without it both previews would have rendered the saved posture while sliders were
   being dragged. Verified with the full Playwright suite including its Axe checks.
 
+- Turned `/admin/setup` into a nine-step first-run wizard, so opening the console for the first
+  time walks an operator from a bare install to a configured fleet instead of handing them a
+  three-item checklist. Infrastructure and the owner claim still block; engines, credentials, fleet
+  defaults, agent policy, modules, collaboration and the optional first host are all skippable,
+  because "no" is a complete answer to most of them. Position and completion persist in a
+  `setup_wizard_state` blob (new `GET`/`POST /admin/setup/wizard`), so an interrupted run resumes
+  from the dashboard card and a finished or dismissed one stops nagging. That state exists because
+  neither existing notion could carry it: `setup_complete` is `criticalComplete && ownerCreated` and
+  goes true at step two of nine, and a `next_action` can only be complete-when-done, which would
+  leave anyone who declined every optional module staring at a permanently unfinished list.
+- Fixed the checklist's main action, which pointed at a page that could not perform it.
+  `auth_codex`/`auth_claude` linked to `/admin/api-keys` — a page that manages *proxy bearer keys*
+  and has never had any canonical-auth UI. The only seeding UI in the product sat behind a dropdown
+  on the hosts page with no deep link. It is now `/admin/setup?step=auth`, and the form itself moved
+  to a shared `SeedAuthPanel` mounted by both the wizard and the hosts dialog.
+- Made credential seeding report what actually happened. `/admin/auth/upload` answers 200 even when
+  the live runner probe leaves a candidate `pending` or `failed`, and the checklist counts only
+  `verified` — so the old unconditional success toast left operators looking at a red checklist with
+  no explanation. The panel now reads `verification_state` (added to `UploadAuthResponse`, which had
+  omitted it) and distinguishes all three outcomes, and it says so up front when the auth runner is
+  down rather than letting every attempt fail with an identical 503.
+- Added an explicit "Which engines will this fleet run?" step — Codex, Claude, both, or neither.
+  Claude could previously never be seeded from the checklist at all: the auth steps were derived from
+  `DEFAULT_HOST_ENGINES`, which defaults to `codex`, while the server reports canonical auth for both
+  engines regardless. "Neither" is a real answer that skips the credentials step rather than erroring.
+- Gave the buried `config_missing` failure a visible step. A fresh install has no fleet client-config
+  row; without one the managed feature context disables skills, memory, projects and secrets *before
+  their own switches are read*, so enabling Projects on a new install provably did nothing. The only
+  thing that creates that row is `POST /admin/model-defaults/:engine`, and the GET returns a default
+  that was never persisted — which is how a console looks configured while every managed feature is
+  dark. The wizard's Fleet defaults step saves codex defaults unconditionally, including when the
+  operator answered "neither" on engines, because this is MCP activation and not credentials.
+- Replaced both installers with one guided, resumable `bin/install.sh`, and made a fresh install
+  actually possible. It walks twelve steps from an empty Docker host to a working console — secrets,
+  data root, TLS, wrapper fleet, **database schema**, stack, first owner, verification — and prints
+  `READY` with the console URL only after all six critical `/readyz` checks pass. Every step is
+  re-runnable and records itself, so an interrupted run resumes instead of starting over, and
+  `--from`/`--only`/`--force` drive individual steps. `--json` puts one object per step on stdout
+  with the human UI on stderr, `--non-interactive` reports every missing value at once instead of
+  failing on the first, and passwords are read from files because flag values are visible in the
+  process list. New `doctor` subcommand maps each failing readiness check to the command that fixes
+  it and degrades to a clear "API unreachable" instead of crashing inside `compose exec` — which is
+  the state people actually run it in. `bin/setup.sh` remains as a shim; `bin/setup-quick.sh` is
+  gone (it wrote `ADMIN_ACCESS_MODE=none`, which the schema rejects, so every stack it produced
+  refused to boot, and it never built wrapper signing material, so even fixed it left the console
+  locked behind `/setup` forever).
+- Gave the migration runner `--init-schema`, closing the gap that made "install from scratch"
+  impossible: the migrations extend a schema rather than create one — 0003 and 0006 carry foreign
+  keys — so an empty database could never be migrated into existence, and the only file that creates
+  the tables was declared test-only. It is now `api/src/db/baseline/schema.sql`, shipped into the
+  image by `scripts/build.ts` and resolved by `defaultBaselineFile()` the same way `migrations/` is.
+  `--init-schema` takes the migration lock, applies the baseline only when `information_schema`
+  reports no application tables, then migrates on top; against a populated database it reports
+  `skipped` and migrates as usual, so it is safe to re-run and safe against every existing
+  deployment. It refuses to combine with `--baseline`, which records without executing and would
+  mark the whole set applied over a schema that was never created. The two existing drift tests were
+  repointed rather than duplicated — they already keep the baseline honest against `schema.ts` and
+  the migration set.
+- Stopped issuing and enforcing client certificates. The bundled Caddy config no longer generates a
+  CA, no longer mints a `client-admin` certificate, and no longer gates `/admin*` on one — that gate
+  enforced nothing the admin session did not already enforce, and cost a whole PKI to operate.
+  `caddy/admin-mtls.caddy` and `caddy/admin-cookie.caddy` are gone along with the
+  `CADDY_ADMIN_FRAGMENT` indirection and the `CADDY_MTLS_*` variables; `ADMIN_ACCESS_MODE` narrows
+  to `cookie` (default) or `open`, which is all it ever meant on the one route that reads it.
+- Kept accepting externally provided mTLS claims, and made them worth accepting. `X-MTLS-Fingerprint`
+  / `-Subject` / `-Issuer` from a proxy that terminates mTLS still populate `req.mtls`, but now only
+  when the connecting peer is inside `TRUSTED_PROXY_CIDRS` with `TRUST_X_FORWARDED=1` — the same
+  gate `client-ip` applies to `X-Forwarded-For`, and for the same reason: a direct caller could
+  previously type those headers as easily as the edge could. Both default off, so an unconfigured
+  server records nothing; `bin/install.sh` sets them when a proxy is configured, and warns when the
+  WebAuthn relying-party id disagrees with the public host.
+- Persisted Caddy's ACME state in `caddy_data` / `caddy_config` volumes. There was no top-level
+  `volumes:` key at all, so the account key and every issued certificate died on `docker compose
+  down`, and a few redeploys would hit Let's Encrypt's five-duplicates-per-week limit and lose
+  HTTPS. `docs/INSTALL.md` had promised these volumes existed since before they did.
+- Closed the `ENV_FILE` trap. Compose reads the env file twice and only `env_file:` honours
+  `ENV_FILE`; every key also named under `environment:`, and every `${VAR}` in a bind-mount source,
+  interpolates from Compose's own environment instead. Pointing `ENV_FILE` at `.env.local` therefore
+  resolved `AUTH_RUNNER_SHARED_SECRET` to empty and mounted the *default* `DATA_ROOT`, producing a
+  stack that built cleanly and failed the `wrappers` readiness check for no visible reason.
+  `bin/install.sh` now exports the whole file into Compose's environment, and `doctor` asserts the
+  container's `/app/storage` actually contains the matrix that was published.
+- Dropped Go, `make` and `python3` as host prerequisites. The wrapper matrix still compiles on the
+  installing machine — each installation bakes its own public key into the binaries — but it now
+  builds in a purpose-built container (`wrappers/Dockerfile.build`) when the host toolchain is
+  absent, and uses the host directly when it is present. "All you need is Docker" is true now.
+- Fixed `--force wrappers` so it cannot destroy what it cannot rebuild: it confirms the plaintext
+  signing key still exists *before* setting the previous matrix aside. After the signer step imports
+  and deletes that key, rebuilding in place is impossible by design, and the installer now says so
+  and points at the rotation runbook instead of moving a working matrix out of the way first.
+- Excluded `node_modules` and regenerated build output from the Docker context. `COPY api ./api` was
+  overwriting the dependency tree the `deps` stage had just installed with whatever the host happened
+  to have — a different platform's native builds, or in a git worktree a symlink BuildKit refuses to
+  write over a directory.
+- Corrected four standing documentation falsehoods: `AUTH_ENCRYPTION_KEY` and `INSTALLATION_ID` never
+  auto-generated on first boot (nothing generates them, and the API container is read-only, so it
+  could not persist one), the first build has not pulled `mysql:8.0` or `php:8.2-apache` since the
+  Node rewrite, and the bundled proxy never requested client certificates for all requests. `.env` is
+  now kept at mode 0600 unconditionally instead of being relaxed to 0644 whenever the `www-data` user
+  is absent — which is every Fedora, Arch and RHEL host, and that file holds the database root
+  password, the secretbox key and the runner shared secret.
 - Made `0016_add_agents_builder_state.sql` idempotent. It was the only additive migration shipping a
   bare `ALTER TABLE ... ADD COLUMN` instead of the information_schema guard `0015` and `0017` use, so
   replaying it against a schema that already has the column died with `ER_DUP_FIELDNAME` — which is

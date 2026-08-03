@@ -3,14 +3,14 @@
 title: Architecture at a glance
 section: Orientation
 verified: 2026-07-29
-sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/host-management.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-proxy.ts, api/src/ops/auth-verification-worker.ts, api/src/ops/setup-signing-key.ts, api/src/services/mcp-server.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, api/src/db/schema.ts, api/src/env.ts, bin/setup.sh, docker-compose.yml, runner/app.py, wrappers/cxx
+sources: api/src/server.ts, api/src/routes/index.ts, api/src/routes/admin/pages/static.ts, api/src/services/host-auth.ts, api/src/services/host-management.ts, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-proxy.ts, api/src/ops/auth-verification-worker.ts, api/src/ops/setup-signing-key.ts, api/src/services/mcp-server.ts, api/src/ws/server.ts, api/src/ws/publisher.ts, api/src/db/schema.ts, api/src/env.ts, bin/install.sh, docker-compose.yml, runner/app.py, wrappers/cxx
 ---
 
 Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 8.4 through Drizzle ORM. The HTTP entry point is `api/src/server.ts`; routes live under `api/src/routes/<group>/*.ts` and are mounted by `api/src/routes/index.ts`. Domain logic lives in plain TypeScript services under `api/src/services/`. A Python FastAPI auth-runner sidecar talks to OpenAI / Anthropic on the orchestrator's behalf. Hosts install one Go `cxx` wrapper and expose the enabled Codex/Claude personas through relative `cdx` / `clx` aliases.
 
 ## Request lifecycle
 
-1. TLS termination is optional. Caddy is included in the compose file but is guarded by `profiles: ["caddy"]` and is **not** started by a plain `docker compose up`. If `ADMIN_ACCESS_MODE=mtls`, the terminating proxy forwards `X-MTLS-Fingerprint` (and friends) to the API.
+1. TLS termination is optional. Caddy is included in the compose file but is guarded by `profiles: ["caddy"]` and is **not** started by a plain `docker compose up`. A proxy that terminates mTLS may forward `X-MTLS-Fingerprint` (and friends); the API records them only from peers inside `TRUSTED_PROXY_CIDRS`.
 2. Every request enters Fastify in `api/src/server.ts`. The plugin order is fixed:
    1. `cookie` (`@fastify/cookie`, `onRequest` hook)
    2. `corsPlugin`
@@ -33,7 +33,7 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
 - **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-client.ts` (low-level HTTP transport to the auth-runner sidecar), `runner-validation.ts` (resolves + validates the canonical auth payload for an engine), `canonical-auth-store.ts` (stores candidate auth and decides whether the served payload is still verified), `runner-proxy.ts` (admin-triggered runner actions: run a prompt on demand, mint seed commands), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` (dashboard ChatGPT usage — the `CLAUDE_*` pricing env vars are parsed by `env.ts` but no equivalent Claude usage-tracking service consumes them yet), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
 - **Database** — Drizzle queries against a single schema in `api/src/db/schema.ts`. Services receive a `Database` handle (`api/src/db/client.ts`) and write SQL through Drizzle's typed query builder. No repository layer; tables are queried where they're used.
 - **MCP** — `api/src/services/mcp-server.ts`, `mcp-tools.ts`, `mcp-resources.ts`, `mcp-fs.ts`. The HTTP entry point is `/mcp` (routes in `api/src/routes/mcp/index.ts`); auth uses either a per-host API key or an `MCP_OPERATOR_TOKEN` bearer (operator capability). MCP routes use a fourth preflight based on `mcp_session_tokens` bearer tokens.
-- **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), `mtls.ts` (proxy-forwarded mTLS header parsing), and `hash.ts` (sha256 helpers).
+- **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), `mtls.ts` (proxy-forwarded mTLS claim parsing, gated on trusted-proxy CIDRs), and `hash.ts` (sha256 helpers).
 
 ## The runner sidecar
 
@@ -43,7 +43,7 @@ Verification no longer happens on the request/boot path. `runner-client.ts` is t
 
 ## The wrappers
 
-`cdx` and `clx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/setup.sh` creates an installation-unique Ed25519 key, embeds its public key in all four platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` transition launcher plus typed signed engine config produced by `wrapper-config.ts`. The launcher fetches enabled configs first, verifies a shared version/SHA target, installs `cxx` plus aliases, and explicitly `exec`s `cxx <engine>`. The binary does three things on every run:
+`cdx` and `clx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/install.sh` creates an installation-unique Ed25519 key, embeds its public key in all four platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` transition launcher plus typed signed engine config produced by `wrapper-config.ts`. The launcher fetches enabled configs first, verifies a shared version/SHA target, installs `cxx` plus aliases, and explicitly `exec`s `cxx <engine>`. The binary does three things on every run:
 
 1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
 2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).
@@ -94,4 +94,4 @@ Everything that can vary by engine takes an `Engine` value from `api/src/util/en
 - docker-compose.yml (compose-level env var overrides, e.g. ADMIN_WS_ENABLED, AUTH_RUNNER_URL)
 - runner/app.py (FastAPI verify / exec endpoints)
 - wrappers/cxx (common Go module and Codex/Claude personas)
-- bin/setup.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)
+- bin/install.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)

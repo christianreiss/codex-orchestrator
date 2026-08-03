@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -84,6 +84,15 @@ for (const file of migrations) {
   copyFileSync(resolve(migrationsSrc, file), resolve(migrationsDist, file));
 }
 
+// `migrate.js --init-schema` reads the starting schema from `baseline/` beside
+// the bundle, resolved by `defaultBaselineFile()` exactly the way migrations are.
+// Fail loudly if it is missing: a silent omission here is a fresh install that
+// cannot create its database, discovered only on the target machine.
+const baselineSrc = resolve(root, 'src/db/baseline/schema.sql');
+if (!existsSync(baselineSrc)) throw new Error(`baseline schema not found at ${baselineSrc}`);
+mkdirSync(resolve(dist, 'baseline'), { recursive: true });
+copyFileSync(baselineSrc, resolve(dist, 'baseline', 'schema.sql'));
+
 const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const runtimePkg = {
   name: pkg.name,
@@ -120,5 +129,5 @@ try {
 }
 
 console.log(
-  `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/setup-signing-key.js, dist/rotate-signing-key.js, dist/migrations/ (${migrations.length} files)`,
+  `Build complete -> dist/server.js, dist/chatgpt-usage-worker.js, dist/migrate.js, dist/setup-signing-key.js, dist/rotate-signing-key.js, dist/migrations/ (${migrations.length} files), dist/baseline/schema.sql`,
 );

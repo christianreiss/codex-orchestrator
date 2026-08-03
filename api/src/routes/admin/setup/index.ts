@@ -6,11 +6,14 @@ import { createAdminAuthService } from '../../../services/admin-auth.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { createAdminUsersService } from '../../../services/admin-users.js';
 import { createSetupStatusService } from '../../../services/setup-status.js';
+import { SETUP_WIZARD_STEPS, createSetupWizardService } from '../../../services/setup-wizard.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../util/engine.js';
 
 export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const auth = createAdminAuthService(ctx.db, ctx.env);
   const users = createAdminUsersService(ctx.db, auth, createAdminEventsService(ctx.db));
   const setup = createSetupStatusService(ctx.db, ctx.env, ctx.keyring);
+  const wizard = createSetupWizardService(ctx.db);
 
   // Public only while the installation is unclaimed. Naming app.requireAdmin
   // in this alias also keeps the repo-wide admin-route guard audit honest.
@@ -46,6 +49,34 @@ export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteC
     );
     auth.applySessionCookie(reply, session.token, session.expires_at);
     return ok({ user: session.user, expires_at: session.expires_at });
+  });
+
+  /**
+   * Wizard progress only. Every question the wizard asks is answered against
+   * the endpoint that owns it — model defaults, module switches, host
+   * registration — so this pair records nothing but where the operator is and
+   * whether they are finished.
+   *
+   * Same guard as the two routes above: public while the installation is
+   * unclaimed, because the wizard starts before an owner exists and wants to
+   * record its position from step one.
+   */
+  const wizardSchema = z
+    .object({
+      last_step: z.enum(SETUP_WIZARD_STEPS).optional(),
+      engines: z.array(z.enum([ENGINE_CODEX, ENGINE_CLAUDE])).optional(),
+      completed: z.boolean().optional(),
+      dismissed: z.boolean().optional(),
+    })
+    .strict();
+
+  app.get('/admin/setup/wizard', { preHandler: [requireAdminAfterSetup] }, async () => {
+    return ok(await wizard.get());
+  });
+
+  app.post('/admin/setup/wizard', { preHandler: [requireAdminAfterSetup] }, async (req) => {
+    const body = wizardSchema.parse((req.body ?? {}) as Record<string, unknown>);
+    return ok(await wizard.update(body));
   });
 }
 

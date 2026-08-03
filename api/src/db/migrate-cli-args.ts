@@ -17,6 +17,10 @@ Options:
                        reported but does not fail the check. No writes.
   --list               Print the ledger versus the shipped files. No writes.
   --dry-run            Report what would be applied. No writes.
+  --init-schema        Create the starting schema from db/baseline/schema.sql
+                       when the database holds no application tables, then
+                       migrate on top. A no-op against a database that already
+                       has them, so a fresh-install script can re-run safely.
   --baseline VERSION   Record migrations up to VERSION as applied WITHOUT running
                        them. Adoption path for a database migrated by hand.
   --reapply VERSION    Execute VERSION again even if the ledger says it is
@@ -32,6 +36,7 @@ export interface Options {
   dryRun: boolean;
   json: boolean;
   help: boolean;
+  initSchema: boolean;
   baseline: string | null;
   reapply: string[];
   lockTimeout: number | undefined;
@@ -44,6 +49,7 @@ export function parseArgs(argv: string[]): Options {
     dryRun: false,
     json: false,
     help: false,
+    initSchema: false,
     baseline: null,
     reapply: [],
     lockTimeout: undefined,
@@ -70,6 +76,9 @@ export function parseArgs(argv: string[]): Options {
         break;
       case '--json':
         options.json = true;
+        break;
+      case '--init-schema':
+        options.initSchema = true;
         break;
       case '--baseline':
         options.baseline = value();

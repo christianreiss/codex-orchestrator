@@ -2,7 +2,7 @@
 
 This doc is the “day 2” guide: how to provision hosts and how to actually run Codex via the baked `cdx` wrapper.
 
-- **Installing the service stack** (Docker, mTLS, `.env`, runner sidecars): see `docs/INSTALL.md`.
+- **Installing the service stack** (Docker, TLS, `.env`, runner sidecars): see `docs/INSTALL.md`.
 - **API contracts** (source of truth): see `docs/API.md` and `docs/interface-cdx.md`.
 
 ## Roles (who does what)
@@ -53,7 +53,7 @@ If you prefer provisioning via API (CI, inventory tooling), the admin endpoint i
 
 Use admin login + session cookie: that is the only admin check the API itself makes, whatever `ADMIN_ACCESS_MODE` says (it is read only by the `/cli/auth/verify` CLI-approval page).
 
-Client certificates are an extra proxy-layer hardening step, and needed only when the deployment runs the optional `caddy` profile — that proxy rejects `/admin*` without a validated cert before the API sees the request. Example against such a deployment (paths are placeholders; adapt to your CA/certs). The certificate only gets you past the proxy; add the admin session cookie once admin users exist, because the route itself is session-gated:
+The admin session is the whole check — this server does not issue or verify client certificates, and the bundled `caddy` profile does not request them. If you front it with a proxy that enforces mTLS, add whatever client credentials that proxy wants to the calls below; the API still requires the session cookie either way:
 
 ```bash
 BASE_URL="https://codex-auth.example.com"

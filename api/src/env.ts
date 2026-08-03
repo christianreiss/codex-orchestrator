@@ -100,7 +100,11 @@ const schema = z
     AUTH_SEED_TOKEN_TTL_SECONDS: intish(900),
 
     // Admin
-    ADMIN_ACCESS_MODE: z.enum(['mtls', 'cookie', 'open']).default('mtls'),
+    //
+    // Whether `/cli/auth/verify` requires an admin session. It has never had
+    // anything to do with certificates — `mtls` was a third spelling of
+    // `cookie` here — and was dropped when this server stopped issuing them.
+    ADMIN_ACCESS_MODE: z.enum(['cookie', 'open']).default('cookie'),
     ADMIN_SESSION_COOKIE: z.string().default('codex_admin_session'),
     ADMIN_SESSION_TTL_MINUTES: intish(60 * 24 * 30),
     ADMIN_WS_ENABLED: boolish.default(false),

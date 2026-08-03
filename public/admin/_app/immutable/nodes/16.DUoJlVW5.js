@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BuZVoKoD2.js";export{e as component};

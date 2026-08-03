@@ -1,0 +1,30 @@
+# Toolchain image for cross-compiling the four `cxx` wrapper binaries.
+#
+# It exists so installing this orchestrator needs Docker and nothing else. The
+# wrapper matrix has to be built on the installing machine — each installation
+# bakes its own Ed25519 public key into the binaries, so a prebuilt artifact
+# from a release pipeline would be trusted by the wrong installation — and that
+# used to make Go, make and python3 hard prerequisites on the host. Now
+# `bin/install.sh` builds this image instead when the host toolchain is absent.
+#
+# python3 is not optional: `wrappers/Makefile` shells out to
+# `scripts/merge-manifest.py` and `scripts/publish-release.py`, which own the
+# manifest merge and the immutable-version publish rules.
+FROM golang:1.25-bookworm
+
+# `make` is not in the golang image. Everything else the Makefile touches
+# (sha256sum, base64, wc, sed, awk) is coreutils, already present.
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y make python3 \
+  && rm -rf /var/lib/apt/lists/*
+
+# The container runs as the invoking user (`--user $(id -u):$(id -g)`) so the
+# published binaries are not root-owned on the host. That user has no home
+# directory inside the image, so Go's caches must live somewhere world-writable
+# or every build fails on a permission error before it compiles anything.
+ENV GOCACHE=/tmp/go-build \
+    GOMODCACHE=/tmp/go-mod \
+    GOFLAGS=-buildvcs=false \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /src

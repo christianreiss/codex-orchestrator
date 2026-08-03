@@ -173,7 +173,7 @@ a different thing that happens to share the word.)
 Fresh installations use the authoritative bootstrap:
 
 ```
-bin/setup.sh
+bin/install.sh
 ```
 
 It generates an environment-local Ed25519 pair, passes the public PEM as
@@ -189,8 +189,11 @@ is a 503 `wrapper_v2_unavailable` — and then on the requested engine being lis
 in `hosts.engines`, a 403 `engine_disabled` otherwise. `wrapper_track` gates
 nothing, so the bakery is live for every host whose engine is enabled.
 
-`bin/setup.sh` imports THE key of an installation and refuses to replace it.
-Replacing one is rotation, below.
+`bin/install.sh` imports THE key of an installation and refuses to replace it,
+and deletes the plaintext copy once the encrypted one reads back. From then on
+the matrix cannot be rebuilt in place — `--force wrappers` detects this and
+refuses without touching the existing artifacts. Replacing a key is rotation,
+below.
 
 ## Config lifetime and expiry recovery
 
@@ -361,7 +364,7 @@ image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`.
    the API is not serving the key you added — stop and find out why instead of
    continuing on the ops script's green.
 3. **Build binaries embedding the new public key.** Build and publish with
-   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/setup.sh` does. Do **not**
+   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/install.sh` does. Do **not**
    let hosts pick them up yet: until the old key is retired those binaries reject
    every config the API serves.
 4. **Flip: retire the old key and roll the fleet in one window.**

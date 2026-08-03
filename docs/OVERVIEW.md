@@ -9,7 +9,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - Centralize `auth.json` instead of managing per-host logins.
 - Bake a one-time installer per host (API key + base URL) and keep hosts in sync automatically.
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
-- Run Codex in environments that require IP binding, mTLS, and rate limits.
+- Run Codex in environments that require IP binding, TLS, and rate limits.
 
 ## Contract guardrails
 
@@ -247,7 +247,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 - **Insecure hosts** — Require an active sliding window (0–480 minutes, default 10, set via the log-ish dashboard slider or `duration_minutes`) for `/auth` retrieve and other window-gated host routes. Each non-store `/auth` call extends the window by that duration. `/auth` store submissions are still accepted as candidates when the window and grace period are closed, do not open/extend the window, and pass every normal authentication/validation/runner gate. New insecure hosts start with a provisioning window (default 30 minutes, overridable via register `duration_minutes`); secure hosts keep auth on disk. Every auth-aware cdx/clx invocation holds a shared session lease, updates its own purge request from live API security metadata, and only the last exiting process purges native credentials; active native children defer that purge and explicit logout intent is retained. When insecure approvals are enabled and an admin websocket client is connected, closed-window retrieve requests return a pending response and the wrapper waits for approval inside a single refresh-in-place terminal status box that points the operator to Admin `Enable window` and shows last-check/check-count metadata. Pending approval requests auto-deny after five minutes, removing them from the admin queue and returning `insecure_denied` to polling hosts; optional domain auto-allow rules can auto-open windows for matching subdomains while active.
 - **Auth integrity** — Digest is sha256 over canonical JSON; stored digest mismatch triggers validation logging. Timestamps are clamped to reasonable bounds.
 - **Encryption & secrets** — Secretbox protects API keys, payload bodies, and token entries; key is auto-generated/persisted in `.env` if absent. API keys also stored as sha256 hashes for lookup.
-- **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode + limit slider (`/admin/quota-mode` exposes warn-only vs. hard-fail, `limit_percent`, and optional `week_partition` pacing for a daily allowance bar in `cdx`). Hosts can also be marked VIP (per-host toggle) to bypass the quota kill-switch entirely (always warn-only). Admin routes honor mTLS by default.
+- **Kill switches** — Admin can disable the API (`/admin/api/state` 503s everything else) or set quota mode + limit slider (`/admin/quota-mode` exposes warn-only vs. hard-fail, `limit_percent`, and optional `week_partition` pacing for a daily allowance bar in `cdx`). Hosts can also be marked VIP (per-host toggle) to bypass the quota kill-switch entirely (always warn-only). Admin routes are gated by the admin session.
 
 ## Data retention & pruning
 
@@ -273,7 +273,7 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
 
 ## Fleet workflow at a glance
 
-- Bring up the stack (`cp .env.example .env`, set DB/host vars, `docker compose up --build`; add `--profile caddy` for TLS/mTLS frontend). Runner + quota cron sidecars are on by default in compose.
+- Bring up the stack with `bin/install.sh`, which generates `.env`, provisions the schema, builds the wrapper fleet and creates the first owner. Add `--tls acme|file|selfsigned` for the bundled Caddy frontend. Runner + quota cron sidecars are on by default in compose.
 - Log into Codex once on a trusted box; upload that `~/.codex/auth.json` via the dashboard, use the one-time `curl | bash` seed command, or call `/auth` with `command: "store"`.
 - For managed hosts: `New Host` → paste the auto-copied `curl …/install/{token} | bash` command on the host. For disposable VMs: `Quick VM` → choose Codex, Claude, or Both → paste the auto-copied installer. Every host receives one `cxx`; Codex hosts receive `cdx -> cxx`, Claude hosts `clx -> cxx`, and dual-engine hosts both aliases against the same host key. Treat only a final `READY` plus exit 0 as success; `INCOMPLETE` means the named retry must be run (or a fresh single-use installer minted for wrapper/config failures).
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.

@@ -33,6 +33,7 @@ describe('parseArgs', () => {
       dryRun: false,
       json: false,
       help: false,
+      initSchema: false,
       baseline: null,
       reapply: [],
       lockTimeout: undefined,
@@ -44,6 +45,7 @@ describe('parseArgs', () => {
     ['--list', 'list'],
     ['--dry-run', 'dryRun'],
     ['--json', 'json'],
+    ['--init-schema', 'initSchema'],
   ] as const)('%s sets %s', (flag, key) => {
     expect(parseArgs([flag])[key]).toBe(true);
   });
