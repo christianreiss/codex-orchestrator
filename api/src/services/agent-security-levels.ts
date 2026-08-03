@@ -935,7 +935,7 @@ export interface DerivedEnforcement {
     approval_policy: DerivedKnob<CodexApprovalPolicy>;
     sandbox_mode: DerivedKnob<CodexSandboxMode>;
     network_access: DerivedKnob<boolean>;
-    web_search: DerivedKnob<boolean>;
+    web_search: DerivedKnob<CodexWebSearch>;
     guardian_approval: DerivedKnob<boolean>;
   };
   claude: {
@@ -996,6 +996,15 @@ const SANDBOX_BY_LEVEL: readonly CodexSandboxMode[] = [
 ];
 
 /**
+ * Codex reads `web_search` as a string enum — `disabled | cached | indexed |
+ * live`, verified against codex-cli 0.146.0 — and a boolean makes it reject
+ * the *entire* config.toml, not just this key. Posture only chooses between
+ * off and on, so it uses the two ends.
+ */
+export const CODEX_WEB_SEARCH_VALUES = ['disabled', 'cached', 'indexed', 'live'] as const;
+export type CodexWebSearch = (typeof CODEX_WEB_SEARCH_VALUES)[number];
+
+/**
  * Every value here lands on a key Codex itself reads. `[security]
  * dangerously_bypass_approvals_and_sandbox` is deliberately absent: the server
  * renders it but no Go code parses it, and the wrapper reads the *signed*
@@ -1040,7 +1049,11 @@ export function securityLevelEnforcement(levels: SecurityLevels): DerivedEnforce
         sandboxLevel === 1 || sandboxLevel === 3 ? 'partial' : 'full'),
       network_access: knob(networkLevel >= 3, governing(levels, networkSubset),
         networkLevel >= 3 && networkLevel !== 3 ? 'partial' : 'full'),
-      web_search: knob(levels.dependencies >= 1, 'dependencies', 'partial'),
+      web_search: knob<CodexWebSearch>(
+        levels.dependencies >= 1 ? 'live' : 'disabled',
+        'dependencies',
+        'partial',
+      ),
       guardian_approval: knob(guardianWorthwhile, 'autonomy', 'partial'),
     },
     claude: {

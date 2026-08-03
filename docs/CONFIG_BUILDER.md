@@ -112,11 +112,16 @@ cannot take the fleet down.
 
 ## Web search toggle
 
-`web_search` is a boolean and is rendered at the root of `config.toml` (not under `[features]`).
+`web_search` is a string enum and is rendered at the root of `config.toml` (not under `[features]`).
 
-- Accepted values: `true`, `false`.
-- Boolean-ish inputs are coerced: `1`/`0`, `"true"`/`"false"`, `"yes"`/`"no"`, `"on"`/`"off"`.
-- Anything else — including an absent key and the legacy `live`/`cached`/`disabled` strings — normalizes to `null`, and the root `web_search` line is then omitted from the rendered config.
+- Accepted values: `disabled`, `cached`, `indexed`, `live`.
+- This is Codex's own enum, verified against codex-cli 0.146.0. A **boolean makes
+  Codex reject the entire `config.toml`** (`invalid type: unit variant, expected
+  string only in web_search`), not just this key — so the builder must never emit one.
+- Legacy boolean-ish inputs are migrated rather than dropped, because stored
+  documents still hold them: `true`/`1`/`"yes"`/`"on"` become `live`, and
+  `false`/`0`/`"no"`/`"off"` become `disabled`.
+- Anything else, including an absent key, normalizes to `null`, and the root `web_search` line is then omitted from the rendered config.
 - `features.web_search`, `features.web_search_request` and `features.web_search_cached` are dropped on normalize; they do not set the root field. Configs still carrying them must set root `web_search` explicitly.
 
 ## OTEL wiring

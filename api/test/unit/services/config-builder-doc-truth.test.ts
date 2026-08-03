@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToml } from '../../../src/services/client-config.js';
+import { CODEX_WEB_SEARCH_VALUES } from '../../../src/services/agent-security-levels.js';
 import {
   APPROVAL_POLICIES,
   DROPPED_FEATURE_KEYS,
@@ -84,25 +85,36 @@ describe('docs/CONFIG_BUILDER.md value sets', () => {
 });
 
 describe('docs/CONFIG_BUILDER.md web_search shape', () => {
-  it('documents web_search as the boolean normalizeSettings produces', () => {
-    expect(webSearchValues).toEqual(['true', 'false']);
+  it('documents exactly the enum Codex accepts', () => {
+    expect(webSearchValues).toEqual([...CODEX_WEB_SEARCH_VALUES]);
     for (const value of webSearchValues) {
-      expect(normalizeSettings({ web_search: value === 'true' }).web_search).toBe(value === 'true');
+      expect(normalizeSettings({ web_search: value }).web_search).toBe(value);
+      expect(renderToml(normalizeSettings({ web_search: value }))).toContain(
+        `web_search = "${value}"`,
+      );
     }
   });
 
-  it('coerces the boolean-ish inputs the doc lists', () => {
-    for (const truthy of [1, 'true', 'yes', 'on']) {
-      expect(normalizeSettings({ web_search: truthy }).web_search).toBe(true);
+  // Verified against codex-cli 0.146.0: a boolean here is not a bad value for
+  // one key, it makes Codex refuse to load config.toml at all
+  // ("invalid type: unit variant, expected string only in web_search"). So a
+  // boolean must never survive normalization into the rendered output.
+  it('never renders a boolean, whatever a stored document holds', () => {
+    for (const legacy of [true, 1, 'true', 'yes', 'on']) {
+      expect(normalizeSettings({ web_search: legacy }).web_search).toBe('live');
     }
-    for (const falsy of [0, 'false', 'no', 'off']) {
-      expect(normalizeSettings({ web_search: falsy }).web_search).toBe(false);
+    for (const legacy of [false, 0, 'false', 'no', 'off']) {
+      expect(normalizeSettings({ web_search: legacy }).web_search).toBe('disabled');
+    }
+    for (const legacy of [true, false, 1, 0, 'yes', 'off']) {
+      expect(renderToml(normalizeSettings({ web_search: legacy }))).not.toContain('web_search = true');
+      expect(renderToml(normalizeSettings({ web_search: legacy }))).not.toContain('web_search = false');
     }
   });
 
-  it('normalizes the legacy string values away instead of accepting them', () => {
-    for (const legacy of ['live', 'cached', 'disabled']) {
-      const s = normalizeSettings({ web_search: legacy });
+  it('omits the key for an unknown or absent value', () => {
+    for (const junk of ['sometimes', 'LIVE?', 42, {}]) {
+      const s = normalizeSettings({ web_search: junk });
       expect(s.web_search).toBeNull();
       expect(renderToml(s)).not.toContain('web_search');
     }

@@ -1,5 +1,15 @@
 # 2026-08-03
 
+- **Fleet-wide Codex breakage, fixed.** The new security posture emitted `web_search` as a boolean
+  into `config.toml`. Verified against codex-cli 0.146.0: `web_search` is the string enum
+  `disabled | cached | indexed | live`, and a boolean does not degrade that one key — Codex refuses
+  to load **the entire config file** with `invalid type: unit variant, expected string only in
+  web_search`. Every host would have lost Codex on its next config refresh; caught on a live host
+  whose config had just been rebaked. `docs/CONFIG_BUILDER.md` and its doc-truth test asserted the
+  opposite (boolean accepted, `live`/`cached`/`disabled` "legacy strings" to be discarded), so the
+  wrong shape was pinned by a passing test — the doc, the test and the normalizer are corrected
+  together against the binary rather than against each other. Stored boolean documents are
+  *migrated* rather than dropped: truthy becomes `live`, falsy becomes `disabled`.
 - The Agent Messaging relay treated `429 rate_limited` as an ordinary transient fault and retried
   after **3 seconds** — the one failure where a fast retry is strictly self-defeating, because the
   budget is already spent and each attempt keeps the relay locked out. Observed live on

@@ -16,6 +16,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-terra';
@@ -155,7 +156,7 @@ export interface NormalizedSettings {
   personality: string;
   approval_policy: string | null;
   sandbox_mode: string | null;
-  web_search: boolean | null;
+  web_search: CodexWebSearch | null;
   model_reasoning_effort: string | null;
   model_reasoning_summary: string | null;
   model_verbosity: string | null;
@@ -295,9 +296,26 @@ export function normalizeStringList(value: unknown): string[] {
   return out;
 }
 
-function normalizeWebSearch(value: unknown): boolean | null {
+/**
+ * Codex reads `web_search` as the string enum `disabled | cached | indexed |
+ * live`, and rejects the whole config.toml if it is a boolean. Older stored
+ * documents hold booleans, so those are mapped to the two ends rather than
+ * dropped; anything else becomes null and the key is simply not emitted,
+ * which is always safe.
+ */
+function normalizeWebSearch(value: unknown): CodexWebSearch | null {
   if (value === null || value === undefined) return null;
-  return normalizeBool(value);
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (CODEX_WEB_SEARCH_VALUES.includes(lowered as CodexWebSearch)) {
+      return lowered as CodexWebSearch;
+    }
+  }
+  // Not one of Codex's values, so fall through to the boolean-ish forms a
+  // stored document may still hold ("true"/"on"/1 and their opposites).
+  const legacy = normalizeBool(value);
+  if (legacy === null) return null;
+  return legacy ? 'live' : 'disabled';
 }
 
 function normalizeFeatures(value: unknown): Record<string, unknown> {

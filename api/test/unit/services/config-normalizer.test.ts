@@ -314,7 +314,9 @@ describe('normalizeSettings()', () => {
       model_supports_reasoning_summaries: 'yes',
     });
     expect(s.orchestrator_mcp_enabled).toBe(false);
-    expect(s.web_search).toBe(true);
+    // web_search is Codex's string enum, not a boolean; a legacy truthy value
+    // migrates to 'live' rather than rendering a boolean Codex would reject.
+    expect(s.web_search).toBe('live');
     expect(s.model_supports_reasoning_summaries).toBe(true);
   });
 
