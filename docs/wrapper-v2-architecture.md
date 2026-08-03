@@ -136,7 +136,13 @@ version every time the input changes.
 `hosts.config_baked_at` — timestamp of the last bake (informational; not used
 for cache invalidation).
 
-`hosts.wrapper_track` — `legacy|v2`.
+`hosts.wrapper_track` — vestigial. Historically `legacy|v2` and defaulting to
+`v2`, but the value is unvalidated and nothing acts on it: it gates nothing and
+is kept only for compatibility. The per-host gate is `hosts.engines`, enforced by
+`assertHostEngineEnabled`. (`wrapper-config.ts` has a wrapper track setting of
+the same name, surfaced as `track` in the baked wrapper block; its only
+implementation is the no-op settings-loader default, so it is always `stable` —
+a different thing that happens to share the word.)
 
 `wrapper_signing_keys`, `wrapper_v2_binaries` — operator-facing inventory.
 
@@ -156,8 +162,10 @@ PEM encrypted, proves signing/read-back, and deletes plaintext. The lower-level
 versioned operator releases and recovery.
 
 After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
-binary manifest and the bakery is live for any host whose `wrapper_track` is
-flipped to `'v2'`.
+binary manifest. The v2 routes gate on the signing key first — none configured
+is a 503 `wrapper_v2_unavailable` — and then on the requested engine being listed
+in `hosts.engines`, a 403 `engine_disabled` otherwise. `wrapper_track` gates
+nothing, so the bakery is live for every host whose engine is enabled.
 
 ## cxx rollout and rollback
 
