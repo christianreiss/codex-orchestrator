@@ -1,5 +1,23 @@
 # 2026-08-03
 
+- Added round-trip golden config fixtures under `wrappers/testdata/`: `host-codex.json`,
+  `host-codex-insecure.json` and `host-claude.json`, each with its detached `.json.sig`, plus a
+  `README.md` stating the determinism contract. `docs/wrapper-v2-architecture.md` and
+  `wrappers/README.md` had documented this directory as present for months while it did not exist.
+  The producer half (`api/test/unit/contract/wrapper-config-golden.test.ts`) bakes each fixture with
+  the clock, the host row, the `WrapperBinRegistry`, the installation id, the fake-DB
+  `config_version` and a checked-in TEST-ONLY Ed25519 seed all frozen, then asserts
+  `BakeResult.canonicalJson` is byte-identical to the file — nothing is stripped, because nothing is
+  left unfrozen. The consumer half (`wrappers/cxx/internal/config/golden_test.go`) verifies the real
+  detached signature, loads each file through `config.LoadForEngine` (never
+  `allowUnsignedForTests`), and compares every decoded field to a literal. Go cannot byte-compare a
+  re-marshal — `encoding/json` emits declaration order while `canonicalStringify` sorts keys — and
+  decodes neither `documents`, `skills` nor `etag`; that asymmetry is now a stated contract rather
+  than a silent gap, asserted by pinning each fixture's top-level key set to `config.Config`'s json
+  tags plus a named allowlist of those three, so a NEW baked key fails on the Go side. Regenerate
+  with `UPDATE_GOLDEN=1`; hand-editing a fixture invalidates its signature. `expires_at` is
+  `issued_at + WRAPPER_CONFIG_TTL_SECONDS`, so the TTL constant is part of the fixtures' identity:
+  changing it rewrites every fixture and every signature, and that break is an intended update.
 - Removed the blanket fleet-policy prohibition on writing secret values to files, logs, or replies.
   Managed AGENTS/CLAUDE guidance, MCP initialization, and `secret_get` now permit a value to be
   persisted or relayed when an explicitly requested task requires it; the secret store itself still

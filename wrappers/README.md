@@ -12,7 +12,9 @@ Layout:
 - `cxx/internal/{config,cron,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives.
 - `cxx/internal/persona/{codex,claude}` — intentionally different engine lifecycle behavior.
 - `schemas/host-config-v1.json` — JSON Schema for the per-host config blob.
-- `testdata/` — fixtures consumed by both Go and PHP round-trip tests.
+- `testdata/` — golden baked configs and their detached signatures, asserted
+  byte-for-byte by the TypeScript baker test and loaded for real by
+  `cxx/internal/config`. See `testdata/README.md`.
 
 Build:
 
