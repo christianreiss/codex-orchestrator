@@ -349,6 +349,11 @@ const FIXTURES: Fixture[] = [
       secure: 0,
       curlInsecure: 1,
       browserosMcpEnabled: 0,
+      // On 0.7.8+, so the pre-0.7.8 compatibility hold-back does not apply and
+      // this stays the fixture for "insecure host still gets the bus". The
+      // host's reported version is not part of the signed payload, so this
+      // does not move the golden bytes.
+      wrapperVersion: '0.7.8',
       engines: 'codex',
       modelOverride: null,
       reasoningEffortOverride: null,
@@ -492,5 +497,61 @@ describe('wrapper config golden fixtures', () => {
       'fleet-bootstrap',
       'claude-artifacts',
     ]);
+  });
+
+  describe('pre-0.7.8 compatibility hold-back', () => {
+    const INSECURE = FIXTURES[1]!;
+
+    function atVersion(wrapperVersion: string | null, extra: Partial<Host> = {}): Fixture {
+      return { ...INSECURE, host: { ...INSECURE.host, wrapperVersion, ...extra } };
+    }
+
+    // cxx <= 0.7.7 refuses the WHOLE signed config when agent_messaging is on
+    // without host.secure, so baking it would freeze the host's config refresh
+    // instead of merely withholding the bus.
+    it.each([
+      ['0.7.7', false],
+      ['0.7.6', false],
+      ['0.6.55', false],
+      ['0.7.8', true],
+      ['0.7.9', true],
+      ['0.8.0', true],
+      ['1.0.0', true],
+    ])('insecure host reporting %s bakes agent_messaging=%s', async (version, expected) => {
+      const result = await bake(atVersion(version));
+      expect(result.payload.agent_messaging.enabled).toBe(expected);
+      // The shim must not contradict the real field, in either direction.
+      expect(result.payload.host.agent_messaging_enabled).toBe(expected);
+    });
+
+    it('treats an unknown wrapper version as incapable rather than guessing', async () => {
+      for (const version of [null, '', '   ', 'nightly']) {
+        const result = await bake(atVersion(version));
+        expect(result.payload.agent_messaging.enabled).toBe(false);
+      }
+    });
+
+    it('never consults the wrapper version for a secure host', async () => {
+      // A secure host satisfies the old validator regardless of version, so the
+      // hold-back must not touch it — that would be policy, not compatibility.
+      const result = await bake(atVersion('0.7.7', { secure: 1 }));
+      expect(result.payload.host.secure).toBe(true);
+      expect(result.payload.agent_messaging.enabled).toBe(true);
+    });
+
+    it('falls back to the peer engine version, since cxx is one binary', async () => {
+      const result = await bake(
+        atVersion(null, { claudeWrapperVersion: '0.7.8', engines: 'codex,claude' }),
+      );
+      expect(result.payload.agent_messaging.enabled).toBe(true);
+    });
+
+    it('still honours the fleet switch above the hold-back', async () => {
+      const off: Fixture = {
+        ...atVersion('0.7.8'),
+        rows: { ...INSECURE.rows, agentMessagingFlag: '0' },
+      };
+      expect((await bake(off)).payload.agent_messaging.enabled).toBe(false);
+    });
   });
 });

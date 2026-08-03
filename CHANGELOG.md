@@ -1,5 +1,18 @@
 # 2026-08-03
 
+- Agent Messaging is no longer baked for an insecure host whose wrapper cannot read the result.
+  Making the fleet switch the only switch means every active host gets `agent_messaging.enabled`,
+  but `cxx <= 0.7.7` rejects the **entire** signed config when that arrives without `host.secure` —
+  and `fleetconfig.Fetch` validates before `Persist`, so the host does not brick, it silently
+  freezes on its last good config and stops receiving agents/skills/model updates until it happens
+  to update. Live crane has 15 active insecure hosts on 0.7.7, so flipping the switch would have
+  stalled all 15 for the length of the rollout. `wrapperAcceptsInsecureMessaging` withholds the
+  bake from a host that reports a pre-0.7.8 wrapper, consulting the peer engine's reported version
+  as a fallback since wrapper v2 is one shared binary. This is compatibility, never eligibility: a
+  secure host is never consulted, the fleet switch still wins above it, and an unknown or
+  unparseable version is treated as incapable because the cost of guessing wrong that way is one
+  delayed config cycle rather than a stalled host. Retire it with the `host.agent_messaging_enabled`
+  shim once the fleet is fully on 0.7.8.
 - Fleet security posture is now a 0-4 scale on nine axes instead of a set of booleans, and it
   finally reaches the mandatory prefix. `MANAGED_POLICY_MARKDOWN` was one frozen literal that
   nothing an operator set could touch, so the served document forbade remote mutation in its prefix
