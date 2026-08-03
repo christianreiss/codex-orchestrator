@@ -1,8 +1,8 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-08-01
-sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, wrappers/Makefile
+verified: 2026-08-03
+sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/db/baseline/schema.sql, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, frontend/src/routes/setup/+page.svelte, frontend/src/lib/components/setup/SeedAuthPanel.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, wrappers/Makefile
 ---
 
 Orchestrator ships as a Docker Compose stack: the Node API, MySQL 8.4, the auth runner, and Caddy as the TLS/reverse proxy. `bin/install.sh` walks you through first-time configuration and brings up the stack.
@@ -30,11 +30,51 @@ docker compose --profile caddy up -d
 
 ## First boot
 
-1. **Clone and run setup.** `bin/install.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
-2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
+1. **Clone and run the installer.** `bin/install.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, provisions the schema, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
+2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. Those migrations *extend* a schema rather than create one, so an empty database is bootstrapped from `api/src/db/baseline/schema.sql` by `migrate.js --init-schema` — which applies the baseline only when `information_schema` reports no application tables, then migrates on top, and is therefore safe to re-run against a populated database. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
 3. **Claim the first owner.** `/admin/setup` is the only console surface for an empty install. The claim is serialized, always creates one active owner, and signs it in immediately. Do not expose an unclaimed installation.
-4. **Finish operational onboarding.** Provider auth and the first host do not block the console, but remain in `/admin/setup` and on the dashboard until verified canonical auth, host registration, and first sync are present.
+4. **Finish operational onboarding.** The setup wizard continues past the owner claim through engines, credentials, fleet defaults, agent policy, modules, collaboration and an optional first host. None of those block the console, and everything unanswered stays on the dashboard's resume card until verified canonical auth, host registration, and first sync are present.
 5. **Wrapper signing lifecycle.** Setup injects the generated public key through Go linker data without modifying tracked `pubkey.pem`, imports the private PEM as a secretbox envelope, verifies DB read-back/signing, and only then removes plaintext. Existing installations are never auto-rotated; mismatches and mixed artifacts fail closed.
+
+## The installer
+
+`bin/install.sh` takes an empty Docker host to a working console. Docker with the Compose v2 plugin, `curl`, `openssl` and coreutils are the only hard dependencies — a Go toolchain, `make` and `python3` are used when present and run in a purpose-built container when they are not. `bin/setup.sh` remains as a shim that execs this script.
+
+Twelve steps run in order, each independently re-runnable: `prereqs`, `secrets`, `dataroot`, `urls`, `tls`, `wrappers`, `datatier`, `schema`, `apptier`, `signer`, `owner`, `verify`. The database and API start in separate steps deliberately — the API fails closed on a pending migration, so the schema has to exist before it opens a listener.
+
+Three properties are load-bearing:
+
+- **Every step is re-runnable.** Steps record themselves in a state file and skip when their work is already done, and each re-derives its own preconditions instead of trusting its predecessor, so an interrupted run resumes rather than restarting. Configuration steps re-apply (a changed URL or TLS choice takes effect); the expensive ones (`wrappers`, `schema`, `signer`, `owner`) skip.
+- **Machine-drivable.** `--json` puts one object per step on stdout while the human terminal UI goes to stderr, so an agent and a person can read the same run. `--non-interactive` never prompts: missing input is one error naming everything missing, not a question loop. Passwords are passed as files (`--admin-pass-file`), never as flag values, because arguments are visible in the process list.
+- **Fails closed.** `READY` is printed only after `/healthz`, all six critical `/readyz` checks, and the public URL pass. Anything less prints `INCOMPLETE` and exits non-zero. Existing secrets are preserved; mismatched keys, mixed wrapper versions, incomplete matrices and multiple active database signers fail rather than being rotated.
+
+Selective runs: `--from <step>` redoes a step and everything after, `--only <step>` runs exactly one, and `--force wrappers` sets a partial or foreign-signed matrix aside and rebuilds — refusing, without touching anything, once the plaintext signing key has been removed, because replacing a signing key means rolling every deployed host in the same window.
+
+Image building lives in `datatier`, not `apptier`. After editing the API or rebuilding the admin SPA, run `--only datatier` before `--only apptier`, or the container keeps serving the previous build.
+
+Diagnosis: `bin/install.sh doctor` maps each failing check to the command that fixes it and works with the stack down — it reports the API as unreachable rather than crashing inside `compose exec`. `verify` re-runs the readiness checks; `print-env` prints the resolved configuration with secrets masked.
+
+## The first-run setup wizard
+
+`/admin/setup` is the console's front door on an unclaimed installation, and `/admin` stands down in its favour until the auth state has settled. Nine steps:
+
+| Step | What it asks | Blocking |
+|---|---|---|
+| Infrastructure | Nothing — it reports the six critical checks (`database`, `migrations`, `runner`, `signer`, `wrappers`, `public_base_url`) and the command that fixes each. | **yes** |
+| Owner | The one-time first-owner claim, which issues the session inline. | **yes** |
+| Engines | Codex, Claude, both, or neither. Drives the next step. | no |
+| Credentials | One canonical credential per selected engine. Disappears from the rail entirely when the answer was "neither". | no |
+| Fleet defaults | Model and reasoning effort — **and the write that activates MCP**. | no |
+| Agent policy | Shows the seeded fleet policy; optional house rules are appended to it. | no |
+| Modules | Projects and Secrets, both off until enabled. | no |
+| Collaboration | Agent portal and agent messaging, both off until enabled. | no |
+| First host | Optional. Registers a host and prints its one-time installer command. | no |
+
+Only the first two block: infrastructure is not fixable from a browser, and nothing else can be written without the session the owner claim issues. Everything after has **Skip**, because "no" is a complete answer to most of it.
+
+Position and completion persist in a `setup_wizard_state` blob behind `GET`/`POST /admin/setup/wizard`, so an interrupted run resumes from the dashboard card and a finished or dismissed one stops nagging. That blob exists because neither existing notion can carry it: `setup_complete` is `criticalComplete && ownerCreated` and goes true at step two of nine, and a `next_action` can only ever be complete-when-done, which would leave anyone who declined every optional module staring at a permanently unfinished list.
+
+**Fleet defaults is not cosmetic.** A fresh install has no `client_config_documents` row. Without one the managed feature context reports `config_missing` and resolves skills, memory, projects and secrets to disabled *before their own switches are read* — so enabling Projects on a brand-new install does nothing at all. `POST /admin/model-defaults/:engine` is the only thing that creates that row, while the matching `GET` returns a default that was never persisted, which is how a console can look configured while every managed feature is dark. The wizard therefore saves Codex defaults on that step unconditionally, including on the "neither engine" path: it is MCP activation, not credentials.
 
 ## Environment variables the app reads
 
@@ -133,12 +173,14 @@ If a proxy you run in front terminates mTLS, it may forward `X-MTLS-Fingerprint`
 
 ## Seeding the canonical auth
 
-Hosts cannot fetch auth until the orchestrator has its own copy. Two paths:
+Hosts cannot fetch auth until the orchestrator has its own copy. One form, reachable from two places: the wizard's **Credentials** step, and *Hosts → More → Seed canonical auth* afterwards. Both mount the same `SeedAuthPanel`, so the product's only canonical-auth UI cannot drift into two versions. It offers two paths:
 
-- **Admin UI upload.** Sign in as the first admin, use *Admin → Upload auth*. The route is `POST /admin/auth/upload`. This is the normal path once you are running.
-- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The generated `curl | bash` snippet is copied automatically; the admin runs it on the machine that currently holds the canonical `~/.codex/auth.json`. The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).
+- **Upload.** Paste the credential or pick the file. The route is `POST /admin/auth/upload`. This is the normal path once you are running.
+- **Seed auth token.** `POST /admin/auth/seed-command` mints a single-use token, backed by an `auth_seed_tokens` row. The generated `curl | bash` snippet is copied automatically; the admin runs it on the machine that currently holds the canonical `~/.codex/auth.json` (or `~/.claude/.credentials.json`). The seed endpoint is `POST /seed/auth/{token}` (aliased to `/seed/v2/auth/{token}`). Tokens are UUIDs and are consumed on success. Token TTL is controlled by `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900 s).
 
-The GET twin at `/seed/auth/{token}` returns an executable shell script that reads your local `auth.json` and POSTs it back.
+The GET twin at `/seed/auth/{token}` returns an executable shell script that reads your local credential file and POSTs it back.
+
+Every candidate is verified against the live provider before it is stored, and the panel reports which of the three outcomes happened rather than a blanket success: `POST /admin/auth/upload` answers 200 even when the live runner probe leaves a candidate `pending` or `failed`, and the setup checklist counts only **verified** credentials — so a stored-but-unverified value keeps the step open. When the auth runner itself is down the panel says so up front instead of letting every attempt fail with an identical 503.
 
 ## Registering a host
 
@@ -185,6 +227,7 @@ self-update between runs.
 
 ## Post-install smoke test
 
+- The dashboard shows a **Resume setup** / **Finish setting up** card while the wizard is unfinished and at least one next action is still open. It deep-links back to the step you stopped on; **Dismiss** hides it permanently.
 - From the admin UI, visit *Dashboard*. New hosts appear under *Hosts → Unprovisioned* until they complete a successful sync; after that they move to *Secure* (or *Insecure*, if you activated insecure mode on registration). Use the **Runner state** card's **Run verification** button (one per engine) to confirm the runner is reachable; it calls `POST /admin/runner/run` for Codex or `/admin/runner/run-claude` for Claude.
 - Click into any host to see its per-host baked config version, last auth digest, and IP binding state.
 
@@ -201,6 +244,14 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 ## Source references
 
 - README.md (quick start)
+- bin/install.sh (the twelve installer steps, `doctor`, `--json` / `--non-interactive`)
+- api/src/db/baseline/schema.sql and `migrate.js --init-schema` (empty-database bootstrap)
+- api/src/routes/admin/setup/index.ts (`/admin/setup/status`, `/owner`, `/wizard`)
+- api/src/services/setup-status.ts (the six critical checks, next actions)
+- api/src/services/setup-wizard.ts (`SETUP_WIZARD_STEPS`, `setup_wizard_state`)
+- frontend/src/routes/setup/+page.svelte (wizard rail, blocking rules, `?step=`)
+- frontend/src/lib/components/setup/SeedAuthPanel.svelte (the shared credential form)
+- frontend/src/routes/dashboard/OnboardingCard.svelte (resume card)
 - docker-compose.yml (stack definition)
 - caddy/Caddyfile (TLS termination and reverse-proxy config)
 - api/src/env.ts (all env var definitions and validation)

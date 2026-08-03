@@ -25,6 +25,35 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name.
   - `ADMIN_WEBAUTHN_ORIGIN` overrides the exact ceremony origin; otherwise the app prefers `PUBLIC_BASE_URL` before deriving it from the trusted request scheme/host.
 
+## First-Run Setup (`/admin/setup`)
+- `/admin/setup` is the first-run wizard and the only console surface an unclaimed installation offers. `frontend/src/routes/setup/+page.svelte` renders it outside the app shell (it is in the layout's `STANDALONE` list), so it owns the viewport.
+- `/admin` itself (`frontend/src/routes/+page.svelte`) waits for the auth store to settle and stands down when the installation is unclaimed, leaving the navigation to the layout gate. Redirecting immediately raced that gate and usually lost, so a brand-new install opened on a dashboard full of 401s.
+- Four routes, all behind `requireAdminAfterSetup` (`api/src/routes/admin/setup/index.ts`): public only while `admin_users` is empty, session-gated afterwards.
+  - `GET /admin/setup/status` — the six critical checks, configured engines, verified canonical-auth presence, host/sync counts, warnings, next actions, and the wizard blob mirrored inline as `wizard` so the console needs one request.
+  - `POST /admin/setup/owner` — serialized one-time first-owner claim. Creates one fixed active `owner` and issues the normal admin session cookie inline, so the wizard never bounces through `/admin/login`. Later claims return `409 first_owner_claimed`.
+  - `GET /admin/setup/wizard` / `POST /admin/setup/wizard` — the progress blob `{completed_at, dismissed_at, last_step, engines}`. Position and completion only: every answer the wizard collects is written by the endpoint that owns it (`/admin/model-defaults/:engine`, the module switches, `/admin/hosts/register`).
+- The six critical checks (`api/src/services/setup-status.ts`) are `database`, `migrations`, `runner`, `signer`, `wrappers`, and `public_base_url`. `setup_complete` is `criticalComplete && ownerCreated` — it goes true at step two of nine and is not a "wizard finished" signal.
+- Nine steps, in `SETUP_WIZARD_STEPS` (`api/src/services/setup-wizard.ts`, mirrored by `SETUP_STEPS` in `frontend/src/lib/api/setup.ts`):
+
+  | Step | Writes through | Blocking |
+  |---|---|---|
+  | `infrastructure` | nothing — reports the six checks and the command that fixes each | **yes** |
+  | `owner` | `POST /admin/setup/owner` | **yes** |
+  | `engines` | wizard blob only (`engines`) | no |
+  | `auth` | `POST /admin/auth/upload`, `POST /admin/auth/seed-command` | no |
+  | `defaults` | `POST /admin/model-defaults/:engine` | no |
+  | `policy` | `POST /admin/agents/store` (house rules appended to the seeded policy) | no |
+  | `modules` | `POST /admin/projects/state`, `POST /admin/secrets/state`, optional `POST /admin/projects` | no |
+  | `collaboration` | `POST /admin/agent-portal/state`, `POST /admin/agent-messaging/state`, optional `POST /admin/agent-portal/users` | no |
+  | `host` | `POST /admin/hosts/register` | no |
+
+- Only the first two block: infrastructure is not fixable from a browser, and nothing else can be written without the session the owner claim issues. Everything after has **Skip**, because "no" is a complete answer to most of it.
+- The `auth` step drops out of the rail entirely when the engines answer is `[]`. An empty array is a real answer ("none"); `null` means "not asked yet".
+- `setup_wizard_state` is one JSON blob in the `versions` K/V table — no new table, no migration. Progress writes pass `publish: false`, so they never emit `settings.changed`; anything that changes real state must invalidate `["setup","status"]` itself (`invalidateSetup` in `frontend/src/lib/api/setup.ts`).
+- The dashboard resume card is `frontend/src/routes/dashboard/OnboardingCard.svelte`. It renders only while the wizard is unfinished (`completed_at` and `dismissed_at` both null) **and** at least one `next_actions` entry is incomplete, deep-links back to `?step=<last_step>`, and offers **Dismiss**, which hides it permanently.
+- `next_actions` are `auth_<engine>` (one per engine in `DEFAULT_HOST_ENGINES`), `first_host`, and `first_sync`. The auth entries link to `/admin/setup?step=auth` — not `/admin/api-keys`, which manages proxy bearer keys and has never had canonical-auth UI. An auth entry counts as complete only for **verified** canonical auth.
+- The credentials form is `frontend/src/lib/components/setup/SeedAuthPanel.svelte`, mounted by both the wizard and the Hosts → More → **Seed canonical auth** dialog, which keys it on `open` so each opening mounts a fresh panel. Between them they are the product's only canonical-auth UI. The panel reads `verification_state` from `POST /admin/auth/upload` and distinguishes verified / pending / failed rather than reporting unconditional success, and says up front when the auth runner is down instead of letting every attempt fail with an identical 503.
+
 ## Navigation & Presentation
 - One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
   command palette, title, breadcrumb, and active state. Its direct groups are
@@ -290,6 +319,7 @@ Admin routes:
     - `auth.denied` / `auth.insecure.denied` => `CDX refused` (warn/error).
 
 ## Common Workflows
+- **Bring up a new installation**: `bin/install.sh` on the Docker host until it prints `READY`, then open `/admin/setup` and walk the wizard. The two block-until-green steps are infrastructure and the owner claim; the rest can be skipped and resumed from the dashboard card.
 - **Onboard host**: `POST /admin/hosts/register` -> run returned installer command. For disposable VMs, use `POST /admin/hosts/quick-register` or the WebUI `Quick VM` button.
 - **Rotate canonical auth**: `POST /admin/auth/upload` (requires positive live runner validation).
 - **Seed canonical auth from local machine**: `POST /admin/auth/seed-command` with `engine` (`codex` or `claude`) -> execute generated `curl | bash`.
@@ -305,6 +335,8 @@ Admin routes:
   PATCH/DELETE conflicts require reloading the latest ETag before retrying.
 
 ## Notes & Gotchas
+- **A fresh install has no `client_config_documents` row, and that silently disables every managed feature.** With no row for the engine, `host-agents.ts` reports `config_missing` and resolves skills, memory, projects and secrets to disabled *before their own switches are read* — so enabling Projects on a brand-new install provably does nothing. (Codex is the strict case: a missing Codex row is `config_missing` outright, while Claude falls back to an empty settings object.) `POST /admin/model-defaults/:engine` is the only thing that creates that row, while the matching `GET` cheerfully returns a default that was never persisted, which is how a console can look configured while every managed feature is dark. The wizard's Fleet defaults step therefore saves codex defaults **unconditionally**, including on the "neither engine" path: it is MCP activation, not credentials. Outside the wizard, saving the **Codex** section in `/admin/engines` creates that row — `ModelDefaultsService.set(engine, …)` is per-engine, so saving only Claude defaults leaves Codex hosts in `config_missing`.
+- `setup_complete` on `GET /admin/setup/status` means `criticalComplete && ownerCreated` only. It is true from step two of nine and says nothing about whether the operator finished the wizard; `wizard.completed_at` / `wizard.dismissed_at` are the flags for that.
 - Installer tokens are single-use and expire after a TTL fixed at `1800` seconds in `api/src/services/host-management.ts`; it is a constant, not an env knob.
 - Insecure host registration opens an initial window:
   - Initial open window defaults to `30` minutes.

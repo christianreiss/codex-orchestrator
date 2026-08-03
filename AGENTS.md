@@ -111,6 +111,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 5. **Admin panel (session-gated)**
    - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is read only by `/cli/auth/verify` and has never gated `/admin/*`.
+   - `/admin/setup/*` is the documented exception: `status`, `owner`, and `wizard` sit behind `requireAdminAfterSetup`, public only while `admin_users` is empty. `owner` is the serialized one-time claim and issues the session inline; `wizard` stores first-run position/completion in `setup_wizard_state` (a `versions` K/V blob) with `publish: false`, so nothing reacts to a step change. `setup_complete` is `criticalComplete && ownerCreated` and is true from step two of nine — do not treat it as "wizard finished".
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.
    - `/admin/quota-mode` manages `quota_hard_fail`, `quota_limit_percent` (clamped 50–100), and `quota_week_partition` (`off|5|7`); `/admin/hosts/{id}/vip` forces warn-only behavior for VIP hosts.
@@ -118,6 +119,8 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 ## Operational Checkpoints
 
+- A fresh installation is provisioned by `bin/install.sh` (twelve re-runnable steps; `bin/setup.sh` is a shim for it) and then by the `/admin/setup` wizard. `--json` emits one object per step on stdout with the human UI on stderr, `--non-interactive` reports every missing value at once, and `doctor` maps each failing check to the command that fixes it. An empty database is bootstrapped by `migrate.js --init-schema`, which applies `api/src/db/baseline/schema.sql` only when no application tables exist and then migrates on top.
+- **A new install has no `client_config_documents` row, and without one the managed feature context reports `config_missing` and disables skills, memory, projects and secrets before their own switches are read.** `POST /admin/model-defaults/:engine` is the only writer that creates it; the `GET` returns an unpersisted default. The wizard's Fleet defaults step writes Codex defaults unconditionally for exactly this reason.
 - Troubleshoot hosts with `CODEX_DEBUG=1 cdx --version`; shows baked base URL + masked API key.
 - Validate local `~/.codex/auth.json`: must include `last_refresh` + either `auths` entries or `tokens.access_token`. Server synthesizes `auths = {"api.openai.com": ...}` when only tokens exist.
 - Insecure hosts auto-open on register for 30 minutes unless `duration_minutes` overrides it; stored sliding window is clamped 0–480 minutes (default 10). Insecure retrieve/MCP/lane calls extend the active window.
@@ -149,6 +152,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
 - Build output: `public/admin/` (committed). The API serves `index.html` verbatim from `STATIC_ROOT` for any unknown `/admin/*` route — no server-side injection; the SPA hydrates its session state from `GET /admin/auth/status`. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
-- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `cli-auth/verify`, `login`).
+- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `setup`, `cli-auth/verify`, `login`).
+- `setup` is the first-run wizard and renders outside `AppShell` (it is in the layout's `STANDALONE` list). Its steps live in `frontend/src/lib/components/setup/`; `SeedAuthPanel.svelte` is shared with the hosts-page seed dialog and is the product's only canonical-auth UI — do not fork a second copy.
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
 - Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.

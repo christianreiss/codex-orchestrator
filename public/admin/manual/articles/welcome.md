@@ -2,8 +2,8 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-07-29
-sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
+verified: 2026-08-03
+sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
 Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx` and `clx` aliases select the enabled persona without sharing a token across machines.
@@ -20,7 +20,7 @@ Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session
 
 ## How the admin is laid out
 
-The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route immediately redirects to `/dashboard`.
+The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard`, and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
 
 The left rail contains seven top-level navigation items:
 
@@ -42,7 +42,9 @@ If this is your first time here, read the first three articles in order:
 
 1. [Welcome](/admin/manual/welcome) — this page.
 2. [Architecture at a glance](/admin/manual/architecture) — how requests flow through the app.
-3. [Installing and bootstrapping](/admin/manual/install) — first boot and how hosts come online.
+3. [Installing and bootstrapping](/admin/manual/install) — the `bin/install.sh` installer, the nine-step first-run wizard at `/setup`, and how hosts come online.
+
+If you arrived here mid-setup, that third article is the one you want: it covers what each wizard step writes, which two steps block, and why the Fleet defaults step is the one you should not skip.
 
 Then dip into whichever section you need. The left rail is grouped so you can find things by topic; the search box filters by title, summary, section, and individual headings from the full body text.
 
@@ -64,6 +66,8 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - api/src/services/admin-auth.ts (login-time session TTL clamp, role constants, countAdmins)
 - api/src/http/plugins/auth-admin.ts (requireAdmin, resolveAdmin, rolling session TTL clamp)
 - api/src/env.ts (ADMIN_ACCESS_MODE, ADMIN_SESSION_COOKIE, ADMIN_SESSION_TTL_MINUTES)
+- frontend/src/routes/+page.svelte (the `/admin` front door and its wait-for-auth behaviour)
+- frontend/src/routes/setup/+page.svelte (first-run wizard)
 - frontend/src/lib/nav.ts (left rail navigation items)
 - frontend/src/routes/dashboard/+page.svelte (dashboard layout and stat cards)
 - frontend/src/routes/logs/+layout.svelte (Logs tabs: MCP, Events)

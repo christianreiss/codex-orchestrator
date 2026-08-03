@@ -3,6 +3,7 @@
 This doc is the “day 2” guide: how to provision hosts and how to actually run Codex via the baked `cdx` wrapper.
 
 - **Installing the service stack** (Docker, TLS, `.env`, runner sidecars): see `docs/INSTALL.md`.
+- **Day 0** — a brand-new installation is walked by `bin/install.sh` and then by the first-run wizard at `/admin/setup`, which covers everything in the "Provision a host" section below in guided form. Use this guide when the wizard is already done, when you skipped a step, or when you are automating.
 - **API contracts** (source of truth): see `docs/API.md` and `docs/interface-cdx.md`.
 
 ## Roles (who does what)
@@ -24,12 +25,14 @@ Before onboarding hosts:
 
 On a trusted machine, sign in to Codex once so `~/.codex/auth.json` exists. Then upload it to the server:
 
-- Admin dashboard: **Auth Upload** → upload your local `~/.codex/auth.json`.
+- First-run wizard: the **Credentials** step at `/admin/setup?step=auth`.
+- Afterwards: **Hosts → More → Seed canonical auth**. Both open the same panel — paste the credential, pick the file, or mint a one-time `curl | bash` seed command for a machine you cannot paste from.
 
 Notes:
 
 - This service keeps **one canonical auth** for the fleet. Hosts sync from it via `/auth`.
 - If you rotate credentials later, upload a new canonical `auth.json` the same way.
+- Every candidate is verified against the live provider before it is stored. `pending` and `failed` outcomes are reported as such, and the setup checklist counts only **verified** credentials — a stored-but-unverified value leaves the step open.
 
 ### 1) Create a host + mint an installer token
 
@@ -301,7 +304,7 @@ If SSH launches misbehave, run `cdx doctor`. The wrapper reports SSH terminal/se
 ### Rotate canonical auth (operator)
 
 1. Refresh/sign in on a trusted machine so `~/.codex/auth.json` is updated.
-2. Upload the new file via the admin dashboard (**Auth Upload**).
+2. Upload the new file from **Hosts → More → Seed canonical auth**.
 3. Hosts pick up the new digest on their next `cdx` run.
 
 ## Uninstall / decommission a host

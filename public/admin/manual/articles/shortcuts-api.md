@@ -1,7 +1,7 @@
 ---
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
-verified: 2026-07-02
+verified: 2026-08-03
 sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
@@ -85,6 +85,8 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 | GET | `/admin/auth/status` | api/src/routes/admin/auth/index.ts |
 | GET | `/admin/setup/status` | api/src/routes/admin/setup/index.ts |
 | POST | `/admin/setup/owner` | api/src/routes/admin/setup/index.ts |
+| GET | `/admin/setup/wizard` | api/src/routes/admin/setup/index.ts |
+| POST | `/admin/setup/wizard` | api/src/routes/admin/setup/index.ts |
 | POST | `/admin/auth/login` | api/src/routes/admin/auth/index.ts |
 | POST | `/admin/auth/login/method` | api/src/routes/admin/auth/index.ts |
 | POST | `/admin/auth/logout` | api/src/routes/admin/auth/index.ts |
@@ -98,6 +100,8 @@ On success the dialog switches to a reveal screen showing the full plaintext key
 | GET | `/admin/passkeys` | api/src/routes/admin/auth/index.ts |
 | POST | `/admin/passkeys/:id/name` | api/src/routes/admin/auth/index.ts |
 | DELETE | `/admin/passkeys/:id` | api/src/routes/admin/auth/index.ts |
+
+The four `/admin/setup/*` routes are the noted exception to the session rule: they sit behind `requireAdminAfterSetup`, which is public only while `admin_users` is empty and session-gated afterwards. `/admin/setup/wizard` carries first-run wizard position and completion (`last_step`, `engines`, `completed`, `dismissed`); every answer the wizard collects is written through the endpoint that owns it.
 
 ### Admin users
 

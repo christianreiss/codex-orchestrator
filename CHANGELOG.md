@@ -1,5 +1,30 @@
 # 2026-08-03
 
+- Documented the guided installer and the first-run wizard everywhere they were still missing. The
+  two feature commits updated `README.md`, `docs/INSTALL.md`, `docs/API.md` and
+  `docs/interface-api.md`, but `docs/ADMIN.md` — the code-truth operator map for `/admin/*` — did
+  not mention `/admin/setup` at all, and the in-console manual described neither the installer's
+  twelve steps nor the wizard's nine. `docs/ADMIN.md` gains a First-Run Setup section (the four
+  routes and their `requireAdminAfterSetup` visibility rule, a step table naming what each step
+  writes through, the `setup_wizard_state` blob and why it deliberately does not publish
+  `settings.changed`, the dashboard resume card, and the shared `SeedAuthPanel`). The manual's
+  `install` article gains an installer section (re-runnable steps, `--json` / `--non-interactive`,
+  `doctor`, `--from` / `--only` / `--force`, `--init-schema`) and a wizard section; `dashboard`
+  documents `OnboardingCard`; `shortcuts-api` lists the two `/admin/setup/wizard` routes it was
+  missing. `AGENTS.md`, `docs/OVERVIEW.md`, `docs/USAGE.md` and `docs/LOGIN.md` pick up the same
+  facts at their own altitude.
+- The `client_config_documents` trap is now written down where operators and agents will hit it
+  rather than living only in a commit message: a fresh install has no row, so the managed feature
+  context reports `config_missing` and resolves skills, memory, projects and secrets to disabled
+  *before their own switches are read*. `POST /admin/model-defaults/:engine` is its only writer
+  while the `GET` returns an unpersisted default — which is how a console looks configured while
+  every managed feature is dark.
+- Corrected two statements the wizard work falsified. The manual claimed the admin root route
+  "immediately redirects to `/dashboard`"; it now waits for auth to settle and stands down on an
+  unclaimed installation, which is what stopped a new install opening on a dashboard full of 401s.
+  And `docs/USAGE.md` sent operators to an **Auth Upload** dashboard entry that does not exist —
+  canonical auth is seeded from the wizard's Credentials step or Hosts → More → Seed canonical auth,
+  both of which mount the same panel.
 - Agent Messaging is no longer baked for an insecure host whose wrapper cannot read the result.
   Making the fleet switch the only switch means every active host gets `agent_messaging.enabled`,
   but `cxx <= 0.7.7` rejects the **entire** signed config when that arrives without `host.secure` —

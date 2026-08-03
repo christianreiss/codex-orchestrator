@@ -42,7 +42,7 @@
   - `POST /admin/auth/password/request` — `{username}` or `{email}`; always returns the same success shape and sends a one-hour, single-use reset link when an active account matches.
   - `POST /admin/auth/password/reset` — `{token, new_password, confirm_password}`; consumes the token, applies password policy, expires existing sessions, and invalidates outstanding reset tokens.
 
-Setup bootstrap uses `GET /admin/setup/status` (public only while there are no users, then session-gated) and `POST /admin/setup/owner` (atomic fixed-owner claim plus immediate login). Concurrent or later unauthenticated claims are rejected.
+Setup bootstrap uses `GET /admin/setup/status` (public only while there are no users, then session-gated) and `POST /admin/setup/owner` (atomic fixed-owner claim plus immediate login). Concurrent or later unauthenticated claims are rejected. `GET`/`POST /admin/setup/wizard` follow the same visibility rule and carry only first-run wizard position and completion — no credential material. Because the owner claim issues the session inline, the wizard never bounces a brand-new operator through `/admin/login`.
 
 ## Passkeys
 - Registration is available to authenticated admins through the dashboard and stores multiple passkeys per user.

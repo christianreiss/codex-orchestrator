@@ -2,8 +2,8 @@
 title: Dashboard
 summary: KPIs, ChatGPT quota windows, runner state, and how the charts are fed.
 section: Admin workspace
-verified: 2026-07-29
-sources: api/src/routes/admin/overview/index.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+verified: 2026-08-03
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/routes/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/routes/dashboard/DashboardAlerts.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
@@ -19,6 +19,17 @@ The dashboard combines host health, ChatGPT quota windows, runner state, and ver
 ## Overview endpoint
 
 `GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for both codex and claude engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
+
+## Setup resume card
+
+`OnboardingCard` is the first thing on the dashboard while first-run setup is unfinished. It reads `GET /admin/setup/status` (via `setupStatusQuery()`, polled every 30 s) and renders only when **both** conditions hold:
+
+- the wizard is neither completed nor dismissed (`wizard.completed_at` and `wizard.dismissed_at` are both null), **and**
+- at least one `next_actions` entry is still incomplete.
+
+It lists the open actions, titles itself *Resume setup* once `wizard.last_step` exists (*Finish setting up* before that), and links to `/setup?step=<last_step>` so you land where you stopped. **Dismiss** posts `{dismissed: true}` to `POST /admin/setup/wizard` and hides the card for good — half the wizard is opt-ins, and declining every optional module is a finished answer, not an unfinished checklist.
+
+Note that `setup_complete` on the same response is only `criticalComplete && ownerCreated`, so it is true from step two of nine; it is not what this card keys on.
 
 ## Stat cards
 
@@ -74,6 +85,9 @@ There is no keyboard shortcut for refreshing the dashboard. ChatGPT quota refres
 - api/src/services/usage-scaling.ts (`scaling` field on `/admin/overview`; not rendered on the dashboard today)
 - api/src/db/schema.ts (`dashboard_graph_quota_snapshots`, `chatgpt_usage_snapshots`, `logs`)
 - frontend/src/routes/dashboard/+page.svelte (stat cards, layout)
+- frontend/src/routes/dashboard/OnboardingCard.svelte (setup resume card)
+- frontend/src/lib/api/setup.ts (`setupStatusQuery`, wizard mutation, `invalidateSetup`)
+- api/src/services/setup-status.ts, api/src/services/setup-wizard.ts (checks, next actions, progress blob)
 - frontend/src/routes/dashboard/ChatGptUsageCard.svelte
 - frontend/src/routes/dashboard/DashboardAlerts.svelte
 - frontend/src/lib/components/dashboard/RunnerCard.svelte
