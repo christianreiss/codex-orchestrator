@@ -89,7 +89,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 4,
-    configBakedAt: null,
     wrapperTrack: 'v2',
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
@@ -637,7 +636,7 @@ describe('wrapper-config', () => {
       const primary = realSigner('3', older.privateKey);
       const secondary = realSigner('9', newer.privateKey);
 
-      // `issued_at`/`config_baked_at` come from the wall clock, so the two
+      // `issued_at`/`expires_at` come from the wall clock, so the two
       // bakes are only comparable with the clock pinned. Ed25519 is
       // deterministic, so identical bytes under one key give an identical
       // signature — that is the compatibility guarantee being asserted.

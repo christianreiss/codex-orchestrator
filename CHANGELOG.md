@@ -1,5 +1,17 @@
 # 2026-08-03
 
+- Dropped the `hosts.config_baked_at` column (migration
+  `0017_drop_hosts_config_baked_at.sql`). It was stamped on every bake and read by nothing: no
+  code branched on it, it carried no index, it was not part of the signed config payload and
+  `hostToWire` never put it on the wire. `hosts.config_version` remains the value that moves the
+  etag and the signature. **There is no rollback** — re-adding the column restores no timestamp.
+  **Deploy this in two steps.** `scripts/deploy.sh` applies migrations with the freshly built image
+  *before* `docker compose up` swaps the containers, and the api also migrates itself on boot via
+  `RUN_MIGRATIONS_ON_BOOT`. Drizzle emits explicit column lists, so the still-running *outgoing*
+  container selects `config_baked_at` on every host lookup and throws `ER_BAD_FIELD_ERROR` for the
+  entire deploy window. Ship a build that no longer references the column but does **not** contain
+  `0017`, wait until every instance is on it, then ship and apply the migration. The migration is
+  guarded on `information_schema.columns`, so re-applying it is a no-op.
 - Baked wrapper configs now carry a 30-day `expires_at` (`WRAPPER_CONFIG_TTL_SECONDS`), derived
   from the same clock read as `issued_at` so the signed lifetime is exactly the TTL. Any bake
   renews it, so a host in normal contact never approaches it. Expiry was previously a dormant,

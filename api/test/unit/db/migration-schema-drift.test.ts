@@ -146,6 +146,7 @@ describe('migrations against the test baseline', () => {
       'claude_usage_snapshots',
       'dashboard_graph_claude_daily_stats',
       'dashboard_graph_usage_daily_stats',
+      'hosts.config_baked_at',
       'token_usage_ingests',
       'token_usages',
     ]);

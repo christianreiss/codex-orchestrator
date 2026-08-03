@@ -75,7 +75,6 @@ export const hosts = mysqlTable(
     claudeReasoningEffortOverride: varchar('claude_reasoning_effort_override', { length: 32 }),
     claudeLastRefresh: varchar('claude_last_refresh', { length: 100 }),
     configVersion: bigint('config_version', { mode: 'number', unsigned: true }).notNull().default(0),
-    configBakedAt: varchar('config_baked_at', { length: 40 }),
     wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),

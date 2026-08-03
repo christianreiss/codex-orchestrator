@@ -134,9 +134,6 @@ does not serve fails the suite.
 `hosts.config_version` — bumped by `wrapper-config.ts` so the binary sees a new
 version every time the input changes.
 
-`hosts.config_baked_at` — timestamp of the last bake (informational; not used
-for cache invalidation).
-
 `hosts.wrapper_track` — `legacy|v2`.
 
 `wrapper_signing_keys`, `wrapper_v2_binaries` — operator-facing inventory.

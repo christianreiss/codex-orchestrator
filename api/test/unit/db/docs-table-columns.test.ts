@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
 /**
  * `docs-table-coverage` pins the doc's table names and says so — "Columns, types
  * and indexes are not compared" — so a column could reach the mirror without
- * ever being written up, and six `hosts` columns had: `auto_update_override`,
- * `last_cron_check`, `scaling_exempt`, `config_version`, `config_baked_at` and
+ * ever being written up, and five `hosts` columns had: `auto_update_override`,
+ * `last_cron_check`, `scaling_exempt`, `config_version` and
  * `wrapper_track`, the fourth of which the neighbouring
  * `hosts.browseros_mcp_enabled` bullet already referred to as if it were
  * documented.

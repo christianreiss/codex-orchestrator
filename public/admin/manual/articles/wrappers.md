@@ -27,7 +27,7 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
   `wrapper-config.ts` composes and signs it (Ed25519, key from the
   `wrapper_signing_keys` table via `wrapper-signing-key.ts`), re-baking and
   re-signing on every `GET /wrapper/v2/config` fetch and unconditionally
-  bumping `hosts.config_version` (and stamping `config_baked_at`) each time —
+  bumping `hosts.config_version` each time —
   it is a monotonic per-bake counter, not a content-change flag. Codex hosts
   can opt into BrowserOS MCP per host; enabled hosts get a local
   `browseros` MCP entry in their synced `config.toml` and a startup chip in `cdx`.

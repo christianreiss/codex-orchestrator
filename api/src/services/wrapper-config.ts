@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import {
   hosts as hostsTable,
   agentsDocuments,
@@ -11,7 +11,7 @@ import {
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
+import { isoOffsetSeconds } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import {
@@ -30,7 +30,7 @@ import { isTruthyFlagValue } from './settings.js';
  * client_config_document (per engine) + the engine's published skills, plus
  * wrapper binary info from the registry. The result is sha-256'd, signed with
  * the active wrapper key (Ed25519), and persisted into `hosts.config_version`
- * + `hosts.config_baked_at` only when the bake mutates state.
+ * only when the bake mutates state.
  *
  * The returned `payload` is the canonical JSON object (object form — the
  * route serializes it once with `canonicalStringify`). The returned
@@ -140,7 +140,7 @@ export interface BakePlatform {
 }
 
 export interface WrapperConfigService {
-  /** Bake config for a host. Bumps `config_version` and stamps `config_baked_at`. */
+  /** Bake config for a host. Bumps `config_version`. */
   bakeForHost(
     host: Host,
     engine: Engine,
@@ -345,7 +345,6 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       // Bump config_version atomically; the new value becomes part of the
       // payload so the etag/signature change visibly when state changes.
       const newVersion = await bumpConfigVersion(deps.db, host.id);
-      const bakedAt = nowIso();
 
       const draft: Omit<WrapperConfigPayload, 'etag'> = {
         schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
@@ -403,8 +402,6 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         kid: primary.kid,
       };
 
-      await stampBakedAt(deps.db, host.id, newVersion, bakedAt);
-
       return {
         payload,
         signature,
@@ -448,18 +445,6 @@ async function bumpConfigVersion(db: Database, hostId: number): Promise<number> 
     await tx.update(hostsTable).set({ configVersion: next }).where(eq(hostsTable.id, hostId));
     return next;
   });
-}
-
-async function stampBakedAt(
-  db: Database,
-  hostId: number,
-  configVersion: number,
-  bakedAt: string,
-): Promise<void> {
-  await db
-    .update(hostsTable)
-    .set({ configBakedAt: bakedAt })
-    .where(and(eq(hostsTable.id, hostId), eq(hostsTable.configVersion, configVersion)));
 }
 
 /**
