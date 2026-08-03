@@ -12,6 +12,13 @@
  *   POST   /admin/agents/render
  *   GET    /admin/agents/versions/:id
  *   POST   /admin/agents/store
+ *   GET    /admin/agent-policy-profiles
+ *   POST   /admin/agent-policy-profiles
+ *   POST   /admin/agent-policy-profiles/:id
+ *   DELETE /admin/agent-policy-profiles/:id
+ *   POST   /admin/agent-policy-profiles/:id/default
+ *   POST   /admin/agent-policy-profiles/assign
+ *   GET    /admin/agent-policy-profiles/enforcement
  *   POST   /admin/agents/serve
  *   POST   /admin/agents/revert
  *   POST   /admin/agents/retention
@@ -44,6 +51,8 @@ import { NotFoundError, ValidationError } from '../../../http/errors.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
 import { AgentsService } from '../../../services/agents.js';
+import { AgentPolicyProfilesService } from '../../../services/agent-policy-profiles.js';
+import { normalizeSecurityLevels, securityLevelCatalog } from '../../../services/agent-security-levels.js';
 import { HostAgentsService } from '../../../services/host-agents.js';
 import { assertHostEngineEnabled } from '../../../services/host-engine-policy.js';
 import { ClientConfigService } from '../../../services/client-config.js';
@@ -89,6 +98,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   );
   const memories = new MemoriesService(db);
   const sharedMemories = new SharedMemoriesService(db);
+  const policyProfiles = new AgentPolicyProfilesService(db);
   const agents = new AgentsService(db, async () => {
     const rows = await db.select().from(versions).where(sql`name = ${AGENTS_BACKUP_LIMIT_KEY}`).limit(1);
     const v = rows[0]?.version;
@@ -199,7 +209,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     },
   );
 
-  app.post<{ Body: { host_id?: unknown; engine?: unknown; composition?: unknown; content?: unknown } }>(
+  app.post<{ Body: { host_id?: unknown; engine?: unknown; composition?: unknown; content?: unknown; security_levels?: unknown } }>(
     '/admin/agents/render',
     { preHandler: app.requireAdmin },
     async (req) => {
@@ -221,8 +231,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         : typeof body.content === 'string'
           ? body.content
           : '';
+      const draftLevels = body.security_levels === undefined
+        ? undefined
+        : normalizeSecurityLevels(body.security_levels);
       return {
-        ...(await hostAgents.renderDraft(host, base, engine)),
+        ...(await hostAgents.renderDraft(host, base, engine, draftLevels)),
         host_id: host.id,
         host_fqdn: host.fqdn,
         engine,
@@ -489,6 +502,88 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const deleted = await claudeArtifacts.softDelete(kind, slug);
       if (!deleted) throw new NotFoundError('artifact not found', 'artifact_not_found');
       return { deleted: slug, kind };
+    },
+  );
+
+  // ─── Agent policy profiles ───
+  //
+  // Posture lives here rather than on the agents document: prose is versioned
+  // per document, posture per profile. Reverting a document restores old
+  // wording, never an old posture.
+  app.get('/admin/agent-policy-profiles', { preHandler: app.requireAdmin }, async () => {
+    return { profiles: await policyProfiles.list(), catalog: securityLevelCatalog() };
+  });
+
+  app.post<{ Body: { name?: unknown; description?: unknown; levels?: unknown } }>(
+    '/admin/agent-policy-profiles',
+    { preHandler: app.requireAdmin },
+    async (req) => ({ profile: await policyProfiles.create(req.body ?? {}) }),
+  );
+
+  app.post<{ Params: { id: string }; Body: { name?: unknown; description?: unknown; levels?: unknown } }>(
+    '/admin/agent-policy-profiles/:id',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const id = parseInteger(req.params.id);
+      if (id === null || id <= 0) throw new ValidationError('id must be a positive integer', { param: 'id' });
+      return { profile: await policyProfiles.update(id, req.body ?? {}) };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/agent-policy-profiles/:id',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const id = parseInteger(req.params.id);
+      if (id === null || id <= 0) throw new ValidationError('id must be a positive integer', { param: 'id' });
+      return await policyProfiles.remove(id);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/admin/agent-policy-profiles/:id/default',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const id = parseInteger(req.params.id);
+      if (id === null || id <= 0) throw new ValidationError('id must be a positive integer', { param: 'id' });
+      return { profile: await policyProfiles.setDefault(id) };
+    },
+  );
+
+  // `profile_id: null` clears the assignment back to the fleet default.
+  app.post<{ Body: { host_id?: unknown; profile_id?: unknown } }>(
+    '/admin/agent-policy-profiles/assign',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const hostId = parseInteger(body.host_id);
+      if (hostId === null || hostId <= 0) {
+        throw new ValidationError('host_id must be a positive integer', { param: 'host_id' });
+      }
+      const rawProfile = body.profile_id;
+      const profileId = rawProfile === null || rawProfile === undefined ? null : parseInteger(rawProfile);
+      if (rawProfile !== null && rawProfile !== undefined && (profileId === null || profileId <= 0)) {
+        throw new ValidationError('profile_id must be a positive integer or null', { param: 'profile_id' });
+      }
+      return await policyProfiles.assign(hostId, profileId);
+    },
+  );
+
+  // Read-only: what the resolved posture implies for this host's engine config,
+  // and which axis is holding each knob down.
+  app.get<{ Querystring: { host_id?: string } }>(
+    '/admin/agent-policy-profiles/enforcement',
+    { preHandler: app.requireAdmin },
+    async (req) => {
+      const hostId = parseInteger(req.query.host_id);
+      if (hostId === null || hostId <= 0) {
+        throw new ValidationError('host_id must be a positive integer', { param: 'host_id' });
+      }
+      return {
+        host_id: hostId,
+        levels: await policyProfiles.resolveForHost(hostId),
+        enforcement: await policyProfiles.enforcementForHost(hostId),
+      };
     },
   );
 }

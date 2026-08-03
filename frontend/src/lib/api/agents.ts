@@ -28,15 +28,22 @@ export const agentsApi = {
   compose(composition: AgentPolicyComposition): Promise<AgentPolicyComposeResult> {
     return api.post<AgentPolicyComposeResult>("/admin/agents/compose", { composition });
   },
+  /**
+   * `securityLevels` carries the operator's DRAFT posture. Without it the
+   * preview renders at the saved posture while sliders are being dragged, which
+   * is the worst possible failure for a preview.
+   */
   renderDraft(
     hostId: number,
     draft: { composition: AgentPolicyComposition } | { content: string },
     engine: "codex" | "claude" = "codex",
+    securityLevels?: Record<string, number>,
   ): Promise<AgentsRenderedDocument> {
     return api.post<AgentsRenderedDocument>("/admin/agents/render", {
       host_id: hostId,
       engine,
       ...draft,
+      ...(securityLevels === undefined ? {} : { security_levels: securityLevels }),
     });
   },
   store(payload: { content: string; sha256?: string | null } | { composition: AgentPolicyComposition }): Promise<AgentsStoreResult> {

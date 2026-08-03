@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { agentsDocuments, agentsDocumentState } from '../../../src/db/schema.js';
+import { agentsDocuments, agentsDocumentState, hosts } from '../../../src/db/schema.js';
 import { ApiError, NotFoundError, ValidationError } from '../../../src/http/errors.js';
 import { AgentsService } from '../../../src/services/agents.js';
 import { defaultAgentPolicyComposition } from '../../../src/services/agent-policy-composer.js';
@@ -488,6 +488,34 @@ describe('agents backup retention', () => {
     // Nothing left beyond the limit.
     expect(await svc.updateBackupRetention(10, setter)).toEqual({ backup_limit: 10, pruned_count: 0 });
     expect(documentIds(db)).toEqual([6, 5, 3, 2]);
+  });
+
+  it('protects a version pinned by a host, not just the fleet-wide lock', async () => {
+    // Only `agents_document_state` locks used to be protected, so a retention
+    // sweep could delete the exact row a host pinned via
+    // `hosts.agents_document_id_override`. `resolveServedDocument` then logs
+    // `agents.host_override_missing` and silently serves latest -- a host moved
+    // onto a different policy by a background sweep, which is the one thing a
+    // pin exists to prevent.
+    const db = makeDb();
+    seedDocs(db, [
+      { id: 1, body: 'one' },
+      { id: 2, body: 'two' },
+      { id: 3, body: 'three' },
+      { id: 4, body: 'four' },
+    ]);
+    db.tables.set(hosts, [
+      { id: 10, agentsDocumentIdOverride: 1 },
+      { id: 11, agentsDocumentIdOverride: null },
+    ] as Row[]);
+    const svc = makeService(db);
+
+    expect(await svc.updateBackupRetention(2, async () => {})).toEqual({
+      backup_limit: 2,
+      pruned_count: 1,
+    });
+    // 4 and 3 are within the limit; 1 survives on its pin; only 2 goes.
+    expect(documentIds(db)).toEqual([4, 3, 1]);
   });
 
   it('prunes on store with the freshly created row protected', async () => {

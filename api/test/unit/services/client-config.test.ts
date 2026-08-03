@@ -6,8 +6,9 @@ import {
   renderToml,
   renderTomlForHost,
 } from '../../../src/services/client-config.js';
-import { normalizeSettings } from '../../../src/services/config-normalizer.js';
+import { DEFAULT_CLAUDE_PERMISSION_MODE, normalizeSettings } from '../../../src/services/config-normalizer.js';
 import { ENGINE_CLAUDE } from '../../../src/util/engine.js';
+import { presetLevels } from '../../../src/services/agent-security-levels.js';
 
 describe('client-config: renderToml', () => {
   it('renders root scalars in the legacy order', () => {
@@ -478,5 +479,103 @@ describe('client-config: Claude Agent Messaging permissions', () => {
       'mcp__cxx-agent__agent_cancel',
     ]));
     expect(allow).not.toContain('mcp__cxx-agent__permission');
+  });
+});
+
+/**
+ * Posture is applied as a bake-time overlay, never written back into the stored
+ * document. `docs/CONFIG_BUILDER.md` warns against a second editable owner of
+ * config.toml, and with several profiles over one fleet document there is no
+ * answer to "whose values get stored".
+ */
+describe('client-config: security posture overlay', () => {
+  const base = {
+    model: 'gpt-5.6-terra',
+    approval_policy: 'on-request',
+    sandbox_mode: 'workspace-write',
+    sandbox_workspace_write: { writable_roots: ['/srv/app'] },
+  };
+
+  it('leaves the template untouched when no posture is resolved', () => {
+    const toml = renderTomlForHost({ settings: base, host: null, baseUrl: null, apiKey: null }).content;
+    expect(toml).toContain('approval_policy = "on-request"');
+    expect(toml).toContain('sandbox_mode = "workspace-write"');
+  });
+
+  it('overrides the template’s values for the keys posture claims', () => {
+    const toml = renderTomlForHost({
+      settings: base,
+      host: null,
+      baseUrl: null,
+      apiKey: null,
+      securityLevels: presetLevels('unrestricted'),
+    }).content;
+    expect(toml).toContain('approval_policy = "never"');
+    expect(toml).toContain('sandbox_mode = "danger-full-access"');
+    expect(toml).toContain('network_access = true');
+  });
+
+  it('clamps to the template’s strictest neighbour at Contained', () => {
+    const toml = renderTomlForHost({
+      settings: base,
+      host: null,
+      baseUrl: null,
+      apiKey: null,
+      securityLevels: presetLevels('contained'),
+    }).content;
+    expect(toml).toContain('approval_policy = "untrusted"');
+    expect(toml).toContain('sandbox_mode = "read-only"');
+    expect(toml).toContain('network_access = false');
+  });
+
+  it('keeps the operator’s writable_roots while claiming only network_access', () => {
+    const toml = renderTomlForHost({
+      settings: base,
+      host: null,
+      baseUrl: null,
+      apiKey: null,
+      securityLevels: presetLevels('unrestricted'),
+    }).content;
+    expect(toml).toContain('writable_roots = ["/srv/app"]');
+  });
+
+  it('never emits the dead bypass key, even fully unrestricted', () => {
+    // The server renders [security] but no Go code parses it, and the wrapper
+    // reads a signed engine_options key the baker never emits. Deriving it
+    // would be a level that claims to unlock something and does nothing.
+    const toml = renderTomlForHost({
+      settings: base,
+      host: null,
+      baseUrl: null,
+      apiKey: null,
+      securityLevels: presetLevels('unrestricted'),
+    }).content;
+    expect(toml).not.toContain('dangerously_bypass_approvals_and_sandbox');
+  });
+
+  it('drives the Claude partial’s permission mode from posture', () => {
+    const contained = renderClaudeSettingsPartialForHost({
+      settings: {}, host: null, baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
+      securityLevels: presetLevels('contained'),
+    });
+    const open = renderClaudeSettingsPartialForHost({
+      settings: {}, host: null, baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
+      securityLevels: presetLevels('unrestricted'),
+    });
+    const mode = (p: { partial: Record<string, unknown> }): unknown =>
+      (p.partial['permissions'] as Record<string, unknown> | undefined)?.['defaultMode'];
+    expect(mode(contained)).toBe('plan');
+    expect(mode(open)).toBe('bypassPermissions');
+  });
+
+  it('lands Standard on the mode the fleet already runs', () => {
+    // Standard must not move a single Claude host on the day this deploys.
+    const std = renderClaudeSettingsPartialForHost({
+      settings: {}, host: null, baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
+      securityLevels: presetLevels('standard'),
+    });
+    expect((std.partial['permissions'] as Record<string, unknown>)['defaultMode']).toBe(
+      DEFAULT_CLAUDE_PERMISSION_MODE,
+    );
   });
 });

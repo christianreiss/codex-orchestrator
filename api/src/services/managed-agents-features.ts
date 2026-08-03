@@ -9,7 +9,12 @@ import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
-import { MANAGED_POLICY_MARKDOWN } from './agent-policy-composer.js';
+import {
+  DEFAULT_SECURITY_LEVELS,
+  renderSecurityPolicyMarkdown,
+  type SecurityLevels,
+} from './agent-security-levels.js';
+import { RETIRED_AUTHORITY_SENTENCES_LONGEST_FIRST } from './agent-policy-legacy.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
 export const MANAGED_FEATURES_END = '<!-- cxx:managed-features:end -->';
@@ -44,6 +49,8 @@ export interface ManagedAgentFeatureSections {
   fleet_identity: ManagedAgentFeatureSection;
   safety_floor: ManagedAgentFeatureSection;
   hard_stops: ManagedAgentFeatureSection;
+  /** Absent below the levels that grant anything outright. */
+  standing_authorizations: ManagedAgentFeatureSection;
   skills: ManagedAgentFeatureSection;
   memories: ManagedAgentFeatureSection;
   /** Compatibility alias for clients that consumed the former memory block. */
@@ -262,6 +269,15 @@ function stripManagedContent(body: string): { body: string; changed: boolean } {
   for (const legacyMemoryBlock of LEGACY_MEMORY_BLOCKS) {
     stripped = stripped.split(legacyMemoryBlock).join('');
   }
+  // Authority sentences whose ownership moved into the posture matrix. The
+  // marker regex above only reaches text inside the delimiters; these can sit
+  // in unmarked operator prose, either because a served copy was pasted into
+  // the editor or because the stored body predates this change. Left in place
+  // they would forbid, below the policy block, exactly what a level grants
+  // above it.
+  for (const retired of RETIRED_AUTHORITY_SENTENCES_LONGEST_FIRST) {
+    stripped = stripped.split(retired).join('');
+  }
   return { body: stripped, changed: stripped !== body };
 }
 
@@ -274,7 +290,13 @@ function stripManagedContent(body: string): { body: string; changed: boolean } {
 export function renderManagedAgentFeatures(
   baseBody: string,
   context: ManagedAgentFeatureContext,
+  levels?: SecurityLevels,
 ): RenderManagedAgentFeaturesResult {
+  // Optional and defaulting to Standard so every existing call site keeps
+  // compiling and keeps its current output. Posture is resolved per host by
+  // the caller; a caller that does not resolve it gets today's policy.
+  const resolvedLevels = levels ?? DEFAULT_SECURITY_LEVELS;
+  const policy = renderSecurityPolicyMarkdown(resolvedLevels);
   const skills = skillsSection(context);
   const memory = memorySection(context);
   const projects = projectsSection(context);
@@ -290,15 +312,19 @@ export function renderManagedAgentFeatures(
       ? context.browseros
       : { ...context.browseros, enabled: false, reason: 'unsupported_engine' };
   const browserOsMetadata = browseros?.metadata ?? absent(browserOsState);
-  const policySection = (text: string): ManagedAgentFeatureSection => ({
-    present: true,
-    reason: 'mandatory',
-    sha256: sha256(text),
-  });
+  // Hash the section's actual rendered bytes. The previous renderer hashed the
+  // heading literal, which was constant across every policy revision — harmless
+  // while the text was frozen, actively misleading now that it varies by level,
+  // because it would report an unchanged sha for changed content.
+  const policySection = (text: string | null): ManagedAgentFeatureSection =>
+    text === null
+      ? { present: false, reason: 'not_at_this_level' }
+      : { present: true, reason: 'mandatory', sha256: sha256(text) };
   const sections: ManagedAgentFeatureSections = {
-    fleet_identity: policySection('## Fleet Management'),
-    safety_floor: policySection('## Instruction Precedence and Safety Floor'),
-    hard_stops: policySection('## Hard Stop Lines'),
+    fleet_identity: policySection(policy.sections.fleet_identity),
+    safety_floor: policySection(policy.sections.safety_floor),
+    hard_stops: policySection(policy.sections.hard_stops),
+    standing_authorizations: policySection(policy.sections.standing_authorizations),
     skills: skillsMetadata,
     memories: memoryMetadata,
     memory_routing: memoryMetadata,
@@ -315,7 +341,7 @@ export function renderManagedAgentFeatures(
     .filter((section): section is RenderedSection => section !== null)
     .map((section) => section.text);
   const stripped = stripManagedContent(baseBody);
-  const policyBlock = `${MANAGED_POLICY_START}\n${MANAGED_POLICY_MARKDOWN}\n${MANAGED_POLICY_END}\n`;
+  const policyBlock = `${MANAGED_POLICY_START}\n${policy.markdown}\n${MANAGED_POLICY_END}\n`;
   const managedBlock = renderedSections.length === 0
     ? ''
     : `${MANAGED_FEATURES_START}\n${renderedSections.join('\n\n')}\n${MANAGED_FEATURES_END}\n`;

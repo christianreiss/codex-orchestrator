@@ -70,9 +70,37 @@ Legacy compatibility:
 
 ## Security toggles
 
-The builder also supports a small set of `cdx` wrapper toggles under a `[security]` block.
+The builder still accepts a `[security]` block, but be aware of what it does — which, today, is nothing.
 
-- `dangerously_bypass_approvals_and_sandbox` — when `true`, `cdx` adds `--dangerously-bypass-approvals-and-sandbox` to the Codex CLI invocation. This disables safety guardrails; keep it off by default.
+- `dangerously_bypass_approvals_and_sandbox` — **inert.** The server renders this key into
+  `config.toml`, but no Go code parses a `[security]` block; the sentence that used to appear here
+  ("`cdx` adds `--dangerously-bypass-approvals-and-sandbox`") described the retired *bash* `cdx`,
+  which had its own TOML parser. The current wrapper reads
+  `engine_options.dangerously_bypass_approvals_and_sandbox` from the **signed** config
+  (`wrappers/cxx/internal/codex/lane.go`), and `wrapper-config.ts`'s `engineOptions()` never emits
+  that key. So the server writes a key nobody reads and the wrapper reads a key nobody writes.
+- Do **not** "fix" this by baking `engine_options`. That would arm the bypass on every host whose
+  `[security]` key is already `true`, over a revoke channel measured in days: the signed config has
+  a 30-day TTL and is refreshed only by the daily managed cron, never on the launch path.
+- The working equivalent is the pair `approval_policy = "never"` + `sandbox_mode =
+  "danger-full-access"`, both of which are real Codex keys on the fast path and revoke within one
+  launch.
+
+## Security posture overlay
+
+Fleet security levels are applied as a **per-host bake-time overlay**, layered over the stored
+template immediately after the model/effort host overrides and before normalization. Nothing is
+written back into the stored document, so the operator template remains the single editable owner.
+
+For the keys posture claims — `approval_policy`, `sandbox_mode`,
+`sandbox_workspace_write.network_access`, `web_search`, `features.guardian_approval`, and Claude's
+`permissions.defaultMode` — the posture value **wins over** the same key in the template, exactly
+as a host model override already does. `sandbox_workspace_write` is merged rather than replaced, so
+operator `writable_roots` and exclusions survive. Everything else in the template is untouched.
+
+`sandbox_mode` accepts `read-only`, `workspace-write`, or `danger-full-access`. It is validated on
+write only; values already stored normalize with a warning rather than throwing, so one bad row
+cannot take the fleet down.
 
 ## Approval policy values
 

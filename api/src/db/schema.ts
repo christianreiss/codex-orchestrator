@@ -474,6 +474,56 @@ export const agentsDocumentState = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// agent_policy_profiles / agent_policy_profile_assignments
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Named security postures. A profile is a level vector, NOT a document: the
+ * canonical prose stays one fleet document so a wording fix reaches every
+ * profile, while posture varies per host.
+ *
+ * `levels` is JSON rather than nine columns because the axis set is owned by
+ * `agent-security-levels.ts` and normalized on read — adding an axis must not
+ * cost a migration.
+ */
+export const agentPolicyProfiles = mysqlTable(
+  'agent_policy_profiles',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: varchar('description', { length: 500 }),
+    levels: json('levels').$type<Record<string, number>>().notNull(),
+    isDefault: tinyint('is_default').notNull().default(0),
+    revision: int('revision', { unsigned: true }).notNull().default(1),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    nameUnique: uniqueIndex('uniq_agent_policy_profiles_name').on(t.name),
+    isDefaultIdx: index('idx_agent_policy_profiles_is_default').on(t.isDefault),
+  }),
+);
+
+/**
+ * Which profile a host is served at. A separate table rather than a `hosts`
+ * column: the fleet is mid-refactor retiring per-host capability booleans from
+ * that table, so this stays out of the contended definition and out of its
+ * hardcoded column-order assertions. One row per host, so `host_id` is the key.
+ */
+export const agentPolicyProfileAssignments = mysqlTable(
+  'agent_policy_profile_assignments',
+  {
+    hostId: bigint('host_id', { mode: 'number', unsigned: true }).primaryKey(),
+    profileId: bigint('profile_id', { mode: 'number', unsigned: true }).notNull(),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    profileIdx: index('idx_agent_policy_profile_assignments_profile').on(t.profileId),
+  }),
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // client_config_documents
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1535,6 +1585,8 @@ export type AgentBusMessage = typeof agentBusMessages.$inferSelect;
 export type AgentBusRelay = typeof agentBusRelays.$inferSelect;
 export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;
 export type AgentsDocument = typeof agentsDocuments.$inferSelect;
+export type AgentPolicyProfile = typeof agentPolicyProfiles.$inferSelect;
+export type AgentPolicyProfileAssignment = typeof agentPolicyProfileAssignments.$inferSelect;
 export type ClientConfigDocument = typeof clientConfigDocuments.$inferSelect;
 export type CoordProject = typeof coordProjects.$inferSelect;
 export type SharedMemory = typeof sharedMemories.$inferSelect;

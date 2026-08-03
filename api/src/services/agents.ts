@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { agentsDocuments, agentsDocumentState } from '../db/schema.js';
+import { agentsDocuments, agentsDocumentState, hosts } from '../db/schema.js';
 import { NotFoundError, ValidationError } from '../http/errors.js';
 import { ENGINE_CODEX, type Engine, parseEngine } from '../util/engine.js';
 import { nowIso } from '../util/timestamp.js';
@@ -474,6 +474,20 @@ export class AgentsService {
       if (s.mode === AGENTS_MODE_LOCKED && s.activeDocumentId !== null) {
         protectedIds.add(s.activeDocumentId);
       }
+    }
+    // Per-host pins count too. Only the fleet-wide `locked` state used to be
+    // protected, so with a backup limit set, enough stores could delete the
+    // exact row a host pinned via `hosts.agents_document_id_override`.
+    // `resolveServedDocument` then logs `agents.host_override_missing` and
+    // silently serves latest — a host moved onto a different policy by a
+    // retention sweep, which is the one thing a pin exists to prevent.
+    // Full rows rather than a projection: prune runs only on store and on a
+    // retention change, the hosts table is fleet-sized, and reading the column
+    // by name keeps this correct under the db fake, which ignores projections.
+    const hostRows = await this.db.select().from(hosts);
+    for (const row of hostRows) {
+      const pinned = row.agentsDocumentIdOverride;
+      if (typeof pinned === 'number') protectedIds.add(pinned);
     }
     const eligible = all.filter((r) => !protectedIds.has(r.id));
     if (eligible.length <= limit) return 0;

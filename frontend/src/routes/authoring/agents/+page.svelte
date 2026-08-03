@@ -27,12 +27,25 @@
   import History from "@lucide/svelte/icons/history";
   import Eye from "@lucide/svelte/icons/eye";
   import * as Card from "$lib/components/ui/card";
+  import SecurityLevelsPanel from "$lib/components/settings/SecurityLevelsPanel.svelte";
+  import {
+    agentPolicyProfilesApi,
+    type AgentPolicyProfile,
+    type SecurityLevelCatalog,
+    type SecurityLevels,
+  } from "$lib/api/agentPolicyProfiles";
 
   const qc = useQueryClient();
 
   const query = createQuery({
     queryKey: ["agents"],
     queryFn: () => agentsApi.get(),
+  });
+  // Posture is deliberately a separate query from the document: prose is
+  // versioned per document, posture per profile.
+  const profilesQuery = createQuery({
+    queryKey: ["agent-policy-profiles"],
+    queryFn: () => agentPolicyProfilesApi.list(),
   });
   const hosts = hostsListQuery();
 
@@ -45,6 +58,42 @@
   let customInstructions = $state("");
   let composedDraft = $state("");
   let composeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let securityCatalog = $state<SecurityLevelCatalog | null>(null);
+  let defaultProfile = $state<AgentPolicyProfile | null>(null);
+  let draftLevels = $state<SecurityLevels | null>(null);
+  let levelsHydrated = $state(false);
+
+  $effect(() => {
+    const data = $profilesQuery.data;
+    if (!data || levelsHydrated) return;
+    securityCatalog = data.catalog;
+    defaultProfile = data.profiles.find((p) => p.is_default) ?? null;
+    draftLevels = { ...(defaultProfile?.levels ?? data.catalog.default_levels) };
+    levelsHydrated = true;
+  });
+
+  const levelsDirty = $derived(
+    draftLevels !== null &&
+      defaultProfile !== null &&
+      JSON.stringify(draftLevels) !== JSON.stringify(defaultProfile.levels),
+  );
+
+  const saveLevelsMutation = createMutation({
+    mutationFn: () => {
+      if (!defaultProfile || !draftLevels) throw new Error("No fleet default profile to update");
+      return agentPolicyProfilesApi.update(defaultProfile.id, { levels: draftLevels });
+    },
+    onSuccess: (result) => {
+      defaultProfile = result.profile;
+      draftLevels = { ...result.profile.levels };
+      toast.success("Fleet posture saved");
+      void qc.invalidateQueries({ queryKey: ["agent-policy-profiles"] });
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to save posture");
+    },
+  });
 
   const draftComposition = $derived<AgentPolicyComposition>({
     schema_version: 1,
@@ -267,6 +316,8 @@
     mutationFn: (hostId: number) => agentsApi.renderDraft(
       hostId,
       builderMode ? { composition: draftComposition } : { content },
+      "codex",
+      draftLevels ?? undefined,
     ),
     onSuccess: (data) => {
       renderedPreview = data;
@@ -382,6 +433,23 @@
                 {/each}
               </Card.Content>
             </Card.Root>
+
+            <SecurityLevelsPanel
+              catalog={securityCatalog}
+              levels={draftLevels ?? securityCatalog?.default_levels ?? ({} as SecurityLevels)}
+              disabled={!defaultProfile || $saveLevelsMutation.isPending}
+              onChange={(next) => (draftLevels = next)}
+            />
+            {#if levelsDirty}
+              <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                <p class="text-xs text-muted-foreground">
+                  Posture is saved separately from the document.
+                </p>
+                <Button size="sm" onclick={() => $saveLevelsMutation.mutate()} disabled={$saveLevelsMutation.isPending}>
+                  {$saveLevelsMutation.isPending ? "Saving…" : "Save posture"}
+                </Button>
+              </div>
+            {/if}
 
             <div class="space-y-1.5">
               <Label for="agents-custom-instructions">Custom instructions</Label>

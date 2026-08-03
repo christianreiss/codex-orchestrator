@@ -24,6 +24,8 @@ import {
   type ManagedAgentFeatureContext,
   type ManagedFeatureState,
 } from './managed-agents-features.js';
+import { type SecurityLevels } from './agent-security-levels.js';
+import { AgentPolicyProfilesService } from './agent-policy-profiles.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -37,6 +39,7 @@ export class HostAgentsService {
   private readonly projects: ProjectsService;
   private readonly secrets: SecretsService;
   private readonly settings: SettingsService;
+  private readonly profiles: AgentPolicyProfilesService;
 
   constructor(
     private readonly db: Database,
@@ -52,6 +55,19 @@ export class HostAgentsService {
     // many secrets can this engine see?". Rendering guidance must not be able
     // to touch ciphertext, and omitting the keyring makes that structural.
     this.secrets = new SecretsService({ db });
+    this.profiles = new AgentPolicyProfilesService(db);
+  }
+
+  /**
+   * The posture this host is served at.
+   *
+   * Assigned profile, else the fleet default, else the built-in Standard
+   * vector. The lookup degrades rather than throws: this runs on the launch
+   * path, so a missing row must fall back to today's posture, never to no
+   * document at all.
+   */
+  private async resolvePosture(host: Host): Promise<SecurityLevels> {
+    return await this.profiles.resolveForHost(Number(host.id));
   }
 
   /**
@@ -63,10 +79,20 @@ export class HostAgentsService {
     return await this.renderForHost(host, engine, false);
   }
 
-  /** Render an unsaved canonical base with the selected host's live feature gates. */
-  async renderDraft(host: Host, baseBody: string, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
+  /**
+   * Render an unsaved canonical base with the selected host's live feature
+   * gates. `levels` carries the operator's *draft* posture: without it the
+   * preview would render at the saved posture while sliders are being dragged,
+   * which is the worst possible failure for a preview.
+   */
+  async renderDraft(
+    host: Host,
+    baseBody: string,
+    engine: Engine = ENGINE_CODEX,
+    levels?: SecurityLevels,
+  ): Promise<Record<string, unknown>> {
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
-    const rendered = renderManagedAgentFeatures(baseBody, featureContext);
+    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels);
     const servedSha = createHash('sha256').update(rendered.body).digest('hex');
     return {
       status: 'ok',
@@ -115,7 +141,7 @@ export class HostAgentsService {
     const body = row.body ?? '';
     const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
-    const rendered = renderManagedAgentFeatures(body, featureContext);
+    const rendered = renderManagedAgentFeatures(body, featureContext, await this.resolvePosture(host));
     const served = rendered.body;
     const servedSha = createHash('sha256').update(served).digest('hex');
     return {
@@ -187,6 +213,7 @@ export class HostAgentsService {
         home: opts.home ?? null,
         username: opts.username ?? null,
         agentMessagingEnabled,
+        securityLevels: await this.resolvePosture(host),
       });
     }
     const status = providedSha && safeHashEquals(rendered.sha256, providedSha) ? 'unchanged' : 'updated';
@@ -247,6 +274,7 @@ export class HostAgentsService {
       home: opts.home ?? null,
       username: opts.username ?? null,
       agentMessagingEnabled,
+      securityLevels: await this.resolvePosture(host),
     });
     await this.recordLog(host.id, 'claude_settings.retrieve', { sha256: rendered.sha256 });
     return {

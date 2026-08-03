@@ -21,6 +21,43 @@ const BUILDER_STATE = {
   custom_instructions: "",
 };
 
+const SECURITY_LEVELS_STANDARD = {
+  autonomy: 3,
+  git_history: 1,
+  remote_hosts: 1,
+  deploy_release: 1,
+  destructive_data: 1,
+  secrets_exposure: 1,
+  security_controls: 1,
+  dependencies: 1,
+  verification_waiver: 0,
+};
+
+const SECURITY_CATALOG = {
+  axes: [
+    {
+      id: "autonomy",
+      label: "Working without asking",
+      description: "How much the agent proceeds on its own.",
+      enforcement: "mechanical",
+      bands: ["Confirm every step", "Ask whenever unsure", "Ask only at a Hard Stop", "State the assumption and proceed", "No check-ins"],
+    },
+    {
+      id: "verification_waiver",
+      label: "Skipping verification",
+      description: "How much verification may be skipped.",
+      enforcement: "prose_only",
+      bands: ["Never skip", "Skip only unrelated checks", "Skip when told", "Skip by default", "Skip freely"],
+    },
+  ],
+  presets: [
+    { id: "contained", label: "Contained", description: "Refuses every privileged action.", levels: { ...SECURITY_LEVELS_STANDARD, autonomy: 0 } },
+    { id: "standard", label: "Standard", description: "Today's fleet policy.", levels: SECURITY_LEVELS_STANDARD },
+  ],
+  bands: ["Refuse", "Ask", "On request", "Announce", "Proceed"],
+  default_levels: SECURITY_LEVELS_STANDARD,
+};
+
 const BUILDER_CATALOG = {
   template_id: "fleet-standard",
   template_version: 1,
@@ -311,6 +348,23 @@ function fixture(pathname: string): Record<string, unknown> {
             auth_outdated: false,
           },
         ],
+      };
+    case "/admin/agent-policy-profiles":
+      return {
+        profiles: [
+          {
+            id: 1,
+            name: "fleet-default",
+            description: "Today's fleet policy.",
+            levels: SECURITY_LEVELS_STANDARD,
+            is_default: true,
+            revision: 1,
+            created_at: "2026-08-02T08:00:00Z",
+            updated_at: "2026-08-02T08:00:00Z",
+            host_ids: [],
+          },
+        ],
+        catalog: SECURITY_CATALOG,
       };
     case "/admin/agents":
       return {

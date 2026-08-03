@@ -247,6 +247,27 @@ CREATE TABLE `agent_messages` (
 	CONSTRAINT `uq_agent_messages_session_client` UNIQUE(`session_id`,`client_message_id`)
 );
 
+CREATE TABLE `agent_policy_profile_assignments` (
+	`host_id` bigint unsigned NOT NULL,
+	`profile_id` bigint unsigned NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_policy_profile_assignments_host_id` PRIMARY KEY(`host_id`)
+);
+
+CREATE TABLE `agent_policy_profiles` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`name` varchar(120) NOT NULL,
+	`description` varchar(500),
+	`levels` json NOT NULL,
+	`is_default` tinyint NOT NULL DEFAULT 0,
+	`revision` int unsigned NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_policy_profiles_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uniq_agent_policy_profiles_name` UNIQUE(`name`)
+);
+
 CREATE TABLE `agent_portal_browser_sessions` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`user_id` bigint unsigned NOT NULL,
@@ -697,7 +718,6 @@ CREATE TABLE `hosts` (
 	`claude_reasoning_effort_override` varchar(32),
 	`claude_last_refresh` varchar(100),
 	`config_version` bigint unsigned NOT NULL DEFAULT 0,
-	`config_baked_at` varchar(40),
 	`wrapper_track` varchar(16) NOT NULL DEFAULT 'v2',
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
@@ -1013,6 +1033,8 @@ CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`
 CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
 CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
 CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`status`);
+CREATE INDEX `idx_agent_policy_profile_assignments_profile` ON `agent_policy_profile_assignments` (`profile_id`);
+CREATE INDEX `idx_agent_policy_profiles_is_default` ON `agent_policy_profiles` (`is_default`);
 CREATE INDEX `idx_agent_portal_browser_sessions_user` ON `agent_portal_browser_sessions` (`user_id`);
 CREATE INDEX `idx_agent_portal_browser_sessions_expires` ON `agent_portal_browser_sessions` (`expires_at`);
 CREATE INDEX `idx_agent_portal_users_enabled` ON `agent_portal_users` (`enabled`);

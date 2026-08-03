@@ -1,5 +1,64 @@
 # 2026-08-03
 
+- Fleet security posture is now a 0-4 scale on nine axes instead of a set of booleans, and it
+  finally reaches the mandatory prefix. `MANAGED_POLICY_MARKDOWN` was one frozen literal that
+  nothing an operator set could touch, so the served document forbade remote mutation in its prefix
+  while the `remote_access` module discussed permitting it — relaxing the module alone left the
+  prohibition emitted verbatim. `agent-security-levels.ts` replaces it with an operation matrix:
+  ~22 rows, each owned by exactly **one** axis, each carrying `gate_ask`/`gate_allow`. The three
+  policy sections are now *projections* of that matrix — `ask` rows become Hard Stop Lines, `forbid`
+  rows become the safety-floor sentence, `allow` rows become a new `## Standing Authorizations`.
+  Two axes can no longer speak about the same action, so the contradiction is unrepresentable
+  rather than merely fixed, and `gate_ask <= gate_allow` per row means **raising a slider can never
+  remove a permission**. At the top of every axis the document grants remote mutation, production
+  deploys and secret values in output with zero surviving prohibitions; at `Standard` it reproduces
+  today's text, including the composed bullet spanning git/deploy/remote.
+- **Both `dangerously_bypass_approvals_and_sandbox` paths are dead, and posture deliberately does
+  not revive either.** The server renders `[security]` into `config.toml` but no Go code parses that
+  block; the wrapper reads `engine_options.dangerously_bypass_approvals_and_sandbox` from the
+  *signed* config, which `wrapper-config.ts:engineOptions()` never emits. `docs/CONFIG_BUILDER.md`
+  documented the dead path as working — that was stale text describing the retired bash `cdx`.
+  Deriving the key would have shipped a slider position that claims to unlock something and
+  silently does nothing; `approval_policy = "never"` + `sandbox_mode = "danger-full-access"` carry
+  the grant through keys Codex actually reads. Baking `engine_options` instead would arm a bypass on
+  every host whose TOML key is already `true`, over a 24h-to-30d revoke channel.
+- Enforcement is a **bake-time overlay**, not a write-back. `applyPostureToSettings` sits beside
+  `applyHostModelOverrides` in both `renderTomlForHost` and `renderClaudeSettingsPartialForHost`, so
+  the operator's stored template stays the single editable owner and there is no "whose values get
+  stored" question when several profiles point at one document. Posture wins for the keys it claims;
+  `sandbox_workspace_write` is merged so operator `writable_roots` survive. `Standard` was tuned
+  against the live default rather than for tidiness: an early mapping folded `git_history` and
+  `security_controls` into `permissions.defaultMode` and landed Standard on `default` when the fleet
+  runs `auto` — deploying that would have *tightened* every Claude host. `defaultMode` is governed
+  by `autonomy` alone, and `security_controls` is now honestly marked **prose only**.
+- Posture lives on named profiles (`agent_policy_profiles`, migration `0018`), not on the
+  composition. `renderForHost` serves the stored snapshot body plus a code-rendered managed block,
+  and `ensureAgentPolicy` leaves any document whose sha is not one hard-coded hash as
+  `legacy_untouched` with `builder_state = null` — so a level read out of `builder_state` would have
+  been a **no-op for most deployments**. Resolving posture at serve time reaches the whole fleet on
+  the next launch with no re-store. Prose and posture are versioned separately: reverting a document
+  restores old wording, never an old level. Assignment is a separate table rather than a `hosts`
+  column, keeping clear of the per-host booleans being retired from that definition.
+- Retired authority sentences are stripped at **render** time, not store time.
+  `AgentsService.store(content, ...)` keeps arbitrary operator text verbatim with `builder_state`
+  null, so a served copy pasted back into the editor — or any body stored before this change —
+  carried the old prohibitions into the canonical base, where they land *below* a policy block that
+  may now grant those same actions. Stripping on render heals existing stored bodies too.
+  `MCP_SERVER_INSTRUCTIONS` no longer restates the secrets rule more permissively than the served
+  document; it defers to it, removing a second voice on the one axis where disagreement is most
+  expensive.
+- Fixed a pre-existing bug found on the way through: `pruneHistorical` protected only the newly
+  stored row and fleet-wide `locked` state, never `hosts.agents_document_id_override`. With a backup
+  limit set, enough stores could delete the exact version a host was pinned to, after which
+  `resolveServedDocument` logged `agents.host_override_missing` and silently served **latest** — a
+  host moved onto a different policy by a retention sweep.
+- Console: a new `ui/slider` over the unused bits-ui primitive (discrete integer steps, so the thumb
+  can only land on a real band), plus a posture panel on `/instructions` with presets, a
+  "modified: N axes" indicator, and a `prose only` badge on axes no engine can enforce. The draft
+  posture is threaded into `POST /admin/agents/render`, which previously collapsed the request to
+  `.content` — without it both previews would have rendered the saved posture while sliders were
+  being dragged. Verified with the full Playwright suite including its Axe checks.
+
 - Made `0016_add_agents_builder_state.sql` idempotent. It was the only additive migration shipping a
   bare `ALTER TABLE ... ADD COLUMN` instead of the information_schema guard `0015` and `0017` use, so
   replaying it against a schema that already has the column died with `ER_DUP_FIELDNAME` — which is

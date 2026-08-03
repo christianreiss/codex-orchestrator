@@ -85,7 +85,11 @@ describe('McpServer.handlePayload', () => {
     expect(result.instructions).toBe(MCP_SERVER_INSTRUCTIONS);
     expect(result.instructions.slice(0, 512)).toContain('secret_list');
     expect(result.instructions.slice(0, 512)).toContain('secret_store');
-    expect(result.instructions).toContain('may be persisted or relayed');
+    // The handshake defers to the served document on what may be done with a
+    // secret value, rather than restating it more permissively — it used to be
+    // a second voice that would silently override a tightened secrets level.
+    expect(result.instructions).toContain('set by the Secrets section of your served');
+    expect(result.instructions).not.toContain('may be persisted or relayed');
     expect(result.instructions).not.toContain('Never persist secret values');
   });
 

@@ -58,6 +58,7 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import type { Host } from '../db/schema.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
@@ -261,11 +262,17 @@ export interface HostRenderOptions {
   username?: string | null;
   /** Effective global + secure-host gate for the local agent transport. */
   agentMessagingEnabled?: boolean;
+  /** Resolved security posture for this host. Omitted leaves the template untouched. */
+  securityLevels?: SecurityLevels | null;
 }
 
 export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const engine = opts.engine ?? ENGINE_CODEX;
-  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, engine);
+  const settingsWithOverrides = applyPostureToSettings(
+    applyHostModelOverrides(asRecord(opts.settings), opts.host, engine),
+    opts.securityLevels,
+    engine,
+  );
   const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
@@ -306,6 +313,60 @@ export function injectManagedCodexSkillPolicyToml(content: string): string {
   if (content.includes(stanza)) return content;
   if (content.trim() === '') return stanza;
   return content.replace(/\s*$/, '\n\n') + stanza;
+}
+
+/**
+ * Layer the host's resolved security posture over the fleet template, right
+ * where `applyHostModelOverrides` layers its model columns: before
+ * normalization, at bake time, per host.
+ *
+ * Deliberately an overlay rather than a write back into the stored document.
+ * `docs/CONFIG_BUILDER.md` warns against a second editable owner of
+ * `config.toml`, and with several profiles pointing at one fleet document there
+ * is no sensible answer to "whose values get stored". Nothing is stored: the
+ * operator's template stays theirs, and posture wins for the keys it claims —
+ * the same ownership model as the Claude `owned_paths` merge.
+ *
+ * Note what is NOT emitted: `[security].dangerously_bypass_approvals_and_sandbox`.
+ * The server renders that key today but no Go code parses it, and the wrapper
+ * reads a *signed* `engine_options` variant the baker never emits. Deriving it
+ * would be a level that claims to unlock something and silently does nothing.
+ * At the top of the scale `approval_policy = never` plus
+ * `sandbox_mode = danger-full-access` carry the grant through keys Codex reads.
+ */
+export function applyPostureToSettings(
+  settings: Record<string, unknown>,
+  levels: SecurityLevels | null | undefined,
+  engine: Engine = ENGINE_CODEX,
+): Record<string, unknown> {
+  if (!levels) return settings;
+  const derived = securityLevelEnforcement(levels);
+  const out = { ...settings };
+
+  if (engine === ENGINE_CLAUDE) {
+    out['permissionMode'] = derived.claude.permission_mode.value;
+    return out;
+  }
+
+  out['approval_policy'] = derived.codex.approval_policy.value;
+  out['sandbox_mode'] = derived.codex.sandbox_mode.value;
+  out['web_search'] = derived.codex.web_search.value;
+
+  // Merge rather than replace: the operator's writable_roots and exclusions are
+  // theirs, and posture only claims the network switch.
+  const workspace = asRecord(out['sandbox_workspace_write']);
+  out['sandbox_workspace_write'] = {
+    ...workspace,
+    network_access: derived.codex.network_access.value,
+  };
+
+  const features = asRecord(out['features']);
+  out['features'] = {
+    ...features,
+    guardian_approval: derived.codex.guardian_approval.value,
+  };
+
+  return out;
 }
 
 function applyHostModelOverrides(
@@ -643,7 +704,11 @@ export function renderClaudeSettingsPartial(
 export function renderClaudeSettingsPartialForHost(
   opts: HostRenderOptions,
 ): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string } {
-  const settingsWithOverrides = applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE);
+  const settingsWithOverrides = applyPostureToSettings(
+    applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
+    opts.securityLevels,
+    ENGINE_CLAUDE,
+  );
   const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
