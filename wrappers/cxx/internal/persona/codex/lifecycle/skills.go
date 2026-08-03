@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 )
@@ -54,8 +55,15 @@ func legacyCleanupSentinel(version string) string {
 // syncSkills pings /skills and returns a truthful best-effort health result.
 // Failures remain non-fatal, but callers must render them as warnings rather
 // than treating "not updated" as proof that the resource is healthy.
-func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) summary.ResourceSync {
-	state := summary.ResourceSync{Checked: true}
+func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (state summary.ResourceSync) {
+	ctx, span := tracing.Start(ctx, "cxx.sync.skills", tracing.String("wrapper.engine", "codex"))
+	defer func() {
+		span.SetBool("wrapper.skills_changed", state.Updated)
+		span.Fail(state.Err)
+		span.End()
+	}()
+
+	state = summary.ResourceSync{Checked: true}
 	if client == nil {
 		state.Err = errors.New("skills client unavailable")
 		return state

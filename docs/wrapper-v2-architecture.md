@@ -401,6 +401,13 @@ rewrites those compatibility keys from the published artifact store.
 
 ## Observability
 
+Both sides of the wrapper stack can emit OpenTelemetry spans, and both are off
+by default. The API's toggle is `OTEL_TRACES_ENABLED`; the `cxx` binary's is
+`CXX_OTEL_TRACES_ENABLED`, and that prefix is not cosmetic — see
+[Wrapper spans (`cxx`)](#wrapper-spans-cxx).
+
+### Bakery spans (API)
+
 The bakery emits OpenTelemetry spans. They are **off by default**, and off means
 nothing is loaded: with `OTEL_TRACES_ENABLED` unset, `initTracing` returns before
 its first `await import(...)`, so no OpenTelemetry package is imported, no
@@ -470,3 +477,158 @@ check that these two agree:
 grep -o '@opentelemetry/[a-z-]*' dist/server.js | sort -u
 grep -o '@opentelemetry/[a-z-]*' dist/package.json | sort -u
 ```
+
+### Wrapper spans (`cxx`)
+
+The `cxx` binary emits its own spans from
+`wrappers/cxx/internal/observability/tracing`. Off by default, and off is total:
+with `CXX_OTEL_TRACES_ENABLED` unset, `tracing.Init` returns before it builds an
+exporter or a provider, so no socket is opened, no background goroutine starts,
+and `tracing.Start` hands back the caller's context plus a zero-sized no-op
+span. The disabled path costs one atomic load.
+
+`Init` is called from `lifecycle.Run` in each persona, not from `main`, so
+`cdx cron`, `cdx update`, `clx uninstall` and every other subcommand pay
+nothing.
+
+#### Why the variables are `CXX_`-prefixed
+
+This is the part to read before changing anything here.
+
+`wrappers/cxx/internal/codex/preexec.go` (`exportOTELFromConfig`) calls
+`os.Setenv` on `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`,
+`OTEL_SERVICE_NAME`, `OTEL_TRACES_EXPORTER`, `OTEL_RESOURCE_ATTRIBUTES` and
+`OTEL_EXPORTER_OTLP_HEADERS` **inside the wrapper's own process**, so the child
+Codex CLI inherits the collector the user configured in `~/.codex/config.toml`.
+Those headers routinely carry a bearer token.
+
+So inside `cxx`, the standard `OTEL_*` names are someone else's configuration.
+A wrapper that read them — directly, or by letting the SDK autoconfigure itself
+from the environment — would ship its own spans, and that `Authorization`
+header, to a collector the user never pointed at the wrapper. That is data
+egress, not a wiring bug. Three things prevent it:
+
+1. The package reads only `CXX_OTEL_*` names, through an injectable `getenv`, so
+   the rule is enforced by a test rather than by a convention.
+2. Every exporter and provider field the SDK would otherwise take from the
+   environment is passed as an explicit option — endpoint URL, headers, TLS,
+   compression, timeout, retry, sampler, span limits and batch-processor
+   settings. `otlpconfig.NewHTTPConfig` applies env config *before* caller
+   options, so an explicit option wins; one that is omitted does not.
+3. The exporter and provider are constructed inside `withoutBareOTELEnv`, which
+   removes the entire `OTEL_` namespace from the process environment for the
+   duration and restores it exactly. This is not belt-and-braces: `WithResource`
+   merges `resource.Environment()` unconditionally and offers no option to stop
+   it, so `OTEL_RESOURCE_ATTRIBUTES` would otherwise ride out on every span.
+   Mutating the environment is safe exactly there, for a call-graph reason
+   rather than a short-window one: `Init` is the first statement of `Run`, so no
+   goroutine this binary starts is running yet; `lifecycle.Run` is reached at
+   most once per process (each persona's `internal/app` main dispatches it from
+   mutually exclusive switch arms, and `internal/cron.runEnabledTicks` ticks
+   each persona as a **separate child process**, sequentially); `PreExec`
+   exports those names later in the same `Run` on the same goroutine and sources
+   them from `~/.codex/config.toml`, not from the environment; and
+   `agentportal.ScrubEnvironment` swaps only the portal's own variables. The
+   scrub also runs under the package's init mutex. If `Run` ever becomes
+   reachable twice in one process, this reasoning has to be redone.
+
+`internal/codex/preexec.go` is the only file in the module that may read a bare
+`OTEL_*` name. To audit:
+
+```sh
+cd wrappers/cxx
+grep -rn 'OTEL_' internal cmd --include=*.go | grep -v 'internal/codex/preexec.go'
+```
+
+Every remaining hit must be a comment, a `CXX_OTEL_*` name, the scrub prefix in
+`tracing.go`, or a test that sets a bare variable in order to prove the wrapper
+ignores it. A `os.Getenv("OTEL_…")` anywhere else is a defect.
+
+#### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CXX_OTEL_TRACES_ENABLED` | unset | The only switch. `1`/`true`/`yes`/`on`. An injected exporter cannot enable tracing. |
+| `CXX_OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | Full OTLP/HTTP traces URL, path included. |
+| `CXX_OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`, values percent-decoded. |
+| `CXX_OTEL_EXPORTER_OTLP_TIMEOUT` | `5000` | Milliseconds for one export attempt. |
+| `CXX_OTEL_SERVICE_NAME` | `cxx` | `service.name` on the resource. |
+
+Retries are disabled and the shutdown flush is capped at two seconds: `cdx` is
+an interactive wrapper and an unreachable collector must not hold up the user's
+shell. `Init` never returns an error to the lifecycle — a misconfigured
+collector degrades to "tracing off", logged at debug.
+
+`Init` deliberately does **not** call `otel.SetTracerProvider`. Nothing else in
+the binary opens spans, nesting travels through `context.Context` either way,
+and leaving the global unset means no dependency can start exporting through
+our pipeline by accident.
+
+#### Span tree
+
+Everything below exists twice, once per persona
+(`internal/persona/{codex,claude}/lifecycle/`):
+
+```
+cxx.lifecycle.run                 wrapper.engine, wrapper.version (resource),
+│                                 wrapper.headless, wrapper.minimal,
+│                                 wrapper.resumed, wrapper.concurrent,
+│                                 wrapper.exit_code
+└── cxx.lifecycle.bootstrap       wrapper.concurrent, wrapper.bundle_fallback
+    ├── cxx.sync.bootstrap        the live POST /sync/bootstrap;
+    │                             wrapper.auth_candidate_offered,
+    │                             wrapper.auth_status
+    ├── cxx.sync.legacy_fallback  ONLY on the per-resource fallback path
+    ├── cxx.apply.claude_artifacts     claude only; wrapper.item_count,
+    │   └── cxx.apply.collection       wrapper.updated,
+    │                                  wrapper.collection_kind
+    └── cxx.apply.claude_skills   claude only; wrapper.item_count,
+                                  wrapper.updated
+cxx.sync.skills                   sibling of bootstrap; wrapper.skills_changed
+```
+
+`cxx.sync.legacy_fallback` is labelled a fallback on purpose. It needs
+`isBundleUnsupported` (a 404/501/405 from the bundle endpoint), so against a
+current orchestrator it is unreachable. A span appearing there means the host is
+talking to an old server — not that the sync was slow.
+
+The Claude appliers are instrumented in `applyCollectionResult`,
+`applyClaudeArtifactsResult` and `applyClaudeSkillsResult`, not in the `bool`
+wrappers beside them. The bundle path calls only the `*Result` functions; the
+wrappers are reached from tests alone, so instrumenting those would have shown
+green in the suite and emitted nothing from a shipped binary.
+
+#### No secret reaches a span
+
+Attributes are statuses, counts, booleans and the engine name. Auth payloads,
+auth digests, API keys, canonical bytes and error *messages* are all excluded —
+`Span.Fail` records only the error's Go type name, in `error.type` and as the
+status description. `tracing.Attr` has constructors for `string`, `int` and
+`bool` and deliberately none for `[]byte`, `error` or `any`, because those are
+how a credential ends up on a span. A span leaves the process for a collector
+this repository does not control, so it is a lower-trust sink than a log line.
+
+#### Binary cost
+
+The SDK and the OTLP/HTTP exporter are linked unconditionally — Go has no
+conditional linking — so the cost is paid by every host whether or not tracing
+is ever switched on. Measured at v0.7.7 with `make release`:
+
+| Platform | Before | After | Delta |
+| --- | --- | --- | --- |
+| linux/amd64 | 9.09 MB | 16.30 MB | +7.21 MB (+79%) |
+| linux/arm64 | 8.39 MB | 15.21 MB | +6.82 MB (+81%) |
+| darwin/amd64 | 9.28 MB | 16.87 MB | +7.60 MB (+82%) |
+| darwin/arm64 | 8.60 MB | 15.82 MB | +7.22 MB (+84%) |
+
+Modules linked into `cmd/cxx` go from 4 to 24; `go list -m all` goes from 4 to
+58. Almost all of that is `go.opentelemetry.io/proto/otlp` dragging in
+`google.golang.org/grpc`, `google.golang.org/protobuf` and `genproto` — the
+tracing SDK by itself costs about 0.6 MB.
+
+**This is a real cost for a self-updating fleet**: every host downloads roughly
+7 MB more on every wrapper bump. If that outweighs the tracing, the lever is the
+exporter, not the instrumentation — an OTLP/JSON exporter over `net/http` would
+drop grpc and protobuf entirely and bring the delta back to well under 1 MB, at
+the price of hand-maintaining the wire encoding. The instrumentation, the
+`CXX_OTEL_*` contract and the tests are exporter-agnostic and would not change.

@@ -1,5 +1,45 @@
 # 2026-08-03
 
+- The `cxx` wrapper can now emit its own OpenTelemetry spans, **off by default** and gated only by
+  `CXX_OTEL_TRACES_ENABLED`. Off is total: `tracing.Init` returns before it builds an exporter or a
+  provider, so no socket is opened, no goroutine starts, and `tracing.Start` returns the caller's
+  context plus a zero-sized no-op span. `Init` is called from `lifecycle.Run` in each persona, not
+  from `main`, so `cdx cron`, `clx update` and every other subcommand pay nothing. The tree is
+  `cxx.lifecycle.run` → `cxx.lifecycle.bootstrap` → {`cxx.sync.bootstrap`,
+  `cxx.apply.claude_artifacts` → `cxx.apply.collection`, `cxx.apply.claude_skills`}, with
+  `cxx.sync.skills` alongside; `cxx.sync.legacy_fallback` is labelled a fallback because it needs a
+  404/501/405 from the bundle endpoint and is unreachable against a current orchestrator. Every span
+  exists twice, once per persona. The Claude appliers are instrumented in `applyCollectionResult`,
+  `applyClaudeArtifactsResult` and `applyClaudeSkillsResult` rather than the `bool` wrappers beside
+  them — the bundle path calls only the `*Result` functions, so the other choice would show green in
+  the suite and emit nothing from a shipped binary. **Every variable is `CXX_`-prefixed on purpose,
+  and this is a data-egress guard rather than a naming preference.**
+  `internal/codex/preexec.go` calls `os.Setenv` on `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` and friends *inside
+  the wrapper's own process* to hand the user's Codex collector — bearer token included — to the
+  child CLI. A wrapper that let the SDK autoconfigure from the environment would ship its own spans
+  and that `Authorization` header to a collector nobody pointed at it. Three defences: the package
+  reads only `CXX_OTEL_*` names through an injectable `getenv`; every env-reachable exporter and
+  provider field is passed as an explicit option; and both are constructed inside
+  `withoutBareOTELEnv`, which removes the whole `OTEL_` namespace for the duration and restores it
+  exactly. The third is not redundant — `sdktrace.WithResource` merges `resource.Environment()`
+  unconditionally with no option to stop it, so `OTEL_RESOURCE_ATTRIBUTES` leaked onto exported
+  spans until the scrub landed. The regression test runs tracing **on** against two loopback
+  collectors with every bare `OTEL_*` variable pointing at the decoy, and asserts the decoy stays
+  empty, no `Authorization` header ships, and the child's environment is restored. **No secret
+  reaches a span**: attributes are statuses, counts, booleans and the engine name; `Span.Fail`
+  records the error's Go *type*, never its message, and `tracing.Attr` has no constructor taking
+  `[]byte`, `error` or `any`. Retries are off and the shutdown flush is capped at two seconds so an
+  unreachable collector cannot hold up an interactive shell, and `Init` never fails a run.
+  **Cost, which is real for a self-updating fleet:** the SDK and the OTLP/HTTP exporter link
+  unconditionally, so every host pays whether or not tracing is ever switched on. `make release`
+  grows all four platforms by roughly 7 MB (linux/amd64 9.09 → 16.30 MB, +79%; linux/arm64 8.39 →
+  15.21 MB; darwin/amd64 9.28 → 16.87 MB; darwin/arm64 8.60 → 15.82 MB), modules linked into
+  `cmd/cxx` go from 4 to 24 and `go list -m all` from 4 to 58. Nearly all of it is
+  `go.opentelemetry.io/proto/otlp` pulling in grpc, protobuf and genproto; the tracing SDK alone is
+  about 0.6 MB. If that outweighs the tracing, the lever is the exporter — an OTLP/JSON exporter
+  over `net/http` would bring the delta under 1 MB — not the instrumentation, which is
+  exporter-agnostic.
 - The wrapper config bakery can now emit OpenTelemetry spans, **off by default** and gated only by
   the new `OTEL_TRACES_ENABLED` env var (plus `OTEL_SERVICE_NAME`, default
   `codex-orchestrator-api`). Off is total: `initTracing` returns before its first dynamic import, so

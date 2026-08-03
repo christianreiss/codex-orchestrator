@@ -14,6 +14,7 @@
 package lifecycle
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
 
@@ -367,11 +369,27 @@ func replaceSkillBundle(skillsRoot, name string, it orchestrator.CollectionItem)
 // applyCollection writes/prunes one collection kind and returns whether anything
 // changed on disk.
 func applyCollection(kind string, items []orchestrator.CollectionItem, logger *slog.Logger) bool {
-	updated, _ := applyCollectionResult(kind, items, logger)
+	updated, _ := applyCollectionResult(context.Background(), kind, items, logger)
 	return updated
 }
 
-func applyCollectionResult(kind string, items []orchestrator.CollectionItem, logger *slog.Logger) (bool, error) {
+// applyCollectionResult carries a context solely to parent its span; nothing in
+// the body is cancellable. The span lives here rather than on applyCollection
+// because the bundle path (bootstrap → applyClaudeArtifactsResult) never calls
+// the bool wrapper, and instrumenting the wrapper alone would produce spans in
+// tests and none in a shipped binary.
+func applyCollectionResult(ctx context.Context, kind string, items []orchestrator.CollectionItem, logger *slog.Logger) (updated bool, resultErr error) {
+	_, span := tracing.Start(ctx, "cxx.apply.collection",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.String("wrapper.collection_kind", kind),
+		tracing.Int("wrapper.item_count", len(items)),
+	)
+	defer func() {
+		span.SetBool("wrapper.updated", updated)
+		span.Fail(resultErr)
+		span.End()
+	}()
+
 	dir, ok := artifactDirs[kind]
 	if !ok {
 		return false, fmt.Errorf("unknown Claude collection kind %q", kind)
@@ -379,8 +397,6 @@ func applyCollectionResult(kind string, items []orchestrator.CollectionItem, log
 	targetDir := claudeSubdir(dir)
 	man := loadManifest(collectionManifestPath(dir))
 	newItems := map[string]manifestEntry{}
-	updated := false
-	var resultErr error
 
 	for _, it := range items {
 		prev, known := man.Items[it.Slug]
@@ -443,24 +459,29 @@ func applyCollectionResult(kind string, items []orchestrator.CollectionItem, log
 // applyClaudeArtifacts writes all three collection kinds. Returns true if any
 // file changed (used to light the boot-screen dot).
 func applyClaudeArtifacts(ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) bool {
-	if ca == nil {
-		return false
-	}
-	u := applyCollection("subagent", ca.Subagents, logger)
-	u = applyCollection("command", ca.Commands, logger) || u
-	u = applyCollection("output-style", ca.OutputStyles, logger) || u
-	return u
+	updated, _ := applyClaudeArtifactsResult(context.Background(), ca, logger)
+	return updated
 }
 
-func applyClaudeArtifactsResult(ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) (bool, error) {
+func applyClaudeArtifactsResult(ctx context.Context, ca *orchestrator.ClaudeArtifacts, logger *slog.Logger) (updated bool, resultErr error) {
 	if ca == nil {
 		return false, nil
 	}
-	updated, resultErr := applyCollectionResult("subagent", ca.Subagents, logger)
-	changed, err := applyCollectionResult("command", ca.Commands, logger)
+	ctx, span := tracing.Start(ctx, "cxx.apply.claude_artifacts",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Int("wrapper.item_count", len(ca.Subagents)+len(ca.Commands)+len(ca.OutputStyles)),
+	)
+	defer func() {
+		span.SetBool("wrapper.updated", updated)
+		span.Fail(resultErr)
+		span.End()
+	}()
+
+	updated, resultErr = applyCollectionResult(ctx, "subagent", ca.Subagents, logger)
+	changed, err := applyCollectionResult(ctx, "command", ca.Commands, logger)
 	updated = updated || changed
 	resultErr = errors.Join(resultErr, err)
-	changed, err = applyCollectionResult("output-style", ca.OutputStyles, logger)
+	changed, err = applyCollectionResult(ctx, "output-style", ca.OutputStyles, logger)
 	return updated || changed, errors.Join(resultErr, err)
 }
 
@@ -489,23 +510,31 @@ func artifactDigestsForRequest() map[string]map[string]string {
 // skill dirs and the skills/ root are never touched. (Claude Code can't read
 // skills over MCP, so on-disk is the only way; codex stays MCP-only.)
 func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) bool {
-	updated, _ := applyClaudeSkillsResult(items, logger)
+	updated, _ := applyClaudeSkillsResult(context.Background(), items, logger)
 	return updated
 }
 
-func applyClaudeSkillsResult(items []orchestrator.CollectionItem, logger *slog.Logger) (bool, error) {
+func applyClaudeSkillsResult(ctx context.Context, items []orchestrator.CollectionItem, logger *slog.Logger) (updated bool, resultErr error) {
 	// nil means an older server omitted claude_skills entirely. An explicit
 	// empty JSON array is non-nil and remains the authoritative signal to prune
 	// fleet-managed skills that no longer exist.
 	if items == nil {
 		return false, nil
 	}
+	_, span := tracing.Start(ctx, "cxx.apply.claude_skills",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Int("wrapper.item_count", len(items)),
+	)
+	defer func() {
+		span.SetBool("wrapper.updated", updated)
+		span.Fail(resultErr)
+		span.End()
+	}()
+
 	skillsRoot := claudeSubdir("skills")
 	manPath := collectionManifestPath("skills")
 	man := loadManifest(manPath)
 	newItems := map[string]manifestEntry{}
-	updated := false
-	var resultErr error
 
 	for _, it := range items {
 		prev, recorded := man.Items[it.Slug]

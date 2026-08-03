@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -60,7 +61,7 @@ func TestApplyCollectionIfNoneMatchSkipsRewrite(t *testing.T) {
 func TestApplyClaudeArtifactsResultReportsIncompleteWrite(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	updated, err := applyClaudeArtifactsResult(&orchestrator.ClaudeArtifacts{
+	updated, err := applyClaudeArtifactsResult(context.Background(), &orchestrator.ClaudeArtifacts{
 		Subagents: []orchestrator.CollectionItem{{Slug: "reviewer", SHA256: "new", Status: "updated"}},
 	}, slog.Default())
 	if updated || err == nil {
@@ -74,7 +75,7 @@ func TestApplyClaudeArtifactsResultPreservesLastGoodItem(t *testing.T) {
 	logger := slog.Default()
 	applyCollection("subagent", []orchestrator.CollectionItem{item("reviewer", "old", "old body")}, logger)
 
-	updated, err := applyClaudeArtifactsResult(&orchestrator.ClaudeArtifacts{
+	updated, err := applyClaudeArtifactsResult(context.Background(), &orchestrator.ClaudeArtifacts{
 		Subagents: []orchestrator.CollectionItem{{Slug: "reviewer", SHA256: "new", Status: "updated"}},
 	}, logger)
 	if updated || err == nil {
@@ -252,7 +253,7 @@ func TestApplyClaudeSkillsWritesCompleteBundle(t *testing.T) {
 		skillFile("tests.md", "test guidance\n"),
 		skillFile("agents/openai.yaml", "policy:\n  allow_implicit_invocation: false\n"),
 	)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{item}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{item}, slog.Default())
 	if !updated || err != nil {
 		t.Fatalf("bundle apply = updated %t, err %v", updated, err)
 	}
@@ -282,7 +283,7 @@ func TestApplyClaudeSkillsBundleUpdatePrunesRemovedAuxiliaryFiles(t *testing.T) 
 	applyClaudeSkills([]orchestrator.CollectionItem{first}, slog.Default())
 	second := skillItem("tdd", "two", "v2")
 	setSkillFiles(&second, skillFile("keep.md", "keep-v2"))
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{second}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{second}, slog.Default())
 	if !updated || err != nil {
 		t.Fatalf("bundle update = updated %t, err %v", updated, err)
 	}
@@ -305,7 +306,7 @@ func TestApplyClaudeSkillsRejectsUnsafeBundlePathAndPreservesLastGood(t *testing
 	applyClaudeSkills([]orchestrator.CollectionItem{old}, logger)
 	next := skillItem("tdd", "new", "new body")
 	setSkillFiles(&next, skillFile("../escape", "pwn"))
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{next}, logger)
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{next}, logger)
 	if updated || err == nil {
 		t.Fatalf("unsafe update = updated %t, err %v", updated, err)
 	}
@@ -329,7 +330,7 @@ func TestApplyClaudeSkillsRejectsCaseFoldedDuplicateBundlePaths(t *testing.T) {
 		skillFile("Guide.md", "one"),
 		skillFile("guide.md", "two"),
 	)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{item}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{item}, slog.Default())
 	if updated || err == nil {
 		t.Fatalf("case-fold collision = updated %t, err %v", updated, err)
 	}
@@ -344,7 +345,7 @@ func TestApplyClaudeSkillsRejectsInvalidManifestDigest(t *testing.T) {
 	item := skillItem("tdd", "bundle", "body")
 	setSkillFiles(&item, skillFile("guide.md", "guide"))
 	item.ManifestSHA256 = strings.Repeat("0", 64)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{item}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{item}, slog.Default())
 	if updated || err == nil {
 		t.Fatalf("invalid manifest digest = updated %t, err %v", updated, err)
 	}
@@ -358,7 +359,7 @@ func TestApplyClaudeSkillsRejectsManifestOnlyAdvertisedDigestMismatch(t *testing
 	t.Setenv("HOME", home)
 	item := skillItem("tdd", "ignored", "body")
 	item.SHA256 = strings.Repeat("0", 64)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{item}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{item}, slog.Default())
 	if updated || err == nil {
 		t.Fatalf("manifest digest mismatch = updated %t, err %v", updated, err)
 	}
@@ -372,14 +373,14 @@ func TestApplyClaudeSkillsRejectsAggregateBundleDigestAndPreservesLastGood(t *te
 	t.Setenv("HOME", home)
 	logger := slog.Default()
 	old := skillItem("tdd", "ignored", "old body")
-	if updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{old}, logger); !updated || err != nil {
+	if updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{old}, logger); !updated || err != nil {
 		t.Fatalf("seed last good = updated %t, err %v", updated, err)
 	}
 
 	next := skillItem("tdd", "ignored", "new body")
 	setSkillFiles(&next, skillFile("guide.md", "valid file"))
 	next.SHA256 = strings.Repeat("0", 64)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{next}, logger)
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{next}, logger)
 	if updated || err == nil {
 		t.Fatalf("aggregate bundle digest mismatch = updated %t, err %v", updated, err)
 	}
@@ -429,7 +430,7 @@ func TestApplyClaudeSkillsPreservesUnmanagedSlugCollision(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(userDir, "SKILL.md"), []byte("user-owned"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{
 		skillItem("tdd", "fleet", "fleet-owned"),
 	}, slog.Default())
 	if updated || err == nil {
@@ -461,7 +462,7 @@ func TestApplyClaudeSkillsInvalidOwnershipRecordCannotOverwriteUserDirectory(t *
 		t.Fatal(err)
 	}
 
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{
 		skillItem("a", "ignored", "fleet-owned"),
 	}, slog.Default())
 	if updated || err == nil {
@@ -486,7 +487,7 @@ func TestApplyClaudeSkillsMissingAuxiliaryClearsDigestForNextHeal(t *testing.T) 
 	if err := os.Remove(filepath.Join(home, ".claude", "skills", "tdd", "tests.md")); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{{
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{{
 		Slug: "tdd", SHA256: full.SHA256, Status: "unchanged",
 	}}, logger)
 	if updated || err == nil {
@@ -495,7 +496,7 @@ func TestApplyClaudeSkillsMissingAuxiliaryClearsDigestForNextHeal(t *testing.T) 
 	if got := skillDigestsForRequest()["tdd"]; got != "" {
 		t.Fatalf("missing bundle still advertised digest %q", got)
 	}
-	updated, err = applyClaudeSkillsResult([]orchestrator.CollectionItem{full}, logger)
+	updated, err = applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{full}, logger)
 	if !updated || err != nil || !fileExists(filepath.Join(home, ".claude", "skills", "tdd", "tests.md")) {
 		t.Fatalf("bundle did not self-heal = updated %t, err %v", updated, err)
 	}
@@ -528,7 +529,7 @@ func TestSkillDigestsForRequestWithholdsModifiedManagedContentAndSelfHeals(t *te
 				t.Fatalf("modified %s still advertised the cached bundle digest", tc.tamperPath)
 			}
 
-			updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{full}, logger)
+			updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{full}, logger)
 			if !updated || err != nil {
 				t.Fatalf("modified bundle did not self-heal: updated %t, err %v", updated, err)
 			}
@@ -589,7 +590,7 @@ func TestSkillDigestsRejectExtraEntriesAndSelfHealExactBundle(t *testing.T) {
 			logger := slog.Default()
 			full := skillItem("tdd", "ignored", "body")
 			setSkillFiles(&full, skillFile("refs/guide.md", "guide"))
-			if updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{full}, logger); !updated || err != nil {
+			if updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{full}, logger); !updated || err != nil {
 				t.Fatalf("seed bundle = updated %t, err %v", updated, err)
 			}
 			root := filepath.Join(home, ".claude", "skills", "tdd")
@@ -597,7 +598,7 @@ func TestSkillDigestsRejectExtraEntriesAndSelfHealExactBundle(t *testing.T) {
 			if _, advertised := skillDigestsForRequest()["tdd"]; advertised {
 				t.Fatalf("bundle with extra %s still advertised a digest", tc.name)
 			}
-			updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{full}, logger)
+			updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{full}, logger)
 			if !updated || err != nil {
 				t.Fatalf("extra %s did not self-heal: updated %t, err %v", tc.name, updated, err)
 			}
@@ -635,7 +636,7 @@ func TestSkillDigestsForRequestUpgradesLegacyOwnershipManifest(t *testing.T) {
 	}
 
 	full := skillItem("legacy", "bundle", "body")
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{full}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{full}, slog.Default())
 	if !updated || err != nil {
 		t.Fatalf("legacy ownership upgrade = updated %t, err %v", updated, err)
 	}
@@ -666,7 +667,7 @@ func TestApplyClaudeSkillsIfNoneMatch(t *testing.T) {
 func TestApplyClaudeSkillsResultReportsIncompleteWrite(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{{
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{{
 		Slug: "reviewer", SHA256: "new", Status: "updated",
 	}}, slog.Default())
 	if updated || err == nil {
@@ -681,7 +682,7 @@ func TestApplyClaudeSkillsResultPreservesLastGoodItem(t *testing.T) {
 	old := skillItem("reviewer", "old", "old body")
 	applyClaudeSkills([]orchestrator.CollectionItem{old}, logger)
 
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{{
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{{
 		Slug: "reviewer", SHA256: "new", Status: "updated",
 	}}, logger)
 	if updated || err == nil {
@@ -702,7 +703,7 @@ func TestApplyClaudeSkillsNilLegacyPayloadDoesNotPrune(t *testing.T) {
 	logger := slog.Default()
 	applyClaudeSkills([]orchestrator.CollectionItem{skillItem("reviewer", "sha", "body")}, logger)
 
-	updated, err := applyClaudeSkillsResult(nil, logger)
+	updated, err := applyClaudeSkillsResult(context.Background(), nil, logger)
 	if updated || err != nil {
 		t.Fatalf("legacy nil skill payload = updated %t, err %v", updated, err)
 	}
@@ -755,7 +756,7 @@ func TestApplyClaudeSkillsInvalidOwnershipRecordCannotPruneAnotherSlug(t *testin
 		t.Fatal(err)
 	}
 
-	updated, err := applyClaudeSkillsResult([]orchestrator.CollectionItem{}, slog.Default())
+	updated, err := applyClaudeSkillsResult(context.Background(), []orchestrator.CollectionItem{}, slog.Default())
 	if updated || err == nil {
 		t.Fatalf("invalid ownership prune = updated %t, err %v", updated, err)
 	}

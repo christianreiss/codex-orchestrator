@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
 )
@@ -52,8 +53,15 @@ func legacyCleanupSentinel(version string) string {
 	return filepath.Join(home, ".cache", "codex-orchestrator", "clx-cleanup-v"+version)
 }
 
-func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) summary.ResourceSync {
-	state := summary.ResourceSync{Checked: true}
+func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (state summary.ResourceSync) {
+	ctx, span := tracing.Start(ctx, "cxx.sync.skills", tracing.String("wrapper.engine", "claude"))
+	defer func() {
+		span.SetBool("wrapper.skills_changed", state.Updated)
+		span.Fail(state.Err)
+		span.End()
+	}()
+
+	state = summary.ResourceSync{Checked: true}
 	if client == nil {
 		state.Err = errors.New("skills client unavailable")
 		return state

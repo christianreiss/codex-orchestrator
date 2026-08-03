@@ -26,6 +26,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
@@ -162,6 +163,29 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		logger = slog.Default()
 	}
 
+	// Optional tracing, off unless CXX_OTEL_TRACES_ENABLED is set. Scoped to a
+	// lifecycle so `cdx cron`, `cdx update` and friends pay nothing. Registered
+	// first so its defers unwind last: the run span closes after the auth
+	// session and the run lock, and the flush happens after that. Neither defer
+	// touches exitCode or runErr — they only read the settled values.
+	stopTracing := tracing.Init(ctx, tracing.Options{
+		Engine:  "codex",
+		Version: currentWrapperVersion(opts, cfg),
+		Logger:  logger,
+	})
+	defer stopTracing()
+	ctx, runSpan := tracing.Start(ctx, "cxx.lifecycle.run",
+		tracing.String("wrapper.engine", "codex"),
+		tracing.Bool("wrapper.headless", opts.Headless),
+		tracing.Bool("wrapper.minimal", opts.Minimal),
+		tracing.Bool("wrapper.resumed", opts.Resumed),
+	)
+	defer func() {
+		runSpan.SetInt("wrapper.exit_code", exitCode)
+		runSpan.Fail(runErr)
+		runSpan.End()
+	}()
+
 	// Concurrent-instance detection. If another instance holds the lock we
 	// pause managed writes while still checking auth freshness and quota.
 	concurrent := false
@@ -179,6 +203,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	} else {
 		defer lock.Release()
 	}
+	runSpan.SetBool("wrapper.concurrent", concurrent)
 
 	// Runtime FQDN guard, run BEFORE any sync so a cloned/mis-deployed host
 	// refuses up front — before bootstrap persists fleet auth/config, before a
@@ -543,6 +568,12 @@ func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
+		tracing.String("wrapper.engine", "codex"),
+		tracing.Bool("wrapper.concurrent", concurrent),
+	)
+	defer bootSpan.End()
+
 	var (
 		candidate   []byte
 		expected    codex.AuthGeneration
@@ -610,6 +641,13 @@ func bootstrap(
 	bctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
+	// The live sync path. Attributes stay at the shape of the exchange —
+	// whether a candidate was offered, what status came back — because the
+	// request body and the response both carry credentials.
+	bctx, syncSpan := tracing.Start(bctx, "cxx.sync.bootstrap",
+		tracing.String("wrapper.engine", "codex"),
+		tracing.Bool("wrapper.auth_candidate_offered", len(candidate) > 0),
+	)
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
 		Engine:        "codex",
 		IncludeAuth:   true,
@@ -620,6 +658,12 @@ func bootstrap(
 		Home:          home,
 		Username:      username,
 	})
+	if berr != nil {
+		syncSpan.Fail(berr)
+	} else if resp != nil && resp.Auth != nil {
+		syncSpan.SetString("wrapper.auth_status", resp.Auth.Status)
+	}
+	syncSpan.End()
 	if uploadLease != nil {
 		if berr == nil && uploadLease.IntentGeneration().Exists && bundleAcceptedAuthCandidate(resp) {
 			acknowledged, ackErr := uploadLease.AcknowledgeObservedLogout()
@@ -638,6 +682,7 @@ func bootstrap(
 
 	if berr != nil && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back to per-resource pulls", "err", berr)
+		bootSpan.SetBool("wrapper.bundle_fallback", true)
 		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
 		return a, e, s, ag, co, nil
 	}
@@ -731,6 +776,16 @@ func bundleAcceptedAuthCandidate(resp *orchestrator.BundleResponse) bool {
 // legacySyncPath runs the per-resource sync (auth + agents + config) when the
 // server is too old for /sync/bootstrap.
 func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
+	// Labelled as a fallback on purpose: against a current orchestrator this
+	// branch is unreachable (it needs isBundleUnsupported), so a span appearing
+	// here means the host is talking to an old server, not that the sync is
+	// slow. Do not read it as the normal path.
+	ctx, span := tracing.Start(ctx, "cxx.sync.legacy_fallback",
+		tracing.String("wrapper.engine", "codex"),
+		tracing.Bool("wrapper.fallback", true),
+	)
+	defer span.End()
+
 	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
 
 	var agents, conf summary.ResourceSync
