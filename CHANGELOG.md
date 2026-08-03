@@ -18,6 +18,100 @@
   with `UPDATE_GOLDEN=1`; hand-editing a fixture invalidates its signature. `expires_at` is
   `issued_at + WRAPPER_CONFIG_TTL_SECONDS`, so the TTL constant is part of the fixtures' identity:
   changing it rewrites every fixture and every signature, and that break is an intended update.
+- The `cxx` wrapper can now emit its own OpenTelemetry spans, **off by default at build time and at
+  run time**, and gated only by `CXX_OTEL_TRACES_ENABLED`. The SDK sits behind the `cxx_otel` build
+  tag: `internal/observability/tracing` is one exported API over two implementations, a default stub
+  (`//go:build !cxx_otel`) that imports nothing from `go.opentelemetry.io`, and the real pipeline
+  (`//go:build cxx_otel`). **`make release` and the release CI job build untagged, so the artifact
+  the fleet auto-installs cannot trace at all** — setting `CXX_OTEL_TRACES_ENABLED` on it logs one
+  debug line and does nothing else. To get spans, build your own with `make cxx-traced` or
+  `go build -tags cxx_otel ./cmd/cxx`. Run time is gated separately and identically in both builds:
+  `tracing.Init` returns before it builds an exporter or a provider, so no socket is opened, no
+  goroutine starts, and `tracing.Start` returns the caller's context plus a zero-sized no-op span.
+  `Init` is called from `lifecycle.Run` in each persona, not
+  from `main`, so `cdx cron`, `clx update` and every other subcommand pay nothing. The tree is
+  `cxx.lifecycle.run` → `cxx.lifecycle.bootstrap` → {`cxx.sync.bootstrap`,
+  `cxx.apply.claude_artifacts` → `cxx.apply.collection`, `cxx.apply.claude_skills`}, with
+  `cxx.sync.skills` alongside; `cxx.sync.legacy_fallback` is labelled a fallback because it needs a
+  404/501/405 from the bundle endpoint and is unreachable against a current orchestrator. Every span
+  exists twice, once per persona. The Claude appliers are instrumented in `applyCollectionResult`,
+  `applyClaudeArtifactsResult` and `applyClaudeSkillsResult` rather than the `bool` wrappers beside
+  them — the bundle path calls only the `*Result` functions, so the other choice would show green in
+  the suite and emit nothing from a shipped binary. **Every variable is `CXX_`-prefixed on purpose,
+  and this is a data-egress guard rather than a naming preference.**
+  `internal/codex/preexec.go` calls `os.Setenv` on `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` and friends *inside
+  the wrapper's own process* to hand the user's Codex collector — bearer token included — to the
+  child CLI. A wrapper that let the SDK autoconfigure from the environment would ship its own spans
+  and that `Authorization` header to a collector nobody pointed at it. Three defences: the package
+  reads only `CXX_OTEL_*` names through an injectable `getenv`; every env-reachable exporter and
+  provider field is passed as an explicit option; and both are constructed inside
+  `withoutBareOTELEnv`, which removes the whole `OTEL_` namespace for the duration and restores it
+  exactly. The third is not redundant — `sdktrace.WithResource` merges `resource.Environment()`
+  unconditionally with no option to stop it, so `OTEL_RESOURCE_ATTRIBUTES` leaked onto exported
+  spans until the scrub landed. The regression test runs tracing **on** against two loopback
+  collectors with every bare `OTEL_*` variable pointing at the decoy, and asserts the decoy stays
+  empty, no `Authorization` header ships, and the child's environment is restored. **No secret
+  reaches a span**: attributes are statuses, counts, booleans and the engine name; `Span.Fail`
+  records the error's Go *type*, never its message, and `tracing.Attr` has no constructor taking
+  `[]byte`, `error` or `any`. Retries are off and the shutdown flush is capped at two seconds so an
+  unreachable collector cannot hold up an interactive shell, and `Init` never fails a run.
+  **Cost, and why the tag exists.** `cxx` is sha256-manifested and self-distributes, so every host
+  re-downloads the whole binary on each wrapper update; linking the SDK unconditionally would have
+  charged the entire fleet for a feature nobody had switched on. All figures below are bytes from
+  `CGO_ENABLED=0 GOOS=… GOARCH=… go build -trimpath -ldflags "-s -w" -o … ./cmd/cxx`, measured on
+  Go 1.25, comparing this branch against `main`:
+
+  | platform | `main` | default build | delta | `-tags cxx_otel` | delta vs default |
+  | --- | --- | --- | --- | --- | --- |
+  | linux/amd64 | 9,093,304 | 9,109,688 | +16,384 (+0.2%) | 16,285,880 | +7,176,192 (+78.8%) |
+  | linux/arm64 | 8,388,792 | 8,388,792 | 0 | 15,204,536 | +6,815,744 (+81.2%) |
+  | darwin/amd64 | 9,275,584 | 9,288,032 | +12,448 (+0.1%) | 16,862,640 | +7,574,608 (+81.6%) |
+  | darwin/arm64 | 8,596,610 | 8,629,810 | +33,200 (+0.4%) | 15,801,234 | +7,171,424 (+83.1%) |
+
+  Dependency modules linked into `cmd/cxx` (`go version -m`, counting `dep` lines only — the
+  previous entry's "4 to 24" counted the main module too) stay at 3 in the default build, exactly as
+  on `main`, with **zero** `go.opentelemetry.io` entries; the tagged build has 23 and 8.
+  `go list -m all` reports 58 either way — build tags do not prune the module *graph*, only
+  what the linker sees, so `go.sum` and the dependency-review surface still grow. A `cmd/cxx` test
+  (`TestDefaultBuildLinksNoOpenTelemetry`, `!cxx_otel`) scans the binary's own module list, so
+  `make test` fails if anything reintroduces the SDK into the default build.
+
+  Where the 7 MB goes, measured the same way with three throwaway `main` packages pinned to the same
+  v1.44.0 versions (linux/amd64): stdlib-only 1,495,224 B; adding `sdk/trace` 4,432,056 B
+  (**+2,936,832 B, ~2.8 MiB, for the SDK alone** — the previous entry's "about 0.6 MB" understated
+  it by roughly 5x); adding `otlptracehttp` 13,332,664 B (+8,900,608 B for the exporter, which is
+  `go.opentelemetry.io/proto/otlp` pulling in grpc, protobuf and genproto). Those isolated deltas
+  overstate the in-context cost — `cxx` already links `net/http` and `crypto/tls`, which is why the
+  real delta is 7.2 MB rather than 11.8 MB. The claim that an OTLP/JSON exporter "would bring the
+  delta under 1 MB" is removed: no such exporter was built, so the number was a guess.
+  **Known limitation: the two halves do not join.** No W3C trace context crosses the wrapper → API
+  boundary, so a `cdx` run and the bake it triggers are two disconnected traces, correlated only by
+  host id and timestamp. Adding `traceparent` would mean injection in four separate HTTP clients on
+  the wrapper side (`persona/codex/orchestrator`, `persona/claude/orchestrator`, `agentbus`,
+  `agentportal`) plus a propagator and remote-parent extraction across the API's deliberately lazy
+  import boundary; that is a second feature and was left out on purpose. Until it exists, tracing
+  here buys per-phase timings the existing pino logs do not have, not cross-service correlation.
+- The wrapper config bakery can now emit OpenTelemetry spans, **off by default** and gated only by
+  the new `OTEL_TRACES_ENABLED` env var (plus `OTEL_SERVICE_NAME`, default
+  `codex-orchestrator-api`). Off is total: `initTracing` returns before its first dynamic import, so
+  with the flag unset no OpenTelemetry package is loaded, no provider is registered, no exporter
+  exists and no socket is opened — `withSpan` calls straight through to its callback. Destination,
+  headers and sampling come from the spec-standard `OTEL_EXPORTER_OTLP_*` / `OTEL_TRACES_SAMPLER*`
+  variables that the SDK reads itself. The tree is `GET /wrapper/v2/config` → `wrapper.config.bake`
+  → {`wrapper.config.collect`, `wrapper.config.bump_version`, `wrapper.config.sign`};
+  `WrapperSigningUnavailableError` and `WrapperBinaryUnavailableError` set span status `ERROR` with
+  an `error.type` attribute. The `x-request-id` correlation id rides on the request span as
+  `http.request_id`, so traces join the existing pino logs. Instrumentation is manual because
+  `api/scripts/build.ts` bundles and minifies — auto-instrumentation has nothing to monkey-patch.
+  **No secret reaches a span**: attributes are host id, engine, schema version, config version and
+  the count of active signers only, never the resolved `api_key`, a signature value, a kid, a
+  fingerprint, the canonical bytes or an error message. The toggle is deliberately not routed
+  through the baked payload — `wrappers/schemas/host-config-v1.json` is `additionalProperties:
+  false` and signature-covered, so a flag there would be a wire-contract change for every deployed
+  binary. Four `@opentelemetry/*` packages were added; they are `external` to esbuild **and** in the
+  runtime-dependency allowlist in `api/scripts/build.ts`, and those two lists must stay in sync or
+  the image ships an unresolvable import that a green `npm run build` will not catch.
 - Removed the blanket fleet-policy prohibition on writing secret values to files, logs, or replies.
   Managed AGENTS/CLAUDE guidance, MCP initialization, and `secret_get` now permit a value to be
   persisted or relayed when an explicitly requested task requires it; the secret store itself still

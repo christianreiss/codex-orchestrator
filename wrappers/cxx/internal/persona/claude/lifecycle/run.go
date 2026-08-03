@@ -24,6 +24,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
@@ -103,6 +104,29 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		logger = slog.Default()
 	}
 
+	// Optional tracing, off unless CXX_OTEL_TRACES_ENABLED is set. Scoped to a
+	// lifecycle so `clx cron`, `clx update` and friends pay nothing. Registered
+	// first so its defers unwind last: the run span closes after the auth
+	// session, and the flush happens after that. Neither defer touches exitCode
+	// or retErr — they only read the settled values.
+	stopTracing := tracing.Init(ctx, tracing.Options{
+		Engine:  "claude",
+		Version: currentWrapperVersion(opts, cfg),
+		Logger:  logger,
+	})
+	defer stopTracing()
+	ctx, runSpan := tracing.Start(ctx, "cxx.lifecycle.run",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Bool("wrapper.headless", opts.Headless),
+		tracing.Bool("wrapper.minimal", opts.Minimal),
+		tracing.Bool("wrapper.resumed", opts.Resumed),
+	)
+	defer func() {
+		runSpan.SetInt("wrapper.exit_code", exitCode)
+		runSpan.Fail(retErr)
+		runSpan.End()
+	}()
+
 	// Refuse a cloned or mis-deployed host before acquiring a run lock or
 	// making any orchestrator request. PreExec repeats this immediately before
 	// spawning Claude as defense-in-depth.
@@ -145,6 +169,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	} else {
 		defer lock.Release()
 	}
+	runSpan.SetBool("wrapper.concurrent", concurrent)
 
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
@@ -574,6 +599,12 @@ func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	ctx, bootSpan := tracing.Start(ctx, "cxx.lifecycle.bootstrap",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Bool("wrapper.concurrent", concurrent),
+	)
+	defer bootSpan.End()
+
 	authSnapshot := claude.AuthSnapshot{Path: authPath}
 	digest := ""
 	var (
@@ -645,6 +676,13 @@ func bootstrap(
 		}
 	}
 
+	// The live sync path. Attributes stay at the shape of the exchange —
+	// whether a candidate was offered, what status came back — because the
+	// request body and the response both carry credentials.
+	bctx, syncSpan := tracing.Start(bctx, "cxx.sync.bootstrap",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Bool("wrapper.auth_candidate_offered", bundleCandidateSent),
+	)
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
 		Engine:        "claude",
 		IncludeAuth:   true,
@@ -656,10 +694,17 @@ func bootstrap(
 		Username:      username,
 		Artifacts:     reqArtifacts,
 	})
+	if berr != nil {
+		syncSpan.Fail(berr)
+	} else if resp != nil && resp.Auth != nil {
+		syncSpan.SetString("wrapper.auth_status", resp.Auth.Status)
+	}
+	syncSpan.End()
 	releaseBundleUpload()
 
 	if berr != nil && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
+		bootSpan.SetBool("wrapper.bundle_fallback", true)
 		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
 		return a, e, s, ag, co, summary.ResourceSync{}, nil
 	}
@@ -756,13 +801,13 @@ func bootstrap(
 		// Claude-native collections (subagents / commands / output-styles).
 		// Folded into configSync for the boot-screen "config" dot; writes are
 		// manifest-tracked and never touch user-authored files in those dirs.
-		updated, err := applyClaudeArtifactsResult(resp.ClaudeArtifacts, logger)
+		updated, err := applyClaudeArtifactsResult(ctx, resp.ClaudeArtifacts, logger)
 		configSync.Updated = configSync.Updated || updated
 		configSync.Err = errors.Join(configSync.Err, err)
 		// On-disk skills → ~/.claude/skills/<slug>/SKILL.md (Claude Code's native
 		// skill layout; it can't read skills over MCP like codex does). Keep this
 		// outcome on the skills marker rather than masking it as config health.
-		nativeSkillsSync = applyBundleClaudeSkills(resp.ClaudeSkills, logger)
+		nativeSkillsSync = applyBundleClaudeSkills(ctx, resp.ClaudeSkills, logger)
 	}
 	return authResp, nil, authSynced, agentsSync, configSync, nativeSkillsSync, resp.Sessions
 }
@@ -806,6 +851,16 @@ func neutralizeRejectedSupersededBundleCandidate(
 }
 
 func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
+	// Labelled as a fallback on purpose: against a current orchestrator this
+	// branch is unreachable (it needs isBundleUnsupported), so a span appearing
+	// here means the host is talking to an old server, not that the sync is
+	// slow. Do not read it as the normal path.
+	ctx, span := tracing.Start(ctx, "cxx.sync.legacy_fallback",
+		tracing.String("wrapper.engine", "claude"),
+		tracing.Bool("wrapper.fallback", true),
+	)
+	defer span.End()
+
 	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
 
 	var agents, conf summary.ResourceSync
@@ -860,11 +915,11 @@ func combineOptionalResourceSync(base, optional summary.ResourceSync) summary.Re
 	return combineResourceSync(base, optional)
 }
 
-func applyBundleClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) summary.ResourceSync {
+func applyBundleClaudeSkills(ctx context.Context, items []orchestrator.CollectionItem, logger *slog.Logger) summary.ResourceSync {
 	if items == nil {
 		return summary.ResourceSync{}
 	}
-	updated, err := applyClaudeSkillsResult(items, logger)
+	updated, err := applyClaudeSkillsResult(ctx, items, logger)
 	return summary.ResourceSync{Checked: true, Updated: updated, Err: err}
 }
 

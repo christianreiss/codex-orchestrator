@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,9 @@ const require = createRequire(import.meta.url);
 const sodium = require('libsodium-wrappers') as typeof import('libsodium-wrappers');
 
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
+import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
+import { initTracing, shutdownTracing } from '../../../src/observability/tracing.js';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-node';
 import { Keyring } from '../../../src/security/keyring.js';
 import type { Env } from '../../../src/env.js';
 import type { Host } from '../../../src/db/schema.js';
@@ -1293,5 +1296,85 @@ describe('wrapper-v2 routes', () => {
     });
     expect(r.statusCode).toBe(404);
     await app.close();
+  });
+
+  // Tracing is global state, so it is confined to this block: enabled in
+  // beforeAll, torn down in afterAll. `vitest.config.ts` runs each test file in
+  // its own fork, so nothing outside this file can see it either.
+  describe('OpenTelemetry spans (production routes)', () => {
+    let exporter: InMemorySpanExporter;
+
+    beforeAll(async () => {
+      exporter = new InMemorySpanExporter();
+      await initTracing(
+        { OTEL_TRACES_ENABLED: true, OTEL_SERVICE_NAME: 'codex-orchestrator-api-test' },
+        { exporter },
+      );
+    });
+
+    afterAll(async () => {
+      await shutdownTracing();
+    });
+
+    /**
+     * Same wiring as `buildProductionApp`, plus the request-id plugin: the
+     * point of this block is that the id that plugin assigns reaches the span.
+     */
+    async function tracedApp(host: Host): Promise<FastifyInstance> {
+      const app = Fastify({ logger: false });
+      await app.register(envelopePlugin);
+      await app.register(requestIdPlugin);
+      app.decorateRequest('authHost', undefined);
+      app.decorate('requireHost', async (req: FastifyRequest) => {
+        req.authHost = host;
+      });
+      await registerWrapperV2Routes(
+        app,
+        { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+        { binRoot: BIN_ROOT, signingService: signingService(makeSigner(kp.privateKey)) },
+      );
+      return app;
+    }
+
+    it('GET /wrapper/v2/config roots a trace that carries the x-request-id', async () => {
+      const host = fakeHost();
+      const app = await tracedApp(host);
+      try {
+        const r = await app.inject({
+          method: 'GET',
+          url: '/wrapper/v2/config',
+          headers: { 'x-request-id': 'trace-corr-1' },
+        });
+        expect(r.statusCode).toBe(200);
+        expect(r.headers['x-request-id']).toBe('trace-corr-1');
+
+        const spans = exporter.getFinishedSpans();
+        const root = spans.find((s) => s.name === 'GET /wrapper/v2/config');
+        expect(root, spans.map((s) => s.name).join(', ')).toBeDefined();
+        expect(root!.attributes['http.request_id']).toBe('trace-corr-1');
+        expect(root!.attributes['http.route']).toBe('/wrapper/v2/config');
+        expect(root!.attributes['wrapper.host_id']).toBe(host.id);
+        expect(root!.attributes['wrapper.engine']).toBe('codex');
+
+        // The bakery spans are children of the request span, in one trace.
+        const bake = spans.find((s) => s.name === 'wrapper.config.bake');
+        expect(bake).toBeDefined();
+        expect(bake!.parentSpanContext?.spanId).toBe(root!.spanContext().spanId);
+        expect(bake!.spanContext().traceId).toBe(root!.spanContext().traceId);
+
+        // Nothing signature- or credential-shaped rides along.
+        const body = JSON.parse(r.payload) as {
+          payload: { orchestrator: { api_key: string } };
+          signature: { value: string };
+        };
+        for (const span of spans) {
+          const serialized = JSON.stringify(span.attributes);
+          expect(serialized).not.toContain(body.payload.orchestrator.api_key);
+          expect(serialized).not.toContain(body.signature.value);
+        }
+      } finally {
+        await app.close();
+      }
+    });
   });
 });

@@ -422,3 +422,349 @@ Keep the immutable `bin/codex` and `bin/claude` trees available until the fleet
 migration and rollback window are closed. Editing DB pointers while a complete
 `bin/cxx` matrix remains active is ineffective because boot derives and
 rewrites those compatibility keys from the published artifact store.
+
+## Observability
+
+Both sides of the wrapper stack can emit OpenTelemetry spans, and both are off
+by default. The API's toggle is `OTEL_TRACES_ENABLED`; the `cxx` binary's is
+`CXX_OTEL_TRACES_ENABLED`, and that prefix is not cosmetic — see
+[Wrapper spans (`cxx`)](#wrapper-spans-cxx).
+
+Two things to know before you go looking for traces:
+
+- **The released `cxx` cannot trace.** Its SDK is behind the `cxx_otel` build
+  tag and `make release` builds untagged, so `CXX_OTEL_TRACES_ENABLED` on a
+  fleet-installed binary does nothing. See
+  [Build tag: the released binary has no SDK](#build-tag-the-released-binary-has-no-sdk).
+- **The two halves are two separate traces.** No trace context crosses the
+  wrapper → API boundary. See
+  [Known limitation: no trace context crosses the boundary](#known-limitation-no-trace-context-crosses-the-boundary).
+
+### Bakery spans (API)
+
+The bakery emits OpenTelemetry spans. They are **off by default**, and off means
+nothing is loaded: with `OTEL_TRACES_ENABLED` unset, `initTracing` returns before
+its first `await import(...)`, so no OpenTelemetry package is imported, no
+provider is registered, no exporter exists and no socket is opened.
+`withSpan` then calls its callback directly.
+
+Turn it on with two variables (`api/src/env.ts`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_TRACES_ENABLED` | `false` | The only switch. Nothing else can enable tracing. |
+| `OTEL_SERVICE_NAME` | `codex-orchestrator-api` | `service.name` on the resource. |
+
+Everything else — where spans go, headers, timeouts, sampling — comes from the
+spec-standard `OTEL_EXPORTER_OTLP_*` and `OTEL_TRACES_SAMPLER*` variables, which
+the SDK reads itself. The default exporter is OTLP over HTTP
+(`http://localhost:4318/v1/traces`) behind a batching processor;
+`app.addHook('onClose')` flushes it, so a SIGTERM does not drop the last batch.
+
+Instrumentation is **manual**. `api/scripts/build.ts` bundles and minifies the
+server, so the auto-instrumentation packages have nothing recognisable to
+monkey-patch. Spans are opened explicitly:
+
+```
+GET /wrapper/v2/config          route handler; http.request_id, wrapper.host_id,
+└── wrapper.config.bake         wrapper.engine, wrapper.config_version
+    ├── wrapper.config.collect  the Promise.all fan-out (documents, skills,
+    │                           settings, binary resolution, messaging flag)
+    ├── wrapper.config.bump_version   the SELECT … FOR UPDATE + UPDATE
+    └── wrapper.config.sign     canonicalStringify + etag + one signature per
+                                active key; wrapper.signer_count
+```
+
+`bakeForHost` is the root when nothing above it opened a span (the legacy
+`/wrapper/download` transition script bakes this way). Both typed exits set span
+status `ERROR` and an `error.type` attribute: `WrapperSigningUnavailableError` on
+the bake span, `WrapperBinaryUnavailableError` on both `wrapper.config.collect`
+(where `wrapperBlock` raises it) and the bake span it propagates through.
+
+`http.request_id` is the same value the request-id plugin echoes as
+`x-request-id` and pino stamps on every log line for the request, so a trace and
+its logs join on it without a log-correlation exporter.
+
+**No secret ever reaches a span.** Attributes are limited to host id, engine,
+schema version, config version and the *count* of active signers. The resolved
+`orchestrator.api_key`, any signature value, any key id or fingerprint, and the
+canonical JSON bytes are all excluded, and error status carries only the error's
+class name — never its message. A span leaves the process for a collector this
+repo does not control, so it is a lower-trust sink than a log line;
+`test/unit/observability/tracing.test.ts` sweeps every attribute of every
+finished span to keep it that way.
+
+The tracing toggle is deliberately **not** part of the baked config payload.
+`wrappers/schemas/host-config-v1.json` is `additionalProperties: false` at every
+level and the payload is signature-covered, so an observability flag there would
+be a wire-contract change for every deployed binary. It is an API-side env var
+and nothing else.
+
+The four `@opentelemetry/*` packages are listed twice in `api/scripts/build.ts`:
+once in esbuild's `external` array and once in the runtime-dependency allowlist
+that produces `dist/package.json`. Both lists must stay in sync — a package in
+the first but not the second ships an image with an unresolvable import, and a
+`npm run build` that succeeds does not catch it. After changing either list,
+check that these two agree:
+
+```sh
+grep -o '@opentelemetry/[a-z-]*' dist/server.js | sort -u
+grep -o '@opentelemetry/[a-z-]*' dist/package.json | sort -u
+```
+
+### Wrapper spans (`cxx`)
+
+The `cxx` binary emits its own spans from
+`wrappers/cxx/internal/observability/tracing` — **in a build that was compiled
+with `-tags cxx_otel`**. Read the next section first; the default binary, the
+one the fleet installs, has no SDK in it at all.
+
+In a traced build, tracing is still off unless `CXX_OTEL_TRACES_ENABLED` is
+truthy, and off is total: `tracing.Init` returns before it builds an exporter or
+a provider, so no socket is opened, no background goroutine starts, and
+`tracing.Start` hands back the caller's context plus a zero-sized no-op span.
+The disabled path costs one atomic load.
+
+`Init` is called from `lifecycle.Run` in each persona, not from `main`, so
+`cdx cron`, `cdx update`, `clx uninstall` and every other subcommand pay
+nothing.
+
+#### Build tag: the released binary has no SDK
+
+The package is one exported API over two implementations in the same directory:
+
+| File | Constraint | Contents |
+| --- | --- | --- |
+| `tracing.go` | none | Env contract, `Config`/`ConfigFromEnv`, `Attr`, the `Span` interface, `ErrorType`. Imports no OpenTelemetry. |
+| `tracing_stub.go` | `//go:build !cxx_otel` | **The default.** `Init` returns a no-op, `Enabled` returns false, `Start` returns the caller's context. Imports no OpenTelemetry. |
+| `tracing_otel.go` | `//go:build cxx_otel` | The real exporter, provider and span types. The only file that imports `go.opentelemetry.io`. |
+
+The exported names are identical in both, so no call site branches and neither
+persona lifecycle knows which half it was compiled against.
+
+`cxx` is sha256-manifested and self-distributes: every host re-downloads the
+whole binary on each wrapper update. Linking the SDK unconditionally cost
+**+7.2 MB (+79%)** on `linux/amd64`, already under `-trimpath -ldflags "-s -w"`,
+for a feature that is off by default — so the tag is what keeps that off the
+fleet. `make cxx`, `make release`, and the `build` and `release` jobs in
+`.github/workflows/wrappers.yml` all build **untagged**, deliberately. Do not add
+the tag to any of them.
+
+The consequence, which will surprise somebody eventually: **setting
+`CXX_OTEL_TRACES_ENABLED` on a fleet-installed `cxx` produces no spans.** The
+stub logs one debug line saying the binary was not compiled with tracing, and
+that is all. To get spans, build your own:
+
+```sh
+cd wrappers && make cxx-traced        # -> wrappers/bin/cxx-traced
+# or
+cd wrappers/cxx && go build -tags cxx_otel -o /tmp/cxx ./cmd/cxx
+```
+
+Two guards keep the default build honest:
+
+- `cmd/cxx/otel_linkage_test.go` (`!cxx_otel`) reads the test binary's own module
+  list via `debug.ReadBuildInfo` and fails if any `go.opentelemetry.io/*` module
+  is linked. `make test` runs it.
+- The authoritative check is on the artifact itself:
+
+  ```sh
+  cd wrappers/cxx
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /tmp/cxx-default ./cmd/cxx
+  go version -m /tmp/cxx-default | grep -c opentelemetry   # must be 0
+  ```
+
+Because the tag hides the SDK from the *linker* but not from the *module graph*,
+`go.mod`, `go.sum` and `go list -m all` (58 modules) look the same either way.
+That is expected: build tags prune what is compiled, not what is required.
+
+`make test` and CI's untagged `go vet` do not compile `tracing_otel.go` at all,
+so the tracing egress guard and the span-hygiene tests would go unexercised.
+`make test-traced` (`go vet -tags cxx_otel` + `go test -tags cxx_otel`) runs
+them, and the `test` job in CI invokes it as a separate step.
+
+#### Why the variables are `CXX_`-prefixed
+
+This is the part to read before changing anything here.
+
+`wrappers/cxx/internal/codex/preexec.go` (`exportOTELFromConfig`) calls
+`os.Setenv` on `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`,
+`OTEL_SERVICE_NAME`, `OTEL_TRACES_EXPORTER`, `OTEL_RESOURCE_ATTRIBUTES` and
+`OTEL_EXPORTER_OTLP_HEADERS` **inside the wrapper's own process**, so the child
+Codex CLI inherits the collector the user configured in `~/.codex/config.toml`.
+Those headers routinely carry a bearer token.
+
+So inside `cxx`, the standard `OTEL_*` names are someone else's configuration.
+A wrapper that read them — directly, or by letting the SDK autoconfigure itself
+from the environment — would ship its own spans, and that `Authorization`
+header, to a collector the user never pointed at the wrapper. That is data
+egress, not a wiring bug. Three things prevent it:
+
+1. The package reads only `CXX_OTEL_*` names, through an injectable `getenv`, so
+   the rule is enforced by a test rather than by a convention.
+2. Every exporter and provider field the SDK would otherwise take from the
+   environment is passed as an explicit option — endpoint URL, headers, TLS,
+   compression, timeout, retry, sampler, span limits and batch-processor
+   settings. `otlpconfig.NewHTTPConfig` applies env config *before* caller
+   options, so an explicit option wins; one that is omitted does not.
+3. The exporter and provider are constructed inside `withoutBareOTELEnv`, which
+   removes the entire `OTEL_` namespace from the process environment for the
+   duration and restores it exactly. This is not belt-and-braces: `WithResource`
+   merges `resource.Environment()` unconditionally and offers no option to stop
+   it, so `OTEL_RESOURCE_ATTRIBUTES` would otherwise ride out on every span.
+   Mutating the environment is safe exactly there, for a call-graph reason
+   rather than a short-window one: `Init` is the first statement of `Run`, so no
+   goroutine this binary starts is running yet; `lifecycle.Run` is reached at
+   most once per process (each persona's `internal/app` main dispatches it from
+   mutually exclusive switch arms, and `internal/cron.runEnabledTicks` ticks
+   each persona as a **separate child process**, sequentially); `PreExec`
+   exports those names later in the same `Run` on the same goroutine and sources
+   them from `~/.codex/config.toml`, not from the environment; and
+   `agentportal.ScrubEnvironment` swaps only the portal's own variables. The
+   scrub also runs under the package's init mutex. If `Run` ever becomes
+   reachable twice in one process, this reasoning has to be redone.
+
+`internal/codex/preexec.go` is the only file in the module that may read a bare
+`OTEL_*` name. To audit:
+
+```sh
+cd wrappers/cxx
+grep -rn 'OTEL_' internal cmd --include=*.go | grep -v 'internal/codex/preexec.go'
+```
+
+Every remaining hit must be a comment, a `CXX_OTEL_*` name, the scrub prefix in
+`tracing.go`, or a test that sets a bare variable in order to prove the wrapper
+ignores it. A `os.Getenv("OTEL_…")` anywhere else is a defect.
+
+#### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CXX_OTEL_TRACES_ENABLED` | unset | The only switch. `1`/`true`/`yes`/`on`. An injected exporter cannot enable tracing. |
+| `CXX_OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | Full OTLP/HTTP traces URL, path included. |
+| `CXX_OTEL_EXPORTER_OTLP_HEADERS` | none | `k=v,k2=v2`, values percent-decoded. |
+| `CXX_OTEL_EXPORTER_OTLP_TIMEOUT` | `5000` | Milliseconds for one export attempt. |
+| `CXX_OTEL_SERVICE_NAME` | `cxx` | `service.name` on the resource. |
+
+Retries are disabled and the shutdown flush is capped at two seconds: `cdx` is
+an interactive wrapper and an unreachable collector must not hold up the user's
+shell. `Init` never returns an error to the lifecycle — a misconfigured
+collector degrades to "tracing off", logged at debug.
+
+`Init` deliberately does **not** call `otel.SetTracerProvider`. Nothing else in
+the binary opens spans, nesting travels through `context.Context` either way,
+and leaving the global unset means no dependency can start exporting through
+our pipeline by accident.
+
+#### Span tree
+
+Everything below exists twice, once per persona
+(`internal/persona/{codex,claude}/lifecycle/`):
+
+```
+cxx.lifecycle.run                 wrapper.engine, wrapper.version (resource),
+│                                 wrapper.headless, wrapper.minimal,
+│                                 wrapper.resumed, wrapper.concurrent,
+│                                 wrapper.exit_code
+└── cxx.lifecycle.bootstrap       wrapper.concurrent, wrapper.bundle_fallback
+    ├── cxx.sync.bootstrap        the live POST /sync/bootstrap;
+    │                             wrapper.auth_candidate_offered,
+    │                             wrapper.auth_status
+    ├── cxx.sync.legacy_fallback  ONLY on the per-resource fallback path
+    ├── cxx.apply.claude_artifacts     claude only; wrapper.item_count,
+    │   └── cxx.apply.collection       wrapper.updated,
+    │                                  wrapper.collection_kind
+    └── cxx.apply.claude_skills   claude only; wrapper.item_count,
+                                  wrapper.updated
+cxx.sync.skills                   sibling of bootstrap; wrapper.skills_changed
+```
+
+`cxx.sync.legacy_fallback` is labelled a fallback on purpose. It needs
+`isBundleUnsupported` (a 404/501/405 from the bundle endpoint), so against a
+current orchestrator it is unreachable. A span appearing there means the host is
+talking to an old server — not that the sync was slow.
+
+The Claude appliers are instrumented in `applyCollectionResult`,
+`applyClaudeArtifactsResult` and `applyClaudeSkillsResult`, not in the `bool`
+wrappers beside them. The bundle path calls only the `*Result` functions; the
+wrappers are reached from tests alone, so instrumenting those would have shown
+green in the suite and emitted nothing from a shipped binary.
+
+#### No secret reaches a span
+
+Attributes are statuses, counts, booleans and the engine name. Auth payloads,
+auth digests, API keys, canonical bytes and error *messages* are all excluded —
+`Span.Fail` records only the error's Go type name, in `error.type` and as the
+status description. `tracing.Attr` has constructors for `string`, `int` and
+`bool` and deliberately none for `[]byte`, `error` or `any`, because those are
+how a credential ends up on a span. A span leaves the process for a collector
+this repository does not control, so it is a lower-trust sink than a log line.
+
+#### Binary cost
+
+This is the number the build tag exists for. All figures are bytes from
+
+```sh
+CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> go build -trimpath -ldflags "-s -w" -o <out> ./cmd/cxx
+```
+
+on Go 1.25, comparing this branch's default build and its `-tags cxx_otel` build
+against the same command on `main` (which has no tracing at all):
+
+| Platform | `main` | Default build | Delta | `-tags cxx_otel` | Delta vs default |
+| --- | --- | --- | --- | --- | --- |
+| linux/amd64 | 9,093,304 | 9,109,688 | +16,384 (+0.2%) | 16,285,880 | +7,176,192 (+78.8%) |
+| linux/arm64 | 8,388,792 | 8,388,792 | 0 | 15,204,536 | +6,815,744 (+81.2%) |
+| darwin/amd64 | 9,275,584 | 9,288,032 | +12,448 (+0.1%) | 16,862,640 | +7,574,608 (+81.6%) |
+| darwin/arm64 | 8,596,610 | 8,629,810 | +33,200 (+0.4%) | 15,801,234 | +7,171,424 (+83.1%) |
+
+The `make release` LDFLAGS add a few more bytes of version stamping on top of
+every column equally; the deltas are what matter. **The released artifact is the
+"Default build" column**: the fleet pays the +0.2%, not the +79%.
+
+`go version -m` on the default build reports 3 dependency modules and zero
+`go.opentelemetry.io` entries — identical to `main`. The tagged build reports 23
+and 8. Almost all of the difference is `go.opentelemetry.io/proto/otlp` dragging
+in `google.golang.org/grpc`, `google.golang.org/protobuf` and `genproto`.
+
+Attribution, measured the same way with three throwaway `main` packages pinned to
+the same v1.44.0 versions (linux/amd64):
+
+| Program | Size | Increment |
+| --- | --- | --- |
+| stdlib only | 1,495,224 | — |
+| `+ go.opentelemetry.io/otel/sdk/trace` | 4,432,056 | +2,936,832 (~2.8 MiB) — the SDK alone |
+| `+ .../otlptrace/otlptracehttp` | 13,332,664 | +8,900,608 (~8.5 MiB) — the OTLP exporter |
+
+Those isolated increments overstate the in-context cost, because `cxx` already
+links `net/http` and `crypto/tls`; that is why the real delta is 7.2 MB rather
+than 11.8 MB. Note in particular that the **SDK alone is ~2.8 MiB**, not the
+"about 0.6 MB" an earlier draft of this document claimed.
+
+If the exporter's share is ever worth attacking, the lever is the exporter and
+not the instrumentation — the `CXX_OTEL_*` contract, the call sites and the tests
+are exporter-agnostic. No alternative exporter has been built or measured here,
+so this document makes no claim about what one would cost.
+
+#### Known limitation: no trace context crosses the boundary
+
+**The wrapper and the API emit two disconnected traces.** `cxx` does not inject a
+W3C `traceparent` header on its outbound orchestrator calls, and the API does not
+extract one, so a `cdx` run and the `wrapper.config.bake` it triggers land in a
+collector as two unrelated trees, joinable only by host id and wall-clock time.
+That removes the main thing distributed tracing offers over the structured pino
+logs this repository already has; what is left is per-phase timing within each
+process.
+
+This is deliberate, not an oversight. Closing it means injection in four separate
+HTTP clients on the wrapper side (`internal/persona/codex/orchestrator`,
+`internal/persona/claude/orchestrator`, `internal/agentbus`,
+`internal/agentportal`), a propagator and remote-parent extraction on the API
+side — across the `initTracing` boundary whose entire design point is that
+nothing is imported while tracing is off — and tests for both. It was scoped out
+of the change that put the SDK behind a build tag.
+
+If you pick it up: the wrapper-side seam wants a `tracing.Inject(ctx, http.Header)`
+in the exported API, no-op in `tracing_stub.go` and `propagation.TraceContext` in
+`tracing_otel.go`, so call sites stay build-mode-agnostic like every other entry
+point here.

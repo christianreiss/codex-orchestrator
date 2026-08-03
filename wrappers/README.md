@@ -23,7 +23,17 @@ make all          # local wrappers/bin/cxx
 make test         # go test ./... for the unified module
 make release      # stage one cxx build per platform under wrappers/bin/release
 make publish-release # explicitly publish the staged VERSION to the served store
+
+make cxx-traced   # opt-in OpenTelemetry build -> wrappers/bin/cxx-traced
+make test-traced  # vet + test under -tags cxx_otel
 ```
+
+OpenTelemetry is behind the `cxx_otel` build tag, and `all`, `release` and the CI
+build/release jobs stay untagged on purpose: the SDK adds ~7.2 MB (+79%) to an
+artifact every host re-downloads on each wrapper update. **A binary built without
+the tag cannot emit spans, whatever `CXX_OTEL_TRACES_ENABLED` says** — use
+`make cxx-traced`. `make test` cannot compile the tagged half, so the tracing
+egress guard and span-hygiene tests only run under `make test-traced`.
 
 `publish-release` validates every staged platform before changing the served
 store, publishes immutable version directories by atomic rename, then merges

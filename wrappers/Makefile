@@ -29,7 +29,7 @@ endif
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build cxx cdx clx test vet lint clean release publish-release pubkey
+.PHONY: all build cxx cxx-traced cdx clx test test-traced vet lint clean release publish-release pubkey
 
 all: cxx
 
@@ -38,6 +38,15 @@ build: cxx
 cxx:
 	cd cxx && $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o ../bin/cxx ./cmd/cxx
 
+# Opt-in OpenTelemetry build, for a developer or a host that actually wants
+# spans. Deliberately a separate target and a separate output name: `cxx`,
+# `release` and the CI build/release jobs stay untagged, because the fleet
+# artifact is auto-distributed to every host and the SDK costs it ~7 MB. A
+# binary built without the tag cannot trace, whatever CXX_OTEL_TRACES_ENABLED
+# says. See docs/wrapper-v2-architecture.md.
+cxx-traced:
+	cd cxx && $(GO) build -tags cxx_otel -trimpath -ldflags="$(LDFLAGS)" -o ../bin/cxx-traced ./cmd/cxx
+
 # Compatibility build targets intentionally converge on the same artifact.
 cdx clx: cxx
 
@@ -45,6 +54,12 @@ test:
 	cd cxx && $(GO) test ./...
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/test-merge-manifest.py
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/test-publish-release.py
+
+# The tracing egress guard and the span-hygiene tests only build under the tag,
+# so `test` alone never executes them. CI runs both targets.
+test-traced:
+	cd cxx && $(GO) vet -tags cxx_otel ./...
+	cd cxx && $(GO) test -tags cxx_otel ./...
 
 vet:
 	cd cxx && $(GO) vet ./...

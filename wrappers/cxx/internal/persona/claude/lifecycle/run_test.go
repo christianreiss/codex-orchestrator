@@ -76,12 +76,12 @@ func TestApplyBundleClaudeSkillsPreservesAbsentFieldCompatibility(t *testing.T) 
 	t.Setenv("HOME", t.TempDir())
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	absent := applyBundleClaudeSkills(nil, logger)
+	absent := applyBundleClaudeSkills(context.Background(), nil, logger)
 	if absent.Checked || absent.Updated || absent.Err != nil {
 		t.Fatalf("absent claude_skills produced a resource outcome: %+v", absent)
 	}
 
-	empty := applyBundleClaudeSkills([]orchestrator.CollectionItem{}, logger)
+	empty := applyBundleClaudeSkills(context.Background(), []orchestrator.CollectionItem{}, logger)
 	if !empty.Checked || empty.Updated || empty.Err != nil {
 		t.Fatalf("explicit empty claude_skills was not a successful check: %+v", empty)
 	}

@@ -22,6 +22,7 @@ import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { hostEnginesList } from './host-engine-policy.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
 import { isTruthyFlagValue } from './settings.js';
+import { withSpan, type TraceSpan } from '../observability/tracing.js';
 
 /**
  * Per-host wrapper config bakery.
@@ -317,99 +318,145 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     );
   }
 
+  /**
+   * The bake itself. Split out only so `bakeForHost` can wrap it in a span
+   * without pushing a hundred lines into a callback; the observability seam is
+   * the wrapper, not this function.
+   */
+  async function bake(
+    host: Host,
+    engine: Engine,
+    publicBaseUrl: string,
+    platform: BakePlatform | undefined,
+    span: TraceSpan,
+  ): Promise<BakeResult> {
+    const signers = await deps.signing.allActive();
+    if (signers.length === 0) {
+      throw new WrapperSigningUnavailableError();
+    }
+
+    const apiKey = resolveApiKey(host);
+    // One clock read for both stamps: reading the clock twice could put
+    // issued_at and expires_at on opposite sides of a second boundary, so the
+    // signed lifetime would not be exactly the advertised TTL.
+    const issuedAtDate = new Date();
+    const issuedAt = isoOffsetSeconds(0, issuedAtDate);
+    const expiresAt = isoOffsetSeconds(WRAPPER_CONFIG_TTL_SECONDS, issuedAtDate);
+
+    // One span around the whole fan-out rather than one per member: awaiting
+    // inside the array would serialize seven independent lookups. This is also
+    // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
+    // marks this span ERROR as well as the root.
+    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled] =
+      await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
+        Promise.all([
+          activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
+          activeClientConfig(engine),
+          activeSkills(engine),
+          settings.silentFlag(),
+          settings.adminThemeHint(),
+          wrapperBlock(engine, publicBaseUrl, platform),
+          agentMessagingGloballyEnabled(),
+        ]),
+      );
+
+    // Bump config_version atomically; the new value becomes part of the
+    // payload so the etag/signature change visibly when state changes.
+    const newVersion = await withSpan('wrapper.config.bump_version', {}, () =>
+      bumpConfigVersion(deps.db, host.id),
+    );
+    span.setAttribute('wrapper.config_version', newVersion);
+
+    const draft: Omit<WrapperConfigPayload, 'etag'> = {
+      schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
+      engine,
+      issued_at: issuedAt,
+      expires_at: expiresAt,
+      orchestrator: {
+        base_url: publicBaseUrl.replace(/\/+$/, ''),
+        api_key: apiKey,
+        ca_bundle_path: null,
+        allow_insecure: Boolean(host.curlInsecure),
+        installation_id: deps.installationId,
+      },
+      host: {
+        id: host.id,
+        fqdn: host.fqdn,
+        secure: Boolean(host.secure),
+        browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
+        agent_messaging_enabled: Boolean(host.agentMessagingEnabled),
+        engines: host.engines,
+        engines_list: hostEnginesList(host.engines),
+      },
+      engine_options: engineOptions(host, engine, { silent, adminTheme }),
+      agent_messaging: {
+        enabled: messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1,
+        relay_poll_seconds: 25,
+        queued_ttl_seconds: 86_400,
+        channel_preview_enabled: false,
+      },
+      wrapper,
+      documents: {
+        agents,
+        client_config: clientCfg,
+      },
+      skills,
+      config_version: newVersion,
+    };
+
+    // Hashing + signing, one span. `wrapper.signer_count` is the only thing
+    // about the keys that reaches a span: no kid, no fingerprint, no signature
+    // value and none of the canonical bytes, which carry the host's api_key.
+    const signed = await withSpan(
+      'wrapper.config.sign',
+      { 'wrapper.signer_count': signers.length },
+      async () => {
+        const canonicalForHashing = canonicalStringify(draft);
+        const etag = createHash('sha256').update(canonicalForHashing).digest('hex');
+        const payload: WrapperConfigPayload = { ...draft, etag } as WrapperConfigPayload;
+        const canonicalForSigning = canonicalStringify(payload);
+        const signatures: ConfigSignerSignature[] = signers.map((signer) => ({
+          algo: 'ed25519',
+          value: signer.sign(canonicalForSigning).toString('base64'),
+          kid: signer.kid,
+          fingerprint: signer.fingerprint,
+        }));
+        return { payload, signatures, canonicalForSigning };
+      },
+    );
+
+    const primary = signed.signatures[0]!;
+    // Rebuilt key-by-key rather than spread: `signature` is serialized onto
+    // the wire and must keep exactly the keys deployed wrappers parse.
+    const signature: ConfigSignature = {
+      algo: primary.algo,
+      value: primary.value,
+      kid: primary.kid,
+    };
+
+    return {
+      payload: signed.payload,
+      signature,
+      signatures: signed.signatures,
+      bumped: true,
+      configVersion: newVersion,
+      canonicalJson: signed.canonicalForSigning,
+    };
+  }
+
   return {
     async bakeForHost(host, engine, publicBaseUrl, platform) {
-      const signers = await deps.signing.allActive();
-      if (signers.length === 0) {
-        throw new WrapperSigningUnavailableError();
-      }
-
-      const apiKey = resolveApiKey(host);
-      // One clock read for both stamps: reading the clock twice could put
-      // issued_at and expires_at on opposite sides of a second boundary, so the
-      // signed lifetime would not be exactly the advertised TTL.
-      const issuedAtDate = new Date();
-      const issuedAt = isoOffsetSeconds(0, issuedAtDate);
-      const expiresAt = isoOffsetSeconds(WRAPPER_CONFIG_TTL_SECONDS, issuedAtDate);
-
-      const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled] = await Promise.all([
-        activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
-        activeClientConfig(engine),
-        activeSkills(engine),
-        settings.silentFlag(),
-        settings.adminThemeHint(),
-        wrapperBlock(engine, publicBaseUrl, platform),
-        agentMessagingGloballyEnabled(),
-      ]);
-
-      // Bump config_version atomically; the new value becomes part of the
-      // payload so the etag/signature change visibly when state changes.
-      const newVersion = await bumpConfigVersion(deps.db, host.id);
-
-      const draft: Omit<WrapperConfigPayload, 'etag'> = {
-        schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
-        engine,
-        issued_at: issuedAt,
-        expires_at: expiresAt,
-        orchestrator: {
-          base_url: publicBaseUrl.replace(/\/+$/, ''),
-          api_key: apiKey,
-          ca_bundle_path: null,
-          allow_insecure: Boolean(host.curlInsecure),
-          installation_id: deps.installationId,
+      // Root of the bake subtree. Under an HTTP handler that already opened a
+      // span this nests inside it; a standalone caller gets a trace of its own.
+      return withSpan(
+        'wrapper.config.bake',
+        {
+          'wrapper.host_id': host.id,
+          'wrapper.engine': engine,
+          'wrapper.schema_version': WRAPPER_CONFIG_SCHEMA_VERSION,
         },
-        host: {
-          id: host.id,
-          fqdn: host.fqdn,
-          secure: Boolean(host.secure),
-          browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
-          agent_messaging_enabled: Boolean(host.agentMessagingEnabled),
-          engines: host.engines,
-          engines_list: hostEnginesList(host.engines),
-        },
-        engine_options: engineOptions(host, engine, { silent, adminTheme }),
-        agent_messaging: {
-          enabled: messagingEnabled && host.secure === 1 && host.agentMessagingEnabled === 1,
-          relay_poll_seconds: 25,
-          queued_ttl_seconds: 86_400,
-          channel_preview_enabled: false,
-        },
-        wrapper,
-        documents: {
-          agents,
-          client_config: clientCfg,
-        },
-        skills,
-        config_version: newVersion,
-      };
-
-      const canonicalForHashing = canonicalStringify(draft);
-      const etag = createHash('sha256').update(canonicalForHashing).digest('hex');
-      const payload: WrapperConfigPayload = { ...draft, etag } as WrapperConfigPayload;
-      const canonicalForSigning = canonicalStringify(payload);
-      const signatures: ConfigSignerSignature[] = signers.map((signer) => ({
-        algo: 'ed25519',
-        value: signer.sign(canonicalForSigning).toString('base64'),
-        kid: signer.kid,
-        fingerprint: signer.fingerprint,
-      }));
-      const primary = signatures[0]!;
-      // Rebuilt key-by-key rather than spread: `signature` is serialized onto
-      // the wire and must keep exactly the keys deployed wrappers parse.
-      const signature: ConfigSignature = {
-        algo: primary.algo,
-        value: primary.value,
-        kid: primary.kid,
-      };
-
-      return {
-        payload,
-        signature,
-        signatures,
-        bumped: true,
-        configVersion: newVersion,
-        canonicalJson: canonicalForSigning,
-      };
+        (span) => bake(host, engine, publicBaseUrl, platform, span),
+      );
     },
   };
 }

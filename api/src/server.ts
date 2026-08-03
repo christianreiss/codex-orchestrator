@@ -15,6 +15,7 @@ import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
 import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
+import { initTracing, shutdownTracing } from './observability/tracing.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 
 import { envelopePlugin } from './http/plugins/envelope.js';
@@ -31,6 +32,9 @@ import { registerWsServer } from './ws/server.js';
 
 export async function buildServer() {
   const env = loadEnv();
+  // No-op unless OTEL_TRACES_ENABLED is set — with it unset no OpenTelemetry
+  // package is even imported. Before anything worth tracing runs.
+  await initTracing(env);
   const { db, pool } = createDb(env);
 
   // Schema first: the boot checks below probe tables that migrations create.
@@ -98,6 +102,12 @@ export async function buildServer() {
   startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
   startAgentPortalWorker(app, db, env, keyring);
   startAgentMessagingWorker(app, db, env, keyring);
+
+  // The default span processor batches, so without this flush a SIGTERM drops
+  // whatever the last batch window collected.
+  app.addHook('onClose', async () => {
+    await shutdownTracing();
+  });
 
   attachShutdown(app, pool);
   return app;

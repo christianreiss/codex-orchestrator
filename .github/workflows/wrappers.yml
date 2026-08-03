@@ -35,6 +35,13 @@ jobs:
       - name: wrapper and release-metadata tests
         working-directory: wrappers
         run: make test
+      # The OpenTelemetry SDK is behind the cxx_otel build tag, so the tracing
+      # egress guard and span-hygiene tests do not build in the step above. The
+      # build and release jobs stay untagged on purpose: the fleet artifact must
+      # not carry the SDK.
+      - name: traced-mode vet and tests
+        working-directory: wrappers
+        run: make test-traced
 
   build:
     name: build cxx ${{ matrix.os }}/${{ matrix.arch }}

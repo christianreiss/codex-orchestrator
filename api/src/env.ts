@@ -144,6 +144,15 @@ const schema = z
     RATE_LIMIT_AUTH_FAIL_COUNT: intish(20).pipe(z.number().int().positive()),
     RATE_LIMIT_AUTH_FAIL_WINDOW: intish(600).pipe(z.number().int().positive()),
 
+    // OpenTelemetry tracing. Off by default, and "off" is total: with
+    // OTEL_TRACES_ENABLED unset no OpenTelemetry package is imported, no
+    // provider is registered and no exporter connection exists. Where the spans
+    // go is configured with the spec-standard OTEL_EXPORTER_OTLP_* /
+    // OTEL_TRACES_SAMPLER* variables, which the SDK reads directly — only the
+    // switch and the service name belong to this schema.
+    OTEL_TRACES_ENABLED: boolish.default(false),
+    OTEL_SERVICE_NAME: z.string().default('codex-orchestrator-api'),
+
     // Behavior toggles
     STRICT_HOST_VALIDATION: boolish.default(true),
     MCP_ALLOW_REQUEST_HOST_ORIGIN: boolish.default(false),
