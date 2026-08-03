@@ -567,4 +567,47 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect((await db.select().from(agentBusConversations))[0]).toMatchObject({ status: 'canceled' });
     expect((await db.select().from(agentBusAddresses))[0]).toMatchObject({ readiness: 'disabled', currentSessionId: null });
   });
+
+  describe('a session that never received an address', () => {
+    // Every session registered while the fleet switch was off is in this
+    // state the moment the switch is turned on. Its liveness heartbeat is
+    // shared with Agent Portal, so raising here silently killed the portal
+    // for the whole life of the session.
+    async function unboundSession(): Promise<AgentIdentity> {
+      const agent = await register('codex', 'unbound');
+      await exec(`UPDATE agent_sessions SET agent_bus_address_id = NULL WHERE id = '${agent.sessionId}'`);
+      return agent;
+    }
+
+    it('reports no messaging rather than failing the shared heartbeat', async () => {
+      const agent = await unboundSession();
+
+      await expect(
+        service.heartbeatSession(agent.sessionId, agent.bridgeToken, {
+          status: 'active',
+          skipIfUnbound: true,
+        }),
+      ).resolves.toBeNull();
+    });
+
+    it('still refuses an explicit bind, which cannot be satisfied', async () => {
+      const agent = await unboundSession();
+
+      await expect(
+        service.heartbeatSession(agent.sessionId, agent.bridgeToken, { receiveCapable: true }),
+      ).rejects.toMatchObject({ code: 'agent_messaging_address_missing' });
+    });
+
+    it('keeps heartbeating a bound session normally', async () => {
+      const agent = await register('codex', 'bound');
+
+      const result = await service.heartbeatSession(agent.sessionId, agent.bridgeToken, {
+        status: 'active',
+        skipIfUnbound: true,
+      });
+
+      expect(result).toMatchObject({ enabled: true });
+      expect((result!.address as Record<string, unknown>).address).toBe(agent.address);
+    });
+  });
 });

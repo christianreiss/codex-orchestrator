@@ -1,5 +1,16 @@
 # 2026-08-03
 
+- Turning the fleet Agent Messaging switch on used to break Agent Portal for every session that
+  was already running. The shared `POST /host/agent-sessions/{id}/heartbeat` calls the portal and
+  the messaging heartbeat in one request, but it gated the messaging half on the *fleet switch*
+  alone — while a session only has an address if it was **registered** after the switch was on.
+  Every older session therefore hit `agent_messaging_address_missing`, which failed the whole
+  request and discarded the portal result that had already succeeded, for the entire life of that
+  session. Observed live on crane as a 15-second warn loop and a dead `cxx portal notify`.
+  `heartbeatSession` now takes `skipIfUnbound`, which the shared liveness route passes and the
+  explicit `agent-messaging/bind` route does not: liveness reports "messaging does not apply here",
+  while a bind that cannot be satisfied still says so.
+
 - Documented the guided installer and the first-run wizard everywhere they were still missing. The
   two feature commits updated `README.md`, `docs/INSTALL.md`, `docs/API.md` and
   `docs/interface-api.md`, but `docs/ADMIN.md` — the code-truth operator map for `/admin/*` — did

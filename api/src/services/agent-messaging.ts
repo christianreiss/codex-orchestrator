@@ -598,15 +598,31 @@ export class AgentMessagingService {
       receiveCapable?: boolean;
       expectedBindingGeneration?: number | null;
       continuity?: 'native' | 'reset';
+      /**
+       * Return null instead of raising when this session never received a
+       * messaging address.
+       *
+       * The shared liveness heartbeat is sent by *every* managed session,
+       * including ones that registered while the fleet switch was off and so
+       * were never given an address. For those, messaging simply does not
+       * apply, and raising a conflict fails the whole shared heartbeat —
+       * taking Agent Portal down with it for the life of the session. An
+       * explicit bind keeps raising, because there the caller is asking for a
+       * binding it must be told it cannot have.
+       */
+      skipIfUnbound?: boolean;
     },
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Record<string, unknown> | null> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
     const result = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
       const session = await this.requireBridgeSessionLocked(tx, authenticated.session.id, bridgeToken, authenticated.host.id);
-      if (!session.agentBusAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+      if (!session.agentBusAddressId) {
+        if (input.skipIfUnbound) return null;
+        throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+      }
       const addressRows = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1).for('update');
       const address = addressRows[0];
       if (!address || address.archivedAt || address.enabled !== 1) throw new ForbiddenError('Agent address is disabled', 'agent_messaging_address_disabled');
@@ -659,6 +675,7 @@ export class AgentMessagingService {
         .where(eq(agentBusAddresses.id, address.id));
       return { address, status };
     });
+    if (!result) return null;
     return {
       enabled: true,
       expires_at: expiresAt,

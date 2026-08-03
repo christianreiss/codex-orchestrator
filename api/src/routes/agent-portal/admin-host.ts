@@ -279,6 +279,9 @@ export async function registerAgentPortalAdminHostRoutes(
           receiveCapable: body.receive_capable,
           expectedBindingGeneration: body.binding_generation,
           continuity: body.continuity,
+          // Liveness only. A session with no address is not a conflict here,
+          // and must not take the portal half of this heartbeat down with it.
+          skipIfUnbound: true,
         })
       : null;
     return {
