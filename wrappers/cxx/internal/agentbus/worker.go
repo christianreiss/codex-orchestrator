@@ -129,7 +129,7 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 		if err != nil {
 			fmt.Fprintln(stderr, "agent messaging relay: reconnecting:", sanitizedError(err))
 		}
-		if !waitContext(ctx, 2*time.Second) {
+		if !waitContext(ctx, reconnectDelay(err)) {
 			break
 		}
 	}
@@ -579,6 +579,19 @@ func truncateUTF8(value string, maxBytes int) string {
 		raw = raw[:len(raw)-1]
 	}
 	return string(raw)
+}
+
+// reconnectDelay is how long the relay waits before rebuilding its session
+// after poll() returns. A poll that ended in a shut door or a spent request
+// budget must back off exactly like a failed registration does: the previous
+// flat 2s meant a rate-limited relay re-registered, re-claimed and re-stopped
+// about three times every two seconds, which is what kept the budget spent and
+// stopped it recovering on its own. A clean exit keeps the original 2s.
+func reconnectDelay(err error) time.Duration {
+	if err == nil {
+		return 2 * time.Second
+	}
+	return retryDelay(err)
 }
 
 func retryDelay(err error) time.Duration {

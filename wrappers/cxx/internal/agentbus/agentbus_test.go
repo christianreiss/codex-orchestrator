@@ -417,6 +417,34 @@ func TestRelayBacksOffWhenRateLimited(t *testing.T) {
 	}
 }
 
+// The reconnect path after a failed poll used a flat 2s regardless of why the
+// poll ended, so a rate-limited relay cycled register/claim/stop about three
+// times every two seconds — the load that kept the budget spent. Every delay
+// the register path would take must also apply here.
+func TestReconnectDelayMatchesTheRegisterBackoff(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{"rate limited", &APIError{Status: http.StatusTooManyRequests, Code: "rate_limited"}, 30 * time.Second},
+		{"rate limited with hint", &APIError{Status: http.StatusTooManyRequests, RetryAfter: 45 * time.Second}, 45 * time.Second},
+		{"closed window", &APIError{Status: http.StatusForbidden, Code: "agent_messaging_insecure_window_closed"}, 30 * time.Second},
+		{"fleet disabled", &APIError{Status: http.StatusConflict, Code: "agent_messaging_disabled"}, 30 * time.Second},
+	} {
+		if got := reconnectDelay(tc.err); got != tc.want {
+			t.Fatalf("%s reconnected after %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// A transient fault still reconnects promptly; the floor is the old 2s.
+	if got := reconnectDelay(errors.New("connection reset")); got != 3*time.Second {
+		t.Fatalf("transient reconnect after %v, want 3s", got)
+	}
+	if got := reconnectDelay(nil); got != 2*time.Second {
+		t.Fatalf("clean poll exit reconnected after %v, want 2s", got)
+	}
+}
+
 func TestParseRetryAfterAcceptsOnlyDeltaSeconds(t *testing.T) {
 	if got := parseRetryAfter("17"); got != 17*time.Second {
 		t.Fatalf("parseRetryAfter(17) = %v, want 17s", got)

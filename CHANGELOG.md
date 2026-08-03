@@ -1,5 +1,12 @@
 # 2026-08-03
 
+- The relay's *reconnect* path ignored the backoff entirely: after `poll()` returned it always
+  waited a flat 2 seconds, whatever had gone wrong. A rate-limited relay therefore cycled
+  register → claim → stop about three times every two seconds — roughly 90 requests a minute of
+  pure waste — which is what kept the request budget spent and stopped it from ever recovering on
+  its own. Fixing `retryDelay` alone was not enough, because that path was only consulted when
+  *registration* failed. `reconnectDelay` now applies the same backoff to a failed poll and keeps
+  the original 2 seconds only for a clean exit.
 - **Fleet-wide Codex breakage, fixed.** The new security posture emitted `web_search` as a boolean
   into `config.toml`. Verified against codex-cli 0.146.0: `web_search` is the string enum
   `disabled | cached | indexed | live`, and a boolean does not degrade that one key — Codex refuses
