@@ -28,10 +28,15 @@ matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
 installer and the legacy transition launcher write the result to
 `~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
 On startup the Go binary verifies the signature against the public key embedded
-at build time, then loads the config. The binary stays single-key by design: when
-the orchestrator has several signing keys active, `signature`/`.sig` always carry
-the primary (oldest) key's signature, so nothing here changes during a rotation
-(see “Signing-key rotation” in `docs/wrapper-v2-architecture.md`). The config:
+at build time, then loads the config. The binary is single-key: it verifies with
+that one embedded key and reads only `payload` and `signature` from the response.
+When the orchestrator has several signing keys active, `signature`/`.sig` carry
+the primary (oldest) key's signature, so adding a key changes nothing here — but
+retiring the primary promotes the next key and this binary then rejects every
+config it fetches unless it was rebuilt with the new key. Selecting a specific
+key's signature (`signatures[]`, `?sig=1&kid=`) is a server capability `cxx` does
+not use yet. See “Signing-key rotation” in `docs/wrapper-v2-architecture.md`.
+The config:
 
 ```jsonc
 {

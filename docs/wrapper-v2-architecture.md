@@ -239,49 +239,118 @@ are offline for longer than that window are the ones to re-seed by hand.
 
 ## Signing-key rotation
 
-A `cxx` binary embeds exactly one public key at build time, so retiring a
-signing key before every host runs a binary that knows its replacement breaks
-config verification fleet-wide. The server side removes that coupling by
-signing with several keys at once instead:
+**What multi-sign does and does not buy.** A `cxx` binary verifies with the ONE
+public key embedded in it at build time. Multi-sign is a server-side capability:
+the orchestrator can hold several signing keys and emit a signature for each, so
+the replacement key's signature exists and is fetchable *before* the fleet is
+rebuilt. It does **not** let you retire the old key before the fleet is rebuilt,
+and it does not by itself make a rotation seamless. The binary coupling is still
+there; what multi-sign removes is the need to have the new key's signature and
+the new binaries appear in the same instant.
+
+The mechanics:
 
 - Any number of rows in `wrapper_signing_keys` may have `active = 1`. Every one
   of them signs the same canonical config bytes.
 - The **primary** key is the OLDEST active row (`created_at`, then `id`). Its
   signature is the one served as `signature` in `{payload, signature}`, as the
-  `?sig=1` body, and in `x-signature` — the bytes a deployed binary verifies.
-- Extra signatures never enter the payload, so adding a key changes no signed
-  byte, no `etag`, and nothing in `wrappers/schemas/host-config-v1.json`. An
-  already-deployed binary cannot tell the difference.
+  default `?sig=1` body, and in `x-signature` — the bytes a deployed binary
+  verifies. The ordering is a compatibility invariant, not a detail: promoting a
+  newer key hands every host a signature its embedded public key rejects. It is
+  pinned by a unit test whose fake DB honours the `orderBy` arguments it is
+  given, so flipping `asc` to `desc` in `wrapper-signing-key.ts` fails the suite.
+- Extra signatures never enter the payload. `GET /wrapper/v2/config` lists them
+  in a top-level `signatures` array *beside* `{payload, signature}`, so no signed
+  byte, no `etag`, and nothing in `wrappers/schemas/host-config-v1.json` changes,
+  and `payload` and `signature` keep their exact bytes. Deployed binaries ignore
+  the new key: `fleetconfig.go` decodes into a struct reading only `payload` and
+  `signature`, and nothing in the Go tree sets `DisallowUnknownFields`.
+- `?sig=1&kid=<id>` or `?sig=1&fingerprint=<hex>` serves the detached signature
+  of one named active key; without a selector it stays the primary's. An unknown
+  key is a `404 signing_key_not_found` rather than a fall back to the primary —
+  a client that asked for key X and was handed key Y's signature would write a
+  `.sig` its own public key cannot verify. A selector without `sig=1` is a `422`:
+  the full response body already carries every signature in `signatures`.
 - `GET /wrapper/v2/meta` reports the primary key's `signing_kid` (its DB row id)
   and `signing_fingerprint` (sha256 of the raw 32-byte Ed25519 public key,
-  lowercase hex). `GET /wrapper/v2/config` returns the same fingerprint in
-  `x-signature-fingerprint`. The fingerprint, not the row id, is what identifies
-  key material across installations.
+  lowercase hex). `GET /wrapper/v2/config` returns the fingerprint of whichever
+  signature it served in `x-signature-fingerprint`; the `x-signature*` headers
+  always describe the served bytes, so a selected `?sig=1` reply never disagrees
+  with its own body. The fingerprint, not the row id, is what identifies key
+  material across installations.
+- The API re-reads the active key set every `SIGNER_CACHE_TTL_MS` (30 s). The
+  ops script runs in its own process, so without that bound a key it added would
+  not reach the running API until someone restarted it.
+
+**The constraint the runbook cannot design away.** With single-key binaries and
+one served `signature`, exactly one population can verify at any instant: while
+the old key is primary, only binaries embedding the old key verify; the moment it
+is retired, only binaries embedding the new key do. There is no overlap window,
+and a host that self-updates onto a new-key binary early fails at startup, since
+its on-disk `.sig` came from the old key and a bad signature is a hard failure
+with no recovery path (only expiry has one — see above). So steps 3 and 4 below
+are **coupled**: they are one maintenance window, not two independently safe
+steps. Making them separable requires the client to fetch the signature matching
+the key it embeds — which `signatures` / `?sig=1&kid=` now makes possible and
+which no shipped `cxx` does yet. That is the follow-up, and until it lands the
+honest promise is a *staged*, not a seamless, rotation.
+
+**The installer is not an escape hatch from that window.** The installer and the
+legacy transition launcher (`wrapper-transition.ts`) take the `.sig` sidecar from
+`signature.value` in the response body — the PRIMARY key's — and never pass a
+selector, while the binary they install is whatever is currently published. So
+they pair *the published binary* with *the primary key*, which is a repair only
+while those two agree: before the new-key binaries are published, or after the
+old key is retired. Run inside the step 3→4 window it reproduces the breakage
+rather than fixing it. Nothing on the server records which public key a published
+binary was built with, so this cannot be resolved server-side; an installer that
+knows its target fingerprint can ask for the matching signature with
+`?sig=1&fingerprint=<hex>`.
 
 The rotation entry point is `api/src/ops/rotate-signing-key.ts`, built into the
-image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`. Run
-the runbook in this order — reversing steps 1 and 4 is the outage:
+image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`.
 
 1. **Add the new key while the old one keeps signing.** Generate an Ed25519
    pair, then `node rotate-signing-key.js add NEW_PRIVATE.pem NEW_PUBLIC.pem`.
    Both keys now sign; the old key is still primary, so nothing on any host
-   changes yet. Delete the plaintext private key afterwards.
-2. **Ship binaries that embed the new public key.** Build and publish with
-   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/setup.sh` does, then roll
-   the fleet forward.
-3. **Confirm adoption.** `node rotate-signing-key.js list` prints every active
-   key's `kid` and `fingerprint`; compare the new fingerprint against what the
-   updated hosts embed before continuing. Do not proceed while any host still
-   verifies only against the old key.
-4. **Retire the old key.** `node rotate-signing-key.js retire OLD_KEY_ID` stamps
-   `rotated_at`, clears `active`, and the newer key becomes primary — its
-   signature now fills `signature`/`.sig`. Retiring the only active key is
-   refused, because that leaves the bakery returning `503`.
+   changes. This step is genuinely reversible and genuinely zero-impact — it is
+   the only one that is. Delete the plaintext private key afterwards.
+2. **Verify against the RUNNING API, not the database.** `rotate-signing-key
+   list` reads through its own service instance and will print the new key even
+   if the API is still serving the old set, so it cannot detect a stale cache.
+   Ask the API itself, with a host API key:
+
+   ```sh
+   curl -sH "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" \
+     | jq -r '.signatures[].fingerprint'
+   ```
+
+   The new fingerprint must appear. If it does not within `SIGNER_CACHE_TTL_MS`,
+   the API is not serving the key you added — stop and find out why instead of
+   continuing on the ops script's green.
+3. **Build binaries embedding the new public key.** Build and publish with
+   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/setup.sh` does. Do **not**
+   let hosts pick them up yet: until the old key is retired those binaries reject
+   every config the API serves.
+4. **Flip: retire the old key and roll the fleet in one window.**
+   `node rotate-signing-key.js retire OLD_KEY_ID` stamps `rotated_at`, clears
+   `active`, and the newer key becomes primary — its signature now fills
+   `signature`/`.sig`. Retiring the only active key is refused, because that
+   leaves the bakery returning `503`. Every host still on an old-key binary now
+   fails config verification until it is on the new binary with a freshly fetched
+   config. Once the new key is primary, the published binaries and the primary
+   key agree again, so re-running the host installer from Admin → Host Detail is
+   a valid repair for anything that does not converge on its own — it writes a
+   fresh config and a `.sig` from the (now new) primary key alongside a binary
+   that embeds it. Before this step it is not: see the note above.
 
 Rollback before step 4 is free: retire the new key instead and the primary never
 moved. After step 4 it costs a round trip — `add` re-inserts the old key with a
 fresh `created_at`, so it comes back as a secondary signer; retiring the newer
-key afterwards is what makes it primary again.
+key afterwards is what makes it primary again, and the fleet has to move back
+onto old-key binaries with it.
+
+## cxx rollout and rollback
 
 Build into a staging directory outside the served `bin/cxx` root; a tag's CI
 archive is a single-version release fragment, not a replacement store. After

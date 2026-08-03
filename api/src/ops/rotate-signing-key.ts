@@ -24,20 +24,40 @@ import { nowIso } from '../util/timestamp.js';
  * So a rotation is additive first and destructive last:
  *
  *   1. `add NEW_PRIVATE NEW_PUBLIC` — the new key starts co-signing
- *      immediately; nothing on any host changes yet.
- *   2. ship binaries embedding the new public key, and confirm adoption
- *      (`list` prints the fingerprint to compare against).
+ *      immediately; nothing on any host changes yet. This is the only step
+ *      that is reversible and zero-impact.
+ *   2. build binaries embedding the new public key.
  *   3. `retire OLD_KEY_ID` — the old key stops signing and the newer key
- *      becomes primary.
+ *      becomes primary — and roll the fleet onto those binaries, in ONE
+ *      window.
  *
- * Reversing 1 and 3 is the outage: retiring first leaves every not-yet-updated
- * host verifying against a key the server no longer signs with.
+ * Steps 2 and 3 are coupled, not independently safe: a binary embeds one public
+ * key and no shipped `cxx` reads the extra `signatures`, so while the old key is
+ * primary a new-key binary rejects every config, and once it is retired an
+ * old-key binary does. Reversing 1 and 3 is the worse outage: retiring first
+ * leaves the WHOLE fleet verifying against a key the server no longer signs
+ * with. The full runbook is in `docs/wrapper-v2-architecture.md`.
+ *
+ * `list` reads the database through its own service instance and therefore
+ * cannot see the running API's cached signer set — confirm a rotation against
+ * `GET /wrapper/v2/config`, never against this output alone.
  */
 
 const USAGE = [
   'usage: node rotate-signing-key.js list',
   '       node rotate-signing-key.js add PRIVATE_KEY PUBLIC_KEY',
   '       node rotate-signing-key.js retire KEY_ID',
+].join('\n');
+
+/**
+ * Printed to stderr (stdout stays machine-readable) after any command that
+ * could otherwise be mistaken for proof that the running API picked a change up.
+ */
+const STALE_CACHE_NOTE = [
+  'note: this reads the database directly and cannot see the running API\'s cached signer set.',
+  '      confirm against the API itself:',
+  '      curl -sH "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" | jq -r ".signatures[].fingerprint"',
+  '',
 ].join('\n');
 
 function describe(signer: WrapperSigner): { kid: string; fingerprint: string; public_key: string } {
@@ -64,6 +84,7 @@ async function main(): Promise<void> {
           keys: signers.map(describe),
         }) + '\n',
       );
+      process.stderr.write(STALE_CACHE_NOTE);
       return;
     }
 
@@ -124,6 +145,7 @@ async function main(): Promise<void> {
           keys: signers.map(describe),
         }) + '\n',
       );
+      process.stderr.write(STALE_CACHE_NOTE);
       return;
     }
 
@@ -178,6 +200,7 @@ async function main(): Promise<void> {
         keys: signers.map(describe),
       }) + '\n',
     );
+    process.stderr.write(STALE_CACHE_NOTE);
   } finally {
     await pool.end();
   }

@@ -69,8 +69,11 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 - `GET /wrapper/v2/meta` (alias `GET /wrapper`) — engine-scoped projection of
   the common platform matrix, with the primary signing key's id and its
   fingerprint (sha256 of the raw Ed25519 public key).
-- `GET /wrapper/v2/config[?engine=<engine>][&sig=1]` — returns the signed
-  per-host config JSON (or its detached `.sig` file when `sig=1`). `engine`
+- `GET /wrapper/v2/config[?engine=<engine>][&sig=1[&kid=<id>|&fingerprint=<hex>]]`
+  — returns the signed per-host config JSON (or its detached `.sig` file when
+  `sig=1`). The JSON body carries `signature` (the primary key's, unchanged) plus
+  a `signatures` array with one entry per active signing key; `kid`/`fingerprint`
+  pick which key's detached signature `sig=1` returns. `engine`
   defaults to `codex`; each wrapper's peer-reconciliation code fetches the
   *other* engine's config through this same endpoint with `?engine=<peer>`.
 - `GET /wrapper/v2/download` — streams the raw wrapper binary for the calling

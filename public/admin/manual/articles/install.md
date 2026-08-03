@@ -194,7 +194,7 @@ There is no built-in backup job. Back up:
 
 1. The MySQL volume (`docker-compose.yml` names the data volume for you).
 2. The encryption keyring referenced by `Keyring` (the values in `ENCRYPTION_KEYS` / `AUTH_ENCRYPTION_KEYS`).
-3. The wrapper signing key — held in the `wrapper_signing_keys` table. Rotating it is additive and non-breaking: several keys may be active at once and all of them sign, so you add the replacement, roll the fleet onto binaries embedding it, and only then retire the old key. Losing it is the hard case — it requires re-issuing the key and re-deploying binaries before any host can verify its config again.
+3. The wrapper signing key — held in the `wrapper_signing_keys` table. Several keys may be active at once and all of them sign, so *adding* a replacement is non-breaking, but rotating still requires every host to self-update: a binary verifies with the one public key embedded in it, so retiring the old key breaks every host that is not yet on a binary embedding the new one. Follow the runbook in `docs/wrapper-v2-architecture.md`. Losing the key is the hard case — it requires re-issuing the key and re-deploying binaries before any host can verify its config again.
 
 Without the encryption keys you cannot decrypt `auth_payloads`. The app will still run, but every host will fail sync until a fresh canonical auth is re-uploaded.
 

@@ -51,19 +51,34 @@
   margin `wrapper.binary_url` auto-update has to carry the fleet onto a self-healing binary. Hosts
   offline longer than that need a manual installer re-run. Details in
   `docs/wrapper-v2-architecture.md`.
-- Wrapper signing keys can now be rotated without rebuilding the fleet's binaries first. Several
-  rows in `wrapper_signing_keys` may be active at once and every one of them signs the same
-  canonical config bytes, while the primary key — explicitly the oldest active row, where selection
+- Several rows in `wrapper_signing_keys` may now be active at once, and every one of them signs the
+  same canonical config bytes. The primary key — explicitly the oldest active row, where selection
   used to be an unordered `LIMIT 1` — keeps producing the `signature`, the `?sig=1` body and the
-  `x-signature` header a deployed binary verifies. The extra signatures stay out of
-  `WrapperConfigPayload`, so no signed byte, no `etag` and no entry in `host-config-v1.json`
-  changes, and the Go verification path is untouched. `/wrapper/v2/meta` now also reports
-  `signing_fingerprint` and config responses carry `x-signature-fingerprint` — sha256 of the raw
-  Ed25519 public key, which is what identifies key material across installations; the docs calling
-  the DB row id a "fingerprint" were wrong and are corrected. New `api/src/ops/rotate-signing-key.ts`
-  (`add`/`list`/`retire`, shipped in the image) is the rotation entry point, `bin/setup.sh` adopts
-  the row matching its own key instead of assuming there is only one, and the setup signer check
-  passes on a multi-key installation. The runbook is in `docs/wrapper-v2-architecture.md`.
+  `x-signature` header a deployed binary verifies. `GET /wrapper/v2/config` lists every active
+  signature in a new top-level `signatures` array beside the unchanged `{payload, signature}`, and
+  `?sig=1&kid=<id>` / `?sig=1&fingerprint=<hex>` serve the detached signature of one named active
+  key, defaulting to the primary; an unknown key is a `404 signing_key_not_found` and never a silent
+  fall back to the primary, and a selector without `sig=1` is rejected rather than ignored. The
+  extra signatures stay out of `WrapperConfigPayload`, so no signed byte, no `etag` and no entry in
+  `host-config-v1.json` changes; `payload` and `signature` keep their exact bytes and the Go
+  verification path is untouched (it decodes into a struct reading only those two keys, with no
+  `DisallowUnknownFields` anywhere in the Go tree).
+  **This does not decouple rotation from the binary rebuild.** A `cxx` binary verifies with the ONE
+  public key embedded at build time and no shipped binary reads `signatures` yet, so the old key
+  must stay active — and primary — until every host runs a binary embedding the new key. Retiring it
+  before that breaks config verification fleet-wide. What multi-sign buys is a server that can hold
+  the replacement key and emit its signature ahead of the flip; consuming it in `cxx` is the
+  follow-up that would make a rotation seamless.
+  `/wrapper/v2/meta` now also reports `signing_fingerprint` and config responses carry
+  `x-signature-fingerprint` — sha256 of the raw Ed25519 public key, which is what identifies key
+  material across installations; the docs calling the DB row id a "fingerprint" were wrong and are
+  corrected. New `api/src/ops/rotate-signing-key.ts` (`add`/`list`/`retire`, shipped in the image) is
+  the rotation entry point, `bin/setup.sh` adopts the row matching its own key instead of assuming
+  there is only one, and the setup signer check passes on a multi-key installation. The API caches
+  the active signer set for 30 seconds (`SIGNER_CACHE_TTL_MS`) instead of for the lifetime of the
+  process, so a key added by the ops script reaches the running API without a restart — the ops
+  script reads through its own instance, so `list` alone could never prove that. The runbook, and
+  what it cannot promise, are in `docs/wrapper-v2-architecture.md`.
 
 # 2026-08-02
 

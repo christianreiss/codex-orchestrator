@@ -21,6 +21,7 @@ import {
   WrapperBinaryUnavailableError,
   WrapperSigningUnavailableError,
   WRAPPER_CONFIG_SCHEMA_VERSION,
+  type ConfigSignerSignature,
 } from '../../services/wrapper-config.js';
 import { createWrapperMetaService } from '../../services/wrapper-meta.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
@@ -141,7 +142,8 @@ export async function registerWrapperV2Routes(
 
   // GET /wrapper/v2/config — signed per-host config JSON.
   // With `?sig=1` returns just the detached base64 signature value as
-  // text/plain (matches the legacy `config.json.sig` file shape).
+  // text/plain (matches the legacy `config.json.sig` file shape), for the
+  // primary key or — with `&kid=` / `&fingerprint=` — for a named active key.
   app.get('/wrapper/v2/config', { preHandler: [app.requireHost] }, async (req, reply) => {
     await unavailableGuard();
     const host = req.authHost;
@@ -150,7 +152,17 @@ export async function registerWrapperV2Routes(
     const engine = engineFromQuery(req);
     assertHostEngineEnabled(host, engine);
     const baseUrl = resolvePublicBaseUrl(req);
-    const sigOnly = isTruthyFlag((req.query as { sig?: string }).sig);
+    const query = req.query as { sig?: string; kid?: string; fingerprint?: string };
+    const sigOnly = isTruthyFlag(query.sig);
+    const selector = readSignatureSelector(query);
+    // Checked before the bake: baking bumps `hosts.config_version`, and a
+    // malformed request should not move server state.
+    if (selector && !sigOnly) {
+      throw new ValidationError(
+        'kid/fingerprint select a detached signature and require sig=1; the full response body already lists every active signature under `signatures`',
+        { param: selector.param },
+      );
+    }
     const platform = resolveWrapperPlatform(req.headers);
 
     let result;
@@ -173,30 +185,39 @@ export async function registerWrapperV2Routes(
       publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
     }
 
+    // The signature actually being served. Without a selector this is the
+    // primary — byte-identical to `result.signature` — so the default response
+    // is unchanged for every deployed binary.
+    const served = selectSignature(result.signatures, selector);
+
     reply.envelopeRaw = true;
     reply.header('cache-control', 'no-store');
     reply.header('etag', `"${result.payload.etag}"`);
     reply.header('x-sha256', result.payload.etag);
     reply.header('x-config-version', String(result.configVersion));
-    reply.header('x-signature-algo', result.signature.algo);
-    reply.header('x-signature-kid', result.signature.kid);
-    reply.header('x-signature', result.signature.value);
-    // Fingerprint of the key that produced `x-signature`. Additive: the body
-    // and the `?sig=1` bytes are untouched, so deployed binaries are unaffected.
-    if (result.signatures[0]) {
-      reply.header('x-signature-fingerprint', result.signatures[0].fingerprint);
-    }
+    // The `x-signature*` headers always describe the bytes this response
+    // serves, so a `?sig=1&kid=` reply can never disagree with its own body.
+    reply.header('x-signature-algo', served.algo);
+    reply.header('x-signature-kid', served.kid);
+    reply.header('x-signature', served.value);
+    reply.header('x-signature-fingerprint', served.fingerprint);
 
     if (sigOnly) {
       reply.header('content-type', 'text/plain; charset=utf-8');
-      reply.header('content-length', Buffer.byteLength(result.signature.value));
-      return result.signature.value;
+      reply.header('content-length', Buffer.byteLength(served.value));
+      return served.value;
     }
 
     reply.header('content-type', 'application/json');
+    // `signatures` is additive and sits beside the envelope, never inside the
+    // signed `payload`: `payload` and `signature` keep the exact bytes they had
+    // before multi-sign existed, and the Go client decodes into a struct that
+    // reads only those two keys with no `DisallowUnknownFields` anywhere, so an
+    // already-deployed wrapper ignores the new key.
     const body = canonicalStringify({
       payload: result.payload,
       signature: result.signature,
+      signatures: result.signatures,
     });
     reply.header('content-length', Buffer.byteLength(body));
     return body;
@@ -380,6 +401,57 @@ export async function registerWrapperV2Routes(
 function headerString(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+/** Which active signing key a `?sig=1` request asked for, if it asked at all. */
+interface SignatureSelector {
+  param: 'kid' | 'fingerprint';
+  value: string;
+}
+
+function readSignatureSelector(query: {
+  kid?: string;
+  fingerprint?: string;
+}): SignatureSelector | null {
+  const kid = typeof query.kid === 'string' ? query.kid.trim() : '';
+  if (kid) return { param: 'kid', value: kid };
+  const fingerprint = typeof query.fingerprint === 'string' ? query.fingerprint.trim() : '';
+  if (fingerprint) return { param: 'fingerprint', value: fingerprint.toLowerCase() };
+  return null;
+}
+
+/**
+ * Resolves a selector against the active signatures, defaulting to the primary.
+ *
+ * An unmatched selector is a hard 404 rather than a fall back to the primary: a
+ * client that asks for key X and is quietly handed key Y's signature writes a
+ * `.sig` its embedded public key cannot verify, which is the exact failure this
+ * endpoint exists to avoid.
+ */
+function selectSignature(
+  signatures: ConfigSignerSignature[],
+  selector: SignatureSelector | null,
+): ConfigSignerSignature {
+  const primary = signatures[0];
+  if (!primary) {
+    throw new ServiceUnavailableError(
+      'wrapper v2 signing key not configured',
+      'wrapper_v2_unavailable',
+    );
+  }
+  if (!selector) return primary;
+  const match = signatures.find((signature) =>
+    selector.param === 'kid'
+      ? signature.kid === selector.value
+      : signature.fingerprint === selector.value,
+  );
+  if (!match) {
+    throw new NotFoundError(
+      `no active wrapper signing key with ${selector.param} ${selector.value}`,
+      'signing_key_not_found',
+    );
+  }
+  return match;
 }
 
 function isTruthyFlag(value: string | undefined): boolean {

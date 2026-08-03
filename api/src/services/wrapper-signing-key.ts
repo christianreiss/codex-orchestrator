@@ -27,7 +27,24 @@ import { decrypt, isEnvelope } from '../security/secret-box.js';
  *
  * Returns `null`/`[]` when no active key loads — the routes turn that into a
  * 503 response so operators can see the kill switch from the outside.
+ *
+ * The loaded set is cached for `SIGNER_CACHE_TTL_MS` rather than for the
+ * lifetime of the process. `registerWrapperV2Routes` builds one service at boot
+ * and `rotate-signing-key` runs in a SEPARATE process, so a cache that never
+ * expired meant the running API kept signing with the pre-rotation key set until
+ * someone restarted it — and the rotation runbook's verification step, which
+ * reads through the ops script's own instance, reported a false green.
  */
+
+/**
+ * How long a loaded signer set is reused before the table is re-read.
+ *
+ * Short enough that a rotation converges without a restart, long enough that
+ * the config bakery does not turn every request into a query. Rotation is rare
+ * and operator-driven, so waiting out one TTL is an acceptable price for not
+ * hitting the DB on the hot path.
+ */
+export const SIGNER_CACHE_TTL_MS = 30_000;
 
 export interface WrapperSigner {
   /** Stable identifier embedded in signatures (the DB row id). */
@@ -54,12 +71,19 @@ export interface WrapperSigningKeyService {
 export interface WrapperSigningKeyDeps {
   db: Database;
   keyring: Keyring;
+  /** Cache lifetime override in ms (tests). Defaults to `SIGNER_CACHE_TTL_MS`. */
+  cacheTtlMs?: number;
+  /** Monotonic-enough clock, injectable so the TTL is testable without timers. */
+  now?: () => number;
 }
 
 export function createWrapperSigningKeyService(
   deps: WrapperSigningKeyDeps,
 ): WrapperSigningKeyService {
+  const ttlMs = deps.cacheTtlMs ?? SIGNER_CACHE_TTL_MS;
+  const now = deps.now ?? (() => Date.now());
   let cached: WrapperSigner[] | undefined;
+  let cachedAt = 0;
 
   function toSigner(row: { id: number; privateKeyEnc: string | null }): WrapperSigner | null {
     if (!row.privateKeyEnc) return null;
@@ -92,7 +116,7 @@ export function createWrapperSigningKeyService(
   }
 
   async function load(): Promise<WrapperSigner[]> {
-    if (cached !== undefined) return cached;
+    if (cached !== undefined && now() - cachedAt < ttlMs) return cached;
     const rows = await deps.db
       .select()
       .from(wrapperSigningKeys)
@@ -105,6 +129,7 @@ export function createWrapperSigningKeyService(
     // A later key that fails to load is simply not offered as an extra
     // signature.
     cached = signers[0] ? signers.filter((signer): signer is WrapperSigner => signer !== null) : [];
+    cachedAt = now();
     return cached;
   }
 
