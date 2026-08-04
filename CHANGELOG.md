@@ -1,5 +1,23 @@
 # 2026-08-04
 
+- **`agent_send` over MCP had never once worked, for either engine.** `mcp.go` derived the wire
+  `kind` with `strings.TrimPrefix(name, "agent_")`, which yields a valid `request` and an invalid
+  `send` against a server enum of exactly `{message, request}` — so every `agent_send` tool call
+  returned a 500 (`invalid_enum_value` on `kind`) while `agent_request` worked by coincidence. It
+  went unnoticed because the CLI maps the kind correctly and every earlier proof went through the
+  CLI. `messageKindFor` now maps tool name to wire kind, with a test pinning that nothing outside
+  the server's enum can escape.
+- **All four Agent Messaging directions are now proven live**, each a multi-turn conversation with
+  replies linked by `reply_to_message_id`: Claude→Codex, Codex→Claude, Claude→Claude, and finally
+  Codex→Codex (`2515ba6f` → reply `3fb1788d`), where a Codex model called `agent_send` itself and
+  the relay-spawned peer Codex answered.
+- Codex can only *initiate* under `approval_policy = "never"` plus
+  `sandbox_mode = "danger-full-access"`; receiving never needed either, since the relay spawns the
+  peer engine and never touches the broker. Both values come from the policy profile, whose
+  escalation cap is the minimum across all nine axes — one low axis holds Codex back even when the
+  approval and sandbox axes are at 4. Recorded in the manual along with the trap that cost the most
+  time: **`config.toml` is only rewritten by a codex lifecycle**, so after a posture change a host
+  serves the old values until some Codex run re-bakes it, and `cxx cron run` will not do it.
 - **There was no way to stop generating AGENTS.md, or to take it over by hand.** Which document a
   host got was decided implicitly, by whether the served row happened to carry a `builder_state` —
   a historical accident the console labelled "Legacy Markdown document" and could only travel away

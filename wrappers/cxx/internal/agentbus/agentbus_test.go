@@ -737,3 +737,21 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 		t.Fatalf("%s mode = %o, want %o", path, got, want)
 	}
 }
+
+// The tool name is not the wire kind. Trimming "agent_" produced a valid
+// "request" and an invalid "send", so every agent_send over MCP 500'd with
+// invalid_enum_value on `kind` while agent_request worked by luck.
+func TestMessageKindIsTheWireEnumNotTheToolName(t *testing.T) {
+	if got := messageKindFor("agent_send"); got != "message" {
+		t.Fatalf("agent_send kind = %q, want message", got)
+	}
+	if got := messageKindFor("agent_request"); got != "request" {
+		t.Fatalf("agent_request kind = %q, want request", got)
+	}
+	// The server enum is exactly {message, request}; nothing else may escape.
+	for _, tool := range []string{"agent_reply", "agent_list", "", "send"} {
+		if got := messageKindFor(tool); got != "message" && got != "request" {
+			t.Fatalf("messageKindFor(%q) = %q, outside the server enum", tool, got)
+		}
+	}
+}

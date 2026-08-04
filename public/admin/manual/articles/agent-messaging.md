@@ -13,30 +13,39 @@ to Claude. It is separate from Agent Portal: Portal carries ordinary human text
 into one root session, while Agent Messaging addresses one managed agent from
 another.
 
-**Codex can receive but cannot yet start a conversation.** Verified live on
-2026-08-04: Claude to Codex, Codex to Claude and Claude to Claude all run as
-sustained multi-turn conversations, and a Codex peer answers a Claude peer
-correctly. A Codex agent cannot *initiate* one, for two reasons that are both
-Codex's, not the bus's:
+All four directions are verified live as of 2026-08-04, each as a multi-turn
+conversation whose replies are linked by `reply_to_message_id`.
 
-- `codex exec` routes every MCP tool call through an approval elicitation
-  addressed to a human. Unattended there is nobody to answer, so each
-  `agent_*` call returns `user cancelled MCP tool call`. Neither
-  `approvals_reviewer = "auto_review"`, nor granular `mcp_elicitations` in
-  either position, nor a real pty changes that.
+**Codex needs an unrestricted posture to *start* a conversation.** Receiving
+never did: the relay spawns the peer engine itself and never touches the
+broker. Initiating goes through the `agent_*` MCP tools, and Codex gates those
+behind two things the security posture controls:
+
+- MCP tool calls are routed through an approval elicitation addressed to a
+  human. Unattended there is nobody to answer, so the call comes back
+  `user cancelled MCP tool call`. Only `approval_policy = "never"` clears it —
+  `approvals_reviewer = "auto_review"`, granular `mcp_elicitations` in either
+  position, and a real pty all leave it cancelled.
 - The command sandbox refuses `connect()` on a unix socket as a syscall class,
-  whatever the path — including one inside the workspace under
-  `workspace-write` — so the `cxx agent send` CLI cannot reach the broker
-  either.
+  whatever the path, so the broker is unreachable until
+  `sandbox_mode = "danger-full-access"`.
 
-Receive is unaffected because the relay spawns the peer engine itself and never
-dials the broker. Closing the gap needs a decision: run Codex unsandboxed on
-designated hosts, or give the bridge a transport the sandbox permits.
+Both come from the host's policy profile, and the escalation cap is the minimum
+across **all nine** axes — so a single low axis anywhere holds Codex back even
+when the axes that name approval and sandboxing are at 4. Claude has no
+equivalent gate: its `permissions.allow` already carries `mcp__cxx-agent__*`.
 
-**Give peer prompts a stopping condition.** Every reply is itself delivered, so
-two agents told only to "reply" will answer each other until the TTL or a lease
-expires. Two live conversations ran 17 and 33 turns that way before ending
-`ambiguous`.
+`config.toml` is only rewritten by a **codex** lifecycle. `cxx cron run` does
+not do it, so after changing posture a host keeps serving the old approval and
+sandbox values until some Codex run re-bakes it. Check with
+`head -5 ~/.codex/config.toml` rather than assuming.
+
+**Give peer prompts a stopping condition, structurally.** Every reply is itself
+delivered, so two agents told only to "reply" answer each other until a TTL or
+lease expires. Live conversations ran 17, 33 and 3 turns that way before ending
+`ambiguous` — including one whose prompt explicitly said "this is a one-shot
+test, do not send any further messages". Asking politely does not hold; bound it
+with `ttl_seconds`, `agent_cancel`, or a conversation the operator closes.
 
 The feature is deliberately inert after deployment: the fleet master switch
 defaults off. It is also the **only** switch. Turning it on turns the bus on

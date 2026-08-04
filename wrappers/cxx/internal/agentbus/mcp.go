@@ -233,6 +233,16 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 	return scanner.Err()
 }
 
+// messageKindFor maps a tool name to the wire `kind` the server accepts.
+// `agent_send` posts an ordinary message; only `agent_request` asks the server
+// to correlate a reply. The server's enum is exactly {message, request}.
+func messageKindFor(tool string) string {
+	if tool == "agent_request" {
+		return "request"
+	}
+	return "message"
+}
+
 func requireChannelPreview() error {
 	engine := strings.TrimSpace(os.Getenv("CXX_AGENT_PORTAL_ENGINE"))
 	if engine != config.EngineClaude {
@@ -345,7 +355,12 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 				return nil, errors.New("wait_seconds must be between 0 and 25")
 			}
 		}
-		body := map[string]any{"to": to, "content": content, "client_message_id": newUUID(), "kind": strings.TrimPrefix(name, "agent_")}
+		// The tool name is not the wire kind. Trimming "agent_" happened to
+		// produce a valid "request" and an invalid "send", so agent_send has
+		// always failed with a 500 (`invalid_enum_value` on `kind`) while
+		// agent_request worked — which is why the CLI, whose mapping is
+		// correct, was the only send path that ever functioned.
+		body := map[string]any{"to": to, "content": content, "client_message_id": newUUID(), "kind": messageKindFor(name)}
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
 			return out, err
