@@ -61,7 +61,7 @@ export function agentMessagingConfirmCopy(
     description: "This stops the bus and discards the work currently on it.",
     consequences: [
       `Cancels ${radius.pendingDeliveries} queued and in-flight deliveries, and marks ${radius.acceptedDeliveries} already-accepted deliveries ambiguous. Ambiguous is terminal — nothing is replayed automatically.`,
-      `Cancels ${radius.openConversations} open conversations and revokes ${radius.relays} relays. Any live #call drops mid-turn.`,
+      `Cancels ${radius.openConversations} open conversations and revokes ${radius.relays} relays. Any live #call drops mid-turn, and every open #conference is adjourned — a member part-way through a dispatched task loses that work.`,
       "Removes the Agent Messaging section from every host's AGENTS.md and CLAUDE.md and the cxx-agent server from their config, on the same next-launch-or-nightly schedule.",
       "History and audit metadata stay readable, and interactive Codex and Claude sessions keep running.",
     ],

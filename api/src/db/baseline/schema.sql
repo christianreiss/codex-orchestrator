@@ -139,6 +139,44 @@ CREATE TABLE `agent_bus_addresses` (
 	CONSTRAINT `uq_agent_bus_addresses_call_pin` UNIQUE(`call_pin`)
 );
 
+CREATE TABLE `agent_bus_conference_members` (
+	`id` char(36) NOT NULL,
+	`conference_id` char(36) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`conversation_id` char(36),
+	`role` varchar(16) NOT NULL DEFAULT 'participant',
+	`purpose` varchar(1024),
+	`mode` varchar(16) NOT NULL DEFAULT 'attached',
+	`state` varchar(16) NOT NULL DEFAULT 'seated',
+	`dispatch_message_id` char(36),
+	`dispatch_deadline_at` varchar(100),
+	`dispatched_at` varchar(100),
+	`last_report_at` varchar(100),
+	`message_count` int unsigned NOT NULL DEFAULT 0,
+	`joined_at` varchar(100) NOT NULL,
+	`left_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_conference_members_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_bus_conferences` (
+	`id` char(36) NOT NULL,
+	`owner_address_id` char(36) NOT NULL,
+	`topic` varchar(255),
+	`purpose` varchar(1024),
+	`pin` char(4),
+	`pin_expires_at` varchar(100),
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`max_members` int unsigned NOT NULL DEFAULT 8,
+	`deadline_at` varchar(100) NOT NULL,
+	`adjourn_reason` varchar(255),
+	`adjourned_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_conferences_id` PRIMARY KEY(`id`)
+);
+
 CREATE TABLE `agent_bus_conversations` (
 	`id` char(36) NOT NULL,
 	`address_a_id` char(36) NOT NULL,

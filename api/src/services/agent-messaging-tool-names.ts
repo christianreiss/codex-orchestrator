@@ -26,4 +26,11 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_call_open',
   'agent_call_join',
   'agent_listen',
+  'agent_conf_open',
+  'agent_conf_invite',
+  'agent_conf_join',
+  'agent_conf_roster',
+  'agent_conf_say',
+  'agent_conf_dispatch',
+  'agent_conf_adjourn',
 ] as const;

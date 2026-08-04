@@ -18,6 +18,8 @@ import {
 import type { Database } from '../db/client.js';
 import {
   agentBusAddresses,
+  agentBusConferenceMembers,
+  agentBusConferences,
   agentBusConversations,
   agentBusMessages,
   agentBusRelays,
@@ -26,6 +28,8 @@ import {
   logs,
   versions,
   type AgentBusAddress,
+  type AgentBusConference,
+  type AgentBusConferenceMember,
   type AgentBusConversation,
   type AgentBusMessage,
   type AgentBusRelay,
@@ -66,6 +70,28 @@ export const AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS = 60;
 export const AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS = 60 * 60;
 /** `0000`..`9999`. The PIN is read aloud off one terminal into another, so it stays four digits. */
 export const AGENT_MESSAGING_CALL_PIN_SPACE = 10_000;
+/** How far back a mailbox peek reports calls that expired unanswered. */
+export const AGENT_MESSAGING_MISSED_WINDOW_SECONDS = 30 * 60;
+export const AGENT_MESSAGING_CONFERENCE_TTL_SECONDS = 60 * 60;
+export const AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS = 5 * 60;
+export const AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS = 6 * 60 * 60;
+/**
+ * A room of eight is already 8 engine boots per broadcast round on the headless
+ * path. The cap is about what a chair can actually run, not what the tables hold.
+ */
+export const AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS = 8;
+/**
+ * Messages one member may exchange with the chair before the room is out of
+ * budget. The 1:1 call's sixteen-turn bound is meaningless here -- a single
+ * broadcast round across five members is already ten-plus messages -- so the
+ * budget is per member and the deadline is wall-clock.
+ */
+export const AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP = 12;
+/** Shortest dispatch window. A headless task must survive at least one engine boot. */
+export const AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS = 15 * 60;
+export const AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS = 4 * 60 * 60;
+/** Most rows a single mailbox peek will report. It runs on every turn boundary; keep it cheap. */
+export const AGENT_MESSAGING_MAILBOX_PAGE_SIZE = 20;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const CALL_PIN_RE = /^[0-9]{4}$/;
@@ -141,6 +167,43 @@ export function normalizeCallPinTtl(value: unknown): number {
     throw new ValidationError('ttl_seconds must be between 60 and 3600', { param: 'ttl_seconds' });
   }
   return ttl;
+}
+
+export function normalizeConferenceTtl(value: unknown): number {
+  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_TTL_SECONDS;
+  const ttl = Number(value);
+  if (
+    !Number.isSafeInteger(ttl) ||
+    ttl < AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS ||
+    ttl > AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS
+  ) {
+    throw new ValidationError('ttl_seconds must be between 300 and 21600', { param: 'ttl_seconds' });
+  }
+  return ttl;
+}
+
+export function normalizeConferenceMaxMembers(value: unknown): number {
+  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS;
+  const max = Number(value);
+  if (!Number.isSafeInteger(max) || max < 2 || max > AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS) {
+    throw new ValidationError(`max_members must be between 2 and ${AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS}`, {
+      param: 'max_members',
+    });
+  }
+  return max;
+}
+
+export function normalizeDispatchEta(value: unknown): number {
+  if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS;
+  const eta = Number(value);
+  if (!Number.isSafeInteger(eta) || eta < 0 || eta > AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS) {
+    throw new ValidationError('eta_seconds must be between 0 and 14400', { param: 'eta_seconds' });
+  }
+  // The floor is not a minimum the caller asked for -- it is how long the sweep
+  // waits before declaring a silent member stuck. A task that claims it needs
+  // thirty seconds still gets the full grace period, because a headless run
+  // spends most of that booting an engine.
+  return Math.max(eta, AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS);
 }
 
 export function normalizeMessageTtl(value: unknown): number {
@@ -785,28 +848,47 @@ export class AgentMessagingService {
       .update(agentBusAddresses)
       .set({ callPin: null, callPinExpiresAt: null, updatedAt: now })
       .where(and(isNotNull(agentBusAddresses.callPin), lte(agentBusAddresses.callPinExpiresAt, now)));
+    // Conference PINs share the four-digit space and therefore the sweep. A dead
+    // room PIN left in place would occupy a slot the call mint cannot reuse.
+    await db
+      .update(agentBusConferences)
+      .set({ pin: null, pinExpiresAt: null, updatedAt: now })
+      .where(and(isNotNull(agentBusConferences.pin), lte(agentBusConferences.pinExpiresAt, now)));
   }
 
   /**
-   * Pick a free PIN and bind it to this address.
+   * Every PIN currently spoken for, across both rendezvous kinds.
    *
-   * Chooses from the complement of the live set rather than retrying random
-   * values against the unique index: a duplicate insert inside a transaction
-   * would surface as a driver-level ER_DUP_ENTRY that this layer would have to
-   * pattern-match, and exhaustion would be indistinguishable from bad luck.
+   * The two spaces are deliberately one space. A human carrying four digits from
+   * one terminal to another cannot be expected to also carry which *kind* of
+   * thing those digits open, and `#call receiver 4821` against a conference PIN
+   * should fail as "wrong kind" rather than silently dial an unrelated stranger
+   * who happens to hold the same number. MySQL cannot express a UNIQUE across
+   * two tables, so the invariant lives here, in the mint.
    */
-  private async mintCallPinLocked(
-    db: AgentMessagingDb,
-    addressId: string,
-    expiresAt: string,
-    now: string,
-  ): Promise<string> {
-    const takenRows = await db
-      .select({ callPin: agentBusAddresses.callPin })
+  private async livePinsLocked(db: AgentMessagingDb): Promise<Set<string>> {
+    const addressRows = await db
+      .select({ pin: agentBusAddresses.callPin })
       .from(agentBusAddresses)
       .where(isNotNull(agentBusAddresses.callPin))
       .for('update');
-    const taken = new Set(takenRows.map((row) => row.callPin));
+    const conferenceRows = await db
+      .select({ pin: agentBusConferences.pin })
+      .from(agentBusConferences)
+      .where(isNotNull(agentBusConferences.pin))
+      .for('update');
+    return new Set(
+      [...addressRows, ...conferenceRows].map((row) => row.pin).filter((pin): pin is string => pin !== null),
+    );
+  }
+
+  /**
+   * Choose from the complement of the live set rather than retrying random
+   * values against a unique index: a duplicate insert inside a transaction would
+   * surface as a driver-level ER_DUP_ENTRY this layer would have to
+   * pattern-match, and exhaustion would be indistinguishable from bad luck.
+   */
+  private pickFreePin(taken: Set<string>): string {
     const free: string[] = [];
     for (let candidate = 0; candidate < AGENT_MESSAGING_CALL_PIN_SPACE; candidate += 1) {
       const pin = String(candidate).padStart(4, '0');
@@ -815,11 +897,36 @@ export class AgentMessagingService {
     if (free.length === 0) {
       throw new ConflictError('No call PIN is available', 'agent_messaging_call_pin_exhausted');
     }
-    const pin = free[randomInt(free.length)]!;
+    return free[randomInt(free.length)]!;
+  }
+
+  /** Pick a free PIN and bind it to this address. */
+  private async mintCallPinLocked(
+    db: AgentMessagingDb,
+    addressId: string,
+    expiresAt: string,
+    now: string,
+  ): Promise<string> {
+    const pin = this.pickFreePin(await this.livePinsLocked(db));
     await db
       .update(agentBusAddresses)
       .set({ callPin: pin, callPinExpiresAt: expiresAt, updatedAt: now })
       .where(eq(agentBusAddresses.id, addressId));
+    return pin;
+  }
+
+  /** Pick a free PIN and bind it to this conference. */
+  private async mintConferencePinLocked(
+    db: AgentMessagingDb,
+    conferenceId: string,
+    expiresAt: string,
+    now: string,
+  ): Promise<string> {
+    const pin = this.pickFreePin(await this.livePinsLocked(db));
+    await db
+      .update(agentBusConferences)
+      .set({ pin, pinExpiresAt: expiresAt, updatedAt: now })
+      .where(eq(agentBusConferences.id, conferenceId));
     return pin;
   }
 
@@ -991,6 +1098,859 @@ export class AgentMessagingService {
       self: publicAddress(result.self),
       message: messageForParticipant(result.message, content, result.self, result.opener),
     };
+  }
+
+  // =====================================================================
+  // Conferences
+  //
+  // A conference is an owner, a roster, and the authority to dispatch and
+  // adjourn. Its transport is a star: every member holds one ordinary
+  // two-party conversation with the owner, and the owner relays. Nothing here
+  // introduces an N-party conversation, because the delivery leases, the
+  // per-conversation sequence and the one-in-flight-per-address rule in
+  // `claimDelivery` are all written against exactly two participants.
+  //
+  // The 1:1 call's token invariant -- "at any instant exactly one side holds
+  // the token" -- does not survive N parties, so it is replaced rather than
+  // stretched. Every message creates exactly one obligation, and the chair's
+  // reply to a participant is always turn-terminal: a participant that
+  // receives one goes back to listening or exits, it does not reply again.
+  // Only the chair opens a round. That asymmetry is what makes a five-way
+  // room terminate; the skill states it, and these methods are shaped so an
+  // agent following it cannot accidentally start a second round.
+  // =====================================================================
+
+  private async requireConferenceLocked(db: AgentMessagingDb, id: string): Promise<AgentBusConference> {
+    const rows = await db.select().from(agentBusConferences).where(eq(agentBusConferences.id, id)).limit(1).for('update');
+    const conference = rows[0];
+    if (!conference) throw new NotFoundError('Conference not found', 'agent_messaging_conference_not_found');
+    return conference;
+  }
+
+  private async requireMemberLocked(
+    db: AgentMessagingDb,
+    conferenceId: string,
+    addressId: string,
+  ): Promise<AgentBusConferenceMember> {
+    const rows = await db
+      .select()
+      .from(agentBusConferenceMembers)
+      .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), eq(agentBusConferenceMembers.addressId, addressId)))
+      .limit(1)
+      .for('update');
+    const member = rows[0];
+    if (!member || member.state === 'left') {
+      throw new ForbiddenError('Not a member of this conference', 'agent_messaging_conference_not_member');
+    }
+    return member;
+  }
+
+  /** Dispatch and adjourn are the chair's alone; everything else any member may do. */
+  private async requireChairLocked(
+    db: AgentMessagingDb,
+    conferenceId: string,
+    addressId: string,
+  ): Promise<AgentBusConferenceMember> {
+    const member = await this.requireMemberLocked(db, conferenceId, addressId);
+    if (member.role !== 'owner') {
+      throw new ForbiddenError('Only the conference owner can do that', 'agent_messaging_conference_not_owner');
+    }
+    return member;
+  }
+
+  private assertConferenceOpen(conference: AgentBusConference, now: string): void {
+    if (conference.status !== 'open') {
+      throw new ConflictError('Conference is adjourned', 'agent_messaging_conference_adjourned');
+    }
+    if (conference.deadlineAt <= now) {
+      throw new ConflictError('Conference deadline has passed', 'agent_messaging_conference_expired');
+    }
+  }
+
+  /**
+   * Which half of the delivery split a member sits on.
+   *
+   * `claimDelivery` already arbitrates this per message: a target with a live
+   * wrapper attached is skipped by the relay and must claim for itself, while an
+   * idle one is booted headless. The roster only records which side a member is
+   * currently on, because the chair has to phrase a dispatch differently for a
+   * listener than for a one-shot run. It is recomputed on every send rather than
+   * stored at join, since a member that quits its terminal changes side.
+   */
+  private conferenceMode(address: AgentBusAddress): string {
+    return address.currentSessionId ? 'attached' : 'headless';
+  }
+
+  private async rosterRowsLocked(db: AgentMessagingDb, conferenceId: string) {
+    return await db
+      .select({ member: agentBusConferenceMembers, address: agentBusAddresses, fqdn: hosts.fqdn })
+      .from(agentBusConferenceMembers)
+      .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusConferenceMembers.addressId))
+      .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+      .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), ne(agentBusConferenceMembers.state, 'left')))
+      .orderBy(asc(agentBusConferenceMembers.joinedAt));
+  }
+
+  /**
+   * Queue one message along a member's spoke.
+   *
+   * The header line is composed here rather than left to the caller because a
+   * relay-woken member has no prior context at all: its whole existence is the
+   * prompt it is booted with, so the conference id has to travel inside the
+   * message or it can never call `agent_conf_join` to answer. Composing it
+   * server-side also means a peer that has never read the skill still receives a
+   * parseable envelope.
+   */
+  private async queueConferenceMessageLocked(
+    tx: AgentMessagingDb,
+    input: {
+      conference: AgentBusConference;
+      member: AgentBusConferenceMember;
+      sender: AgentBusAddress;
+      target: AgentBusAddress;
+      senderSessionId: string | null;
+      verb: string;
+      headers: Record<string, string | number | null | undefined>;
+      body: string;
+      now: string;
+    },
+  ): Promise<AgentBusMessage> {
+    const { conference, member, sender, target, now } = input;
+    if (member.messageCount >= AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP) {
+      throw new ConflictError(
+        `Conference budget spent for this member (${AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP} messages)`,
+        'agent_messaging_conference_budget_spent',
+      );
+    }
+    let conversationId = member.conversationId;
+    if (!conversationId) {
+      conversationId = randomUUID();
+      await tx.insert(agentBusConversations).values({
+        id: conversationId,
+        addressAId: conference.ownerAddressId,
+        addressBId: member.addressId,
+        createdByAddressId: sender.id,
+        nextSequence: 1,
+        status: 'open',
+        lastActivityAt: now,
+        canceledBy: null,
+        cancelReason: null,
+        canceledAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await tx
+        .update(agentBusConferenceMembers)
+        .set({ conversationId, updatedAt: now })
+        .where(eq(agentBusConferenceMembers.id, member.id));
+    }
+    const conversation = await this.requireConversationLocked(tx, conversationId);
+    if (conversation.status !== 'open') {
+      throw new ConflictError('Conversation is canceled', 'agent_messaging_conversation_canceled');
+    }
+    this.assertConversationParticipants(conversation, sender.id, target.id);
+    const content = conferenceEnvelope(input.verb, { conference: conference.id, ...input.headers }, input.body);
+    const sequence = Number(conversation.nextSequence);
+    const messageId = randomUUID();
+    await tx.insert(agentBusMessages).values(
+      newQueuedMessage({
+        id: messageId,
+        conversationId,
+        sequence,
+        sender,
+        senderSessionId: input.senderSessionId,
+        target,
+        kind: 'message',
+        content,
+        contentEnc: encrypt(content, this.keyring),
+        // Server-generated: a conference send is a fan-out, so there is no single
+        // client key that could identify it. Partial delivery is reported per
+        // member instead, and re-sending to a member that already received one is
+        // a second message by design rather than a swallowed duplicate.
+        clientMessageId: randomUUID(),
+        // A message must not outlive the room it belongs to.
+        expiresAt: conferenceMessageExpiry(conference, now),
+        now,
+      }),
+    );
+    const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
+    const persisted = persistedRows[0];
+    if (!persisted) throw new Error('Inserted conference message could not be read back');
+    await tx
+      .update(agentBusConversations)
+      .set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now })
+      .where(eq(agentBusConversations.id, conversationId));
+    const participant = sender.id === conference.ownerAddressId ? target : sender;
+    await tx
+      .update(agentBusConferenceMembers)
+      .set({ messageCount: member.messageCount + 1, mode: this.conferenceMode(participant), updatedAt: now })
+      .where(eq(agentBusConferenceMembers.id, member.id));
+    return persisted;
+  }
+
+  /**
+   * A dispatched member reports back by replying to the task it was given.
+   *
+   * Called from both reply paths, because the two member kinds report through
+   * different ones: an attached member replies through `replyMessage`, while a
+   * headless member never calls a tool at all -- the relay correlates its final
+   * output and posts it through `replyFromRelayDelivery`. Hooking only the tool
+   * path would leave every headless member stuck in `dispatched` forever.
+   */
+  private async settleConferenceDispatchLocked(tx: AgentMessagingDb, parentMessageId: string, now: string): Promise<void> {
+    const rows = await tx
+      .select()
+      .from(agentBusConferenceMembers)
+      .where(and(eq(agentBusConferenceMembers.dispatchMessageId, parentMessageId), eq(agentBusConferenceMembers.state, 'dispatched')))
+      .limit(1)
+      .for('update');
+    const member = rows[0];
+    if (!member) return;
+    await tx
+      .update(agentBusConferenceMembers)
+      .set({ state: 'seated', dispatchMessageId: null, dispatchDeadlineAt: null, lastReportAt: now, updatedAt: now })
+      .where(eq(agentBusConferenceMembers.id, member.id));
+  }
+
+  /**
+   * Open a conference and mint the room PIN.
+   *
+   * One open conference per owner. A second would give the chair two rooms to
+   * keep straight and two budgets to spend, and every mechanism here -- the
+   * roster, the floor, the adjourn authority -- assumes the chair is running one
+   * meeting. Re-opening returns the existing room rather than minting a rival.
+   */
+  async openConference(
+    sessionId: string,
+    bridgeToken: string,
+    input: { topic?: string | null; purpose?: string | null; ttlSeconds?: number | null; maxMembers?: number | null } = {},
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    if (!authenticated.session.agentBusAddressId) {
+      throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    }
+    const topic = normalizeOptionalText(input.topic, 255);
+    const purpose = normalizeOptionalText(input.purpose, 1024);
+    const ttlSeconds = normalizeConferenceTtl(input.ttlSeconds);
+    const maxMembers = normalizeConferenceMaxMembers(input.maxMembers);
+    const result = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      await this.sweepCallPinsLocked(tx, now);
+      const self = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
+      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
+      await this.assertAddressEligibleLocked(tx, self);
+      const openRows = await tx
+        .select()
+        .from(agentBusConferences)
+        .where(and(eq(agentBusConferences.ownerAddressId, self.id), eq(agentBusConferences.status, 'open'), gt(agentBusConferences.deadlineAt, now)))
+        .limit(1)
+        .for('update');
+      const existing = openRows[0];
+      if (existing) {
+        const pin =
+          existing.pin && existing.pinExpiresAt && existing.pinExpiresAt > now
+            ? existing.pin
+            : await this.mintConferencePinLocked(tx, existing.id, existing.deadlineAt, now);
+        return { conference: { ...existing, pin }, self, reused: true };
+      }
+      const conference: typeof agentBusConferences.$inferInsert = {
+        id: randomUUID(),
+        ownerAddressId: self.id,
+        topic,
+        purpose,
+        pin: null,
+        pinExpiresAt: null,
+        status: 'open',
+        maxMembers,
+        deadlineAt: isoOffsetSeconds(ttlSeconds),
+        adjournReason: null,
+        adjournedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await tx.insert(agentBusConferences).values(conference);
+      await tx.insert(agentBusConferenceMembers).values({
+        id: randomUUID(),
+        conferenceId: conference.id,
+        addressId: self.id,
+        conversationId: null,
+        role: 'owner',
+        purpose,
+        mode: this.conferenceMode(self),
+        state: 'seated',
+        dispatchMessageId: null,
+        dispatchDeadlineAt: null,
+        dispatchedAt: null,
+        lastReportAt: null,
+        messageCount: 0,
+        joinedAt: now,
+        leftAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      // The PIN dies with the room, so its window is the room's deadline.
+      const pin = await this.mintConferencePinLocked(tx, conference.id, conference.deadlineAt, now);
+      const roster = await this.rosterRowsLocked(tx, conference.id);
+      return { conference: { ...conference, pin } as AgentBusConference, self, reused: false, roster };
+    });
+    const roster = await this.db.transaction(async (tx) => await this.rosterRowsLocked(tx, result.conference.id));
+    return {
+      enabled: true,
+      conference_id: result.conference.id,
+      pin: result.conference.pin,
+      expires_at: result.conference.deadlineAt,
+      deadline_at: result.conference.deadlineAt,
+      topic: result.conference.topic,
+      max_members: result.conference.maxMembers,
+      reused: result.reused,
+      self: publicAddress(result.self),
+      roster: roster.map((row) => publicConferenceMember(row.member, row.address, row.fqdn)),
+    };
+  }
+
+  /**
+   * Invite addresses into the room.
+   *
+   * This is the path that makes a conference usable on a cluster: an idle host
+   * is woken by its relay with the invite as its prompt, so no human carries
+   * anything. A host with a wrapper already attached is skipped by the relay by
+   * design and its invite simply waits in the queue until that session listens
+   * -- which is exactly the case the PIN still exists to cover.
+   *
+   * Not atomic, and deliberately not pretending to be: each member is its own
+   * conversation and its own delivery, so the result is per member and a partial
+   * fan-out is reported rather than rolled back.
+   */
+  async inviteToConference(
+    sessionId: string,
+    bridgeToken: string,
+    input: { conferenceId: string; to: string[]; note?: string | null },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const conferenceId = normalizeUuid(input.conferenceId, 'conference_id');
+    const note = normalizeOptionalText(input.note, AGENT_MESSAGING_MAX_BODY_BYTES) ?? '';
+    if (!Array.isArray(input.to) || input.to.length === 0) {
+      throw new ValidationError('to must be a non-empty list of addresses', { param: 'to' });
+    }
+    const targets = input.to.map((value) => normalizeRequiredText(value, 'to', 96));
+    const results: Record<string, unknown>[] = [];
+    for (const target of targets) {
+      try {
+        const queued = await this.db.transaction(async (tx) => {
+          await this.requireEnabledLocked(tx);
+          const now = nowIso();
+          const conference = await this.requireConferenceLocked(tx, conferenceId);
+          this.assertConferenceOpen(conference, now);
+          await this.requireChairLocked(tx, conferenceId, selfId);
+          const chair = await this.requireAddressLocked(tx, selfId);
+          await this.assertSessionAddressLocked(tx, authenticated.session.id, chair);
+          const invitee = await this.resolveAddressLocked(tx, target, true);
+          if (invitee.id === chair.id) {
+            throw new ValidationError('The chair is already in the conference', { param: 'to' });
+          }
+          await this.assertAddressEligibleLocked(tx, invitee);
+          const seated = await tx
+            .select({ value: count() })
+            .from(agentBusConferenceMembers)
+            .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), ne(agentBusConferenceMembers.state, 'left')));
+          if (Number(seated[0]?.value ?? 0) >= conference.maxMembers) {
+            throw new ConflictError('Conference is full', 'agent_messaging_conference_full');
+          }
+          const priorRows = await tx
+            .select()
+            .from(agentBusConferenceMembers)
+            .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), eq(agentBusConferenceMembers.addressId, invitee.id)))
+            .limit(1)
+            .for('update');
+          if (priorRows[0] && priorRows[0].state !== 'left') {
+            throw new ConflictError('Address is already a member', 'agent_messaging_conference_already_member');
+          }
+          const member: typeof agentBusConferenceMembers.$inferInsert = {
+            id: priorRows[0]?.id ?? randomUUID(),
+            conferenceId,
+            addressId: invitee.id,
+            conversationId: priorRows[0]?.conversationId ?? null,
+            role: 'participant',
+            purpose: null,
+            mode: this.conferenceMode(invitee),
+            state: 'seated',
+            dispatchMessageId: null,
+            dispatchDeadlineAt: null,
+            dispatchedAt: null,
+            lastReportAt: null,
+            messageCount: priorRows[0]?.messageCount ?? 0,
+            joinedAt: now,
+            leftAt: null,
+            createdAt: priorRows[0]?.createdAt ?? now,
+            updatedAt: now,
+          };
+          if (priorRows[0]) {
+            await tx.update(agentBusConferenceMembers).set(member).where(eq(agentBusConferenceMembers.id, member.id!));
+          } else {
+            await tx.insert(agentBusConferenceMembers).values(member);
+          }
+          const stored = await this.requireMemberLocked(tx, conferenceId, invitee.id);
+          const message = await this.queueConferenceMessageLocked(tx, {
+            conference,
+            member: stored,
+            sender: chair,
+            target: invitee,
+            senderSessionId: authenticated.session.id,
+            verb: 'INVITE',
+            headers: {
+              topic: conference.topic ?? undefined,
+              deadline: conference.deadlineAt,
+              members: `${Number(seated[0]?.value ?? 0) + 1}/${conference.maxMembers}`,
+            },
+            body: conferenceInviteBody(conference, note),
+            now,
+          });
+          return { message, invitee, mode: stored.mode };
+        });
+        wsPublisher.publish('agent_messaging.message.changed', {
+          message_id: queued.message.id,
+          conversation_id: queued.message.conversationId,
+          status: queued.message.status,
+        });
+        results.push({
+          address: queued.invitee.address,
+          alias: queued.invitee.displayAlias,
+          mode: this.conferenceMode(queued.invitee),
+          delivered: true,
+          message_id: queued.message.id,
+        });
+      } catch (error) {
+        results.push({ address: target, delivered: false, error: errorCodeOf(error), detail: errorMessageOf(error) });
+      }
+    }
+    return { enabled: true, conference_id: conferenceId, results };
+  }
+
+  /**
+   * Join a room, by PIN or by invitation.
+   *
+   * The PIN path is multi-use, which is the whole difference from `#call`: four
+   * agents dial the same four digits, so unlike `consumeCallPinLocked` this must
+   * never clear the PIN on success. It dies with the room's deadline or when the
+   * room fills, not on first use.
+   *
+   * The `conference_id` path exists for a relay-woken invitee, which learns the
+   * id from the invite it was booted with. It requires an existing member row,
+   * so knowing a UUID is not by itself an entry ticket.
+   */
+  async joinConference(
+    sessionId: string,
+    bridgeToken: string,
+    input: { pin?: string | null; conferenceId?: string | null; purpose?: string | null; content?: string | null },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const hasPin = input.pin !== undefined && input.pin !== null && input.pin !== '';
+    const hasId = input.conferenceId !== undefined && input.conferenceId !== null && input.conferenceId !== '';
+    if (hasPin === hasId) {
+      throw new ValidationError('Provide exactly one of pin or conference_id', { param: 'pin' });
+    }
+    const pin = hasPin ? normalizeCallPin(input.pin) : null;
+    const conferenceId = hasId ? normalizeUuid(input.conferenceId, 'conference_id') : null;
+    const purpose = normalizeOptionalText(input.purpose, 1024);
+    const body = normalizeOptionalText(input.content, AGENT_MESSAGING_MAX_BODY_BYTES) ?? '';
+    const result = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      await this.sweepCallPinsLocked(tx, now);
+      const self = await this.requireAddressLocked(tx, selfId);
+      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
+      const conference = pin
+        ? await this.resolveConferencePinLocked(tx, pin, now)
+        : await this.requireConferenceLocked(tx, conferenceId!);
+      this.assertConferenceOpen(conference, now);
+      if (conference.ownerAddressId === self.id) {
+        throw new ValidationError('The chair is already in the conference', { param: 'pin' });
+      }
+      const chair = await this.requireAddressLocked(tx, conference.ownerAddressId);
+      await this.assertAddressEligibleLocked(tx, chair);
+      const priorRows = await tx
+        .select()
+        .from(agentBusConferenceMembers)
+        .where(and(eq(agentBusConferenceMembers.conferenceId, conference.id), eq(agentBusConferenceMembers.addressId, self.id)))
+        .limit(1)
+        .for('update');
+      const prior = priorRows[0];
+      if (!prior && !pin) {
+        // An id alone is not an invitation.
+        throw new ForbiddenError('Not a member of this conference', 'agent_messaging_conference_not_member');
+      }
+      if (!prior) {
+        const seated = await tx
+          .select({ value: count() })
+          .from(agentBusConferenceMembers)
+          .where(and(eq(agentBusConferenceMembers.conferenceId, conference.id), ne(agentBusConferenceMembers.state, 'left')));
+        if (Number(seated[0]?.value ?? 0) >= conference.maxMembers) {
+          throw new ConflictError('Conference is full', 'agent_messaging_conference_full');
+        }
+        await tx.insert(agentBusConferenceMembers).values({
+          id: randomUUID(),
+          conferenceId: conference.id,
+          addressId: self.id,
+          conversationId: null,
+          role: 'participant',
+          purpose,
+          mode: this.conferenceMode(self),
+          state: 'seated',
+          dispatchMessageId: null,
+          dispatchDeadlineAt: null,
+          dispatchedAt: null,
+          lastReportAt: null,
+          messageCount: 0,
+          joinedAt: now,
+          leftAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await tx
+          .update(agentBusConferenceMembers)
+          .set({ state: 'seated', purpose: purpose ?? prior.purpose, mode: this.conferenceMode(self), leftAt: null, updatedAt: now })
+          .where(eq(agentBusConferenceMembers.id, prior.id));
+      }
+      const member = await this.requireMemberLocked(tx, conference.id, self.id);
+      const message = await this.queueConferenceMessageLocked(tx, {
+        conference,
+        member,
+        sender: self,
+        target: chair,
+        senderSessionId: authenticated.session.id,
+        verb: 'HELLO',
+        headers: { purpose: purpose ?? undefined },
+        body,
+        now,
+      });
+      const roster = await this.rosterRowsLocked(tx, conference.id);
+      return { conference, self, chair, message, roster };
+    });
+    wsPublisher.publish('agent_messaging.message.changed', {
+      message_id: result.message.id,
+      conversation_id: result.message.conversationId,
+      status: result.message.status,
+    });
+    return {
+      enabled: true,
+      conference_id: result.conference.id,
+      topic: result.conference.topic,
+      deadline_at: result.conference.deadlineAt,
+      chair: publicAddress(result.chair),
+      self: publicAddress(result.self),
+      roster: result.roster.map((row) => publicConferenceMember(row.member, row.address, row.fqdn)),
+    };
+  }
+
+  /**
+   * Resolve a room PIN without spending it.
+   *
+   * The contrast with `consumeCallPinLocked` is the point: a call PIN is
+   * single-use because it names one rendezvous between two agents, while a room
+   * PIN is how every member finds the same room. Clearing it on first join would
+   * admit exactly one participant and turn a conference into a call.
+   */
+  private async resolveConferencePinLocked(db: AgentMessagingDb, pin: string, now: string): Promise<AgentBusConference> {
+    const rows = await db
+      .select()
+      .from(agentBusConferences)
+      .where(and(eq(agentBusConferences.pin, pin), gt(agentBusConferences.pinExpiresAt, now)))
+      .limit(1)
+      .for('update');
+    const conference = rows[0];
+    if (!conference) {
+      throw new NotFoundError('Conference PIN not found or expired', 'agent_messaging_conference_pin_not_found');
+    }
+    return conference;
+  }
+
+  async conferenceRoster(sessionId: string, bridgeToken: string, conferenceId: string): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const id = normalizeUuid(conferenceId, 'conference_id');
+    return await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const conference = await this.requireConferenceLocked(tx, id);
+      await this.requireMemberLocked(tx, id, selfId);
+      const roster = await this.rosterRowsLocked(tx, id);
+      return {
+        enabled: true,
+        conference_id: conference.id,
+        topic: conference.topic,
+        purpose: conference.purpose,
+        status: conference.status,
+        deadline_at: conference.deadlineAt,
+        max_members: conference.maxMembers,
+        members: roster.map((row) => publicConferenceMember(row.member, row.address, row.fqdn)),
+      };
+    });
+  }
+
+  /**
+   * Say something. The chair broadcasts; a participant may only address the chair.
+   *
+   * A participant's `to` is ignored rather than rejected: the star has no edge
+   * between participants, so there is nowhere for it to go, and failing the call
+   * would punish an agent for a topology it cannot see.
+   */
+  async conferenceSay(
+    sessionId: string,
+    bridgeToken: string,
+    input: { conferenceId: string; content: string; to?: string | null },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const conferenceId = normalizeUuid(input.conferenceId, 'conference_id');
+    const body = normalizeMessageBody(input.content);
+    const to = normalizeOptionalText(input.to, 96);
+    const recipients = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      const conference = await this.requireConferenceLocked(tx, conferenceId);
+      this.assertConferenceOpen(conference, now);
+      const me = await this.requireMemberLocked(tx, conferenceId, selfId);
+      if (me.role !== 'owner') return { chairOnly: true, conference };
+      const roster = await this.rosterRowsLocked(tx, conferenceId);
+      const targets = roster
+        .filter((row) => row.member.role !== 'owner')
+        // A dispatched member is away on a task and holding a delivery; adding a
+        // broadcast behind it would queue behind work it has not finished.
+        .filter((row) => row.member.state === 'seated')
+        .filter((row) => !to || row.address.address === to || row.address.displayAlias === to);
+      return { chairOnly: false, conference, targets: targets.map((row) => row.address.id) };
+    });
+    const results: Record<string, unknown>[] = [];
+    if (recipients.chairOnly) {
+      const sent = await this.deliverConferenceMessage(authenticated, conferenceId, selfId, null, 'SAY', {}, body);
+      results.push(sent);
+    } else {
+      for (const addressId of recipients.targets ?? []) {
+        results.push(await this.deliverConferenceMessage(authenticated, conferenceId, selfId, addressId, 'SAY', {}, body));
+      }
+    }
+    return { enabled: true, conference_id: conferenceId, results };
+  }
+
+  /**
+   * Hand a task to one participant and take it off the floor.
+   *
+   * The member goes to `dispatched`, which excludes it from broadcast until its
+   * report lands. `dispatch_deadline_at` is what the maintenance sweep uses to
+   * notice a member whose run died: a headless task that never returns burns its
+   * delivery attempts silently, and without the deadline the chair would wait
+   * forever on a report that is not coming.
+   */
+  async conferenceDispatch(
+    sessionId: string,
+    bridgeToken: string,
+    input: { conferenceId: string; to: string; task: string; etaSeconds?: number | null },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const conferenceId = normalizeUuid(input.conferenceId, 'conference_id');
+    const to = normalizeRequiredText(input.to, 'to', 96);
+    const task = normalizeMessageBody(input.task);
+    const etaSeconds = normalizeDispatchEta(input.etaSeconds);
+    const result = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      const conference = await this.requireConferenceLocked(tx, conferenceId);
+      this.assertConferenceOpen(conference, now);
+      await this.requireChairLocked(tx, conferenceId, selfId);
+      const chair = await this.requireAddressLocked(tx, selfId);
+      await this.assertSessionAddressLocked(tx, authenticated.session.id, chair);
+      const target = await this.resolveAddressLocked(tx, to, true);
+      await this.assertAddressEligibleLocked(tx, target);
+      const member = await this.requireMemberLocked(tx, conferenceId, target.id);
+      if (member.role === 'owner') {
+        throw new ValidationError('The chair cannot dispatch itself', { param: 'to' });
+      }
+      if (member.state === 'dispatched') {
+        throw new ConflictError('Member is already on a task', 'agent_messaging_conference_member_busy');
+      }
+      const message = await this.queueConferenceMessageLocked(tx, {
+        conference,
+        member,
+        sender: chair,
+        target,
+        senderSessionId: authenticated.session.id,
+        verb: 'TASK',
+        headers: { eta: etaSeconds, deadline: conference.deadlineAt },
+        body: task,
+        now,
+      });
+      await tx
+        .update(agentBusConferenceMembers)
+        .set({
+          state: 'dispatched',
+          dispatchMessageId: message.id,
+          dispatchDeadlineAt: isoOffsetSeconds(etaSeconds),
+          dispatchedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(agentBusConferenceMembers.id, member.id));
+      return { message, target };
+    });
+    wsPublisher.publish('agent_messaging.message.changed', {
+      message_id: result.message.id,
+      conversation_id: result.message.conversationId,
+      status: result.message.status,
+    });
+    return {
+      enabled: true,
+      conference_id: conferenceId,
+      dispatched_to: publicAddress(result.target),
+      message_id: result.message.id,
+      eta_seconds: etaSeconds,
+    };
+  }
+
+  /**
+   * Close the room.
+   *
+   * Graceful by default. Cancelling a conversation revokes any lease on it, and
+   * a headless member mid-run is having its lease renewed on a ticker -- so a
+   * blanket cancel kills a running engine process mid-task. That is sometimes
+   * what the chair wants and never what it should get by accident, so the
+   * default leaves dispatched members to finish and the room lands in
+   * `adjourning` until their reports arrive or the sweep expires them. `force`
+   * is the decisive form, and it reports how much work it interrupted.
+   */
+  async adjournConference(
+    sessionId: string,
+    bridgeToken: string,
+    input: { conferenceId: string; reason?: string | null; force?: boolean },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const conferenceId = normalizeUuid(input.conferenceId, 'conference_id');
+    const reason = normalizeOptionalText(input.reason, 255) ?? 'Adjourned by the chair';
+    const force = input.force === true;
+    const plan = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      const conference = await this.requireConferenceLocked(tx, conferenceId);
+      if (conference.status === 'adjourned') {
+        throw new ConflictError('Conference is already adjourned', 'agent_messaging_conference_adjourned');
+      }
+      await this.requireChairLocked(tx, conferenceId, selfId);
+      const roster = await this.rosterRowsLocked(tx, conferenceId);
+      const participants = roster.filter((row) => row.member.role !== 'owner');
+      const working = participants.filter((row) => row.member.state === 'dispatched');
+      const releasable = force ? participants : participants.filter((row) => row.member.state !== 'dispatched');
+      const settled = force || working.length === 0;
+      await tx
+        .update(agentBusConferences)
+        .set({
+          status: settled ? 'adjourned' : 'adjourning',
+          adjournReason: reason,
+          adjournedAt: settled ? now : null,
+          pin: null,
+          pinExpiresAt: null,
+          updatedAt: now,
+        })
+        .where(eq(agentBusConferences.id, conferenceId));
+      for (const row of releasable) {
+        await tx
+          .update(agentBusConferenceMembers)
+          .set({ state: 'left', leftAt: now, dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
+          .where(eq(agentBusConferenceMembers.id, row.member.id));
+      }
+      if (settled) {
+        await tx
+          .update(agentBusConferenceMembers)
+          .set({ state: 'left', leftAt: now, updatedAt: now })
+          .where(and(eq(agentBusConferenceMembers.conferenceId, conferenceId), ne(agentBusConferenceMembers.state, 'left')));
+      }
+      return {
+        settled,
+        interrupted: force ? working.length : 0,
+        waitingOn: settled ? 0 : working.length,
+        conversations: releasable.map((row) => row.member.conversationId).filter((id): id is string => Boolean(id)),
+      };
+    });
+    for (const conversationId of plan.conversations) {
+      try {
+        await this.cancelConversationInternal(conversationId, `agent:${selfId}`, reason, selfId, authenticated.session.id);
+      } catch {
+        // A conversation already canceled or never opened is not a failure to
+        // adjourn: the room is closing either way.
+      }
+    }
+    wsPublisher.publish('agent_messaging.conference.changed', {
+      conference_id: conferenceId,
+      status: plan.settled ? 'adjourned' : 'adjourning',
+    });
+    return {
+      enabled: true,
+      conference_id: conferenceId,
+      status: plan.settled ? 'adjourned' : 'adjourning',
+      released: plan.conversations.length,
+      interrupted_tasks: plan.interrupted,
+      waiting_on_tasks: plan.waitingOn,
+    };
+  }
+
+  /** One spoke of a fan-out, isolated so a single failure is reported rather than fatal. */
+  private async deliverConferenceMessage(
+    authenticated: { session: AgentSession; host: Host },
+    conferenceId: string,
+    selfId: string,
+    targetAddressId: string | null,
+    verb: string,
+    headers: Record<string, string | number | null | undefined>,
+    body: string,
+  ): Promise<Record<string, unknown>> {
+    try {
+      const queued = await this.db.transaction(async (tx) => {
+        await this.requireEnabledLocked(tx);
+        const now = nowIso();
+        const conference = await this.requireConferenceLocked(tx, conferenceId);
+        this.assertConferenceOpen(conference, now);
+        const self = await this.requireAddressLocked(tx, selfId);
+        await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
+        const isChair = conference.ownerAddressId === self.id;
+        const otherId = isChair ? targetAddressId! : conference.ownerAddressId;
+        const other = await this.requireAddressLocked(tx, otherId);
+        await this.assertAddressEligibleLocked(tx, other);
+        const member = await this.requireMemberLocked(tx, conferenceId, isChair ? other.id : self.id);
+        const message = await this.queueConferenceMessageLocked(tx, {
+          conference,
+          member,
+          sender: self,
+          target: other,
+          senderSessionId: authenticated.session.id,
+          verb,
+          headers,
+          body,
+          now,
+        });
+        return { message, other };
+      });
+      wsPublisher.publish('agent_messaging.message.changed', {
+        message_id: queued.message.id,
+        conversation_id: queued.message.conversationId,
+        status: queued.message.status,
+      });
+      return {
+        address: queued.other.address,
+        alias: queued.other.displayAlias,
+        delivered: true,
+        message_id: queued.message.id,
+      };
+    } catch (error) {
+      return { address: targetAddressId, delivered: false, error: errorCodeOf(error), detail: errorMessageOf(error) };
+    }
   }
 
   async sendMessage(
@@ -1211,6 +2171,8 @@ export class AgentMessagingService {
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted agent reply could not be read back');
+      // An attached conference member reports by replying to its task.
+      await this.settleConferenceDispatchLocked(tx, parent.id, now);
       await tx.update(agentBusConversations).set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now }).where(eq(agentBusConversations.id, conversation.id));
       return { message: persisted, sender, target, content, created: true };
     });
@@ -1308,6 +2270,75 @@ export class AgentMessagingService {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
     return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false);
+  }
+
+  /**
+   * Report what is waiting without touching it.
+   *
+   * An interactive agent has no interrupt -- it exists only during a turn -- so
+   * until something tells it otherwise, a queued message simply expires unread.
+   * This is the ring. Two constraints follow from that job and neither is
+   * negotiable:
+   *
+   * - It must work *before* the agent has ever bound receive-capable, because
+   *   binding happens on the first `agent_listen` and the whole point is that
+   *   the agent has not listened yet. So, unlike `claimForSession`, there is no
+   *   `receiveHeartbeatAt` gate here.
+   * - It must leave the queue exactly as it found it: no lease, no status
+   *   transition, no attempt burned. Peeking is not claiming.
+   *
+   * Content is deliberately omitted. Hearing the phone ring is not answering
+   * it, and handing the body over without a lease would tell the sender its
+   * message went unread while the target had in fact read it.
+   *
+   * `missed` exists because expiry is otherwise entirely invisible: today an
+   * unanswered message flips to `expired` and no one ever learns a call was
+   * placed at all.
+   */
+  async peekMailbox(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    const addressId = authenticated.session.agentBusAddressId;
+    if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    const now = nowIso();
+    const missedAfter = isoOffsetSeconds(-AGENT_MESSAGING_MISSED_WINDOW_SECONDS);
+    const rows = await this.db
+      .select({ message: agentBusMessages, sender: agentBusAddresses, fqdn: hosts.fqdn })
+      .from(agentBusMessages)
+      .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusMessages.senderAddressId))
+      .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+      .where(
+        and(
+          eq(agentBusMessages.targetAddressId, addressId),
+          or(
+            and(eq(agentBusMessages.status, 'queued'), gt(agentBusMessages.expiresAt, now)),
+            and(eq(agentBusMessages.status, 'expired'), gt(agentBusMessages.expiredAt, missedAfter)),
+          ),
+        ),
+      )
+      .orderBy(asc(agentBusMessages.dispatchOrder))
+      .limit(AGENT_MESSAGING_MAILBOX_PAGE_SIZE);
+    const pending: Record<string, unknown>[] = [];
+    const missed: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      const from = {
+        address: row.sender.address,
+        alias: row.sender.displayAlias,
+        engine: row.sender.engine,
+        fqdn: row.fqdn,
+      };
+      if (row.message.status === 'queued') {
+        pending.push({
+          message_id: row.message.id,
+          conversation_id: row.message.conversationId,
+          kind: row.message.kind,
+          from,
+          expires_at: row.message.expiresAt,
+        });
+      } else {
+        missed.push({ from, expired_at: row.message.expiredAt });
+      }
+    }
+    return { pending, missed };
   }
 
   async registerRelay(
@@ -1582,6 +2613,9 @@ export class AgentMessagingService {
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted relay reply could not be read back');
+      // A headless conference member never calls a tool: the relay correlates
+      // its final output and posts it here, so this is where its dispatch ends.
+      await this.settleConferenceDispatchLocked(tx, parent.id, now);
       await tx
         .update(agentBusConversations)
         .set({ nextSequence: persisted.sequence + 1, lastActivityAt: now, updatedAt: now })
@@ -1877,10 +2911,90 @@ export class AgentMessagingService {
       await tx.update(agentBusMessages).set({ status: 'dead', deadAt: now, lastErrorCode: 'delivery_attempts_exhausted', leaseOwner: null, leaseUntil: null, updatedAt: now }).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), gt(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1)));
       await tx.update(agentBusMessages).set({ status: 'ambiguous', ambiguousAt: now, lastErrorCode: 'accepted_lease_lost', leaseOwner: null, leaseUntil: null, updatedAt: now }).where(and(eq(agentBusMessages.status, 'accepted'), lte(agentBusMessages.leaseUntil, now)));
       await tx.update(agentBusRelays).set({ status: 'stale', updatedAt: now }).where(and(eq(agentBusRelays.status, 'active'), lte(agentBusRelays.heartbeatAt, staleRelay)));
-      return { expired: Number(expiring[0]?.value ?? 0), retried: Number(retryable[0]?.value ?? 0), dead: Number(exhausted[0]?.value ?? 0), ambiguous: Number(uncertain[0]?.value ?? 0), released_bindings: releasedBindings };
+      const conferences = await this.sweepConferencesLocked(tx, now);
+      return {
+        expired: Number(expiring[0]?.value ?? 0),
+        retried: Number(retryable[0]?.value ?? 0),
+        dead: Number(exhausted[0]?.value ?? 0),
+        ambiguous: Number(uncertain[0]?.value ?? 0),
+        released_bindings: releasedBindings,
+        ...conferences,
+      };
     });
     if (result.expired || result.retried || result.dead || result.ambiguous || result.released_bindings) wsPublisher.publish('agent_messaging.queue.changed', result);
+    if (result.conferences_adjourned || result.dispatches_expired) {
+      wsPublisher.publish('agent_messaging.conference.changed', {
+        adjourned: result.conferences_adjourned,
+        dispatches_expired: result.dispatches_expired,
+      });
+    }
     return result;
+  }
+
+  /**
+   * Close rooms nobody is going to close, and un-strand members nobody is going
+   * to answer for.
+   *
+   * Both halves exist because the failure they cover is silent. A chair that
+   * simply walks away leaves an `open` conference holding a PIN that still
+   * admits joiners; and a headless member whose engine died mid-task burns its
+   * delivery attempts until the message goes `dead` without ever touching the
+   * member row, so the chair waits forever on a report that is not coming. Any
+   * budget that is only enforced by participants behaving well is not a budget.
+   */
+  private async sweepConferencesLocked(
+    db: AgentMessagingDb,
+    now: string,
+  ): Promise<{ conferences_adjourned: number; dispatches_expired: number }> {
+    const overdue = await db
+      .select({ value: count() })
+      .from(agentBusConferences)
+      .where(and(ne(agentBusConferences.status, 'adjourned'), lte(agentBusConferences.deadlineAt, now)));
+    await db
+      .update(agentBusConferences)
+      .set({ status: 'adjourned', adjournReason: 'Conference deadline passed', adjournedAt: now, pin: null, pinExpiresAt: null, updatedAt: now })
+      .where(and(ne(agentBusConferences.status, 'adjourned'), lte(agentBusConferences.deadlineAt, now)));
+
+    // A member whose task never came back returns to the floor rather than
+    // vanishing: the chair can see the miss in `last_report_at` staying null and
+    // decide whether to re-dispatch. Silently dropping it would hide the failure.
+    const stranded = await db
+      .select({ value: count() })
+      .from(agentBusConferenceMembers)
+      .where(and(eq(agentBusConferenceMembers.state, 'dispatched'), isNotNull(agentBusConferenceMembers.dispatchDeadlineAt), lte(agentBusConferenceMembers.dispatchDeadlineAt, now)));
+    await db
+      .update(agentBusConferenceMembers)
+      .set({ state: 'seated', dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
+      .where(and(eq(agentBusConferenceMembers.state, 'dispatched'), isNotNull(agentBusConferenceMembers.dispatchDeadlineAt), lte(agentBusConferenceMembers.dispatchDeadlineAt, now)));
+
+    // A graceful adjourn parks the room in `adjourning` while its last tasks run
+    // out. Once none are left, nothing else is going to finish the job.
+    const draining = await db
+      .select({ id: agentBusConferences.id })
+      .from(agentBusConferences)
+      .where(eq(agentBusConferences.status, 'adjourning'))
+      .for('update');
+    let settled = 0;
+    for (const row of draining) {
+      const busy = await db
+        .select({ value: count() })
+        .from(agentBusConferenceMembers)
+        .where(and(eq(agentBusConferenceMembers.conferenceId, row.id), eq(agentBusConferenceMembers.state, 'dispatched')));
+      if (Number(busy[0]?.value ?? 0) > 0) continue;
+      await db
+        .update(agentBusConferences)
+        .set({ status: 'adjourned', adjournedAt: now, pin: null, pinExpiresAt: null, updatedAt: now })
+        .where(eq(agentBusConferences.id, row.id));
+      await db
+        .update(agentBusConferenceMembers)
+        .set({ state: 'left', leftAt: now, updatedAt: now })
+        .where(and(eq(agentBusConferenceMembers.conferenceId, row.id), ne(agentBusConferenceMembers.state, 'left')));
+      settled += 1;
+    }
+    return {
+      conferences_adjourned: Number(overdue[0]?.value ?? 0) + settled,
+      dispatches_expired: Number(stranded[0]?.value ?? 0),
+    };
   }
 
   private async claimDelivery(
@@ -2506,6 +3620,26 @@ export async function suspendAgentMessagingRuntimeLocked(
         updatedAt: now,
       })
       .where(and(eq(agentBusConversations.status, 'open'), conversationScope));
+    // Conferences outlive individual conversations, so cancelling the spokes is
+    // not enough: a room whose chair has just been made ineligible would stay
+    // `open` forever, holding its PIN and admitting joiners to a meeting nobody
+    // can run. Close the rooms these addresses chair, and seat-release them from
+    // any room they merely attend.
+    await db
+      .update(agentBusConferences)
+      .set({
+        status: 'adjourned',
+        adjournReason: reason === 'engine_disabled' ? 'Agent engine disabled for host' : 'Host is no longer eligible for Agent Messaging',
+        adjournedAt: now,
+        pin: null,
+        pinExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(and(ne(agentBusConferences.status, 'adjourned'), inArray(agentBusConferences.ownerAddressId, addressIds)));
+    await db
+      .update(agentBusConferenceMembers)
+      .set({ state: 'left', leftAt: now, dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
+      .where(and(ne(agentBusConferenceMembers.state, 'left'), inArray(agentBusConferenceMembers.addressId, addressIds)));
     await db
       .update(agentBusAddresses)
       .set({
@@ -2682,6 +3816,104 @@ function newQueuedMessage(input: {
     createdAt: input.now,
     updatedAt: input.now,
   };
+}
+
+/**
+ * The wire envelope: `CONF/1 <VERB> k=v ...` on the first line, free text below.
+ *
+ * Composed server-side so the conference id always travels with the message. A
+ * relay-woken member is a fresh process whose entire context is the prompt it
+ * was booted with -- if the id were left to the sender to remember to include,
+ * a headless participant would have no way to call `agent_conf_join` and answer.
+ *
+ * Values are sanitised to a single line: the header is exactly the first line,
+ * so a newline smuggled into a topic would push the body up into the header and
+ * change how a peer parses the whole message.
+ */
+function conferenceEnvelope(
+  verb: string,
+  headers: Record<string, string | number | null | undefined>,
+  body: string,
+): string {
+  const parts = [`CONF/1 ${verb}`];
+  for (const [key, value] of Object.entries(headers)) {
+    if (value === null || value === undefined || value === '') continue;
+    parts.push(`${key}=${String(value).replace(/[\r\n]+/g, ' ').trim()}`);
+  }
+  const header = parts.join(' ');
+  const text = body.trim();
+  return text ? `${header}\n${text}` : header;
+}
+
+function conferenceInviteBody(conference: AgentBusConference, note: string): string {
+  const lines = [
+    `You are invited to a conference chaired by another agent.`,
+    conference.topic ? `Topic: ${conference.topic}` : null,
+    conference.purpose ? `Purpose: ${conference.purpose}` : null,
+    '',
+    `To accept, call agent_conf_join with conference_id="${conference.id}" and a short purpose`,
+    `describing what you bring. The chair runs the room: it dispatches tasks and adjourns.`,
+    `Reply to this message to decline.`,
+    note ? `\n${note}` : null,
+  ];
+  return lines.filter((line) => line !== null).join('\n');
+}
+
+/**
+ * A conference message must not outlive the room it belongs to, and must still
+ * satisfy the bus's own TTL bounds.
+ */
+function conferenceMessageExpiry(conference: AgentBusConference, now: string): string {
+  const remaining = Math.ceil((Date.parse(conference.deadlineAt) - Date.parse(now)) / 1000);
+  const ttl = Math.min(
+    AGENT_MESSAGING_MAX_TTL_SECONDS,
+    Math.max(AGENT_MESSAGING_MIN_TTL_SECONDS, Number.isFinite(remaining) ? remaining : AGENT_MESSAGING_MIN_TTL_SECONDS),
+  );
+  return isoOffsetSeconds(ttl);
+}
+
+/**
+ * Roster projection.
+ *
+ * `fqdn` and `engine` are read off the joined host and address rather than off
+ * the member row, because a member declares only its `purpose`. Everything else
+ * about who it is comes from what the fleet already knows, so a participant
+ * cannot misreport the box it is running on.
+ */
+function publicConferenceMember(
+  member: AgentBusConferenceMember,
+  address: AgentBusAddress,
+  fqdn: string | null,
+): Record<string, unknown> {
+  return {
+    address: address.address,
+    alias: address.displayAlias,
+    engine: address.engine,
+    fqdn,
+    username: address.username,
+    cwd: address.cwd,
+    role: member.role,
+    purpose: member.purpose,
+    mode: member.mode,
+    state: member.state,
+    messages_used: member.messageCount,
+    messages_budget: AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+    dispatched_at: member.dispatchedAt,
+    dispatch_deadline_at: member.dispatchDeadlineAt,
+    last_report_at: member.lastReportAt,
+    joined_at: member.joinedAt,
+  };
+}
+
+/** Fan-out reports per member, so a caller needs the code without the stack. */
+function errorCodeOf(error: unknown): string {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : 'agent_messaging_conference_send_failed';
+}
+
+function errorMessageOf(error: unknown): string {
+  const message = (error as { message?: unknown })?.message;
+  return typeof message === 'string' ? message : 'Delivery failed';
 }
 
 function publicAddress(address: AgentBusAddress, fqdn?: string): Record<string, unknown> {

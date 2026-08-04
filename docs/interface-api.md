@@ -587,6 +587,39 @@ Session-bound operations require `X-Agent-Bridge-Token`:
   resolve the opener, open the conversation, queue the opening message and
   consume the PIN, all in one transaction. A join that fails validation, targets
   itself, or finds an ineligible opener leaves the PIN live.
+- `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — peek the queue for
+  this session's address: what is waiting, and what expired unanswered in the
+  last 30 minutes. Strictly read-only (no lease, no status transition, no
+  attempt burned) and, unlike `deliveries/claim`, it does **not** require
+  receive-capability — an agent that has never called `agent_listen` is exactly
+  who needs it. Carries sender identity and `expires_at`, never message bodies.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
+  (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
+  room PIN valid to the room's deadline, and return the caller's address as
+  `self`. One open conference per owner; re-opening returns it with `reused`.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
+  Creates a member row and queues an `INVITE` per address. Idle hosts are woken
+  by their relay with the invite as the prompt; a host with a wrapper attached is
+  skipped by the relay and receives it when that session next listens. Per-member
+  results — the fan-out is a loop, not a transaction.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — exactly one of
+  `pin` or `conference_id`. The PIN is **multi-use** and is never consumed by a
+  join, unlike `call/join`; `conference_id` admits only an already-invited
+  member. Queues the `HELLO` to the chair and returns the roster.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/roster` — any member. Host
+  and engine are joined from `hosts`/`agent_bus_addresses`, not stored per member.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/say` — chair broadcasts to
+  every `seated` member (`dispatched` members are skipped, being mid-task) or to
+  one named member; a participant's `to` is ignored since the star has no
+  participant-to-participant edge.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch` — chair only.
+  Sets the member `dispatched` with a `dispatch_deadline_at` (`eta_seconds`
+  0..14400, floored at 900) that the maintenance sweep uses to un-strand a member
+  whose run died.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
+  Default leaves `dispatched` members to finish and parks the room in
+  `adjourning`; `force: true` cancels their conversations, which revokes the
+  delivery lease and kills a headless member's engine mid-run.
 - `POST /host/agent-sessions/{id}/agent-messaging/bind` — heartbeat/bind the
   native adapter with `binding_generation`, continuity, upstream session, and
   receive-capability state.

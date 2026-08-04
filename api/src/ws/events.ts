@@ -95,6 +95,7 @@ export const WS_EVENT_TYPES = [
   'agent_messaging.host.changed',
   'agent_messaging.address.changed',
   'agent_messaging.conversation.changed',
+  'agent_messaging.conference.changed',
   'agent_messaging.message.changed',
   'agent_messaging.relay.changed',
   'agent_messaging.queue.changed',

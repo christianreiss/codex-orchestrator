@@ -170,6 +170,12 @@ func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) b
 	if path == messagingBase+"deliveries/claim" {
 		return true
 	}
+	// The mailbox peek reports only who is waiting, never a body -- but on a
+	// host configured not to receive, an agent that cannot answer has no use
+	// for a ring, and the existence of a caller is itself inbound signal.
+	if path == messagingBase+"mailbox" {
+		return true
+	}
 	if path == messagingBase+"bind" {
 		var request map[string]any
 		if json.Unmarshal(body, &request) == nil {
@@ -192,7 +198,11 @@ func (b *Broker) allowedPath(path string) bool {
 		return true
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
-	for _, operation := range []string{"list", "send", "reply", "wait", "message", "cancel", "bind", "deliveries/claim", "call/open", "call/join"} {
+	for _, operation := range []string{
+		"list", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
+		"call/open", "call/join",
+		"conf/open", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
+	} {
 		if path == messagingBase+operation {
 			return true
 		}

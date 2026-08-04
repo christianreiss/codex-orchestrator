@@ -40,6 +40,8 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		err = runCallJoin(args[1:], stdin, stdout, stderr)
 	case "listen":
 		err = runListen(args[1:], stdout, stderr)
+	case "poll":
+		err = runPoll(args[1:], stdout, stderr)
 	case "status":
 		err = runStatus(stdout)
 	case "service":
@@ -428,6 +430,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent call-open [--ttl-seconds 600]")
 	fmt.Fprintln(w, "  cxx agent call-join --pin <4 digits> --stdin")
 	fmt.Fprintln(w, "  cxx agent listen [--seconds 25]")
+	fmt.Fprintln(w, "  cxx agent poll [--hook Stop|UserPromptSubmit]")
 	fmt.Fprintln(w, "  cxx agent status")
 	fmt.Fprintln(w, "  cxx agent service install|remove|start|stop|restart|status")
 	fmt.Fprintln(w, "  cxx agent worker --foreground")

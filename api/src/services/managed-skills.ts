@@ -19,6 +19,7 @@ import { getManagedCocoSkillIfEnabled, isManagedCocoSlug } from './managed-coco-
 // Release B deletes the module, so the reservation and the type keep working.
 import { isManagedContextSlug, type ManagedSkillManifest } from './managed-context-skill.js';
 import { buildManagedAfkSkill, isManagedAfkSlug } from './managed-afk-skill.js';
+import { buildManagedConferenceSkill, isManagedConferenceSlug } from './managed-conference-skill.js';
 import { buildManagedSkillManager, isManagedSkillManagerSlug } from './managed-skill-manager.js';
 
 export type { ManagedSkillManifest };
@@ -35,6 +36,7 @@ export function isManagedSkillSlug(slug: string): boolean {
     isManagedCocoSlug(slug)
     || isManagedContextSlug(slug)
     || isManagedAfkSlug(slug)
+    || isManagedConferenceSlug(slug)
     || isManagedSkillManagerSlug(slug)
   );
 }
@@ -59,6 +61,7 @@ export async function listManagedSkills(db: Database): Promise<ManagedSkillManif
   const coco = await getManagedCocoSkillIfEnabled(db);
   if (coco) out.push(coco as unknown as ManagedSkillManifest);
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
+  out.push(buildManagedConferenceSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedSkillManager(MANAGED_UPDATED_AT));
   out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   return out;

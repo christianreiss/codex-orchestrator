@@ -1447,6 +1447,67 @@ export const agentBusConversations = mysqlTable(
   }),
 );
 
+/**
+ * A conference: an owner, a roster, and the authority to dispatch and adjourn.
+ *
+ * The transport stays a star of ordinary two-party conversations -- one per
+ * member, each with the owner -- so nothing here replaces `agentBusConversations`.
+ * These rows carry only what the star cannot express: who is in the room, in
+ * what role, and whether they are currently away on a task.
+ */
+export const agentBusConferences = mysqlTable(
+  'agent_bus_conferences',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    ownerAddressId: char('owner_address_id', { length: 36 }).notNull(),
+    topic: varchar('topic', { length: 255 }),
+    purpose: varchar('purpose', { length: 1024 }),
+    pin: char('pin', { length: 4 }),
+    pinExpiresAt: varchar('pin_expires_at', { length: 100 }),
+    status: varchar('status', { length: 16 }).notNull().default('open'),
+    maxMembers: int('max_members', { unsigned: true }).notNull().default(8),
+    deadlineAt: varchar('deadline_at', { length: 100 }).notNull(),
+    adjournReason: varchar('adjourn_reason', { length: 255 }),
+    adjournedAt: varchar('adjourned_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    pinUnique: uniqueIndex('uq_agent_bus_conferences_pin').on(t.pin),
+    ownerIdx: index('idx_agent_bus_conferences_owner').on(t.ownerAddressId, t.status),
+    statusIdx: index('idx_agent_bus_conferences_status').on(t.status, t.deadlineAt),
+  }),
+);
+
+export const agentBusConferenceMembers = mysqlTable(
+  'agent_bus_conference_members',
+  {
+    id: char('id', { length: 36 }).primaryKey(),
+    conferenceId: char('conference_id', { length: 36 }).notNull(),
+    addressId: char('address_id', { length: 36 }).notNull(),
+    conversationId: char('conversation_id', { length: 36 }),
+    role: varchar('role', { length: 16 }).notNull().default('participant'),
+    purpose: varchar('purpose', { length: 1024 }),
+    mode: varchar('mode', { length: 16 }).notNull().default('attached'),
+    state: varchar('state', { length: 16 }).notNull().default('seated'),
+    dispatchMessageId: char('dispatch_message_id', { length: 36 }),
+    dispatchDeadlineAt: varchar('dispatch_deadline_at', { length: 100 }),
+    dispatchedAt: varchar('dispatched_at', { length: 100 }),
+    lastReportAt: varchar('last_report_at', { length: 100 }),
+    messageCount: int('message_count', { unsigned: true }).notNull().default(0),
+    joinedAt: varchar('joined_at', { length: 100 }).notNull(),
+    leftAt: varchar('left_at', { length: 100 }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    memberUnique: uniqueIndex('uq_agent_bus_conference_members').on(t.conferenceId, t.addressId),
+    addressIdx: index('idx_agent_bus_conference_members_address').on(t.addressId, t.state),
+    dispatchIdx: index('idx_agent_bus_conference_members_dispatch').on(t.state, t.dispatchDeadlineAt),
+    conversationIdx: index('idx_agent_bus_conference_members_conversation').on(t.conversationId),
+  }),
+);
+
 export const agentBusMessages = mysqlTable(
   'agent_bus_messages',
   {
@@ -1567,6 +1628,8 @@ export type AgentPrompt = typeof agentPrompts.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
 export type AgentBusAddress = typeof agentBusAddresses.$inferSelect;
 export type AgentBusConversation = typeof agentBusConversations.$inferSelect;
+export type AgentBusConference = typeof agentBusConferences.$inferSelect;
+export type AgentBusConferenceMember = typeof agentBusConferenceMembers.$inferSelect;
 export type AgentBusMessage = typeof agentBusMessages.$inferSelect;
 export type AgentBusRelay = typeof agentBusRelays.$inferSelect;
 export type ClaudeArtifact = typeof claudeArtifacts.$inferSelect;

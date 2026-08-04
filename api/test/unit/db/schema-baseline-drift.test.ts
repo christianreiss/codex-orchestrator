@@ -101,7 +101,7 @@ describe('schema.ts against the test baseline', () => {
     const tables = schemaTables();
 
     // Bump this with the table you added, in the same commit.
-    expect(tables.size).toBe(59);
+    expect(tables.size).toBe(61);
     expect([...tables].filter(([, columns]) => columns.length === 0)).toEqual([]);
     expect(tables.get('auth_canonical_heads')).toEqual([
       'engine',

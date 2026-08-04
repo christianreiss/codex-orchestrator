@@ -606,6 +606,40 @@ const CURATION_TOOLS = [
   'project_memory_delete',
 ] as const;
 
+/**
+ * The ringer: the two hooks that let an attached session find out it is being
+ * called.
+ *
+ * An interactive agent has no interrupt -- it exists only during a turn -- so a
+ * message addressed to an attached session sits queued until it expires and
+ * neither side ever learns a call was placed. The relay cannot cover this gap
+ * either: it deliberately skips any address whose wrapper is attached. The two
+ * turn boundaries these hooks sit on are therefore the only moments at which a
+ * notification can land at all.
+ *
+ * `cxx` resolves on PATH exactly as the managed `cxx-agent` MCP entry already
+ * assumes. Two details are load-bearing:
+ *
+ * - `|| true` is not decoration. A `Stop` hook that exits non-zero *blocks the
+ *   turn* with its stderr as feedback, so a wrapper too old to know `agent poll`
+ *   would wedge every turn on an unknown-command error. Forcing exit 0 makes the
+ *   hook a no-op on any wrapper that cannot serve it, which is what lets this
+ *   ship without version-gating.
+ * - `cxx agent poll` prints nothing when it has nothing to report or cannot
+ *   reach the orchestrator, and empty stdout with exit 0 means "no decision".
+ *   An unreachable server therefore costs one process spawn per turn boundary
+ *   and changes nothing else.
+ *
+ * Codex gets no equivalent because it has no hook surface; a Codex peer is
+ * reachable only while it is actively listening.
+ */
+function managedRingerHooks(): Record<string, unknown[]> {
+  const ring = (event: string) => [
+    { hooks: [{ type: 'command', command: `cxx agent poll --hook ${event} 2>/dev/null || true`, timeout: 10 }] },
+  ];
+  return { Stop: ring('Stop'), UserPromptSubmit: ring('UserPromptSubmit') };
+}
+
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
 ): { partial: Record<string, unknown>; owned_paths: string[] } {
@@ -672,6 +706,20 @@ export function renderClaudeSettingsPartial(
   const agentMessagingAllow = servers['cxx-agent']
     ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__cxx-agent__${tool}`)
     : [];
+  // Same signal as the permission allowlist above: if the bus is provisioned,
+  // this session is addressable, and an addressable session needs a ringer.
+  // Operator-configured hooks for the same events are preserved and the ring is
+  // appended, mirroring how `permissions.allow` unions rather than replaces.
+  if (servers['cxx-agent']) {
+    const configured = asRecord(partial['hooks']);
+    const merged: Record<string, unknown> = { ...configured };
+    for (const [event, groups] of Object.entries(managedRingerHooks())) {
+      const prior = Array.isArray(configured[event]) ? (configured[event] as unknown[]) : [];
+      merged[event] = [...prior, ...groups];
+      if (!owned.includes(`hooks.${event}`)) owned.push(`hooks.${event}`);
+    }
+    partial['hooks'] = merged;
+  }
   if (curationAllow.length > 0 || agentMessagingAllow.length > 0) {
     const existing = Array.isArray(perms['allow']) ? (perms['allow'] as string[]) : [];
     perms['allow'] = [...new Set([...existing, ...curationAllow, ...agentMessagingAllow])];

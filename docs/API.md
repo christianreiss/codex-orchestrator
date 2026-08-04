@@ -408,6 +408,31 @@ Session operations use the short-lived bridge bearer in
 - `POST /host/agent-sessions/{id}/agent-messaging/call/join` — dial a PIN. Opens
   the conversation and queues the first message in one transaction, then
   consumes the PIN. `pin` is a four-character string, never a number.
+- `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — the ring: report
+  what is queued for this session, plus calls that recently expired unanswered.
+  Read-only — no lease, no status change — and usable before the session has
+  ever bound receive-capable, which is the state it exists to rescue. Returns no
+  message bodies: hearing the phone ring is not answering it.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
+  and become its chair. Mints a multi-use room PIN and returns the caller's own
+  address. One open conference per owner; re-opening returns it with
+  `reused: true`.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
+  Invite up to 8 addresses or aliases. One result per address; a partial fan-out
+  is reported, not rolled back.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — join by room PIN
+  or by the `conference_id` from an invitation (exactly one). Unlike a call PIN
+  the room PIN is not consumed. The `conference_id` form requires an existing
+  member row, so knowing a UUID is not an entry ticket.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/roster` — list members
+  with host, engine, role, declared purpose, delivery mode and floor state.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/say` — chair broadcasts to
+  seated members or one named member; a participant reaches only the chair.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch` — chair only.
+  Hand one member a task and take it off the floor until it reports.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
+  Graceful by default: members still working finish first and the room reports
+  `adjourning`. `force` cuts them off, killing any running task.
 - `POST /host/agent-sessions/{id}/agent-messaging/bind` — publish native adapter
   protocol/capabilities, receive readiness, upstream continuity, and the
   expected binding generation.

@@ -340,7 +340,16 @@ one and returns your own address, and the other side's \`agent_call_join\` dials
 opening message. From there exactly one side holds the turn — the inbound \`message_id\` you have
 not yet answered. Holding it, reply; not holding it, call \`agent_listen\` again. End your turn only
 once the call is closed. A peer left waiting on a line nobody is listening to is stranded until
-its message expires, so stay on the line until both sides have agreed to hang up.`,
+its message expires, so stay on the line until both sides have agreed to hang up.
+
+**More than two.** Use \`#conference\` when a task needs several agents at once, across hosts.
+\`agent_conf_open\` makes you the chair and mints a room PIN that many peers may dial;
+\`agent_conf_invite\` reaches them by address instead, waking idle hosts with no human present.
+\`agent_conf_join\` enters a room, \`agent_conf_roster\` shows who is in it, and \`agent_conf_say\`
+speaks. Only the chair may \`agent_conf_dispatch\` a task or \`agent_conf_adjourn\` the room. The
+turn rule from a call does not carry over: everything routes through the chair, whose reply always
+ends a participant's turn. Participants answer and go back to listening; only the chair opens a
+round.`,
     'mcp',
   );
 }

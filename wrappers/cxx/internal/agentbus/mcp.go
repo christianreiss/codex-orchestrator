@@ -236,6 +236,42 @@ func toolCatalogJSON() []byte {
 		tool("agent_listen", "Wait for the next message addressed to this agent, in any conversation. Returns after at most 25 seconds; call again to keep waiting. Answer with agent_reply using the returned message_id, or call agent_listen again to move on without answering.", map[string]any{
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, nil),
+		tool("agent_conf_open", "Open a conference and become its chair. Mints a room PIN that many agents may dial, and returns this agent's own address. Only the chair may dispatch tasks and adjourn.", map[string]any{
+			"topic":       map[string]any{"type": "string", "maxLength": 255},
+			"purpose":     map[string]any{"type": "string", "maxLength": 1024},
+			"ttl_seconds": map[string]any{"type": "integer", "minimum": 300, "maximum": 21600},
+			"max_members": map[string]any{"type": "integer", "minimum": 2, "maximum": 8},
+		}, nil),
+		tool("agent_conf_invite", "Chair only. Invite agent addresses or aliases into the conference. An idle host is woken by its relay with the invite as its prompt, so no human is needed; a host with a session already attached receives it when that session next listens. Returns one result per address -- delivery is per member, not all-or-nothing.", map[string]any{
+			"conference_id": map[string]any{"type": "string"},
+			"to":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 8},
+			"note":          map[string]any{"type": "string", "maxLength": maxBodyBytes},
+		}, []string{"conference_id", "to"}),
+		tool("agent_conf_join", "Join a conference, by room PIN or by the conference_id carried in an invitation. Unlike a call PIN, a room PIN is multi-use. Declare what you bring in `purpose`; host, engine and role are recorded by the fleet, not by you.", map[string]any{
+			"pin":           map[string]any{"type": "string", "pattern": "^[0-9]{4}$"},
+			"conference_id": map[string]any{"type": "string"},
+			"purpose":       map[string]any{"type": "string", "maxLength": 1024},
+			"content":       map[string]any{"type": "string", "maxLength": maxBodyBytes},
+		}, nil),
+		tool("agent_conf_roster", "List conference members with their host, engine, role, declared purpose, delivery mode and whether each is seated or away on a task.", map[string]any{
+			"conference_id": map[string]any{"type": "string"},
+		}, []string{"conference_id"}),
+		tool("agent_conf_say", "Speak in the conference. The chair broadcasts to every seated member, or to one named member. A participant may only address the chair; there is no direct participant-to-participant path. Returns one result per recipient.", map[string]any{
+			"conference_id": map[string]any{"type": "string"},
+			"content":       map[string]any{"type": "string", "maxLength": maxBodyBytes},
+			"to":            map[string]any{"type": "string"},
+		}, []string{"conference_id", "content"}),
+		tool("agent_conf_dispatch", "Chair only. Hand a task to one participant and take it off the floor until it reports back. It is excluded from broadcasts while working.", map[string]any{
+			"conference_id": map[string]any{"type": "string"},
+			"to":            map[string]any{"type": "string"},
+			"task":          map[string]any{"type": "string", "maxLength": maxBodyBytes},
+			"eta_seconds":   map[string]any{"type": "integer", "minimum": 0, "maximum": 14400},
+		}, []string{"conference_id", "to", "task"}),
+		tool("agent_conf_adjourn", "Chair only. Close the conference. By default members still working are left to finish and the room closes when they report. Pass force to cut them off immediately, which kills any running task.", map[string]any{
+			"conference_id": map[string]any{"type": "string"},
+			"reason":        map[string]any{"type": "string", "maxLength": 255},
+			"force":         map[string]any{"type": "boolean"},
+		}, []string{"conference_id"}),
 	}
 	raw, _ := json.Marshal(tools)
 	return raw
@@ -550,6 +586,95 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return out, nil
 	case "agent_listen":
 		return agentListen(ctx, client, channelState, args)
+	case "agent_conf_open":
+		body := map[string]any{}
+		copyOptional(args, body, "topic", "purpose", "ttl_seconds", "max_members")
+		if err := client.post(ctx, "conf/open", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_invite":
+		conferenceID := stringArg(args, "conference_id")
+		to, ok := args["to"].([]any)
+		if conferenceID == "" || !ok || len(to) == 0 {
+			return nil, errors.New("conference_id and a non-empty to list are required")
+		}
+		addresses := make([]string, 0, len(to))
+		for _, value := range to {
+			address, _ := value.(string)
+			if strings.TrimSpace(address) == "" {
+				return nil, errors.New("to entries must be non-empty agent addresses or aliases")
+			}
+			addresses = append(addresses, strings.TrimSpace(address))
+		}
+		body := map[string]any{"conference_id": conferenceID, "to": addresses}
+		copyOptional(args, body, "note")
+		if err := client.post(ctx, "conf/invite", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_join":
+		pin := strings.TrimSpace(stringArg(args, "pin"))
+		conferenceID := strings.TrimSpace(stringArg(args, "conference_id"))
+		// Exactly one. Both would be ambiguous if they disagreed, and neither
+		// leaves nothing to join.
+		if (pin == "") == (conferenceID == "") {
+			return nil, errors.New("provide exactly one of pin or conference_id")
+		}
+		if pin != "" && !callPinPattern.MatchString(pin) {
+			return nil, errors.New("pin must be four digits")
+		}
+		body := map[string]any{}
+		if pin != "" {
+			body["pin"] = pin
+		} else {
+			body["conference_id"] = conferenceID
+		}
+		copyOptional(args, body, "purpose", "content")
+		if err := client.post(ctx, "conf/join", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_roster":
+		if stringArg(args, "conference_id") == "" {
+			return nil, errors.New("conference_id is required")
+		}
+		if err := client.post(ctx, "conf/roster", map[string]any{"conference_id": stringArg(args, "conference_id")}, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_say":
+		conferenceID, content := stringArg(args, "conference_id"), stringArg(args, "content")
+		if conferenceID == "" || strings.TrimSpace(content) == "" {
+			return nil, errors.New("conference_id and content are required")
+		}
+		body := map[string]any{"conference_id": conferenceID, "content": content}
+		copyOptional(args, body, "to")
+		if err := client.post(ctx, "conf/say", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_dispatch":
+		conferenceID, to, task := stringArg(args, "conference_id"), stringArg(args, "to"), stringArg(args, "task")
+		if conferenceID == "" || to == "" || strings.TrimSpace(task) == "" {
+			return nil, errors.New("conference_id, to and task are required")
+		}
+		body := map[string]any{"conference_id": conferenceID, "to": to, "task": task}
+		copyOptional(args, body, "eta_seconds")
+		if err := client.post(ctx, "conf/dispatch", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_adjourn":
+		if stringArg(args, "conference_id") == "" {
+			return nil, errors.New("conference_id is required")
+		}
+		body := map[string]any{"conference_id": stringArg(args, "conference_id")}
+		copyOptional(args, body, "reason", "force")
+		if err := client.post(ctx, "conf/adjourn", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
 	default:
 		return nil, fmt.Errorf("unknown agent tool %q", name)
 	}

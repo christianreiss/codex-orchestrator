@@ -140,10 +140,11 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 
 ## Managed skills (code-derived, never stored)
 
-`afk`, `coco`, `context`, and `skill-manager` are NOT rows in the `skills` table and
-must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
+`afk`, `coco`, `conference`, `context`, and `skill-manager` are NOT rows in the `skills`
+table and must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
 mutation paths reject every managed slug. Their manifests are constants in
 `api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,
+`api/src/services/managed-conference-skill.ts`,
 and `api/src/services/managed-skill-manager.ts`, assembled by
 `api/src/services/managed-skills.ts`, and served through the normal `/skills` and
 MCP paths. A managed slug shadows any same-named row left over from before, so an
@@ -153,7 +154,13 @@ Editing the constant and shipping the API image IS the release: the manifest sha
 host picks it up on its next sync. `docs/skills/context.SKILL.md` used to be the authoring copy for
 `context` and was deleted when it moved into code — a checked-in file that ships nothing is exactly
 the drift this change removes. `coco` is served only while
-`projects_module_enabled = 1`; `afk` and `skill-manager` are unconditional.
+`projects_module_enabled = 1`; `afk`, `conference` and `skill-manager` are unconditional.
+
+`conference` is managed rather than stored for a sharper reason than convenience: its verb
+table describes a turn discipline that the `agent_conf_*` tools enforce, and a stored row
+could drift from the tool catalog it documents. A skill that tells an agent to expect a
+reply the server will never send walks it into a deadlock, so the text ships in the same
+image as the tools.
 
 **`context` is retired and is served no longer** (2026-07-31). Its slug stays in
 `isManagedSkillSlug` so the mutation paths keep refusing it, but it is absent from

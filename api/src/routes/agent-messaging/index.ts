@@ -240,6 +240,15 @@ export async function registerAgentMessagingRoutes(
     const body = z.object({ conversation_id: z.string().uuid(), reason: z.string().nullable().optional() }).strict().parse(req.body ?? {});
     return await messaging.cancelConversation(id, token, body.conversation_id, body.reason);
   });
+  // The ring. Read-only and, unlike `deliveries/claim`, usable before the
+  // session has ever bound receive-capable -- that is the state it exists to
+  // rescue. It takes no body: a mailbox is not a query.
+  app.post('/host/agent-sessions/:id/agent-messaging/mailbox', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    z.object({}).strict().parse(req.body ?? {});
+    return await messaging.peekMailbox(id, token);
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/call/open', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
@@ -267,6 +276,113 @@ export async function registerAgentMessagingRoutes(
       content: body.content,
       clientMessageId: body.client_message_id,
       ttlSeconds: body.ttl_seconds,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/open', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({
+        topic: z.string().nullable().optional(),
+        purpose: z.string().nullable().optional(),
+        ttl_seconds: z.number().int().min(300).max(21600).nullable().optional(),
+        max_members: z.number().int().min(2).max(8).nullable().optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.openConference(id, token, {
+      topic: body.topic,
+      purpose: body.purpose,
+      ttlSeconds: body.ttl_seconds,
+      maxMembers: body.max_members,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/invite', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({
+        conference_id: z.string().uuid(),
+        to: z.array(z.string()).min(1).max(8),
+        note: z.string().nullable().optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.inviteToConference(id, token, {
+      conferenceId: body.conference_id,
+      to: body.to,
+      note: body.note,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/join', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({
+        // A string, never a number: `0042` must keep its leading zeros.
+        pin: z.string().regex(/^[0-9]{4}$/).nullable().optional(),
+        conference_id: z.string().uuid().nullable().optional(),
+        purpose: z.string().nullable().optional(),
+        content: z.string().nullable().optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.joinConference(id, token, {
+      pin: body.pin,
+      conferenceId: body.conference_id,
+      purpose: body.purpose,
+      content: body.content,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/roster', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z.object({ conference_id: z.string().uuid() }).strict().parse(req.body ?? {});
+    return await messaging.conferenceRoster(id, token, body.conference_id);
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/say', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({ conference_id: z.string().uuid(), content: z.string(), to: z.string().nullable().optional() })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.conferenceSay(id, token, {
+      conferenceId: body.conference_id,
+      content: body.content,
+      to: body.to,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/dispatch', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({
+        conference_id: z.string().uuid(),
+        to: z.string(),
+        task: z.string(),
+        eta_seconds: z.number().int().min(0).max(14400).nullable().optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.conferenceDispatch(id, token, {
+      conferenceId: body.conference_id,
+      to: body.to,
+      task: body.task,
+      etaSeconds: body.eta_seconds,
+    });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/adjourn', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({ conference_id: z.string().uuid(), reason: z.string().nullable().optional(), force: z.boolean().optional() })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.adjournConference(id, token, {
+      conferenceId: body.conference_id,
+      reason: body.reason,
+      force: body.force,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/bind', async (req) => {

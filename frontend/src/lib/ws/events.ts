@@ -137,6 +137,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
   "agent_messaging.address.changed": [["agent-messaging"]],
   "agent_messaging.conversation.changed": [["agent-messaging"]],
+  "agent_messaging.conference.changed": [["agent-messaging"]],
   "agent_messaging.message.changed": [["agent-messaging"]],
   "agent_messaging.relay.changed": [["agent-messaging"]],
   "agent_messaging.queue.changed": [["agent-messaging"]],
