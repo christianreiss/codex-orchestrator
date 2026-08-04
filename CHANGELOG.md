@@ -1,5 +1,26 @@
 # 2026-08-04
 
+- **The `agent_*` toolset never reached a Codex model, on any host.** Codex does not pass its own
+  environment to stdio MCP servers, so `cxx agent mcp` started with neither
+  `CXX_AGENT_PORTAL_SOCKET` nor `CXX_AGENT_PORTAL_SESSION_ID` and exited immediately with "agent
+  messaging is available only inside a managed cdx/clx lifecycle". Codex logs nothing about a
+  server that dies during handshake, so the tools were simply absent and the model concluded the
+  bus did not exist. The wrapper now hands the broker address to that one server per launch. Two
+  details are load-bearing and both fail silently: the server name must be a TOML **bare** key
+  (quoting it addresses a different table, which has no `command`, and fails the whole config with
+  "invalid transport"), and the `-c` must come **after** the subcommand (Codex ignores an earlier
+  one without a word). No secret moves: the socket path and session id are capability names, the
+  bridge token stays in the wrapper, and the socket keeps 0600 inside a 0700 directory.
+- Agent Messaging is **proven live** for Claude to Codex, Codex to Claude and Claude to Claude —
+  two conversations ran 17 and 33 alternating turns, every reply correctly linked by
+  `reply_to_message_id`. **Codex still cannot initiate**: `codex exec` auto-cancels the MCP
+  approval elicitation with nobody to answer it, and the command sandbox refuses `connect()` on a
+  unix socket as a syscall class regardless of path, so the CLI cannot reach the broker either.
+  Receive works because the relay spawns the peer engine itself. The manual now says so instead of
+  claiming all four directions work.
+- **Peer prompts need a stopping condition.** A reply is itself a delivery, so two agents told only
+  to "reply" answer each other until a TTL or lease expires; both live conversations ended
+  `ambiguous` that way.
 - **All orchestrator-enforced request rate limiters have been removed.** The global/token/IP
   ceilings, auth-failure bucket, CLI device-login throttle, and OpenAI/Anthropic per-key RPM gates
   are gone. The API no longer decorates Fastify with a limiter, accepts `RATE_LIMIT_*` settings,

@@ -7,11 +7,36 @@ verified: 2026-08-03
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
-Agent Messaging is the fleet's private agent-to-agent bus. It handles every
-direction through one contract: Codex to Codex, Codex to Claude, Claude to
-Codex, and Claude to Claude. It is separate from Agent Portal: Portal carries
-ordinary human text into one root session, while Agent Messaging addresses one
-managed agent from another.
+Agent Messaging is the fleet's private agent-to-agent bus. One contract covers
+every direction: Codex to Codex, Codex to Claude, Claude to Codex, and Claude
+to Claude. It is separate from Agent Portal: Portal carries ordinary human text
+into one root session, while Agent Messaging addresses one managed agent from
+another.
+
+**Codex can receive but cannot yet start a conversation.** Verified live on
+2026-08-04: Claude to Codex, Codex to Claude and Claude to Claude all run as
+sustained multi-turn conversations, and a Codex peer answers a Claude peer
+correctly. A Codex agent cannot *initiate* one, for two reasons that are both
+Codex's, not the bus's:
+
+- `codex exec` routes every MCP tool call through an approval elicitation
+  addressed to a human. Unattended there is nobody to answer, so each
+  `agent_*` call returns `user cancelled MCP tool call`. Neither
+  `approvals_reviewer = "auto_review"`, nor granular `mcp_elicitations` in
+  either position, nor a real pty changes that.
+- The command sandbox refuses `connect()` on a unix socket as a syscall class,
+  whatever the path — including one inside the workspace under
+  `workspace-write` — so the `cxx agent send` CLI cannot reach the broker
+  either.
+
+Receive is unaffected because the relay spawns the peer engine itself and never
+dials the broker. Closing the gap needs a decision: run Codex unsandboxed on
+designated hosts, or give the bridge a transport the sandbox permits.
+
+**Give peer prompts a stopping condition.** Every reply is itself delivered, so
+two agents told only to "reply" will answer each other until the TTL or a lease
+expires. Two live conversations ran 17 and 33 turns that way before ending
+`ambiguous`.
 
 The feature is deliberately inert after deployment: the fleet master switch
 defaults off. It is also the **only** switch. Turning it on turns the bus on
