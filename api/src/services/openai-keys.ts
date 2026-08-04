@@ -25,7 +25,6 @@ export interface IssuedKey {
 export interface CreateKeyInput {
   name: string;
   adminUserId?: number | null;
-  rateLimitRpm?: number;
   expiresAt?: string | null;
   engine?: Engine;
 }
@@ -47,10 +46,6 @@ export class OpenAiKeyService {
     if (name === '') {
       throw new Error('name is required');
     }
-    const rateLimitRpm =
-      typeof input.rateLimitRpm === 'number' && input.rateLimitRpm > 0
-        ? Math.floor(input.rateLimitRpm)
-        : 60;
     const engine: Engine = input.engine ?? ENGINE_CODEX;
 
     const raw = randomBytes(32).toString('hex');
@@ -66,7 +61,6 @@ export class OpenAiKeyService {
       keyHash,
       keyEnc,
       adminUserId: input.adminUserId ?? null,
-      rateLimitRpm,
       isActive: 1,
       useCount: 0,
       expiresAt: input.expiresAt ?? null,
@@ -140,8 +134,8 @@ export class OpenAiKeyService {
     const now = nowIso();
     try {
       // Drizzle MySQL doesn't support a clean column-arithmetic helper here;
-      // read-then-write under a small race window matches the rate-limit
-      // plugin's strategy. The counter is approximate by design.
+      // Read-then-write under a small race window is sufficient because the
+      // usage counter is approximate by design.
       const rows = await this.deps.db
         .select({ useCount: openaiApiKeys.useCount })
         .from(openaiApiKeys)
@@ -165,7 +159,6 @@ export class OpenAiKeyService {
         name: openaiApiKeys.name,
         keyPrefix: openaiApiKeys.keyPrefix,
         adminUserId: openaiApiKeys.adminUserId,
-        rateLimitRpm: openaiApiKeys.rateLimitRpm,
         isActive: openaiApiKeys.isActive,
         useCount: openaiApiKeys.useCount,
         lastUsedAt: openaiApiKeys.lastUsedAt,

@@ -62,22 +62,20 @@ describe('standard envelope success shaping', () => {
 
 describe('standard envelope failure shaping', () => {
   it('copies extra entries to the root and drops undefined ones', () => {
-    // RateLimitedError always sets both `bucket` and `reset_at` in `extra`, and
-    // leaves them undefined when the limiter has no value — those must not
-    // surface as explicit nulls in the JSON body.
-    const err = new ApiError('Rate limited', {
-      status: 429,
-      code: 'rate_limited',
-      extra: { bucket: 'chat', reset_at: undefined },
+    // Undefined extra fields must not surface as explicit nulls in the body.
+    const err = new ApiError('Conflict', {
+      status: 409,
+      code: 'conflict',
+      extra: { resource: 'job', owner: undefined },
     });
     const out = failure(err);
     expect(out).toEqual({
       status: 'error',
-      message: 'Rate limited',
-      code: 'rate_limited',
-      bucket: 'chat',
+      message: 'Conflict',
+      code: 'conflict',
+      resource: 'job',
     });
-    expect('reset_at' in out).toBe(false);
+    expect('owner' in out).toBe(false);
   });
 
   it('emits status, message and code when there is no extra', () => {

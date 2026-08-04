@@ -212,7 +212,6 @@
         <Table.Row>
           <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
           <Table.Head>Key prefix</Table.Head>
-          <Table.Head class="text-right">Rate limit</Table.Head>
           <Table.Head class="text-center">Active</Table.Head>
           <Table.Head class="text-right">Uses</Table.Head>
           <SortableHead
@@ -229,14 +228,14 @@
         {#if isLoading}
           {#each Array(3) as _, i (i)}
             <Table.Row>
-              {#each Array(8) as _2, j (j)}
+              {#each Array(7) as _2, j (j)}
                 <Table.Cell><Skeleton class="h-4 w-full" /></Table.Cell>
               {/each}
             </Table.Row>
           {/each}
         {:else if rows.length === 0}
           <Table.Row>
-            <Table.Cell colspan={8}>
+            <Table.Cell colspan={7}>
               <EmptyState
                 icon={KeyRound}
                 size="sm"
@@ -247,7 +246,7 @@
           </Table.Row>
         {:else if sorted.length === 0}
           <Table.Row>
-            <Table.Cell colspan={8}>
+            <Table.Cell colspan={7}>
               <EmptyState
                 icon={Search}
                 size="sm"
@@ -270,9 +269,6 @@
                   class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
                   >{record.key_prefix}</code
                 >
-              </Table.Cell>
-              <Table.Cell class="text-right tabular-nums">
-                {record.rate_limit_rpm}/min
               </Table.Cell>
               <Table.Cell class="text-center">
                 <Switch

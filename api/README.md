@@ -13,7 +13,7 @@ behavior change.
 - `src/db/schema.ts` — Drizzle schema mirroring every legacy PHP migration.
 - `src/security/` — secret-box (libsodium, `sbox:v1` compat), password (bcrypt/phpass/argon2), keyring.
 - `src/http/envelope/` — three envelope formatters (standard / openai / anthropic).
-- `src/http/plugins/` — auth preflights, rate limiter, request-id, CORS.
+- `src/http/plugins/` — auth preflights, request-id, CORS.
 - `src/routes/` — one sub-tree per resource group; each exports `register(app)`.
 - `src/services/` — domain layer (no god-services; ~30 focused services).
 - `src/ws/` — admin WebSocket server (`/admin/ws`) + event publisher.

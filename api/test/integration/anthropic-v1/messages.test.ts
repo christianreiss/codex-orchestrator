@@ -34,7 +34,6 @@ function stubKeyResolver(): ClaudeKeyResolver {
       id: 1,
       name: 'test',
       keyPrefix: VALID_KEY.slice(0, 16) + '...',
-      rateLimitRpm: 60,
       adminUserId: null,
     },
     [DISABLED_KEY]: 'disabled',
@@ -192,14 +191,6 @@ async function buildApp(opts: {
   app.addHook('onRequest', async (req) => {
     req.clientIp = '127.0.0.1';
   });
-  app.decorate('rateLimiter', {
-    hit: async () => ({
-      ok: true,
-      resetAt: new Date(Date.now() + 60_000).toISOString(),
-      count: 1,
-    }),
-  });
-
   await registerAnthropicCompatRoutes(
     app,
     {
@@ -420,7 +411,7 @@ describe('POST /anthropic/v1/messages', () => {
     });
   });
 
-  it('sets Anthropic-shaped rate-limit and request-id headers', async () => {
+  it('sets the Anthropic request-id header', async () => {
     const r = await app.inject({
       method: 'POST',
       url: '/anthropic/v1/messages',
@@ -429,9 +420,6 @@ describe('POST /anthropic/v1/messages', () => {
     });
     expect(r.statusCode).toBe(200);
     expect(r.headers['request-id']).toMatch(/^req_[0-9a-f]{32}$/);
-    expect(r.headers['anthropic-ratelimit-requests-limit']).toBeDefined();
-    expect(r.headers['anthropic-ratelimit-requests-remaining']).toBeDefined();
-    expect(r.headers['anthropic-ratelimit-requests-reset']).toBeDefined();
   });
 
   it('also accepts the raw x-api-key header form', async () => {

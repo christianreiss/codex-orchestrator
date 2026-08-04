@@ -61,7 +61,7 @@ Shows whether the engine is currently enabled or disabled. A toggle switch label
 
 **Keys table**
 
-Lists all keys for the engine with columns: Name, Key prefix (first 16 chars followed by `...`), Rate limit (e.g. "60/min"), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
+Lists all keys for the engine with columns: Name, Key prefix (first 16 chars followed by `...`), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
 
 ### Creating a key
 
@@ -69,7 +69,6 @@ Click **New key** (or run "New API key" from the command palette). The dialog fo
 
 - **Engine** — select "OpenAI (Codex)" or "Claude (Anthropic)"
 - **Name** — required text field
-- **Rate limit** — requests per minute, default 60
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
 
 On success the dialog switches to a reveal screen showing the full plaintext key with a copy button and the warning: "We don't store the plaintext key. If you lose it, you'll need to issue a new one." Close the dialog after copying — the key cannot be retrieved again.
@@ -242,7 +241,7 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 | POST | `/admin/claude/keys/:id/toggle` | api/src/routes/admin/keys/claude.ts |
 | DELETE | `/admin/claude/keys/:id` | api/src/routes/admin/keys/claude.ts |
 
-`POST /admin/openai/keys` and `POST /admin/claude/keys` accept `{ name, rate_limit_rpm?, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
+`POST /admin/openai/keys` and `POST /admin/claude/keys` accept `{ name, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
 
 ### Admin projects
 

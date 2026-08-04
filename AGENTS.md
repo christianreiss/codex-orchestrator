@@ -67,19 +67,17 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Schema change ⇒ add `api/src/db/migrations/NNNN_*.sql` (idempotent) **and** update `schema.ts` in the same commit. The migration runner applies it on boot and in `scripts/deploy.sh`; never hand-pipe SQL into the mysql container, and never edit an already-applied migration when a new number will do.
 - Never lose `AUTH_ENCRYPTION_KEY`; secretbox protects API keys + auth payloads. Bootstrapped into `.env` if missing.
 - API kill switch (`/admin/api/state`) blocks every route except `/admin/api/state`.
-- Rate limits: per-IP `global` bucket for every non-admin route and `auth-fail` for repeated bad API keys. Respect `bucket`/`reset_at` metadata.
 - When AGENTS/cdx/clx behavior changes, also update `docs/interface-*.md`, dashboard copy, and wrapper code as needed.
 - Quota tracking supports both ChatGPT (Codex) and Claude usage quotas. The admin dashboard shows per-engine usage breakdowns.
 
 ## Repo Snapshot
 
-- `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, rate limit, envelope), wires services, and mounts route groups under `api/src/routes/`.
+- `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, envelope), wires services, and mounts route groups under `api/src/routes/`.
 - `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
 - `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
 - The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
 - `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
-- `api/src/http/plugins/rate-limit.ts` enforces the `global` bucket (defaults 120/min) and `auth-fail` bucket (defaults 20 misses / 10 min with 30 min block) on the `ip_rate_limits` table.
-- MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, insecure auth requests/domain allows, and ip rate limits.
+- MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, and insecure auth requests/domain allows.
 
 ## Request Flow & Behavior Cheatsheet
 
@@ -89,7 +87,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `GET /seed/auth/{token}` emits an auth-seed script; `POST /seed/auth/{token}` sends auth JSON through the same live-runner validation gate as every other canonical store, then invalidates the token after successful acceptance.
 
 2. **`/auth` retrieve/store**
-   - Requires API key header and passes through `global` + `auth-fail` limits, host/IP policy, insecure host windows, and the kill switch.
+   - Requires API key header and passes through host/IP policy, insecure host windows, and the kill switch.
    - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. `/auth` response appends `chatgpt_usage`.
    - Store path (`command=store`) enforces RFC3339 `last_refresh` bounds (`>= 2000-01-01`, `<= now+300s`), token quality, canonical sort/digest, and secretbox persistence to `auth_payloads` + `auth_entries`.
    - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.

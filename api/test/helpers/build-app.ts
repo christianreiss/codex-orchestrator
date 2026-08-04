@@ -4,7 +4,6 @@ import multipart from '@fastify/multipart';
 import { envelopePlugin } from '../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../src/http/plugins/request-id.js';
 import { makeClientIpPlugin } from '../../src/http/plugins/client-ip.js';
-import { makeRateLimiter, makeRateLimitPlugin } from '../../src/http/plugins/rate-limit.js';
 import { makeAuthHostPlugin } from '../../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../../src/http/plugins/auth-admin.js';
 import { makeAuthMtlsPlugin } from '../../src/http/plugins/auth-mtls.js';
@@ -43,14 +42,14 @@ export async function buildTestApp(): Promise<FastifyInstance> {
 export interface BuildAppOptions {
   env?: Partial<Env>;
   keyring?: Keyring;
-  /** Skip registering rate limit + auth plugins. Useful for narrow plugin tests. */
+  /** Skip registering auth plugins. Useful for narrow plugin tests. */
   minimal?: boolean;
 }
 
 /**
  * Build a Fastify app pre-wired with the same plugin stack as `src/server.ts`
  * (cookie, cors, multipart, request-id, client-ip, auth-mtls, auth-host,
- * auth-admin, rate-limit, envelope) but without the static handler, route
+ * auth-admin, envelope) but without the static handler, route
  * registration, or WS server. Routes can be added by the caller via
  * `app.get(...)` etc. before invoking `inject()`.
  *
@@ -77,7 +76,6 @@ export async function buildAppWithDb(
   app.decorate('db', db);
   app.decorate('env', env);
   app.decorate('keyring', keyring);
-  app.decorate('rateLimiter', makeRateLimiter(db));
 
   await app.register(cookie, { hook: 'onRequest' });
   await app.register(corsPlugin);
@@ -88,7 +86,6 @@ export async function buildAppWithDb(
   if (!opts.minimal) {
     await app.register(makeAuthHostPlugin(db));
     await app.register(makeAuthAdminPlugin(db, env));
-    await app.register(makeRateLimitPlugin(env));
   }
   await app.register(envelopePlugin);
   installTestNotFoundHandler(app);

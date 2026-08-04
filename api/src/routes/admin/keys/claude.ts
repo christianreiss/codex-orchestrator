@@ -61,19 +61,12 @@ export async function registerAdminClaudeKeyRoutes(
           param: 'name',
         });
       }
-      const rateLimitRpm =
-        typeof body.rate_limit_rpm === 'number'
-          ? Math.floor(body.rate_limit_rpm)
-          : typeof body.rate_limit_rpm === 'string' && body.rate_limit_rpm.trim() !== ''
-            ? Math.floor(Number(body.rate_limit_rpm))
-            : 60;
       const expiresAt = typeof body.expires_at === 'string' ? body.expires_at.trim() : null;
       const adminUserId = req.admin?.user.id ?? null;
 
       const issued = await service.create({
         name,
         adminUserId,
-        rateLimitRpm,
         expiresAt: expiresAt && expiresAt !== '' ? expiresAt : null,
       });
 

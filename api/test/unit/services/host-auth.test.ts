@@ -64,7 +64,6 @@ function stubSettings(values: Record<string, string> = {}): SettingsService {
 interface Harness {
   db: DbFake;
   svc: HostAuthService;
-  failures: Array<{ ip: string | null | undefined; reason?: string }>;
 }
 
 function harness(
@@ -81,7 +80,6 @@ function harness(
     (opts.rows ?? []).map((row) => ({ ...row }) as unknown as Record<string, unknown>),
   );
   const db = createDbFake(tables);
-  const failures: Array<{ ip: string | null | undefined; reason?: string }> = [];
   const svc = createHostAuthService({
     db: db as never,
     env: {
@@ -89,15 +87,10 @@ function harness(
       AUTH_RUNNER_BYPASS_SUBNETS: '',
       ...opts.env,
     } as Env,
-    failures: {
-      async recordFailure(ip, reason) {
-        failures.push({ ip, reason });
-      },
-    },
     settings: stubSettings(opts.settings),
     insecure: opts.insecure,
   });
-  return { db, svc, failures };
+  return { db, svc };
 }
 
 function makeReq(
@@ -141,24 +134,22 @@ afterEach(() => {
 });
 
 describe('authenticate key lookup', () => {
-  it('records a failure and rejects when no API key is present', async () => {
+  it('rejects when no API key is present', async () => {
     const h = harness({ rows: [hostRow()] });
 
     const err = await h.svc.authenticate(makeReq()).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(UnauthorizedError);
     expect(err).toMatchObject({ code: 'missing_api_key', status: 401 });
-    expect(h.failures).toEqual([{ ip: CLIENT_IP, reason: 'missing_api_key' }]);
   });
 
-  it('records a failure and rejects when the key matches no host', async () => {
+  it('rejects when the key matches no host', async () => {
     const h = harness({ rows: [hostRow()] });
 
     const err = await h.svc.authenticate(makeReq({ key: 'sk-codex-other' })).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(UnauthorizedError);
     expect(err).toMatchObject({ code: 'invalid_api_key', status: 401 });
-    expect(h.failures).toEqual([{ ip: CLIENT_IP, reason: 'invalid_api_key' }]);
   });
 
   it('falls back to the legacy plaintext apiKey column', async () => {
@@ -169,7 +160,6 @@ describe('authenticate key lookup', () => {
     const host = await h.svc.authenticate(makeReq({ key: 'legacy-plaintext' }));
 
     expect(host).toMatchObject({ id: 1, fqdn: 'host.example.com' });
-    expect(h.failures).toEqual([]);
   });
 
   it('rejects a host whose status is not active', async () => {
@@ -179,8 +169,6 @@ describe('authenticate key lookup', () => {
 
     expect(err).toBeInstanceOf(ForbiddenError);
     expect(err).toMatchObject({ code: 'host_disabled', status: 403 });
-    // A disabled host is a host, not a bad key: it must not burn the auth-fail bucket.
-    expect(h.failures).toEqual([]);
   });
 });
 

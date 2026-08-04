@@ -5,7 +5,6 @@ import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
 import { registerAnthropicCompatRoutes } from '../../../src/routes/anthropic-v1/index.js';
 import { ApiError } from '../../../src/http/errors.js';
-import type { RateLimiter } from '../../../src/http/plugins/rate-limit.js';
 import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
 import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
 
@@ -91,14 +90,6 @@ async function buildApp(): Promise<{ app: FastifyInstance; routes: RegisteredRou
     for (const method of methods) routes.push({ method, url: route.url });
   });
 
-  const rateLimiter: RateLimiter = {
-    hit: async () => ({
-      ok: true,
-      count: 1,
-      resetAt: new Date(Date.now() + 60_000).toISOString(),
-    }),
-  };
-  app.decorate('rateLimiter', rateLimiter);
   app.decorateRequest('clientIp', '');
   app.addHook('onRequest', async (req) => {
     req.clientIp = '127.0.0.1';

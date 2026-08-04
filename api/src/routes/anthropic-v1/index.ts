@@ -16,10 +16,6 @@
  * Auth: `claude-key-resolver` preHandler (Bearer / x-api-key / raw).
  * Kill-switch: `claude-kill-switch` preHandler (versions flag `claude_api_disabled`).
  *
- * Per-key rate limit: bucket `anthropic:<key_id>` with the key's
- * `rate_limit_rpm` setting, in addition to the global IP bucket the rate-limit
- * plugin already enforces.
- *
  * Streaming: synthesised SSE events from the completed runner response, same
  * shape as the legacy PHP `AnthropicCompat::messageStreamEvents`.
  */
@@ -121,7 +117,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async (req, reply) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
@@ -178,7 +173,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async (req) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
@@ -205,7 +199,6 @@ export async function registerAnthropicCompatRoutes(
     killSwitchHook(deps),
     keyResolver.preHandler,
     versionHeaderHook(),
-    rateLimitHook(app),
   ];
   const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => {
     const payload = (req.body ?? {}) as Record<string, unknown>;
@@ -278,7 +271,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async () => {
       return models.modelsResponse();
@@ -294,7 +286,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async (req) => {
       const { model_id: modelId } = req.params as { model_id?: string };
@@ -312,7 +303,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async (req) => {
       const payload = (req.body ?? {}) as Record<string, unknown>;
@@ -352,7 +342,6 @@ export async function registerAnthropicCompatRoutes(
       killSwitchHook(deps),
       keyResolver.preHandler,
       versionHeaderHook(),
-      rateLimitHook(app),
     ],
     handler: async () => {
       throw new ApiError('Anthropic API does not support embeddings', {
@@ -367,37 +356,6 @@ export async function registerAnthropicCompatRoutes(
 function killSwitchHook(deps: AnthropicRouteDeps) {
   return async function checkKillSwitch(_req: FastifyRequest) {
     await deps.killSwitch.ensureEnabled();
-  };
-}
-
-function rateLimitHook(app: FastifyInstance) {
-  return async function perKeyRateLimit(req: FastifyRequest, reply: FastifyReply) {
-    const apiKey = req.claudeApiKey;
-    if (!apiKey) return; // resolver ran first; if missing, request will already have failed
-    const ip = req.clientIp || '0.0.0.0';
-    const rpm = apiKey.rateLimitRpm > 0 ? apiKey.rateLimitRpm : 60;
-    const bucket = `anthropic:${apiKey.id}`;
-    const res = await app.rateLimiter.hit(ip, bucket, { limit: rpm, windowSeconds: 60 });
-    const remaining = Math.max(0, rpm - res.count);
-    const resetSeconds = Math.max(
-      0,
-      Math.ceil((new Date(res.resetAt).getTime() - Date.now()) / 1000),
-    );
-    // Anthropic-shaped rate-limit headers so SDK backoff logic has something
-    // to read, even on success — not just at the 429 boundary.
-    reply.header('anthropic-ratelimit-requests-limit', String(rpm));
-    reply.header('anthropic-ratelimit-requests-remaining', String(remaining));
-    reply.header('anthropic-ratelimit-requests-reset', new Date(res.resetAt).toISOString());
-    if (!res.ok) {
-      const retryAfter = Math.max(1, resetSeconds);
-      throw new ApiError('Rate limit exceeded. Please retry after 60 seconds.', {
-        status: 429,
-        code: 'rate_limit_exceeded',
-        type: 'rate_limit_error',
-        extra: { bucket, reset_at: res.resetAt },
-        headers: { 'Retry-After': String(retryAfter) },
-      });
-    }
   };
 }
 

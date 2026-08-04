@@ -775,18 +775,6 @@ CREATE TABLE `install_tokens` (
 	CONSTRAINT `token` UNIQUE(`token`)
 );
 
-CREATE TABLE `ip_rate_limits` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`ip` varchar(64) NOT NULL,
-	`bucket` varchar(64) NOT NULL,
-	`count` int unsigned NOT NULL DEFAULT 0,
-	`reset_at` varchar(100) NOT NULL,
-	`last_hit` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `ip_rate_limits_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uniq_ip_bucket` UNIQUE(`ip`,`bucket`)
-);
-
 CREATE TABLE `logs` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`host_id` bigint unsigned,
@@ -848,7 +836,6 @@ CREATE TABLE `openai_api_keys` (
 	`key_hash` char(64) NOT NULL,
 	`key_enc` longtext,
 	`admin_user_id` bigint unsigned,
-	`rate_limit_rpm` int unsigned NOT NULL DEFAULT 60,
 	`is_active` tinyint NOT NULL DEFAULT 1,
 	`use_count` bigint unsigned NOT NULL DEFAULT 0,
 	`last_used_at` varchar(100),
@@ -1103,7 +1090,6 @@ CREATE INDEX `idx_insecure_domain_allows_enabled_until` ON `insecure_domain_allo
 CREATE INDEX `idx_insecure_domain_allows_revoked_at` ON `insecure_domain_allows` (`revoked_at`);
 CREATE INDEX `idx_install_tokens_host` ON `install_tokens` (`host_id`);
 CREATE INDEX `idx_install_tokens_expires_at` ON `install_tokens` (`expires_at`);
-CREATE INDEX `idx_rate_limits_reset_at` ON `ip_rate_limits` (`reset_at`);
 CREATE INDEX `idx_logs_host` ON `logs` (`host_id`);
 CREATE INDEX `idx_logs_created_at` ON `logs` (`created_at`);
 CREATE INDEX `idx_mcp_logs_host` ON `mcp_access_logs` (`host_id`);

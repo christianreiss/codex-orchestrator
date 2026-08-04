@@ -4,7 +4,6 @@ import cookie from '@fastify/cookie';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
-import type { RateLimiter } from '../../../src/http/plugins/rate-limit.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { OpenaiApiKey } from '../../../src/db/schema.js';
 import type {
@@ -18,7 +17,7 @@ import type {
 import { sha256 } from '../../../src/security/hash.js';
 
 /**
- * Integration harness for `/v1/*`. Stubs the rate limiter, key service, and
+ * Integration harness for `/v1/*`. Stubs the key service and
  * runner adapter so the tests don't need MySQL or a live runner. Exercises the
  * full Fastify request lifecycle (CORS, envelope, error handler).
  */
@@ -27,7 +26,6 @@ interface HarnessOverrides {
   killSwitchDisabled?: boolean;
   adapter?: RunnerOpenAiAdapter | null;
   keyOverrides?: Partial<OpenaiApiKey>;
-  rateLimitOk?: boolean;
 }
 
 async function buildHarness(opts: HarnessOverrides = {}): Promise<{
@@ -46,7 +44,6 @@ async function buildHarness(opts: HarnessOverrides = {}): Promise<{
     keyHash,
     keyEnc: null,
     adminUserId: null,
-    rateLimitRpm: 60,
     isActive: 1,
     useCount: 0,
     lastUsedAt: null,
@@ -62,15 +59,6 @@ async function buildHarness(opts: HarnessOverrides = {}): Promise<{
     touch: async () => {},
   } as unknown as OpenAiKeyService;
 
-  const rateLimiter: RateLimiter = {
-    hit: async () => ({
-      ok: opts.rateLimitOk ?? true,
-      count: 1,
-      resetAt: new Date(Date.now() + 60000).toISOString(),
-    }),
-  };
-
-  app.decorate('rateLimiter', rateLimiter);
   app.decorateRequest('clientIp', '127.0.0.1');
   app.addHook('onRequest', async (req) => {
     (req as { clientIp: string }).clientIp = '127.0.0.1';
@@ -271,25 +259,6 @@ describe('/v1/chat/completions', () => {
     expect(JSON.parse(r.payload)).toMatchObject({
       error: { type: 'server_error', code: 'api_disabled' },
     });
-    await app2.close();
-  });
-
-  it('returns 429 with code=rate_limit_exceeded when rate limited', async () => {
-    const { app: app2, validKey: vk2 } = await buildHarness({
-      adapter: fakeAdapter(),
-      rateLimitOk: false,
-    });
-    const r = await app2.inject({
-      method: 'POST',
-      url: '/v1/chat/completions',
-      headers: { authorization: `Bearer ${vk2}` },
-      payload: { messages: [{ role: 'user', content: 'x' }] },
-    });
-    expect(r.statusCode).toBe(429);
-    expect(JSON.parse(r.payload)).toMatchObject({
-      error: { type: 'rate_limit_error', code: 'rate_limit_exceeded' },
-    });
-    expect(r.headers['retry-after']).toBeDefined();
     await app2.close();
   });
 

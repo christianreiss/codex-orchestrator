@@ -17,7 +17,6 @@ import type { OpenaiApiKey } from '../../../db/schema.js';
  */
 const createSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
-  rate_limit_rpm: z.number().int().positive().optional(),
   expires_at: z
     .string()
     .trim()
@@ -61,7 +60,6 @@ export async function registerAdminOpenAiKeyRoutes(
       const issued = await keys.issue({
         name: parsed.data.name,
         adminUserId: req.admin?.user.id ?? null,
-        rateLimitRpm: parsed.data.rate_limit_rpm ?? 60,
         expiresAt: parsed.data.expires_at ?? null,
         engine: ENGINE_CODEX,
       });
@@ -120,7 +118,6 @@ export function toAdminApiKey(
     | 'name'
     | 'keyPrefix'
     | 'adminUserId'
-    | 'rateLimitRpm'
     | 'isActive'
     | 'useCount'
     | 'lastUsedAt'
@@ -135,7 +132,6 @@ export function toAdminApiKey(
     name: row.name,
     key_prefix: row.keyPrefix,
     admin_user_id: row.adminUserId ?? null,
-    rate_limit_rpm: row.rateLimitRpm,
     // Boolean, not the raw tinyint: `/admin/claude/keys` serves the same table
     // through `toRecord` in services/claude-keys.ts and emits a boolean, and
     // the two routes are one admin surface. See admin-key-payload-parity.test.

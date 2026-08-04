@@ -9,10 +9,9 @@ import type { TestDb } from '../helpers/test-db.js';
  * by other Phase 2 worktrees will exercise the real db paths.
  */
 
-// The minimal app stack doesn't actually issue queries, but it does
-// `app.decorate('db', db)` and the rate-limit plugin reads it via the
-// factory. We give it a placeholder object that satisfies the decorator
-// API without exposing any query surface.
+// The minimal app stack doesn't actually issue queries, but it does decorate
+// the Fastify instance with the database handle. This placeholder satisfies
+// that contract without exposing any query surface.
 const stubDb = {} as unknown as TestDb;
 
 describe('buildAppWithDb', () => {
@@ -26,12 +25,11 @@ describe('buildAppWithDb', () => {
     await app.close();
   });
 
-  it('decorates db/env/keyring/rateLimiter on the instance', async () => {
+  it('decorates db/env/keyring on the instance', async () => {
     const app = await buildAppWithDb(stubDb, { minimal: true });
     expect(app.db).toBeDefined();
     expect(app.env).toBeDefined();
     expect(app.keyring).toBeDefined();
-    expect(app.rateLimiter).toBeDefined();
     await app.close();
   });
 

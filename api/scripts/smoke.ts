@@ -33,7 +33,6 @@ import { Keyring } from '../src/security/keyring.js';
 import { envelopePlugin } from '../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../src/http/plugins/request-id.js';
 import { makeClientIpPlugin } from '../src/http/plugins/client-ip.js';
-import { makeRateLimiter, makeRateLimitPlugin } from '../src/http/plugins/rate-limit.js';
 import { makeAuthHostPlugin } from '../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../src/http/plugins/auth-admin.js';
 import { makeAuthMtlsPlugin } from '../src/http/plugins/auth-mtls.js';
@@ -76,7 +75,6 @@ async function main() {
   app.decorate('db', db);
   app.decorate('env', env);
   app.decorate('keyring', keyring);
-  app.decorate('rateLimiter', makeRateLimiter(db));
 
   await app.register(cookie, { hook: 'onRequest' });
   await app.register(corsPlugin);
@@ -86,7 +84,6 @@ async function main() {
   await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
-  await app.register(makeRateLimitPlugin(env));
   await app.register(envelopePlugin);
 
   await registerAllRoutes(app, { db, env, keyring });

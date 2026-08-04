@@ -20,10 +20,9 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
    6. `authMtlsPlugin`
    7. `makeAuthHostPlugin`
    8. `makeAuthAdminPlugin`
-   9. `makeRateLimitPlugin`
-   10. `envelopePlugin` (registered last — catches errors from all plugins above)
+   9. `envelopePlugin` (registered last — catches errors from all plugins above)
 
-   Plugins live in `api/src/http/plugins/`. `db`, `env`, `keyring`, and `rateLimiter` are decorated onto the Fastify instance during boot.
+   Plugins live in `api/src/http/plugins/`. `db`, `env`, and `keyring` are decorated onto the Fastify instance during boot.
 3. `registerAllRoutes` in `api/src/routes/index.ts` wires the host-facing API, MCP, wrapper-v2, OpenAI- and Anthropic-compatible APIs, and the full admin surface. Each route group registers its handlers; admin routes attach `app.requireAdmin` as a preHandler.
 4. Admin HTML page navigations (`/admin/*` with `Accept: text/html`) are caught by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`, which returns the SvelteKit `index.html` shell. The SPA then hydrates by calling `GET /admin/auth/status`; there is no server-rendered session bootstrap.
 

@@ -37,12 +37,6 @@
   // svelte-ignore state_referenced_locally
   let engine = $state<ApiKeyEngine>(defaultEngine);
   let name = $state("");
-  // Tracked as a string (not bind:value to a number $state) because clearing
-  // a <input type="number"> to empty does not propagate to a bound numeric
-  // Svelte state -- the state silently keeps its last valid value while the
-  // input displays empty, which let an emptied field slip through as "60"
-  // even with `required` set. A string mirrors the input's real content.
-  let rateLimitRpm = $state("60");
   let expiresEnabled = $state(false);
   let expiresAt = $state(""); // datetime-local string
 
@@ -54,7 +48,6 @@
     if (open) {
       engine = defaultEngine;
       name = "";
-      rateLimitRpm = "60";
       expiresEnabled = false;
       expiresAt = "";
       issued = null;
@@ -93,16 +86,8 @@
       toast.error("Name is required");
       return;
     }
-    const rpm = Number(rateLimitRpm);
-    if (!Number.isFinite(rpm) || rpm <= 0) {
-      toast.error("Rate limit is required", {
-        description: "Enter a positive number of requests per minute.",
-      });
-      return;
-    }
     const payload: CreateApiKeyPayload = {
       name: trimmed,
-      rate_limit_rpm: rpm,
       expires_at: expiresEnabled ? toIso(expiresAt) : null,
     };
     $createMut.mutate({ engine, payload });
@@ -204,18 +189,6 @@
               required
               autocomplete="off"
               autofocus
-            />
-          </div>
-
-          <div class="grid gap-2">
-            <Label for="key-rpm">Rate limit (requests / minute)</Label>
-            <Input
-              id="key-rpm"
-              type="number"
-              min="1"
-              max="100000"
-              required
-              bind:value={rateLimitRpm}
             />
           </div>
 

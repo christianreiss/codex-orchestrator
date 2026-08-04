@@ -7,8 +7,7 @@ import { resolve } from 'node:path';
  * in it that nothing reads is a knob someone sets that silently does nothing.
  * It had six: `ADMIN_SESSION_TTL_SECONDS` (the schema says
  * `ADMIN_SESSION_TTL_MINUTES`), `ADMIN_PASSWORD_MIN_LENGTH`,
- * `INSTALL_TOKEN_TTL_SECONDS`, `RATE_LIMIT_GLOBAL_PER_MINUTE`,
- * `RATE_LIMIT_GLOBAL_WINDOW` and three `AUTH_RUNNER_*_URL` summary knobs.
+ * `INSTALL_TOKEN_TTL_SECONDS` and three `AUTH_RUNNER_*_URL` summary knobs.
  *
  * Name coverage only — every backticked UPPER_SNAKE identifier in the doc has
  * to be declared by the API schema, the compose file, the runner, or the

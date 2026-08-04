@@ -74,21 +74,6 @@ export class ConflictError extends ApiError {
   }
 }
 
-export class RateLimitedError extends ApiError {
-  constructor(
-    message = 'Rate limited',
-    options: { bucket?: string; resetAt?: string; retryAfter?: number } = {},
-  ) {
-    super(message, {
-      status: 429,
-      code: 'rate_limited',
-      type: 'rate_limit_error',
-      extra: { bucket: options.bucket, reset_at: options.resetAt },
-      headers: options.retryAfter ? { 'Retry-After': String(options.retryAfter) } : undefined,
-    });
-  }
-}
-
 export class LockedError extends ApiError {
   constructor(message = 'Locked', code = 'locked') {
     super(message, { status: 423, code, type: 'locked_error' });

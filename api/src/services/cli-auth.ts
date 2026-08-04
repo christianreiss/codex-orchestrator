@@ -6,8 +6,7 @@ import type { Keyring } from '../security/keyring.js';
 import { encrypt, decryptOrNull } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
-import { ApiError, ConflictError, NotFoundError, RateLimitedError } from '../http/errors.js';
-import type { FastifyInstance } from 'fastify';
+import { ApiError, ConflictError, NotFoundError } from '../http/errors.js';
 import type { HostRegistrationService } from './host-registration.js';
 import { wsPublisher } from '../ws/publisher.js';
 
@@ -24,8 +23,6 @@ import { wsPublisher } from '../ws/publisher.js';
 
 const TTL_SECONDS = 600;
 const POLL_INTERVAL = 5;
-const MAX_PENDING_PER_IP = 10;
-
 const ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 const DIGITS = '23456789';
 
@@ -56,11 +53,10 @@ export interface CliAuthDeps {
   db: Database;
   keyring: Keyring;
   registration: HostRegistrationService;
-  app: FastifyInstance;
 }
 
 export function createCliAuthService(deps: CliAuthDeps): CliAuthService {
-  const { db, keyring, registration, app } = deps;
+  const { db, keyring, registration } = deps;
 
   return {
     async start({ fqdn, secure, ip, userAgent }) {
@@ -68,19 +64,6 @@ export function createCliAuthService(deps: CliAuthDeps): CliAuthService {
       if (!trimmed) {
         throw new ApiError('fqdn is required', { status: 422, code: 'validation_failed', param: 'fqdn' });
       }
-      if (ip) {
-        const rate = await app.rateLimiter.hit(ip, 'cli_auth_start', {
-          limit: MAX_PENDING_PER_IP,
-          windowSeconds: 3600,
-        });
-        if (!rate.ok) {
-          throw new RateLimitedError('Too many login requests. Try again later.', {
-            bucket: 'cli_auth_start',
-            resetAt: rate.resetAt,
-          });
-        }
-      }
-
       const requestId = randomBytes(32).toString('hex');
       const userCode = generateUserCode();
       const userCodeHash = sha256(userCode);

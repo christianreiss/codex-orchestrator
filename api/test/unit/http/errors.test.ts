@@ -6,7 +6,6 @@ import {
   ForbiddenError,
   LockedError,
   NotFoundError,
-  RateLimitedError,
   ServiceUnavailableError,
   UnauthorizedError,
   ValidationError,
@@ -49,7 +48,6 @@ const DECLARED: Array<[string, ApiError, number, string, string]> = [
   ['ForbiddenError', new ForbiddenError(), 403, 'forbidden', 'permission_error'],
   ['NotFoundError', new NotFoundError(), 404, 'not_found', 'not_found_error'],
   ['ConflictError', new ConflictError(), 409, 'conflict', 'conflict_error'],
-  ['RateLimitedError', new RateLimitedError(), 429, 'rate_limited', 'rate_limit_error'],
   ['LockedError', new LockedError(), 423, 'locked', 'locked_error'],
   ['ServiceUnavailableError', new ServiceUnavailableError(), 503, 'unavailable', 'service_unavailable'],
 ];
@@ -101,7 +99,6 @@ describe('ApiError subclass declarations', () => {
     expect(new ForbiddenError().message).toBe('Forbidden');
     expect(new NotFoundError().message).toBe('Not found');
     expect(new ConflictError().message).toBe('Conflict');
-    expect(new RateLimitedError().message).toBe('Rate limited');
     expect(new LockedError().message).toBe('Locked');
     expect(new ServiceUnavailableError().message).toBe('Service unavailable');
 
@@ -127,21 +124,6 @@ describe('ApiError subclass declarations', () => {
     expect(new ConflictError().extra).toBeUndefined();
   });
 
-  it('carries RateLimitedError bucket/reset_at extra and a conditional Retry-After header', () => {
-    const err = new RateLimitedError('Slow down', {
-      bucket: 'per_minute',
-      resetAt: '2026-07-29T00:00:00Z',
-      retryAfter: 30,
-    });
-    expect(err.extra).toEqual({ bucket: 'per_minute', reset_at: '2026-07-29T00:00:00Z' });
-    expect(err.headers).toEqual({ 'Retry-After': '30' });
-
-    // The extra keys exist even unset; the header only appears for a truthy
-    // retryAfter, so 0 seconds emits no header at all.
-    expect(new RateLimitedError().extra).toStrictEqual({ bucket: undefined, reset_at: undefined });
-    expect(new RateLimitedError().headers).toBeUndefined();
-    expect(new RateLimitedError('Slow down', { retryAfter: 0 }).headers).toBeUndefined();
-  });
 });
 
 describe('ApiError toJSON', () => {
@@ -163,21 +145,9 @@ describe('ApiError toJSON', () => {
       type: 'conflict_error',
       job_id: 'j1',
     });
-    expect(
-      new RateLimitedError('Slow down', { bucket: 'per_minute', resetAt: '2026-07-29T00:00:00Z' }).toJSON(),
-    ).toEqual({
-      message: 'Slow down',
-      code: 'rate_limited',
-      type: 'rate_limit_error',
-      bucket: 'per_minute',
-      reset_at: '2026-07-29T00:00:00Z',
-    });
   });
 
   it('never emits headers, which the envelope sets on the reply instead', () => {
-    const rateLimited = new RateLimitedError('Slow down', { retryAfter: 30 }).toJSON();
-    expect('headers' in rateLimited).toBe(false);
-    expect('Retry-After' in rateLimited).toBe(false);
     for (const [name, Cls] of SUBCLASSES) {
       expect('headers' in new Cls(`${name} boom`).toJSON(), name).toBe(false);
     }

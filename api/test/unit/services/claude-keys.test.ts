@@ -28,7 +28,6 @@ function keyRow(overrides: Row): Row {
     keyHash: sha256Hex(`seed-${String(overrides.id)}`),
     keyEnc: null,
     adminUserId: null,
-    rateLimitRpm: 60,
     isActive: 1,
     useCount: 0,
     lastUsedAt: null,
@@ -138,18 +137,6 @@ describe('createClaudeKeysService.create', () => {
     });
     expect(key.startsWith('sk-ant-admin-')).toBe(true);
     expect(record.key_prefix).toBe(`${key.slice(0, 16)}...`);
-  });
-
-  it('defaults rate_limit_rpm to 60 for missing, zero and negative values', async () => {
-    const svc = service(seededDb());
-    expect((await svc.create({ name: 'a' })).record.rate_limit_rpm).toBe(60);
-    expect((await svc.create({ name: 'b', rateLimitRpm: 0 })).record.rate_limit_rpm).toBe(60);
-    expect((await svc.create({ name: 'c', rateLimitRpm: -5 })).record.rate_limit_rpm).toBe(60);
-  });
-
-  it('floors a fractional rate limit', async () => {
-    const { record } = await service(seededDb()).create({ name: 'd', rateLimitRpm: 12.9 });
-    expect(record.rate_limit_rpm).toBe(12);
   });
 
   it('rejects a blank name', async () => {

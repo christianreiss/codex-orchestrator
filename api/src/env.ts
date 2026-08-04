@@ -140,14 +140,6 @@ const schema = z
     TRUST_X_FORWARDED: boolish.default(false),
     TRUSTED_PROXY_CIDRS: z.string().default(''),
 
-    // Per-IP rate limit buckets (backed by `ip_rate_limits`). Both windows are
-    // in seconds; a non-positive value is refused at boot rather than silently
-    // disabling an abuse control.
-    RATE_LIMIT_GLOBAL_PER_MINUTE: intish(120).pipe(z.number().int().positive()),
-    RATE_LIMIT_GLOBAL_WINDOW: intish(60).pipe(z.number().int().positive()),
-    RATE_LIMIT_AUTH_FAIL_COUNT: intish(20).pipe(z.number().int().positive()),
-    RATE_LIMIT_AUTH_FAIL_WINDOW: intish(600).pipe(z.number().int().positive()),
-
     // OpenTelemetry tracing. Off by default, and "off" is total: with
     // OTEL_TRACES_ENABLED unset no OpenTelemetry package is imported, no
     // provider is registered and no exporter connection exists. Where the spans

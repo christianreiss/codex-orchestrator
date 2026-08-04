@@ -8,7 +8,6 @@ import {
   createAgentMessagingService,
   type AgentMessagingOutcome,
 } from '../../services/agent-messaging.js';
-import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
@@ -292,9 +291,8 @@ export async function registerAgentMessagingRoutes(
 
   // One outbound-only per-user relay. Registration uses host authentication;
   // every poll after it uses the generation-fenced short-lived relay token.
-  const failures = createAuthFailureTracker(app);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
-  const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
+  const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   app.post('/host/agent-relays/register', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = z

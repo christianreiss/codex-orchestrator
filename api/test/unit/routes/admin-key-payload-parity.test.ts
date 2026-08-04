@@ -26,7 +26,6 @@ const sharedRow = {
   name: 'parity',
   keyPrefix: 'sk-xxx-123456789...',
   adminUserId: 3,
-  rateLimitRpm: 90,
   useCount: 5,
   lastUsedAt: '2026-07-20T10:30:00Z',
   expiresAt: '2027-01-01T00:00:00Z',

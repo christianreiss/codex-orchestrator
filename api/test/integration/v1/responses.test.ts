@@ -4,7 +4,6 @@ import cookie from '@fastify/cookie';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
-import type { RateLimiter } from '../../../src/http/plugins/rate-limit.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { OpenaiApiKey } from '../../../src/db/schema.js';
 import type {
@@ -25,7 +24,6 @@ async function buildApp(): Promise<{ app: FastifyInstance; key: string }> {
     keyHash: sha256(key),
     keyEnc: null,
     adminUserId: null,
-    rateLimitRpm: 60,
     isActive: 1,
     useCount: 0,
     lastUsedAt: null,
@@ -62,11 +60,6 @@ async function buildApp(): Promise<{ app: FastifyInstance; key: string }> {
     },
   } as unknown as RunnerOpenAiAdapter;
 
-  const rateLimiter: RateLimiter = {
-    hit: async () => ({ ok: true, count: 1, resetAt: new Date().toISOString() }),
-  };
-
-  app.decorate('rateLimiter', rateLimiter);
   app.decorateRequest('clientIp', '127.0.0.1');
   app.addHook('onRequest', async (req) => {
     (req as { clientIp: string }).clientIp = '127.0.0.1';

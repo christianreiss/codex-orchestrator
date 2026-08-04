@@ -15,7 +15,6 @@ import { ForbiddenError, UnauthorizedError } from '../http/errors.js';
 import { randomHex, sha256 } from '../security/hash.js';
 import { verify as verifyPassword } from '../security/password.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
-import type { AuthFailureTracker } from './auth-failure-tracker.js';
 
 /**
  * Admin authentication service. Owns the login/logout dispatch and the
@@ -82,7 +81,6 @@ export class AdminAuthService {
   constructor(
     private readonly db: Database,
     private readonly env: Env,
-    private readonly failures?: AuthFailureTracker,
   ) {}
 
   // ---------- public helpers ----------
@@ -200,12 +198,10 @@ export class AdminAuthService {
     userAgent: string | null,
   ): Promise<SessionResult> {
     if (!password || password.trim() === '') {
-      await this.failures?.recordFailure(ip, 'missing_password');
       throw new UnauthorizedError('Invalid credentials', 'invalid_credentials');
     }
     const user = await this.findUserByUsername(username);
     if (!user || user.active !== 1) {
-      await this.failures?.recordFailure(ip, 'invalid_username');
       throw new UnauthorizedError('Invalid credentials', 'invalid_credentials');
     }
     if (await this.hasPasskey(user.id)) {
@@ -214,7 +210,6 @@ export class AdminAuthService {
 
     const verifyResult = await verifyPassword(user.passwordHash, password);
     if (!verifyResult.ok) {
-      await this.failures?.recordFailure(ip, 'invalid_password');
       throw new UnauthorizedError('Invalid credentials', 'invalid_credentials');
     }
 
@@ -376,7 +371,6 @@ export class AdminAuthService {
 export function createAdminAuthService(
   db: Database,
   env: Env,
-  failures?: AuthFailureTracker,
 ): AdminAuthService {
-  return new AdminAuthService(db, env, failures);
+  return new AdminAuthService(db, env);
 }

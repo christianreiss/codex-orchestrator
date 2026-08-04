@@ -1,3 +1,13 @@
+# 2026-08-04
+
+- **All orchestrator-enforced request rate limiters have been removed.** The global/token/IP
+  ceilings, auth-failure bucket, CLI device-login throttle, and OpenAI/Anthropic per-key RPM gates
+  are gone. The API no longer decorates Fastify with a limiter, accepts `RATE_LIMIT_*` settings,
+  emits local 429 responses, or exposes per-key rate budgets in the admin UI/API. Migration 0019
+  drops `ip_rate_limits` and `openai_api_keys.rate_limit_rpm`; upstream provider quota/429 reporting
+  remains observation-only and cannot throttle orchestrator traffic. Deployments that need
+  volumetric controls must provide them at the trusted reverse proxy or network edge.
+
 # 2026-08-03
 
 - The relay's *reconnect* path ignored the backoff entirely: after `poll()` returned it always

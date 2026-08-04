@@ -24,7 +24,6 @@ export interface ClaudeKeyRecord {
   name: string;
   key_prefix: string;
   admin_user_id: number | null;
-  rate_limit_rpm: number;
   is_active: boolean;
   use_count: number;
   last_used_at: string | null;
@@ -37,7 +36,6 @@ export interface ClaudeKeyRecord {
 export interface ClaudeKeyCreate {
   name: string;
   adminUserId?: number | null;
-  rateLimitRpm?: number;
   expiresAt?: string | null;
   prefix?: string;
 }
@@ -62,7 +60,6 @@ function toRecord(row: typeof openaiApiKeys.$inferSelect): ClaudeKeyRecord {
     name: row.name,
     key_prefix: row.keyPrefix,
     admin_user_id: row.adminUserId ?? null,
-    rate_limit_rpm: row.rateLimitRpm,
     is_active: row.isActive === 1,
     use_count: row.useCount,
     last_used_at: row.lastUsedAt ?? null,
@@ -97,10 +94,9 @@ export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeK
       return load(id);
     },
 
-    async create({ name, adminUserId, rateLimitRpm, expiresAt, prefix }) {
+    async create({ name, adminUserId, expiresAt, prefix }) {
       const cleanName = name.trim();
       if (!cleanName) throw new Error('name is required');
-      const rpm = rateLimitRpm && rateLimitRpm > 0 ? Math.floor(rateLimitRpm) : 60;
       const exp = expiresAt && expiresAt.trim() !== '' ? expiresAt.trim() : null;
       if (exp && !isRfc3339(exp)) {
         throw new ApiError('expires_at must be an RFC3339 timestamp', {
@@ -124,7 +120,6 @@ export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeK
         keyHash,
         keyEnc,
         adminUserId: adminUserId ?? null,
-        rateLimitRpm: rpm,
         isActive: 1,
         useCount: 0,
         expiresAt: exp,

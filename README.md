@@ -42,7 +42,7 @@ A host can run Codex, Claude, or both. The orchestrator manages both engines fro
 **Expose compatible APIs**
 - The built-in `/v1/` endpoints speak the OpenAI protocol — point any OpenAI SDK client at your orchestrator.
 - The `/anthropic/v1/` endpoints speak the Anthropic protocol — point any Anthropic SDK client at your orchestrator.
-- Manage API keys (`sk-coco-` prefix) from the admin dashboard with per-key rate limits and expiration.
+- Manage revocable, expiring API keys (`sk-coco-` prefix) from the admin dashboard.
 
 **Collaborate across agents**
 - The optional Projects module gives your agents shared notes, todos, files, and feedback with append-only change history.
@@ -190,7 +190,7 @@ All screenshots use documentation-safe demo data. Click any image for the full-r
 
 [![API access page with compatible endpoints and scoped key controls](docs/img/api-access.png)](docs/img/api-access.png)
 
-*Copy either compatible base URL, gate each proxy independently, and issue revocable, expiring, rate-limited keys.*
+*Copy either compatible base URL, gate each proxy independently, and issue revocable, expiring keys.*
 
 ## Day-to-day: the `cdx` command
 
@@ -240,7 +240,7 @@ Codex Orchestrator takes security seriously so you can focus on building things:
 
 - **Encryption**: All auth payloads use libsodium secretbox. Keys are rotated with KID tracking.
 - **Runner validation**: A sidecar service validates auth before writes are accepted — transparent to reads.
-- **Rate limiting**: All non-admin routes are rate-limited, with a dedicated bucket for auth failures.
+- **Request admission**: The orchestrator does not impose local request-rate limits; deploy an external edge policy if traffic shaping is required.
 - **Session-gated admin**: `/admin/*` is protected by the admin session cookie. Passkey (WebAuthn) login is available too. This server issues and verifies no certificates of its own; a proxy in front may terminate mTLS and forward `X-MTLS-*`, which the API reads from trusted peers only.
 - **IP binding**: Each host's API key locks to its IP on first use, with optional roaming support.
 

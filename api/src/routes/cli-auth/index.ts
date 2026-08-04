@@ -22,7 +22,7 @@ const VERIFY_PAGE_PATH = '/admin/cli-auth/verify';
  *   POST /cli/auth/approve        → admin: approve and register the host
  *   POST /cli/auth/deny           → admin: deny the request
  *
- * /start + /poll are open to wrappers (rate-limited per IP); lookup/approve/
+ * /start + /poll are open to wrappers; lookup/approve/
  * deny require an admin session. /verify is the URL handed to the wrapper, so
  * it stays where it is and redirects the operator's browser to the SPA page
  * that renders the approval form.
@@ -34,7 +34,7 @@ const VERIFY_PAGE_PATH = '/admin/cli-auth/verify';
 export async function registerCliAuthRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const registration = createHostRegistrationService({ db: ctx.db, keyring: ctx.keyring, insecure });
-  const cli = createCliAuthService({ db: ctx.db, keyring: ctx.keyring, registration, app });
+  const cli = createCliAuthService({ db: ctx.db, keyring: ctx.keyring, registration });
 
   app.post('/cli/auth/start', async (req) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;

@@ -73,7 +73,6 @@ const ENGINES: EngineCase[] = [
 
 const CREATE_PAYLOAD: CreateApiKeyPayload = {
   name: "ci-runner",
-  rate_limit_rpm: 60,
   expires_at: null,
 };
 
@@ -224,7 +223,6 @@ describe("isActive", () => {
     id: KEY_ID,
     name: "ci-runner",
     key_prefix: "sk-orch-abc",
-    rate_limit_rpm: 60,
     is_active: true,
     use_count: 0,
   };

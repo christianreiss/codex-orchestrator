@@ -5,10 +5,9 @@ import { loadTestEnv } from '../../helpers/test-keyring.js';
 import type { Env } from '../../../src/env.js';
 
 /**
- * `req.clientIp` is what host API-key IP binding, the auth-failure bucket and
- * the global rate limiter key off, so a client that can talk the plugin into
- * echoing back its own `X-Forwarded-For` can rebind another host's key or shed
- * its own rate limit. The gate is fail-closed by design (docs/SECURITY.md):
+ * `req.clientIp` is what host API-key IP binding keys off, so a client that can
+ * talk the plugin into echoing back its own `X-Forwarded-For` can rebind
+ * another host's key. The gate is fail-closed by design (docs/SECURITY.md):
  * forwarded headers count only when `TRUST_X_FORWARDED` is on *and* the direct
  * caller sits inside one of `TRUSTED_PROXY_CIDRS`.
  */

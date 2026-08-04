@@ -48,10 +48,7 @@ export async function registerOpenAiCompatRoutes(
 ): Promise<void> {
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
   const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db);
-  const keyResolver = makeOpenAiKeyResolver({
-    keys,
-    rateLimiter: app.rateLimiter,
-  });
+  const keyResolver = makeOpenAiKeyResolver({ keys });
   const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
 
   const runnerConfig = makeRunnerConfig(ctx.env);

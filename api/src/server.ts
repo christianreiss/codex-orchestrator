@@ -21,7 +21,6 @@ import { MattPocockSkillsService } from './services/mattpocock-skills.js';
 import { envelopePlugin } from './http/plugins/envelope.js';
 import { requestIdPlugin } from './http/plugins/request-id.js';
 import { makeClientIpPlugin } from './http/plugins/client-ip.js';
-import { makeRateLimiter, makeRateLimitPlugin } from './http/plugins/rate-limit.js';
 import { makeAuthHostPlugin } from './http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from './http/plugins/auth-admin.js';
 import { makeAuthMtlsPlugin } from './http/plugins/auth-mtls.js';
@@ -75,14 +74,13 @@ export async function buildServer() {
     },
   });
 
-  // Decorate db + env + rate limiter on the instance so route modules can find them.
+  // Decorate shared infrastructure so route modules can find it.
   app.decorate('db', db);
   app.decorate('env', env);
   app.decorate('keyring', keyring);
-  app.decorate('rateLimiter', makeRateLimiter(db));
 
-  // Plugins (order matters: cookies + cors + request-id + client-ip first; rate
-  // limit + auth-mtls before auth-host/auth-admin; envelope last so it can
+  // Plugins (order matters: cookies + cors + request-id + client-ip first;
+  // auth-mtls before auth-host/auth-admin; envelope last so it can
   // catch errors thrown by any of the above)
   await app.register(cookie, { hook: 'onRequest' });
   await app.register(corsPlugin);
@@ -92,7 +90,6 @@ export async function buildServer() {
   await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
-  await app.register(makeRateLimitPlugin(env));
   await app.register(envelopePlugin);
 
   await registerAllRoutes(app, { db, env, keyring });

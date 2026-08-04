@@ -341,7 +341,7 @@ This is the fastest way to confirm the baked base URL, wrapper version, and that
 
 - **HTTP 503 / “API disabled”**: the admin kill switch is on (`/admin/api/state`). Only an operator can clear it.
 - **HTTP 401/403**: usually a bad API key (wrong wrapper) or an IP-binding mismatch. Operators can re-register the host (rotates API key) or enable roaming IPs.
-- **HTTP 429**: you hit a rate limit bucket (global or auth-fail). Back off until the server-provided `reset_at`.
+- **HTTP 429**: a configured upstream provider refused traffic. The orchestrator itself does not generate request-rate-limit responses.
 - **TLS/CA failures**: if you’re on an internal CA, ensure the host trusts it (or that the wrapper was baked with the correct CA path). The per-host “Allow insecure curl (-k)” toggle exists as an emergency lever but should not be the steady state; when it is on, the signed wrapper config carries `allow_insecure: true` and sync/wrapper-update HTTPS calls bypass TLS verification.
 
 ### What to collect for an operator
@@ -355,5 +355,5 @@ CODEX_DEBUG=1 cdx --version
 
 From the service:
 
-- Admin **Logs** page for recent `auth.*`, `install.*`, and `rate_limit.*` events.
+- Admin **Logs** page for recent `auth.*` and `install.*` events.
 - Host row in **Hosts** for pinned IP, roaming flag, insecure window state, and runner state.

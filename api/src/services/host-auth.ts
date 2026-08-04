@@ -8,7 +8,6 @@ import { ForbiddenError, UnauthorizedError } from '../http/errors.js';
 import { extractApiKey, hashApiKey } from '../util/api-key-helpers.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
-import type { AuthFailureTracker } from './auth-failure-tracker.js';
 import { insecureWindowActive, type InsecureWindowService } from './insecure-window.js';
 import { SettingsService } from './settings.js';
 import { assertReverseDnsMatch } from './reverse-dns.js';
@@ -18,13 +17,13 @@ import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 /**
  * Host authentication helpers. Foundation already provides
  * `app.resolveHostFromKey` / `app.requireHost`; this service adds the
- * rate-limit + audit hooks the legacy PHP AuthService performed and exposes a
+ * audit hooks the legacy PHP AuthService performed and exposes a
  * unified resolve that's reusable from cron/seed contexts.
  */
 export interface HostAuthService {
   /**
-   * Resolve a host by API key from a Fastify request. Records auth-fail
-   * bucket hits on failure. Throws on missing/invalid/disabled host.
+   * Resolve a host by API key from a Fastify request. Throws on a
+   * missing, invalid, or disabled host.
    */
   authenticate(req: FastifyRequest): Promise<Host>;
   /**
@@ -36,7 +35,6 @@ export interface HostAuthService {
 
 export interface HostAuthDeps {
   db: Database;
-  failures: AuthFailureTracker;
   env: Env;
   insecure?: InsecureWindowService;
   settings?: SettingsService;
@@ -55,7 +53,6 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       const key = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
       const ip = req.clientIp || null;
       if (!key) {
-        await deps.failures.recordFailure(ip, 'missing_api_key');
         throw new UnauthorizedError('API key missing', 'missing_api_key');
       }
 
@@ -77,7 +74,6 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       }
 
       if (!host) {
-        await deps.failures.recordFailure(ip, 'invalid_api_key');
         throw new UnauthorizedError('Invalid API key', 'invalid_api_key');
       }
       if (host.status && host.status !== 'active') {

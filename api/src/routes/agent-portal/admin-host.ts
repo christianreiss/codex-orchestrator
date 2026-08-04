@@ -11,7 +11,6 @@ import {
   type AgentEventInput,
 } from '../../services/agent-portal.js';
 import { ROLE_ADMIN, ROLE_OWNER } from '../../services/admin-auth.js';
-import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { parseEngine } from '../../util/engine.js';
@@ -152,9 +151,8 @@ export async function registerAgentPortalAdminHostRoutes(
     return ok(result);
   });
 
-  const failures = createAuthFailureTracker(app);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
-  const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
+  const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const authenticateHost = async (req: FastifyRequest, purpose: string) => {
     const raw = await hostAuth.authenticate(req);
     return raw.secure === 1 ? raw : await insecure.enforce(raw, purpose);

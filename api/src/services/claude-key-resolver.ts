@@ -29,7 +29,6 @@ export interface ClaudeApiKeyContext {
   id: number;
   name: string;
   keyPrefix: string;
-  rateLimitRpm: number;
   adminUserId: number | null;
 }
 
@@ -125,7 +124,6 @@ export function createClaudeKeyResolver(db: Database): ClaudeKeyResolver {
       id: row.id,
       name: row.name,
       keyPrefix: row.keyPrefix,
-      rateLimitRpm: row.rateLimitRpm,
       adminUserId: row.adminUserId ?? null,
     };
     return ctx;

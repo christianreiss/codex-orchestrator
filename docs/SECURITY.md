@@ -27,7 +27,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 - **API key binding**: Host API keys are IP-bound on first successful authenticated host request. Later calls from a different IP are 403 unless roaming is allowed, insecure-host IP override/grace applies, or runner CIDR bypass matches (`AUTH_RUNNER_IP_BYPASS` + `AUTH_RUNNER_BYPASS_SUBNETS`).
 - **Reverse DNS checks**: When enabled, forward A/AAAA + PTR matching is enforced only on routes calling `authenticate(..., enforceReverseDns=true)` (`POST /auth`, `DELETE /auth`, `POST /sync/status`, `POST /sync/bootstrap`).
 - **Encryption at rest**: Canonical auth bodies and per-target tokens are encrypted with libsodium `secretbox` (`sbox:v1:` legacy, `sbox:v1:kid=<id>:` rotation-aware) using `AUTH_ENCRYPTION_KEY` or keyring mode (`AUTH_ENCRYPTION_KEYS` + `AUTH_ENCRYPTION_ACTIVE_KID`). Host API keys are hashed (SHA-256) for lookup and also stored encrypted (`api_key_enc`).
-- **Rate limits**: Global IP bucket (default 120 req / 60s, every request except OPTIONS and the bypass list) and a dedicated auth-failure bucket (default 20 fails / 10m) backed by `ip_rate_limits`.
+- **Traffic shaping**: The orchestrator does not impose local request-rate limits. Put volumetric controls at the trusted reverse proxy or network edge when a deployment requires them.
 - **Insecure host windows**: Hosts marked `secure=false` use a sliding window (`insecure_enabled_until`, 0–480 minutes, default stored window 10; initial provisioning window 30). Window enforcement currently applies to `/auth` retrieve-style calls and routes calling `enforceInsecureWindow` (`POST /mcp`, `GET/POST /host/lane`). `store` uploads are not blocked by this window gate in `handleAuth`; they still require normal auth/IP/reverse-DNS/runner checks. Admin disable operations clear both `insecure_enabled_until` and `insecure_grace_until`.
 - **Insecure domain auto-allow**: Active `insecure_domain_allows` entries can auto-open insecure windows for matching subdomains.
 - **TLS verification bypass is risky**: Per-host `curl_insecure` returns installer commands that use `curl -k`, makes installer-internal downloads reuse `curl -k` (the generated installer defaults `CODEX_INSTALL_CURL_INSECURE` to 1), and bakes `allow_insecure` into the host wrapper config so sync traffic skips TLS verification. This exposes installer/API keys/auth payloads to MITM; prefer trusting the correct CA whenever possible.
@@ -63,8 +63,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Abuse Controls
 
-- **Global rate limit**: Configured via `RATE_LIMIT_GLOBAL_PER_MINUTE` and `RATE_LIMIT_GLOBAL_WINDOW` (defaults 120 req/60s). It runs on every non-OPTIONS request, including `/admin/*` and `/go/api/*`; only `/healthz`, `/admin/ws`, `/admin/_app/`, `/admin/manual/articles/`, `/admin/favicon` and immutable `/go/assets/` are skipped.
-- **Auth-fail rate limit**: `RATE_LIMIT_AUTH_FAIL_COUNT`/`RATE_LIMIT_AUTH_FAIL_WINDOW` (defaults 20 fails/600s) guard repeated missing/invalid API keys and respond 429 with `bucket` + `reset_at`. There is no separate block window: the counter window itself is what has to elapse.
+- **No in-process rate limiter**: Authentication, host/IP policy, insecure-host windows, API kill switches, and token-quality checks still apply, but none of them meters request frequency or emits an orchestrator-generated 429.
 - **Pruning**: Hosts are pruned/logged as `host.pruned` when inactive past `inactivity_window_days` (default 30, max 60, 0 disables inactivity pruning), never provisioned for 30 minutes, or expired via `expires_at`. Temporary host `expires_at` is refreshed by successful authenticated contact (+2h).
 
 ## Logging & PII

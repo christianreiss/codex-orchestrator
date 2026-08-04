@@ -75,12 +75,6 @@ async function buildAdminSpaApp(root: string): Promise<FastifyInstance> {
   app.decorate('requireAdmin', async () => {
     throw new UnauthorizedError('Admin session required', 'admin_required');
   });
-  app.decorate('rateLimiter', {
-    async hit() {
-      return { ok: true, resetAt: new Date(Date.now() + 600_000).toISOString(), count: 1 };
-    },
-  } as never);
-
   await registerAdminAuthAndUsersRoutes(app, ctx);
   await registerAdminHostsRoutes(app, ctx);
   await registerAdminOverviewSettingsRoutes(app, ctx);

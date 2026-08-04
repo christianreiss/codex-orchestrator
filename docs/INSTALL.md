@@ -187,7 +187,7 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      off) runs the data backfills.
    - Token TTLs: `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900). One-time installer
      tokens are fixed at 1800s in the API and have no env knob.
-   - Rate limits: the per-IP global bucket (120 req / 60s) is fixed in the API.
+   - Traffic shaping: the API has no in-process request-rate limiter; configure one at the trusted edge if required.
    - Tracing: `OTEL_TRACES_ENABLED` (default off) turns on OpenTelemetry spans
      over the wrapper config bakery, and `OTEL_SERVICE_NAME` (default
      `codex-orchestrator-api`) names the service. Off means the SDK is never
@@ -261,7 +261,7 @@ uncommitted tree.
 - Pending migrations are applied at boot, so deploying a version that adds schema
   needs no separate step. API startup fails closed if the required
   `claude_artifacts` table is absent.
-- Global rate limit is 120 req/min/IP.
+- The API does not impose a local request-rate limit.
 
 ### Where the schema comes from
 
@@ -362,6 +362,5 @@ The wizard's credentials step is also reachable afterwards from Hosts â†’ More â
 - In production keep `PUBLIC_BASE_URL` set and `STRICT_HOST_VALIDATION=1`.
 - If you enable `AUTH_RUNNER_IP_BYPASS`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to
   internal CIDRs only.
-- Global rate limiting covers every route except `/healthz`, the admin WS
-  upgrade, and static admin assets. It is not configurable, so put your own
-  limits at the proxy if you need different numbers.
+- The API does not meter request rates. Put traffic shaping at the proxy when
+  the deployment requires it.

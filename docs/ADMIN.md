@@ -33,7 +33,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   - `POST /admin/setup/owner` — serialized one-time first-owner claim. Creates one fixed active `owner` and issues the normal admin session cookie inline, so the wizard never bounces through `/admin/login`. Later claims return `409 first_owner_claimed`.
   - `GET /admin/setup/wizard` / `POST /admin/setup/wizard` — the progress blob `{completed_at, dismissed_at, last_step, engines}`. Position and completion only: every answer the wizard collects is written by the endpoint that owns it (`/admin/model-defaults/:engine`, the module switches, `/admin/hosts/register`).
 - The six critical checks (`api/src/services/setup-status.ts`) are `database`, `migrations`, `runner`, `signer`, `wrappers`, and `public_base_url`. `setup_complete` is `criticalComplete && ownerCreated` — it goes true at step two of nine and is not a "wizard finished" signal.
-- Nine steps, in `SETUP_WIZARD_STEPS` (`api/src/services/setup-wizard.ts`, mirrored by `SETUP_STEPS` in `frontend/src/lib/api/setup.ts`):
+- Nine steps, defined by `api/src/services/setup-wizard.ts` and mirrored in `frontend/src/lib/api/setup.ts`:
 
   | Step | Writes through | Blocking |
   |---|---|---|
@@ -356,5 +356,4 @@ Admin routes:
 - Memory Atlas delete is a hard, permanent delete in every scope. There is no
   trash, restore, revision-body diff, or rollback action; the confirmation
   dialog is the final safety boundary.
-- Global rate limit bucket (`global`) is skipped for `/admin/*` routes but still applies to non-admin routes.
-- Auth-fail limiter (`auth-fail`) is enforced for bad `/auth` API-key attempts (defaults: `20` per `600s`, `1800s` block; configurable).
+- No in-process request-rate limiter is installed. Authentication and authorization failures are returned directly without a frequency bucket.

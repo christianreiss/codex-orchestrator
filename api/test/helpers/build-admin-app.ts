@@ -642,15 +642,6 @@ export async function buildAdminTestApp(envPatch: Partial<Env> = {}): Promise<Ad
   // For routes that read off `app.db` / `app.env`.
   app.decorate('db', db as unknown as import('../../src/db/client.js').Database);
   app.decorate('env', env);
-  // Admin login/reset/passkey routes call AuthFailureTracker, which reads
-  // `app.rateLimiter` -- this harness doesn't exercise rate-limiting itself,
-  // so a fake that always reports "not exhausted" is sufficient.
-  app.decorate('rateLimiter', {
-    async hit() {
-      return { ok: true, resetAt: new Date(Date.now() + 600_000).toISOString(), count: 1 };
-    },
-  } as never);
-
   await registerAdminAuthAndUsersRoutes(app, {
     db: db as unknown as import('../../src/db/client.js').Database,
     env,

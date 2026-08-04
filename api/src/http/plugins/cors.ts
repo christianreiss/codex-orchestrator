@@ -66,9 +66,6 @@ export const corsPlugin = fp(
             // populate response._request_id — expose it for browser callers,
             // matching the already-exposed OpenAI x-request-id.
             'request-id',
-            'anthropic-ratelimit-requests-limit',
-            'anthropic-ratelimit-requests-remaining',
-            'anthropic-ratelimit-requests-reset',
             'x-codex-version',
             'retry-after',
           ],

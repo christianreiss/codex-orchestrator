@@ -6,8 +6,7 @@ import { loadEnv, resetEnvCache, type Env } from '../../../src/env.js';
 
 /**
  * `src/env.ts` is the gate every boot passes through, yet nothing drove it
- * directly: `test/unit/http/rate-limit-config.test.ts` covers the four
- * RATE_LIMIT_* knobs, and everywhere else the schema is parsed incidentally via
+ * directly; everywhere else the schema is parsed incidentally via
  * `test/helpers/test-keyring.ts`. A coercion that quietly flips, or a dropped
  * cross-field rule, would let a misconfigured deployment boot instead of
  * failing fast with the structured message `loadEnv()` promises — so these pin

@@ -9,7 +9,6 @@ import { parseEngine } from '../../util/engine.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
-import { createAuthFailureTracker } from '../../services/auth-failure-tracker.js';
 import { ClientVersionsService } from '../../services/client-versions.js';
 import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
@@ -30,9 +29,8 @@ import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
  * hits happen out-of-session and shouldn't roll the window).
  */
 export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  const failures = createAuthFailureTracker(app);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
-  const hostAuth = createHostAuthService({ db: ctx.db, failures, env: ctx.env, insecure });
+  const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const clientVersions = new ClientVersionsService(new SettingsService(ctx.db), app.log);
   const versions = createVersionSnapshotService({
     db: ctx.db,

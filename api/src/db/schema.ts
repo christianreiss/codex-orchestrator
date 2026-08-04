@@ -1081,7 +1081,7 @@ export const dashboardGraphQuotaSnapshots = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// logs / rate limits / mcp / versions / openai keys / claude usage
+// logs / mcp / versions / openai keys / claude usage
 // ────────────────────────────────────────────────────────────────────────────
 
 export const logs = mysqlTable(
@@ -1097,23 +1097,6 @@ export const logs = mysqlTable(
   (t) => ({
     hostIdx: index('idx_logs_host').on(t.hostId),
     createdAtIdx: index('idx_logs_created_at').on(t.createdAt),
-  }),
-);
-
-export const ipRateLimits = mysqlTable(
-  'ip_rate_limits',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    ip: varchar('ip', { length: 64 }).notNull(),
-    bucket: varchar('bucket', { length: 64 }).notNull(),
-    count: int('count', { unsigned: true }).notNull().default(0),
-    resetAt: varchar('reset_at', { length: 100 }).notNull(),
-    lastHit: varchar('last_hit', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    uniqIpBucket: uniqueIndex('uniq_ip_bucket').on(t.ip, t.bucket),
-    resetIdx: index('idx_rate_limits_reset_at').on(t.resetAt),
   }),
 );
 
@@ -1172,7 +1155,6 @@ export const openaiApiKeys = mysqlTable(
     keyHash: char('key_hash', { length: 64 }).notNull(),
     keyEnc: longtext('key_enc'),
     adminUserId: bigint('admin_user_id', { mode: 'number', unsigned: true }),
-    rateLimitRpm: int('rate_limit_rpm', { unsigned: true }).notNull().default(60),
     isActive: tinyint('is_active').notNull().default(1),
     useCount: bigint('use_count', { mode: 'number', unsigned: true }).notNull().default(0),
     lastUsedAt: varchar('last_used_at', { length: 100 }),
@@ -1594,7 +1576,6 @@ export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
 export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;
 export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
 export type Secret = typeof secrets.$inferSelect;
-export type IpRateLimit = typeof ipRateLimits.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
 export type SchemaMigration = typeof schemaMigrations.$inferSelect;

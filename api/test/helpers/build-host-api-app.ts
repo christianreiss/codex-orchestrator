@@ -5,21 +5,18 @@ import { requestIdPlugin } from '../../src/http/plugins/request-id.js';
 import type { Database } from '../../src/db/client.js';
 import type { Env } from '../../src/env.js';
 import { Keyring } from '../../src/security/keyring.js';
-import type { RateLimiter } from '../../src/http/plugins/rate-limit.js';
 import { registerHostApiRoutes } from '../../src/routes/host-api/index.js';
 import { extractApiKey, hashApiKey } from '../../src/util/api-key-helpers.js';
 import type { Host, AdminUser, AdminSession } from '../../src/db/schema.js';
 
 /**
  * A minimal app suitable for testing host-api routes without a live MySQL.
- * Pass a `db` fake that returns the rows you want; pass `keyring` for crypto;
- * the rate limiter is a no-op (always allowed) unless you override it.
+ * Pass a `db` fake that returns the rows you want; pass `keyring` for crypto.
  */
 export interface HostApiTestAppOptions {
   db: Database;
   env: Env;
   keyring: Keyring;
-  rateLimiter?: RateLimiter;
 }
 
 export async function buildHostApiTestApp(opts: HostApiTestAppOptions): Promise<FastifyInstance> {
@@ -31,14 +28,6 @@ export async function buildHostApiTestApp(opts: HostApiTestAppOptions): Promise<
   app.decorate('db', opts.db);
   app.decorate('env', opts.env);
   app.decorate('keyring', opts.keyring);
-
-  const limiter: RateLimiter = opts.rateLimiter ?? {
-    async hit() {
-      const resetAt = new Date(Date.now() + 60_000).toISOString();
-      return { ok: true, resetAt, count: 1 };
-    },
-  };
-  app.decorate('rateLimiter', limiter);
 
   // clientIp test adapter (foundation plugin requires onRequest hooks we skip here).
   app.decorateRequest('clientIp', '');

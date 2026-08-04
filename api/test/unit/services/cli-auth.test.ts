@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { FastifyInstance } from 'fastify';
 import { cliAuthRequests, type Host } from '../../../src/db/schema.js';
 import { createCliAuthService, type CliAuthService } from '../../../src/services/cli-auth.js';
 import type { HostRegistrationService } from '../../../src/services/host-registration.js';
-import type { RateLimitConfig, RateLimiter } from '../../../src/http/plugins/rate-limit.js';
-import { ApiError, ConflictError, NotFoundError, RateLimitedError } from '../../../src/http/errors.js';
+import { ApiError, ConflictError, NotFoundError } from '../../../src/http/errors.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { decrypt, encrypt } from '../../../src/security/secret-box.js';
 import { sha256 } from '../../../src/security/hash.js';
@@ -14,11 +12,10 @@ import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 /**
  * Drives the device-code state machine directly, without the /cli/auth routes:
  * the security-relevant branches (single-use key consumption, expiry, the
- * approve/deny gates and the per-IP start limit) all live in the service.
+ * approve/deny gates) all live in the service.
  */
 
 const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
-const RESET_AT = '2026-07-28T21:00:00Z';
 const REQUEST_ID = 'a'.repeat(64);
 const USER_CODE = 'ABCD-2345';
 const HOST_API_KEY = 'sk-codex-clilogin';
@@ -30,7 +27,6 @@ interface Harness {
   db: DbFake;
   keyring: Keyring;
   service: CliAuthService;
-  hits: Array<{ ip: string; bucket: string; overrides: Partial<RateLimitConfig> | undefined }>;
   registrations: RegisterInput[];
 }
 
@@ -38,18 +34,10 @@ function makeKeyring(): Keyring {
   return Keyring.fromEnv({ ENCRYPTION_ACTIVE_KEY: KEY } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
 
-function setup(opts: { rateOk?: boolean; rows?: Row[] } = {}): Harness {
+function setup(opts: { rows?: Row[] } = {}): Harness {
   const db = createDbFake();
   db.tables.set(cliAuthRequests, opts.rows ?? []);
   const keyring = makeKeyring();
-
-  const hits: Harness['hits'] = [];
-  const rateLimiter: RateLimiter = {
-    async hit(ip, bucket, overrides) {
-      hits.push({ ip, bucket, overrides });
-      return { ok: opts.rateOk ?? true, resetAt: RESET_AT, count: hits.length };
-    },
-  };
 
   const registrations: RegisterInput[] = [];
   const registration: HostRegistrationService = {
@@ -59,9 +47,8 @@ function setup(opts: { rateOk?: boolean; rows?: Row[] } = {}): Harness {
     },
   };
 
-  const app = { rateLimiter } as unknown as FastifyInstance;
-  const service = createCliAuthService({ db: db as never, keyring, registration, app });
-  return { db, keyring, service, hits, registrations };
+  const service = createCliAuthService({ db: db as never, keyring, registration });
+  return { db, keyring, service, registrations };
 }
 
 function row(over: Row = {}): Row {
@@ -137,26 +124,6 @@ describe('cli-auth: start', () => {
     expect(ttl).toBe(600_000);
   });
 
-  it('throws RateLimitedError when the cli_auth_start bucket is exhausted', async () => {
-    const { service, db, hits } = setup({ rateOk: false });
-    const err = await captureError(() =>
-      service.start({ fqdn: 'wrapper.example', secure: true, ip: '203.0.113.9', userAgent: null }),
-    );
-    expect(err).toBeInstanceOf(RateLimitedError);
-    expect(err.status).toBe(429);
-    expect(err.extra).toEqual({ bucket: 'cli_auth_start', reset_at: RESET_AT });
-    expect(hits).toEqual([
-      { ip: '203.0.113.9', bucket: 'cli_auth_start', overrides: { limit: 10, windowSeconds: 3600 } },
-    ]);
-    expect(db.inserts).toHaveLength(0);
-  });
-
-  it('skips the limiter when the caller IP is unknown', async () => {
-    const { service, hits, db } = setup({ rateOk: false });
-    await service.start({ fqdn: 'wrapper.example', secure: true, ip: null, userAgent: null });
-    expect(hits).toHaveLength(0);
-    expect(db.tables.get(cliAuthRequests)!).toHaveLength(1);
-  });
 });
 
 describe('cli-auth: poll', () => {
@@ -233,7 +200,6 @@ describe('cli-auth: poll', () => {
       db: staleDb as never,
       keyring,
       registration: { async registerOrRotate() { throw new Error('unused'); } },
-      app: { rateLimiter: { async hit() { throw new Error('unused'); } } } as unknown as FastifyInstance,
     });
 
     expect(await service.poll(REQUEST_ID)).toEqual({ status: 'consumed' });
