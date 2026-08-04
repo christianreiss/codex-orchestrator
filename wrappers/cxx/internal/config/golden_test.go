@@ -113,6 +113,7 @@ func goldenFixtures() []goldenFixture {
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,
 					ChannelPreviewEnabled: false,
+					ListenEnabled:         true,
 				},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
@@ -166,6 +167,7 @@ func goldenFixtures() []goldenFixture {
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,
 					ChannelPreviewEnabled: false,
+					ListenEnabled:         true,
 				},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
@@ -213,6 +215,9 @@ func goldenFixtures() []goldenFixture {
 					RelayPollSeconds:      25,
 					QueuedTTLSeconds:      86400,
 					ChannelPreviewEnabled: false,
+					// Mirrors `enabled`: this host has Agent Messaging off, so the
+					// receive plane is off with it.
+					ListenEnabled: false,
 				},
 				Wrapper: Wrapper{
 					Version:      "2.4.0",
