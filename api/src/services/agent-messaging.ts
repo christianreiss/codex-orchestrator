@@ -1391,8 +1391,7 @@ export class AgentMessagingService {
       });
       // The PIN dies with the room, so its window is the room's deadline.
       const pin = await this.mintConferencePinLocked(tx, conference.id, conference.deadlineAt, now);
-      const roster = await this.rosterRowsLocked(tx, conference.id);
-      return { conference: { ...conference, pin } as AgentBusConference, self, reused: false, roster };
+      return { conference: { ...conference, pin } as AgentBusConference, self, reused: false };
     });
     const roster = await this.db.transaction(async (tx) => await this.rosterRowsLocked(tx, result.conference.id));
     return {

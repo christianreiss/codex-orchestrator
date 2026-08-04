@@ -308,6 +308,76 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
   });
 });
 
+/**
+ * The ringer's server half.
+ *
+ * An attached Claude session has no interrupt and the relay refuses to write to
+ * it, so these two hooks are the only moments a queued peer message can be
+ * announced at all. If they stop rendering, nothing fails loudly — calls just go
+ * unanswered exactly as they did before, which is indistinguishable from a quiet
+ * fleet.
+ */
+describe('client-config: the Agent Messaging ringer hooks', () => {
+  const ringHooks = (agentMessagingEnabled: boolean) =>
+    renderClaudeSettingsPartialForHost({
+      settings: {},
+      host: { id: 1, secure: 1 } as never,
+      baseUrl: 'https://orchestrator.example',
+      apiKey: 'k'.repeat(40),
+      engine: ENGINE_CLAUDE,
+      agentMessagingEnabled,
+    } as never);
+
+  it('ships a Stop and a UserPromptSubmit hook wherever the bus is provisioned', () => {
+    const { partial, owned_paths } = ringHooks(true);
+    const hooks = partial.hooks as Record<string, unknown[]>;
+
+    expect(Object.keys(hooks).sort()).toEqual(['Stop', 'UserPromptSubmit']);
+    for (const event of ['Stop', 'UserPromptSubmit']) {
+      const command = String(
+        ((hooks[event]![0] as Record<string, unknown[]>).hooks![0] as Record<string, unknown>).command,
+      );
+      expect(command).toContain(`cxx agent poll --hook ${event}`);
+      // Not decoration: a Stop hook that exits non-zero BLOCKS the turn, so a
+      // wrapper too old to know `agent poll` would wedge every turn on an
+      // unknown-command error. Forcing exit 0 is what lets this ship without
+      // version-gating.
+      expect(command).toContain('|| true');
+      // Ownership is what lets the wrapper remove them again if this ever drops.
+      expect(owned_paths).toContain(`hooks.${event}`);
+    }
+  });
+
+  it('renders no hooks at all when the bus is not provisioned', () => {
+    const { partial, owned_paths } = ringHooks(false);
+    expect(partial).not.toHaveProperty('hooks');
+    expect(owned_paths).not.toContain('hooks.Stop');
+    expect(owned_paths).not.toContain('hooks.UserPromptSubmit');
+  });
+
+  it('appends the ring to operator hooks rather than replacing them', () => {
+    const operatorHook = { hooks: [{ type: 'command', command: 'operator-audit.sh' }] };
+    const { partial } = renderClaudeSettingsPartialForHost({
+      settings: { hooks: { Stop: [operatorHook], PreToolUse: [operatorHook] } },
+      host: { id: 1, secure: 1 } as never,
+      baseUrl: 'https://orchestrator.example',
+      apiKey: 'k'.repeat(40),
+      engine: ENGINE_CLAUDE,
+      agentMessagingEnabled: true,
+    } as never);
+    const hooks = partial.hooks as Record<string, unknown[]>;
+
+    // Same union as permissions.allow: claiming the path must not mean
+    // discarding what the operator put there.
+    expect(hooks.Stop).toHaveLength(2);
+    expect(hooks.Stop![0]).toEqual(operatorHook);
+    expect(String(((hooks.Stop![1] as Record<string, unknown[]>).hooks![0] as Record<string, unknown>).command))
+      .toContain('cxx agent poll');
+    // An event the ring does not touch is left exactly as configured.
+    expect(hooks.PreToolUse).toEqual([operatorHook]);
+  });
+});
+
 describe('client-config: Claude effortLevel rendering', () => {
   it('renders effortLevel in both the full file and deep-merge ownership contract', () => {
     const settings = normalizeSettings({

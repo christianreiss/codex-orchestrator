@@ -18,6 +18,7 @@ import {
   AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
   AGENT_MESSAGING_ENABLED_KEY,
   AgentMessagingService,
+  releaseAgentMessagingBindingsLocked,
   suspendAgentMessagingRuntimeLocked,
 } from '../../../src/services/agent-messaging.js';
 import type { Engine } from '../../../src/util/engine.js';
@@ -275,6 +276,51 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     const settled = await memberRow(conferenceId, one.addressId);
     expect(settled?.state).toBe('seated');
     expect(settled?.lastReportAt).not.toBeNull();
+  });
+
+  it('settles a headless dispatch through the relay, which is the only path it has', async () => {
+    const { chair, one, conferenceId } = await room();
+
+    // Make the member genuinely headless: no attached wrapper, so the relay is
+    // allowed to claim for it and it will never call a tool of its own.
+    await db.transaction(async (tx) => {
+      await releaseAgentMessagingBindingsLocked(tx, [one.sessionId]);
+    });
+    const relay = await service.registerRelay(host, {
+      username: `${PREFIX}-one`,
+      instanceId: randomUUID(),
+      wrapperVersion: 'test',
+    });
+
+    const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+      conferenceId,
+      to: one.address,
+      task: 'run the migration',
+    });
+    expect((await memberRow(conferenceId, one.addressId))?.state).toBe('dispatched');
+
+    const claim = randomUUID();
+    const claimed = await service.claimForRelay(String(relay.relay_id), String(relay.relay_token), claim);
+    expect(claimed).not.toBeNull();
+    expect(String((claimed as unknown as Record<string, unknown>).message_id)).toBe(String(dispatched.message_id));
+
+    // A headless member never calls agent_reply: the relay correlates its final
+    // output and posts it here. Hooking only the tool path would leave every
+    // headless member stuck in `dispatched` forever.
+    await service.replyFromRelayDelivery(
+      String(relay.relay_id),
+      String(relay.relay_token),
+      String(dispatched.message_id),
+      { claimId: claim, content: 'applied 09:12Z', clientMessageId: randomUUID() },
+    );
+
+    // Deliberately no maintenance() call. The sweep would return this member to
+    // `seated` at its dispatch deadline anyway, so running it here would make a
+    // broken relay hook look exactly like a working one.
+    const settled = await memberRow(conferenceId, one.addressId);
+    expect(settled?.state).toBe('seated');
+    expect(settled?.lastReportAt).not.toBeNull();
+    expect(settled?.mode).toBe('headless');
   });
 
   it('un-strands a dispatched member whose run never came back', async () => {

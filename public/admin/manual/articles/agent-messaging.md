@@ -216,6 +216,122 @@ Operational notes:
   model asked for, exactly as `agent_wait` already does, while the pump pushes content
   into a transcript nobody asked for.
 
+## The ring (`mailbox` and the Claude hooks)
+
+Until this existed, an agent someone was sitting in front of could not be reached
+at all, and nothing said so. An interactive agent has no interrupt: it exists only
+during a turn, and nothing of it runs in between. The relay cannot help, because it
+deliberately skips any address whose wrapper is attached, and the session itself
+only pulls when the model calls `agent_listen`. A message addressed to an attached
+session therefore sat `queued` until it expired — the caller printed "no answer",
+the callee never knew, and no error was raised on either side.
+
+That is why `#call` is specified with a human in the middle. **The PIN banner was
+never a UX flourish; it was the signalling layer, and the operator was the
+transport.** That works for one call. It does not scale to inviting five hosts
+into a room, which is why the ring landed before conferences did.
+
+How it works:
+
+- **`mailbox` is a peek, not a claim.** It reports who is waiting and when their
+  message expires, plus calls that expired unanswered in the last 30 minutes. It
+  takes no lease, changes no status, and burns no delivery attempt. It also does
+  **not** require receive-capability — unlike `deliveries/claim` — because an agent
+  that has never called `agent_listen` is precisely who needs it.
+- **It never returns a body.** Hearing the phone ring is not answering it, and
+  handing over content without a lease would tell the sender its message went
+  unread when the target had in fact read it. Reading the message still means
+  claiming it.
+- **Two fleet-owned Claude Code hooks run `cxx agent poll`**, one on `Stop` and one
+  on `UserPromptSubmit`. Those are the only two moments at which a notification can
+  land. They are injected into `settings.json` wherever the `cxx-agent` MCP server
+  is provisioned, and operator-authored hooks for the same events are preserved —
+  the ring is appended, not substituted, the same way `permissions.allow` unions.
+- **Each message rings at most once per event.** Claude Code ships no
+  `stop_hook_active` guard, so a `Stop` hook that always blocks is a session that
+  can never end its turn. A ledger under `~/.cache/codex-orchestrator/agent-ring/`
+  records what has already rung, and if it cannot be written the hook does not
+  block. A missed call is recoverable; a wedged session is not.
+- **The hook command ends in `|| true`.** A `Stop` hook that exits non-zero blocks
+  the turn with its stderr as feedback, so a wrapper too old to know `agent poll`
+  would otherwise wedge every turn on an unknown-command error. Forcing exit 0
+  makes it a no-op on any wrapper that cannot serve it.
+- **Polling never binds `receive_capable`.** That is `agent_listen`'s job. An
+  address that bound at every turn boundary but listened only occasionally would
+  advertise `readiness: live` to every peer reading `agent_list` while actually
+  checking mail twice a minute — a worse lie than being unbound.
+- **Claude only.** Codex has no hook surface. A Codex peer is reachable while it is
+  actively listening, or headless through its relay, and is best invited by address
+  rather than expected to dial a PIN.
+
+If a host is on a wrapper older than the one that introduced `cxx agent poll`, the
+ringer is inert there and calls to attached sessions behave exactly as before.
+Nothing breaks; nothing rings.
+
+## Conferences (`#conference`)
+
+A conference is a meeting with a chair: an owner, a roster, and the authority to
+dispatch work and adjourn. It is the multi-host generalisation of a call — three to
+eight agents across a cluster, one of them running the room.
+
+**The transport is a star, not a new kind of conversation.** Every member holds one
+ordinary two-party `agent_bus_conversations` row with the chair, and the chair
+relays. That is deliberate: the delivery leases, the per-conversation sequence, the
+head-of-line ordering and the one-in-flight-per-address rule in the dispatcher are
+all written against exactly two participants, and none of them survive an N-party
+conversation row. The two new tables add membership and authority only. There is no
+participant-to-participant edge; a participant's `to` is ignored rather than
+rejected, because there is nowhere for it to go.
+
+Operational notes:
+
+- **The turn rule is not the call's.** A call has a token and exactly one side holds
+  it. That does not survive N parties, and reusing it deadlocks the room. The
+  replacement: every message creates exactly one obligation, the chair's reply is
+  always turn-terminal, and **only the chair opens a round.** Participants answer
+  and return to listening.
+- **The budget is per member, not per call.** Sixteen turns is meaningless when one
+  broadcast round across five members is already ten-plus messages. Each member gets
+  twelve messages and the room gets a wall-clock deadline, both enforced by the
+  server — a spent member's sends fail with
+  `agent_messaging_conference_budget_spent`, and an overdue room adjourns itself on
+  the maintenance tick.
+- **A room PIN is multi-use, unlike a call PIN.** Every member dials the same four
+  digits, so a join never consumes it; it dies with the room's deadline or at
+  adjourn. It is minted from the *same* four-digit space as `#call` PINs, because a
+  human carrying digits between terminals cannot be expected to also carry which
+  kind of thing they open. MySQL cannot express that as a cross-table constraint, so
+  the mint scans both tables.
+- **Members come in two kinds, and the roster says which.** An `attached` member is
+  a live wrapper sitting in `agent_listen`. A `headless` member is an idle host its
+  relay boots per delivery, resumed through its stored upstream session so it keeps
+  the room's context across rounds — there is no process between deliveries, which
+  is exactly why "stay in the room and rejoin after tasks" costs nothing. A headless
+  member cannot send a progress update; its final output *is* its report.
+- **Invite-by-address is what makes a cluster usable.** `conf/invite` wakes idle
+  hosts with no human present. A host with a wrapper already attached is skipped by
+  the relay by design, and its invitation waits until that session next listens —
+  which is the case the PIN still covers.
+- **Only `purpose` is declared by the member.** Host, engine and role come from what
+  the fleet already knows: `fqdn` and `engine` are joined at read time, and role is
+  assigned by open-vs-join. A member cannot misreport the box it runs on.
+- **Fan-out is a loop, not a transaction.** `conf/say` and `conf/invite` return one
+  result per member with `delivered` true or false. A partial broadcast is reported,
+  never rolled back and never disguised.
+- **Adjourn is graceful by default.** Cancelling a conversation revokes its delivery
+  lease, and a headless member mid-run is having that lease renewed on a ticker — so
+  a blanket cancel kills a running engine process mid-task. The default therefore
+  leaves working members to finish and parks the room in `adjourning` until their
+  reports land. `force: true` is the decisive form and reports how many tasks it
+  interrupted.
+- **A dispatched member is swept back to the floor.** A headless run that dies burns
+  its delivery attempts without ever touching the member row, so without the sweep
+  the chair would wait forever on a report that is not coming. `dispatch_deadline_at`
+  is what the 30-second tick uses; the member returns to `seated` with
+  `last_report_at` still null, so the miss stays visible.
+- **Disabling the fleet switch adjourns every open room**, and a member part-way
+  through a dispatched task loses that work. The Settings confirmation says so.
+
 ## Operator workspace
 
 Open **Operate → Agent Messaging** to inspect:
@@ -257,6 +373,14 @@ Session-bound bridge routes:
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel`
 - `POST /host/agent-sessions/{id}/agent-messaging/call/open`
 - `POST /host/agent-sessions/{id}/agent-messaging/call/join`
+- `POST /host/agent-sessions/{id}/agent-messaging/mailbox`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/open`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/invite`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/join`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/roster`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/say`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch`
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn`
 - `POST /host/agent-sessions/{id}/agent-messaging/bind`
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim`
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
@@ -290,14 +414,17 @@ Admin routes:
 `agent_bus_conversations` stores participant pairs and sequence state;
 `agent_bus_messages` stores the encrypted body, routing, lease, outcome, and
 redrive history; and `agent_bus_relays` stores one generation-fenced relay per
-host user. `agent_sessions.agent_bus_address_id` connects the shared wrapper
-lifecycle to the bus. `hosts.agent_messaging_enabled` is the retired per-host
-switch and is no longer read.
+host user. `agent_bus_conferences` and `agent_bus_conference_members` store rooms
+and their rosters — membership and authority only, since the traffic itself rides
+the ordinary conversation and message tables. `agent_sessions.agent_bus_address_id`
+connects the shared wrapper lifecycle to the bus. `hosts.agent_messaging_enabled`
+is the retired per-host switch and is no longer read.
 
 Message bodies and delivery error text are libsodium secretbox ciphertext at
 rest. The maintenance worker expires TTLs, retries expired unaccepted leases,
 marks exhausted deliveries dead, marks expired accepted leases ambiguous,
-reaps dead bindings, and marks stale relays. Version 1 does not delete terminal
+reaps dead bindings, marks stale relays, adjourns overdue and drained
+conferences, and returns stranded dispatched members to the floor. Version 1 does not delete terminal
 messages, canceled conversations, dormant addresses, aliases, or audit history.
 There is no automatic Agent Messaging history purge.
 

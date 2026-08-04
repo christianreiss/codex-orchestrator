@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
@@ -156,6 +157,68 @@ func TestMergeIsIdempotent(t *testing.T) {
 	second, _, _ := MergeSettings(first, partial, owned, st)
 	if !bytesEqual(first, second) {
 		t.Errorf("merge must be idempotent:\n%s\n---\n%s", first, second)
+	}
+}
+
+// The ringer ships a NON-EMPTY array of hook objects at hooks.Stop, not the
+// empty array the idempotency test happens to use. If the merge descended into
+// that value as though it were an object block, the hook would never reach disk
+// and nothing on either side of the wire would say so -- calls would simply go
+// on being missed, exactly as they did before the ringer existed.
+func TestMergeCarriesNonEmptyHookArraysVerbatim(t *testing.T) {
+	ring := []any{map[string]any{
+		"hooks": []any{map[string]any{
+			"type":    "command",
+			"command": "cxx agent poll --hook Stop 2>/dev/null || true",
+			"timeout": float64(10),
+		}},
+	}}
+	partial := map[string]any{"hooks": map[string]any{"Stop": ring}}
+	owned := []string{"hooks.Stop"}
+
+	// A user-authored sibling event must survive: the fleet owns hooks.Stop,
+	// not hooks.
+	user := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"mine.sh"}]}]}}`)
+	out, st, err := MergeSettings(user, partial, owned, emptyState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks, ok := parseObj(t, out)["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks block missing from merged settings: %s", out)
+	}
+	stop, ok := hooks["Stop"].([]any)
+	if !ok || len(stop) != 1 {
+		t.Fatalf("hooks.Stop must survive as a one-entry array, got %#v", hooks["Stop"])
+	}
+	group, ok := stop[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hook group must stay an object, got %#v", stop[0])
+	}
+	inner, ok := group["hooks"].([]any)
+	if !ok || len(inner) != 1 {
+		t.Fatalf("nested hooks array must survive, got %#v", group["hooks"])
+	}
+	command, _ := inner[0].(map[string]any)["command"].(string)
+	if !strings.Contains(command, "cxx agent poll --hook Stop") || !strings.Contains(command, "|| true") {
+		t.Errorf("hook command must round-trip verbatim, got %q", command)
+	}
+	if _, ok := hooks["PreToolUse"]; !ok {
+		t.Error("a user-authored sibling event must survive a fleet-owned hooks.Stop")
+	}
+
+	// And dropping ownership must remove it again rather than stranding a hook
+	// that runs a command the wrapper may no longer serve.
+	cleared, _, err := MergeSettings(out, map[string]any{}, nil, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, _ := parseObj(t, cleared)["hooks"].(map[string]any)
+	if _, still := remaining["Stop"]; still {
+		t.Error("hooks.Stop must be removed once the fleet stops owning it")
+	}
+	if _, kept := remaining["PreToolUse"]; !kept {
+		t.Error("dropping fleet ownership must not take the user's hooks with it")
 	}
 }
 
