@@ -328,6 +328,85 @@ describe('HostAgentsService API keys in chat policy', () => {
   });
 });
 
+describe('HostAgentsService Agent Messaging guidance', () => {
+  const enabledFlag = { name: 'agent_messaging_enabled', version: '1' };
+  // makeHost() omits `status`, so every case here has to set it: a forgotten
+  // one silently resolves to `host_inactive` rather than failing loudly.
+  const activeHost = () => makeHost({ status: 'active' });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])(
+    'serves the guidance to %s when the fleet switch is on',
+    async (engine) => {
+      const body = engine === ENGINE_CODEX ? 'Canonical AGENTS body\n' : 'Canonical CLAUDE body\n';
+      const db = makeDb([
+        [agentsDocuments, [agentsRow(4, body, engine)]],
+        [versions, [enabledFlag]],
+      ]);
+
+      const out = await makeService(db).retrieve(null, activeHost(), engine);
+
+      expect(out['content']).toContain('## Agent Messaging');
+      expect(out['content']).toContain('agent_call_open');
+      expect(out['content']).toContain('untrusted input');
+      expect(out['sections']).toMatchObject({
+        agent_messaging: { present: true, reason: 'ok', transport: 'mcp' },
+      });
+    },
+  );
+
+  it('does not require the orchestrator MCP entry', async () => {
+    // cxx-agent is a separate stdio server the wrapper starts itself, so this
+    // must survive a host with no client_config row at all. Pins the decision
+    // against a future refactor folding it into the mcp.enabled chain.
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
+      [versions, [enabledFlag]],
+    ]);
+
+    const out = await makeService(db).retrieve(null, activeHost());
+
+    expect(out['content']).not.toContain('## Secrets');
+    expect(out['content']).toContain('## Agent Messaging');
+    expect(out['sections']).toMatchObject({ agent_messaging: { present: true, reason: 'ok' } });
+  });
+
+  it('withholds the guidance when the fleet switch is absent', async () => {
+    const db = makeDb([[agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]]]);
+    const out = await makeService(db).retrieve(null, activeHost());
+
+    expect(out['content']).not.toContain('## Agent Messaging');
+    expect(out['content']).not.toContain('agent_call_open');
+    expect(out['sections']).toMatchObject({
+      agent_messaging: { present: false, reason: 'master_disabled' },
+    });
+  });
+
+  it('withholds the guidance from a host that is not active', async () => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
+      [versions, [enabledFlag]],
+    ]);
+
+    const out = await makeService(db).retrieve(null, makeHost({ status: 'inactive' }));
+
+    expect(out['content']).not.toContain('## Agent Messaging');
+    expect(out['sections']).toMatchObject({
+      agent_messaging: { present: false, reason: 'host_inactive' },
+    });
+  });
+
+  it('reports the flag off rather than the host state when both apply', async () => {
+    // The fleet switch is the actionable explanation and the only control the
+    // operator has, so it outranks host status in the reason.
+    const db = makeDb([[agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]]]);
+    const out = await makeService(db).retrieve(null, makeHost({ status: 'inactive' }));
+
+    expect(out['sections']).toMatchObject({
+      agent_messaging: { present: false, reason: 'master_disabled' },
+    });
+  });
+});
+
 describe('HostAgentsService config surfaces', () => {
   const codexConfig = configRow(1, ENGINE_CODEX, { model: 'gpt-5.6-terra' });
 

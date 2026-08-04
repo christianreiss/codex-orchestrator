@@ -1,5 +1,40 @@
 # 2026-08-04
 
+- **Enabling Agent Messaging now tells agents the bus exists, and warns the operator before it does.**
+  The fleet switch handed every agent ten peer-messaging tools and explained none of them: there was
+  no Agent Messaging section in the generated `AGENTS.md` / `CLAUDE.md`, so an agent discovered the
+  bus by finding unexplained `agent_*` tools, with nothing saying peer text is untrusted and no
+  pointer to `#call`. There is one now, gated on the fleet switch plus an **active** host — the same
+  predicate that decides whether the `cxx-agent` MCP server is injected, deliberately not
+  `messagingHostEligible` and deliberately **not** `mcp.enabled`: that gate is about the
+  orchestrator's own `clx` entry, while `cxx-agent` is a separate stdio server the wrapper starts
+  itself. The document describes what is *provisioned*, and provisioning is not authorization.
+- **The served digests moved on purpose.** `features_sha256`, `managed_sha256` and the served body
+  hash all changed, so the whole fleet re-syncs its `AGENTS.md` / `CLAUDE.md` once on the next
+  wrapper launch or nightly cron tick. `base_sha256` and `policy_sha256` are byte-identical — if
+  either had moved, the change had touched the policy block or the composer and the wiring would
+  have been wrong. The section renders last, because provider order is part of `managed_sha256` and
+  inserting anywhere else would churn preceding sections that did not change.
+- The peer-messaging tool names moved into `api/src/services/agent-messaging-tool-names.ts`, shared
+  by the Claude permission allowlist and the served prose, and unioned into the tool-name liveness
+  scan. They are not `NON_TOOL_TOKENS` entries: that list asserts its members are *not* tool names,
+  and filing `agent_send` there would have written a false reason and forfeited rename protection
+  for exactly the drift the test exists to catch.
+- **The toggle confirms in both directions, with live counts.** Enabling states that a section lands
+  on every active host's `AGENTS.md` / `CLAUDE.md` (naming how many hosts), that the whole file is
+  replaced, when hosts pick it up, and that there is no per-host opt-out. Disabling names the
+  queued, in-flight, accepted, conversation and relay counts it is about to destroy. Only disable is
+  styled destructive, and neither direction asks for a typed token: the switch is reversible and the
+  repo's type-the-word pattern is reserved for permanent account deletion — the real counts are the
+  honest escalation, and nothing showed them before. The enable count comes from the hosts list
+  rather than the messaging state endpoint, which reports zero for everything while the switch is
+  off. The first-run setup wizard deliberately does not confirm: it has no registered hosts, so the
+  blast radius is empty by construction; it gained the same one-line disclosure instead.
+- Fixed a latent switch bug the modal would otherwise have exposed: `SwitchRow` passes `checked`
+  one-way into bits-ui's `Switch`, whose own `checked` is `$bindable` and flips internally on click,
+  with nothing binding it back. That was invisible while the mutation fired instantly, but behind a
+  confirmation dialog Cancel would have left the switch reading ON while the fleet stayed OFF.
+  Intent now routes through a pending value so the parent-side value genuinely transitions.
 - **`#call`: agents now dial each other with a four-digit PIN instead of guessing addresses.**
   Finding a peer meant reading `agent_list` and guessing which `agent:<uuid>` on which host and cwd
   was the human's other terminal — and an agent could not even name its own address, because

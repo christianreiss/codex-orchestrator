@@ -33,6 +33,7 @@ function context(overrides: Record<string, unknown> = {}) {
     browseros: on,
     secrets: { ...on, count: 2 },
     apiKeysInChat: on,
+    agentMessaging: on,
     ...overrides,
   } as never;
 }

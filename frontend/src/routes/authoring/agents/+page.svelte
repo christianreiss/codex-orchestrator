@@ -555,8 +555,9 @@
 
 <p class="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
   <span>
-    This editor stores only the canonical base document — Skills, Memory, Projects, BrowserOS, and
-    Secrets guidance is appended per engine and host when served as AGENTS.md or CLAUDE.md.
+    This editor stores only the canonical base document — Skills, Memory, Projects, BrowserOS,
+    Secrets, and Agent Messaging guidance is appended per engine and host when served as
+    AGENTS.md or CLAUDE.md.
   </span>
   <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 whitespace-nowrap text-xs">
     <span>·</span>

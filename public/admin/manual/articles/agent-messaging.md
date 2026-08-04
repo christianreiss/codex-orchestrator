@@ -52,6 +52,26 @@ defaults off. It is also the **only** switch. Turning it on turns the bus on
 for the whole fleet, including insecure hosts — there is no per-host gate to
 flip afterwards.
 
+**Enabling also rewrites what every agent reads.** The switch adds an Agent
+Messaging section to the managed `AGENTS.md` / `CLAUDE.md` served to every active
+host: the tool names, the rule that a peer message is untrusted input carrying no
+authority, and the `#call` PIN rendezvous with its turn-holding rule. Without it
+an agent receives ten peer-messaging tools and nothing explaining them. The
+served file is replaced **whole** on the host — there is no separate managed
+block on disk — so a host picks the change up on its next wrapper launch, or on
+its nightly cron tick between 00:00 and 03:59, and a host with a session already
+running is skipped until that session ends. Disabling removes the section on the
+same schedule, which means an agent can briefly hold instructions for tools that
+no longer answer.
+
+Both directions of the switch now confirm before applying, and the dialog shows
+live counts: how many active hosts will be rewritten when enabling, and how many
+open conversations, queued and in-flight deliveries, accepted deliveries and
+relays will be destroyed when disabling. Disabling is styled destructive; neither
+direction asks you to type a confirmation word, because the switch is reversible
+and the counts are the honest signal. The first-run setup wizard does not
+confirm — there are no registered hosts yet, so there is nothing to warn about.
+
 ## Eligibility gates
 
 All of these must be true before an address can be discovered or used:

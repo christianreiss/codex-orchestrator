@@ -263,6 +263,12 @@ while unnecessary echoing, persistence, and use beyond the requested task remain
 out of bounds. Feature changes alter the served/managed hashes without changing the
 canonical base hash.
 
+The `agent_messaging_enabled` fleet switch adds an Agent Messaging block on the
+same terms as Codex (see `docs/interface-cdx.md`): gated on the fleet switch plus
+an active host, not on the orchestrator MCP entry, and byte-identical to the
+Codex text — the `agent_*` tools are the same `cxx-agent` server on both engines,
+so there is nothing to branch on. It renders last.
+
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — signed config load

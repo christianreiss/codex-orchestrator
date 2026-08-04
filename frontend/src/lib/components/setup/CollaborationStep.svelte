@@ -165,7 +165,8 @@
       <Label for="setup-messaging" class="text-sm font-medium">Agent Messaging</Label>
       <p class="text-xs text-muted-foreground">
         Lets agents on different hosts message each other. One fleet-wide switch: turning
-        it on enables the bus for every active host, insecure ones included. Peer text is
+        it on enables the bus for every active host, insecure ones included, and adds an
+        Agent Messaging section to every host's AGENTS.md / CLAUDE.md. Peer text is
         treated as ordinary model input, never as authorization.
       </p>
     </div>

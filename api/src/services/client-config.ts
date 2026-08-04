@@ -58,6 +58,7 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../util/engine.js';
+import { AGENT_MESSAGING_TOOLS } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import type { Host } from '../db/schema.js';
 
@@ -603,19 +604,6 @@ const CURATION_TOOLS = [
   'shared_memory_delete',
   'project_memory_upsert',
   'project_memory_delete',
-] as const;
-
-const AGENT_MESSAGING_TOOLS = [
-  'agent_list',
-  'agent_send',
-  'agent_request',
-  'agent_wait',
-  'agent_reply',
-  'agent_message_get',
-  'agent_cancel',
-  'agent_call_open',
-  'agent_call_join',
-  'agent_listen',
 ] as const;
 
 export function renderClaudeSettingsPartial(

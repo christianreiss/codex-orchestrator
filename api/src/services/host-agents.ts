@@ -341,6 +341,7 @@ export class HostAgentsService {
       secretsEnabled,
       secretCount,
       apiKeysInChatEnabled,
+      agentMessagingEnabled,
     ] = await Promise.all([
       this.db
         .select()
@@ -356,6 +357,7 @@ export class HostAgentsService {
       this.secrets.getEnabled().catch(() => null),
       this.secrets.availableCount(engine).catch(() => null),
       this.settings.getFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, false).catch(() => null),
+      this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false).catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -423,7 +425,31 @@ export class HostAgentsService {
         ? state(true, 'ok')
         : state(false, 'disabled');
 
-    return { engine, skills, memory, projects, browseros, secrets, apiKeysInChat };
+    // Mirrors the predicate that decides whether the `cxx-agent` MCP server is
+    // injected into this host's config (see retrieveConfig / retrieveClaudeSettings
+    // above) — not `messagingHostEligible`, and not the wrapper's `messagingBaked`.
+    // The document describes what is *provisioned*, and provisioning is
+    // deliberately not authorization: an insecure host outside its allowed window
+    // still carries the server and the tools and is refused per operation.
+    // Withholding the guidance from it would leave an agent holding ten tools that
+    // nothing tells it about.
+    //
+    // It deliberately does NOT require `mcp.enabled`. That gate is about the
+    // orchestrator's own `clx` MCP entry reaching the host's client config;
+    // `cxx-agent` is a separate stdio server the wrapper starts itself, so
+    // requiring it here would be a new restriction rather than an inherited one.
+    //
+    // Flag-off outranks host-inactive: the fleet switch is the actionable
+    // explanation, and it is how the operator thinks about this feature.
+    const agentMessaging = agentMessagingEnabled === null
+      ? state(false, 'service_unavailable')
+      : !agentMessagingEnabled
+        ? state(false, 'master_disabled')
+        : host.status !== 'active'
+          ? state(false, 'host_inactive')
+          : state(true, 'ok');
+
+    return { engine, skills, memory, projects, browseros, secrets, apiKeysInChat, agentMessaging };
   }
 
   private async resolveServedDocument(

@@ -6,6 +6,7 @@ import {
 } from '../../../src/services/managed-coco-skill.js';
 import { renderManagedAgentFeatures } from '../../../src/services/managed-agents-features.js';
 import { managedSkillManagerManifest } from '../../../src/services/managed-skill-manager.js';
+import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { MCP_TOOL_NAMES } from '../../../src/services/shared-memory-tool-names.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 
@@ -59,6 +60,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   latest_seq: 'a project_bootstrap/project_changes response field, not a tool',
   expected_sha256: 'the optimistic-concurrency argument of shared_memory_write, not a tool',
   display_name: 'optional skill_store display metadata, not a tool',
+  message_id: 'the inbound delivery id agent_reply answers and agent_message_get reads, not a tool',
 };
 
 interface Mention {
@@ -90,6 +92,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       browseros: enabled,
       secrets: { ...enabled, count: 1 },
       apiKeysInChat: enabled,
+      agentMessaging: enabled,
     }).body,
   })),
   {
@@ -102,13 +105,22 @@ const mentions: Mention[] = CONTENT.flatMap(({ source, text }) =>
   [...new Set([...text.matchAll(IDENTIFIER)].map((match) => match[0]))].map((name) => ({ source, name })),
 );
 
-/** A `foo_*` family is live when the registry has at least one tool with that prefix. */
+/**
+ * Two servers publish tools to agents, and the managed documents name both.
+ * `registered` is the orchestrator's own `clx` server; `AGENT_MESSAGING_TOOLS`
+ * is the `cxx-agent` stdio server the wrapper starts itself. A name from either
+ * is live; a name from neither is a document telling the fleet to call
+ * something that does not exist.
+ */
+const live = [...registered, ...AGENT_MESSAGING_TOOLS];
+
+/** A `foo_*` family is live when some server has at least one tool with that prefix. */
 function isLive(name: string): boolean {
   if (name.endsWith('_*')) {
     const prefix = name.slice(0, -1);
-    return registered.some((tool) => tool.startsWith(prefix));
+    return live.some((tool) => tool.startsWith(prefix));
   }
-  return registered.includes(name);
+  return live.includes(name);
 }
 
 const named = (mention: Mention): string => `${mention.source}: ${mention.name}`;
@@ -127,6 +139,9 @@ describe('mcp tool names in managed agent-facing content', () => {
     expect(found).toContain('shared_memory_append');
     expect(found).toContain('shared_memory_*');
     expect(found).toContain('memory_*');
+    // The Agent Messaging block is the only source of cxx-agent tool names, so
+    // this pins that the scan still reaches it.
+    expect(found).toContain('agent_call_open');
   });
 
   it('names only tools the registry registers', () => {
@@ -136,7 +151,8 @@ describe('mcp tool names in managed agent-facing content', () => {
     expect(
       dead.map(named),
       'this shipped content tells every host to call these, but no tool in ' +
-        'api/src/services/mcp-tools.ts registers them — rename the content with the tool, or ' +
+        'api/src/services/mcp-tools.ts (clx) or api/src/services/agent-messaging-tool-names.ts ' +
+        '(cxx-agent) registers them — rename the content with the tool, or ' +
         'record the identifier in NON_TOOL_TOKENS here with a reason',
     ).toEqual([]);
   });
@@ -146,6 +162,27 @@ describe('mcp tool names in managed agent-facing content', () => {
     expect(
       dead.map(([key, name]) => `${key}: ${name}`),
       'api/src/services/shared-memory-tool-names.ts names tools the registry does not register',
+    ).toEqual([]);
+  });
+
+  it('keeps the two tool registries disjoint', () => {
+    // This is what makes the union above necessary rather than redundant. If the
+    // peer-messaging tools ever move onto the clx server, the union silently
+    // stops carrying its weight and this fails instead.
+    const overlap = AGENT_MESSAGING_TOOLS.filter((name) => registered.includes(name));
+    expect(
+      overlap,
+      'cxx-agent tools now appear in the clx registry — drop the union in isLive()',
+    ).toEqual([]);
+  });
+
+  it('keeps every AGENT_MESSAGING_TOOLS entry mentioned by the managed block', () => {
+    const found = new Set(mentions.map((mention) => mention.name));
+    const unmentioned = AGENT_MESSAGING_TOOLS.filter((name) => !found.has(name));
+    expect(
+      unmentioned,
+      'the managed Agent Messaging block no longer names these tools — an agent is ' +
+        'holding a tool nothing tells it about',
     ).toEqual([]);
   });
 

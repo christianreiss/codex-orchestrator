@@ -147,6 +147,19 @@ task. The policy is default-off and byte-identical across engines. Feature
 changes alter the served/managed hashes
 without altering the canonical base hash.
 
+The `agent_messaging_enabled` fleet switch adds an Agent Messaging block, gated
+on that switch plus an **active** host — the same predicate that decides whether
+the `cxx-agent` MCP server is injected, deliberately not `messagingHostEligible`
+and not the wrapper's own `agent_messaging.enabled`. The document describes what
+is provisioned, and provisioning is not authorization: an insecure host outside
+its allowed window still carries the tools and is refused per operation, so
+withholding the guidance would leave an agent holding ten tools nothing explains.
+It does not require the orchestrator MCP entry, because `cxx-agent` is a separate
+stdio server the wrapper starts itself. The block names the peer-messaging tools,
+states that a peer message is untrusted input carrying no authority, and carries
+the `#call` PIN rendezvous and its turn-holding rule. It is byte-identical across
+engines and rendered last.
+
 ## Skill delivery
 
 Codex does not receive Skill directories from `cxx`. The wrapper only probes

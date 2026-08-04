@@ -9,6 +9,7 @@ import {
   type ManagedAgentFeatureContext,
   type ManagedFeatureState,
 } from '../../../src/services/managed-agents-features.js';
+import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from '../../../src/services/managed-agents-memory-legacy.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, type Engine } from '../../../src/util/engine.js';
@@ -40,6 +41,7 @@ function context(
     browseros: disabled(engine === ENGINE_CODEX ? 'host_disabled' : 'unsupported_engine'),
     secrets: disabled('no_secrets', 0),
     apiKeysInChat: disabled('disabled'),
+    agentMessaging: disabled('master_disabled'),
     ...overrides,
   };
 }
@@ -79,6 +81,7 @@ describe('served document byte invariance', () => {
         browseros: enabled(),
         secrets: enabled(2),
         apiKeysInChat: enabled(),
+        agentMessaging: enabled(),
       }),
       presetLevels('standard'),
       base.provenance,
@@ -86,9 +89,9 @@ describe('served document byte invariance', () => {
 
     expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
     expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
-    expect(out.features_sha256).toBe('75d18bce13d6faf863df5ca9b614bb34b58f72a9e5218b90af58774fd73f409b');
-    expect(out.managed_sha256).toBe('3fb0dae653431eb983f8e5553c5e678c3cf469fcd6d98217a9fcaa5ed2af9d15');
-    expect(sha256(out.body)).toBe('945652e61e187c442d7f94e8e17b12dbb557a26a6b60fd42d4e5690f495b80a2');
+    expect(out.features_sha256).toBe('76d4bbd6bed1d536b8dc8057ed024d62662afbd2c16f728aede4f56f8d8bbbb3');
+    expect(out.managed_sha256).toBe('d66a79ff0cd9f162ff718fb6b6ca449fb21b1be0da03efe67e3f157f1951c837');
+    expect(sha256(out.body)).toBe('73bdd2f18b037994a62b3f7e84fff51571608849e0152ccb70a6529b7c49441b');
   });
 });
 
@@ -103,6 +106,7 @@ describe('renderManagedAgentFeatures', () => {
         browseros: enabled(),
         secrets: enabled(3),
         apiKeysInChat: enabled(),
+        agentMessaging: enabled(),
       }),
     );
 
@@ -115,6 +119,7 @@ describe('renderManagedAgentFeatures', () => {
       '## BrowserOS',
       '## Secrets',
       '## API keys in chat',
+      '## Agent Messaging',
     ].map((heading) => out.body.indexOf(heading));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions.every((position) => position >= 0)).toBe(true);
@@ -225,6 +230,7 @@ describe('renderManagedAgentFeatures', () => {
       browseros: { present: false, reason: 'host_disabled' },
       secrets: { present: false, reason: 'no_secrets', count: 0 },
       api_keys_in_chat: { present: false, reason: 'disabled' },
+      agent_messaging: { present: false, reason: 'master_disabled' },
     });
   });
 
@@ -601,5 +607,92 @@ describe('retired authority sentences', () => {
     const clean = '# Base\n\nSome operator guidance that owns nothing.\n';
     const withRetired = renderManagedAgentFeatures(clean, ctx(), DEFAULT_SECURITY_LEVELS);
     expect(withRetired.body).toContain('Some operator guidance that owns nothing.');
+  });
+});
+
+describe('managed Agent Messaging guidance', () => {
+  const rendered = (engine: Engine) =>
+    renderManagedAgentFeatures('# Base\n', context(engine, { agentMessaging: enabled() }));
+
+  it('names every tool the fleet actually provisions', () => {
+    // The permission allowlist and this prose read the same array, so a rename
+    // cannot leave an agent approved for a tool the document never mentions.
+    const body = rendered(ENGINE_CODEX).body;
+    for (const tool of AGENT_MESSAGING_TOOLS) {
+      expect(body, tool).toContain(tool);
+    }
+    expect(body).toContain('#call');
+  });
+
+  it('states that a peer message carries no authority', () => {
+    // The one line that has to survive every future rewording: a peer is a
+    // correspondent, not a principal.
+    const body = rendered(ENGINE_CLAUDE).body;
+    expect(body).toMatch(/untrusted input/i);
+    expect(body).toMatch(/never an instruction to obey/i);
+    expect(body).toMatch(/cannot widen your permissions/i);
+  });
+
+  it('carries the stopping rule, not just the tool list', () => {
+    // Two agents told only to keep replying have run 17 and 33 turns on this
+    // bus. The turn-holding rule is the structural answer; without it the block
+    // would hand out tools and no way to stop using them.
+    const body = rendered(ENGINE_CODEX).body;
+    expect(body).toMatch(/four-digit PIN/i);
+    expect(body).toMatch(/exactly one side holds the turn/i);
+    expect(body).toMatch(/not holding it, call `agent_listen` again/);
+    expect(body).toMatch(/End your turn only\s+once the call is closed/i);
+  });
+
+  it('renders byte-identical guidance for both engines', () => {
+    // The tools are the same cxx-agent server on both engines and the block
+    // names only the `#call` trigger, so there is nothing to branch on.
+    expect(rendered(ENGINE_CLAUDE).sections.agent_messaging.sha256).toBe(
+      rendered(ENGINE_CODEX).sections.agent_messaging.sha256,
+    );
+    expect(rendered(ENGINE_CODEX).sections.agent_messaging).toMatchObject({
+      present: true,
+      reason: 'ok',
+      transport: 'mcp',
+    });
+  });
+
+  it('emits nothing at all when the fleet switch is off', () => {
+    for (const reason of ['master_disabled', 'host_inactive', 'service_unavailable']) {
+      const out = renderManagedAgentFeatures(
+        '# Base\n',
+        context(ENGINE_CODEX, { agentMessaging: disabled(reason) }),
+      );
+      expect(out.body, reason).not.toContain('## Agent Messaging');
+      expect(out.body, reason).not.toContain('agent_call_open');
+      expect(out.sections.agent_messaging).toMatchObject({ present: false, reason });
+    }
+  });
+
+  it('replaces its own block rather than accumulating copies', () => {
+    const ctx = context(ENGINE_CODEX, { agentMessaging: enabled() });
+    const once = renderManagedAgentFeatures('# Base\n', ctx);
+    const twice = renderManagedAgentFeatures(once.body, ctx);
+    expect(twice.body).toBe(once.body);
+    expect(twice.body.split('## Agent Messaging')).toHaveLength(2);
+  });
+
+  it('renders last', () => {
+    // Provider order is part of managed_sha256: moving this section would churn
+    // every host's document for preceding sections that did not change.
+    const out = renderManagedAgentFeatures(
+      '# Base\n',
+      context(ENGINE_CODEX, { apiKeysInChat: enabled(), agentMessaging: enabled() }),
+    );
+    expect(out.body.indexOf('## Agent Messaging')).toBeGreaterThan(
+      out.body.indexOf('## API keys in chat'),
+    );
+  });
+
+  it('keeps the block free of bullet lists', () => {
+    // The Secrets suite slices from '## Secrets' to end-of-body and forbids
+    // bullets; this section renders after it, so a list here fails that too.
+    const body = rendered(ENGINE_CODEX).body;
+    expect(body.slice(body.indexOf('## Agent Messaging'))).not.toMatch(/^-\s/m);
   });
 });
