@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/DX6I1SLP2.js";export{e as component};

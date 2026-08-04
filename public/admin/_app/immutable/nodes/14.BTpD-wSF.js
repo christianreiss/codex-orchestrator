@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/CV-5YmdA2.js";export{e as component};

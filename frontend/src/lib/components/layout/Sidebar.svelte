@@ -7,11 +7,24 @@
   import { authActions, authStore } from "$lib/stores/auth";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+  import * as Collapsible from "$lib/components/ui/collapsible";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import LogOut from "@lucide/svelte/icons/log-out";
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
+
+  // Only the group containing the current route starts expanded; others stay
+  // as headers. Groups the user opens manually stay open across navigation.
+  let openGroups = $state<Record<string, boolean>>(
+    Object.fromEntries(NAV_SECTIONS.map((s) => [s.id, s.items.some((i) => isActive(i, path))])),
+  );
+
+  $effect(() => {
+    const activeSection = NAV_SECTIONS.find((s) => s.items.some((i) => isActive(i, path)));
+    if (activeSection && !openGroups[activeSection.id]) openGroups[activeSection.id] = true;
+  });
 
   function openShortcuts(): void {
     window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
@@ -33,28 +46,43 @@
     <div class="space-y-4">
       {#each NAV_SECTIONS as section (section.id)}
         <section aria-labelledby={`nav-${section.id}`}>
-          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            {section.label}
-          </h2>
-          <ul class="space-y-0.5">
-            {#each section.items as item (item.id)}
-              {@const Icon = item.icon}
-              {@const active = isActive(item, path)}
-              <li>
-                <a
-                  href={`${base}${item.route}`}
-                  class={cn(
-                    "flex h-9 items-center gap-2 rounded-md px-2 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                  aria-current={active ? "page" : undefined}
-                >
-                  <Icon class="h-4 w-4 shrink-0" />
-                  <span class="truncate">{item.label}</span>
-                </a>
-              </li>
-            {/each}
-          </ul>
+          <Collapsible.Root bind:open={openGroups[section.id]}>
+            <h2 id={`nav-${section.id}`}>
+              <Collapsible.Trigger class="w-full">
+                {#snippet child({ props })}
+                  <button
+                    {...props}
+                    type="button"
+                    class="group flex h-7 w-full items-center justify-between rounded-md px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {section.label}
+                    <ChevronDown class="h-3 w-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+                  </button>
+                {/snippet}
+              </Collapsible.Trigger>
+            </h2>
+            <Collapsible.Content>
+              <ul class="space-y-0.5 pt-1">
+                {#each section.items as item (item.id)}
+                  {@const Icon = item.icon}
+                  {@const active = isActive(item, path)}
+                  <li>
+                    <a
+                      href={`${base}${item.route}`}
+                      class={cn(
+                        "flex h-9 items-center gap-2 rounded-md px-2 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <Icon class="h-4 w-4 shrink-0" />
+                      <span class="truncate">{item.label}</span>
+                    </a>
+                  </li>
+                {/each}
+              </ul>
+            </Collapsible.Content>
+          </Collapsible.Root>
         </section>
       {/each}
     </div>
