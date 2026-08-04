@@ -100,6 +100,48 @@ test("no entries and no headings degrade to no links rather than throwing", () =
   assert.deepEqual(assignProvenance(POLICY, []), []);
 });
 
+test("resolves the real fleet headings after marked has rendered them", async () => {
+  // The comparison that actually runs in the browser is server Markdown against
+  // DOM text, not Markdown against Markdown. Everything else here stops one step
+  // short of that, so a marked upgrade that changed entity handling or started
+  // emitting heading ids would silently kill every highlight with the rest of
+  // this file still green.
+  const { marked } = (await import("marked")) as typeof import("marked");
+  const headings = [
+    "Fleet Management",
+    "Instruction Precedence and Safety Floor",
+    "Operating Contract (FAST)",
+    "Evidence and Command Discovery",
+    "Midnight Rule 🧃🧯",
+    "Projects / CoCo",
+    "API keys in chat",
+  ];
+  const html = marked.parse(headings.map((h) => `## ${h}\n\nBody.\n`).join("\n"), {
+    async: false,
+    gfm: true,
+    breaks: false,
+  }) as string;
+
+  // Stand in for `textContent`: strip inline elements, decode the entities
+  // marked escapes on the way in.
+  const rendered = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((match) =>
+    match[1]!
+      .replace(/<[^>]+>/g, "")
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&"),
+  );
+  assert.equal(rendered.length, headings.length, "marked must emit one h2 per heading");
+
+  const entries = headings.map((h, i) => entry(`block:${i}`, [h]));
+  assert.deepEqual(
+    assignProvenance(entries, rendered),
+    headings.map((_, i) => `block:${i}`),
+  );
+});
+
 test("countBlocks counts distinct blocks actually present in the document", () => {
   const assigned = ["policy:safety_floor", "policy:hard_stops", "policy:hard_stops", null];
   assert.equal(countBlocks(assigned, ["policy:safety_floor", "policy:hard_stops"]), 2);

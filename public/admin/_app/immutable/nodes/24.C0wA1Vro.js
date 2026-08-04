@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/GbGGAPAT.js";export{e as component};

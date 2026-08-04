@@ -774,6 +774,48 @@ test("every setting updates the effective preview without a button press", async
   await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
 });
 
+test("a preview that cannot render says so once, in the pane, not once per keystroke", async ({ page }) => {
+  // Every settings change mints a new query key, so a failing render fails again
+  // for each one. As toasts that is a stream of them, and the place the operator
+  // is looking would still show a stale document with nothing to explain it.
+  let renders = 0;
+  await installFixtures(page);
+  await page.route("**/admin/agents/render", async (route) => {
+    renders += 1;
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "boom" }) });
+  });
+
+  // Toasts auto-dismiss, so asserting a count of zero after the fact merely
+  // waits for them to disappear and always passes. Count them as they arrive.
+  await page.addInitScript(() => {
+    (window as unknown as { __toasts: number }).__toasts = 0;
+    const watch = (): void => {
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            if (node.matches("[data-sonner-toast]") || node.querySelector("[data-sonner-toast]")) {
+              (window as unknown as { __toasts: number }).__toasts += 1;
+            }
+          }
+        }
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    };
+    if (document.documentElement) watch();
+    else document.addEventListener("DOMContentLoaded", watch);
+  });
+
+  await page.goto("/admin/instructions");
+  const field = page.getByRole("textbox", { name: "Custom instructions" });
+  await expect(field).toBeVisible({ timeout: 15_000 });
+  for (const value of ["a", "ab", "abc", "abcd"]) await field.fill(value);
+
+  await expect(page.getByText(/showing the last document that rendered/)).toHaveCount(1, { timeout: 10_000 });
+  expect(await page.evaluate(() => (window as unknown as { __toasts: number }).__toasts)).toBe(0);
+  // No retry storm either: a failed key is not retried three more times.
+  expect(renders).toBeLessThanOrEqual(6);
+});
+
 test("a setting and the text it produces are visually linked, both ways", async ({ page }) => {
   await installFixtures(page, (pathname) =>
     pathname === "/admin/agents/render"

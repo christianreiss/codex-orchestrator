@@ -358,11 +358,21 @@
         queryKey: ["agents-render", previewHostId, JSON.stringify(request)],
         queryFn: () =>
           agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined),
-        enabled: canRenderEffective && request !== null,
+        // Nothing is looking at this render while the pane shows the base and
+        // the dialog is shut. Unlike the compose call — which feeds what Save
+        // stores and must never be skipped — this one feeds pixels only.
+        enabled:
+          canRenderEffective &&
+          request !== null &&
+          (activePreviewMode === "effective" || renderedPreviewOpen),
         placeholderData: keepPreviousData,
         // A pure function of its key, so there is nothing for a refetch on
         // window focus to discover.
         staleTime: Infinity,
+        // The next keystroke retries anyway; retrying each failed key three
+        // times just multiplies requests against an endpoint already known to
+        // be failing.
+        retry: false,
       };
     }),
   );
@@ -374,9 +384,18 @@
       .map(([name, section]) => ({ name, section })),
   );
 
-  $effect(() => {
+  /**
+   * Reported in the pane, not as a toast.
+   *
+   * Every settings change mints a new query key, so a host that has stopped
+   * rendering fails once per keystroke — as toasts that is a stream of them,
+   * and the one place the operator is actually looking, where the document
+   * should be, would still say nothing.
+   */
+  const renderError = $derived.by(() => {
     const err = $renderedPreviewQuery.error;
-    if (err) toast.error(err instanceof ApiError ? err.message : "Failed to render AGENTS.md");
+    if (!err) return null;
+    return err instanceof ApiError ? err.message : "Failed to render AGENTS.md";
   });
 
   function refreshRenderedPreview() {
@@ -683,6 +702,11 @@
             <p class="text-xs text-muted-foreground">
               No Codex host is enrolled, so the host-specific feature block cannot be rendered. This
               shows the canonical base only — the security posture does not appear in it.
+            </p>
+          {:else if activePreviewMode === "effective" && renderError}
+            <p class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {renderError} — showing the last document that rendered. Your edits are not lost; they
+              are just not previewed.
             </p>
           {/if}
 
