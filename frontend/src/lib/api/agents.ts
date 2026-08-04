@@ -8,6 +8,7 @@ import type {
   AgentPolicyComposition,
   AgentPolicyComposeResult,
   AgentsDocument,
+  AgentsGenerationMode,
   AgentsRenderedDocument,
   AgentsVersion,
   AgentsStoreResult,
@@ -61,6 +62,15 @@ export const agentsApi = {
   deleteVersion(id: number): Promise<{ deleted_id?: number } & Record<string, unknown>> {
     return api.delete(`/admin/agents/versions/${id}`);
   },
+  /**
+   * The fleet generation mode. It lives here rather than in `settings.ts`
+   * because it is read back off `/admin/agents` — the editor has to know which
+   * shape to open in before it can hydrate, so a separate read query would mean
+   * rendering the wrong editor first.
+   */
+  setGenerationMode(mode: AgentsGenerationMode): Promise<{ mode: AgentsGenerationMode }> {
+    return api.post<{ mode: AgentsGenerationMode }>("/admin/agents-generation-mode", { mode });
+  },
 };
 
-export type { AgentsDocument, AgentsRenderedDocument, AgentsVersion, AgentsStoreResult };
+export type { AgentsDocument, AgentsGenerationMode, AgentsRenderedDocument, AgentsVersion, AgentsStoreResult };

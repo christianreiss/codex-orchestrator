@@ -9,6 +9,7 @@
     AgentPolicyModuleId,
     AgentPolicyProvenanceEntry,
     AgentsDocument,
+    AgentsGenerationMode,
     AgentsVersion,
     AgentsVersionMeta,
   } from "$lib/api/types";
@@ -54,7 +55,19 @@
   let content = $state("");
   let serverSha = $state<string | null>(null);
   let hydrated = $state(false);
-  let builderMode = $state(false);
+  /**
+   * The fleet master switch, and the single authority for which editor is open.
+   *
+   * It used to be `Boolean(data.builder_state)` — the served document decided.
+   * That could not express "stop generating" at all, and gave no way back from
+   * the builder to a hand-written document. `builder_state` still says how a
+   * version was authored, which is what hydrates the editor; it no longer says
+   * what mode the fleet is in.
+   */
+  let generationMode = $state<AgentsGenerationMode>("managed");
+  const builderMode = $derived(generationMode !== "manual");
+  /** False when the served version predates the builder, so the draft is unsaved. */
+  let documentIsBuilt = $state(true);
   let enabledModules = $state<AgentPolicyModuleId[]>([]);
   let customInstructions = $state("");
   let composedDraft = $state("");
@@ -105,15 +118,32 @@
     custom_instructions: customInstructions,
   });
 
+  /**
+   * A document that predates the policy builder carries no module selection to
+   * restore. Rather than opening an empty builder, seed it as an unsaved draft:
+   * every default module on, with the hand-written body carried into custom
+   * instructions so switching mode never loses what the operator wrote. Nothing
+   * is stored until Save.
+   */
+  function hydrateBuilder(data: { builder_state?: AgentPolicyComposition | null; content?: string; builder_catalog?: AgentsDocument["builder_catalog"] }): void {
+    const builder = data.builder_state ?? null;
+    documentIsBuilt = builder !== null;
+    const catalog = data.builder_catalog ?? $query.data?.builder_catalog;
+    enabledModules = builder
+      ? [...builder.enabled_modules]
+      : (catalog?.modules ?? [])
+          .filter((module) => module.default_enabled)
+          .map((module) => module.id as AgentPolicyModuleId);
+    customInstructions = builder?.custom_instructions ?? (data.content ?? "").trim();
+    composedDraft = builder ? data.content ?? "" : "";
+  }
+
   function hydrateDocument(data: AgentsDocument | undefined): void {
     if (!data) return;
     content = data.content ?? "";
     serverSha = data.sha256 ?? null;
-    const builder = data.builder_state;
-    builderMode = Boolean(builder);
-    enabledModules = builder?.enabled_modules ? [...builder.enabled_modules] : [];
-    customInstructions = builder?.custom_instructions ?? "";
-    composedDraft = builder ? data.content ?? "" : "";
+    generationMode = data.generation_mode ?? "managed";
+    hydrateBuilder(data);
     hydrated = true;
   }
 
@@ -167,12 +197,43 @@
       : enabledModules.filter((candidate) => candidate !== moduleId);
   }
 
-  function useFleetStandard(): void {
-    const modules = $query.data?.builder_catalog?.modules ?? [];
-    enabledModules = modules.filter((module) => module.default_enabled).map((module) => module.id as AgentPolicyModuleId);
-    customInstructions = content.trim();
-    builderMode = true;
-  }
+  // ---- Generation mode ----
+  // Applied fleet-wide the moment it is saved, with no new document version:
+  // the mode changes what a stored document contributes when it is rendered,
+  // not what is stored. So there is no draft state to reconcile here, and
+  // flipping back restores the modules exactly.
+  const generationModeMutation = createMutation({
+    mutationFn: (mode: AgentsGenerationMode) => agentsApi.setGenerationMode(mode),
+    onSuccess: (result) => {
+      // Only after the server has it: the effective preview keys off this
+      // value, and moving it first would render the new mode against the old
+      // server state.
+      generationMode = result.mode;
+      // Leaving the builder for a hand-written document starts from what the
+      // fleet is being served today, rather than from a blank page.
+      if (result.mode === "manual") content = composedDraft || content;
+      toast.success(
+        result.mode === "off"
+          ? "Generation disabled — hosts keep the fleet policy and capability guidance"
+          : result.mode === "manual"
+            ? "Switched to a hand-written document"
+            : "Generating the fleet policy document",
+      );
+      void qc.invalidateQueries({ queryKey: ["agents"] });
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to change generation mode");
+    },
+  });
+
+  const GENERATION_MODES: Array<{ id: AgentsGenerationMode; label: string; hint: string }> = [
+    { id: "managed", label: "Generated", hint: "Modules and custom instructions are composed into the document." },
+    { id: "manual", label: "Manual", hint: "You write the document; nothing is composed." },
+    { id: "off", label: "Disabled", hint: "Modules are not served. Hosts still get the fleet policy, your custom instructions, and capability guidance." },
+  ];
+  const generationModeHint = $derived(
+    GENERATION_MODES.find((entry) => entry.id === generationMode)?.hint ?? "",
+  );
 
   // ---- Save ----
   // `sha256` is a submit-time integrity check against the *new* content being
@@ -272,10 +333,9 @@
       // showing pre-restore content while the version list looks correct.
       content = result.content ?? "";
       serverSha = result.sha256 ?? null;
-      builderMode = Boolean(result.builder_state);
-      enabledModules = result.builder_state?.enabled_modules ? [...result.builder_state.enabled_modules] : [];
-      customInstructions = result.builder_state?.custom_instructions ?? "";
-      composedDraft = result.builder_state ? result.content ?? "" : "";
+      // The mode is fleet state, not document state — restoring an old version
+      // restores its prose, never a mode the operator did not ask for.
+      hydrateBuilder(result);
       hydrated = true;
       toast.success("Restored version");
       viewingVersion = null;
@@ -355,7 +415,11 @@
       const request = renderRequest;
       const hostId = Number(previewHostId);
       return {
-        queryKey: ["agents-render", previewHostId, JSON.stringify(request)],
+        // The mode is part of the key even though the server reads it from
+        // fleet settings rather than from the request: with `staleTime:
+        // Infinity`, a key that ignored it would leave the previous mode's
+        // document sitting in the pane after the toggle moved.
+        queryKey: ["agents-render", previewHostId, generationMode, JSON.stringify(request)],
         queryFn: () =>
           agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined),
         // Nothing is looking at this render while the pane shows the base and
@@ -518,6 +582,30 @@
         {/if}
       </div>
 
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
+        <div class="min-w-0 space-y-0.5">
+          <p class="text-sm font-medium">Generation</p>
+          <p class="text-xs text-muted-foreground">
+            {generationModeHint} Applies to the whole fleet as soon as you pick it — no version is saved.
+          </p>
+        </div>
+        <div class="inline-flex rounded-md border bg-background p-0.5" role="group" aria-label="AGENTS.md generation">
+          {#each GENERATION_MODES as option (option.id)}
+            <button
+              type="button"
+              aria-pressed={generationMode === option.id}
+              disabled={$generationModeMutation.isPending || generationMode === option.id}
+              onclick={() => $generationModeMutation.mutate(option.id)}
+              class="rounded px-2.5 py-1 text-xs transition-colors disabled:cursor-default {generationMode === option.id
+                ? 'bg-primary/10 font-medium text-foreground'
+                : 'text-muted-foreground hover:bg-muted'}"
+            >
+              {option.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+
       <div class="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
         <div class="space-y-4">
           {#if builderMode}
@@ -544,11 +632,25 @@
               </Card.Content>
             </Card.Root>
 
-            <Card.Root>
+            {#if !documentIsBuilt}
+              <p class="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                The served version was hand-written, so this is an unsaved draft: every default module is
+                on and the previous document is in Custom instructions. Nothing changes for hosts until you Save.
+              </p>
+            {/if}
+
+            <Card.Root class={generationMode === "off" ? "opacity-60" : ""}>
               <Card.Content class="divide-y p-0">
                 <div class="space-y-1 p-4">
                   <h3 class="text-sm font-semibold">Optional operating modules</h3>
-                  <p class="text-xs text-muted-foreground">Changes stay in this draft until you save a new version.</p>
+                  <p class="text-xs text-muted-foreground">
+                    {#if generationMode === "off"}
+                      Not served while generation is disabled. Your selection is kept — switch back to
+                      Generated and it returns without saving a version.
+                    {:else}
+                      Changes stay in this draft until you save a new version.
+                    {/if}
+                  </p>
                 </div>
                 {#each $query.data?.builder_catalog?.modules ?? [] as item (item.id)}
                   <!-- Hover and focus are wired on the row, not the Switch, so the
@@ -572,6 +674,7 @@
                     <Switch
                       id={`agents-module-${item.id}`}
                       checked={enabledModules.includes(item.id as AgentPolicyModuleId)}
+                      disabled={generationMode === "off"}
                       onCheckedChange={(value) => setModule(item.id, Boolean(value))}
                       aria-label={item.label}
                     />
@@ -619,11 +722,11 @@
               />
             </div>
           {:else}
-            <!-- Legacy documents carry no per-section attribution, so the whole
-                 middle links back to the one control that produced it. -->
+            <!-- A hand-written document carries no per-section attribution, so
+                 the whole middle links back to the one control that produced it. -->
             <div
               role="group"
-              aria-label="Legacy Markdown document"
+              aria-label="Hand-written Markdown document"
               onmouseenter={() => (activeSetting = { kind: "legacy" })}
               onmouseleave={clearActiveSetting}
               onfocusin={() => (activeSetting = { kind: "legacy" })}
@@ -631,17 +734,17 @@
             >
               <Card.Root class={linkClass("legacy_document")}>
                 <Card.Content class="space-y-4 p-4">
-                  <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 class="text-sm font-semibold">Legacy Markdown document</h3>
-                      <p class="text-xs text-muted-foreground">
-                        This version predates the policy builder. The required fleet policy is still added when served.
-                      </p>
-                    </div>
-                    <Button size="sm" variant="outline" onclick={useFleetStandard}>Convert draft to Fleet Standard</Button>
+                  <div class="space-y-1">
+                    <h3 class="text-sm font-semibold">Hand-written Markdown document</h3>
+                    <p class="text-xs text-muted-foreground">
+                      Served verbatim between the mandatory fleet policy and the host capability
+                      guidance, which are added either way. Saving here stores a hand-written version;
+                      the module selection of the version before it stays in history.
+                    </p>
                   </div>
                   <Textarea
                     id="agents-document"
+                    aria-label="Hand-written Markdown document"
                     class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
                     spellcheck="false"
                     autocomplete="off"

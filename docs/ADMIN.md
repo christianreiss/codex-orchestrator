@@ -64,6 +64,13 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   the sidebar footer. There is no generic Settings or Authoring destination.
 - Legacy Settings and Authoring URLs issue 308 client redirects to the direct
   owner route. Mapping lives in `frontend/src/lib/legacy-admin-routes.ts`.
+- Fleet Instructions (`/admin/instructions`) opens with a **Generation** switch:
+  *Generated* composes the policy modules and custom instructions, *Manual*
+  swaps the builder for a raw Markdown editor, and *Disabled* stops serving the
+  generated modules. It is fleet-wide, applies the moment it is picked, and
+  saves no version — the stored module selection survives a trip through
+  Disabled and comes back untouched. None of the three positions removes the
+  mandatory fleet policy or the host capability guidance from what agents read.
 - Memories opens **Memory Atlas** at `/admin/memories`. The default graph and equivalent paginated list
   cover host, project, and shared memory in one filterable workspace; selecting
   a memory opens its Overview, Content, Metadata, and Activity inspector. The

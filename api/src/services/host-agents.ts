@@ -20,6 +20,12 @@ import { SettingsService } from './settings.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import {
+  AGENTS_GENERATION_MODE_KEY,
+  baseBodyForMode,
+  normalizeAgentsGenerationMode,
+  type AgentsGenerationMode,
+} from './agents-generation-mode.js';
+import {
   renderManagedAgentFeatures,
   type ManagedAgentFeatureContext,
   type ManagedFeatureState,
@@ -69,6 +75,21 @@ export class HostAgentsService {
    */
   private async resolvePosture(host: Host): Promise<SecurityLevels> {
     return await this.profiles.resolveForHost(Number(host.id));
+  }
+
+  /**
+   * The fleet's AGENTS.md generation mode.
+   *
+   * Public because the admin render route composes the operator's draft itself
+   * and has to apply the same mode this serve path will, or the live preview
+   * would show a document no host receives. The `.catch(() => null)` is the same
+   * degrade-don't-500 discipline as the feature gates below, and the normalizer
+   * turns every failure into `managed`: a settings read that fails must serve
+   * today's document, never a stripped one.
+   */
+  async generationMode(): Promise<AgentsGenerationMode> {
+    const raw = await this.settings.getString(AGENTS_GENERATION_MODE_KEY).catch(() => null);
+    return normalizeAgentsGenerationMode(raw);
   }
 
   /**
@@ -145,8 +166,14 @@ export class HostAgentsService {
       return { status: 'missing' };
     }
 
-    const body = row.body ?? '';
-    const baseSha = row.sha256 || createHash('sha256').update(body).digest('hex');
+    // The generation mode decides what the stored row contributes; the policy
+    // block and the feature block below are host guarantees and are appended
+    // either way. `base_sha256` therefore has to describe the base that was
+    // actually rendered — reusing `row.sha256` would report the stored canonical
+    // hash for bytes that were never served, and disagree with `renderDraft`,
+    // which hashes the base it used.
+    const body = baseBodyForMode(await this.generationMode(), row);
+    const baseSha = createHash('sha256').update(body).digest('hex');
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
     const rendered = renderManagedAgentFeatures(body, featureContext, await this.resolvePosture(host));
     const served = rendered.body;

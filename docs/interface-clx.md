@@ -223,6 +223,16 @@ Claude/host feature state and appends at most one
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 
+The fleet-wide `agents_generation_mode` setting (`GET`/`POST
+/admin/agents-generation-mode`) applies to CLAUDE.md and AGENTS.md alike: it is
+one fleet switch, not one per engine. `managed` (default) serves the composed
+policy modules plus custom instructions, `manual` serves the stored document
+verbatim, and `off` drops the generated modules while keeping the operator's
+custom instructions. No position suppresses the policy prefix or the feature
+block, and the mode is applied at render time, so switching it changes what
+hosts receive on their next retrieve without creating a version. See
+`docs/interface-cdx.md` for the full contract.
+
 The Claude block points Skill discovery at the native managed
 `~/.claude/skills/<slug>/SKILL.md` directories, never at Codex's MCP Skill
 transport. With orchestrator MCP enabled it routes durable fleet, workstream,

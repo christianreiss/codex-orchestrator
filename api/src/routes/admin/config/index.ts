@@ -51,6 +51,7 @@ import { NotFoundError, ValidationError } from '../../../http/errors.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
 import { AgentsService } from '../../../services/agents.js';
+import { compositionForMode } from '../../../services/agents-generation-mode.js';
 import { AgentPolicyProfilesService } from '../../../services/agent-policy-profiles.js';
 import { normalizeSecurityLevels, securityLevelCatalog } from '../../../services/agent-security-levels.js';
 import { HostAgentsService } from '../../../services/host-agents.js';
@@ -171,7 +172,13 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   // ── /admin/agents ────────────────────────────────────────────────────────
 
   app.get('/admin/agents', { preHandler: app.requireAdmin }, async () => {
-    return await agents.adminFetch(ENGINE_CODEX);
+    // The generation mode rides along rather than living behind its own query:
+    // the console needs it to decide which editor to open before it can hydrate
+    // anything, so a second round-trip would mean rendering the wrong one first.
+    return {
+      ...(await agents.adminFetch(ENGINE_CODEX)),
+      generation_mode: await hostAgents.generationMode(),
+    };
   });
 
   app.get<{ Querystring: { host_id?: string; engine?: string } }>(
@@ -228,7 +235,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       assertHostEngineEnabled(host, engine);
       // A composed draft knows which module produced which section; raw content
       // does not, and is left to the renderer to describe as one legacy block.
-      const composed = body.composition !== undefined ? agents.compose(body.composition) : null;
+      // The draft is composed at the fleet's generation mode, so the preview
+      // shows what the host would receive rather than what the editor holds.
+      const composed = body.composition !== undefined
+        ? agents.compose(compositionForMode(await hostAgents.generationMode(), body.composition))
+        : null;
       const base = composed
         ? composed.content
         : typeof body.content === 'string'

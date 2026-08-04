@@ -416,10 +416,13 @@ function fixture(pathname: string): Record<string, unknown> {
         updated_at: "2026-08-02T08:00:00Z",
         size_bytes: 84,
         content: "## Operating Contract (FAST)\n\nExecute and verify.\n",
+        generation_mode: "managed",
         builder_state: BUILDER_STATE,
         builder_catalog: BUILDER_CATALOG,
         versions: [],
       };
+    case "/admin/agents-generation-mode":
+      return { status: "ok", mode: "managed", modes: ["managed", "manual", "off"] };
     case "/admin/agents/compose":
       return {
         composition: BUILDER_STATE,
@@ -770,6 +773,49 @@ test("every setting updates the effective preview without a button press", async
   // And free text.
   await page.getByRole("textbox", { name: "Custom instructions" }).fill("no reactors");
   await expect(preview).toContainText("custom=no reactors", { timeout: 10_000 });
+
+  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+});
+
+test("the generation master switch reaches the effective preview without a button press", async ({ page }) => {
+  // The mode never travels in the render request — the server reads it from
+  // fleet settings — so the fixture holds it the same way, and the preview text
+  // is evidence that the POST landed and a fresh render came back for it.
+  let mode = "managed";
+  await installFixtures(page, (pathname, body) => {
+    if (pathname === "/admin/agents-generation-mode") {
+      const sent = (body ?? {}) as { mode?: string };
+      if (sent.mode) mode = sent.mode;
+      return { status: "ok", mode, modes: ["managed", "manual", "off"] };
+    }
+    if (pathname === "/admin/agents") return { ...fixture(pathname), generation_mode: mode };
+    if (pathname !== "/admin/agents/render") return undefined;
+    const sent = (body ?? {}) as { composition?: { enabled_modules?: string[] } };
+    // Standing in for the server, which composes the draft with no modules at
+    // `off` and hands the rest of the document over unchanged.
+    const modules = mode === "off" ? 0 : sent.composition?.enabled_modules?.length ?? 0;
+    return { ...fixture(pathname), content: `# Fleet policy\n\nmode=${mode} modules=${modules}\n` };
+  });
+
+  await page.goto("/admin/instructions");
+  const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
+  await expect(preview).toContainText("mode=managed modules=3", { timeout: 15_000 });
+
+  await page.getByRole("button", { name: "Disabled", exact: true }).click();
+  await expect(preview).toContainText("mode=off modules=0", { timeout: 10_000 });
+  // The selection is kept and visibly inert, not erased.
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Generated", exact: true }).click();
+  await expect(preview).toContainText("mode=managed modules=3", { timeout: 10_000 });
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).toBeEnabled();
+
+  // Manual swaps the editor for the raw document, seeded from what is served.
+  await page.getByRole("button", { name: "Manual", exact: true }).click();
+  const raw = page.getByRole("textbox", { name: "Hand-written Markdown document" });
+  await expect(raw).toBeVisible();
+  await expect(raw).toHaveValue("## Operating Contract (FAST)\n\nExecute and verify.\n");
 
   await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
 });

@@ -13,6 +13,11 @@ import type { Host } from '../../../src/db/schema.js';
 import type { Env } from '../../../src/env.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
+import {
+  defaultAgentPolicyComposition,
+  renderAgentPolicyBase,
+} from '../../../src/services/agent-policy-composer.js';
+import { AGENTS_GENERATION_MODE_KEY } from '../../../src/services/agents-generation-mode.js';
 import { HostAgentsService } from '../../../src/services/host-agents.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
@@ -564,5 +569,119 @@ describe('HostAgentsService secrets guidance', () => {
     expect(out['sections']).toMatchObject({
       secrets: { present: false, reason: 'service_unavailable' },
     });
+  });
+});
+
+describe('HostAgentsService generation mode', () => {
+  const MODE = (mode: string) => ({ name: AGENTS_GENERATION_MODE_KEY, version: mode });
+  const MCP_ON = { orchestrator_mcp_enabled: true };
+
+  function builderRow(id: number, customInstructions: string): Record<string, unknown> {
+    const composition = { ...defaultAgentPolicyComposition(), custom_instructions: customInstructions };
+    return { ...agentsRow(id, renderAgentPolicyBase(composition).content), builderState: composition };
+  }
+
+  function rowsWith(doc: Record<string, unknown>[], settings: Record<string, unknown>[]): Array<[unknown, Record<string, unknown>[]]> {
+    return [
+      [agentsDocuments, doc],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, MCP_ON)]],
+      [versions, settings],
+    ];
+  }
+
+  it('serves the composed modules by default', async () => {
+    const db = makeDb(rowsWith([builderRow(4, 'house rules')], []));
+
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(String(out['content'])).toContain('## Operating Contract (FAST)');
+    expect(String(out['content'])).toContain('house rules');
+  });
+
+  // The whole point of the switch: hosts keep the fleet rules and the live
+  // capability guidance, and lose only what the builder generated.
+  it('drops the generated modules at off but keeps policy, custom instructions, and features', async () => {
+    const db = makeDb(rowsWith([builderRow(4, 'house rules')], [MODE('off')]));
+
+    const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }));
+    const content = String(out['content']);
+
+    expect(content).not.toContain('## Operating Contract (FAST)');
+    expect(content).not.toContain('## The Fast Loop');
+    expect(content).toContain('# Fleet Agent Policy');
+    expect(content).toContain('## Hard Stop Lines');
+    expect(content).toContain('## Custom Instructions\n\nhouse rules');
+    expect(content).toContain('## Skills');
+    expect(content).toContain('## Memory');
+    expect(out['sections']).toMatchObject({ skills: { present: true }, memories: { present: true } });
+  });
+
+  it('leaves a hand-written document alone at off, because none of it was generated', async () => {
+    const body = 'Hand-written fleet doc\n';
+    const db = makeDb(rowsWith([agentsRow(4, body)], [MODE('off')]));
+
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(String(out['content'])).toContain('Hand-written fleet doc');
+  });
+
+  it('serves a manual document byte-identically to the default mode', async () => {
+    const body = 'Hand-written fleet doc\n';
+    const managed = await makeService(makeDb(rowsWith([agentsRow(4, body)], []))).retrieve(null, makeHost());
+    const manual = await makeService(makeDb(rowsWith([agentsRow(4, body)], [MODE('manual')]))).retrieve(null, makeHost());
+
+    expect(manual['content']).toBe(managed['content']);
+    expect(manual['sha256']).toBe(managed['sha256']);
+    expect(manual['base_sha256']).toBe(managed['base_sha256']);
+  });
+
+  // The switch changes what a stored document contributes, not what a fleet
+  // with no document at all bootstraps.
+  it('still reports missing at off when nothing has ever been stored', async () => {
+    const db = makeDb(rowsWith([], [MODE('off')]));
+
+    expect(await makeService(db).retrieve(null, makeHost())).toEqual({ status: 'missing' });
+  });
+
+  it('reports base_sha256 for the base it actually served, not the stored row', async () => {
+    const row = builderRow(4, 'house rules');
+    const db = makeDb(rowsWith([row], [MODE('off')]));
+
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(out['base_sha256']).not.toBe(row['sha256']);
+    expect(out['base_sha256']).toBe(sha('## Custom Instructions\n\nhouse rules\n'));
+  });
+
+  // The dangerous direction. One unreadable settings row must not strip the
+  // canonical base from every host in the fleet at once.
+  it('serves the full document when the settings lookup fails', async () => {
+    const db = makeDb(rowsWith([builderRow(4, 'house rules')], [MODE('off')]));
+    const broken = {
+      ...db,
+      select: (...args: unknown[]) => {
+        const builder = (db.select as (...a: unknown[]) => Record<string, unknown>)(...args);
+        const from = builder['from'] as (table: unknown) => unknown;
+        builder['from'] = (table: unknown) => {
+          if (table === versions) throw new Error("Table 'versions' doesn't exist");
+          return from.call(builder, table);
+        };
+        return builder;
+      },
+    };
+
+    const out = await makeService(broken as unknown as DbFake).retrieve(null, makeHost());
+
+    expect(String(out['content'])).toContain('## Operating Contract (FAST)');
+  });
+
+  it('renders the admin preview at the fleet mode, so it matches what the host gets', async () => {
+    const db = makeDb(rowsWith([builderRow(4, 'house rules')], [MODE('off')]));
+    const service = makeService(db);
+
+    const served = await service.renderCurrent(makeHost());
+
+    expect(String(served['content'])).not.toContain('## Operating Contract (FAST)');
+    expect(await service.generationMode()).toBe('off');
   });
 });

@@ -1,5 +1,29 @@
 # 2026-08-04
 
+- **There was no way to stop generating AGENTS.md, or to take it over by hand.** Which document a
+  host got was decided implicitly, by whether the served row happened to carry a `builder_state` —
+  a historical accident the console labelled "Legacy Markdown document" and could only travel away
+  from, never back to. The nearest thing to switching generation off was unticking all ten modules
+  and saving a version, which destroyed the selection. Fleet Instructions now opens with a
+  three-position **Generation** switch: *Generated* (today's builder), *Manual* (a raw Markdown
+  editor, seeded from what the fleet is being served), and *Disabled*. New setting
+  `agents_generation_mode` with `GET`/`POST /admin/agents-generation-mode`; also reported as
+  `generation_mode` on `GET /admin/agents`.
+- **Disabled does not mean no AGENTS.md.** It drops only what the builder generated. Hosts still
+  receive the mandatory fleet policy block, the operator's custom instructions, and the live
+  Skills/Memory/Projects/BrowserOS/Secrets capability guidance — the parts that are computed per
+  host and are not the editor's output to withhold. A document with no builder state was
+  hand-written, so nothing in it was generated and Disabled serves it unchanged.
+- The switch is applied when a document is rendered, never when it is stored. `POST
+  /admin/agents/store` keeps writing the full module selection at every mode, so Disabled takes
+  effect fleet-wide on the next retrieve without creating a version, and switching back restores
+  the modules exactly. The read normalizer fails open to `managed`: an unreadable settings row, or
+  one written by a later build, serves today's document rather than stripping prose from every host
+  in the fleet at once. The write path is strict, so a typo is a 422 instead of a silent reset.
+- `renderManagedAgentFeatures` and its pinned digests are untouched — the gate lives in its two
+  callers, which choose what to pass as the base. At the default mode the served bytes are
+  byte-identical. `base_sha256` now hashes the base that was actually rendered rather than the
+  stored row, which were the same string until Disabled made them differ.
 - **Nine of Fleet Instructions' settings changed nothing you could see.** The inline preview showed
   the canonical base, which by construction contains no security policy block, so dragging any of
   the nine posture sliders updated no visible text at all; the only preview that honoured them was

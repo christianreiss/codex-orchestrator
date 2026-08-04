@@ -625,6 +625,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
 - `GET /admin/api-keys-in-chat` / `POST /admin/api-keys-in-chat` — read/set the default-off cross-engine instruction for operator-supplied API keys (`enabled` boolean).
+- `GET /admin/agents-generation-mode` / `POST /admin/agents-generation-mode` — read/set the fleet-wide master switch for AGENTS.md/CLAUDE.md generation (`mode`: `managed` default, `manual`, or `off`). Applied at render time only; no position suppresses the mandatory policy block or the managed feature block.
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
 - `GET /admin/log-retention` / `POST /admin/log-retention` — read/set log pruning: `enabled` plus `days_logs` (default 90), `days_mcp` (90), `days_events` (30), `days_graph_stats` (180), each clamped to `1..365`.

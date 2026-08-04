@@ -380,9 +380,17 @@ export interface AgentPolicyCatalog {
   modules: AgentPolicyCatalogItem[];
 }
 
+/**
+ * The fleet's master switch for the canonical middle of AGENTS.md/CLAUDE.md.
+ * `off` still serves the mandatory policy block and the managed feature block —
+ * it drops only what the policy builder generated.
+ */
+export type AgentsGenerationMode = "managed" | "manual" | "off";
+
 export interface AgentsDocument {
   status: "ok" | "missing" | string;
   mode: "latest" | "locked" | string;
+  generation_mode?: AgentsGenerationMode;
   active_id?: number | null;
   served_id?: number | null;
   latest_id?: number | null;

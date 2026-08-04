@@ -91,6 +91,21 @@ Codex/host feature state and appends at most one
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 
+The fleet-wide `agents_generation_mode` setting (`GET`/`POST
+/admin/agents-generation-mode`) decides what the stored document contributes to
+that middle, and nothing else: `managed` (default) serves the composed policy
+modules plus custom instructions, `manual` serves the stored document verbatim,
+and `off` drops the generated modules and keeps only the operator's custom
+instructions. No position suppresses the policy prefix or the feature block — a
+host at `off` still receives the fleet rules and the live capability guidance,
+so `off` means "stop generating prose", not "no AGENTS.md". The mode is applied
+when a document is rendered, not when it is stored, so switching it changes what
+every host receives on its next retrieve without creating a version, and
+switching back restores the module selection exactly. A stored document with no
+builder state was hand-written; nothing in it was generated, so `off` serves it
+unchanged. `base_sha256` on the retrieve response always describes the base that
+was actually rendered.
+
 The block is concise guidance, not state replication. When applicable it makes
 the orchestrator MCP authoritative for fleet Skills and requires `skill_list`
 before consulting host-local copies for fleet-Skill work. Workflow, create,

@@ -30,6 +30,12 @@ import {
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
+import {
+  AGENTS_GENERATION_MODE_KEY,
+  AGENTS_GENERATION_MODES,
+  normalizeAgentsGenerationMode,
+  parseAgentsGenerationMode,
+} from '../../../services/agents-generation-mode.js';
 
 /**
  * The only values `/admin/theme` accepts. The legacy palette values remain
@@ -134,6 +140,28 @@ export async function registerAdminSettingsRoutes(
     await settings.setFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, enabled);
     await recordLog(ctx, 'admin.api_keys_in_chat', { enabled });
     return ok({ enabled });
+  });
+
+  // ── agents-generation-mode ───────────────────────────────────────────────
+  // Fleet-wide master switch for the canonical middle of AGENTS.md/CLAUDE.md.
+  // It takes effect on the next retrieve with no new document version, so the
+  // read fails open (`normalizeAgentsGenerationMode`) while the write is strict:
+  // a typo here would otherwise silently reset the fleet to `managed`.
+  app.get('/admin/agents-generation-mode', { preHandler: app.requireAdmin }, async () => {
+    return ok({
+      mode: normalizeAgentsGenerationMode(await settings.getString(AGENTS_GENERATION_MODE_KEY)),
+      modes: AGENTS_GENERATION_MODES,
+    });
+  });
+  app.post('/admin/agents-generation-mode', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { mode?: unknown };
+    const mode = parseAgentsGenerationMode(body.mode);
+    if (mode === null) {
+      throw new ValidationError(`mode must be one of: ${AGENTS_GENERATION_MODES.join(', ')}`, { param: 'mode' });
+    }
+    await settings.set(AGENTS_GENERATION_MODE_KEY, mode);
+    await recordLog(ctx, 'admin.agents_generation_mode', { mode });
+    return ok({ mode, modes: AGENTS_GENERATION_MODES });
   });
 
   // ── theme ─────────────────────────────────────────────────────────────────
