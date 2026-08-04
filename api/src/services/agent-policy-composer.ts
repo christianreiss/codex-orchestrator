@@ -44,6 +44,52 @@ export interface AgentPolicyRequiredDefinition {
   default_enabled: true;
 }
 
+/**
+ * One highlightable block of a rendered document, emitted in document order so
+ * the console can link a setting to the text it produced.
+ *
+ * `headings` is every `##` heading the block's own markdown contains. That is
+ * normally exactly one — its own — but custom instructions and legacy bodies are
+ * free text and may carry several. The console walks the rendered headings and
+ * consumes this many per entry, which is what keeps it aligned when an operator
+ * writes their own headings; counting them here, where the markdown is known, is
+ * the only place the count can be established without guessing.
+ */
+export interface AgentPolicyProvenanceEntry {
+  key: string;
+  label: string;
+  /**
+   * What kind of thing produced this block, so the console knows whether the key
+   * points at a control it owns (`module`, `custom`, `legacy`), at text projected
+   * from the posture sliders (`policy`), or at a host capability that is not a
+   * setting on this page at all (`feature`).
+   */
+  group: 'policy' | 'module' | 'custom' | 'feature' | 'legacy';
+  headings: string[];
+}
+
+/**
+ * Every `##` heading in `markdown`, as the plain text a DOM walk sees.
+ *
+ * Fenced blocks are skipped: a `## ` line inside a fence renders as code, not as
+ * a heading, and counting it would shift every later block's attribution by one.
+ */
+export function documentHeadings(markdown: string): string[] {
+  const headings: string[] = [];
+  let fence: string | null = null;
+  for (const line of markdown.split('\n')) {
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1]!;
+      if (fence === null) fence = marker[0]!;
+      else if (marker[0] === fence) fence = null;
+      continue;
+    }
+    if (fence === null && line.startsWith('## ')) headings.push(line.slice(3).trim());
+  }
+  return headings;
+}
+
 const MODULES: readonly AgentPolicyModuleDefinition[] = [
   {
     id: 'operating_contract',
@@ -239,13 +285,20 @@ export function agentPolicyCatalog(): {
   template_id: string;
   template_version: number;
   required: readonly AgentPolicyRequiredDefinition[];
-  modules: readonly Omit<AgentPolicyModuleDefinition, 'markdown'>[];
+  modules: readonly (Omit<AgentPolicyModuleDefinition, 'markdown'> & { heading: string })[];
 } {
   return {
     template_id: AGENT_POLICY_TEMPLATE_ID,
     template_version: AGENT_POLICY_TEMPLATE_VERSION,
     required: AGENT_POLICY_REQUIRED,
-    modules: MODULES.map(({ markdown: _markdown, ...module }) => module),
+    // `heading` is published because a module's id, its console label, and the
+    // heading it emits are three different strings (`security` → "Security and
+    // trust boundaries" → "## Security and Trust Boundaries"), so the console
+    // cannot derive one from the others.
+    modules: MODULES.map(({ markdown, ...module }) => ({
+      ...module,
+      heading: documentHeadings(markdown)[0] ?? '',
+    })),
   };
 }
 
@@ -303,17 +356,37 @@ export function renderAgentPolicyBase(input: unknown): {
   content: string;
   sha256: string;
   size_bytes: number;
+  provenance: AgentPolicyProvenanceEntry[];
 } {
   const composition = normalizeAgentPolicyComposition(input);
   const selected = new Set(composition.enabled_modules);
-  const sections = MODULES.filter((module) => selected.has(module.id)).map((module) => module.markdown);
+  const enabled = MODULES.filter((module) => selected.has(module.id));
+  const sections = enabled.map((module) => module.markdown);
+  const provenance: AgentPolicyProvenanceEntry[] = enabled.map((module) => ({
+    key: `module:${module.id}`,
+    label: module.label,
+    group: 'module',
+    headings: documentHeadings(module.markdown),
+  }));
   const custom = composition.custom_instructions.trim();
-  if (custom !== '') sections.push(`## Custom Instructions\n\n${custom}`);
+  if (custom !== '') {
+    const customSection = `## Custom Instructions\n\n${custom}`;
+    sections.push(customSection);
+    provenance.push({
+      key: 'custom_instructions',
+      label: 'Custom instructions',
+      group: 'custom',
+      // Free text, so it may carry operator-written headings of its own; they
+      // belong to this block and must be consumed with it.
+      headings: documentHeadings(customSection),
+    });
+  }
   const content = sections.length === 0 ? '' : `${sections.join('\n\n---\n\n')}\n`;
   return {
     composition,
     content,
     sha256: createHash('sha256').update(content).digest('hex'),
     size_bytes: Buffer.byteLength(content, 'utf8'),
+    provenance,
   };
 }

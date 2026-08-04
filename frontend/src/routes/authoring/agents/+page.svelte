@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import { createQuery, createMutation, keepPreviousData, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { agentsApi } from "$lib/api/agents";
+  import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { hostEngines, hostsListQuery } from "$lib/api/hosts";
   import type {
     AgentPolicyComposition,
     AgentPolicyModuleId,
+    AgentPolicyProvenanceEntry,
     AgentsDocument,
-    AgentsRenderedDocument,
     AgentsVersion,
     AgentsVersionMeta,
   } from "$lib/api/types";
@@ -57,6 +58,7 @@
   let enabledModules = $state<AgentPolicyModuleId[]>([]);
   let customInstructions = $state("");
   let composedDraft = $state("");
+  let composedProvenance = $state<AgentPolicyProvenanceEntry[]>([]);
   let composeTimer: ReturnType<typeof setTimeout> | undefined;
 
   let securityCatalog = $state<SecurityLevelCatalog | null>(null);
@@ -137,6 +139,7 @@
     mutationFn: (composition: AgentPolicyComposition) => agentsApi.compose(composition),
     onSuccess: (result) => {
       composedDraft = result.content;
+      composedProvenance = result.provenance ?? [];
     },
     onError: (err: unknown) => {
       const msg = err instanceof ApiError ? err.message : "Failed to compose policy";
@@ -144,6 +147,11 @@
     },
   });
 
+  // Never gate this on which preview the operator is looking at. `composedDraft`
+  // is what `saveMutation` writes back into `content`, so a compose skipped to
+  // save a request is a save that stores the wrong bytes. Composing is pure CPU
+  // on the server with no host and no database work; it is not the expensive
+  // half of this page.
   $effect(() => {
     if (!hydrated || !builderMode) return;
     const composition = draftComposition;
@@ -299,9 +307,67 @@
   const previewHosts = $derived(
     ($hosts.data?.hosts ?? []).filter((host) => hostEngines(host).includes("codex")),
   );
-  let renderedPreview = $state<AgentsRenderedDocument | null>(null);
   let renderedPreviewOpen = $state(false);
   let previewHostId = $state("");
+
+  $effect(() => {
+    if (!previewHostId && previewHosts.length > 0) previewHostId = String(previewHosts[0].id);
+  });
+
+  /**
+   * The draft exactly as it will be sent, snapshotted on a debounce.
+   *
+   * Both the query key and the request body are read off the same snapshot, so a
+   * response can never be filed under a key that describes different settings.
+   */
+  type RenderRequest = {
+    draft: { composition: AgentPolicyComposition } | { content: string };
+    levels: SecurityLevels | null;
+  };
+  let renderRequest = $state<RenderRequest | null>(null);
+  let renderTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // The sliders fire once per integer step with no throttle of their own, so a
+  // continuous drag collapses into one trailing render rather than one per step.
+  $effect(() => {
+    if (!hydrated) return;
+    const next: RenderRequest = {
+      draft: builderMode ? { composition: draftComposition } : { content },
+      levels: draftLevels,
+    };
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => (renderRequest = next), 300);
+    return () => clearTimeout(renderTimer);
+  });
+
+  const canRenderEffective = $derived(previewHosts.length > 0 && previewHostId !== "");
+
+  /**
+   * A query rather than a mutation, because this now fires while a slider is
+   * being dragged. A mutation has no cancellation and no sequence guard, so a
+   * slow early response could land after a fast late one and leave the operator
+   * reading a document that does not match their settings. Keying the request
+   * structurally makes a stale response resolve into a stale key, where it is
+   * ignored — and makes a setting the operator returns to a cache hit.
+   */
+  const renderedPreviewQuery = createQuery(
+    reactiveOptions(() => {
+      const request = renderRequest;
+      const hostId = Number(previewHostId);
+      return {
+        queryKey: ["agents-render", previewHostId, JSON.stringify(request)],
+        queryFn: () =>
+          agentsApi.renderDraft(hostId, request!.draft, "codex", request!.levels ?? undefined),
+        enabled: canRenderEffective && request !== null,
+        placeholderData: keepPreviousData,
+        // A pure function of its key, so there is nothing for a refetch on
+        // window focus to discover.
+        staleTime: Infinity,
+      };
+    }),
+  );
+
+  const renderedPreview = $derived($renderedPreviewQuery.data ?? null);
   const renderedPreviewSections = $derived(
     Object.entries(renderedPreview?.sections ?? {})
       .filter(([name]) => name !== "memory_routing")
@@ -309,39 +375,87 @@
   );
 
   $effect(() => {
-    if (!previewHostId && previewHosts.length > 0) previewHostId = String(previewHosts[0].id);
-  });
-
-  const renderedPreviewMutation = createMutation({
-    mutationFn: (hostId: number) => agentsApi.renderDraft(
-      hostId,
-      builderMode ? { composition: draftComposition } : { content },
-      "codex",
-      draftLevels ?? undefined,
-    ),
-    onSuccess: (data) => {
-      renderedPreview = data;
-    },
-    onError: (err: unknown) => {
-      const msg = err instanceof ApiError ? err.message : "Failed to render AGENTS.md";
-      toast.error(msg);
-    },
+    const err = $renderedPreviewQuery.error;
+    if (err) toast.error(err instanceof ApiError ? err.message : "Failed to render AGENTS.md");
   });
 
   function refreshRenderedPreview() {
-    const hostId = Number(previewHostId);
-    if (!Number.isInteger(hostId) || hostId <= 0) {
-      toast.error("Choose a Codex host first");
-      return;
-    }
-    $renderedPreviewMutation.mutate(hostId);
+    void $renderedPreviewQuery.refetch();
   }
 
   function openRenderedPreview() {
-    renderedPreview = null;
     renderedPreviewOpen = true;
-    refreshRenderedPreview();
   }
+
+  // ---- Preview surface ----
+  // The effective document is the only render the posture sliders reach: the
+  // canonical base has no policy block for them to change. So it is what the
+  // pane shows by default, and the base stays one click away for the operator
+  // who wants to see only what this editor actually stores.
+  type PreviewMode = "effective" | "canonical";
+  let previewMode = $state<PreviewMode>("effective");
+  const activePreviewMode = $derived<PreviewMode>(canRenderEffective ? previewMode : "canonical");
+  const previewContent = $derived(
+    activePreviewMode === "effective" ? renderedPreview?.content ?? "" : composedDraft,
+  );
+  const previewProvenance = $derived<AgentPolicyProvenanceEntry[]>(
+    activePreviewMode === "effective" ? renderedPreview?.provenance ?? [] : composedProvenance,
+  );
+  const axisSections = $derived<Record<string, string[]>>(
+    activePreviewMode === "effective" ? renderedPreview?.axis_sections ?? {} : {},
+  );
+
+  // ---- Setting ↔ text link ----
+  type ActiveSetting =
+    | { kind: "module"; id: string }
+    | { kind: "custom" }
+    | { kind: "legacy" }
+    | { kind: "axis"; id: string };
+  let activeSetting = $state<ActiveSetting | null>(null);
+  /** The block under the pointer in the preview, for the reverse direction. */
+  let hoveredKey = $state<string | null>(null);
+
+  const activeKeys = $derived.by(() => {
+    const setting = activeSetting;
+    if (!setting) return [];
+    if (setting.kind === "module") return [`module:${setting.id}`];
+    if (setting.kind === "custom") return ["custom_instructions"];
+    if (setting.kind === "legacy") return ["legacy_document"];
+    // An axis has no section of its own: it contributes sentences to whichever
+    // of the mandatory sections its operations currently land in, which is a
+    // function of the level and so has to come from the server.
+    return (axisSections[setting.id] ?? []).map((section) => `policy:${section}`);
+  });
+
+  /** How many blocks an axis currently reaches, so the row can say so plainly. */
+  function axisBlockCount(axisId: string): number {
+    return (axisSections[axisId] ?? []).length;
+  }
+
+  function clearActiveSetting(): void {
+    activeSetting = null;
+  }
+
+  /** Marks the control that produced the block currently under the pointer. */
+  function linkClass(key: string): string {
+    return hoveredKey === key ? "ring-2 ring-primary/50" : "";
+  }
+
+  /**
+   * The reverse link for a mandatory section names *every* axis feeding it, not
+   * a best guess at one. A single Hard Stop Lines bullet can be the joint work of
+   * several axes, and at the most constrained levels every forbidden operation
+   * collapses into one sentence — so "this text is yours alone" is a claim this
+   * page is in no position to make.
+   */
+  const highlightedAxes = $derived.by(() => {
+    const key = hoveredKey;
+    if (key === null || !key.startsWith("policy:")) return [];
+    const section = key.slice("policy:".length);
+    return Object.entries(axisSections)
+      .filter(([, sections]) => sections.includes(section))
+      .map(([axis]) => axis);
+  });
 
   const versions = $derived<AgentsVersionMeta[]>($query.data?.versions ?? []);
   const currentVersionId = $derived($query.data?.served_id ?? $query.data?.active_id ?? null);
@@ -385,9 +499,9 @@
         {/if}
       </div>
 
-      {#if builderMode}
-        <div class="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-          <div class="space-y-4">
+      <div class="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+        <div class="space-y-4">
+          {#if builderMode}
             <Card.Root>
               <Card.Content class="divide-y p-0">
                 <div class="space-y-1 p-4">
@@ -418,7 +532,20 @@
                   <p class="text-xs text-muted-foreground">Changes stay in this draft until you save a new version.</p>
                 </div>
                 {#each $query.data?.builder_catalog?.modules ?? [] as item (item.id)}
-                  <div class="flex items-center justify-between gap-3 p-4">
+                  <!-- Hover and focus are wired on the row, not the Switch, so the
+                       label and description are part of the target and keyboard
+                       users get the same link without a second affordance. -->
+                  <div
+                    role="group"
+                    aria-label={item.label}
+                    class="flex items-center justify-between gap-3 p-4 transition-colors {linkClass(
+                      `module:${item.id}`,
+                    )}"
+                    onmouseenter={() => (activeSetting = { kind: "module", id: item.id })}
+                    onmouseleave={clearActiveSetting}
+                    onfocusin={() => (activeSetting = { kind: "module", id: item.id })}
+                    onfocusout={clearActiveSetting}
+                  >
                     <div class="min-w-0">
                       <Label for={`agents-module-${item.id}`} class="text-sm font-medium">{item.label}</Label>
                       <p class="mt-0.5 text-xs text-muted-foreground">{item.description}</p>
@@ -439,6 +566,9 @@
               levels={draftLevels ?? securityCatalog?.default_levels ?? ({} as SecurityLevels)}
               disabled={!defaultProfile || $saveLevelsMutation.isPending}
               onChange={(next) => (draftLevels = next)}
+              blockCount={activePreviewMode === "effective" ? axisBlockCount : undefined}
+              highlightedAxes={highlightedAxes}
+              onHighlight={(axisId) => (activeSetting = axisId === null ? null : { kind: "axis", id: axisId })}
             />
             {#if levelsDirty}
               <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
@@ -451,7 +581,15 @@
               </div>
             {/if}
 
-            <div class="space-y-1.5">
+            <div
+              role="group"
+              aria-label="Custom instructions"
+              class="space-y-1.5 rounded-md p-2 -m-2 transition-colors {linkClass('custom_instructions')}"
+              onmouseenter={() => (activeSetting = { kind: "custom" })}
+              onmouseleave={clearActiveSetting}
+              onfocusin={() => (activeSetting = { kind: "custom" })}
+              onfocusout={clearActiveSetting}
+            >
               <Label for="agents-custom-instructions">Custom instructions</Label>
               <Textarea
                 id="agents-custom-instructions"
@@ -461,47 +599,111 @@
                 bind:value={customInstructions}
               />
             </div>
+          {:else}
+            <!-- Legacy documents carry no per-section attribution, so the whole
+                 middle links back to the one control that produced it. -->
+            <div
+              role="group"
+              aria-label="Legacy Markdown document"
+              onmouseenter={() => (activeSetting = { kind: "legacy" })}
+              onmouseleave={clearActiveSetting}
+              onfocusin={() => (activeSetting = { kind: "legacy" })}
+              onfocusout={clearActiveSetting}
+            >
+              <Card.Root class={linkClass("legacy_document")}>
+                <Card.Content class="space-y-4 p-4">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 class="text-sm font-semibold">Legacy Markdown document</h3>
+                      <p class="text-xs text-muted-foreground">
+                        This version predates the policy builder. The required fleet policy is still added when served.
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" onclick={useFleetStandard}>Convert draft to Fleet Standard</Button>
+                  </div>
+                  <Textarea
+                    id="agents-document"
+                    class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
+                    spellcheck="false"
+                    autocomplete="off"
+                    bind:value={content}
+                  />
+                </Card.Content>
+              </Card.Root>
+            </div>
+          {/if}
+        </div>
+
+        <div class="min-w-0 space-y-2 xl:sticky xl:top-20 xl:self-start">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold">
+                {activePreviewMode === "effective" ? "Effective AGENTS.md" : "Generated canonical base"}
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                {#if activePreviewMode === "effective"}
+                  Updates as you change any setting. Hover a setting to light up the text it produces.
+                {:else}
+                  Only what this editor stores. The mandatory policy and host capabilities are added when served.
+                {/if}
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="inline-flex rounded-md border p-0.5" role="group" aria-label="Preview scope">
+                <button
+                  type="button"
+                  disabled={!canRenderEffective}
+                  onclick={() => (previewMode = "effective")}
+                  class="rounded px-2 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 {activePreviewMode ===
+                  'effective'
+                    ? 'bg-primary/10 font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-muted'}"
+                >
+                  Effective document
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (previewMode = "canonical")}
+                  class="rounded px-2 py-1 text-xs transition-colors {activePreviewMode === 'canonical'
+                    ? 'bg-primary/10 font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-muted'}"
+                >
+                  Canonical base
+                </button>
+              </div>
+              {#if activePreviewMode === "effective"}
+                <CopyButton value={previewContent} label="Copy document" copiedLabel="Copied" size="sm" />
+              {:else}
+                <CopyButton value={composedDraft} label="Copy base" copiedLabel="Copied" size="sm" />
+              {/if}
+            </div>
           </div>
 
-          <div class="min-w-0 space-y-2 xl:sticky xl:top-20 xl:self-start">
-            <div class="flex items-center justify-between gap-2">
-              <div>
-                <h3 class="text-sm font-semibold">Generated canonical base</h3>
-                <p class="text-xs text-muted-foreground">The required prefix and host capabilities appear in the effective preview.</p>
-              </div>
-              <CopyButton value={composedDraft} label="Copy base" copiedLabel="Copied" size="sm" />
-            </div>
-            <article aria-label="Generated AGENTS.md base document">
-              <RenderedMarkdown
-                source={composedDraft}
-                ariaLabel="Generated AGENTS.md base content"
-                class="min-h-[65vh] bg-background p-6 sm:p-8"
-              />
-            </article>
-          </div>
-        </div>
-      {:else}
-        <Card.Root>
-          <Card.Content class="space-y-4 p-4">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 class="text-sm font-semibold">Legacy Markdown document</h3>
-                <p class="text-xs text-muted-foreground">
-                  This version predates the policy builder. The required fleet policy is still added when served.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" onclick={useFleetStandard}>Convert draft to Fleet Standard</Button>
-            </div>
-            <Textarea
-              id="agents-document"
-              class="min-h-[60vh] resize-y font-mono text-sm leading-relaxed"
-              spellcheck="false"
-              autocomplete="off"
-              bind:value={content}
+          {#if !canRenderEffective}
+            <p class="text-xs text-muted-foreground">
+              No Codex host is enrolled, so the host-specific feature block cannot be rendered. This
+              shows the canonical base only — the security posture does not appear in it.
+            </p>
+          {/if}
+
+          <article
+            aria-label={activePreviewMode === "effective"
+              ? "Effective AGENTS.md preview document"
+              : "Generated AGENTS.md base document"}
+          >
+            <RenderedMarkdown
+              source={previewContent}
+              provenance={previewProvenance}
+              {activeKeys}
+              onBlockHover={(key) => (hoveredKey = key)}
+              ariaLabel={activePreviewMode === "effective"
+                ? "Effective AGENTS.md preview content"
+                : "Generated AGENTS.md base content"}
+              class="min-h-[65vh] bg-background p-6 sm:p-8"
             />
-          </Card.Content>
-        </Card.Root>
-      {/if}
+          </article>
+        </div>
+      </div>
 
       <div class="flex items-center justify-end gap-2">
         <Button
@@ -520,6 +722,10 @@
     </div>
 
     <aside aria-label="Agent document controls" class="border-t pt-5">
+      <p class="mb-2 text-xs text-muted-foreground">
+        These do not change the draft above, so the preview does not react to them: serve mode picks
+        which stored version is handed out, and retention prunes old backups.
+      </p>
       <Card.Root>
         <Card.Content class="divide-y p-0">
           <div class="space-y-2 p-4">
@@ -643,13 +849,7 @@
 </Dialog.Root>
 
 <!-- Effective host document preview -->
-<Dialog.Root
-  open={renderedPreviewOpen}
-  onOpenChange={(open) => {
-    renderedPreviewOpen = open;
-    if (!open) renderedPreview = null;
-  }}
->
+<Dialog.Root open={renderedPreviewOpen} onOpenChange={(open) => (renderedPreviewOpen = open)}>
   <Dialog.Content class="sm:max-w-5xl">
     <Dialog.Header>
       <Dialog.Title>Effective AGENTS.md draft</Dialog.Title>
@@ -663,14 +863,9 @@
       <div class="flex flex-wrap items-end gap-2">
         <div class="min-w-[240px] flex-1 space-y-1.5">
           <label for="agents-preview-host" class="text-xs font-medium">Codex host</label>
-          <Select.Root
-            type="single"
-            value={previewHostId}
-            onValueChange={(value) => {
-              previewHostId = value ?? "";
-              renderedPreview = null;
-            }}
-          >
+          <!-- The host is part of the query key, so switching it re-renders in
+               place rather than blanking the document until a manual refresh. -->
+          <Select.Root type="single" value={previewHostId} onValueChange={(value) => (previewHostId = value ?? "")}>
             <Select.Trigger id="agents-preview-host" aria-label="Codex host for rendered AGENTS preview">
               <Select.Value placeholder="Choose a host">
                 {previewHosts.find((host) => String(host.id) === previewHostId)?.fqdn ?? "Choose a host"}
@@ -683,13 +878,13 @@
             </Select.Content>
           </Select.Root>
         </div>
-        <Button onclick={refreshRenderedPreview} disabled={$renderedPreviewMutation.isPending || !previewHostId}>
+        <Button onclick={refreshRenderedPreview} disabled={$renderedPreviewQuery.isFetching || !previewHostId}>
           <Eye class="h-4 w-4" />
-          {$renderedPreviewMutation.isPending ? "Rendering…" : "Refresh"}
+          {$renderedPreviewQuery.isFetching ? "Rendering…" : "Refresh"}
         </Button>
       </div>
 
-      {#if $renderedPreviewMutation.isPending}
+      {#if $renderedPreviewQuery.isPending}
         <p class="text-sm text-muted-foreground">Rendering the host-specific document…</p>
       {:else if renderedPreview?.status === "missing"}
         <p class="text-sm text-muted-foreground">No AGENTS.md document is currently configured for this host.</p>

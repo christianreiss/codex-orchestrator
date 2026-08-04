@@ -25,6 +25,7 @@ import {
   type ManagedFeatureState,
 } from './managed-agents-features.js';
 import { type SecurityLevels } from './agent-security-levels.js';
+import { type AgentPolicyProvenanceEntry } from './agent-policy-composer.js';
 import { AgentPolicyProfilesService } from './agent-policy-profiles.js';
 
 const STATE_ID_CODEX = 1;
@@ -90,9 +91,10 @@ export class HostAgentsService {
     baseBody: string,
     engine: Engine = ENGINE_CODEX,
     levels?: SecurityLevels,
+    baseProvenance?: readonly AgentPolicyProvenanceEntry[],
   ): Promise<Record<string, unknown>> {
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
-    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels);
+    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance);
     const servedSha = createHash('sha256').update(rendered.body).digest('hex');
     return {
       status: 'ok',
@@ -103,6 +105,11 @@ export class HostAgentsService {
       policy_sha256: rendered.policy_sha256,
       features_sha256: rendered.features_sha256,
       sections: rendered.sections,
+      // Preview-only. The serve path (`renderForHost`) deliberately omits these:
+      // they are console affordances, and every extra key there is a byte a host
+      // would have to ignore.
+      provenance: rendered.provenance,
+      axis_sections: rendered.axis_sections,
       updated_at: null,
       size_bytes: Buffer.byteLength(rendered.body, 'utf8'),
       content: rendered.body,

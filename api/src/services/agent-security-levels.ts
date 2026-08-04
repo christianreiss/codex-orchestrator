@@ -846,6 +846,59 @@ export function renderSecurityPolicyMarkdown(levels: SecurityLevels): RenderedSe
   };
 }
 
+export type PolicySectionKey = keyof RenderedPolicySections;
+
+/** Document order, so a console highlight reads top-to-bottom. */
+const POLICY_SECTION_ORDER: readonly PolicySectionKey[] = [
+  'fleet_identity',
+  'safety_floor',
+  'hard_stops',
+  'standing_authorizations',
+];
+
+/**
+ * Which policy sections each axis currently contributes text to.
+ *
+ * This is the section-level projection of `stances`, which the renderer already
+ * computes and every caller then threw away. It is deliberately coarse: one axis
+ * routinely lands in two sections at once (`git_history` forbids history rewrites
+ * in the floor while asking before a commit in the stops), and `composeAskBullets`
+ * folds several axes into a single bullet, so "this axis contributes to this
+ * section" is the strongest claim that is true of every level.
+ *
+ * Two contributions are not operations and so cannot come from the buckets:
+ *
+ *  - `security_controls` selects a whole clause of the floor via
+ *    `stricterMechanismClause`, at every level, and
+ *  - `autonomy` owns the Hard Stop Lines trailer, which is held out of all three
+ *    buckets on purpose (see `renderSecurityPolicyMarkdown`) and is the entire
+ *    section body when nothing else asks.
+ */
+export function axisPolicySections(
+  policy: RenderedSecurityPolicy,
+): Record<SecurityAxisId, PolicySectionKey[]> {
+  const found = new Map<SecurityAxisId, Set<PolicySectionKey>>(
+    SECURITY_AXIS_IDS.map((axis) => [axis, new Set<PolicySectionKey>()]),
+  );
+  found.get('security_controls')!.add('safety_floor');
+  found.get('autonomy')!.add('hard_stops');
+
+  for (const stance of policy.stances) {
+    if (stance.id === 'autonomy.proceed_on_ambiguity') continue;
+    if (stance.stance === 'forbid') found.get(stance.axis)!.add('safety_floor');
+    else if (stance.stance === 'ask') found.get(stance.axis)!.add('hard_stops');
+    else found.get(stance.axis)!.add('standing_authorizations');
+  }
+
+  const out = {} as Record<SecurityAxisId, PolicySectionKey[]>;
+  for (const axis of SECURITY_AXIS_IDS) {
+    out[axis] = POLICY_SECTION_ORDER.filter(
+      (section) => found.get(axis)!.has(section) && policy.sections[section] !== null,
+    );
+  }
+  return out;
+}
+
 function lowerFirst(value: string): string {
   return value.length === 0 ? value : value[0]!.toLowerCase() + value.slice(1);
 }

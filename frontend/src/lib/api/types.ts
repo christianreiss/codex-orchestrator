@@ -369,6 +369,8 @@ export interface AgentPolicyCatalogItem {
   description: string;
   required: boolean;
   default_enabled: boolean;
+  /** The `##` heading this module emits. Absent on the required pseudo-modules. */
+  heading?: string;
 }
 
 export interface AgentPolicyCatalog {
@@ -423,6 +425,10 @@ export interface AgentsRenderedDocument {
   size_bytes?: number;
   content?: string;
   sections?: Record<string, AgentsManagedFeatureSection>;
+  /** Highlightable blocks in document order; preview-only, absent on the serve path. */
+  provenance?: AgentPolicyProvenanceEntry[];
+  /** Policy sections each security axis currently contributes text to. */
+  axis_sections?: Record<string, string[]>;
 }
 
 export interface AgentsStoreResult {
@@ -439,6 +445,21 @@ export interface AgentPolicyComposeResult {
   content: string;
   sha256: string;
   size_bytes: number;
+  /**
+   * Base-only: composing knows nothing of a host or a posture, so it describes
+   * the module and custom-instruction blocks and no others. The policy and
+   * feature blocks are described by the render endpoint, which is the only one
+   * that produces them.
+   */
+  provenance?: AgentPolicyProvenanceEntry[];
+}
+
+/** One highlightable block of a rendered document, as the server emitted it. */
+export interface AgentPolicyProvenanceEntry {
+  key: string;
+  label: string;
+  group: "policy" | "module" | "custom" | "feature" | "legacy";
+  headings: string[];
 }
 
 // Claude collection artifacts (subagents / commands / output-styles)

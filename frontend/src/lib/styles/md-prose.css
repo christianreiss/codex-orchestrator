@@ -45,3 +45,37 @@
 .md-prose-tight p { margin: .4rem 0; }
 .md-prose-tight ul, .md-prose-tight ol { margin: .4rem 0; }
 .md-prose-tight pre { margin: .6rem 0; }
+
+/**
+ * Setting ↔ text provenance, for the fleet policy editor.
+ *
+ * Blocks carry `data-provenance` naming the control that produced them.
+ * Highlighting is additive only — nothing is ever dimmed — because dulling the
+ * separators or the policy title would imply they are not part of the document.
+ *
+ * The marker is a left border plus a very light wash rather than a filled
+ * background: text keeps its own contrast ratio, which a saturated highlight
+ * behind body copy would not.
+ */
+.md-prose [data-provenance] { border-left: 3px solid transparent; margin-left: -.75rem; padding-left: .5rem; transition: background-color .12s ease, border-color .12s ease; }
+.md-prose [data-provenance-active] { border-left-color: hsl(var(--primary)); background: hsl(var(--primary) / .07); }
+.md-prose [data-provenance]:hover { border-left-color: hsl(var(--primary) / .45); }
+
+/**
+ * The reverse link. Blocks are siblings, so exactly one chip shows at a time:
+ * the one on the element actually under the pointer.
+ */
+.md-prose [data-provenance]:hover::after {
+  content: "from: " attr(data-provenance-label);
+  float: right;
+  margin: -.15rem 0 0 .5rem;
+  padding: .1rem .4rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  font-size: .7rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}

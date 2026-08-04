@@ -1,5 +1,37 @@
 # 2026-08-04
 
+- **Nine of Fleet Instructions' settings changed nothing you could see.** The inline preview showed
+  the canonical base, which by construction contains no security policy block, so dragging any of
+  the nine posture sliders updated no visible text at all; the only preview that honoured them was
+  behind a modal that stayed stale until you clicked Preview and then Refresh. The inline pane now
+  renders the *effective* document — mandatory policy, canonical base, and the selected host's live
+  feature guidance — and updates on a 300 ms debounce for every setting that changes served text:
+  module switches, custom instructions, the posture sliders, and the host selector. The canonical
+  base is one click away behind a scope toggle, and legacy (un-composed) documents get the same live
+  preview, which they previously had no preview of whatever. The modal keeps its exact contract and
+  is now live for free. `POST /admin/agents/compose` stays unconditional because `composedDraft` is
+  what Save writes back; gating it on the visible scope would store the wrong bytes.
+- The draft preview moved from a mutation to a structurally-keyed query. This is a correctness fix,
+  not ergonomics: the sliders fire once per integer step with no throttle, and a mutation has no
+  cancellation and no sequence guard, so a slow early response could land after a fast late one and
+  leave the operator reading a document that did not match their settings.
+- **Settings and the text they produce are now visually linked, both directions.** Hovering or
+  focusing a module row, the custom-instructions field, or a posture axis highlights the blocks it
+  produced; hovering a block names its source and outlines the matching control. `POST
+  /admin/agents/render` and `/compose` gained a preview-only `provenance` list (blocks in document
+  order with the `##` headings each contains) and `render` gained `axis_sections`, projected from
+  the per-operation `stances` the renderer already computed and every caller discarded. Attribution
+  is deliberately section-level and says "contributes to N blocks", never "produces": one axis
+  routinely reaches two sections, `composeAskBullets` folds several axes into one bullet, and at the
+  most constrained preset every forbidden operation collapses into a single sentence — so a
+  block reachable from several axes outlines all of them rather than guessing one.
+- Provenance is metadata alongside the document; not one byte of the served text changed, and the
+  serve path (`renderForHost` → `/agents/retrieve`) carries none of it. A new test pins the literal
+  `policy`/`features`/`managed` and served digests, so a change that would re-serve the document to
+  the whole fleet now has to be made deliberately rather than noticed after the sync.
+- Headings an operator writes inside custom instructions are reported as part of that block, which
+  is what stops a hand-typed `## Skills` from stealing the attribution of the real managed section
+  and shifting every block after it onto the wrong control.
 - **The `agent_*` toolset never reached a Codex model, on any host.** Codex does not pass its own
   environment to stdio MCP servers, so `cxx agent mcp` started with neither
   `CXX_AGENT_PORTAL_SOCKET` nor `CXX_AGENT_PORTAL_SESSION_ID` and exited immediately with "agent

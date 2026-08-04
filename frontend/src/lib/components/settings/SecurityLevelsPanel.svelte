@@ -28,9 +28,27 @@
     levels: SecurityLevels;
     disabled?: boolean;
     onChange: (levels: SecurityLevels) => void;
+    /**
+     * How many blocks of the previewed document an axis currently reaches.
+     * Omitted when nothing is previewing the served policy text, in which case
+     * the row says nothing rather than implying a link it cannot show.
+     */
+    blockCount?: (axisId: SecurityAxisId) => number;
+    /** Axes feeding the block currently under the pointer in the preview. */
+    highlightedAxes?: string[];
+    /** Fires with the axis the operator is pointing at, or null on leave. */
+    onHighlight?: (axisId: SecurityAxisId | null) => void;
   };
 
-  let { catalog, levels, disabled = false, onChange }: Props = $props();
+  let {
+    catalog,
+    levels,
+    disabled = false,
+    onChange,
+    blockCount,
+    highlightedAxes = [],
+    onHighlight,
+  }: Props = $props();
 
   // `?? []` so an older server whose catalog predates this panel renders empty
   // rather than throwing on a page the operator needs to reach.
@@ -107,7 +125,22 @@
       <div class="divide-y border-y border-border">
         {#each axes as axis (axis.id)}
           {@const level = levels[axis.id] ?? 0}
-          <div class="grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(180px,240px)] sm:items-center sm:gap-4">
+          {@const blocks = blockCount?.(axis.id) ?? 0}
+          <!-- Hover and focus sit on the row, not the slider: the label and the
+               description are the larger target, and focus parity comes free. -->
+          <div
+            role="group"
+            aria-label={axis.label}
+            class="grid gap-2 rounded-md py-3 transition-colors sm:grid-cols-[minmax(0,1fr)_minmax(180px,240px)] sm:items-center sm:gap-4 {highlightedAxes.includes(
+              axis.id,
+            )
+              ? 'ring-2 ring-primary/50'
+              : ''}"
+            onmouseenter={() => onHighlight?.(axis.id)}
+            onmouseleave={() => onHighlight?.(null)}
+            onfocusin={() => onHighlight?.(axis.id)}
+            onfocusout={() => onHighlight?.(null)}
+          >
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-1.5">
                 <Label for={`axis-${axis.id}`} class="text-sm font-medium">{axis.label}</Label>
@@ -120,6 +153,13 @@
                 {/if}
               </div>
               <p class="mt-0.5 text-xs text-muted-foreground">{axis.description}</p>
+              {#if blockCount && blocks > 0}
+                <!-- "Contributes to", never "produces": one bullet is routinely the
+                     joint work of several axes, and this count cannot say otherwise. -->
+                <p class="mt-0.5 text-xs text-muted-foreground/80">
+                  contributes to {blocks} {blocks === 1 ? "block" : "blocks"}
+                </p>
+              {/if}
             </div>
             <div class="space-y-1">
               <Slider

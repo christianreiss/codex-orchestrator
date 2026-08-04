@@ -58,6 +58,44 @@ const SECURITY_CATALOG = {
   default_levels: SECURITY_LEVELS_STANDARD,
 };
 
+/**
+ * A rendered document with real `##` sections, for the provenance tests. The
+ * default render fixture deliberately keeps its heading-free content, because
+ * the copy-exactness test compares the clipboard against it byte for byte.
+ */
+const PROVENANCE_DOC = [
+  "# Fleet Agent Policy",
+  "",
+  "## Hard Stop Lines",
+  "",
+  "Stop and ask only when at least one applies.",
+  "",
+  "## Operating Contract (FAST)",
+  "",
+  "Execute and verify.",
+  "",
+  "## Security and Trust Boundaries",
+  "",
+  "Never commit secrets.",
+  "",
+].join("\n");
+
+const PROVENANCE_ENTRIES = [
+  { key: "policy:hard_stops", label: "Hard Stop Lines", group: "policy", headings: ["Hard Stop Lines"] },
+  {
+    key: "module:operating_contract",
+    label: "Operating Contract",
+    group: "module",
+    headings: ["Operating Contract (FAST)"],
+  },
+  {
+    key: "module:security",
+    label: "Security and trust boundaries",
+    group: "module",
+    headings: ["Security and Trust Boundaries"],
+  },
+];
+
 const BUILDER_CATALOG = {
   template_id: "fleet-standard",
   template_version: 1,
@@ -573,12 +611,30 @@ function fixture(pathname: string): Record<string, unknown> {
   }
 }
 
-async function installFixtures(page: Page): Promise<void> {
+/**
+ * Answer for one request, or `undefined` to fall through to the path-keyed
+ * fixture. Taking the request body is what lets a test prove the console reacted
+ * to a *setting* rather than merely re-fetching: a path-keyed stub returns the
+ * same document whatever the operator changed, so nothing it asserts can tell an
+ * auto-updating preview from a frozen one.
+ */
+type FixtureOverride = (pathname: string, body: unknown) => Record<string, unknown> | undefined;
+
+async function installFixtures(page: Page, override?: FixtureOverride): Promise<void> {
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
     if (!request.headers().accept?.includes("application/json")) return route.continue();
     const pathname = new URL(request.url()).pathname;
-    return route.fulfill({ contentType: "application/json", body: JSON.stringify(fixture(pathname)) });
+    let body: unknown;
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = undefined;
+    }
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(override?.(pathname, body) ?? fixture(pathname)),
+    });
   });
 }
 
@@ -677,6 +733,90 @@ test("rendered AGENTS preview is a document and copies its exact Markdown", asyn
 
   await dialog.getByRole("button", { name: "Copy document" }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(RENDERED_AGENTS_CONTENT);
+});
+
+test("every setting updates the effective preview without a button press", async ({ page }) => {
+  // The render answer embeds the settings it was asked about, so an assertion on
+  // the preview text is an assertion that the change actually reached the server
+  // and came back — not merely that something re-rendered.
+  await installFixtures(page, (pathname, body) => {
+    if (pathname !== "/admin/agents/render") return undefined;
+    const sent = (body ?? {}) as {
+      security_levels?: Record<string, number>;
+      composition?: { enabled_modules?: string[]; custom_instructions?: string };
+    };
+    const autonomy = sent.security_levels?.autonomy ?? "?";
+    const modules = sent.composition?.enabled_modules?.length ?? 0;
+    const custom = sent.composition?.custom_instructions ?? "";
+    return {
+      ...fixture(pathname),
+      content: `# Fleet policy\n\nautonomy=${autonomy} modules=${modules} custom=${custom}\n`,
+    };
+  });
+
+  await page.goto("/admin/instructions");
+  const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
+  await expect(preview).toContainText("autonomy=3 modules=3", { timeout: 15_000 });
+
+  // A posture slider — the setting that reached no preview at all before.
+  await page.getByRole("slider", { name: "Working without asking level" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(preview).toContainText("autonomy=4", { timeout: 10_000 });
+
+  // A module switch.
+  await page.getByRole("switch", { name: "Security and trust boundaries" }).click();
+  await expect(preview).toContainText("modules=2", { timeout: 10_000 });
+
+  // And free text.
+  await page.getByRole("textbox", { name: "Custom instructions" }).fill("no reactors");
+  await expect(preview).toContainText("custom=no reactors", { timeout: 10_000 });
+
+  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+});
+
+test("a setting and the text it produces are visually linked, both ways", async ({ page }) => {
+  await installFixtures(page, (pathname) =>
+    pathname === "/admin/agents/render"
+      ? {
+          ...fixture(pathname),
+          content: PROVENANCE_DOC,
+          provenance: PROVENANCE_ENTRIES,
+          axis_sections: { autonomy: ["hard_stops"], verification_waiver: ["hard_stops"] },
+        }
+      : undefined,
+  );
+
+  await page.goto("/admin/instructions");
+  const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
+  await expect(preview.getByRole("heading", { name: "Security and Trust Boundaries" })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  const active = preview.locator("[data-provenance-active]");
+  await expect(active).toHaveCount(0);
+
+  // Setting → text.
+  await page.getByRole("group", { name: "Security and trust boundaries" }).hover();
+  await expect(preview.locator('[data-provenance="module:security"][data-provenance-active]')).toHaveCount(2);
+  await expect(preview.locator('[data-provenance="module:operating_contract"][data-provenance-active]')).toHaveCount(
+    0,
+  );
+  // The separator between two modules belongs to neither of them.
+  await expect(preview.locator("hr[data-provenance]")).toHaveCount(0);
+  // Nothing is dimmed, and the title above the first block stays unattributed.
+  await expect(preview.locator("h1[data-provenance]")).toHaveCount(0);
+  await expectNoSeriousAxeFindings(page);
+
+  // An axis names every section it reaches, and says how many.
+  const axisRow = page.getByRole("group", { name: "Working without asking" });
+  await expect(axisRow).toContainText("contributes to 1 block");
+  await axisRow.hover();
+  await expect(preview.locator('[data-provenance="policy:hard_stops"][data-provenance-active]')).toHaveCount(2);
+
+  // Text → setting: a shared block outlines every axis feeding it, not one.
+  await preview.getByRole("heading", { name: "Hard Stop Lines" }).hover();
+  await expect(page.getByRole("group", { name: "Working without asking" })).toHaveClass(/ring-2/);
+  await expect(page.getByRole("group", { name: "Skipping verification" })).toHaveClass(/ring-2/);
 });
 
 test("operator tables use the full workspace and the mobile menu retains all routes", async ({ page }) => {

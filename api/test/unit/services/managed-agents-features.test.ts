@@ -46,6 +46,52 @@ function context(
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+describe('served document byte invariance', () => {
+  /**
+   * Every host compares these digests on sync, so a single changed byte anywhere
+   * in the policy or feature blocks re-serves the document to the entire fleet.
+   * The other tests in this file assert the digests are self-consistent, which
+   * stays true across any rewording; these pin the actual values, so a change
+   * that would churn the fleet has to be made deliberately by updating them.
+   *
+   * If this fails and you did mean to change the text: update the constants and
+   * say so in the changelog. If you did not, you have accidentally rewritten a
+   * document 1:1 with what every agent reads.
+   */
+  it('holds the digests the fleet is currently synced to', async () => {
+    const { renderAgentPolicyBase, AGENT_POLICY_MODULE_IDS } = await import(
+      '../../../src/services/agent-policy-composer.js'
+    );
+    const { presetLevels } = await import('../../../src/services/agent-security-levels.js');
+    const base = renderAgentPolicyBase({
+      schema_version: 1,
+      template_id: 'fleet-standard',
+      template_version: 1,
+      enabled_modules: [...AGENT_POLICY_MODULE_IDS],
+      custom_instructions: '',
+    });
+    const out = renderManagedAgentFeatures(
+      base.content,
+      context(ENGINE_CODEX, {
+        skills: enabled(3),
+        memory: enabled(),
+        projects: enabled(),
+        browseros: enabled(),
+        secrets: enabled(2),
+        apiKeysInChat: enabled(),
+      }),
+      presetLevels('standard'),
+      base.provenance,
+    );
+
+    expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
+    expect(out.policy_sha256).toBe('ca5c99eb3eb59039b44eeb1fd8276f848ffe18945b41bc84cc491c0ea436f8e9');
+    expect(out.features_sha256).toBe('75d18bce13d6faf863df5ca9b614bb34b58f72a9e5218b90af58774fd73f409b');
+    expect(out.managed_sha256).toBe('3fb0dae653431eb983f8e5553c5e678c3cf469fcd6d98217a9fcaa5ed2af9d15');
+    expect(sha256(out.body)).toBe('945652e61e187c442d7f94e8e17b12dbb557a26a6b60fd42d4e5690f495b80a2');
+  });
+});
+
 describe('renderManagedAgentFeatures', () => {
   it('renders providers in deterministic order with exact block and section digests', () => {
     const out = renderManagedAgentFeatures(

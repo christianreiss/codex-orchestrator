@@ -226,8 +226,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       const host = rows[0];
       if (!host) throw new NotFoundError('Host not found');
       assertHostEngineEnabled(host, engine);
-      const base = body.composition !== undefined
-        ? agents.compose(body.composition).content
+      // A composed draft knows which module produced which section; raw content
+      // does not, and is left to the renderer to describe as one legacy block.
+      const composed = body.composition !== undefined ? agents.compose(body.composition) : null;
+      const base = composed
+        ? composed.content
         : typeof body.content === 'string'
           ? body.content
           : '';
@@ -235,7 +238,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         ? undefined
         : normalizeSecurityLevels(body.security_levels);
       return {
-        ...(await hostAgents.renderDraft(host, base, engine, draftLevels)),
+        ...(await hostAgents.renderDraft(host, base, engine, draftLevels, composed?.provenance)),
         host_id: host.id,
         host_fqdn: host.fqdn,
         engine,

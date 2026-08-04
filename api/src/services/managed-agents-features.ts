@@ -10,10 +10,14 @@ import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agent
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
 import {
+  axisPolicySections,
   DEFAULT_SECURITY_LEVELS,
   renderSecurityPolicyMarkdown,
+  type PolicySectionKey,
+  type SecurityAxisId,
   type SecurityLevels,
 } from './agent-security-levels.js';
+import { documentHeadings, type AgentPolicyProvenanceEntry } from './agent-policy-composer.js';
 import { RETIRED_AUTHORITY_SENTENCES_LONGEST_FIRST } from './agent-policy-legacy.js';
 
 export const MANAGED_FEATURES_START = '<!-- cxx:managed-features:start -->';
@@ -67,7 +71,32 @@ export interface RenderManagedAgentFeaturesResult {
   policy_sha256: string;
   features_sha256: string | null;
   sections: ManagedAgentFeatureSections;
+  /** Highlightable blocks in document order, for the console's setting links. */
+  provenance: AgentPolicyProvenanceEntry[];
+  /** Which policy sections each security axis currently contributes to. */
+  axis_sections: Record<SecurityAxisId, PolicySectionKey[]>;
 }
+
+const POLICY_SECTION_LABELS: Record<PolicySectionKey, string> = {
+  fleet_identity: 'Fleet identity',
+  safety_floor: 'Precedence and safety floor',
+  hard_stops: 'Hard Stop Lines',
+  standing_authorizations: 'Standing Authorizations',
+};
+
+/**
+ * These name host capabilities, not controls on the policy editor. The label
+ * says so, because a console that offers to "jump to the setting" for Skills
+ * would be pointing at a switch that does not exist on that page.
+ */
+const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, string>> = {
+  skills: 'Skills (host capability)',
+  memories: 'Memory (host capability)',
+  projects: 'Projects / CoCo (host capability)',
+  browseros: 'BrowserOS (host capability)',
+  secrets: 'Secrets (host capability)',
+  api_keys_in_chat: 'API keys in chat (fleet setting)',
+};
 
 interface RenderedSection {
   text: string;
@@ -291,6 +320,7 @@ export function renderManagedAgentFeatures(
   baseBody: string,
   context: ManagedAgentFeatureContext,
   levels?: SecurityLevels,
+  baseProvenance?: readonly AgentPolicyProvenanceEntry[],
 ): RenderManagedAgentFeaturesResult {
   // Optional and defaulting to Standard so every existing call site keeps
   // compiling and keeps its current output. Posture is resolved per host by
@@ -337,9 +367,19 @@ export function renderManagedAgentFeatures(
   // Appended last on purpose: provider order is part of `managed_sha256`, so
   // inserting anywhere else would churn every host's document for preceding
   // sections that did not change.
-  const renderedSections = [skills, memory, projects, browseros, secrets, apiKeysInChat]
-    .filter((section): section is RenderedSection => section !== null)
-    .map((section) => section.text);
+  const orderedFeatures: Array<{ key: keyof ManagedAgentFeatureSections; section: RenderedSection | null }> = [
+    { key: 'skills', section: skills },
+    { key: 'memories', section: memory },
+    { key: 'projects', section: projects },
+    { key: 'browseros', section: browseros },
+    { key: 'secrets', section: secrets },
+    { key: 'api_keys_in_chat', section: apiKeysInChat },
+  ];
+  const presentFeatures = orderedFeatures.filter(
+    (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>
+      entry.section !== null,
+  );
+  const renderedSections = presentFeatures.map((entry) => entry.section.text);
   const stripped = stripManagedContent(baseBody);
   const policyBlock = `${MANAGED_POLICY_START}\n${policy.markdown}\n${MANAGED_POLICY_END}\n`;
   const managedBlock = renderedSections.length === 0
@@ -351,11 +391,48 @@ export function renderManagedAgentFeatures(
   const cleaned = stripped.body.trim();
   const middle = cleaned === '' ? '' : `\n${cleaned}\n`;
   const tail = managedBlock === '' ? '' : `\n${managedBlock}`;
+
+  // Same order as the body above: policy block, canonical middle, feature block.
+  // A caller that composed the middle hands its entries in; a legacy body is
+  // arbitrary operator prose with no per-section attribution to be had, so the
+  // whole of it becomes one block pointing back at the raw editor.
+  const provenance: AgentPolicyProvenanceEntry[] = [];
+  for (const key of ['fleet_identity', 'safety_floor', 'hard_stops', 'standing_authorizations'] as const) {
+    const text = policy.sections[key];
+    if (text !== null) {
+      provenance.push({
+        key: `policy:${key}`,
+        label: POLICY_SECTION_LABELS[key],
+        group: 'policy',
+        headings: documentHeadings(text),
+      });
+    }
+  }
+  if (baseProvenance !== undefined) provenance.push(...baseProvenance.map((entry) => ({ ...entry })));
+  else if (cleaned !== '') {
+    provenance.push({
+      key: 'legacy_document',
+      label: 'Legacy Markdown document',
+      group: 'legacy',
+      headings: documentHeadings(cleaned),
+    });
+  }
+  for (const entry of presentFeatures) {
+    provenance.push({
+      key: `feature:${entry.key}`,
+      label: FEATURE_SECTION_LABELS[entry.key] ?? entry.key,
+      group: 'feature',
+      headings: documentHeadings(entry.section.text),
+    });
+  }
+
   return {
     body: `${policyBlock}${middle}${tail}`,
     managed_sha256: sha256(`${policyBlock}${managedBlock}`),
     policy_sha256: sha256(policyBlock),
     features_sha256: managedBlock === '' ? null : sha256(managedBlock),
     sections,
+    provenance,
+    axis_sections: axisPolicySections(policy),
   };
 }
