@@ -478,11 +478,20 @@
   type PreviewMode = "effective" | "canonical";
   let previewMode = $state<PreviewMode>("effective");
   const activePreviewMode = $derived<PreviewMode>(canRenderEffective ? previewMode : "canonical");
+  // The canonical pane is "what this editor stores", which in manual mode is the
+  // textarea, not `composedDraft` — the compose effect does not run there, so
+  // reading it would show whatever was last composed in the builder.
+  const canonicalDraft = $derived(builderMode ? composedDraft : content);
   const previewContent = $derived(
-    activePreviewMode === "effective" ? renderedPreview?.content ?? "" : composedDraft,
+    activePreviewMode === "effective" ? renderedPreview?.content ?? "" : canonicalDraft,
   );
   const previewProvenance = $derived<AgentPolicyProvenanceEntry[]>(
-    activePreviewMode === "effective" ? renderedPreview?.provenance ?? [] : composedProvenance,
+    activePreviewMode === "effective"
+      ? renderedPreview?.provenance ?? []
+      : builderMode
+        ? composedProvenance
+        : // A hand-written document has no per-section attribution to offer.
+          [],
   );
   const axisSections = $derived<Record<string, string[]>>(
     activePreviewMode === "effective" ? renderedPreview?.axis_sections ?? {} : {},
@@ -760,7 +769,11 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="min-w-0">
               <h3 class="text-sm font-semibold">
-                {activePreviewMode === "effective" ? "Effective AGENTS.md" : "Generated canonical base"}
+                {activePreviewMode === "effective"
+                  ? "Effective AGENTS.md"
+                  : builderMode
+                    ? "Generated canonical base"
+                    : "Stored canonical base"}
               </h3>
               <p class="text-xs text-muted-foreground">
                 {#if activePreviewMode === "effective"}
@@ -796,7 +809,7 @@
               {#if activePreviewMode === "effective"}
                 <CopyButton value={previewContent} label="Copy document" copiedLabel="Copied" size="sm" />
               {:else}
-                <CopyButton value={composedDraft} label="Copy base" copiedLabel="Copied" size="sm" />
+                <CopyButton value={canonicalDraft} label="Copy base" copiedLabel="Copied" size="sm" />
               {/if}
             </div>
           </div>

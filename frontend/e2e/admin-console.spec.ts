@@ -820,6 +820,36 @@ test("the generation master switch reaches the effective preview without a butto
   await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
 });
 
+test("manual mode stores the bytes in the textarea, not the composed document", async ({ page }) => {
+  // The dangerous direction of the switch: the builder is still holding a
+  // composition, and Save must not write it over what the operator typed.
+  let stored: unknown;
+  await installFixtures(page, (pathname, body) => {
+    if (pathname === "/admin/agents-generation-mode") return { status: "ok", mode: "manual", modes: ["managed", "manual", "off"] };
+    if (pathname === "/admin/agents") return { ...fixture(pathname), generation_mode: "manual" };
+    if (pathname !== "/admin/agents/store") return undefined;
+    stored = body;
+    return { status: "ok", version_id: 56, sha256: "f".repeat(64) };
+  });
+
+  await page.goto("/admin/instructions");
+  const raw = page.getByRole("textbox", { name: "Hand-written Markdown document" });
+  // Opens on the served base even though the stored version was built.
+  await expect(raw).toHaveValue("## Operating Contract (FAST)\n\nExecute and verify.\n", { timeout: 15_000 });
+  await expect(page.getByRole("switch", { name: "Security and trust boundaries" })).toHaveCount(0);
+
+  await raw.fill("# House rules\n\nMine, by hand.\n");
+  // The canonical pane is "what this editor stores", so it follows the textarea
+  // rather than the composition the builder is still holding.
+  await page.getByRole("button", { name: "Canonical base" }).click();
+  await expect(page.getByRole("heading", { name: "Stored canonical base" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Generated AGENTS.md base content" })).toContainText("House rules");
+
+  // `.first()`: the retention card in the aside has a Save of its own.
+  await page.getByRole("button", { name: "Save" }).first().click();
+  await expect.poll(() => stored).toEqual({ content: "# House rules\n\nMine, by hand.\n" });
+});
+
 test("a preview that cannot render says so once, in the pane, not once per keystroke", async ({ page }) => {
   // Every settings change mints a new query key, so a failing render fails again
   // for each one. As toasts that is a stream of them, and the place the operator

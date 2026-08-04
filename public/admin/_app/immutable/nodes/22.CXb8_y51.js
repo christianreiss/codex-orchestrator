@@ -1,1 +1,0 @@
-import{t as e}from"../chunks/DC-IXFre.js";export{e as component};
