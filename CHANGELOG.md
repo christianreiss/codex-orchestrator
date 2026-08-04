@@ -1,5 +1,23 @@
 # 2026-08-04
 
+- **The relay was receive-dead on almost every host in the fleet, and nothing said so.** It is
+  installed as a `systemd --user` unit, and logind tears a user's manager down with their last
+  login session unless lingering is enabled — which `cxx agent service install` never did. On every
+  host checked (crane, mirror, both test VMs) `Linger=no`: the unit was present and `enabled`, and
+  the relay ran only for the few seconds a login session happened to overlap it. Nothing looked
+  broken; messages simply went unanswered. Every earlier proof ran on biest, the one host whose
+  desktop session set `Linger=yes` years ago — so the bus looked healthy for exactly as long as
+  nobody tested it anywhere else. Install now runs `loginctl enable-linger` for the service user,
+  best effort: a host without logind and an unprivileged user refused by polkit both still install,
+  with the reason and the manual remedy printed rather than swallowed.
+- Re-verified all four directions live on the published `0.7.16` artifact (sha `a3bae4a8`, the fleet
+  binary itself, not a local build): claude→claude `90543ca8`→`806b4593`, claude→codex
+  `d8ffc775`→`80eb9825`, codex→claude `f980ca3f`→`e1065034`, and codex→codex `86ab968e`→`b5388ea7`
+  cross-host (biest → coco-test-02, peer answered `ACK-CXCX-6`). Cross-host claude→codex
+  `1e8365e8`→`97757e91` as well. Each reply is linked by `reply_to_message_id`.
+- Re-confirmed that peer prompts do not hold themselves: a probe that said "reply exactly once, then
+  stop" ran seven turns in 45 seconds and ended only when one peer run failed `ambiguous`. Bound
+  conversations structurally, as the manual already says.
 - **`agent_send` over MCP had never once worked, for either engine.** `mcp.go` derived the wire
   `kind` with `strings.TrimPrefix(name, "agent_")`, which yields a valid `request` and an invalid
   `send` against a server enum of exactly `{message, request}` — so every `agent_send` tool call

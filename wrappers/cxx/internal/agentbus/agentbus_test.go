@@ -99,6 +99,97 @@ func TestServiceDefinitionsRunWorkerWithoutContentArguments(t *testing.T) {
 	}
 }
 
+// stubServiceProcess records every managed process invocation and optionally
+// fails the ones whose first argument matches failFor.
+func stubServiceProcess(t *testing.T, failFor map[string]error) *[][]string {
+	t.Helper()
+	old := managedServiceProcess
+	t.Cleanup(func() { managedServiceProcess = old })
+	calls := &[][]string{}
+	managedServiceProcess = func(_ io.Writer, _ io.Writer, name string, args ...string) error {
+		*calls = append(*calls, append([]string{name}, args...))
+		return failFor[name]
+	}
+	return calls
+}
+
+func stubLinger(t *testing.T, username string, loginctlPresent bool) {
+	t.Helper()
+	oldLookPath, oldUser := serviceLookPath, serviceUserName
+	t.Cleanup(func() { serviceLookPath, serviceUserName = oldLookPath, oldUser })
+	serviceLookPath = func(string) (string, error) {
+		if !loginctlPresent {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/loginctl", nil
+	}
+	serviceUserName = func() string { return username }
+}
+
+// The relay is a systemd --user unit, so without lingering logind stops it with
+// the installing user's last session and the host quietly answers nothing.
+// Enabling it must never be able to fail the install, though: hosts without
+// logind, and unprivileged users under polkit, both legitimately refuse.
+func TestSystemdInstallEnablesLingerBestEffort(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd action is Linux-specific")
+	}
+	for _, testCase := range []struct {
+		name            string
+		loginctlPresent bool
+		username        string
+		lingerErr       error
+		wantLingerCall  bool
+		wantWarning     bool
+	}{
+		{name: "enabled", loginctlPresent: true, username: "relayuser", wantLingerCall: true},
+		{
+			name:            "refused still installs",
+			loginctlPresent: true,
+			username:        "relayuser",
+			lingerErr:       errors.New("polkit refused"),
+			wantLingerCall:  true,
+			wantWarning:     true,
+		},
+		{name: "no loginctl", loginctlPresent: false, username: "relayuser"},
+		{name: "unknown user", loginctlPresent: true, username: ""},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("HOME", root)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
+			var failFor map[string]error
+			if testCase.lingerErr != nil {
+				failFor = map[string]error{"loginctl": testCase.lingerErr}
+			}
+			calls := stubServiceProcess(t, failFor)
+			stubLinger(t, testCase.username, testCase.loginctlPresent)
+			var warnings bytes.Buffer
+			if err := runSystemdAction("install", io.Discard, &warnings); err != nil {
+				t.Fatalf("install must survive a refused linger: %v", err)
+			}
+			var sawLinger bool
+			for _, call := range *calls {
+				if call[0] == "loginctl" {
+					sawLinger = true
+					if !reflect.DeepEqual(call, []string{"loginctl", "enable-linger", testCase.username}) {
+						t.Fatalf("linger call = %v", call)
+					}
+				}
+			}
+			if sawLinger != testCase.wantLingerCall {
+				t.Fatalf("linger call attempted = %v, want %v", sawLinger, testCase.wantLingerCall)
+			}
+			if got := strings.Contains(warnings.String(), "enable-linger"); got != testCase.wantWarning {
+				t.Fatalf("warning printed = %v, want %v (%q)", got, testCase.wantWarning, warnings.String())
+			}
+			if len(*calls) == 0 || (*calls)[len(*calls)-1][0] != "systemctl" {
+				t.Fatalf("install did not reach systemctl: %v", *calls)
+			}
+		})
+	}
+}
+
 func TestSystemdInstallRestartsChangedDeploymentButNotUnchangedWorker(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("systemd action is Linux-specific")
@@ -108,35 +199,32 @@ func TestSystemdInstallRestartsChangedDeploymentButNotUnchangedWorker(t *testing
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
 	t.Setenv("CDX_CONFIG_PATH", filepath.Join(root, "custom", "cdx.json"))
 	t.Setenv("CLX_CONFIG_PATH", filepath.Join(root, "custom", "clx.json"))
-	oldProcess := managedServiceProcess
-	t.Cleanup(func() { managedServiceProcess = oldProcess })
-	var calls [][]string
-	managedServiceProcess = func(_ io.Writer, _ io.Writer, name string, args ...string) error {
-		calls = append(calls, append([]string{name}, args...))
-		return nil
-	}
+	calls := stubServiceProcess(t, nil)
+	stubLinger(t, "relayuser", true)
 	if err := runSystemdAction("install", io.Discard, io.Discard); err != nil {
 		t.Fatalf("install systemd service: %v", err)
 	}
 	wantCalls := [][]string{
+		{"loginctl", "enable-linger", "relayuser"},
 		{"systemctl", "--user", "daemon-reload"},
 		{"systemctl", "--user", "enable", "cxx-agent.service"},
 		{"systemctl", "--user", "restart", "cxx-agent.service"},
 	}
-	if !reflect.DeepEqual(calls, wantCalls) {
-		t.Fatalf("systemd install calls = %v, want %v", calls, wantCalls)
+	if !reflect.DeepEqual(*calls, wantCalls) {
+		t.Fatalf("systemd install calls = %v, want %v", *calls, wantCalls)
 	}
-	calls = nil
+	*calls = nil
 	if err := runSystemdAction("install", io.Discard, io.Discard); err != nil {
 		t.Fatalf("idempotent systemd install: %v", err)
 	}
 	wantCalls = [][]string{
+		{"loginctl", "enable-linger", "relayuser"},
 		{"systemctl", "--user", "daemon-reload"},
 		{"systemctl", "--user", "enable", "cxx-agent.service"},
 		{"systemctl", "--user", "start", "cxx-agent.service"},
 	}
-	if !reflect.DeepEqual(calls, wantCalls) {
-		t.Fatalf("idempotent systemd calls = %v, want %v", calls, wantCalls)
+	if !reflect.DeepEqual(*calls, wantCalls) {
+		t.Fatalf("idempotent systemd calls = %v, want %v", *calls, wantCalls)
 	}
 	path, err := servicePath()
 	if err != nil {

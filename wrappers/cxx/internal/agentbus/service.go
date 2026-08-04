@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -26,6 +27,8 @@ var (
 	managedServiceProcess = runServiceProcess
 	systemdUnitMissing    = detectSystemdUnitMissing
 	launchdUnitMissing    = detectLaunchdUnitMissing
+	serviceLookPath       = exec.LookPath
+	serviceUserName       = currentUserName
 )
 
 func renderSystemdUserUnit(executable, binaryDigest string, environment map[string]string) string {
@@ -175,6 +178,7 @@ func runSystemdAction(action string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
+		enableSystemdLinger(stdout, stderr)
 		if err := managedServiceProcess(stdout, stderr, "systemctl", "--user", "daemon-reload"); err != nil {
 			return err
 		}
@@ -347,6 +351,45 @@ func writeProtectedFileIfChanged(path string, body []byte) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// A systemd --user unit lives inside the user's manager, which logind tears
+// down with their last login session unless lingering is enabled. Without it
+// the relay stops seconds after whichever session installed it goes away, and
+// the host silently receives no agent messages at all — the unit still reports
+// enabled, so nothing looks wrong until a message is never answered.
+//
+// Best effort on purpose. A container without logind has no loginctl, and an
+// unprivileged user can be refused by polkit; neither should fail the install,
+// because a relay that runs while someone is logged in still beats none. The
+// failure is printed rather than swallowed: a silent one is exactly what let
+// this hide.
+func enableSystemdLinger(stdout, stderr io.Writer) {
+	if _, err := serviceLookPath("loginctl"); err != nil {
+		return
+	}
+	name := serviceUserName()
+	if name == "" {
+		return
+	}
+	if err := managedServiceProcess(stdout, stderr, "loginctl", "enable-linger", name); err != nil {
+		fmt.Fprintf(stderr, "cxx agent: could not enable systemd lingering for %s: %v\n", name, err)
+		fmt.Fprintf(stderr, "cxx agent: the relay will stop when this user's last login session ends; run 'loginctl enable-linger %s' as root to receive agent messages unattended\n", name)
+	}
+}
+
+func currentUserName() string {
+	if current, err := user.Current(); err == nil {
+		if name := strings.TrimSpace(current.Username); name != "" {
+			return name
+		}
+	}
+	for _, key := range []string{"USER", "LOGNAME"} {
+		if name := strings.TrimSpace(os.Getenv(key)); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 func runServiceProcess(stdout, stderr io.Writer, name string, args ...string) error {

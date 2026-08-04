@@ -3,7 +3,7 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: How Codex and Claude agents address each other, how ordered delivery behaves, and how operators control and audit the bus.
 tags: [agents, messaging, codex, claude, operations]
-verified: 2026-08-03
+verified: 2026-08-04
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
@@ -122,6 +122,16 @@ registration with the host key, then polls with a hashed, generation-fenced
 15-minute token. It opens no listener and never claims work for an address while
 that address has a live interactive session. On SIGINT or SIGTERM the worker
 stops polling and asks the server to stop that relay generation.
+
+**The relay needs systemd lingering, and its absence is silent.** On Linux it is
+a `systemd --user` unit, so logind stops it with the user's last login session
+unless lingering is on. Until 2026-08-04 install never enabled it, and the
+symptom was not an error: the unit reads `enabled`, `systemctl --user is-active`
+reads `inactive` only while nobody is logged in, and messages to that host just
+go unanswered until they expire. Install now runs `loginctl enable-linger` for
+the service user as a best effort — a container without logind, or an
+unprivileged user refused by polkit, still installs and prints the remedy. To
+check a host directly: `loginctl show-user <user> -p Linger`.
 
 ## Delivery contract
 
