@@ -84,6 +84,7 @@ type Session struct {
 	messagingRecovery      bool
 	messagingConfigPath    string
 	channelReceiveAllowed  bool
+	listenAllowed          bool
 	localBroker            bool
 	mu                     sync.Mutex
 	recoverMu              sync.Mutex
@@ -235,6 +236,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		// Receive-side Channel access is derived from both the signed config's
 		// engine and policy, never from child-provided environment or MCP input.
 		channelReceiveAllowed: signedChannelReceiveAllowed(cfg, input.Engine),
+		listenAllowed:         signedListenAllowed(cfg),
 	}, nil
 }
 
@@ -244,6 +246,16 @@ func signedChannelReceiveAllowed(cfg *config.Config, sessionEngine string) bool 
 		cfg.Engine == config.EngineClaude &&
 		cfg.AgentMessaging.Enabled &&
 		cfg.AgentMessaging.ChannelPreviewEnabled
+}
+
+// signedListenAllowed governs the model-initiated receive plane.
+//
+// Deliberately engine-neutral: unlike Channel, which pushes peer content into a
+// Claude transcript with nobody having asked for it, `agent_listen` returns
+// content in a tool result the model requested -- the same risk class as
+// `agent_wait`, which is ungated today. Codex needs this path as much as Claude.
+func signedListenAllowed(cfg *config.Config) bool {
+	return cfg != nil && cfg.AgentMessaging.Enabled && cfg.AgentMessaging.ListenEnabled
 }
 
 // StartHeartbeat keeps the scoped bridge alive and makes offline detection
@@ -446,6 +458,32 @@ func (s *Session) signedChannelReceiveEnabled() bool {
 	}
 	cfg, err := config.LoadForEngine(s.messagingConfigPath, pubkey, false, config.EngineClaude)
 	return err == nil && cfg.Engine == config.EngineClaude && cfg.AgentMessaging.Enabled && cfg.AgentMessaging.ChannelPreviewEnabled
+}
+
+func (s *Session) signedListenEnabled() bool {
+	if s == nil || !s.listenAllowed {
+		return false
+	}
+	if strings.TrimSpace(s.messagingConfigPath) == "" {
+		// Same contract as signedChannelReceiveEnabled: manually constructed and
+		// test sessions carry no loader metadata, while production sessions
+		// re-verify the signed file below on every gated broker request, so an
+		// administrator revoking listen takes effect without a restart.
+		return true
+	}
+	pubkey, err := signing.PublicKey()
+	if err != nil {
+		return false
+	}
+	cfg, err := config.LoadForEngine(s.messagingConfigPath, pubkey, false, s.Engine)
+	return err == nil && cfg.AgentMessaging.Enabled && cfg.AgentMessaging.ListenEnabled
+}
+
+// signedReceivePlaneEnabled is the gate the broker applies to a claim or a
+// receive-capable bind. Either grant is sufficient: Channel keeps its
+// Claude-only preview check, and listen is the engine-neutral one.
+func (s *Session) signedReceivePlaneEnabled() bool {
+	return s.signedListenEnabled() || s.signedChannelReceiveEnabled()
 }
 
 func SessionFromEnvironment(timeout time.Duration) (*Session, error) {

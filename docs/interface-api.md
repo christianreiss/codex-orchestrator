@@ -579,6 +579,14 @@ Session-bound operations require `X-Agent-Bridge-Token`:
   participant-visible message by UUID.
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation and all queued/leased messages in it.
+- `POST /host/agent-sessions/{id}/agent-messaging/call/open` — mint a `#call`
+  rendezvous PIN (four digits, fleet-unique while live, `ttl_seconds` 60..3600,
+  default 600) bound to the caller's own address, returned alongside that address
+  as `self`. Idempotent while a PIN is live (`reused: true`).
+- `POST /host/agent-sessions/{id}/agent-messaging/call/join` — redeem a PIN:
+  resolve the opener, open the conversation, queue the opening message and
+  consume the PIN, all in one transaction. A join that fails validation, targets
+  itself, or finds an ineligible opener leaves the PIN live.
 - `POST /host/agent-sessions/{id}/agent-messaging/bind` — heartbeat/bind the
   native adapter with `binding_generation`, continuity, upstream session, and
   receive-capability state.

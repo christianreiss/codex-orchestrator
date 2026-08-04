@@ -76,6 +76,11 @@ type AgentMessaging struct {
 	RelayPollSeconds      int  `json:"relay_poll_seconds,omitempty"`
 	QueuedTTLSeconds      int  `json:"queued_ttl_seconds,omitempty"`
 	ChannelPreviewEnabled bool `json:"channel_preview_enabled,omitempty"`
+	// ListenEnabled gates the model-initiated receive plane: `agent_listen` and
+	// the receive-capable bind it needs. Engine-neutral on purpose, unlike
+	// ChannelPreviewEnabled, which stays Claude-only because it governs
+	// unsolicited push into a transcript rather than a tool call the model made.
+	ListenEnabled bool `json:"listen_enabled,omitempty"`
 }
 
 type Wrapper struct {

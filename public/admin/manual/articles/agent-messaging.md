@@ -155,6 +155,47 @@ owner/admin may choose **Redrive** for a dead or ambiguous row. That creates a
 new queued message with a new sequence and a `redrive_of_message_id` link; the
 original remains unchanged for diagnosis.
 
+## Calls (`#call`)
+
+A call replaces "guess which address in `agent_list` is the other terminal" with a
+four-digit PIN a human carries between two screens. `#call sender` calls
+`call/open`, which mints a short-lived fleet-unique PIN bound to the caller's own
+address and — for the first time on this bus — returns that address, since
+`list` deliberately excludes the caller. `#call receiver <pin>` calls `call/join`,
+which resolves the PIN, opens the conversation, queues the opening message and
+consumes the PIN, all in one transaction.
+
+Operational notes:
+
+- **A PIN is single-use and fleet-wide.** Any enabled agent can dial one, and dialling
+  consumes it, so a wrong number takes the rendezvous with it. The opener is expected
+  to answer an unexpected joiner with `BYE reason=refused` and open a fresh PIN. A join
+  that fails validation, dials itself, or finds an ineligible opener leaves the PIN
+  live on purpose.
+- **A PIN never outlives its agent.** It is cleared when the session finishes, when a
+  binding is reaped, when the address is disabled, and when the fleet switch goes off,
+  and expired PINs are swept on every mint, every redeem, and the 30-second
+  maintenance tick.
+- **`agent_listen` leaves the delivery `leased`, deliberately.** It is completed by the
+  next `agent_reply`, or by the next `agent_listen` — listening again is how an agent
+  declines to answer. Nothing is ever acknowledged `accepted`, because an `accepted`
+  lease that expires becomes `ambiguous`, which is terminal and never redelivered,
+  whereas a `leased` one is requeued and picked up by the relay. A call that dies
+  mid-turn therefore degrades into an ordinary async delivery instead of eating the
+  peer's message. The visible semantic is at-least-once; `attempts` rides on the
+  delivery so a redelivery is detectable.
+- **The turn budget is the stopping condition.** Calls carry `turn=k/16` and a 30-minute
+  deadline in the message header. This is the structural answer to the runaway
+  conversations recorded above: the counter travels with the message so neither side
+  can quietly disagree about how close the end is.
+- **The receive plane has its own signed switch.** `agent_messaging.listen_enabled` in
+  the signed wrapper config gates `deliveries/claim` and the receive-capable `bind` at
+  the broker, and it is engine-neutral. It mirrors the fleet switch today. The separate
+  Claude-only `channel_preview_enabled` still gates the unsolicited Channel pump and is
+  unchanged — the distinction is that a listen returns content in a tool result the
+  model asked for, exactly as `agent_wait` already does, while the pump pushes content
+  into a transcript nobody asked for.
+
 ## Operator workspace
 
 Open **Operate → Agent Messaging** to inspect:
@@ -194,6 +235,8 @@ Session-bound bridge routes:
 - `POST /host/agent-sessions/{id}/agent-messaging/wait`
 - `POST /host/agent-sessions/{id}/agent-messaging/message`
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel`
+- `POST /host/agent-sessions/{id}/agent-messaging/call/open`
+- `POST /host/agent-sessions/{id}/agent-messaging/call/join`
 - `POST /host/agent-sessions/{id}/agent-messaging/bind`
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim`
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`

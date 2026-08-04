@@ -51,7 +51,7 @@ func TestReadMessageBodyRequiresExplicitStdin(t *testing.T) {
 
 func TestMCPToolCatalogHasMessagingButNoPermissionRelay(t *testing.T) {
 	raw := string(toolCatalogJSON())
-	for _, name := range []string{"agent_list", "agent_send", "agent_request", "agent_wait", "agent_reply", "agent_message_get", "agent_cancel"} {
+	for _, name := range []string{"agent_list", "agent_send", "agent_request", "agent_wait", "agent_reply", "agent_message_get", "agent_cancel", "agent_call_open", "agent_call_join", "agent_listen"} {
 		if !strings.Contains(raw, `"name":"`+name+`"`) {
 			t.Fatalf("tool catalog missing %s: %s", name, raw)
 		}
@@ -273,6 +273,192 @@ func TestSystemdRemovePreservesUnitWhenStopFails(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("unit was removed after failed stop: %v", err)
+	}
+}
+
+// newListenClient returns a client whose claim endpoint yields one delivery, and
+// the slice every request is recorded into.
+func newListenClient(messageID, conversationID string, requests *[]recordedRequest) *sessionClient {
+	client := &sessionClient{id: "33333333-3333-4333-8333-333333333333"}
+	client.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(req.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		*requests = append(*requests, recordedRequest{path: req.URL.Path, body: body})
+		payload := map[string]any{}
+		if strings.HasSuffix(req.URL.Path, "/deliveries/claim") {
+			payload["delivery"] = map[string]any{
+				"message_id": messageID, "conversation_id": conversationID,
+				"content": "CALL/1 SAY\nhello",
+				"sender":  map[string]any{"address": "agent:sender"},
+			}
+		}
+		encoded, _ := json.Marshal(payload)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(encoded))}, nil
+	})}
+	return client
+}
+
+// A listened delivery must stay `leased`. Acknowledging it `accepted` would make
+// a mid-turn crash terminal: the server converts an `accepted` lease that
+// expires into `ambiguous`, which is never redelivered, while a `leased` one is
+// requeued and picked up by the relay.
+func TestAgentListenClaimsWithoutAcknowledging(t *testing.T) {
+	const messageID = "11111111-1111-4111-8111-111111111111"
+	const conversationID = "22222222-2222-4222-8222-222222222222"
+	requests := []recordedRequest{}
+	client := newListenClient(messageID, conversationID, &requests)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := newChannelTracker(client)
+
+	result, err := callMCPTool(ctx, client, state, "agent_listen", map[string]any{"wait_seconds": 1})
+	if err != nil {
+		t.Fatalf("agent_listen: %v", err)
+	}
+	if result["message_id"] != messageID || result["conversation_id"] != conversationID {
+		t.Fatalf("listen result = %+v", result)
+	}
+	if result["timed_out"] != false {
+		t.Fatalf("listen reported a timeout for a real delivery: %+v", result)
+	}
+	if got := ackOutcomes(requests); len(got) != 0 {
+		t.Fatalf("agent_listen acknowledged the delivery: %v", got)
+	}
+
+	// The bind must precede the claim and must assert receive capability, since
+	// the server re-checks heartbeat freshness inside the claim itself.
+	var order []string
+	for _, req := range requests {
+		switch {
+		case strings.HasSuffix(req.path, "/bind"):
+			if req.body["receive_capable"] != true {
+				t.Fatalf("listen bind did not assert receive capability: %+v", req.body)
+			}
+			order = append(order, "bind")
+		case strings.HasSuffix(req.path, "/deliveries/claim"):
+			order = append(order, "claim")
+		}
+	}
+	if len(order) != 2 || order[0] != "bind" || order[1] != "claim" {
+		t.Fatalf("listen request order = %v", order)
+	}
+}
+
+// Listening again means the previous turn is over. Without this the server's
+// one-in-flight-per-address rule would starve every later listen until the lease
+// expired, and a model could never decline to answer a message.
+func TestAgentListenCompletesTheOutstandingDeliveryFirst(t *testing.T) {
+	const messageID = "11111111-1111-4111-8111-111111111111"
+	const conversationID = "22222222-2222-4222-8222-222222222222"
+	requests := []recordedRequest{}
+	client := newListenClient(messageID, conversationID, &requests)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := newChannelTracker(client)
+
+	if _, err := callMCPTool(ctx, client, state, "agent_listen", map[string]any{"wait_seconds": 0}); err != nil {
+		t.Fatalf("first agent_listen: %v", err)
+	}
+	before := len(requests)
+	if _, err := callMCPTool(ctx, client, state, "agent_listen", map[string]any{"wait_seconds": 0}); err != nil {
+		t.Fatalf("second agent_listen: %v", err)
+	}
+
+	if got := ackOutcomes(requests); len(got) != 1 || got[0] != "completed" {
+		t.Fatalf("second listen outcomes = %v", got)
+	}
+	// The completion must come before the second claim, not after it.
+	var sawAck bool
+	for _, req := range requests[before:] {
+		if strings.HasSuffix(req.path, "/ack") {
+			sawAck = true
+		}
+		if strings.HasSuffix(req.path, "/deliveries/claim") && !sawAck {
+			t.Fatal("second listen claimed before completing the outstanding delivery")
+		}
+	}
+}
+
+// An empty claim is a timeout, not an error, and must not leave a phantom
+// tracked delivery behind.
+func TestAgentListenReportsTimeoutOnEmptyClaim(t *testing.T) {
+	requests := []recordedRequest{}
+	client := &sessionClient{id: "33333333-3333-4333-8333-333333333333"}
+	client.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(req.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		requests = append(requests, recordedRequest{path: req.URL.Path, body: body})
+		encoded, _ := json.Marshal(map[string]any{})
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(encoded))}, nil
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := newChannelTracker(client)
+
+	result, err := callMCPTool(ctx, client, state, "agent_listen", map[string]any{"wait_seconds": 0})
+	if err != nil {
+		t.Fatalf("agent_listen: %v", err)
+	}
+	if result["timed_out"] != true || result["message"] != nil {
+		t.Fatalf("empty claim result = %+v", result)
+	}
+	if got := ackOutcomes(requests); len(got) != 0 {
+		t.Fatalf("empty claim acknowledged something: %v", got)
+	}
+}
+
+// agent_reply must complete a delivery that arrived through agent_listen, not
+// only one that arrived through the Channel pump. Before the tracker was built
+// unconditionally this path was dead in the ordinary lane.
+func TestAgentReplyCompletesAListenedDelivery(t *testing.T) {
+	const messageID = "11111111-1111-4111-8111-111111111111"
+	const conversationID = "22222222-2222-4222-8222-222222222222"
+	requests := []recordedRequest{}
+	client := newListenClient(messageID, conversationID, &requests)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := newChannelTracker(client)
+
+	if _, err := callMCPTool(ctx, client, state, "agent_listen", map[string]any{"wait_seconds": 0}); err != nil {
+		t.Fatalf("agent_listen: %v", err)
+	}
+	if _, err := callMCPTool(ctx, client, state, "agent_reply", map[string]any{
+		"message_id": messageID, "content": "CALL/1 SAY\nanswer",
+	}); err != nil {
+		t.Fatalf("agent_reply: %v", err)
+	}
+	if got := ackOutcomes(requests); len(got) != 1 || got[0] != "completed" {
+		t.Fatalf("outcomes after reply = %v", got)
+	}
+}
+
+func TestAgentCallJoinRejectsAMalformedPinBeforeAnyRequest(t *testing.T) {
+	requests := []recordedRequest{}
+	client := newListenClient("", "", &requests)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	state := newChannelTracker(client)
+
+	for _, pin := range []string{"", "42", "12345", "abcd", "12 4"} {
+		if _, err := callMCPTool(ctx, client, state, "agent_call_join", map[string]any{
+			"pin": pin, "content": "hello",
+		}); err == nil {
+			t.Fatalf("pin %q was accepted", pin)
+		}
+	}
+	if len(requests) != 0 {
+		t.Fatalf("a malformed pin still reached the server: %+v", requests)
+	}
+	// `0042` is the case a numeric pin would silently destroy.
+	if _, err := callMCPTool(ctx, client, state, "agent_call_join", map[string]any{
+		"pin": "0042", "content": "hello",
+	}); err != nil {
+		t.Fatalf("agent_call_join with a leading-zero pin: %v", err)
+	}
+	if len(requests) != 1 || requests[0].body["pin"] != "0042" {
+		t.Fatalf("join sent pin = %+v", requests)
 	}
 }
 

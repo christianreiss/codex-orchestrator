@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   and,
   asc,
@@ -61,8 +61,14 @@ export const AGENT_MESSAGING_LEASE_SECONDS = 60;
 export const AGENT_MESSAGING_RELAY_TOKEN_SECONDS = 15 * 60;
 export const AGENT_MESSAGING_RECEIVE_FRESH_SECONDS = 45;
 export const AGENT_MESSAGING_WAIT_PAGE_SIZE = 100;
+export const AGENT_MESSAGING_CALL_PIN_TTL_SECONDS = 10 * 60;
+export const AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS = 60;
+export const AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS = 60 * 60;
+/** `0000`..`9999`. The PIN is read aloud off one terminal into another, so it stays four digits. */
+export const AGENT_MESSAGING_CALL_PIN_SPACE = 10_000;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CALL_PIN_RE = /^[0-9]{4}$/;
 const LIVE_MESSAGE_STATUSES = ['queued', 'leased', 'accepted'] as const;
 const CANCELABLE_MESSAGE_STATUSES = ['queued', 'leased'] as const;
 const TERMINAL_MESSAGE_STATUSES = ['completed', 'ambiguous', 'dead', 'expired', 'canceled'] as const;
@@ -113,6 +119,28 @@ export function normalizeMessageBody(value: unknown): string {
     throw new ValidationError('message body exceeds 32 KiB', { param: 'content' });
   }
   return value;
+}
+
+export function normalizeCallPin(value: unknown): string {
+  // Always a string. A number would drop the leading zeros of `0042`.
+  const pin = typeof value === 'string' ? value.trim() : '';
+  if (!CALL_PIN_RE.test(pin)) {
+    throw new ValidationError('pin must be four digits', { param: 'pin' });
+  }
+  return pin;
+}
+
+export function normalizeCallPinTtl(value: unknown): number {
+  if (value === undefined || value === null) return AGENT_MESSAGING_CALL_PIN_TTL_SECONDS;
+  const ttl = Number(value);
+  if (
+    !Number.isSafeInteger(ttl) ||
+    ttl < AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS ||
+    ttl > AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS
+  ) {
+    throw new ValidationError('ttl_seconds must be between 60 and 3600', { param: 'ttl_seconds' });
+  }
+  return ttl;
 }
 
 export function normalizeMessageTtl(value: unknown): number {
@@ -331,6 +359,8 @@ export class AgentMessagingService {
           currentSessionId: null,
           readiness: 'disabled',
           receiveHeartbeatAt: null,
+          callPin: null,
+          callPinExpiresAt: null,
           bindingGeneration: sql`${agentBusAddresses.bindingGeneration} + 1`,
           updatedAt: now,
         })
@@ -512,6 +542,8 @@ export class AgentMessagingService {
           cwdHash: sha256(cwd),
           enabled: 1,
           currentSessionId: sessionId,
+          callPin: null,
+          callPinExpiresAt: null,
           lastUpstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
           bindingGeneration: 1,
           continuity: input.continuity ?? (input.upstreamSessionId ? 'native' : 'reset'),
@@ -698,7 +730,10 @@ export class AgentMessagingService {
       if (session.agentBusAddressId) {
         await tx
           .update(agentBusAddresses)
-          .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
+          // The PIN dies with the session that opened it: it lives on the
+          // address, which outlives the session, so a survivor would leave a
+          // later join dialling an address with nobody on it.
+          .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, callPin: null, callPinExpiresAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
           .where(and(eq(agentBusAddresses.id, session.agentBusAddressId), eq(agentBusAddresses.currentSessionId, sessionId)));
       }
     });
@@ -734,6 +769,227 @@ export class AgentMessagingService {
         .filter((row) => hostEnginesList(row.hostEngines).includes(row.address.engine as Engine))
         .filter((row) => filters.includeOffline !== false || !['offline', 'disabled'].includes(row.address.readiness))
         .map((row) => publicAddress(row.address, row.fqdn)),
+    };
+  }
+
+  /**
+   * Clear every PIN whose window has closed.
+   *
+   * Runs before any mint or redeem, and again on the maintenance tick. An
+   * expired-but-uncleared PIN still occupies its slot in the unique index, so
+   * without this the mint-from-complement scan would treat a dead rendezvous as
+   * a live one.
+   */
+  private async sweepCallPinsLocked(db: AgentMessagingDb, now: string): Promise<void> {
+    await db
+      .update(agentBusAddresses)
+      .set({ callPin: null, callPinExpiresAt: null, updatedAt: now })
+      .where(and(isNotNull(agentBusAddresses.callPin), lte(agentBusAddresses.callPinExpiresAt, now)));
+  }
+
+  /**
+   * Pick a free PIN and bind it to this address.
+   *
+   * Chooses from the complement of the live set rather than retrying random
+   * values against the unique index: a duplicate insert inside a transaction
+   * would surface as a driver-level ER_DUP_ENTRY that this layer would have to
+   * pattern-match, and exhaustion would be indistinguishable from bad luck.
+   */
+  private async mintCallPinLocked(
+    db: AgentMessagingDb,
+    addressId: string,
+    expiresAt: string,
+    now: string,
+  ): Promise<string> {
+    const takenRows = await db
+      .select({ callPin: agentBusAddresses.callPin })
+      .from(agentBusAddresses)
+      .where(isNotNull(agentBusAddresses.callPin))
+      .for('update');
+    const taken = new Set(takenRows.map((row) => row.callPin));
+    const free: string[] = [];
+    for (let candidate = 0; candidate < AGENT_MESSAGING_CALL_PIN_SPACE; candidate += 1) {
+      const pin = String(candidate).padStart(4, '0');
+      if (!taken.has(pin)) free.push(pin);
+    }
+    if (free.length === 0) {
+      throw new ConflictError('No call PIN is available', 'agent_messaging_call_pin_exhausted');
+    }
+    const pin = free[randomInt(free.length)]!;
+    await db
+      .update(agentBusAddresses)
+      .set({ callPin: pin, callPinExpiresAt: expiresAt, updatedAt: now })
+      .where(eq(agentBusAddresses.id, addressId));
+    return pin;
+  }
+
+  /**
+   * Resolve a PIN to the address that opened it.
+   *
+   * Deliberately does not clear the PIN: the caller clears it only once the join
+   * has fully succeeded, so a join that fails validation, targets itself, or
+   * finds an ineligible opener leaves the rendezvous intact. One mistyped join
+   * must not burn a PIN the human is still holding.
+   */
+  private async consumeCallPinLocked(db: AgentMessagingDb, pin: string, now: string): Promise<AgentBusAddress> {
+    const rows = await db
+      .select()
+      .from(agentBusAddresses)
+      .where(and(eq(agentBusAddresses.callPin, pin), gt(agentBusAddresses.callPinExpiresAt, now)))
+      .limit(1)
+      .for('update');
+    const address = rows[0];
+    if (!address || address.archivedAt) {
+      throw new NotFoundError('Call PIN not found or expired', 'agent_messaging_call_pin_not_found');
+    }
+    return address;
+  }
+
+  private async clearCallPinLocked(db: AgentMessagingDb, addressId: string, now: string): Promise<void> {
+    await db
+      .update(agentBusAddresses)
+      .set({ callPin: null, callPinExpiresAt: null, updatedAt: now })
+      .where(eq(agentBusAddresses.id, addressId));
+  }
+
+  /**
+   * Open a `#call` rendezvous: mint a PIN a peer can dial, and tell the caller
+   * its own address.
+   *
+   * `self` is the only route by which an agent learns its own address —
+   * `listAddresses` excludes the caller by construction.
+   */
+  async openCall(
+    sessionId: string,
+    bridgeToken: string,
+    input: { ttlSeconds?: number | null } = {},
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    if (!authenticated.session.agentBusAddressId) {
+      throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    }
+    const ttlSeconds = normalizeCallPinTtl(input.ttlSeconds);
+    const result = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      await this.sweepCallPinsLocked(tx, now);
+      const self = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
+      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
+      await this.assertAddressEligibleLocked(tx, self);
+      // Re-opening while a PIN is still live returns the same one. Minting a
+      // second would silently kill a PIN the human may already have written down.
+      if (self.callPin && self.callPinExpiresAt && self.callPinExpiresAt > now) {
+        return { pin: self.callPin, expiresAt: self.callPinExpiresAt, reused: true, self };
+      }
+      const expiresAt = isoOffsetSeconds(ttlSeconds);
+      const pin = await this.mintCallPinLocked(tx, self.id, expiresAt, now);
+      return { pin, expiresAt, reused: false, self };
+    });
+    return {
+      enabled: true,
+      pin: result.pin,
+      expires_at: result.expiresAt,
+      reused: result.reused,
+      self: publicAddress(result.self),
+    };
+  }
+
+  /**
+   * Dial a PIN: open the conversation and deliver the first message in one step.
+   *
+   * The hello is folded in for atomicity — PIN consumed, conversation opened and
+   * first message queued all commit together. Split across two calls, a failed
+   * follow-up send would leave a consumed single-use PIN, an orphan conversation
+   * and an opener waiting on a rendezvous it can no longer be reached through.
+   */
+  async joinCall(
+    sessionId: string,
+    bridgeToken: string,
+    input: { pin: string; content: string; clientMessageId: string; ttlSeconds?: number | null },
+  ): Promise<Record<string, unknown>> {
+    const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
+    if (!authenticated.session.agentBusAddressId) {
+      throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    }
+    const pin = normalizeCallPin(input.pin);
+    const content = normalizeMessageBody(input.content);
+    const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
+    const ttlSeconds = normalizeMessageTtl(input.ttlSeconds);
+    const result = await this.db.transaction(async (tx) => {
+      await this.requireEnabledLocked(tx);
+      const now = nowIso();
+      await this.sweepCallPinsLocked(tx, now);
+      const opener = await this.consumeCallPinLocked(tx, pin, now);
+      const self = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
+      await this.assertSessionAddressLocked(tx, authenticated.session.id, self);
+      if (self.id === opener.id) {
+        throw new ValidationError('An agent cannot call itself', { param: 'pin' });
+      }
+      await this.assertAddressEligibleLocked(tx, opener);
+
+      const conversation: AgentBusConversation = {
+        id: randomUUID(),
+        addressAId: opener.id,
+        addressBId: self.id,
+        createdByAddressId: self.id,
+        nextSequence: 1,
+        status: 'open',
+        lastActivityAt: now,
+        canceledBy: null,
+        cancelReason: null,
+        canceledAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await tx.insert(agentBusConversations).values(conversation);
+      const messageId = randomUUID();
+      await tx.insert(agentBusMessages).values(
+        newQueuedMessage({
+          id: messageId,
+          conversationId: conversation.id,
+          sequence: 1,
+          sender: self,
+          senderSessionId: authenticated.session.id,
+          target: opener,
+          kind: 'message',
+          content,
+          contentEnc: encrypt(content, this.keyring),
+          clientMessageId,
+          expiresAt: isoOffsetSeconds(ttlSeconds),
+          now,
+        }),
+      );
+      const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
+      const persisted = persistedRows[0];
+      if (!persisted) throw new Error('Inserted agent message could not be read back');
+      await tx
+        .update(agentBusConversations)
+        .set({ nextSequence: 2, lastActivityAt: now, updatedAt: now })
+        .where(eq(agentBusConversations.id, conversation.id));
+      // Single-use, and consumed only here — after every check has passed.
+      await this.clearCallPinLocked(tx, opener.id, now);
+      return { conversation, message: persisted, self, opener };
+    });
+    await this.recordRuntime('agent_message.queued', authenticated.host.id, result.self.engine, {
+      message_id: result.message.id,
+      conversation_id: result.message.conversationId,
+      source_address_id: result.self.id,
+      target_address_id: result.opener.id,
+      source_engine: result.self.engine,
+      target_engine: result.opener.engine,
+      content_bytes: result.message.contentBytes,
+    });
+    wsPublisher.publish('agent_messaging.message.changed', {
+      message_id: result.message.id,
+      conversation_id: result.message.conversationId,
+      status: result.message.status,
+    });
+    return {
+      enabled: true,
+      conversation_id: result.conversation.id,
+      peer: publicAddress(result.opener),
+      self: publicAddress(result.self),
+      message: messageForParticipant(result.message, content, result.self, result.opener),
     };
   }
 
@@ -1453,6 +1709,9 @@ export class AgentMessagingService {
         .set({
           enabled: enabled ? 1 : 0,
           currentSessionId: enabled ? address.currentSessionId : null,
+          // A disabled address must not stay dialable.
+          callPin: enabled ? address.callPin : null,
+          callPinExpiresAt: enabled ? address.callPinExpiresAt : null,
           readiness: enabled
             ? address.currentSessionId
               ? address.readiness
@@ -1605,6 +1864,10 @@ export class AgentMessagingService {
     const staleRelay = isoOffsetSeconds(-2 * AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
     const result = await this.db.transaction(async (tx) => {
       const releasedBindings = await reapExpiredAgentMessagingBindingsLocked(tx, now);
+      // Expired PINs are also swept at mint and redeem time; doing it here as
+      // well means a PIN nobody ever dials does not squat its slot in the unique
+      // index until the next `#call` happens to run.
+      await this.sweepCallPinsLocked(tx, now);
       const expiring = await tx.select({ value: count() }).from(agentBusMessages).where(and(inArray(agentBusMessages.status, ['queued', 'leased']), lte(agentBusMessages.expiresAt, now)));
       const retryable = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), lte(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1), gt(agentBusMessages.expiresAt, now)));
       const exhausted = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), gt(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1)));
@@ -2305,6 +2568,10 @@ export async function releaseAgentMessagingBindingsLocked(
         adapterCapabilities: null,
         readiness: upstream ? 'resumable' : 'offline',
         receiveHeartbeatAt: null,
+        // Same reason as finishSession: a reaped binding must not leave a live
+        // PIN pointing at an address that is no longer on the line.
+        callPin: null,
+        callPinExpiresAt: null,
         bindingGeneration: row.address.bindingGeneration + 1,
         lastSeenAt: now,
         updatedAt: now,
@@ -2353,6 +2620,68 @@ export async function reapExpiredAgentMessagingBindingsLocked(
 
 export function createAgentMessagingService(db: Database, env: Env, keyring: Keyring): AgentMessagingService {
   return new AgentMessagingService(db, env, keyring);
+}
+
+/**
+ * One queued message row, with every column that has no per-call meaning set to
+ * its neutral value.
+ *
+ * `sendMessage`, `replyMessage`, `replyFromRelayDelivery` and `redriveMessage`
+ * each carry their own hand-written copy of this 30-field literal. Those are
+ * left alone; this exists so `joinCall` does not become the fifth.
+ */
+function newQueuedMessage(input: {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  sender: AgentBusAddress;
+  senderSessionId: string | null;
+  target: AgentBusAddress;
+  kind: string;
+  content: string;
+  contentEnc: string;
+  clientMessageId: string;
+  expiresAt: string;
+  now: string;
+}): typeof agentBusMessages.$inferInsert {
+  return {
+    id: input.id,
+    conversationId: input.conversationId,
+    sequence: input.sequence,
+    replyToMessageId: null,
+    redriveOfMessageId: null,
+    senderAddressId: input.sender.id,
+    senderSessionId: input.senderSessionId,
+    targetAddressId: input.target.id,
+    sourceEngine: input.sender.engine,
+    targetEngine: input.target.engine,
+    kind: input.kind,
+    contentEnc: input.contentEnc,
+    contentBytes: Buffer.byteLength(input.content, 'utf8'),
+    clientMessageId: input.clientMessageId,
+    status: 'queued',
+    attempts: 0,
+    nextAttemptAt: input.now,
+    leaseOwner: null,
+    leaseUntil: null,
+    claimId: null,
+    relayGeneration: null,
+    targetBindingGeneration: null,
+    deliverySessionId: null,
+    deliveryUpstreamSessionId: null,
+    expiresAt: input.expiresAt,
+    lastErrorCode: null,
+    lastErrorEnc: null,
+    cancelRequestedAt: null,
+    acceptedAt: null,
+    completedAt: null,
+    ambiguousAt: null,
+    deadAt: null,
+    expiredAt: null,
+    canceledAt: null,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
 }
 
 function publicAddress(address: AgentBusAddress, fqdn?: string): Record<string, unknown> {

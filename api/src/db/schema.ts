@@ -1405,6 +1405,9 @@ export const agentBusAddresses = mysqlTable(
     adapterCapabilities: json('adapter_capabilities'),
     readiness: varchar('readiness', { length: 24 }).notNull().default('offline'),
     receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),
+    // A live `#call` rendezvous PIN. CHAR(4) so `0042` keeps its leading zeros.
+    callPin: char('call_pin', { length: 4 }),
+    callPinExpiresAt: varchar('call_pin_expires_at', { length: 100 }),
     lastSeenAt: varchar('last_seen_at', { length: 100 }).notNull(),
     archivedAt: varchar('archived_at', { length: 100 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -1414,6 +1417,7 @@ export const agentBusAddresses = mysqlTable(
     addressUnique: uniqueIndex('uq_agent_bus_addresses_address').on(t.address),
     aliasUnique: uniqueIndex('uq_agent_bus_addresses_alias').on(t.displayAlias),
     sessionUnique: uniqueIndex('uq_agent_bus_addresses_session').on(t.currentSessionId),
+    callPinUnique: uniqueIndex('uq_agent_bus_addresses_call_pin').on(t.callPin),
     discoveryIdx: index('idx_agent_bus_addresses_discovery').on(t.enabled, t.archivedAt, t.engine, t.hostId),
     nativeIdx: index('idx_agent_bus_addresses_native').on(t.hostId, t.engine, t.username, t.lastUpstreamSessionId),
     cwdIdx: index('idx_agent_bus_addresses_cwd').on(t.hostId, t.engine, t.username, t.cwdHash),

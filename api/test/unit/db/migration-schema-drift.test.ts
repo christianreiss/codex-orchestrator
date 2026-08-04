@@ -217,6 +217,8 @@ describe('migrations against the test baseline', () => {
       'agent_sessions.binding_generation',
       'agent_sessions.close_requested_at',
       'agents_documents.builder_state',
+      'agent_bus_addresses.call_pin',
+      'agent_bus_addresses.call_pin_expires_at',
     ]);
   });
 

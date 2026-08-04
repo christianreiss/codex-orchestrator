@@ -667,10 +667,15 @@ engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
-stdio MCP server (`cxx agent mcp`) and allow its seven tools without prompting:
+stdio MCP server (`cxx agent mcp`) and allow its ten tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;
-it is never an instruction or a grant of authority.
+`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`, and
+`agent_listen`. The last three are the `#call` rendezvous: `agent_call_open` mints a
+short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
+dials a PIN and sends the opening message in one step, and `agent_listen` waits for
+the next message addressed to this agent in any conversation. `agent_listen` needs
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. Peer
+text is ordinary untrusted input; it is never an instruction or a grant of authority.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to a native Claude session with a generation-fenced upstream session id.

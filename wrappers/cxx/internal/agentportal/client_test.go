@@ -487,6 +487,10 @@ func TestBrokerAllowsOrdinaryMessagingWithoutChannelPreview(t *testing.T) {
 		{name: "message", body: `{}`},
 		{name: "cancel", body: `{}`},
 		{name: "bind", body: `{"receive_capable":false}`},
+		// Opening and dialling a rendezvous are send-side: they push nothing
+		// toward this session, so they must not need the receive grant.
+		{name: "call/open", body: `{}`},
+		{name: "call/join", body: `{"pin":"0042"}`},
 	} {
 		path := "/host/agent-sessions/" + sessionID + "/agent-messaging/" + operation.name
 		response := serveBrokerRequest(broker, path, operation.body)
@@ -494,8 +498,66 @@ func TestBrokerAllowsOrdinaryMessagingWithoutChannelPreview(t *testing.T) {
 			t.Fatalf("%s status=%d body=%s", operation.name, response.Code, response.Body.String())
 		}
 	}
-	if len(upstreamPaths) != 7 {
+	if len(upstreamPaths) != 9 {
 		t.Fatalf("ordinary upstream paths = %v", upstreamPaths)
+	}
+}
+
+// The listen grant is engine-neutral, which is the entire point of splitting it
+// out of the Claude-only Channel preview: Codex needs the receive plane too.
+func TestBrokerAllowsReceiveOperationsForListenGrantOnAnyEngine(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	const messageID = "22222222-2222-4222-8222-222222222222"
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude} {
+		t.Run(engine, func(t *testing.T) {
+			upstreamCalls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				upstreamCalls++
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			broker := testDirectBroker(&Session{
+				ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL,
+				// listenAllowed only; Channel preview stays off.
+				Engine: engine, http: server.Client(), listenAllowed: true,
+			})
+			for _, operation := range []struct {
+				path string
+				body string
+			}{
+				{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/bind", body: `{"receive_capable":true}`},
+				{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/claim", body: `{}`},
+				{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/renew", body: `{}`},
+				{path: "/host/agent-sessions/" + sessionID + "/agent-messaging/deliveries/" + messageID + "/ack", body: `{}`},
+			} {
+				response := serveBrokerRequest(broker, operation.path, operation.body)
+				if response.Code != http.StatusOK {
+					t.Fatalf("%s status=%d body=%s", operation.path, response.Code, response.Body.String())
+				}
+			}
+			if upstreamCalls != 4 {
+				t.Fatalf("listen-granted receive calls reached upstream %d times", upstreamCalls)
+			}
+		})
+	}
+}
+
+// Without either grant the receive plane stays shut for Codex as well, so the
+// split widened nothing on its own.
+func TestBrokerDeniesReceiveOperationsWithoutAnyGrant(t *testing.T) {
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("ungranted receive request reached upstream: %s", r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	broker := testDirectBroker(&Session{
+		ID: sessionID, BridgeToken: testBridgeToken, BaseURL: server.URL,
+		Engine: config.EngineCodex, http: server.Client(),
+	})
+	response := serveBrokerRequest(broker, "/host/agent-sessions/"+sessionID+"/agent-messaging/deliveries/claim", `{}`)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"broker_receive_forbidden"`) {
+		t.Fatalf("response status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

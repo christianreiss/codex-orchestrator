@@ -51,12 +51,13 @@
     "agent_messaging": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "relay_poll_seconds", "queued_ttl_seconds", "channel_preview_enabled"],
+      "required": ["enabled", "relay_poll_seconds", "queued_ttl_seconds", "channel_preview_enabled", "listen_enabled"],
       "properties": {
         "enabled": { "type": "boolean", "default": false },
         "relay_poll_seconds": { "type": "integer", "minimum": 1, "maximum": 25 },
         "queued_ttl_seconds": { "type": "integer", "minimum": 60, "maximum": 604800 },
-        "channel_preview_enabled": { "type": "boolean", "default": false }
+        "channel_preview_enabled": { "type": "boolean", "default": false },
+        "listen_enabled": { "type": "boolean", "default": false }
       }
     },
     "wrapper": {

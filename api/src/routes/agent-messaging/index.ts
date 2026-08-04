@@ -240,6 +240,35 @@ export async function registerAgentMessagingRoutes(
     const body = z.object({ conversation_id: z.string().uuid(), reason: z.string().nullable().optional() }).strict().parse(req.body ?? {});
     return await messaging.cancelConversation(id, token, body.conversation_id, body.reason);
   });
+  app.post('/host/agent-sessions/:id/agent-messaging/call/open', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({ ttl_seconds: z.number().int().min(60).max(3600).nullable().optional() })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.openCall(id, token, { ttlSeconds: body.ttl_seconds });
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/call/join', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z
+      .object({
+        // A string, never a number: `0042` must keep its leading zeros.
+        pin: z.string().regex(/^[0-9]{4}$/),
+        content: z.string(),
+        client_message_id: z.string().uuid(),
+        ttl_seconds: z.number().int().nullable().optional(),
+      })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.joinCall(id, token, {
+      pin: body.pin,
+      content: body.content,
+      clientMessageId: body.client_message_id,
+      ttlSeconds: body.ttl_seconds,
+    });
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/bind', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');

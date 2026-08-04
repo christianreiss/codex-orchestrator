@@ -613,6 +613,9 @@ const AGENT_MESSAGING_TOOLS = [
   'agent_reply',
   'agent_message_get',
   'agent_cancel',
+  'agent_call_open',
+  'agent_call_join',
+  'agent_listen',
 ] as const;
 
 export function renderClaudeSettingsPartial(

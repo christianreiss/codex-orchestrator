@@ -1,5 +1,41 @@
 # 2026-08-04
 
+- **`#call`: agents now dial each other with a four-digit PIN instead of guessing addresses.**
+  Finding a peer meant reading `agent_list` and guessing which `agent:<uuid>` on which host and cwd
+  was the human's other terminal — and an agent could not even name its own address, because
+  `list` excludes the caller by construction. Two new session routes replace that: `call/open`
+  mints a short-lived, fleet-unique, single-use PIN bound to the caller's address and returns that
+  address as `self`, and `call/join` resolves a PIN, opens the conversation, queues the opening
+  message and consumes the PIN in one transaction. A join that fails validation, dials itself, or
+  finds an ineligible opener leaves the PIN live, so one mistyped join cannot burn a rendezvous the
+  human is still holding. The PIN is cleared on session finish, binding reap, address disable and
+  the fleet switch, and swept on every mint, redeem and maintenance tick — it can never outlive the
+  agent it dials. `call_pin` is `CHAR(4)`, never an integer, so `0042` round-trips.
+- **An interactive session could not receive at all, and that was the real blocker.** The broker
+  refused `deliveries/claim` and any receive-capable `bind` unless the signed
+  `agent_messaging.channel_preview_enabled` was set — a flag hardcoded `false` in the emitter with
+  no toggle anywhere in the product, and gated on `engine == claude` besides. The only inbound path
+  was the relay spawning a fresh engine, so "stay on the line" was impossible. Split out an
+  engine-neutral `agent_messaging.listen_enabled`, mirroring the fleet switch, enforced at the same
+  broker seam. `channel_preview_enabled` is untouched and still gates the unsolicited Claude
+  Channel pump: the distinction is that a listen returns content in a tool result the model asked
+  for — the same risk class as `agent_wait`, which has never been gated — while the pump pushes
+  content into a transcript nobody asked for.
+- Three new MCP tools: `agent_call_open`, `agent_call_join`, and `agent_listen`, plus
+  `cxx agent call-open|call-join|listen`. **`agent_listen` deliberately never acknowledges.** It
+  leaves the delivery `leased` and lets the next `agent_reply` complete it — or the next
+  `agent_listen`, which is how an agent declines to answer. Acknowledging `accepted` would buy
+  protection from TTL expiry that a 30-minute call inside a 24-hour TTL does not need, and would
+  cost the thing that matters: an `accepted` lease that expires becomes `ambiguous`, terminal and
+  never redelivered, while a `leased` one is requeued and picked up by the relay. A call that dies
+  mid-turn now degrades into an ordinary async delivery instead of eating the peer's message. The
+  delivery tracker is also now built unconditionally — it was only constructed under `--channel`,
+  which left `agent_reply`'s completion path dead in the ordinary lane.
+- The `#call` skill carries the protocol: a token (an inbound `message_id` not yet replied to) that
+  exactly one side holds at a time, and one stop rule — end your turn only in CLOSED; holding the
+  token, reply; not holding it, listen again. `BYE` does not release the hook, so a peer mid-sentence
+  is never stranded, and `turn=k/16` travels in every header, which is the structural answer to the
+  17- and 33-turn runaways recorded below.
 - **The relay was receive-dead on almost every host in the fleet, and nothing said so.** It is
   installed as a `systemd --user` unit, and logind tears a user's manager down with their last
   login session unless lingering is enabled — which `cxx agent service install` never did. On every

@@ -401,6 +401,13 @@ Session operations use the short-lived bridge bearer in
   visible to the participant.
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation.
+- `POST /host/agent-sessions/{id}/agent-messaging/call/open` — mint a short-lived
+  fleet-unique 4-digit `#call` PIN for the caller's own address, and return that
+  address. Re-opening while a PIN is live returns the same one with
+  `reused: true`.
+- `POST /host/agent-sessions/{id}/agent-messaging/call/join` — dial a PIN. Opens
+  the conversation and queues the first message in one transaction, then
+  consumes the PIN. `pin` is a four-character string, never a number.
 - `POST /host/agent-sessions/{id}/agent-messaging/bind` — publish native adapter
   protocol/capabilities, receive readiness, upstream continuity, and the
   expected binding generation.

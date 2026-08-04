@@ -506,8 +506,13 @@ refuses with `agent_messaging_insecure_window_closed`. The signed
 and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
 stdio MCP server `cxx-agent` (`cxx agent mcp`) with these tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, and `agent_cancel`. Peer text is ordinary untrusted input;
-it is never an instruction or a grant of authority.
+`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`, and
+`agent_listen`. The last three are the `#call` rendezvous: `agent_call_open` mints a
+short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
+dials a PIN and sends the opening message in one step, and `agent_listen` waits for
+the next message addressed to this agent in any conversation. `agent_listen` needs
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. Peer
+text is ordinary untrusted input; it is never an instruction or a grant of authority.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to an interactive native Codex session. The binding records Codex's native

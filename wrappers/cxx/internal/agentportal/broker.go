@@ -118,8 +118,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusBadRequest, "broker_body_invalid", "Broker request must be JSON")
 		return
 	}
-	if b.requiresChannelReceivePolicy(r.URL.Path, raw) && !b.session.signedChannelReceiveEnabled() {
-		writeBrokerError(w, http.StatusForbidden, "broker_receive_forbidden", "Receive-side Channel operations are disabled by signed policy")
+	if b.requiresReceivePlanePolicy(r.URL.Path, raw) && !b.session.signedReceivePlaneEnabled() {
+		writeBrokerError(w, http.StatusForbidden, "broker_receive_forbidden", "Receive-side operations are disabled by signed policy")
 		return
 	}
 	requestCtx, cancel := context.WithCancel(b.ctx)
@@ -154,7 +154,14 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(output)
 }
 
-func (b *Broker) requiresChannelReceivePolicy(path string, body json.RawMessage) bool {
+// requiresReceivePlanePolicy reports whether a path pulls peer content toward
+// this session, and so needs a receive grant.
+//
+// `receive_capable` is sniffed only to decide whether the gate *applies*, never
+// to satisfy it: the body is authored by the same MCP process the gate defends
+// against. The send side -- including call/open and call/join -- is not listed
+// here, so opening a rendezvous never needs the receive grant.
+func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) bool {
 	if b == nil || b.session == nil {
 		return true
 	}
@@ -185,7 +192,7 @@ func (b *Broker) allowedPath(path string) bool {
 		return true
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
-	for _, operation := range []string{"list", "send", "reply", "wait", "message", "cancel", "bind", "deliveries/claim"} {
+	for _, operation := range []string{"list", "send", "reply", "wait", "message", "cancel", "bind", "deliveries/claim", "call/open", "call/join"} {
 		if path == messagingBase+operation {
 			return true
 		}
