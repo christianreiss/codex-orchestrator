@@ -1338,3 +1338,24 @@ func TestInsecurePurgeErrorCanForceNonzeroExit(t *testing.T) {
 		t.Fatalf("cleanup failure did not force nonzero: exit=%d err=%v", exit, merged)
 	}
 }
+
+// Codex ignores a `-c` placed before the subcommand: the run starts, the value
+// is absent, and the only symptom is the cxx-agent MCP server exiting for want
+// of the env it was supposed to receive.
+func TestCodexOverridesLandAfterTheSubcommand(t *testing.T) {
+	got := insertCodexOverrides([]string{"exec", "--json", "-"}, []string{"-c", "a=1", "-c", "b=2"})
+	if strings.Join(got, " ") != "exec -c a=1 -c b=2 --json -" {
+		t.Fatalf("got %q", got)
+	}
+	// A caller's own -c stays after ours, so it still wins on the same key.
+	if got := insertCodexOverrides([]string{"exec", "-c", "a=9"}, []string{"-c", "a=1"}); strings.Join(got, " ") != "exec -c a=1 -c a=9" {
+		t.Fatalf("caller override lost precedence: %q", got)
+	}
+	// Only flags: nothing to sit behind, so append rather than lead.
+	if got := insertCodexOverrides([]string{"--json"}, []string{"-c", "a=1"}); strings.Join(got, " ") != "--json -c a=1" {
+		t.Fatalf("flag-only args = %q", got)
+	}
+	if got := insertCodexOverrides([]string{"exec"}, nil); strings.Join(got, " ") != "exec" {
+		t.Fatalf("no overrides changed args: %q", got)
+	}
+}

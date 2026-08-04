@@ -779,3 +779,56 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
 }
+
+// Codex does not forward its environment to stdio MCP servers, so the
+// cxx-agent server starts with no CXX_AGENT_PORTAL_SOCKET and exits with
+// "agent messaging is available only inside a managed cdx/clx lifecycle" —
+// silently, as far as Codex's own logs are concerned. Handing it the address
+// on the command line is the only place those per-lifecycle values exist.
+func TestCodexMCPOverridesCarryTheBrokerAddress(t *testing.T) {
+	b := &Broker{socketPath: "/tmp/cxx-agent-portal-7/portal.sock", session: &Session{ID: "s-123"}}
+
+	args := b.CodexMCPOverrides(false)
+
+	if len(args) != 2 || args[0] != "-c" {
+		t.Fatalf("expected a single -c override, got %q", args)
+	}
+	want := `mcp_servers.cxx-agent.env={CXX_AGENT_PORTAL_SOCKET="/tmp/cxx-agent-portal-7/portal.sock",CXX_AGENT_PORTAL_SESSION_ID="s-123"}`
+	if args[1] != want {
+		t.Fatalf("override mismatch:\n got %s\nwant %s", args[1], want)
+	}
+}
+
+func TestCodexMCPOverridesAreOmittedWithoutABroker(t *testing.T) {
+	var nilBroker *Broker
+	if got := nilBroker.CodexMCPOverrides(false); got != nil {
+		t.Fatalf("nil broker produced %q", got)
+	}
+	if got := (&Broker{session: &Session{ID: "s"}}).CodexMCPOverrides(false); got != nil {
+		t.Fatalf("broker with no socket produced %q", got)
+	}
+	if got := (&Broker{socketPath: "/tmp/x.sock"}).CodexMCPOverrides(false); got != nil {
+		t.Fatalf("broker with no session produced %q", got)
+	}
+}
+
+// A peer delivery has no human to answer Codex's MCP elicitation, so every
+// agent_* call returns "user cancelled MCP tool call". Automatic review is the
+// reviewer Codex provides for that case. Interactive runs keep the user.
+func TestHeadlessRunsRouteApprovalsToAutomaticReview(t *testing.T) {
+	b := &Broker{socketPath: "/tmp/p/portal.sock", session: &Session{ID: "s"}}
+
+	headless := b.CodexMCPOverrides(true)
+	if len(headless) != 4 || headless[1] != `approval_policy={granular={sandbox_approval=false,rules=false,mcp_elicitations=false,request_permissions=false,skill_approval=false}}` {
+		t.Fatalf("headless overrides = %q", headless)
+	}
+	if got := b.CodexMCPOverrides(false); len(got) != 2 {
+		t.Fatalf("interactive run must not change the reviewer, got %q", got)
+	}
+}
+
+func TestTomlQuoteEscapesWhatTomlRequires(t *testing.T) {
+	if got := tomlQuote(`/tmp/a"b\c.sock`); got != `"/tmp/a\"b\\c.sock"` {
+		t.Fatalf("tomlQuote = %s", got)
+	}
+}

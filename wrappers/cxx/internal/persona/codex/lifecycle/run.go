@@ -441,6 +441,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		logger.Warn("agent portal registration unavailable; continuing local session", "err", portalErr)
 	}
 	closePortal := func(string, string) {}
+	// Codex does not forward its environment to stdio MCP servers, so the
+	// cxx-agent server has to be told this broker's address on the command
+	// line or it exits before serving a single tool.
+	var mcpOverrides []string
 	if portalSession != nil {
 		portalBroker, brokerErr := portalSession.StartBroker(ctx)
 		if brokerErr != nil {
@@ -449,6 +453,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		restorePortalEnv := func() {}
 		if portalBroker != nil {
 			restorePortalEnv = portalBroker.ActivateEnvironment()
+			// Not opts.Headless: only `--execute` sets that, while the relay
+			// delivers peer work through `run exec`, which is every bit as
+			// unattended. The question is whether anyone *can* answer Codex's
+			// MCP elicitation, and that is exactly "is there a terminal".
+			mcpOverrides = portalBroker.CodexMCPOverrides(!attendedTerminal())
 		}
 		stopPortalHeartbeat := portalSession.StartHeartbeat(ctx)
 		portalClosed := false
@@ -483,7 +492,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	beforeHash, beforeRefresh := snapshotAuth(authPath)
 
 	started := time.Now()
-	launchArgs := launchArgsForAuth(opts.ExtraArgs, authResp)
+	launchArgs := insertCodexOverrides(launchArgsForAuth(opts.ExtraArgs, authResp), mcpOverrides)
 	exitCode, _, runErr = codex.RunCapturePrepared(ctx, cfg, launchArgs)
 	duration := time.Since(started)
 	portalStatus, portalSummary := portalExit(exitCode, runErr)
@@ -994,6 +1003,42 @@ func localAuthRunnableFresh(hostSecure bool) bool {
 		return fresh
 	}
 	return false
+}
+
+// insertCodexOverrides places `-c` overrides immediately after the Codex
+// subcommand.
+//
+// Position is not cosmetic. Codex silently ignores a `-c` that appears before
+// the subcommand — the run starts, the config value is simply absent, and the
+// only visible symptom is the cxx-agent MCP server exiting with "agent
+// messaging is available only inside a managed cdx/clx lifecycle" because the
+// env it needed never arrived. The overrides go first among the subcommand's
+// own arguments so a caller's later `-c` on the same key still wins.
+func insertCodexOverrides(args []string, overrides []string) []string {
+	if len(overrides) == 0 {
+		return args
+	}
+	at := len(args)
+	for i, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			at = i + 1
+			break
+		}
+	}
+	out := make([]string, 0, len(args)+len(overrides))
+	out = append(out, args[:at]...)
+	out = append(out, overrides...)
+	return append(out, args[at:]...)
+}
+
+// attendedTerminal reports whether a human could answer a prompt on this
+// lifecycle's streams. Codex addresses MCP tool-call elicitations to a
+// reviewer; with no terminal there is nobody to answer and every agent_* call
+// returns "user cancelled MCP tool call".
+func attendedTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) &&
+		term.IsTerminal(int(os.Stdout.Fd())) &&
+		term.IsTerminal(int(os.Stderr.Fd()))
 }
 
 // recoverCodexAuth runs the interactive `codex login` flow, uploads the freshly
