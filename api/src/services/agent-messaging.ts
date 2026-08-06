@@ -1281,10 +1281,16 @@ export class AgentMessagingService {
       .set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now })
       .where(eq(agentBusConversations.id, conversationId));
     const participant = sender.id === conference.ownerAddressId ? target : sender;
+    const spent = member.messageCount + 1;
     await tx
       .update(agentBusConferenceMembers)
-      .set({ messageCount: member.messageCount + 1, mode: this.conferenceMode(participant), updatedAt: now })
+      .set({ messageCount: spent, mode: this.conferenceMode(participant), updatedAt: now })
       .where(eq(agentBusConferenceMembers.id, member.id));
+    // The send path closes on the same boundary as the reply path. Incrementing
+    // here without checking let a send land exactly on the cap and leave the
+    // spoke open for one more reply, so a room advertised as twelve messages
+    // stopped at thirteen -- observed on a live run.
+    await this.closeSpokeIfSpentLocked(tx, member.id, conversationId, spent, now);
     return persisted;
   }
 
@@ -1351,12 +1357,27 @@ export class AgentMessagingService {
       .update(agentBusConferenceMembers)
       .set({ messageCount: spent, updatedAt: now })
       .where(eq(agentBusConferenceMembers.id, member.id));
-    if (spent < AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP) return;
+    await this.closeSpokeIfSpentLocked(db, member.id, conversationId, spent, now);
+  }
 
+  /**
+   * Retire a member's spoke once its budget is gone.
+   *
+   * Shared by both the send and reply paths so the room stops on the number it
+   * advertises: whichever path spends the last message is the one that closes.
+   */
+  private async closeSpokeIfSpentLocked(
+    db: AgentMessagingDb,
+    memberId: string,
+    conversationId: string,
+    spent: number,
+    now: string,
+  ): Promise<void> {
+    if (spent < AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP) return;
     await db
       .update(agentBusConferenceMembers)
       .set({ state: 'left', leftAt: now, dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
-      .where(eq(agentBusConferenceMembers.id, member.id));
+      .where(eq(agentBusConferenceMembers.id, memberId));
     await db
       .update(agentBusConversations)
       .set({

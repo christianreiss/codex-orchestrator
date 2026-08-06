@@ -438,23 +438,24 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
 
     // The join already spent one. Sixteen turns means nothing across five
     // members, so the budget is per member and the server holds it.
-    for (let i = 1; i < AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP; i += 1) {
+    let delivered = 1;
+    for (let i = 0; i < AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP * 2; i += 1) {
       const said = await service.conferenceSay(chair.sessionId, chair.bridgeToken, {
         conferenceId,
         content: `round ${i}`,
         to: one.address,
       });
-      expect((said.results as Record<string, unknown>[])[0]?.delivered).toBe(true);
+      const result = (said.results as Record<string, unknown>[])[0];
+      // Once the budget is gone the member has left the room, so the chair's
+      // broadcast simply has nobody to reach — a closed room, not an error loop.
+      if (!result || result.delivered !== true) break;
+      delivered += 1;
     }
-    const spent = await service.conferenceSay(chair.sessionId, chair.bridgeToken, {
-      conferenceId,
-      content: 'one too many',
-      to: one.address,
-    });
-    expect((spent.results as Record<string, unknown>[])[0]).toMatchObject({
-      delivered: false,
-      error: 'agent_messaging_conference_budget_spent',
-    });
+
+    expect(delivered).toBe(AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP);
+    const member = await memberRow(conferenceId, one.addressId);
+    expect(member?.messageCount).toBe(AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP);
+    expect(member?.state).toBe('left');
   });
 
   /**
@@ -517,6 +518,33 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
         to: one.address,
       }),
     ).resolves.toMatchObject({ results: [] });
+  });
+
+  /**
+   * Whichever path spends the last message must be the one that closes. The send
+   * path used to increment without checking, so a send landing exactly on the cap
+   * left the spoke open for one more reply and a room advertised as twelve
+   * stopped at thirteen — measured on a live two-host run.
+   */
+  it('stops on the number it advertises, whichever path spends the last message', async () => {
+    const { chair, one, conferenceId } = await room();
+    await exec(
+      `UPDATE agent_bus_conference_members
+          SET message_count = ${AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP - 1}
+        WHERE conference_id = '${conferenceId}' AND address_id = '${one.addressId}'`,
+    );
+
+    // A conference send is what spends the final message here, not a reply.
+    const said = await service.conferenceSay(chair.sessionId, chair.bridgeToken, {
+      conferenceId,
+      content: 'the last message this member can afford',
+      to: one.address,
+    });
+    expect((said.results as Record<string, unknown>[])[0]?.delivered).toBe(true);
+
+    const member = await memberRow(conferenceId, one.addressId);
+    expect(member?.messageCount).toBe(AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP);
+    expect(member?.state).toBe('left');
   });
 
   it('carries the conference id in the envelope so a booted member can answer', async () => {
