@@ -4,6 +4,7 @@ import type { Database } from '../db/client.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import type { VersionSnapshotService, VersionSnapshot } from './version-snapshot.js';
+import { applyHostClientVersionPin } from './version-snapshot.js';
 
 /**
  * Port of StartupSyncService::collect (used for /sync/status + /sync/bootstrap
@@ -49,7 +50,7 @@ export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
 
   return {
     async collect({ host, engine, bootstrap, users }) {
-      const summary = await versions.summary(engine);
+      const summary = applyHostClientVersionPin(await versions.summary(engine), host, engine);
       return {
         status: 'ok',
         reasons: [],

@@ -1,6 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { createVersionSnapshotService } from '../../../src/services/version-snapshot.js';
+import {
+  applyHostClientVersionPin,
+  createVersionSnapshotService,
+} from '../../../src/services/version-snapshot.js';
 
 /**
  * Tests use a tiny in-memory db fake that mimics enough of Drizzle's select()
@@ -109,5 +112,72 @@ describe('version-snapshot', () => {
     expect(s.client_version).toBe('0.130.0');
     expect(s.client_version_override).toBe('0.125.0');
     expect(s.client_version_enforce_exact).toBe(true);
+  });
+
+  it('reports when the release cache behind an aliased target was last fetched', async () => {
+    // A failed upstream fetch keeps serving the expired cache rather than
+    // breaking updates, so `fetched_at` ageing is the only outward signal that
+    // the whole fleet is being handed a stale target.
+    const db = makeDb([
+      { name: 'client_version_claude', version: 'latest' },
+      {
+        name: 'github_release_claude-cli',
+        version: '{"version":"2.1.225","fetched_at":"2026-08-06T09:00:00Z"}',
+      },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    const s = await svc.summary('claude');
+    expect(s.client_version).toBe('2.1.225');
+    expect(s.client_version_fetched_at).toBe('2026-08-06T09:00:00Z');
+  });
+
+  it('reports no fetch time for an explicit pin, which never reads the cache', async () => {
+    const db = makeDb([
+      { name: 'client_version_claude', version: '2.1.200' },
+      {
+        name: 'github_release_claude-cli',
+        version: '{"version":"2.1.225","fetched_at":"2026-08-06T09:00:00Z"}',
+      },
+    ]);
+    const svc = createVersionSnapshotService({ db, installationId: null });
+    expect((await svc.summary('claude')).client_version_fetched_at).toBeNull();
+  });
+});
+
+/**
+ * `summary()` only ever reads the global `versions` table, so without this the
+ * `hosts.client_version_override` / `hosts.claude_client_version_override`
+ * columns were write-only: the admin UI accepted a pin, echoed it back, and no
+ * wrapper ever saw it.
+ */
+describe('applyHostClientVersionPin', () => {
+  const base = {
+    client_version: '2.1.225',
+    client_version_override: null,
+    client_version_enforce_exact: false,
+  } as Parameters<typeof applyHostClientVersionPin>[0];
+
+  it('overrides the fleet target and forces an exact match', () => {
+    const pinned = applyHostClientVersionPin(
+      base,
+      { claudeClientVersionOverride: '2.1.200', clientVersionOverride: '0.132.0' },
+      'claude',
+    );
+    expect(pinned.client_version_override).toBe('2.1.200');
+    expect(pinned.client_version_enforce_exact).toBe(true);
+    // The fleet target itself is untouched; only the override the wrapper
+    // prefers changes.
+    expect(pinned.client_version).toBe('2.1.225');
+  });
+
+  it('reads the column belonging to the requested engine', () => {
+    const host = { claudeClientVersionOverride: '2.1.200', clientVersionOverride: '0.132.0' };
+    expect(applyHostClientVersionPin(base, host, 'codex').client_version_override).toBe('0.132.0');
+  });
+
+  it('leaves the snapshot alone without a usable pin', () => {
+    for (const host of [null, undefined, {}, { claudeClientVersionOverride: 'latest' }]) {
+      expect(applyHostClientVersionPin(base, host, 'claude')).toBe(base);
+    }
   });
 });

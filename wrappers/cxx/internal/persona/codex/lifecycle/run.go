@@ -535,7 +535,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	// work is done instead of before it starts, so a version bump never
 	// delays an interactive launch — the new version lands on the next run.
 	if dec.Allowed {
-		maybeEnsureCodex(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
+		maybeEnsureCodex(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
 	}
 
 	// Post-exec auth upload (required when changed, 15s budget). A `codex login`
@@ -1565,6 +1565,53 @@ func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
 	return caps
 }
 
+// freshClientTarget re-resolves the engine target against the server right
+// before installing it.
+//
+// The /auth snapshot the caller holds was fetched before the session started,
+// so on a long session it names a release that is no longer current. /cron/check
+// answers the same question in one round trip, and `probe` tells the server this
+// is not the cron job so it leaves last_cron_check alone.
+//
+// Returns "" when the install should be skipped, and the caller's fallback
+// unchanged when the server cannot be reached — an offline host still installs
+// the pre-session target rather than nothing.
+func freshClientTarget(ctx context.Context, client *orchestrator.Client, current, wrapperVersion, fallback string, fallbackExact bool, logger *slog.Logger) (string, bool) {
+	if client == nil {
+		return fallback, fallbackExact
+	}
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
+		Engine:         "codex",
+		ClientVersion:  current,
+		WrapperVersion: wrapperVersion,
+		Probe:          true,
+	})
+	if err != nil || check == nil {
+		logger.Debug("codex target re-resolve failed; using pre-session target", "err", err, "target", fallback)
+		return fallback, fallbackExact
+	}
+	switch check.Action {
+	case "update":
+		if check.TargetVersion == "" {
+			return fallback, fallbackExact
+		}
+		if check.TargetVersion != fallback {
+			logger.Debug("codex target moved during session", "pre_session", fallback, "fresh", check.TargetVersion)
+		}
+		return check.TargetVersion, check.EnforceExact
+	case "no_update":
+		// Already at the current target; the pre-session value was stale in the
+		// other direction (an install happened elsewhere, or the pin moved down).
+		return "", fallbackExact
+	case "disable":
+		// Auto-update was switched off mid-session. Removing the cron schedule
+		// stays cron's job — this path only declines to install.
+		logger.Debug("codex auto-update disabled by server; skipping post-session install")
+		return "", fallbackExact
+	}
+	return fallback, fallbackExact
+}
+
 // maybeEnsureCodex repairs the local Codex CLI when the orchestrator says
 // auto-update is enabled, a target version is known, and the local CLI
 // version differs from that target. Failures are logged but never fatal —
@@ -1581,7 +1628,7 @@ func updateCaps(cfg *config.Config, minimal bool) ui.Caps {
 //
 // This is a no-op when concurrent managed sync is paused, when auth retrieval
 // failed, or when AutoUpdateEnabled is false.
-func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent, minimal bool, logger *slog.Logger) string {
+func maybeEnsureCodex(ctx context.Context, cfg *config.Config, client *orchestrator.Client, auth *orchestrator.AuthRetrieveResponse, wrapperVersion string, concurrent, minimal bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -1596,7 +1643,13 @@ func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrato
 	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
 		target = *v.ClientVersionOverride
 	}
+	enforceExact := v.ClientVersionEnforceExact
 	current := strings.TrimSpace(codex.Version(ctx))
+	// `auth` was retrieved before the session launched, so `target` is as old as
+	// the session — an hour of work meant installing whatever was newest an hour
+	// ago and reporting a fresh update on the very next launch, which read as a
+	// stepwise updater walking releases one at a time. Re-resolve first.
+	target, enforceExact = freshClientTarget(ctx, client, current, wrapperVersion, target, enforceExact, logger)
 	// Defer "latest" (and empty) alias upgrades to cron — must be before the semver guards.
 	if target == "" || target == "latest" {
 		return ""
@@ -1604,7 +1657,7 @@ func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrato
 	if current == target {
 		return ""
 	}
-	if !v.ClientVersionEnforceExact {
+	if !enforceExact {
 		if current != "" && current != "unknown" && !semverGT(target, current) {
 			logger.Warn("skipping downgrade", "current", current, "target", target)
 			return ""
@@ -1616,7 +1669,7 @@ func maybeEnsureCodex(ctx context.Context, cfg *config.Config, auth *orchestrato
 	// emissions inside the installer are at Debug now.
 	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "codex", current, target))
-	if err := codex.EnsureCodex(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
+	if err := codex.EnsureCodex(ctx, target, enforceExact, logger); err != nil {
 		logger.Warn("codex auto-update skipped", "err", err, "target", target, "current", current)
 		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "codex", target, err))
 		return ""

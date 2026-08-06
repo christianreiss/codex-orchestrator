@@ -1,7 +1,10 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
+  CACHE_TTL_SECONDS,
   ClientVersionsService,
   CODEX_MIN_CLIENT_VERSION,
+  isClientVersionStale,
+  STALE_AFTER_SECONDS,
   coerceCodexVersionToMinimum,
   isSemanticVersion,
   normalizeVersion,
@@ -315,6 +318,32 @@ describe('ClientVersionsService.availableClientVersion', () => {
     expect(settings.set).not.toHaveBeenCalled();
   });
 
+  it('reports how stale the fallback is instead of failing silently', async () => {
+    // The row is deliberately not rewritten, so `updated_at` keeps ageing and
+    // the fleet does not sit on an old target behind nothing but a log line.
+    const settings = makeSettings({
+      'github_release_claude-cli': {
+        ...cachedRelease('claude-cli', '2.1.100'),
+        updatedAt: agedIso(9000),
+      },
+    });
+    const log = { warn: vi.fn() };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 503 } as Response);
+
+    const release = await new ClientVersionsService(settings as never, log).availableClientVersion(
+      false,
+      'claude',
+    );
+
+    expect(release).toMatchObject({ version: '2.1.100', cached: true });
+    expect(settings.set).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'claude-cli', stale_seconds: expect.any(Number) }),
+      'upstream release fetch failed; serving stale cached version',
+    );
+    expect(log.warn.mock.calls.at(-1)![0].stale_seconds).toBeGreaterThan(CACHE_TTL_SECONDS);
+  });
+
   it('returns null on a non-ok GitHub response with no cache', async () => {
     const settings = makeSettings();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response);
@@ -448,5 +477,24 @@ describe('ClientVersionsService version locks', () => {
       key: 'client_version_lock_claude',
     });
     expect(result).toEqual({ locked_version: null, locked_at: null });
+  });
+});
+
+describe('isClientVersionStale', () => {
+  const now = Date.parse('2026-08-06T12:00:00Z');
+
+  it('tolerates one missed refresh window before calling the target stale', () => {
+    expect(STALE_AFTER_SECONDS).toBe(CACHE_TTL_SECONDS * 2);
+    expect(isClientVersionStale(new Date(now - 3600_000).toISOString(), now)).toBe(false);
+    expect(isClientVersionStale(new Date(now - 7200_000).toISOString(), now)).toBe(false);
+    expect(isClientVersionStale(new Date(now - 7201_000).toISOString(), now)).toBe(true);
+  });
+
+  it('reports nothing when there is no fetch time to judge', () => {
+    // An explicit pin never consults the release cache, so a null here means
+    // "not applicable", not "stale".
+    expect(isClientVersionStale(null, now)).toBe(false);
+    expect(isClientVersionStale(undefined, now)).toBe(false);
+    expect(isClientVersionStale('not a date', now)).toBe(false);
   });
 });

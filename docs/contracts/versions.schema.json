@@ -16,6 +16,7 @@
         "client_version",
         "client_version_override",
         "client_version_enforce_exact",
+        "client_version_fetched_at",
         "wrapper_version",
         "wrapper_sha256",
         "wrapper_url",
@@ -42,6 +43,12 @@
         },
         "client_version_enforce_exact": {
           "type": "boolean"
+        },
+        "client_version_fetched_at": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "wrapper_version": {
           "type": [

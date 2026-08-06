@@ -628,7 +628,7 @@ exit 42
 
 	stderr := captureStderr(t, func() {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		if got := maybeEnsureClaude(context.Background(), nil, auth, false, false, logger); got != "" {
+		if got := maybeEnsureClaude(context.Background(), nil, nil, auth, "0.7.19", false, false, logger); got != "" {
 			t.Fatalf("maybeEnsureClaude() = %q, want no update", got)
 		}
 	})
@@ -1905,5 +1905,110 @@ func writeTestScript(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The post-session install used to run against the /auth snapshot taken before
+// the session launched, so a long session installed whatever had been newest an
+// hour earlier and the next launch immediately announced another update — the
+// wrapper looked like it was walking releases one step at a time. These cover
+// the re-resolve that replaced that snapshot, including the offline fallback
+// that must keep an unreachable server from blocking the install entirely.
+func TestMaybeEnsureClaudePostSessionTarget(t *testing.T) {
+	preSession := "2.1.222"
+
+	for _, tc := range []struct {
+		name          string
+		status        int
+		response      map[string]any
+		wantSpec      string
+		wantNoInstall bool
+	}{
+		{
+			name:     "installs the target the server reports now, not the stale one",
+			status:   http.StatusOK,
+			response: map[string]any{"action": "update", "target_version": "2.1.225"},
+			wantSpec: "@anthropic-ai/claude-code@2.1.225",
+		},
+		{
+			name:     "falls back to the pre-session target when the probe fails",
+			status:   http.StatusInternalServerError,
+			response: map[string]any{"error": "boom"},
+			wantSpec: "@anthropic-ai/claude-code@" + preSession,
+		},
+		{
+			name:          "skips the install when the server says the host is current",
+			status:        http.StatusOK,
+			response:      map[string]any{"action": "no_update"},
+			wantNoInstall: true,
+		},
+		{
+			name:          "skips the install when auto-update was disabled mid-session",
+			status:        http.StatusOK,
+			response:      map[string]any{"action": "disable"},
+			wantNoInstall: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "bin")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", filepath.Join(dir, "home"))
+
+			npmArgs := filepath.Join(dir, "npm-args")
+			claudePath := filepath.Join(bin, "claude")
+			writeTestScript(t, claudePath, "#!/bin/sh\necho \"2.1.221\"\n")
+			writeTestScript(t, filepath.Join(bin, "npm"), "#!/bin/sh\necho \"$@\" >> \""+npmArgs+"\"\n")
+			t.Setenv("CLX_CLAUDE_BIN", claudePath)
+			t.Setenv("PATH", bin)
+
+			var probeBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/cron/check" {
+					t.Errorf("unexpected probe path %q", r.URL.Path)
+				}
+				buf, _ := io.ReadAll(r.Body)
+				probeBody = string(buf)
+				w.WriteHeader(tc.status)
+				_ = json.NewEncoder(w).Encode(tc.response)
+			}))
+			t.Cleanup(srv.Close)
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: srv.URL, APIKey: "sk-claude-test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			auth := &orchestrator.AuthRetrieveResponse{
+				Versions: &orchestrator.VersionSummary{
+					AutoUpdateEnabled: true,
+					ClientVersion:     &preSession,
+				},
+			}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			_ = captureStderr(t, func() {
+				maybeEnsureClaude(context.Background(), nil, client, auth, "0.7.19", false, false, logger)
+			})
+
+			// The probe must never be mistaken for the cron job, or a host whose
+			// cron died keeps reporting a fresh last_cron_check.
+			if !strings.Contains(probeBody, `"probe":true`) {
+				t.Errorf("probe flag missing from /cron/check body: %s", probeBody)
+			}
+			installed, err := os.ReadFile(npmArgs)
+			if tc.wantNoInstall {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("npm ran for a skipped update: %q (err=%v)", installed, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("npm was never invoked: %v", err)
+			}
+			if !strings.Contains(string(installed), tc.wantSpec) {
+				t.Errorf("npm install spec = %q, want it to contain %q", strings.TrimSpace(string(installed)), tc.wantSpec)
+			}
+		})
 	}
 }

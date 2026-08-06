@@ -10,7 +10,11 @@ import {
   HostManagementService,
   isSemanticVersion as hostManagementIsSemanticVersion,
 } from '../../../src/services/host-management.js';
-import { isSemanticVersion } from '../../../src/services/client-versions.js';
+import {
+  coerceCodexVersionToMinimum,
+  isSemanticVersion,
+} from '../../../src/services/client-versions.js';
+import { applyHostClientVersionPin } from '../../../src/services/version-snapshot.js';
 import { ValidationError } from '../../../src/http/errors.js';
 import type { Database } from '../../../src/db/client.js';
 import type { Host } from '../../../src/db/schema.js';
@@ -105,5 +109,20 @@ describe('setCodexVersionOverride floor', () => {
 
   it('validates through the one shared semver validator', () => {
     expect(hostManagementIsSemanticVersion).toBe(isSemanticVersion);
+  });
+
+  it('hands the floored pin, not the requested one, to the served snapshot', () => {
+    // The floor is applied on write; the read path takes the column verbatim.
+    // Asserting the join here keeps a future floor change from quietly reaching
+    // wrappers as the un-floored value.
+    const snapshot = {
+      client_version: '0.137.0',
+      client_version_override: null,
+      client_version_enforce_exact: false,
+    } as Parameters<typeof applyHostClientVersionPin>[0];
+    const stored = coerceCodexVersionToMinimum('0.10.0');
+    const served = applyHostClientVersionPin(snapshot, { clientVersionOverride: stored }, 'codex');
+    expect(served.client_version_override).toBe('0.125.0');
+    expect(served.client_version_enforce_exact).toBe(true);
   });
 });

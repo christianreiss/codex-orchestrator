@@ -15,7 +15,10 @@ import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
 import { adminEvents, hosts, insecureDomainAllows, logs } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
-import { ClientVersionsService } from '../../../services/client-versions.js';
+import {
+  ClientVersionsService,
+  isClientVersionStale,
+} from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
@@ -278,6 +281,12 @@ export async function registerAdminOverviewRoutes(
         cdx_version_checked_at: codexAvailable?.fetched_at ?? null,
         claude_version_available: claudeAvailable?.version ?? null,
         claude_version_checked_at: claudeAvailable?.fetched_at ?? null,
+        // A failed upstream fetch keeps serving the expired cache rather than
+        // breaking updates, so the only outward sign is `fetched_at` ageing
+        // past the refresh window. Surface it — otherwise the whole fleet sits
+        // on a stale target behind nothing louder than a log line.
+        cdx_version_stale: isClientVersionStale(codexAvailable?.fetched_at ?? null),
+        claude_version_stale: isClientVersionStale(claudeAvailable?.fetched_at ?? null),
       },
       chatgpt_usage: chatgptResult.snapshot,
       chatgpt_usage_summary: chatgptSummary,

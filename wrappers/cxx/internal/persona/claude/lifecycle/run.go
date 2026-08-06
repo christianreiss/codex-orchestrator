@@ -467,7 +467,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	// work is done instead of before it starts, so a version bump never
 	// delays an interactive launch — the new version lands on the next run.
 	if dec.Allowed {
-		maybeEnsureClaude(ctx, cfg, authResp, concurrent, opts.Minimal, logger)
+		maybeEnsureClaude(ctx, cfg, client, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
 	}
 
 	authStatus, authTone := maybePostRunAuthUpload(client, logger, before, authSession)
@@ -1626,6 +1626,53 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 	return wrapperVersion(cfg)
 }
 
+// freshClientTarget re-resolves the engine target against the server right
+// before installing it.
+//
+// The /auth snapshot the caller holds was fetched before the session started,
+// so on a long session it names a release that is no longer current. /cron/check
+// answers the same question in one round trip, and `probe` tells the server this
+// is not the cron job so it leaves last_cron_check alone.
+//
+// Returns "" when the install should be skipped, and the caller's fallback
+// unchanged when the server cannot be reached — an offline host still installs
+// the pre-session target rather than nothing.
+func freshClientTarget(ctx context.Context, client *orchestrator.Client, current, wrapperVersion, fallback string, fallbackExact bool, logger *slog.Logger) (string, bool) {
+	if client == nil {
+		return fallback, fallbackExact
+	}
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{
+		Engine:         "claude",
+		ClientVersion:  current,
+		WrapperVersion: wrapperVersion,
+		Probe:          true,
+	})
+	if err != nil || check == nil {
+		logger.Debug("claude target re-resolve failed; using pre-session target", "err", err, "target", fallback)
+		return fallback, fallbackExact
+	}
+	switch check.Action {
+	case "update":
+		if check.TargetVersion == "" {
+			return fallback, fallbackExact
+		}
+		if check.TargetVersion != fallback {
+			logger.Debug("claude target moved during session", "pre_session", fallback, "fresh", check.TargetVersion)
+		}
+		return check.TargetVersion, check.EnforceExact
+	case "no_update":
+		// Already at the current target; the pre-session value was stale in the
+		// other direction (an install happened elsewhere, or the pin moved down).
+		return "", fallbackExact
+	case "disable":
+		// Auto-update was switched off mid-session. Removing the cron schedule
+		// stays cron's job — this path only declines to install.
+		logger.Debug("claude auto-update disabled by server; skipping post-session install")
+		return "", fallbackExact
+	}
+	return fallback, fallbackExact
+}
+
 // maybeEnsureClaude repairs the local Claude CLI when the orchestrator
 // reports auto-update enabled and the local version differs from target.
 // Failures are logged but never fatal — a transient install error just
@@ -1638,7 +1685,7 @@ func currentWrapperVersion(opts Options, cfg *config.Config) string {
 // Returns the post-install Claude version when an install actually ran,
 // empty otherwise. The lifecycle independently re-measures the installed
 // version for the exit footer.
-func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrator.AuthRetrieveResponse, concurrent, minimal bool, logger *slog.Logger) string {
+func maybeEnsureClaude(ctx context.Context, cfg *config.Config, client *orchestrator.Client, auth *orchestrator.AuthRetrieveResponse, wrapperVersion string, concurrent, minimal bool, logger *slog.Logger) string {
 	if concurrent || auth == nil || auth.Versions == nil {
 		return ""
 	}
@@ -1653,7 +1700,13 @@ func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrat
 	if v.ClientVersionOverride != nil && *v.ClientVersionOverride != "" {
 		target = *v.ClientVersionOverride
 	}
+	enforceExact := v.ClientVersionEnforceExact
 	current := strings.TrimSpace(claude.Version(ctx))
+	// `auth` was retrieved before the session launched, so `target` is as old as
+	// the session — an hour of work meant installing whatever was newest an hour
+	// ago and reporting a fresh update on the very next launch, which read as a
+	// stepwise updater walking releases one at a time. Re-resolve first.
+	target, enforceExact = freshClientTarget(ctx, client, current, wrapperVersion, target, enforceExact, logger)
 	// Defer "latest" alias upgrades to cron — must be before the semver guards.
 	if target == "" || target == "latest" {
 		return ""
@@ -1668,7 +1721,7 @@ func maybeEnsureClaude(ctx context.Context, cfg *config.Config, auth *orchestrat
 	}
 	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "clx", "claude", current, target))
-	if err := claude.EnsureClaude(ctx, target, v.ClientVersionEnforceExact, logger); err != nil {
+	if err := claude.EnsureClaude(ctx, target, enforceExact, logger); err != nil {
 		logger.Warn("claude auto-update skipped", "err", err, "target", target, "current", current)
 		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "clx", "claude", target, err))
 		return ""

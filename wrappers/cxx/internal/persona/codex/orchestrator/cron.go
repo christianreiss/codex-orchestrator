@@ -13,6 +13,11 @@ type CronCheckRequest struct {
 	Engine         string `json:"engine"`
 	ClientVersion  string `json:"client_version"`
 	WrapperVersion string `json:"wrapper_version"`
+
+	// Probe marks a caller that is not the cron job — the lifecycle asks the
+	// same question on its way out of an interactive session. The server skips
+	// the last_cron_check stamp for it, so a dead cron still reads as dead.
+	Probe bool `json:"probe,omitempty"`
 }
 
 // CronWrapperBlock is the nested wrapper-action sub-object returned by /cron/check.

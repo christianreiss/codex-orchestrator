@@ -27,6 +27,7 @@ const SNAPSHOT: VersionSnapshot = {
   client_version: '0.42.0',
   client_version_override: null,
   client_version_enforce_exact: false,
+  client_version_fetched_at: null,
   wrapper_version: '1.2.3',
   wrapper_sha256: null,
   wrapper_url: null,

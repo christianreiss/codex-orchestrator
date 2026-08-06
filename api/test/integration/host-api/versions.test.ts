@@ -147,6 +147,78 @@ describe('POST /cron/check', () => {
     await app.close();
   });
 
+  it('stamps last_cron_check for cron but not for a probe', async () => {
+    // A wrapper re-resolving its engine target on the way out of an interactive
+    // session asks /cron/check the same question cron does. Letting it stamp
+    // last_cron_check would keep the field fresh on a host whose cron is dead.
+    const run = async (probe: boolean) => {
+      const db = createDbFake();
+      const apiKey = 'sk-codex-cron-test';
+      db.tables.set(hostsTable, [hostRow(apiKey)]);
+      db.tables.set(versionsTable, [
+        { name: 'client_version_codex', version: '0.137.0' },
+        { name: 'wrapper_version_codex', version: '0.6.2' },
+        { name: 'auto_update_enabled', version: '1' },
+      ]);
+      const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+      const r = await app.inject({
+        method: 'POST',
+        url: '/cron/check',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          engine: 'codex',
+          client_version: '0.130.0',
+          wrapper_version: '0.6.2',
+          ...(probe ? { probe: true } : {}),
+        }),
+      });
+      await app.close();
+      const row = (db.tables.get(hostsTable) as Array<{ lastCronCheck: string | null }>)[0]!;
+      return { body: JSON.parse(r.payload), lastCronCheck: row.lastCronCheck };
+    };
+
+    const cron = await run(false);
+    const probe = await run(true);
+    // Same answer either way — the probe only differs in what it writes.
+    expect(probe.body).toMatchObject({ action: 'update', target_version: '0.137.0' });
+    expect(cron.body).toMatchObject({ action: 'update', target_version: '0.137.0' });
+    expect(cron.lastCronCheck).not.toBeNull();
+    expect(probe.lastCronCheck).toBeNull();
+  });
+
+  it('serves a per-host client pin as an exact target', async () => {
+    // hosts.client_version_override was write-only before: the admin UI accepted
+    // a pin and echoed it back, but no wrapper ever saw it.
+    const db = createDbFake();
+    const apiKey = 'sk-codex-cron-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), clientVersionOverride: '0.132.0' }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.137.0' },
+      { name: 'wrapper_version_codex', version: '0.6.2' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    const r = await app.inject({
+      method: 'POST',
+      url: '/cron/check',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        engine: 'codex',
+        client_version: '0.137.0',
+        wrapper_version: '0.6.2',
+      }),
+    });
+    expect(r.statusCode).toBe(200);
+    // The host is already at the fleet target, so only an exact host pin can
+    // produce an update here — and it must be able to move the host down to it.
+    expect(JSON.parse(r.payload)).toMatchObject({
+      action: 'update',
+      target_version: '0.132.0',
+      enforce_exact: true,
+    });
+    await app.close();
+  });
+
   it('returns a platform-specific wrapper URL based on X-Wrapper-Platform', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-'));
     const binaryContents = 'darwin arm64 test binary';

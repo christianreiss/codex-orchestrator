@@ -1359,3 +1359,113 @@ func TestCodexOverridesLandAfterTheSubcommand(t *testing.T) {
 		t.Fatalf("no overrides changed args: %q", got)
 	}
 }
+
+// Codex twin of the Claude post-session target re-resolve. The /auth snapshot
+// driving the install is taken before the session launches, so on a long
+// session it names a release that is no longer current; the wrapper then
+// installs one release behind and announces another update on the next launch.
+func TestMaybeEnsureCodexPostSessionTarget(t *testing.T) {
+	preSession := "0.135.0"
+
+	for _, tc := range []struct {
+		name          string
+		status        int
+		response      map[string]any
+		wantSpec      string
+		wantNoInstall bool
+	}{
+		{
+			name:     "installs the target the server reports now, not the stale one",
+			status:   http.StatusOK,
+			response: map[string]any{"action": "update", "target_version": "0.140.0"},
+			wantSpec: "codex-cli@0.140.0",
+		},
+		{
+			name:     "falls back to the pre-session target when the probe fails",
+			status:   http.StatusInternalServerError,
+			response: map[string]any{"error": "boom"},
+			wantSpec: "codex-cli@" + preSession,
+		},
+		{
+			name:          "skips the install when the server says the host is current",
+			status:        http.StatusOK,
+			response:      map[string]any{"action": "no_update"},
+			wantNoInstall: true,
+		},
+		{
+			name:          "skips the install when auto-update was disabled mid-session",
+			status:        http.StatusOK,
+			response:      map[string]any{"action": "disable"},
+			wantNoInstall: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "bin")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HOME", filepath.Join(dir, "home"))
+
+			npmArgs := filepath.Join(dir, "npm-args")
+			codexPath := filepath.Join(bin, "codex")
+			writeCodexTestScript(t, codexPath, "#!/bin/sh\necho \"codex-cli 0.130.0\"\n")
+			// `npm ls -g codex-cli` must succeed so EnsureCodex takes the npm
+			// branch rather than downloading a GitHub release asset.
+			writeCodexTestScript(t, filepath.Join(bin, "npm"), "#!/bin/sh\ncase \"$1\" in install) echo \"$@\" >> \""+npmArgs+"\";; esac\nexit 0\n")
+			t.Setenv("CDX_CODEX_BIN", codexPath)
+			t.Setenv("PATH", bin)
+
+			var probeBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/cron/check" {
+					t.Errorf("unexpected probe path %q", r.URL.Path)
+				}
+				buf, _ := io.ReadAll(r.Body)
+				probeBody = string(buf)
+				w.WriteHeader(tc.status)
+				_ = json.NewEncoder(w).Encode(tc.response)
+			}))
+			t.Cleanup(srv.Close)
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: srv.URL, APIKey: "sk-codex-test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			auth := &orchestrator.AuthRetrieveResponse{
+				Versions: &orchestrator.VersionSummary{
+					AutoUpdateEnabled: true,
+					ClientVersion:     &preSession,
+				},
+			}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			maybeEnsureCodex(context.Background(), nil, client, auth, "0.7.19", false, true, logger)
+
+			// The probe must never be mistaken for the cron job, or a host whose
+			// cron died keeps reporting a fresh last_cron_check.
+			if !strings.Contains(probeBody, `"probe":true`) {
+				t.Errorf("probe flag missing from /cron/check body: %s", probeBody)
+			}
+			installed, err := os.ReadFile(npmArgs)
+			if tc.wantNoInstall {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("npm ran for a skipped update: %q (err=%v)", installed, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("npm was never invoked: %v", err)
+			}
+			if !strings.Contains(string(installed), tc.wantSpec) {
+				t.Errorf("npm install spec = %q, want it to contain %q", strings.TrimSpace(string(installed)), tc.wantSpec)
+			}
+		})
+	}
+}
+
+func writeCodexTestScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}

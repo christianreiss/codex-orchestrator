@@ -338,6 +338,7 @@ function snapshot(): VersionSnapshot {
     client_version: '0.130.0',
     client_version_override: null,
     client_version_enforce_exact: false,
+    client_version_fetched_at: null,
     wrapper_version: '0.6.0',
     wrapper_sha256: 'a'.repeat(64),
     wrapper_url: 'https://o.example/wrapper/v2/bin/codex/linux-amd64/v0.6.0/cdx',

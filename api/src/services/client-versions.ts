@@ -35,7 +35,22 @@ export interface AvailableRelease {
   cached: boolean;
 }
 
-const CACHE_TTL_SECONDS = 3600;
+export const CACHE_TTL_SECONDS = 3600;
+
+/**
+ * How old `VersionSnapshot.client_version_fetched_at` may get before the fleet
+ * target counts as stale. Two TTLs, so a single missed refresh window is not
+ * reported as a fault — only a cache that has stopped refreshing altogether.
+ */
+export const STALE_AFTER_SECONDS = CACHE_TTL_SECONDS * 2;
+
+/** True when a cached-release `fetched_at` is old enough to warn about. */
+export function isClientVersionStale(fetchedAt: string | null | undefined, now = Date.now()): boolean {
+  if (!fetchedAt) return false;
+  const ts = parseIso(fetchedAt)?.getTime();
+  if (ts === undefined) return false;
+  return (now - ts) / 1000 > STALE_AFTER_SECONDS;
+}
 
 /**
  * Oldest Codex CLI the server supports: canonical config.toml renders
@@ -74,20 +89,35 @@ export class ClientVersionsService {
     const releaseName = engine === 'claude' ? 'claude-cli' : 'codex-cli';
     const cacheKey = `github_release_${releaseName}`;
     const cached = await this.settings.getWithMeta(cacheKey);
-    if (!force && cached.value && cached.updatedAt) {
-      const updatedTs = parseIso(cached.updatedAt)?.getTime() ?? 0;
-      const age = (Date.now() - updatedTs) / 1000;
-      if (age < CACHE_TTL_SECONDS) {
-        const parsed = this.safeParse(cached.value);
-        if (parsed) return parsed;
-      }
+    const cachedAgeSeconds =
+      cached.value && cached.updatedAt
+        ? (Date.now() - (parseIso(cached.updatedAt)?.getTime() ?? 0)) / 1000
+        : null;
+    if (!force && cachedAgeSeconds !== null && cachedAgeSeconds < CACHE_TTL_SECONDS) {
+      const parsed = this.safeParse(cached.value!);
+      if (parsed) return parsed;
     }
     const fresh = await this.fetchUpstream(releaseName);
     if (fresh) {
       await this.settings.set(cacheKey, JSON.stringify(fresh), { publish: false });
       return { ...fresh, cached: false };
     }
-    return cached.value ? this.safeParse(cached.value) : null;
+    if (!cached.value) return null;
+    // The fetch failed and we are about to serve an already-expired value. The
+    // row is deliberately not rewritten, so `updated_at` keeps ageing and this
+    // stays visible instead of silently pinning the fleet to an old target —
+    // `VersionSnapshot.client_version_fetched_at` carries the same signal to
+    // /admin/overview. Report the age so the log says how bad it has got.
+    this.log?.warn?.(
+      {
+        name: releaseName,
+        cache_key: cacheKey,
+        stale_seconds: cachedAgeSeconds === null ? null : Math.round(cachedAgeSeconds),
+        ttl_seconds: CACHE_TTL_SECONDS,
+      },
+      'upstream release fetch failed; serving stale cached version',
+    );
+    return this.safeParse(cached.value);
   }
 
   private safeParse(raw: string): AvailableRelease | null {

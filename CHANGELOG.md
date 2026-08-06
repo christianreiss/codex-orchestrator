@@ -1,3 +1,43 @@
+# 2026-08-06
+
+- **The engine updater stopped looking like it walks releases one at a time.** A `clx` session ended
+  by installing claude `2.1.221 → 2.1.222`, and the very next launch announced `2.1.222 → 2.1.223`.
+  Nothing stepped: `EnsureClaude` has always run one `npm install -g @anthropic-ai/claude-code@<target>`
+  and jumped straight there. The target was simply stale. `maybeEnsureClaude` runs *after* the session
+  exits but reads the `versions` block from the `POST /auth` made *before* it launched, so a 58-minute
+  session installed whatever had been newest 58 minutes earlier — and the server's own npm-latest
+  cache adds up to another hour on top. Against a package Anthropic ships several times a day, nearly
+  every session-exit install landed one release behind.
+- **Both personas now re-resolve the target immediately before installing it.** `freshClientTarget`
+  asks `POST /cron/check` — the same question cron already asks, one round trip — and falls back to
+  the pre-session value when the server cannot be reached, so an offline host still installs something
+  rather than nothing. `no_update` and a mid-session `disable` both decline the install; removing the
+  cron schedule stays cron's job, and the wrapper block is ignored because wrapper self-update already
+  ran pre-session. The `↻ … A → B` line is printed after the re-resolve, so it never advertises a
+  target the install will not use.
+- **`/cron/check` gained `probe: true`.** The lifecycle is not cron, and letting it stamp
+  `last_cron_check` would keep the field fresh on a host whose cron has been dead for weeks. A probe
+  skips that one write and is otherwise identical. Old wrappers omit the field; a new wrapper against
+  an old API only mis-stamps the timestamp until the API deploys, so **deploy the API first**.
+- **A per-host version pin now reaches the wrapper.** `hosts.client_version_override` and
+  `hosts.claude_client_version_override` were write-only for both engines: `/admin/hosts/{id}/codex-version`
+  and `/admin/hosts/{id}/claude-version` accepted a pin, the admin list echoed it back, and
+  `version-snapshot.ts` read only the *global* `versions` table, so no wrapper ever saw it.
+  `applyHostClientVersionPin` layers the host column over the fleet snapshot at all three
+  host-authenticated seams — `POST /auth`, the `/sync/*` family, and `/cron/check` — and forces
+  `client_version_enforce_exact`, because a per-host pin means that version and not a floor.
+- **A dead upstream lookup is no longer silent.** When the npm/GitHub fetch fails,
+  `availableClientVersion` keeps serving the expired cache — correct, since breaking updates is worse —
+  but it never rewrote the row and said nothing louder than one `log.warn`, so the fleet could sit on
+  an old target indefinitely. The warning now reports how stale the fallback is, `VersionSnapshot`
+  carries `client_version_fetched_at`, and `/admin/overview` plus the dashboard's "Codex latest" /
+  "Claude latest" cards mark the lookup stale once it is past two refresh windows.
+- Removed three PHP-era fictions the docs still described: `client_version_source` and
+  `ClaudeVersionPolicy` (neither exists in `api/src`), the `client_available_claude` /
+  `claude_fleet_version` fallbacks (nothing writes either — Claude support postdates the PHP server),
+  and `version-snapshot.ts`'s claim that a background cron worker refreshes the release cache. It is
+  request-driven, which is exactly why the TTL is load-bearing.
+
 # 2026-08-05
 
 - **`cxx update` now syncs config and skills.** It only ever swapped the binary: it resolved the

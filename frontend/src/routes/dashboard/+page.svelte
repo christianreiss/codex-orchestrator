@@ -34,19 +34,33 @@
   const codexLatest = $derived($overview.data?.versions?.cdx_version_available ?? null);
   const claudeLatest = $derived($overview.data?.versions?.claude_version_available ?? null);
 
-  function checkedHint(iso?: string | null): string | null {
+  // `stale` means the upstream fetch has been failing: the API keeps serving
+  // the expired cache rather than breaking updates, so an ageing check time is
+  // the only sign the whole fleet is being handed an old target.
+  function checkedHint(iso?: string | null, stale?: boolean): string | null {
     if (!iso) return null;
     const ts = new Date(iso).getTime();
     if (Number.isNaN(ts)) return null;
     const mins = (Date.now() - ts) / 60_000;
-    if (mins < 1) return "checked just now";
-    if (mins < 60) return `checked ${Math.round(mins)}m ago`;
+    const prefix = stale ? "stale — checked" : "checked";
+    if (mins < 1) return `${prefix} just now`;
+    if (mins < 60) return `${prefix} ${Math.round(mins)}m ago`;
     const hours = mins / 60;
-    if (hours < 24) return `checked ${Math.round(hours)}h ago`;
-    return `checked ${Math.round(hours / 24)}d ago`;
+    if (hours < 24) return `${prefix} ${Math.round(hours)}h ago`;
+    return `${prefix} ${Math.round(hours / 24)}d ago`;
   }
-  const codexChecked = $derived(checkedHint($overview.data?.versions?.cdx_version_checked_at));
-  const claudeChecked = $derived(checkedHint($overview.data?.versions?.claude_version_checked_at));
+  const codexChecked = $derived(
+    checkedHint(
+      $overview.data?.versions?.cdx_version_checked_at,
+      $overview.data?.versions?.cdx_version_stale,
+    ),
+  );
+  const claudeChecked = $derived(
+    checkedHint(
+      $overview.data?.versions?.claude_version_checked_at,
+      $overview.data?.versions?.claude_version_stale,
+    ),
+  );
 
   const refreshHint = $derived.by(() => {
     if (!$overview.data) return null;

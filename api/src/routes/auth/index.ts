@@ -20,6 +20,7 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { SettingsService } from '../../services/settings.js';
 import {
+  applyHostClientVersionPin,
   createVersionSnapshotService,
   type VersionSnapshot,
 } from '../../services/version-snapshot.js';
@@ -76,18 +77,22 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const binaries = createWrapperBinRegistry({ binRoot });
-  const requestVersions = (req: FastifyRequest): RequestVersionProjector => {
+  const requestVersions = (req: FastifyRequest, host: Host): RequestVersionProjector => {
     const platform = resolveWrapperPlatform(req.headers);
     const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     return async (engine, submittedWrapperVersion) =>
-      projectWrapperVersionSnapshot({
-        snapshot: await versions.summary(engine),
+      applyHostClientVersionPin(
+        await projectWrapperVersionSnapshot({
+          snapshot: await versions.summary(engine),
+          engine,
+          submittedWrapperVersion,
+          platform,
+          publicBaseUrl,
+          binaries,
+        }),
+        host,
         engine,
-        submittedWrapperVersion,
-        platform,
-        publicBaseUrl,
-        binaries,
-      });
+      );
   };
   const agentsService = new HostAgentsService(ctx.db, {
     publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
@@ -114,7 +119,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine);
     const command = normalizeCommand(payload.command);
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command);
-    const projectedVersions = requestVersions(req);
+    const projectedVersions = requestVersions(req, enforcedHost);
 
     if (command === 'retrieve') {
       return handleRetrieve(
@@ -236,7 +241,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
-    const projectedVersions = requestVersions(req);
+    const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
@@ -274,7 +279,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine);
     const enforced = await maybeEnforceInsecure(insecure, host, 'retrieve');
-    const projectedVersions = requestVersions(req);
+    const projectedVersions = requestVersions(req, enforced);
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);

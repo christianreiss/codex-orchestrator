@@ -14,10 +14,13 @@ export interface OverviewVersions {
   cdx_version?: string | null;
   cdx_version_available?: string | null;
   cdx_version_checked_at?: string | null;
+  /** Upstream release lookup has stopped refreshing; the served target is old. */
+  cdx_version_stale?: boolean;
   client_version_checked_at?: string | null;
   claude_version?: string | null;
   claude_version_available?: string | null;
   claude_version_checked_at?: string | null;
+  claude_version_stale?: boolean;
   claude_wrapper_version?: string | null;
   claude_client_version_minimum?: string | null;
   [key: string]: unknown;

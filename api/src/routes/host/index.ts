@@ -14,7 +14,10 @@ import { createHostAuthService } from '../../services/host-auth.js';
 import { createInsecureWindowService } from '../../services/insecure-window.js';
 import { createHostSyncService } from '../../services/host-sync.js';
 import { SettingsService } from '../../services/settings.js';
-import { createVersionSnapshotService } from '../../services/version-snapshot.js';
+import {
+  applyHostClientVersionPin,
+  createVersionSnapshotService,
+} from '../../services/version-snapshot.js';
 import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
@@ -117,23 +120,34 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine);
     const submittedClient = typeof body.client_version === 'string' ? body.client_version : null;
     const submittedWrapper = typeof body.wrapper_version === 'string' ? body.wrapper_version : null;
+    // A wrapper re-resolving its engine target on the way out of an interactive
+    // session (see maybeEnsureClaude) asks the same question cron does, but it
+    // is not cron: letting it stamp last_cron_check would keep the field fresh
+    // on a host whose cron has been dead for weeks.
+    const probe = body.probe === true;
     const requestedPlatform = resolveWrapperPlatform(req.headers);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
-    const summary = await projectWrapperVersionSnapshot({
-      snapshot: await versions.summary(engine),
+    const summary = applyHostClientVersionPin(
+      await projectWrapperVersionSnapshot({
+        snapshot: await versions.summary(engine),
+        engine,
+        submittedWrapperVersion: submittedWrapper,
+        platform: requestedPlatform,
+        publicBaseUrl: baseUrl,
+        binaries,
+      }),
+      host,
       engine,
-      submittedWrapperVersion: submittedWrapper,
-      platform: requestedPlatform,
-      publicBaseUrl: baseUrl,
-      binaries,
-    });
+    );
     const usingLegacyTransition = isLegacyShellWrapperVersion(submittedWrapper);
     const targetWrapper = summary.wrapper_version;
 
-    await ctx.db
-      .update(hostsTable)
-      .set({ lastCronCheck: nowIso(), updatedAt: nowIso() })
-      .where(eq(hostsTable.id, host.id));
+    if (!probe) {
+      await ctx.db
+        .update(hostsTable)
+        .set({ lastCronCheck: nowIso(), updatedAt: nowIso() })
+        .where(eq(hostsTable.id, host.id));
+    }
 
     if (!summary.auto_update_enabled) {
       return {
