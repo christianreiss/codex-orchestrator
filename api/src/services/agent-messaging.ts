@@ -1313,6 +1313,63 @@ export class AgentMessagingService {
   }
 
   /**
+   * Charge a reply against the room's budget, and close the spoke when it runs out.
+   *
+   * The budget used to be charged only by `queueConferenceMessageLocked`, i.e. the
+   * `agent_conf_*` tools. But once a room is running, the traffic is ordinary
+   * `agent_reply` -- that is how a participant answers anything -- and replies
+   * never reached the counter. Measured on a live two-host run: the member row
+   * read 2 while 21 messages had flown, and nothing server-side was going to end
+   * it before the wall-clock deadline. On the headless path every one of those
+   * exchanges is a fresh engine boot, so "bounded only by an hour" is not a bound
+   * worth having. This is the same runaway the `call` skill's own rationale
+   * warns about, reappearing through the one path that was not counted.
+   *
+   * Spending the budget closes the member's conversation rather than refusing the
+   * reply. Refusing would strand the peer holding an unanswerable message, and on
+   * the relay path a throw here becomes an `ambiguous` delivery -- the exact
+   * silent failure mode this bus has been fixing all week. Closing lets the last
+   * word land and makes the *next* exchange fail as `agent_messaging_conversation_canceled`,
+   * which both skills already define as "the room closed under you: report and stop".
+   */
+  private async chargeConferenceBudgetLocked(
+    db: AgentMessagingDb,
+    conversationId: string,
+    now: string,
+  ): Promise<void> {
+    const rows = await db
+      .select()
+      .from(agentBusConferenceMembers)
+      .where(and(eq(agentBusConferenceMembers.conversationId, conversationId), ne(agentBusConferenceMembers.state, 'left')))
+      .limit(1)
+      .for('update');
+    const member = rows[0];
+    if (!member) return; // Not a conference spoke; an ordinary conversation is unbudgeted.
+
+    const spent = member.messageCount + 1;
+    await db
+      .update(agentBusConferenceMembers)
+      .set({ messageCount: spent, updatedAt: now })
+      .where(eq(agentBusConferenceMembers.id, member.id));
+    if (spent < AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP) return;
+
+    await db
+      .update(agentBusConferenceMembers)
+      .set({ state: 'left', leftAt: now, dispatchMessageId: null, dispatchDeadlineAt: null, updatedAt: now })
+      .where(eq(agentBusConferenceMembers.id, member.id));
+    await db
+      .update(agentBusConversations)
+      .set({
+        status: 'canceled',
+        canceledBy: 'system:conference_budget_spent',
+        cancelReason: `Conference budget spent (${AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP} messages)`,
+        canceledAt: now,
+        updatedAt: now,
+      })
+      .where(eq(agentBusConversations.id, conversationId));
+  }
+
+  /**
    * Open a conference and mint the room PIN.
    *
    * One open conference per owner. A second would give the chair two rooms to
@@ -2172,6 +2229,7 @@ export class AgentMessagingService {
       if (!persisted) throw new Error('Inserted agent reply could not be read back');
       // An attached conference member reports by replying to its task.
       await this.settleConferenceDispatchLocked(tx, parent.id, now);
+      await this.chargeConferenceBudgetLocked(tx, parent.conversationId, now);
       await tx.update(agentBusConversations).set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now }).where(eq(agentBusConversations.id, conversation.id));
       return { message: persisted, sender, target, content, created: true };
     });
@@ -2615,6 +2673,7 @@ export class AgentMessagingService {
       // A headless conference member never calls a tool: the relay correlates
       // its final output and posts it here, so this is where its dispatch ends.
       await this.settleConferenceDispatchLocked(tx, parent.id, now);
+      await this.chargeConferenceBudgetLocked(tx, parent.conversationId, now);
       await tx
         .update(agentBusConversations)
         .set({ nextSequence: persisted.sequence + 1, lastActivityAt: now, updatedAt: now })

@@ -293,9 +293,16 @@ Operational notes:
 - **The budget is per member, not per call.** Sixteen turns is meaningless when one
   broadcast round across five members is already ten-plus messages. Each member gets
   twelve messages and the room gets a wall-clock deadline, both enforced by the
-  server — a spent member's sends fail with
-  `agent_messaging_conference_budget_spent`, and an overdue room adjourns itself on
-  the maintenance tick.
+  server. **Every message on a member's spoke costs budget, including an ordinary
+  `agent_reply`** — that matters because once a room is running, replies are most of
+  the traffic. When a member spends its budget the in-flight reply still lands and
+  its spoke closes, so the next exchange fails as
+  `agent_messaging_conversation_canceled`; an overdue room adjourns itself on the
+  maintenance tick. Until 2026-08-06 only the `agent_conf_*` tools were counted, so
+  a room that settled into replying was bounded by nothing but its deadline — a live
+  two-host run reached 21 messages against a counter reading 2 and had to be stopped
+  by hand. On the headless path every exchange is a fresh engine boot, which is what
+  made that expensive rather than merely untidy.
 - **A room PIN is multi-use, unlike a call PIN.** Every member dials the same four
   digits, so a join never consumes it; it dies with the room's deadline or at
   adjourn. It is minted from the *same* four-digit space as `#call` PINs, because a

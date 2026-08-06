@@ -127,13 +127,18 @@ outlive its window, it should report what it got done rather than go silent.
 ## Bounds
 
 Twelve messages per member and a wall-clock deadline on the room, both enforced by the
-server — \`agent_conf_say\` starts failing with \`agent_messaging_conference_budget_spent\`
-when a member is spent, and the room adjourns itself at its deadline. Carry \`round=k/n\`
+server. **Every message on a member's spoke costs budget — a plain \`agent_reply\` exactly
+like an \`agent_conf_say\`.** When a member spends its budget its spoke closes: the reply in
+flight still lands, and the next exchange fails as
+\`agent_messaging_conversation_canceled\`, which means the room closed under you — report
+where things stand and stop. The room adjourns itself at its deadline. Carry \`round=k/n\`
 in what you write so everyone can see the meeting converging.
 
-These are not advisory. Two agents told only to keep replying have run 17 and 33 turns on
-this bus, and a five-way room multiplies every such round by five. The chair's job is to
-finish the agenda inside the budget, not to use all of it.
+These are not advisory, and they are not theoretical. Two agents told only to keep replying
+have run 17 and 33 turns on this bus; a five-way room multiplies every such round by five;
+and on the headless path every single exchange is a fresh engine boot. A conference that
+has to be stopped by hand has already cost more than the work it was convened for. The
+chair's job is to finish the agenda inside the budget, not to spend it.
 
 ## Adjourning
 

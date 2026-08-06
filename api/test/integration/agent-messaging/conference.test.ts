@@ -457,6 +457,68 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     });
   });
 
+  /**
+   * The bound has to hold against the traffic a running room actually produces.
+   * Once members are talking, every exchange is an ordinary `agent_reply` — not an
+   * `agent_conf_*` send — and replies used to reach no counter at all. A live
+   * two-host run measured the member row at 2 while 21 messages had flown, with
+   * nothing server-side able to end it before the wall-clock deadline.
+   */
+  it('charges ordinary replies against the budget, not just conference sends', async () => {
+    const { chair, one, conferenceId } = await room();
+    const before = await memberRow(conferenceId, one.addressId);
+    expect(before?.messageCount).toBe(1); // the join HELLO
+
+    const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+      conferenceId,
+      to: one.address,
+      task: 'first task',
+    });
+    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+      content: 'done',
+      clientMessageId: randomUUID(),
+    });
+
+    // The reply is the thing that used to be free.
+    const after = await memberRow(conferenceId, one.addressId);
+    expect(after?.messageCount).toBe(3); // HELLO + TASK + the reply
+  });
+
+  it('closes the spoke when a member spends its budget, instead of letting it run', async () => {
+    const { chair, one, conferenceId } = await room();
+    await exec(
+      `UPDATE agent_bus_conference_members
+          SET message_count = ${AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP - 2}
+        WHERE conference_id = '${conferenceId}' AND address_id = '${one.addressId}'`,
+    );
+    const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+      conferenceId,
+      to: one.address,
+      task: 'the last task this member can afford',
+    });
+
+    // The final reply still lands — refusing it would strand the peer, and on the
+    // relay path a throw here becomes an `ambiguous` delivery.
+    await service.replyMessage(one.sessionId, one.bridgeToken, String(dispatched.message_id), {
+      content: 'done',
+      clientMessageId: randomUUID(),
+    });
+
+    const member = await memberRow(conferenceId, one.addressId);
+    expect(member?.messageCount).toBe(AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP);
+    expect(member?.state).toBe('left');
+
+    // And the next exchange cannot happen: the conversation is closed, which both
+    // skills already define as "the room closed under you — report and stop".
+    await expect(
+      service.conferenceSay(chair.sessionId, chair.bridgeToken, {
+        conferenceId,
+        content: 'anyone still there?',
+        to: one.address,
+      }),
+    ).resolves.toMatchObject({ results: [] });
+  });
+
   it('carries the conference id in the envelope so a booted member can answer', async () => {
     const { conferenceId, chair, one } = await room();
     const queued = (
