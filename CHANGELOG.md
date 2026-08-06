@@ -1,5 +1,20 @@
 # 2026-08-06
 
+- **Every long poll in the fleet answered immediately and called it a timeout.** `cxx portal wait
+  --seconds 20` returned `idle` in 0.11 s against live crane. The four loops that hold a portal or
+  bus poll open all guarded on `req.raw.destroyed` to notice a client hanging up, and that is not
+  what the field means: `IncomingMessage` is a readable, Fastify has fully consumed the JSON body
+  before the handler runs, and Node auto-destroys an ended readable. Measured on Fastify 5 / Node
+  22, it is `false` on handler entry and `true` 50 ms later on a perfectly healthy connection — so
+  the first pass through every loop decided the client was gone and returned empty. `clientGone()`
+  now asks the *response* stream, which is destroyed only when the connection really drops; the
+  portal's own SSE loop was already doing it that way.
+- **What that cost was not latency, it was turns.** A poll that answers instantly is not a slow
+  poll, it is a busy one: the `#afk` relay loop is told "if it returns idle, run it again", so the
+  20-second park became a spin of engine turns with a model invocation on each pass, and
+  `agent_wait` and both delivery claims span the same way. `test/unit/http/long-poll.test.ts` pins
+  the signal over a real socket — `app.inject()` never produces the stream lifecycle that caused
+  this — and fails the route tree if `req.raw.destroyed` reappears there.
 - **The engine updater stopped looking like it walks releases one at a time.** A `clx` session ended
   by installing claude `2.1.221 → 2.1.222`, and the very next launch announced `2.1.222 → 2.1.223`.
   Nothing stepped: `EnsureClaude` has always run one `npm install -g @anthropic-ai/claude-code@<target>`

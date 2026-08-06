@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../../http/errors.js';
+import { clientGone } from '../../http/long-poll.js';
 import { ok } from '../../http/reply.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
 import {
@@ -331,7 +332,7 @@ export async function registerAgentPortalAdminHostRoutes(
     };
   });
 
-  app.post('/host/agent-sessions/:id/commands/claim', async (req) => {
+  app.post('/host/agent-sessions/:id/commands/claim', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireBridgeToken(req);
     const body = z
@@ -345,7 +346,7 @@ export async function registerAgentPortalAdminHostRoutes(
     while (waiting) {
       const message = await portal.claimMessage(id, token, body.claim_id);
       if (message) return { message };
-      waiting = Date.now() < deadline && !req.raw.destroyed;
+      waiting = Date.now() < deadline && !clientGone(reply);
       if (!waiting) break;
       await delay(500);
     }
