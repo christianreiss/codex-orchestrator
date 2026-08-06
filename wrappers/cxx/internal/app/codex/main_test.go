@@ -1181,3 +1181,86 @@ func TestLogoutDoesNotMarkConcurrentNewerLogin(t *testing.T) {
 		t.Fatal("normal logout removal was not markable")
 	}
 }
+
+// TestSyncIsWrapperOwnedNotProfileShorthand: without this, a config.toml with a
+// [profiles.sync] section would silently turn `cdx sync` into a Codex launch.
+func TestSyncIsWrapperOwnedNotProfileShorthand(t *testing.T) {
+	if isProfileShorthand("sync") {
+		t.Fatal("sync is resolvable as profile shorthand")
+	}
+	if reservedCodexSubcommands["sync"] {
+		t.Fatal("sync must not be passed through to the upstream codex CLI")
+	}
+}
+
+// TestSyncConflictsWithOtherWrapperActions: `cdx sync --update` is ambiguous and
+// must be rejected before any config load or network call.
+func TestSyncConflictsWithOtherWrapperActions(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if got := Run([]string{"sync", "--update"}, &stdout, &stderr); got != 2 {
+		t.Fatalf("exit = %d, want 2", got)
+	}
+	if !strings.Contains(stderr.String(), "conflicting wrapper actions") {
+		t.Fatalf("stderr did not name the conflict: %q", stderr.String())
+	}
+}
+
+// TestPostUpdateSyncArgvPreservesConfigAndPresentation: dropping --config here
+// would re-exec into a sync that loads a different host's configuration.
+func TestPostUpdateSyncArgvPreservesConfigAndPresentation(t *testing.T) {
+	cases := []struct {
+		name string
+		host bool
+		in   flags
+		want []string
+	}{
+		{"bare", false, flags{}, []string{"sync"}},
+		{"config", false, flags{configPath: "/etc/cdx.json"}, []string{"sync", "--config", "/etc/cdx.json"}},
+		{"presentation", false, flags{minimal: true, silent: true, skipBoot: true}, []string{"sync", "--minimal", "--silent", "--skip-boot"}},
+		// `cxx sync` resolves each installed engine's own config and rejects a
+		// single --config outright. Emitting one here would make the update
+		// re-exec land on an argv the host command exits 2 on — leaving the new
+		// binary installed and the content unsynced, the exact failure this
+		// whole path exists to prevent.
+		{"host form drops config", true, flags{configPath: "/etc/cdx.json", minimal: true}, []string{"sync", "--minimal"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := HostSyncAfterUpdate
+			t.Cleanup(func() { HostSyncAfterUpdate = previous })
+			HostSyncAfterUpdate = tc.host
+			if got := postUpdateSyncArgv(tc.in); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("postUpdateSyncArgv() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHostSyncAfterUpdateSelectsHostReexecForm: a dual-engine host updated via
+// `cxx update` must sync both engines, not just the one that authenticated.
+func TestHostSyncAfterUpdateSelectsHostReexecForm(t *testing.T) {
+	previous := HostSyncAfterUpdate
+	t.Cleanup(func() { HostSyncAfterUpdate = previous })
+
+	HostSyncAfterUpdate = false
+	if got := postUpdateSyncEngine(); got != config.EngineCodex {
+		t.Fatalf("persona update engine = %q, want %q", got, config.EngineCodex)
+	}
+	HostSyncAfterUpdate = true
+	if got := postUpdateSyncEngine(); got != "" {
+		t.Fatalf("cxx update engine = %q, want the host form", got)
+	}
+}
+
+// TestFormatCronResultReportsFailedSync: a silent content-sync failure would
+// otherwise render as "cron: ok".
+func TestFormatCronResultReportsFailedSync(t *testing.T) {
+	healthy := formatCronResult(cron.Result{WrapperVersion: "0.7.0", CodexVersion: "1.0.0", Reported: true}, true)
+	if strings.Contains(healthy, "sync=") {
+		t.Fatalf("healthy tick grew a sync marker: %q", healthy)
+	}
+	failed := formatCronResult(cron.Result{WrapperVersion: "0.7.0", CodexVersion: "1.0.0", Reported: true, SyncAction: "failed"}, true)
+	if !strings.Contains(failed, "sync=failed") {
+		t.Fatalf("failed sync stayed invisible: %q", failed)
+	}
+}

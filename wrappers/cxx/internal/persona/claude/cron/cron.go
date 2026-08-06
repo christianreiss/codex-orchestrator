@@ -13,6 +13,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
@@ -37,6 +38,20 @@ func Remove() error {
 // Schedule mutations are indirected so Tick tests never touch a real crontab.
 var removeSchedule = func() error { return hostcron.Remove(context.Background()) }
 
+// syncManagedContent converges fleet-managed CLAUDE.md, settings, MCP servers,
+// collections and native skills without launching Claude. Indirected for tests.
+var syncManagedContent = func(ctx context.Context, cfg *config.Config, minimal bool) error {
+	_, err := lifecycle.Run(ctx, lifecycle.Options{
+		Config:         cfg,
+		SyncOnly:       true,
+		Headless:       true,
+		SkipBoot:       true,
+		Minimal:        minimal,
+		WrapperVersion: WrapperVersion,
+	})
+	return err
+}
+
 // Result mirrors the cdx side: it lets cmdCron render a one-line summary of
 // what a tick actually did. A no-op tick produces WrapperAction/CodexAction
 // == "no_update".
@@ -48,6 +63,7 @@ type Result struct {
 	CodexBefore    string
 	CodexAction    string
 	CodexTarget    string
+	SyncAction     string // "" when managed content converged | "failed"
 	Reported       bool
 }
 
@@ -141,6 +157,17 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	}
 	if err := claude.EnsureShellAliases(); err != nil {
 		logger.Warn("cron: ensureShellAliases", "err", err)
+	}
+
+	// Converge fleet-managed content. Without this an idle host — one where
+	// nobody ever starts a session — drifts from fleet config indefinitely,
+	// since bootstrap otherwise only runs on a launch. Placed after the
+	// wrapper-update branch above, which either returns or execs, so a sync
+	// never runs with pre-update code. Best-effort like every other content
+	// step here: an auth-refused host must not turn the whole tick red.
+	if err := syncManagedContent(ctx, cfg, minimal); err != nil {
+		logger.Warn("cron: managed content sync skipped", "err", err)
+		res.SyncAction = "failed"
 	}
 
 	// Keep the peer wrapper + engine current too: a dual-engine host must have

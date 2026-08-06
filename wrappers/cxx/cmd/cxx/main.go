@@ -71,6 +71,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return agentbus.RunCommand(args[1:], os.Stdin, stdout, stderr, Version)
 	case "update":
 		return runHostUpdate(stdout, stderr)
+	case "sync":
+		return runHostSync(args[1:], stdout, stderr)
 	case "--version", "--wrapper-version", "-W":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "cxx: global version does not accept arguments")
@@ -133,16 +135,73 @@ func runHostCron(args []string, stdout, stderr io.Writer) int {
 }
 
 // runHostUpdate selects an installed persona only to authenticate the common
-// wrapper update request. Both paths install the same cxx bytes.
+// wrapper update request. Both paths install the same cxx bytes, so the persona
+// choice must not narrow what happens afterwards: HostSyncAfterUpdate makes the
+// re-exec land on `cxx sync`, which converges every installed engine.
 func runHostUpdate(stdout, stderr io.Writer) int {
 	if path, err := configPathFor("codex"); err == nil {
+		codexapp.HostSyncAfterUpdate = true
 		return codexapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
 	}
 	if path, err := configPathFor("claude"); err == nil {
+		claudeapp.HostSyncAfterUpdate = true
 		return claudeapp.Run([]string{"--config", path, "--update"}, stdout, stderr)
 	}
 	fmt.Fprintln(stderr, "cxx update: no installed engine config found")
 	return 1
+}
+
+// engineRunner is a persona entrypoint; parameterized so syncEngines is
+// testable without installed configs on disk.
+type engineRunner func(args []string, stdout, stderr io.Writer) int
+
+// runHostSync writes fleet-managed content for every installed engine without
+// launching either one. Unlike cron, which forks a child per engine precisely so
+// a child may re-exec after a self-update, this runs both legs in-process: a
+// sync-only lifecycle never re-execs.
+func runHostSync(args []string, stdout, stderr io.Writer) int {
+	var passthrough []string
+	for _, arg := range args {
+		switch arg {
+		case "--minimal", "--minimal-output", "--silent", "--skip-boot", "--no-banner", "--allow-concurrent-sync":
+			passthrough = append(passthrough, arg)
+		default:
+			fmt.Fprintf(stderr, "cxx sync: unknown argument %q\n", arg)
+			return 2
+		}
+	}
+	return syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run)
+}
+
+// syncEngines walks the engines in the same fixed order the cron coordinator
+// uses and returns the worst exit code, so one broken engine cannot hide behind
+// a healthy one.
+func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runClaude engineRunner) int {
+	engines := []struct {
+		name string
+		run  engineRunner
+	}{
+		{"codex", runCodex},
+		{"claude", runClaude},
+	}
+	worst := 0
+	found := false
+	for _, engine := range engines {
+		path, err := configPathFor(engine.name)
+		if err != nil {
+			continue
+		}
+		found = true
+		argv := append([]string{"--config", path, "sync"}, passthrough...)
+		if code := engine.run(argv, stdout, stderr); code > worst {
+			worst = code
+		}
+	}
+	if !found {
+		fmt.Fprintln(stderr, "cxx sync: no installed engine config found")
+		return 1
+	}
+	return worst
 }
 
 func configPathFor(engine string) (string, error) {
@@ -232,6 +291,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx codex [cdx arguments]")
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx update")
+	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|say|ask|wait]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")

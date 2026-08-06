@@ -14,10 +14,17 @@ import (
 )
 
 func ReExecAfterUpdate(exe string, argv []string) error {
+	return ReExecAfterUpdateAs(exe, layout.EngineClaude, argv)
+}
+
+// ReExecAfterUpdateAs re-execs the freshly installed binary under an explicit
+// persona. An empty engine selects the host form (`cxx <argv...>`), which the
+// `cxx update` second pass needs so it syncs every installed engine.
+func ReExecAfterUpdateAs(exe, engine string, argv []string) error {
 	if exe == "" {
 		return errors.New("ReExecAfterUpdate: empty exe path")
 	}
-	full := layout.ReexecArgv(exe, layout.EngineClaude, argv)
+	full := layout.ReexecArgv(exe, engine, argv)
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
 	env := setEnvKV(os.Environ(), "CLAUDE_WRAPPER_RESTARTED", "1")
 	env = setEnvKV(env, "CLAUDE_WRAPPER_RESTART_DEPTH", strconv.Itoa(depth+1))
@@ -33,11 +40,6 @@ func setEnvKV(env []string, key, val string) []string {
 		}
 	}
 	return append(env, prefix+val)
-}
-
-func SelfUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	_, err := SelfUpdateFrom(ctx, cfg, cfg.Wrapper.BinaryURL, cfg.Wrapper.BinarySHA256, cfg.Wrapper.Version, logger)
-	return err
 }
 
 func SelfUpdateFrom(ctx context.Context, cfg *config.Config, binaryURL, binarySHA256, targetVersion string, logger *slog.Logger) (string, error) {

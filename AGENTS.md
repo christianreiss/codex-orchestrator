@@ -135,7 +135,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
   - Reports host users and handles lane preference sync via `/host/lane` (Codex only).
   - Honors `/auth` quota controls (`quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`) and displays ChatGPT usage windows + runner state.
   - Purges local auth after run when host is insecure and no concurrent-run guard blocks cleanup.
-- Wrapper CLI surface includes: `-4`, `--allow-concurrent-sync`, `lane`, `--wrapper-version|-W`, `status|--status`, `doctor|--doctor`, `--update|-U`, `--uninstall`, `--execute "<prompt>"`, `--debug|--verbose`, and `cdx <profile>` shorthand when profile exists in synced `config.toml`.
+- Wrapper CLI surface includes: `-4`, `--allow-concurrent-sync`, `lane`, `--wrapper-version|-W`, `status|--status`, `doctor|--doctor`, `sync`, `--update|-U`, `--uninstall`, `--execute "<prompt>"`, `--debug|--verbose`, and `cdx <profile>` shorthand when profile exists in synced `config.toml`.
 
 ## Extension Playbook
 

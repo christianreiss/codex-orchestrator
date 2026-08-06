@@ -50,8 +50,14 @@ type Options struct {
 	// AllowConcurrentSync honors the explicit escape hatch: when the run lock
 	// is held, continue with normal sync writes instead of pausing managed writes.
 	AllowConcurrentSync bool
-	Logger              *slog.Logger
-	WrapperVersion      string
+	// SyncOnly performs the managed-content half of a run and stops: bootstrap,
+	// skills, peer reconciliation, then the same auth gate an interactive run
+	// applies — but no quota gate, no PreExec, no portal session, no Codex.
+	// This is what `cdx sync`, the post-update pass, and the cron tick use to
+	// converge fleet-managed content without launching an engine.
+	SyncOnly       bool
+	Logger         *slog.Logger
+	WrapperVersion string
 }
 
 // localProbe is the cached LocalAuthProbe binding to the codex package
@@ -61,6 +67,11 @@ var localProbe = orchestrator.LocalAuthProbe{
 	IsFresh:     codex.IsFresh,
 	LastRefresh: codex.LastRefreshOfFile,
 }
+
+// Indirected so tests can prove a sync-only pass never self-updates or
+// re-execs; mirrors the claude lifecycle's seams.
+var wrapperSelfUpdate = update.SelfUpdateFrom
+var wrapperReExec = update.ReExecAfterUpdate
 
 var errAuthRecoveryDeclined = errors.New("Codex authentication was not refreshed")
 var errAuthRecoveryNonInteractive = errors.New("Codex authentication refresh requires an interactive terminal")
@@ -157,6 +168,13 @@ func updateAuthSessionSecurity(resp *orchestrator.AuthRetrieveResponse) error {
 
 // Run executes one full Codex session and returns the upstream exit code.
 func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
+	// SkipAuthSync is the only thing that turns a sync-only pass into a silent
+	// no-op that still reports success. Refuse the combination outright rather
+	// than let a caller believe content was written.
+	if opts.SyncOnly && opts.SkipAuthSync {
+		return 2, errors.New("sync-only lifecycle cannot skip the managed sync")
+	}
+
 	cfg := opts.Config
 	logger := opts.Logger
 	if logger == nil {
@@ -322,7 +340,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		// The Codex engine itself updates post-session (see maybeEnsureCodex
 		// below) so a version bump never delays an interactive launch.
 		if dec.Allowed {
-			maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
+			// A sync-only pass is already running the freshly installed binary —
+			// `update` re-execs into it. Re-entering self-update from in here
+			// would install and exec a second time from inside a sync, burning
+			// restart depth for nothing. peer.Reconcile stays: it reconciles
+			// content and aliases and never re-execs.
+			if !opts.SyncOnly {
+				maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger)
+			}
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
 			}
@@ -396,6 +421,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	if !opts.SkipAuthSync && !dec.Allowed {
 		printBoot()
 		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
+	}
+
+	// A sync-only pass has now done everything asked of it. Render the same
+	// screen an interactive launch would, then stop before the quota gate:
+	// quota governs launching Codex, and a sync consumes none of it.
+	if opts.SyncOnly {
+		printBoot()
+		return 0, nil
 	}
 
 	// Block launch if hard-fail quota — unless the operator sets the documented
@@ -1622,14 +1655,14 @@ func maybeEnsureWrapper(ctx context.Context, cfg *config.Config, auth *orchestra
 	}
 	caps := updateCaps(cfg, minimal)
 	fmt.Fprintln(os.Stderr, ui.UpdateProgress(caps, "cdx", "wrapper", current, target))
-	exe, err := update.SelfUpdateFrom(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
+	exe, err := wrapperSelfUpdate(ctx, cfg, *v.WrapperURL, *v.WrapperSHA256, target, logger)
 	if err != nil {
 		logger.Warn("wrapper auto-update skipped", "err", err, "target", target, "current", current)
 		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
 		return
 	}
 	fmt.Fprintln(os.Stderr, ui.UpdateComplete(caps, "cdx", "wrapper", target, true))
-	if err := update.ReExecAfterUpdate(exe, update.SnapshottedArgv); err != nil {
+	if err := wrapperReExec(exe, update.SnapshottedArgv); err != nil {
 		logger.Warn("wrapper restart after update failed", "err", err)
 		fmt.Fprintln(os.Stderr, ui.UpdateFailure(caps, "cdx", "wrapper", target, err))
 	}

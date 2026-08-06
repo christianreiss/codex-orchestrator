@@ -19,6 +19,7 @@ var clxHelpCommands = []wrapperHelpItem{
 	{"clx status", "Show host context, wrapper/Claude versions, auth/runner health, model, and API calls."},
 	{"clx doctor", "Check dependencies, paths, auth, API reachability, config, and cron."},
 	{"clx auth-upload", "Validate and upload local Claude credentials to the fleet store."},
+	{"clx sync", "Write fleet-managed CLAUDE.md, settings, MCP servers, agents, and skills without launching Claude."},
 	{"clx --update", "Download, verify, and install the fleet wrapper target."},
 	{"clx --uninstall", "Remove managed auth, config, cron, and local Claude state."},
 	{"clx --cron [install|remove|run]", "Install, remove, or run the managed update tick."},

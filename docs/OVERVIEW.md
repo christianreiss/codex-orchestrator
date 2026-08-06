@@ -135,6 +135,19 @@ Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex and
   retry the residue.
    - On Linux hosts where wrapper-managed dependency installs are allowed (`root` or passwordless `sudo -n`), `cdx` now hard-checks a compatible Python 3 interpreter plus `curl` and `unzip` before update/sync work, and tries `bwrap` best-effort via `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, or `apk` (RHEL-family prefers `dnf` with `yum` fallback for legacy CentOS 7/8/9 compatibility, and legacy YUM retries `python36` when `python3` is not packaged). If Bubblewrap installation fails, launch still continues because Codex can fall back to its vendored helper. When `python3` itself is not on `PATH`, the wrapper first accepts compatible alternatives such as `python3.6`, `python36`, or `platform-python`. On macOS it checks/installs `python3`, `curl`, and `unzip` via Homebrew when missing.
    - `cdx --update` stays a recovery path: it pares prerequisite checks down to `curl` before the forced wrapper/Codex update flow, so stale wrappers can still heal themselves and then continue into the Codex check even when `unzip`, `bwrap`, or local package mappings are broken. Normal startup still ensures a compatible Python 3 interpreter before sync/update work when the wrapper can manage prerequisites.
+   - `update` installs the wrapper binary and then re-execs the freshly installed binary into `sync`, so
+     fleet-managed content is written by the new code rather than by the one being replaced. `cdx update`
+     re-execs into `cdx sync`; `cxx update` re-execs into `cxx sync`, which converges every installed
+     engine rather than only the one that authenticated the artifact request. On a legacy pre-`cxx`
+     layout, where the canonical executable is still a regular `cdx`/`clx` binary, that host form
+     degrades to the single matching persona; `layout.EnsureAliases` normally converts such a host on
+     its first managed run.
+   - `cxx sync` / `cdx sync` / `clx sync` write fleet-managed content without launching an engine and
+     without touching the binary: the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix,
+     collections and skills work a launch performs, stopped before the quota gate, the portal session,
+     and PreExec. They are always headless, and self-update is suppressed inside them so a sync can
+     never install and re-exec from within itself. `cxx cron run` performs the same sync each tick, so a
+     host where nobody starts a session still converges on fleet config.
    - Interactive SSH terminals launch Codex through the same direct TTY path as local terminals, avoiding wrapper-owned PTYs around the Codex UI. Alt-screen stays enabled: the wrapper never forces inline mode and has no override for it. `cdx doctor` reports SSH env hints and launch mode for troubleshooting.
    - Auth synchronization is generation-based and independent of the managed
      content run lock. Short local locks provide coherent reads/writes. Bounded

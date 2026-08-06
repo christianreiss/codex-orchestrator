@@ -400,3 +400,24 @@ func TestRemoveSharedDeletesExecutingLegacyRegularCombinedBinary(t *testing.T) {
 		t.Fatalf("legacy combined binary remains: %v", err)
 	}
 }
+
+// TestReexecArgvHostFormOmitsPersonaToken: `cxx update` authenticates through
+// one persona but must hand the follow-up sync to the host-level command, which
+// reaches every installed engine. An empty engine selects that form.
+func TestReexecArgvHostFormOmitsPersonaToken(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	host := ReexecArgv(exe, "", []string{"sync", "--config", "/etc/cdx.json"})
+	if !reflect.DeepEqual(host, []string{exe, "sync", "--config", "/etc/cdx.json"}) {
+		t.Fatalf("host form = %v, want no persona token", host)
+	}
+
+	persona := ReexecArgv(exe, EngineCodex, []string{"sync"})
+	if !reflect.DeepEqual(persona, []string{exe, EngineCodex, "sync"}) {
+		t.Fatalf("persona form = %v, want the engine token preserved", persona)
+	}
+}

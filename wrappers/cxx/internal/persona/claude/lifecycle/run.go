@@ -42,8 +42,14 @@ type Options struct {
 	// Resumed labels an interactive resume distinctly in the portal timeline.
 	Resumed             bool
 	AllowConcurrentSync bool
-	WrapperVersion      string
-	Logger              *slog.Logger
+	// SyncOnly performs the managed-content half of a run and stops: bootstrap,
+	// skills, collections, peer reconciliation, then the same auth gate an
+	// interactive run applies — but no PreExec, no portal session, no Claude.
+	// This is what `clx sync`, the post-update pass, and the cron tick use to
+	// converge fleet-managed content without launching an engine.
+	SyncOnly       bool
+	WrapperVersion string
+	Logger         *slog.Logger
 	// DangerouslySkipPermissions mirrors --dangerously-skip-permissions for
 	// this run only: it lights the boot-screen warning badge. The flag itself
 	// already rides ExtraArgs straight through to the upstream `claude`
@@ -98,6 +104,13 @@ func portalExit(exitCode int, runErr error) (string, string) {
 }
 
 func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
+	// SkipAuthSync is the only thing that turns a sync-only pass into a silent
+	// no-op that still reports success. Refuse the combination outright rather
+	// than let a caller believe content was written.
+	if opts.SyncOnly && opts.SkipAuthSync {
+		return 2, errors.New("sync-only lifecycle cannot skip the managed sync")
+	}
+
 	cfg := opts.Config
 	logger := opts.Logger
 	if logger == nil {
@@ -277,8 +290,16 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		// The Claude engine itself updates post-session (see maybeEnsureClaude
 		// below) so a version bump never delays an interactive launch.
 		if dec.Allowed {
-			if err := maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger, authSession); err != nil {
-				return 1, fmt.Errorf("restart after wrapper update: %w", err)
+			// A sync-only pass is already running the freshly installed binary —
+			// `update` re-execs into it. Re-entering self-update from in here
+			// would install and exec a second time from inside a sync, burning
+			// restart depth for nothing. On the `cxx update` path this is load
+			// bearing: that exec sets only CODEX_WRAPPER_RESTARTED, so the guard
+			// inside maybeEnsureWrapper would still be cold for the claude leg.
+			if !opts.SyncOnly {
+				if err := maybeEnsureWrapper(ctx, cfg, authResp, currentWrapperVersion(opts, cfg), concurrent, opts.Minimal, logger, authSession); err != nil {
+					return 1, fmt.Errorf("restart after wrapper update: %w", err)
+				}
 			}
 			if !concurrent {
 				peer.Reconcile(ctx, cfg, authResp, opts.Minimal, logger)
@@ -370,6 +391,13 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 		}
 		return 1, markPresented(fmt.Errorf("launch refused: %s", dec.Reason), opts)
+	}
+
+	// A sync-only pass has now done everything asked of it: the boot screen is
+	// rendered above and the trust gate has had its say. Stop before the portal
+	// session and PreExec so a sync never opens a phantom session row.
+	if opts.SyncOnly {
+		return 0, nil
 	}
 
 	before := snapshotAuthGeneration()

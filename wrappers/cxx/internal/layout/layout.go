@@ -194,10 +194,15 @@ func CanonicalExecutable(executable string) (string, error) {
 // ReexecArgv preserves persona identity whenever the executable's canonical
 // update destination is cxx, including first-run migration from a regular
 // cdx/clx binary.
+//
+// An empty engine selects the host form (`cxx <argv...>`) instead. A
+// cxx-dispatched second pass needs it: `cxx update` authenticates through one
+// persona but must hand the follow-up work to the host-level command so it
+// reaches every installed engine, not just the one that ran the install.
 func ReexecArgv(executable, engine string, argv []string) []string {
 	full := []string{executable}
 	resolved, err := CanonicalExecutable(executable)
-	if err == nil && filepath.Base(resolved) == "cxx" {
+	if err == nil && engine != "" && filepath.Base(resolved) == "cxx" {
 		full = append(full, engine)
 	}
 	return append(full, argv...)

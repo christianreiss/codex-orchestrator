@@ -1,3 +1,48 @@
+# 2026-08-05
+
+- **`cxx update` now syncs config and skills.** It only ever swapped the binary: it resolved the
+  artifact, verified the SHA256, installed it atomically, printed "updated", and returned. Managed
+  fleet content — `AGENTS.md` and `config.toml` on the Codex side, `CLAUDE.md`, `settings.json`,
+  `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/` and
+  `~/.claude/skills/<slug>/SKILL.md` on the Claude side — is written only inside `lifecycle.Run`,
+  which runs only on `run`/`resume`/`execute`. An operator who ran `cxx update` and believed the host
+  was current was wrong about everything except the binary.
+- **The sync happens in the new binary, not the one being replaced.** `update` now installs, prints
+  the restarting badge, and `syscall.Exec`s the freshly installed wrapper into a sync-only pass —
+  the same idiom cron already used for its wrapper update. `cdx update` re-execs into `cdx sync`;
+  `cxx update` re-execs into `cxx sync`, which converges **every** installed engine rather than the
+  one that happened to authenticate the artifact request. That last part is why `layout.ReexecArgv`
+  grew a host form: an empty engine omits the persona token, and `internal/app/{codex,claude}` gained
+  an exported `HostSyncAfterUpdate` that only `cmd/cxx` sets. On a legacy pre-`cxx` layout — where the
+  canonical executable is still a regular `cdx`/`clx` binary rather than the combined `cxx` — the host
+  form degrades to the single matching persona, because argv0 is what selects the dispatcher. That is
+  acceptable rather than fixed: `layout.EnsureAliases` converts such a host on its first managed run,
+  well before any update re-exec.
+- **`cxx sync` / `cdx sync` / `clx sync` are first-class commands.** They write managed content
+  without launching an engine and without touching the binary — the same lock, FQDN guard,
+  `POST /sync/bootstrap`, decision matrix, collections and skills work a launch performs, stopped
+  before the quota gate, the portal session, and PreExec. `cxx sync` runs both engines in-process and
+  returns the worst exit code, so a broken engine cannot hide behind a healthy one. Always headless:
+  a credential-less host fails closed with the reason instead of opening a `codex login` wizard.
+- **The nightly tick converges content too.** `cxx cron run` updated the wrapper and the engine CLIs
+  and nothing else, so a host where nobody ever started a session drifted from fleet config
+  indefinitely. The tick now syncs after the engine update and before peer reconciliation — strictly
+  after the wrapper-update branch, which returns or execs, so it can never sync with pre-update code.
+  It is best-effort like every other content step there: an auth-refused host logs a warning and adds
+  `sync=failed` to the one-line result rather than turning a green tick red.
+- **A sync-only pass never self-updates.** `Options.SyncOnly` suppresses `maybeEnsureWrapper`
+  outright. This is load-bearing rather than defensive: the `cxx update` exec sets only
+  `CODEX_WRAPPER_RESTARTED`, so the claude leg's own loop guard is still cold, and a sync that
+  installed and exec'd from inside itself would burn restart depth for nothing. `SyncOnly` combined
+  with `SkipAuthSync` is refused with exit 2 instead of silently reporting success for a pass that
+  wrote nothing.
+- Two behaviours are kept deliberately at parity with `run` rather than special-cased, and are now
+  documented: `clx sync` exits 1 on a host with no usable Claude credential even though `bootstrap`
+  already wrote the managed content, and on an insecure host a sync's own auth session still purges
+  credentials on exit. `clx update` additionally finalizes its command auth session before the exec,
+  because the claude re-exec — unlike codex's — carries no session handoff and would otherwise drop
+  the purge intent silently.
+
 # 2026-08-04
 
 - **Enabling Agent Messaging now tells agents the bus exists, and warns the operator before it does.**

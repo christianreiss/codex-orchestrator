@@ -13,6 +13,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
@@ -20,6 +21,20 @@ import (
 
 // Indirected for tests.
 var removeSchedule = func() error { return hostcron.Remove(context.Background()) }
+
+// syncManagedContent converges fleet-managed AGENTS.md, config.toml and the
+// skills fingerprint without launching Codex. Indirected for tests.
+var syncManagedContent = func(ctx context.Context, cfg *config.Config, minimal bool) error {
+	_, err := lifecycle.Run(ctx, lifecycle.Options{
+		Config:         cfg,
+		SyncOnly:       true,
+		Headless:       true,
+		SkipBoot:       true,
+		Minimal:        minimal,
+		WrapperVersion: WrapperVersion,
+	})
+	return err
+}
 
 const cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -49,6 +64,7 @@ type Result struct {
 	CodexBefore    string // version before the tick
 	CodexAction    string // "no_update" | "updated"
 	CodexTarget    string // target version if updated
+	SyncAction     string // "" when managed content converged | "failed"
 	Reported       bool   // /cron/report succeeded
 }
 
@@ -153,6 +169,17 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	}
 	if err := codex.EnsureShellAliases(); err != nil {
 		logger.Warn("cron: ensureShellAliases", "err", err)
+	}
+
+	// Converge fleet-managed content. Without this an idle host — one where
+	// nobody ever starts a session — drifts from fleet config indefinitely,
+	// since bootstrap otherwise only runs on a launch. Placed after the
+	// wrapper-update branch above, which either returns or execs, so a sync
+	// never runs with pre-update code. Best-effort like every other content
+	// step here: an auth-refused host must not turn the whole tick red.
+	if err := syncManagedContent(ctx, cfg, minimal); err != nil {
+		logger.Warn("cron: managed content sync skipped", "err", err)
+		res.SyncAction = "failed"
 	}
 
 	// Keep the peer wrapper + engine current too: a dual-engine host must have

@@ -19,6 +19,7 @@ var cdxHelpCommands = []wrapperHelpItem{
 	{"cdx status", "Show host context, wrapper/Codex versions, auth/runner health, and quota."},
 	{"cdx doctor", "Check dependencies, paths, auth, API reachability, config, and cron."},
 	{"cdx auth-upload", "Validate and upload local Codex credentials to the fleet store."},
+	{"cdx sync", "Write fleet-managed AGENTS.md, config.toml, and skills without launching Codex."},
 	{"cdx lane [normal|spark|clear]", "Inspect or persist a quota lane; clear restores the inherited default. Legacy --persist is accepted."},
 	{"cdx ls", "Shortcut for cdx lane spark."},
 	{"cdx profile <name> [-- args...]", "Launch Codex with a named profile from the synced config."},

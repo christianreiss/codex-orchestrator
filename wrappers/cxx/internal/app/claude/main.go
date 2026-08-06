@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -46,6 +47,43 @@ var (
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )
+
+// HostSyncAfterUpdate makes `update` re-exec into the host-level `cxx sync`
+// (every installed engine) instead of this persona's own `clx sync`. `cxx
+// update` authenticates the artifact request through whichever engine config
+// exists, but the binary it installs is shared, so the follow-up sync must not
+// be narrowed to that one persona. cmd/cxx sets it; nothing else may.
+var HostSyncAfterUpdate bool
+
+func postUpdateSyncEngine() string {
+	if HostSyncAfterUpdate {
+		return ""
+	}
+	return layout.EngineClaude
+}
+
+// postUpdateSyncArgv carries the operator's configuration and presentation
+// choices into the second pass. For a persona re-exec --config is not optional:
+// without it, `clx update --config /custom.json` would re-exec into a sync that
+// loads the default config instead. The host form must not carry it — `cxx sync`
+// resolves each installed engine's own config and rejects a single path, which
+// could only ever name one of them.
+func postUpdateSyncArgv(f flags) []string {
+	argv := []string{"sync"}
+	if f.configPath != "" && !HostSyncAfterUpdate {
+		argv = append(argv, "--config", f.configPath)
+	}
+	if f.minimal {
+		argv = append(argv, "--minimal")
+	}
+	if f.silent {
+		argv = append(argv, "--silent")
+	}
+	if f.skipBoot {
+		argv = append(argv, "--skip-boot")
+	}
+	return argv
+}
 
 // Run executes the Claude-compatible wrapper persona. The multicall dispatcher
 // passes argv without the program name so alias and explicit cxx dispatch are
@@ -111,7 +149,7 @@ var reservedClaudeSubcommands = map[string]bool{
 var wrapperOwnedSubcommands = map[string]bool{
 	"run": true, "resume": true, "status": true, "doctor": true,
 	"auth-upload": true, "update": true, "uninstall": true,
-	"cron": true, "execute": true, "exec": true,
+	"cron": true, "execute": true, "exec": true, "sync": true,
 }
 
 // resumeArgs builds the upstream argv for a resume request. Claude spells
@@ -409,6 +447,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		exit, err := lifecycle.Run(ctx, opts)
 		printLifecycleError(stderr, "clx execute", err)
 		return exit
+	case "sync":
+		return cmdSync(ctx, cfg, f, logger, stderr)
 	case "status":
 		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
@@ -430,15 +470,31 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 			return 1
 		}
 		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "clx", "wrapper", Version, artifact.Version))
-		cfg.Wrapper.Version = artifact.Version
-		cfg.Wrapper.BinaryURL = artifact.URL
-		cfg.Wrapper.BinarySHA256 = artifact.SHA256
-		if err := update.SelfUpdate(ctx, cfg, logger); err != nil {
+		exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)
+		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
 			return 1
 		}
+		// A new binary alone leaves the host stale: CLAUDE.md, settings, MCP
+		// servers, collections and skills only ever converge inside a lifecycle.
+		// Re-exec into the freshly installed wrapper and sync there, so managed
+		// content is written by the new code rather than the one being replaced.
+		// syscall.Exec never returns on success, so announce the restart first.
 		outCaps := commandCaps(ui.DetectCapsFor(stdout, theme), f.minimal)
-		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "clx", "wrapper", artifact.Version, false))
+		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "clx", "wrapper", artifact.Version, true))
+		// The claude re-exec carries no auth-session handoff (unlike codex), so
+		// settle this command's lease here instead of letting syscall.Exec drop
+		// it silently. CloseAndPurgeIfLast is idempotent, so the deferred close
+		// above becomes a no-op.
+		if err := commandSession.FinalizeForReexec(); err != nil {
+			fmt.Fprintln(stderr, "clx update: finalize auth session before restart:", err)
+			return 1
+		}
+		if err := update.ReExecAfterUpdateAs(exe, postUpdateSyncEngine(), postUpdateSyncArgv(f)); err != nil {
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "clx", "wrapper", artifact.Version, err))
+			fmt.Fprintln(stderr, "clx update: the new wrapper is installed but managed content was not synced; run `clx sync`")
+			return 1
+		}
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -466,7 +522,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 			return exit
 		}
 		fmt.Fprintln(stderr, "clx: unknown subcommand:", sub)
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
@@ -474,7 +530,9 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 
 func commandOwnsAuthSession(sub string, subArgs []string) bool {
 	switch sub {
-	case "run", "resume", "execute", "status", "auth-upload", "uninstall":
+	// sync enters lifecycle.Run, which starts its own session; an outer lease
+	// here would only fight it over purge-on-last-exit.
+	case "run", "resume", "sync", "execute", "status", "auth-upload", "uninstall":
 		return true
 	}
 	if reservedClaudeSubcommands[sub] {
@@ -791,6 +849,26 @@ func executeLifecycleOptions(f flags) lifecycle.Options {
 		AllowConcurrentSync:        f.allowConc,
 		DangerouslySkipPermissions: f.dangerouslySkipPermissions,
 	}
+}
+
+// cmdSync writes fleet-managed content without launching Claude: the same
+// bootstrap, settings merge, MCP merge, collections, and native skills an
+// interactive run performs, stopped before the portal session and the launch.
+// Always headless — a maintenance command must fail closed with a reason rather
+// than open a login flow.
+func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, stderr io.Writer) int {
+	exit, err := lifecycle.Run(ctx, lifecycle.Options{
+		Config:              cfg,
+		SyncOnly:            true,
+		Headless:            true,
+		SkipBoot:            f.skipBoot || f.silent,
+		Minimal:             f.minimal,
+		AllowConcurrentSync: f.allowConc,
+		Logger:              logger,
+		WrapperVersion:      Version,
+	})
+	printLifecycleError(stderr, "clx sync", err)
+	return exit
 }
 
 func printLifecycleError(w io.Writer, prefix string, err error) {
@@ -1375,14 +1453,20 @@ func formatCronResult(r enginecron.Result, minimal bool) string {
 	if minimal {
 		arrow = "->"
 	}
+	// Appended only on failure: a healthy tick keeps its existing wording, and a
+	// silent content-sync failure would otherwise read as "cron: ok".
+	suffix := ""
+	if r.SyncAction == "failed" {
+		suffix = " sync=failed"
+	}
 	switch {
 	case r.WrapperAction == "disable":
 		return "cron: auto-update disabled by server; cron job removed"
 	case r.WrapperAction == "updated":
 		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":
-		return fmt.Sprintf("cron: claude updated %s %s %s (wrapper %s, reported=%t)", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported)
+		return fmt.Sprintf("cron: claude updated %s %s %s (wrapper %s, reported=%t)%s", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported, suffix)
 	default:
-		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
+		return fmt.Sprintf("cron: ok (wrapper %s, claude %s, no updates, reported=%t)%s", r.WrapperVersion, r.CodexVersion, r.Reported, suffix)
 	}
 }

@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -87,6 +88,7 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
+	stubManagedSync(t)
 	res, err := Tick(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Tick: %v", err)
@@ -126,6 +128,7 @@ func TestTickDisableRemovesCron(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
+	stubManagedSync(t)
 	res, err := Tick(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Tick disable: %v", err)
@@ -159,6 +162,7 @@ func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
+	stubManagedSync(t)
 	_, err := Tick(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected loop-detected error")
@@ -188,6 +192,7 @@ func TestTickWrapperUpdateRefusesIncompleteMetadata(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := minimalCfg(srv.URL)
+	stubManagedSync(t)
 	_, err := Tick(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected metadata-incomplete error")
@@ -231,6 +236,7 @@ func TestTickReportRetriesThenFails(t *testing.T) {
 		}
 		cancel()
 	}()
+	stubManagedSync(t)
 	_, err := Tick(ctx, cfg)
 	if err == nil {
 		t.Fatal("expected report failure error")
@@ -241,4 +247,127 @@ func readAll(r *http.Request) (string, error) {
 	b := make([]byte, 4096)
 	n, _ := r.Body.Read(b)
 	return string(b[:n]), nil
+}
+
+// stubManagedSync keeps a tick's content-sync step out of the test process:
+// lifecycle.Run would take the host's real cdx lock and talk to an orchestrator
+// these tests do not stand up. Tests that care about the step swap it themselves.
+func stubManagedSync(t *testing.T) {
+	t.Helper()
+	previous := syncManagedContent
+	syncManagedContent = func(context.Context, *config.Config, bool) error { return nil }
+	t.Cleanup(func() { syncManagedContent = previous })
+}
+
+// TestTickSyncsManagedContentAfterEngineUpdate pins the reason this exists: an
+// idle host that never launches an engine still has to converge on fleet config.
+func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+	t.Setenv("PATH", "")
+	previous := syncManagedContent
+	calls := 0
+	syncManagedContent = func(context.Context, *config.Config, bool) error {
+		calls++
+		return nil
+	}
+	t.Cleanup(func() { syncManagedContent = previous })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"action":  "no_update",
+			"wrapper": map[string]any{"action": "no_update"},
+		})
+	})
+	mux.HandleFunc("/cron/report", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"recorded":true}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := Tick(context.Background(), minimalCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("managed content sync ran %d times, want 1", calls)
+	}
+	if res.SyncAction != "" {
+		t.Fatalf("healthy sync reported %q", res.SyncAction)
+	}
+}
+
+// TestTickSurvivesFailedContentSync: an auth-refused host must not turn the
+// whole maintenance tick red, but the failure has to stay visible.
+func TestTickSurvivesFailedContentSync(t *testing.T) {
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+	t.Setenv("PATH", "")
+	previous := syncManagedContent
+	syncManagedContent = func(context.Context, *config.Config, bool) error {
+		return errors.New("launch refused: host disabled")
+	}
+	t.Cleanup(func() { syncManagedContent = previous })
+
+	var reported int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"action":  "no_update",
+			"wrapper": map[string]any{"action": "no_update"},
+		})
+	})
+	mux.HandleFunc("/cron/report", func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&reported, 1)
+		_, _ = w.Write([]byte(`{"recorded":true}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	res, err := Tick(context.Background(), minimalCfg(srv.URL))
+	if err != nil {
+		t.Fatalf("failed content sync turned the tick red: %v", err)
+	}
+	if res.SyncAction != "failed" {
+		t.Fatalf("SyncAction = %q, want failed", res.SyncAction)
+	}
+	if !res.Reported || atomic.LoadInt32(&reported) != 1 {
+		t.Fatalf("tick stopped reporting after a sync failure: %+v", res)
+	}
+}
+
+// TestTickSkipsSyncWhenWrapperUpdatePathTaken: the wrapper-update branch execs
+// or fails; either way this tick must not sync with the code it just replaced.
+func TestTickSkipsSyncWhenWrapperUpdatePathTaken(t *testing.T) {
+	t.Setenv("CODEX_WRAPPER_RESTARTED", "1")
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+	t.Setenv("PATH", "")
+	previous := syncManagedContent
+	calls := 0
+	syncManagedContent = func(context.Context, *config.Config, bool) error {
+		calls++
+		return nil
+	}
+	t.Cleanup(func() { syncManagedContent = previous })
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cron/check", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"action": "no_update",
+			"wrapper": map[string]any{
+				"action":         "update",
+				"target_version": "9.9.9",
+				"url":            "/wrapper/v2/download",
+				"sha256":         strings.Repeat("a", 64),
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	if _, err := Tick(context.Background(), minimalCfg(srv.URL)); err == nil {
+		t.Fatal("expected the restart-loop guard to fail the tick")
+	}
+	if calls != 0 {
+		t.Fatalf("synced %d times on the wrapper-update path", calls)
+	}
 }

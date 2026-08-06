@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -47,6 +48,43 @@ var (
 	Commit    = "unknown"
 	BuildDate = "unknown"
 )
+
+// HostSyncAfterUpdate makes `update` re-exec into the host-level `cxx sync`
+// (every installed engine) instead of this persona's own `cdx sync`. `cxx
+// update` authenticates the artifact request through whichever engine config
+// exists, but the binary it installs is shared, so the follow-up sync must not
+// be narrowed to that one persona. cmd/cxx sets it; nothing else may.
+var HostSyncAfterUpdate bool
+
+func postUpdateSyncEngine() string {
+	if HostSyncAfterUpdate {
+		return ""
+	}
+	return layout.EngineCodex
+}
+
+// postUpdateSyncArgv carries the operator's configuration and presentation
+// choices into the second pass. For a persona re-exec --config is not optional:
+// without it, `cdx update --config /custom.json` would re-exec into a sync that
+// loads the default config instead. The host form must not carry it — `cxx sync`
+// resolves each installed engine's own config and rejects a single path, which
+// could only ever name one of them.
+func postUpdateSyncArgv(f flags) []string {
+	argv := []string{"sync"}
+	if f.configPath != "" && !HostSyncAfterUpdate {
+		argv = append(argv, "--config", f.configPath)
+	}
+	if f.minimal {
+		argv = append(argv, "--minimal")
+	}
+	if f.silent {
+		argv = append(argv, "--silent")
+	}
+	if f.skipBoot {
+		argv = append(argv, "--skip-boot")
+	}
+	return argv
+}
 
 // Run executes the Codex-compatible wrapper persona. The multicall dispatcher
 // passes argv without the program name so alias and explicit cxx dispatch are
@@ -96,6 +134,7 @@ var wrapperOwnedSubcommands = map[string]bool{
 	"uninstall":   true,
 	"cron":        true,
 	"execute":     true,
+	"sync":        true,
 	"ls":          true,
 	"resume":      true,
 }
@@ -460,6 +499,8 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 		exit, err := lifecycle.Run(ctx, opts)
 		printLifecycleError(stderr, "cdx execute", err)
 		return exit
+	case "sync":
+		return cmdSync(ctx, cfg, f, logger, stderr)
 	case "status":
 		return cmdStatus(ctx, cfg, Version, stdout, stderr, f.minimal)
 	case "doctor":
@@ -485,15 +526,23 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 			return 1
 		}
 		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "cdx", "wrapper", Version, artifact.Version))
-		cfg.Wrapper.Version = artifact.Version
-		cfg.Wrapper.BinaryURL = artifact.URL
-		cfg.Wrapper.BinarySHA256 = artifact.SHA256
-		if err := update.SelfUpdate(ctx, cfg, logger); err != nil {
+		exe, err := update.SelfUpdateFrom(ctx, cfg, artifact.URL, artifact.SHA256, artifact.Version, logger)
+		if err != nil {
 			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
 			return 1
 		}
+		// A new binary alone leaves the host stale: AGENTS.md, config.toml and
+		// the skills fingerprint only ever converge inside a lifecycle. Re-exec
+		// into the freshly installed wrapper and sync there, so managed content
+		// is written by the new code rather than the one being replaced.
+		// syscall.Exec never returns on success, so announce the restart first.
 		outCaps := commandCaps(ui.DetectCapsFor(stdout, theme), f.minimal)
-		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "cdx", "wrapper", artifact.Version, false))
+		fmt.Fprintln(stdout, ui.UpdateComplete(outCaps, "cdx", "wrapper", artifact.Version, true))
+		if err := update.ReExecAfterUpdateAs(exe, postUpdateSyncEngine(), postUpdateSyncArgv(f)); err != nil {
+			fmt.Fprintln(stderr, ui.UpdateFailure(errCaps, "cdx", "wrapper", artifact.Version, err))
+			fmt.Fprintln(stderr, "cdx update: the new wrapper is installed but managed content was not synced; run `cdx sync`")
+			return 1
+		}
 		return 0
 	case "uninstall":
 		if err := uninstall.Run(ctx, cfg, stdout, stderr); err != nil {
@@ -600,7 +649,7 @@ func run(args []string, stdout, stderr io.Writer) (exitCode int) {
 			return finishAuthMutation(exit)
 		}
 		fmt.Fprintln(stderr, "cdx: unknown subcommand:", sub)
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | lane <normal|spark|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}
@@ -681,6 +730,26 @@ func executeLifecycleOptions(f flags) lifecycle.Options {
 		Minimal:             f.minimal,
 		AllowConcurrentSync: f.allowConc,
 	}
+}
+
+// cmdSync writes fleet-managed content without launching Codex: the same
+// bootstrap, skills probe, and peer reconciliation an interactive run performs,
+// stopped before the quota gate and the launch. Always headless — a maintenance
+// command must fail closed with a reason rather than open a `codex login`
+// wizard.
+func cmdSync(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, stderr io.Writer) int {
+	exit, err := lifecycle.Run(ctx, lifecycle.Options{
+		Config:              cfg,
+		SyncOnly:            true,
+		Headless:            true,
+		SkipBoot:            f.skipBoot || f.silent,
+		Minimal:             f.minimal,
+		AllowConcurrentSync: f.allowConc,
+		Logger:              logger,
+		WrapperVersion:      Version,
+	})
+	printLifecycleError(stderr, "cdx sync", err)
+	return exit
 }
 
 func printLifecycleError(w io.Writer, prefix string, err error) {
@@ -1517,14 +1586,20 @@ func formatCronResult(r enginecron.Result, minimal bool) string {
 	if minimal {
 		arrow = "->"
 	}
+	// Appended only on failure: a healthy tick keeps its existing wording, and a
+	// silent content-sync failure would otherwise read as "cron: ok".
+	suffix := ""
+	if r.SyncAction == "failed" {
+		suffix = " sync=failed"
+	}
 	switch {
 	case r.WrapperAction == "disable":
 		return "cron: auto-update disabled by server; cron job removed"
 	case r.WrapperAction == "updated":
 		return fmt.Sprintf("cron: wrapper updated %s %s %s (re-exec)", r.WrapperVersion, arrow, r.WrapperTarget)
 	case r.CodexAction == "updated":
-		return fmt.Sprintf("cron: codex updated %s %s %s (wrapper %s, reported=%t)", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported)
+		return fmt.Sprintf("cron: codex updated %s %s %s (wrapper %s, reported=%t)%s", r.CodexBefore, arrow, r.CodexVersion, r.WrapperVersion, r.Reported, suffix)
 	default:
-		return fmt.Sprintf("cron: ok (wrapper %s, codex %s, no updates, reported=%t)", r.WrapperVersion, r.CodexVersion, r.Reported)
+		return fmt.Sprintf("cron: ok (wrapper %s, codex %s, no updates, reported=%t)%s", r.WrapperVersion, r.CodexVersion, r.Reported, suffix)
 	}
 }
