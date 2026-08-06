@@ -98,6 +98,17 @@ For the keys posture claims — `approval_policy`, `sandbox_mode`,
 as a host model override already does. `sandbox_workspace_write` is merged rather than replaced, so
 operator `writable_roots` and exclusions survive. Everything else in the template is untouched.
 
+One posture value is not served verbatim. **A host whose agent user is root is never sent
+`permissions.defaultMode: bypassPermissions`**, because Claude Code refuses to start in that mode
+under root or sudo and has no supported override for it. Serving the operator's selection there
+would yield an agent that cannot launch rather than a permissive one, and the failure is silent on
+the relay path — a peer dies before reporting and its delivery goes terminally `ambiguous`. The
+bake substitutes `auto`, upstream's own recommended replacement for a bypass, and reports the
+substitution so `clx doctor` and the posture console can name it. Every other posture value, and
+every non-root host, is unaffected. The posture mapping itself is unchanged: `securityLevelEnforcement`
+still reports that the vector asks for `bypassPermissions`, because this is a delivery constraint
+and not a change to what the operator selected.
+
 `sandbox_mode` accepts `read-only`, `workspace-write`, or `danger-full-access`. It is validated on
 write only; values already stored normalize with a warning rather than throwing, so one bad row
 cannot take the fleet down.

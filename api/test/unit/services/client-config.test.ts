@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPostureToSettings,
+  clampClaudePermissionModeForUser,
   injectManagedCodexSkillPolicyToml,
   renderClaudeSettingsPartial,
   renderClaudeSettingsPartialForHost,
@@ -305,6 +307,70 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
     );
     expect(partial).not.toHaveProperty('advisorModel');
     expect(owned_paths).not.toContain('advisorModel');
+  });
+});
+
+/**
+ * Claude Code exits immediately when the resolved mode is `bypassPermissions` and it is
+ * running as root, with no supported override. Serving that combination does not produce
+ * a permissive agent — it produces one that cannot launch, and the failure is silent:
+ * a relay-booted peer dies before reporting and its delivery goes terminally `ambiguous`,
+ * which is indistinguishable from a peer that declined to answer.
+ */
+describe('client-config: root permission-mode clamp', () => {
+  const render = (permissionMode: string | undefined, username: string | null | undefined) =>
+    renderClaudeSettingsPartialForHost({
+      settings: permissionMode ? { permissionMode } : {},
+      host: { id: 1, secure: 1 } as never,
+      baseUrl: 'https://orchestrator.example',
+      apiKey: 'k'.repeat(40),
+      engine: ENGINE_CLAUDE,
+      username,
+    } as never);
+
+  it('serves a root host auto instead of a mode it cannot boot with', () => {
+    const { partial, clamped } = render('bypassPermissions', 'root');
+
+    expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('auto');
+    expect(clamped).toEqual({ from: 'bypassPermissions', to: 'auto', username: 'root' });
+  });
+
+  it('leaves a non-root host on the bypass its posture asked for', () => {
+    const { partial, clamped } = render('bypassPermissions', 'deploy');
+
+    expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('bypassPermissions');
+    expect(clamped).toBeNull();
+  });
+
+  it('touches no other mode on a root host', () => {
+    for (const mode of ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk']) {
+      const { partial, clamped } = render(mode, 'root');
+      expect((partial.permissions as Record<string, unknown>).defaultMode).toBe(mode);
+      expect(clamped).toBeNull();
+    }
+  });
+
+  it('leaves a host it cannot identify alone rather than guessing', () => {
+    // An older wrapper sends no username. Clamping on a guess would silently weaken a
+    // host that may not be root at all; `clx doctor` names the problem host-side, where
+    // the uid is known rather than asserted.
+    for (const username of [null, undefined, '']) {
+      const { partial, clamped } = render('bypassPermissions', username);
+      expect((partial.permissions as Record<string, unknown>).defaultMode).toBe('bypassPermissions');
+      expect(clamped).toBeNull();
+    }
+  });
+
+  it('clamps delivery without touching what the posture asked for', () => {
+    const asked = applyPostureToSettings({}, presetLevels('unrestricted'), ENGINE_CLAUDE);
+    // The posture still reports the bypass; only what reaches the host changes. If this
+    // ever needs the posture mapping edited too, the clamp landed in the wrong layer.
+    expect(asked.permissionMode).toBe('bypassPermissions');
+
+    const { settings, clamped } = clampClaudePermissionModeForUser(asked, 'root');
+    expect(settings.permissionMode).toBe('auto');
+    expect(asked.permissionMode).toBe('bypassPermissions');
+    expect(clamped?.from).toBe('bypassPermissions');
   });
 });
 

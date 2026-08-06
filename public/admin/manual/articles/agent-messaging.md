@@ -332,6 +332,42 @@ Operational notes:
 - **Disabling the fleet switch adjourns every open room**, and a member part-way
   through a dispatched task loses that work. The Settings confirmation says so.
 
+## When a peer never answers and nothing is wrong
+
+Two failures produce the same symptom — a delivery that goes unanswered with no error
+anywhere — and both are worth checking before suspecting the protocol.
+
+**The relay is not running.** A `systemd --user` unit reads `enabled` but goes `inactive`
+whenever nobody is logged in, unless `loginctl enable-linger <user>` ran. Check that
+first; it is the older and more common of the two.
+
+**The host cannot start Claude at all.** Claude Code refuses to launch when the permission
+mode is `bypassPermissions` and it is running as root:
+
+```
+--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+```
+
+That check is upstream, deliberate, and has no supported override. A relay-booted peer
+therefore dies before it can report anything, and its delivery lands `ambiguous` with
+`native_outcome_ambiguous` — which is terminal and never redelivered. From the caller's
+side it is indistinguishable from a peer that read the message and chose not to answer.
+
+The orchestrator no longer serves that combination: a host whose agent user is root gets
+`auto` instead, which is what upstream recommends in place of a bypass. `clx doctor` shows
+this on the `Perms` row — `OK` naming the substitution when it is in force, `FAIL` if a
+host has somehow ended up with `bypassPermissions` as root anyway (a hand-edited
+`settings.json`, or a host still pinned to an older orchestrator). The posture console
+names the affected hosts, since an operator who selected an unrestricted posture would
+otherwise have no way to learn their root agents run with a classifier in the loop.
+
+Two consequences worth knowing. `auto` vets shell and network actions with a classifier
+instead of a prompt, so it costs a round-trip per such action, and in a headless `-p` run
+repeated blocks end the run rather than prompting. And `auto` needs a recent model — on an
+older one the session silently falls back to prompting, which an unattended run cannot
+answer; `clx doctor` warns when it sees that combination. To get a genuine bypass, run the
+agent as a non-root user.
+
 ## Operator workspace
 
 Open **Operate → Agent Messaging** to inspect:

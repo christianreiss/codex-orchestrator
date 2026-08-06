@@ -525,7 +525,14 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   // per document, posture per profile. Reverting a document restores old
   // wording, never an old posture.
   app.get('/admin/agent-policy-profiles', { preHandler: app.requireAdmin }, async () => {
-    return { profiles: await policyProfiles.list(), catalog: securityLevelCatalog() };
+    return {
+      profiles: await policyProfiles.list(),
+      catalog: securityLevelCatalog(),
+      // Hosts whose agent user is root, so the console can say up front that a
+      // bypass posture will not reach them. Claude Code refuses to start as root
+      // in bypassPermissions, so those hosts are served `auto` instead.
+      root_hosts: await policyProfiles.rootHostNames(),
+    };
   });
 
   app.post<{ Body: { name?: unknown; description?: unknown; levels?: unknown } }>(
@@ -597,6 +604,10 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         host_id: hostId,
         levels: await policyProfiles.resolveForHost(hostId),
         enforcement: await policyProfiles.enforcementForHost(hostId),
+        // Non-empty when the host cannot be served the posture's Claude
+        // permission mode; the console must show what the host actually runs,
+        // not what was selected for it.
+        permission_clamps: await policyProfiles.permissionClampsForHost(hostId),
       };
     },
   );

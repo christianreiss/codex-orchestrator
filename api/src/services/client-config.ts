@@ -335,6 +335,62 @@ export function injectManagedCodexSkillPolicyToml(content: string): string {
  * At the top of the scale `approval_policy = never` plus
  * `sandbox_mode = danger-full-access` carry the grant through keys Codex reads.
  */
+/** The mode a root host is served when its posture asks for a bypass it cannot boot with. */
+export const ROOT_CLAMPED_CLAUDE_PERMISSION_MODE = 'auto';
+
+export interface ClaudePermissionClamp {
+  from: string;
+  to: string;
+  username: string;
+}
+
+/**
+ * Refuse to serve a root host a permission mode Claude will not start in.
+ *
+ * Claude Code exits immediately when the resolved mode is `bypassPermissions` and the
+ * process is running as root or under sudo:
+ *
+ *     --dangerously-skip-permissions cannot be used with root/sudo privileges
+ *     for security reasons
+ *
+ * That check is deliberate and has no supported override -- no environment variable and
+ * no flag. It is skipped only inside a sandbox Claude Code recognises, and the upstream
+ * recommendation is to run as a non-root user instead. So a root host handed
+ * `bypassPermissions` does not get a permissive agent; it gets an agent that cannot
+ * launch at all, and the failure is invisible: a relay-booted peer dies before it can
+ * report anything and its delivery goes terminally `ambiguous`, which reads exactly like
+ * a peer that chose not to answer.
+ *
+ * `auto` is the substitute because it is what upstream recommends in place of a bypass
+ * -- reads and working-directory edits are auto-approved and everything else is vetted
+ * by a classifier rather than a prompt, so an unattended run still works. It is also
+ * already this fleet's default mode, so it is not a new posture for anyone.
+ *
+ * This is a *delivery* constraint, not a posture change. `securityLevelEnforcement`
+ * still reports that the posture asks for `bypassPermissions`, and a non-root host still
+ * receives it. Folding this into the posture mapping instead would break its
+ * monotonicity guarantee and would lie about what the operator selected.
+ *
+ * Keyed on the username the wrapper sends with each sync, which is exactly the user
+ * whose `~/.claude/settings.json` this render becomes. An older wrapper sends no
+ * username; that is treated as non-root and left alone, so an unidentified host is never
+ * silently weakened. Those hosts stay broken as they are today, and `clx doctor` names
+ * the reason host-side, where the uid is known for certain rather than asserted.
+ */
+export function clampClaudePermissionModeForUser(
+  settings: Record<string, unknown>,
+  username: string | null | undefined,
+): { settings: Record<string, unknown>; clamped: ClaudePermissionClamp | null } {
+  const user = normalizeName(username ?? null);
+  if (user !== 'root') return { settings, clamped: null };
+  const mode = normalizeName(settings['permissionMode']);
+  if (mode !== 'bypassPermissions') return { settings, clamped: null };
+  return {
+    settings: { ...settings, permissionMode: ROOT_CLAMPED_CLAUDE_PERMISSION_MODE },
+    clamped: { from: mode, to: ROOT_CLAMPED_CLAUDE_PERMISSION_MODE, username: user },
+  };
+}
+
 export function applyPostureToSettings(
   settings: Record<string, unknown>,
   levels: SecurityLevels | null | undefined,
@@ -742,11 +798,16 @@ export function renderClaudeSettingsPartial(
 /** Host-aware partial render (applies per-host claude model + managed clx MCP). */
 export function renderClaudeSettingsPartialForHost(
   opts: HostRenderOptions,
-): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string } {
-  const settingsWithOverrides = applyPostureToSettings(
+): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string; clamped: ClaudePermissionClamp | null } {
+  const posture = applyPostureToSettings(
     applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
     opts.securityLevels,
     ENGINE_CLAUDE,
+  );
+  // Last, so it clamps whatever actually won -- posture, host override or template.
+  const { settings: settingsWithOverrides, clamped } = clampClaudePermissionModeForUser(
+    posture,
+    opts.username,
   );
   const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false });
   const withManaged = injectManagedMcp(normalized, {
@@ -759,7 +820,7 @@ export function renderClaudeSettingsPartialForHost(
   });
   const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged);
   const json = JSON.stringify(partial, null, 2) + '\n';
-  return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex') };
+  return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex'), clamped };
 }
 
 export function normalizeHomePath(home: string | null | undefined, username: string | null | undefined): string | null {

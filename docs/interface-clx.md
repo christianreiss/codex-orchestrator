@@ -41,7 +41,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
 | `execute` / `--execute "<prompt>"` | Headless one-shot via `claude -p`; the boot screen is suppressed but auth + resource sync still run. `--execute` is the spelling that carries the prompt; the bare `execute` token dispatches the same path with an empty prompt and its own trailing arguments appended |
-| `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. For a durable fleet-wide bypass use `permissions.defaultMode: bypassPermissions` via `/admin/claude/config` instead |
+| `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. A durable bypass is selected by security posture (autonomy 4 with every axis at 3+), not by `/admin/claude/config`, which posture overrides for Claude. Note that upstream refuses this flag entirely under root/sudo, so it cannot make a root session permissive |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. It skips the managed run lock but keeps a neutral auth session plus the native-auth active-child lease until the help child exits, so another insecure invocation's final purge cannot be stranded. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. Explicit minimal mode stays ASCII throughout. |
@@ -615,6 +615,26 @@ this run.
   Claude Code ignores a top-level `permissionMode` key, so the wrapper writes the
   nested `permissions.defaultMode` form (a plain scalar leaf — it rides the
   generic dotted merge, not the allow/ask/deny union special-case).
+
+  Two things override the fleet template here. **Security posture wins**: on the
+  serve path a host's resolved posture always sets the Claude permission mode, so
+  the `/admin/claude/config` dropdown only decides what a caller with no posture
+  would get. And **a root host is never served `bypassPermissions`**: Claude Code
+  refuses to start as root in that mode —
+
+  ```
+  --dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+  ```
+
+  — with no supported override, the check being skipped only inside a sandbox it
+  recognises. Serving it would not produce a permissive agent but one that cannot
+  launch, and on the relay path that failure is silent: the peer dies before it
+  can report and its delivery goes terminally `ambiguous`, which reads exactly
+  like a peer that declined to answer. So the bake substitutes `auto`, which is
+  what upstream recommends in place of a bypass. The substitution is keyed on the
+  username the wrapper syncs; `clx doctor`'s `Perms` row states it host-side,
+  where the uid is known rather than asserted, and the posture console names the
+  affected hosts. To get a real bypass, run the agent as a non-root user.
 
 - `advisorModel` enables Claude Code's experimental advisor tool (routes the full
   transcript to a stronger reviewer model). Restricted to the tier aliases

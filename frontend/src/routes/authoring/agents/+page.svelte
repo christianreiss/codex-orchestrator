@@ -94,6 +94,24 @@
       JSON.stringify(draftLevels) !== JSON.stringify(defaultProfile.levels),
   );
 
+  /**
+   * Claude Code refuses to start as root when the mode is bypassPermissions, so
+   * those hosts are served `auto` instead. Saying so here is the difference
+   * between a posture the operator selected and one their fleet is actually
+   * running — otherwise the only symptom is a peer that never answers.
+   *
+   * Derived from the SAVED profile rather than the live slider position: this
+   * describes what hosts are being served right now, not a draft.
+   */
+  const rootClampWarning = $derived.by(() => {
+    const rootHosts = $profilesQuery.data?.root_hosts ?? [];
+    if (!defaultProfile || defaultProfile.claude_permission_mode !== "bypassPermissions") return null;
+    if (rootHosts.length === 0) return null;
+    const named = rootHosts.slice(0, 3).join(", ");
+    const rest = rootHosts.length > 3 ? ` and ${rootHosts.length - 3} more` : "";
+    return `${rootHosts.length} host${rootHosts.length === 1 ? "" : "s"} run their agent as root (${named}${rest}). Claude Code refuses to start as root in bypassPermissions, so those hosts are served "auto" instead — reads and edits are auto-approved and everything else is vetted by a classifier. Run the agent as a non-root user to get the full bypass.`;
+  });
+
   const saveLevelsMutation = createMutation({
     mutationFn: () => {
       if (!defaultProfile || !draftLevels) throw new Error("No fleet default profile to update");
@@ -702,6 +720,14 @@
               highlightedAxes={highlightedAxes}
               onHighlight={(axisId) => (activeSetting = axisId === null ? null : { kind: "axis", id: axisId })}
             />
+            {#if rootClampWarning}
+              <div class="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+                <p class="text-xs font-medium">Bypass permissions cannot reach every host</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {rootClampWarning}
+                </p>
+              </div>
+            {/if}
             {#if levelsDirty}
               <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
                 <p class="text-xs text-muted-foreground">

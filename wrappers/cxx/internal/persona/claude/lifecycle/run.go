@@ -457,7 +457,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	started := time.Now()
-	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, opts.ExtraArgs, authSession)
+	launchArgs := guardRootPermissionMode(opts.ExtraArgs, logger)
+	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, launchArgs, authSession)
 	duration := time.Since(started)
 	portalStatus, portalSummary := portalExit(exitCode, runErr)
 	closePortal(portalStatus, portalSummary)

@@ -7,9 +7,10 @@
  * `hosts.agents_document_id_override` — that pin selects *which prose* a host
  * gets, which is an orthogonal axis and stays orthogonal.
  */
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { agentPolicyProfileAssignments, agentPolicyProfiles } from '../db/schema.js';
+import { agentPolicyProfileAssignments, agentPolicyProfiles, hostUsers, hosts } from '../db/schema.js';
+import { ROOT_CLAMPED_CLAUDE_PERMISSION_MODE } from './client-config.js';
 import { NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -34,6 +35,12 @@ export interface AgentPolicyProfileView {
   updated_at: string;
   /** Host ids currently served at this profile. */
   host_ids: number[];
+  /**
+   * The Claude permission mode this vector asks for. Derived here rather than
+   * remapped in the console: the level-to-mode rule and its escalation cap live
+   * in one place, and a second copy would drift the day either changes.
+   */
+  claude_permission_mode: string;
 }
 
 function normalizeName(raw: unknown): string {
@@ -87,6 +94,8 @@ export class AgentPolicyProfilesService {
       created_at: row.createdAt,
       updated_at: row.updatedAt,
       host_ids: assigned.filter((a) => a.profileId === Number(row.id)).map((a) => a.hostId),
+      claude_permission_mode: securityLevelEnforcement(normalizeSecurityLevels(row.levels))
+        .claude.permission_mode.value,
     };
   }
 
@@ -261,5 +270,58 @@ export class AgentPolicyProfilesService {
   /** What the resolved posture implies for engine config, for the console's drift panel. */
   async enforcementForHost(hostId: number): Promise<ReturnType<typeof securityLevelEnforcement>> {
     return securityLevelEnforcement(await this.resolveForHost(hostId));
+  }
+
+  /**
+   * Hosts running their agent as root, by fqdn.
+   *
+   * These are the hosts a bypass posture cannot reach, so the console can warn
+   * before the selection is made rather than leaving the operator to discover it
+   * from a peer that never answered.
+   */
+  async rootHostNames(): Promise<string[]> {
+    try {
+      const rows = await this.db
+        .select({ fqdn: hosts.fqdn })
+        .from(hostUsers)
+        .innerJoin(hosts, eq(hosts.id, hostUsers.hostId))
+        .where(eq(hostUsers.username, 'root'))
+        .orderBy(hosts.fqdn);
+      return [...new Set(rows.map((row) => row.fqdn))];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Unix users on this host that will not be served the posture's Claude
+   * permission mode, and why.
+   *
+   * Claude Code refuses to start as root when the mode is `bypassPermissions`, so
+   * the bake clamps those users to `auto`. Without this the console would show a
+   * posture the host is provably not running, and an operator who selected a
+   * bypass would have no way to learn their root agents have a classifier in the
+   * loop. Reads `host_users`, which sync records on every launch.
+   */
+  async permissionClampsForHost(hostId: number): Promise<{ username: string; from: string; to: string }[]> {
+    const enforcement = await this.enforcementForHost(hostId);
+    const asked = enforcement.claude.permission_mode.value;
+    if (asked !== 'bypassPermissions') return [];
+    try {
+      const rows = await this.db
+        .select({ username: hostUsers.username })
+        .from(hostUsers)
+        .where(and(eq(hostUsers.hostId, hostId), eq(hostUsers.username, 'root')))
+        .limit(1);
+      return rows.map((row) => ({
+        username: row.username,
+        from: asked,
+        to: ROOT_CLAMPED_CLAUDE_PERMISSION_MODE,
+      }));
+    } catch {
+      // Same posture as resolveForHost: a read-only projection must never be the
+      // reason a console page fails to render.
+      return [];
+    }
   }
 }

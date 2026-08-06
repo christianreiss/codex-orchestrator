@@ -55,6 +55,8 @@ export interface AgentPolicyProfile {
   created_at: string;
   updated_at: string;
   host_ids: number[];
+  /** The Claude permission mode this vector asks for, derived server-side. */
+  claude_permission_mode: string;
 }
 
 export interface DerivedKnob<T> {
@@ -76,7 +78,12 @@ export interface DerivedEnforcement {
 }
 
 export const agentPolicyProfilesApi = {
-  list(): Promise<{ profiles: AgentPolicyProfile[]; catalog: SecurityLevelCatalog }> {
+  list(): Promise<{
+    profiles: AgentPolicyProfile[];
+    catalog: SecurityLevelCatalog;
+    /** Hosts whose agent user is root, which a bypass posture cannot reach. */
+    root_hosts: string[];
+  }> {
     return api.get("/admin/agent-policy-profiles");
   },
   create(payload: { name: string; description?: string | null; levels?: SecurityLevels }): Promise<{ profile: AgentPolicyProfile }> {
