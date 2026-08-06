@@ -71,10 +71,19 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
-	// Make the portal writable before the notice becomes visible in it, so a
-	// fast tap never lands on a visible-but-not-accepting agent.
+	// Deliberately NOT relay_action=poll. Opening the relay here made the portal
+	// writable for a full relay window on the strength of a notice alone -- and
+	// notifying is exactly what an agent does immediately before its turn ends,
+	// so the portal spent that window reporting "Listening" against a session
+	// with nothing polling it. Anything queued into that window was accepted,
+	// never claimed, and silently discarded.
+	//
+	// Only a live `cxx portal wait` iteration opens the relay now, so the state
+	// means what it says. The cost is that a notice can briefly be visible
+	// before the loop's first poll lands; the relay opens within a second on
+	// that path, and the window is honest rather than inverted.
 	heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 8*time.Second)
-	err = session.Heartbeat(heartbeatCtx, "", "poll")
+	err = session.Heartbeat(heartbeatCtx, "", "")
 	heartbeatCancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx portal:", err)
@@ -128,6 +137,10 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	return sendEvent("waiting_input", payload, stdout, stderr)
 }
 
+// sendEvent publishes one event. `say` and `ask` both mean the agent has come
+// back from whatever it accepted -- reporting a result or asking for input --
+// so both release the turn. Clearing a turn that was never set is a no-op, so
+// this is safe outside the relay loop too.
 func sendEvent(eventType string, payload map[string]any, stdout, stderr io.Writer) int {
 	session, err := SessionFromEnvironment(15 * time.Second)
 	if err != nil {
@@ -140,6 +153,10 @@ func sendEvent(eventType string, payload map[string]any, stdout, stderr io.Write
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
+	turnCtx, turnCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	noTurn := ""
+	_ = session.HeartbeatTurn(turnCtx, "", "", &noTurn)
+	turnCancel()
 	return emitJSON(stdout, stderr, map[string]any{"status": "queued", "session_id": session.ID, "type": eventType})
 }
 
@@ -170,8 +187,12 @@ func runWait(args []string, stdout, stderr io.Writer) int {
 		if secondsLeft := int(remaining.Seconds()); wait > secondsLeft {
 			wait = secondsLeft
 		}
+		// Parked is not working: reaching the poll means the previous
+		// instruction is done, so the turn is cleared in the same beat that
+		// re-opens the relay.
 		heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 8*time.Second)
-		if heartbeatErr := session.Heartbeat(heartbeatCtx, "", "poll"); heartbeatErr != nil {
+		noTurn := ""
+		if heartbeatErr := session.HeartbeatTurn(heartbeatCtx, "", "poll", &noTurn); heartbeatErr != nil {
 			heartbeatCancel()
 			fmt.Fprintln(stderr, "cxx portal:", heartbeatErr)
 			return 1
@@ -227,6 +248,13 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cxx portal:", err)
 		return 1
 	}
+	// The agent is now executing rather than polling, and nothing refreshes the
+	// relay until it comes back. Claiming the turn is what keeps the portal
+	// reporting "Working" instead of decaying to "Not listening" mid-task.
+	// A failure here costs a label, not the instruction, so it is not fatal.
+	turnCtx, turnCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	_ = session.HeartbeatTurn(turnCtx, "", "", &message.MessageID)
+	turnCancel()
 	return emitJSON(stdout, stderr, map[string]any{"status": "accepted", "message_id": message.MessageID})
 }
 

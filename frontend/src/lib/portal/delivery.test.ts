@@ -68,3 +68,34 @@ describe("optimistic sends", () => {
     assert.equal(reconcileOptimistic([optimistic], other).length, 1);
   });
 });
+
+describe("message_canceled", () => {
+  // A message accepted into the queue and then discarded because nothing ever
+  // claimed it used to read "Queued" for the rest of the session's life, so the
+  // operator never learned their instruction had been thrown away.
+  it("reports a message nothing ever picked up as not delivered", () => {
+    const sent = event("user_message", { message_id: "m1", text: "hi", delivery_status: "queued" });
+    const events = [sent, event("message_canceled", { message_id: "m1" })];
+    const index = deliveryIndex(events);
+    assert.equal(index.get("m1"), "canceled");
+    assert.equal(deliveryFor(sent, index), "canceled");
+  });
+
+  // Acceptance is the agent confirming it holds the work; a later cancel is
+  // reporting on a lease that was already honoured.
+  it("never downgrades an accepted message", () => {
+    const sent = event("user_message", { message_id: "m1", text: "hi", delivery_status: "queued" });
+    const events = [
+      sent,
+      event("message_accepted", { message_id: "m1" }),
+      event("message_canceled", { message_id: "m1" }),
+    ];
+    assert.equal(deliveryIndex(events).get("m1"), "delivered");
+  });
+
+  it("leaves other messages alone", () => {
+    const sent = event("user_message", { message_id: "m1", text: "hi", delivery_status: "queued" });
+    const events = [sent, event("message_canceled", { message_id: "m2" })];
+    assert.equal(deliveryFor(sent, deliveryIndex(events)), "queued");
+  });
+});

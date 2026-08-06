@@ -402,11 +402,16 @@ and messages are purged.
 `cxx` 0.7.5 registers interactive and human-started execute/resume lifecycles
 with the host credential. It retains the short-lived session bridge bearer and
 proxies a fixed command set over a private Unix socket, leaving only the socket
-path and session metadata in the child. The managed `#afk` Skill opens the relay
-before queuing its attention notice and uses `cxx portal wait` to lease portal
-text in the existing root session. `cxx portal accept` acknowledges only after
-the instruction reached the model; unacknowledged leases are redelivered in
-order. Claim retries carry one stable UUID, while event, acceptance, and
+path and session metadata in the child. The managed `#afk` Skill queues its
+attention notice and uses `cxx portal wait` to lease portal text in the existing
+root session. Only a live `wait` iteration opens the relay: `cxx portal notify`
+deliberately does not, because notifying is the last thing an agent does before
+its turn ends, and opening the relay there left the portal advertising
+`listening` — and accepting instructions nothing would ever claim — for a full
+relay window after the agent was gone. `cxx portal accept` acknowledges only
+after the instruction reached the model and stamps `active_turn_id` so the
+portal can report `working` while nothing is polling; `say`, `wait` and `leave`
+release it. Unacknowledged leases are redelivered in order. Claim retries carry one stable UUID, while event, acceptance, and
 terminal retries reuse their original idempotency boundary with a fresh request
 deadline. Replies and questions are deliberately published through `cxx portal
 say` and `cxx portal ask`; there is no raw PTY or hidden tool-output stream.
@@ -415,7 +420,12 @@ socket capability from the environment, finalizes the portal session, and only
 then runs post-session updater/auth work.
 This is a cooperative live-turn relay, not an out-of-band wake mechanism: once
 the engine process or model turn stops polling, `relay_ready` becomes false and
-the portal is read-only until a fresh eligible relay is active.
+the portal is read-only until a fresh eligible relay is active. Because that is
+true, the portal never claims otherwise and never leaves the operator without a
+next step: a session that cannot take a cooperative close is offered Force end
+directly, a notice on an ended session stops occupying "Needs you", and a
+message that was queued but never claimed is reported as undelivered rather than
+left reading "Queued" forever.
 
 The portal has no outbound push channel. It replaced one: every lifecycle event
 used to fan out as a chat message carrying a freshly rendered deep link, which

@@ -14,7 +14,7 @@ function event(type: string): EventRow {
 function agent(overrides: Partial<Agent> = {}): Agent {
   return {
     id: "a", engine: "codex", host: "crane", username: "chris", cwd: "/repo",
-    status: "active", presence: "listening", relay_ready: true,
+    status: "active", presence: "listening", relay_ready: true, active_turn_started_at: null,
     started_at: "2026-08-01T11:00:00.000Z", heartbeat_at: "2026-08-01T11:59:50.000Z",
     last_event_at: "2026-08-01T11:59:00.000Z", ended_at: null, expires_at: null,
     read_only: false, attention: null, close_requested_at: null, close: null, pending_prompt: null,

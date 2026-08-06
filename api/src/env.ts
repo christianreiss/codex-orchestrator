@@ -130,6 +130,21 @@ const schema = z
     AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
     AGENT_PORTAL_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
 
+    // The two windows that actually decide what the operator sees. They used to
+    // be hardcoded constants while the far coarser TTLs above were tunable,
+    // which was backwards.
+    //
+    // Heartbeat freshness answers "is the wrapper process alive": the Go ticker
+    // posts every 15s, so 45s tolerates two lost beats.
+    //
+    // Relay freshness answers "is a model turn polling right now". A live
+    // `#afk` loop refreshes on every `cxx portal wait` iteration: a <=25s park
+    // plus one model turn to re-invoke it, so real cadence is ~35s. 60s leaves
+    // room for a slow turn without claiming an agent is reachable long after
+    // its loop stopped.
+    AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS: intish(45).pipe(z.number().int().positive()),
+    AGENT_PORTAL_RELAY_FRESH_SECONDS: intish(60).pipe(z.number().int().positive()),
+
     // Cross-site origins (comma-separated) allowed to make credentialed CORS
     // requests against admin/host routes. Empty by default: those routes are
     // same-origin only. Does not affect /v1 and /anthropic/v1, which stay

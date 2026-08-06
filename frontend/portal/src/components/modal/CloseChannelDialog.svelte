@@ -8,12 +8,15 @@
     open = $bindable(false),
     mode = $bindable<"cooperative" | "force">("cooperative"),
     busy,
+    reason = "",
     onconfirm,
   }: {
     agent: Agent;
     open?: boolean;
     mode?: "cooperative" | "force";
     busy: boolean;
+    /** Why force mode was reached, when it was reached by escalation. */
+    reason?: string;
     onconfirm: (mode: "cooperative" | "force", note: string) => void;
   } = $props();
 
@@ -35,6 +38,12 @@
     </p>
 
     {#if mode === "force"}
+      {#if reason}
+        <p class="mt-4 rounded-lg border border-warning/25 bg-warning-muted px-3 py-2 text-body-sm
+                  text-warning-muted-foreground">
+          {reason}
+        </p>
+      {/if}
       <p class="mt-4 text-body-sm">
         The session ends immediately and becomes read-only. The agent gets no chance to wrap up, and its
         terminal is left exactly as it is.

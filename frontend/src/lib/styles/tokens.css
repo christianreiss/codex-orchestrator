@@ -48,7 +48,10 @@
   --info-foreground: 0 0% 100%;
   --info-muted: 214 75% 94%;
   --info-muted-foreground: 217 74% 30%;
-  --persona-codex: 201 90% 42%;
+  /* Both carry white text on the portal's engine avatar at 10-11px, so both
+     must clear 4.5:1 against white. Codex was 42% and measured 3.89:1 -- Axe
+     caught it against the live /go page. Claude at 46% is already 7.0:1. */
+  --persona-codex: 201 90% 38%;
   --persona-claude: 272 55% 46%;
   --border: 214 20% 85%;
   --input: 215 20% 45%;

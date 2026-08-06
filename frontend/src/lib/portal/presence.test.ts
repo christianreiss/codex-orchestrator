@@ -13,6 +13,7 @@ function agent(overrides: Partial<Agent> = {}): Agent {
   return {
     id: "a", engine: "codex", host: "crane", username: "chris", cwd: "/repo",
     status: "active", presence: "listening", relay_ready: true,
+    active_turn_started_at: null,
     started_at: "2026-08-01T11:00:00.000Z",
     heartbeat_at: "2026-08-01T11:59:50.000Z",
     last_event_at: "2026-08-01T11:59:00.000Z",
@@ -97,5 +98,86 @@ describe("groupAgents", () => {
   it("falls back to started_at when a session has no events", () => {
     const noEvents = agent({ id: "fresh", last_event_at: null });
     assert.doesNotThrow(() => groupAgents([noEvents], NOW));
+  });
+});
+
+describe("working", () => {
+  const working = (overrides: Partial<Agent> = {}) =>
+    agent({
+      presence: "working",
+      relay_ready: false,
+      active_turn_started_at: "2026-08-01T11:56:00.000Z",
+      ...overrides,
+    });
+
+  // Nothing polls the relay while the agent executes, so the relay is stale by
+  // design here. Refusing to send would reproduce the exact bug this state
+  // exists to fix: a busy agent advertised as "not listening".
+  it("stays sendable even though the relay is not ready", () => {
+    const view = presenceView(working(), NOW);
+    assert.equal(view.label, "Working");
+    assert.equal(view.canSend, true);
+  });
+
+  it("says how long the turn has been running", () => {
+    assert.match(presenceView(working(), NOW).detail, /4m/);
+  });
+
+  it("still reads the turn as running when the server sent no start time", () => {
+    const view = presenceView(working({ active_turn_started_at: null }), NOW);
+    assert.equal(view.canSend, true);
+    assert.doesNotMatch(view.detail, /NaN|null|undefined/);
+  });
+
+  // The heartbeat is the process, not the turn: if it stops, the agent is gone
+  // whatever it claimed to be doing.
+  it("is still downgraded to offline by a stale heartbeat", () => {
+    assert.equal(livePresence(working({ heartbeat_at: "2026-08-01T11:00:00.000Z" }), NOW), "offline");
+  });
+
+  it("gets its own group, ahead of listening", () => {
+    assert.equal(groupFor(working(), NOW), "working");
+    const groups = groupAgents([agent({ id: "idle-one", presence: "listening" }), working({ id: "busy" })], NOW);
+    assert.deepEqual(groups.map((g) => g.key), ["working", "listening"]);
+  });
+});
+
+describe("an ended session releases the attention slot", () => {
+  // A crashed agent used to hold the top of the list, unanswerable, for the
+  // whole retention window -- and the only thing that cleared it was an action
+  // the operator could no longer perform.
+  it("groups an ended session under ended even with an outstanding notice", () => {
+    const dead = agent({
+      presence: "ended",
+      ended_at: "2026-08-01T11:40:00.000Z",
+      attention: { since: "2026-08-01T11:30:00.000Z", summary: "Approve?" },
+    });
+    assert.equal(groupFor(dead, NOW), "ended");
+  });
+
+  // Still true for an agent that is merely unreachable: it may yet come back.
+  it("keeps an offline agent in Needs you", () => {
+    const offline = agent({
+      presence: "offline",
+      heartbeat_at: "2026-08-01T11:00:00.000Z",
+      attention: { since: "2026-08-01T11:30:00.000Z", summary: "Approve?" },
+    });
+    assert.equal(groupFor(offline, NOW), "attention");
+  });
+});
+
+describe("the ended sentence follows the served retention", () => {
+  it("reads the real expiry rather than a hardcoded 24 hours", () => {
+    const ending = agent({
+      presence: "ended",
+      ended_at: "2026-08-01T11:40:00.000Z",
+      expires_at: "2026-08-01T15:00:00.000Z",
+    });
+    assert.match(presenceView(ending, NOW).detail, /3 more hours/);
+  });
+
+  it("does not promise time it cannot confirm", () => {
+    const ending = agent({ presence: "ended", ended_at: "2026-08-01T11:40:00.000Z", expires_at: null });
+    assert.equal(presenceView(ending, NOW).detail, "Finished");
   });
 });

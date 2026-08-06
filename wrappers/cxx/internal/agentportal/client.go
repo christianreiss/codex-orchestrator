@@ -291,12 +291,30 @@ func (s *Session) StartHeartbeat(parent context.Context) func() {
 }
 
 func (s *Session) Heartbeat(ctx context.Context, status, relayAction string) error {
+	return s.HeartbeatTurn(ctx, status, relayAction, nil)
+}
+
+// HeartbeatTurn is Heartbeat plus the turn the agent is currently inside.
+//
+// Passing nil leaves active_turn_id untouched, which is what every liveness
+// beat wants. Passing a pointer sets it: a message ID while the agent executes
+// an instruction, or an empty string to report that it has come back. That is
+// the only signal separating "working on your instruction" from "stopped
+// polling"; without it the portal calls both of them "Not listening".
+func (s *Session) HeartbeatTurn(ctx context.Context, status, relayAction string, activeTurnID *string) error {
 	body := map[string]any{}
 	if strings.TrimSpace(status) != "" {
 		body["status"] = strings.TrimSpace(status)
 	}
 	if strings.TrimSpace(relayAction) != "" {
 		body["relay_action"] = strings.TrimSpace(relayAction)
+	}
+	if activeTurnID != nil {
+		if turn := strings.TrimSpace(*activeTurnID); turn != "" {
+			body["active_turn_id"] = turn
+		} else {
+			body["active_turn_id"] = nil
+		}
 	}
 	return s.bridgeJSON(ctx, http.MethodPost, "/host/agent-sessions/"+url.PathEscape(s.ID)+"/heartbeat", body, nil)
 }

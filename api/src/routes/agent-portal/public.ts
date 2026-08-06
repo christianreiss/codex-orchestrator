@@ -19,7 +19,7 @@ export async function registerAgentPortalPublicRoutes(
   app.get('/go/api/state', async (req, reply) => {
     assertPortalOrigin(req, ctx, false);
     portalHeaders(reply);
-    return ok({ enabled: await portal.isEnabled() });
+    return ok({ enabled: await portal.isEnabled(), timings: portal.timings() });
   });
 
   app.post('/go/api/auth/exchange', async (req, reply) => {

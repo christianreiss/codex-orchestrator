@@ -138,6 +138,17 @@ let notifyBroken = false;
 const lastNotifiedAt = new Map<string, number>();
 const NOTIFY_THROTTLE_MS = 30_000;
 
+/**
+ * Notified when the constructor turns out to be unusable at runtime -- on iOS
+ * it throws because notifications need a service worker registration. Without
+ * this the bell stayed lit and simply stopped doing anything.
+ */
+let onNotifyBroken: (() => void) | null = null;
+
+export function setNotifyBrokenHandler(fn: () => void): void {
+  onNotifyBroken = fn;
+}
+
 export function notificationPermission(): NotificationPermission | "unsupported" {
   if (notifyBroken || typeof Notification === "undefined") return "unsupported";
   return Notification.permission;
@@ -182,5 +193,6 @@ export function notify(event: EventRow, title: string, onClick: () => void, now:
     };
   } catch {
     notifyBroken = true;
+    onNotifyBroken?.();
   }
 }

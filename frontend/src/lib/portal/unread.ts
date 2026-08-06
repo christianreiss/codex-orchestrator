@@ -14,8 +14,17 @@ export type ReadRecord = Record<string, { cursor: number; at: string }>;
  * user_message. Counting progress would light up every session that is merely
  * working, which is the same "everything looks urgent" failure the redesign is
  * meant to remove.
+ *
+ * message_canceled is notable: it means something the operator sent was thrown
+ * away, which they will otherwise never learn.
  */
-const NOTABLE = new Set(["assistant_message", "attention", "waiting_input", "failed"]);
+const NOTABLE = new Set([
+  "assistant_message",
+  "attention",
+  "waiting_input",
+  "failed",
+  "message_canceled",
+]);
 
 export function notable(event: EventRow): boolean {
   return NOTABLE.has(event.type);

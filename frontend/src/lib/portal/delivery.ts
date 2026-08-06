@@ -1,12 +1,13 @@
 import type { EventRow } from "./types";
 
-export type Delivery = "sending" | "queued" | "delivered" | "failed";
+export type Delivery = "sending" | "queued" | "delivered" | "failed" | "canceled";
 
 export const DELIVERY_LABEL: Record<Delivery, string> = {
   sending: "Sending…",
   queued: "Queued",
   delivered: "Delivered",
   failed: "Not delivered",
+  canceled: "Not delivered — the agent never picked this up",
 };
 
 /**
@@ -14,13 +15,21 @@ export const DELIVERY_LABEL: Record<Delivery, string> = {
  * the API writes at enqueue time. Acceptance arrives later as a separate
  * message_accepted event naming the same message_id, so the state has to be
  * assembled across the timeline rather than read off one row.
+ *
+ * message_canceled closes the third case: a message that was accepted into the
+ * queue and then discarded because no agent ever claimed it. Without it such a
+ * message reads "Queued" for the rest of the session's life.
  */
 export function deliveryIndex(events: EventRow[]): Map<string, Delivery> {
   const index = new Map<string, Delivery>();
   for (const event of events) {
     const messageId = event.payload.message_id;
     if (typeof messageId !== "string") continue;
+    // Acceptance is final: the agent has it, and a later cancel of the same id
+    // would be reporting on a lease that was already honoured.
     if (event.type === "message_accepted") index.set(messageId, "delivered");
+    else if (index.get(messageId) === "delivered") continue;
+    else if (event.type === "message_canceled") index.set(messageId, "canceled");
     else if (event.type === "failed" && !index.has(messageId)) index.set(messageId, "failed");
   }
   return index;

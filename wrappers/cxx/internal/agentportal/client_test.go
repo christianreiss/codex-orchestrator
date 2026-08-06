@@ -260,7 +260,11 @@ func TestNotifyUsesPrivateBrokerAndServerDerivedSource(t *testing.T) {
 		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
-			if body["relay_action"] != "poll" {
+			// notify refreshes liveness but must NOT open the relay: it is the
+			// last thing an agent does before its turn ends, and claiming the
+			// relay here left the portal writable with nothing polling it.
+			// See TestNotifyDoesNotOpenTheRelay.
+			if _, ok := body["relay_action"]; ok {
 				t.Errorf("heartbeat body = %#v", body)
 			}
 		case strings.HasSuffix(r.URL.Path, "/events"):
@@ -344,7 +348,10 @@ func TestWaitRequiresExplicitModelAcceptance(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/heartbeat"):
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["relay_action"] != "poll" {
+			// Two shapes are legitimate here: the wait loop's poll, and the
+			// turn stamp `accept` sends once the model has taken the work.
+			_, turnBeat := body["active_turn_id"]
+			if body["relay_action"] != "poll" && !turnBeat {
 				t.Errorf("heartbeat body=%#v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true})

@@ -14,7 +14,7 @@ export type Engine = "codex" | "claude";
  * so it reads "active" for the life of the process whether or not the agent is
  * reachable.
  */
-export type Presence = "listening" | "idle" | "offline" | "ended";
+export type Presence = "listening" | "working" | "idle" | "offline" | "ended";
 
 /** Lifecycle of an operator close note, read off its queue row server-side. */
 export type CloseState = "pending" | "acknowledged" | "undeliverable";
@@ -42,6 +42,12 @@ export interface Agent {
   status: string;
   presence: Presence;
   relay_ready: boolean;
+  /**
+   * When the turn the agent is currently executing was accepted. Null unless
+   * presence is "working" — the server withholds it once the turn outlives its
+   * ceiling, so this never reports an age the label does not stand behind.
+   */
+  active_turn_started_at: string | null;
   started_at: string;
   heartbeat_at: string;
   last_event_at: string | null;
@@ -65,6 +71,7 @@ export type EventType =
   | "message_accepted"
   | "attention"
   | "close_requested"
+  | "message_canceled"
   | "failed"
   | "completed";
 

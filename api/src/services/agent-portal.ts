@@ -7,6 +7,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -52,8 +53,19 @@ export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
 export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
 export const AGENT_PORTAL_EVENT_TEXT_MAX_BYTES = 128 * 1024;
 export const AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS = 12;
-export const AGENT_PORTAL_RELAY_FRESH_SECONDS = 90;
-export const AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS = 45;
+/**
+ * How long an `active_turn_id` may stand before the session stops counting as
+ * `working`, expressed as a multiple of the relay window so there is one knob
+ * to reason about rather than a third constant.
+ *
+ * The ceiling exists because `active_turn_id` is sticky: it is stamped by
+ * `cxx portal accept` and cleared by `say`/`wait`/`leave`, so a model turn that
+ * dies mid-instruction leaves it set while the wrapper's 15s ticker keeps the
+ * heartbeat fresh. Without a bound that reads as "Working" -- and stays
+ * writable -- until the bridge TTL lapses, which is a worse lie than the one
+ * the relay window was tightened to remove.
+ */
+export const AGENT_PORTAL_WORKING_RELAY_MULTIPLE = 10;
 export const AGENT_PORTAL_CLOSE_NOTE_MAX_BYTES = 1000;
 export const AGENT_PORTAL_DEFAULT_CLOSE_NOTE = 'The operator closed this channel from the portal.';
 
@@ -68,6 +80,10 @@ export const AGENT_EVENT_TYPES = [
   'message_accepted',
   'attention',
   'close_requested',
+  // The operator's instruction was accepted into the queue and then discarded
+  // without any agent ever claiming it. Server-written only: an agent that is
+  // in a position to report this is by definition still polling.
+  'message_canceled',
   'failed',
   'completed',
 ] as const;
@@ -96,8 +112,15 @@ const LIVE_SESSION_STATE_SET = new Set<string>(LIVE_SESSION_STATES);
  *
  * `idle` is the state that was previously invisible: the wrapper is alive and
  * heartbeating, but no `#afk` relay is open, so instructions would be refused.
+ *
+ * `working` splits the case `idle` used to swallow. The relay loop is
+ * wait -> accept -> execute -> say -> wait, and nothing polls during execute,
+ * so a busy agent's relay heartbeat goes stale and it used to read "Not
+ * listening -- run #afk to open the relay" while it was doing exactly what it
+ * was asked. It is derived from `active_turn_id` and is bounded: see
+ * AGENT_PORTAL_WORKING_RELAY_MULTIPLE.
  */
-export const AGENT_PRESENCE_STATES = ['ended', 'offline', 'idle', 'listening'] as const;
+export const AGENT_PRESENCE_STATES = ['ended', 'offline', 'idle', 'listening', 'working'] as const;
 export type AgentPresence = (typeof AGENT_PRESENCE_STATES)[number];
 
 /**
@@ -209,6 +232,23 @@ export class AgentPortalService {
    */
   configured(): boolean {
     return Boolean(this.env.PUBLIC_BASE_URL?.trim());
+  }
+
+  /** Ceiling on how long an `active_turn_id` may stand. See the constant. */
+  private workingMaxSeconds(): number {
+    return this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * AGENT_PORTAL_WORKING_RELAY_MULTIPLE;
+  }
+
+  /**
+   * The freshness windows the browser needs to age presence between polls
+   * without duplicating the numbers. They used to be literals on both sides.
+   */
+  timings(): { heartbeat_fresh_seconds: number; relay_fresh_seconds: number; retention_hours: number } {
+    return {
+      heartbeat_fresh_seconds: this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
+      relay_fresh_seconds: this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS,
+      retention_hours: this.env.AGENT_PORTAL_RETENTION_HOURS,
+    };
   }
 
   async state(): Promise<Record<string, unknown>> {
@@ -682,6 +722,13 @@ export class AgentPortalService {
               AGENT_ATTENTION_CLEARING_EVENT_TYPES.map((type) => sql`${type}`),
               sql`, `,
             )}) THEN ${agentEvents.id} END)`,
+            // When the current turn began. `agent_sessions` records which turn
+            // is active but not when it started, and the acceptance event
+            // already carries that timestamp -- so the working ceiling needs no
+            // migration.
+            turnStartedId: sql<
+              number | null
+            >`MAX(CASE WHEN ${agentEvents.eventType} = 'message_accepted' THEN ${agentEvents.id} END)`,
           })
           .from(agentEvents)
           .where(inArray(agentEvents.sessionId, sessionIds))
@@ -694,11 +741,14 @@ export class AgentPortalService {
     // decoded in JS -- doing that for every event would be needless work.
     const statsBySession = new Map<string, (typeof eventStats)[number]>();
     const detailIds = new Set<number>();
+    const turnSessions = new Set(rows.filter((row) => row.session.activeTurnId).map((row) => row.session.id));
     for (const stat of eventStats) {
       statsBySession.set(stat.sessionId, stat);
       detailIds.add(Number(stat.lastId));
       const attentionId = Number(stat.attentionId ?? 0);
       if (attentionId > Number(stat.clearedId ?? 0)) detailIds.add(attentionId);
+      const turnStartedId = Number(stat.turnStartedId ?? 0);
+      if (turnStartedId && turnSessions.has(stat.sessionId)) detailIds.add(turnStartedId);
     }
     const detailRows = detailIds.size
       ? await this.db
@@ -728,29 +778,59 @@ export class AgentPortalService {
       if (!closeBySession.has(row.sessionId)) closeBySession.set(row.sessionId, row);
     }
 
-    const offlineBefore = Date.now() - AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
-    const relayBefore = Date.now() - AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
+    const offlineBefore = Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
+    const relayBefore = Date.now() - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
+    const workingBefore = Date.now() - this.workingMaxSeconds() * 1000;
     return rows.map(({ session, fqdn }) => {
       const heartbeat = parseIso(session.heartbeatAt)?.getTime() ?? 0;
       const heartbeatFresh = heartbeat >= offlineBefore;
       const effectiveStatus = LIVE_SESSION_STATE_SET.has(session.status) && !heartbeatFresh ? 'offline' : session.status;
       const relayHeartbeat = parseIso(session.relayHeartbeatAt ?? '')?.getTime() ?? 0;
       const relayReady = !session.endedAt && heartbeatFresh && session.relayEnabled === 1 && relayHeartbeat >= relayBefore;
-      const presence: AgentPresence = session.endedAt
-        ? 'ended'
-        : !heartbeatFresh
-          ? 'offline'
-          : relayReady
-            ? 'listening'
-            : 'idle';
 
       // A session with no events yet (registered, `server:started` not committed)
       // produces no aggregate row at all.
       const stats = statsBySession.get(session.id);
       const lastEvent = stats ? detailById.get(Number(stats.lastId)) : undefined;
+
+      // `working` is deliberately independent of relay freshness. The `#afk`
+      // loop is wait -> accept -> execute -> say -> wait, and nothing polls
+      // during execute -- so gating this on relayReady would report a genuinely
+      // busy agent as "Not listening", which is the ambiguity the state exists
+      // to remove. The ceiling is what keeps that honest: past it the turn is
+      // presumed dead and the session falls back through the normal ladder.
+      const turnStartedEvent = session.activeTurnId
+        ? detailById.get(Number(stats?.turnStartedId ?? 0))
+        : undefined;
+      const turnStartedAt = turnStartedEvent?.createdAt ?? null;
+      const turnStarted = parseIso(turnStartedAt ?? '')?.getTime() ?? 0;
+      // An unknown start time cannot be aged out, so treat it as expired rather
+      // than as a turn that has been running forever.
+      const working =
+        !session.endedAt && heartbeatFresh && Boolean(session.activeTurnId) && turnStarted >= workingBefore;
+
+      const presence: AgentPresence = session.endedAt
+        ? 'ended'
+        : !heartbeatFresh
+          ? 'offline'
+          : working
+            ? 'working'
+            : relayReady
+              ? 'listening'
+              : 'idle';
+
+      // An ended session cannot be answered, so its notice must stop counting
+      // as outstanding -- otherwise a crashed agent sits in "Needs you" for the
+      // whole retention window with no action that clears it. There is no
+      // cursor to write here: attention is derived from `attentionId >
+      // clearedId`, and manufacturing a `close_requested` event would invent an
+      // operator action that never happened. Gating the projection is the fix.
+      // The notice stays in the timeline; only the badge is released.
       const attentionId = Number(stats?.attentionId ?? 0);
       const attentionRow =
-        attentionId > Number(stats?.clearedId ?? 0) ? detailById.get(attentionId) : undefined;
+        !session.endedAt && attentionId > Number(stats?.clearedId ?? 0)
+          ? detailById.get(attentionId)
+          : undefined;
       const closeRow = closeBySession.get(session.id);
 
       return {
@@ -768,6 +848,7 @@ export class AgentPortalService {
         presence,
         relay_ready: relayReady,
         active_turn_id: session.activeTurnId,
+        active_turn_started_at: working ? turnStartedAt : null,
         started_at: session.startedAt,
         heartbeat_at: session.heartbeatAt,
         last_event_at: lastEvent?.createdAt ?? null,
@@ -922,7 +1003,7 @@ export class AgentPortalService {
         return raced;
       }
       this.assertLiveSession(session);
-      this.assertRelayReady(session);
+      await this.assertRelayReady(session, tx);
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
@@ -971,7 +1052,7 @@ export class AgentPortalService {
         return raced;
       }
       this.assertLiveSession(session);
-      this.assertRelayReady(session);
+      await this.assertRelayReady(session, tx);
       const prompts = await tx
         .select()
         .from(agentPrompts)
@@ -1058,7 +1139,7 @@ export class AgentPortalService {
         return { row: raced, requestedAt: session.closeRequestedAt ?? raced.createdAt };
       }
       this.assertLiveSession(session);
-      this.assertRelayReady(session);
+      await this.assertRelayReady(session, tx);
       await tx.insert(agentMessages).values({
         messageId,
         sessionId: input.sessionId,
@@ -1191,7 +1272,7 @@ export class AgentPortalService {
           bridgeToken,
           authenticated.hostId,
         );
-        this.assertRelayReady(session);
+        await this.assertRelayReady(session, tx);
         const now = nowIso();
         await tx
           .update(agentSessions)
@@ -1212,7 +1293,7 @@ export class AgentPortalService {
             .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
             .where(eq(agentMessages.id, row.id));
           await this.releaseUndeliveredAnswerPrompt(row, session, now, tx);
-          await this.announceUndeliveredClose(row, now, tx);
+          await this.announceUndelivered(row, now, tx);
           return 'retry';
         }
         if (
@@ -1240,7 +1321,7 @@ export class AgentPortalService {
             .set({ status: 'dead', lastError: 'maximum delivery attempts reached', leaseOwner: null, leaseUntil: null, updatedAt: now })
             .where(eq(agentMessages.id, row.id));
           await this.releaseUndeliveredAnswerPrompt(row, session, now, tx);
-          await this.announceUndeliveredClose(row, now, tx);
+          await this.announceUndelivered(row, now, tx);
           return 'retry';
         }
         const leaseUntil = isoOffsetSeconds(30);
@@ -1334,8 +1415,14 @@ export class AgentPortalService {
     return messageView(updated);
   }
 
-  async purgeExpired(): Promise<{ sessions: number; browser_sessions: number; abandoned_sessions: number }> {
+  async purgeExpired(): Promise<{
+    sessions: number;
+    browser_sessions: number;
+    abandoned_sessions: number;
+    stale_turns: number;
+  }> {
     const now = nowIso();
+    const staleTurns = await this.clearStaleTurns(now);
     const abandonedSessions = await this.expireAbandonedSessions(now);
     const expired = await this.db
       .select({ id: agentSessions.id })
@@ -1362,6 +1449,7 @@ export class AgentPortalService {
       sessions: ids.length,
       browser_sessions: Number(browser[0]?.value ?? 0),
       abandoned_sessions: abandonedSessions,
+      stale_turns: staleTurns,
     };
   }
 
@@ -1476,6 +1564,41 @@ export class AgentPortalService {
       return { row, payload: normalized.payload };
     });
     return eventView(result.row, result.payload);
+  }
+
+  /**
+   * Clears `active_turn_id` on live sessions whose turn has outlived the
+   * working ceiling. Presence already ignores a stale turn, but leaving the
+   * column set makes every later read re-derive the same answer and leaves the
+   * field lying in API output.
+   */
+  private async clearStaleTurns(now: string): Promise<number> {
+    const cutoff = isoOffsetSeconds(-this.workingMaxSeconds());
+    const candidates = await this.db
+      .select({ id: agentSessions.id })
+      .from(agentSessions)
+      .where(and(isNull(agentSessions.endedAt), isNotNull(agentSessions.activeTurnId)))
+      // Each candidate costs a lookup and possibly an update, so this is
+      // bounded per tick at the same 100 as expireAbandonedSessions below.
+      // Anything left over is picked up on the next sweep.
+      .limit(100);
+    let cleared = 0;
+    for (const candidate of candidates) {
+      const rows = await this.db
+        .select({ createdAt: agentEvents.createdAt })
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, candidate.id), eq(agentEvents.eventType, 'message_accepted')))
+        .orderBy(desc(agentEvents.id))
+        .limit(1);
+      const startedAt = rows[0]?.createdAt ?? '';
+      if (startedAt && startedAt > cutoff) continue;
+      await this.db
+        .update(agentSessions)
+        .set({ activeTurnId: null, updatedAt: now })
+        .where(and(eq(agentSessions.id, candidate.id), isNull(agentSessions.endedAt)));
+      cleared += 1;
+    }
+    return cleared;
   }
 
   private async expireAbandonedSessions(now: string): Promise<number> {
@@ -1676,19 +1799,44 @@ export class AgentPortalService {
     }
   }
 
-  private assertRelayReady(session: AgentSession): void {
+  /**
+   * Whether the session is inside a turn it accepted and has not reported back
+   * from. Read from the acceptance event because `agent_sessions` records which
+   * turn is active but not when it began, and an unbounded `active_turn_id`
+   * would hold the channel writable long after a dead turn stopped polling.
+   */
+  private async isWorking(session: AgentSession, db: AgentPortalDb = this.db): Promise<boolean> {
+    if (!session.activeTurnId || session.endedAt) return false;
+    const rows = await db
+      .select({ createdAt: agentEvents.createdAt })
+      .from(agentEvents)
+      .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.eventType, 'message_accepted')))
+      .orderBy(desc(agentEvents.id))
+      .limit(1);
+    const startedAt = parseIso(rows[0]?.createdAt ?? '')?.getTime() ?? 0;
+    return startedAt >= Date.now() - this.workingMaxSeconds() * 1000;
+  }
+
+  private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db): Promise<void> {
     const heartbeat = parseIso(session.heartbeatAt)?.getTime() ?? 0;
     const relayHeartbeat = parseIso(session.relayHeartbeatAt ?? '')?.getTime() ?? 0;
-    if (
-      heartbeat < Date.now() - AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000 ||
-      session.relayEnabled !== 1 ||
-      relayHeartbeat < Date.now() - AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000
-    ) {
-      throw new ConflictError(
-        'Agent is visible but is not currently accepting portal instructions',
-        'agent_relay_unavailable',
-      );
-    }
+    const heartbeatFresh = heartbeat >= Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
+    const relayFresh =
+      session.relayEnabled === 1 &&
+      relayHeartbeat >= Date.now() - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000;
+    if (heartbeatFresh && relayFresh) return;
+    // An agent mid-turn stops polling while it executes, so a strict relay check
+    // would refuse an instruction the agent is about to come back and claim.
+    // Holding it is safe in both directions: the `#afk` loop always returns to
+    // `wait`, and if it never does the message is reported undelivered rather
+    // than discarded.
+    if (heartbeatFresh && (await this.isWorking(session, db))) return;
+    throw new ConflictError(
+      heartbeatFresh
+        ? 'Agent is visible but is not currently accepting portal instructions'
+        : 'Agent has stopped reporting and cannot be reached. End the session to close this channel.',
+      'agent_relay_unavailable',
+    );
   }
 
   private async requireBridgeSessionLocked(
@@ -1923,10 +2071,17 @@ export class AgentPortalService {
         eq(agentMessages.kind, 'answer'),
         inArray(agentMessages.status, ['queued', 'leased']),
       ));
+    // Read before the bulk cancel: afterwards these rows no longer match, and
+    // each one owes the operator an explanation that it was thrown away.
+    const doomed = await db
+      .select()
+      .from(agentMessages)
+      .where(and(cancelable, inArray(agentMessages.kind, ['message', 'close'])));
     await db
       .update(agentMessages)
       .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
       .where(cancelable);
+    for (const row of doomed) await this.announceUndelivered(row, now, db);
     await db
       .update(agentPrompts)
       .set({ status: 'expired', expiresAt: now, version: sql`${agentPrompts.version} + 1` })
@@ -2012,19 +2167,44 @@ export class AgentPortalService {
    * attention notice: listAgents derives the badge from event cursors, so this
    * lights the session up in the portal with no new state and no client work.
    */
-  private async announceUndeliveredClose(
+  /**
+   * Tells the operator that a queued message died undelivered.
+   *
+   * `close` and `answer` have always announced themselves; a plain `message`
+   * announced nothing, so an instruction that no agent ever claimed was
+   * discarded in silence with the timeline still rendering "Queued" against it
+   * forever. `answer` stays with releaseUndeliveredAnswerPrompt, which reopens
+   * the prompt rather than writing an event.
+   */
+  private async announceUndelivered(
     message: AgentMessage,
     now: string,
     db: AgentPortalDb,
   ): Promise<void> {
-    if (message.kind !== 'close') return;
-    const payload = normalizeEvent('attention', {
-      summary: 'The close request could not be delivered to this agent. Use Force end to close the channel.',
+    if (message.kind === 'close') {
+      const payload = normalizeEvent('attention', {
+        summary: 'The close request could not be delivered to this agent. Use Force end to close the channel.',
+      }).payload;
+      await db.insert(agentEvents).values({
+        sessionId: message.sessionId,
+        clientEventId: `server:close-dead:${message.messageId}`,
+        eventType: 'attention',
+        source: 'portal',
+        payloadEnc: this.encodeJson(payload),
+        createdAt: now,
+      });
+      return;
+    }
+    if (message.kind !== 'message') return;
+    const payload = normalizeEvent('message_canceled', {
+      message_id: message.messageId,
+      summary: 'The agent never picked this up. It was not delivered.',
+      delivery_status: 'canceled',
     }).payload;
     await db.insert(agentEvents).values({
       sessionId: message.sessionId,
-      clientEventId: `server:close-dead:${message.messageId}`,
-      eventType: 'attention',
+      clientEventId: `server:message-dead:${message.messageId}`,
+      eventType: 'message_canceled',
       source: 'portal',
       payloadEnc: this.encodeJson(payload),
       createdAt: now,

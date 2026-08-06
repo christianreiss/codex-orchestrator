@@ -293,7 +293,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx update")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run]")
-	fmt.Fprintln(w, "  cxx portal [status|notify|say|ask|wait]")
+	fmt.Fprintln(w, "  cxx portal [status|notify|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")

@@ -9,7 +9,7 @@
     outstanding,
     now,
     onreply,
-  }: { event: EventRow; outstanding: boolean; now: number; onreply: () => void } = $props();
+  }: { event: EventRow; outstanding: boolean; now: number; onreply: (option?: string) => void } = $props();
 </script>
 
 {#if outstanding}
@@ -35,7 +35,7 @@
       type="button"
       class="mt-3 rounded-md bg-destructive px-3 py-1.5 text-caption font-semibold text-destructive-foreground
              transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onclick={onreply}
+      onclick={() => onreply()}
     >Reply</button>
   </article>
 {:else}

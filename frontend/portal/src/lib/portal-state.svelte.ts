@@ -1,14 +1,23 @@
 import type { Agent, EventRow, Phase, PortalUser } from "$lib/portal/types";
-import { livePresence } from "$lib/portal/presence";
+import { livePresence, setHeartbeatFreshMs } from "$lib/portal/presence";
 import { notable, parseReadRecord, pruneReadRecord, PREFS_KEY, READ_KEY, shouldAdvanceRead, type ReadRecord } from "$lib/portal/unread";
 import { optimisticEvent, reconcileOptimistic } from "$lib/portal/delivery";
+import {
+  announcementFor,
+  closeOutcome,
+  closeReasonFor,
+  describeFailure as describeFailureText,
+  sendFailureMessage,
+  threadHash,
+  threadIdFromHash,
+} from "$lib/portal/outcomes";
 import * as api from "./api";
 import { ApiFailure } from "./api";
 import { notify } from "./browser";
 
 /** Only these can change server-derived agent state, so only these refetch. */
 const AGENT_STATE_EVENTS = new Set([
-  "attention", "waiting_input", "close_requested",
+  "attention", "waiting_input", "close_requested", "message_canceled",
   "completed", "failed", "message_accepted", "started", "resumed",
 ]);
 
@@ -37,6 +46,15 @@ export function createPortal() {
   let connected = $state(false);
   let sending = $state(false);
   let closing = $state(false);
+  /**
+   * Lives here rather than inside Composer so it survives the component being
+   * swapped out. A presence flip used to destroy whatever was being typed.
+   */
+  let draft = $state("");
+  /** Why the close dialog reopened in force mode, if it did. */
+  let closeReason = $state("");
+  /** The single polite live region's text. */
+  let announcement = $state("");
   /** Ticks so "waiting 4m" and the stale-heartbeat downgrade stay truthful. */
   let now = $state(Date.now());
   let atBottom = $state(true);
@@ -113,9 +131,12 @@ export function createPortal() {
     agents = result.agents;
     readRecord = pruneReadRecord(readRecord, agents.map((agent) => agent.id));
     if (!selectedId || !agents.some((agent) => agent.id === selectedId)) {
+      // A URL is an explicit request and outranks the remembered preference.
+      const linked = agents.find((agent) => agent.id === threadFromHash());
       const preferred = agents.find((agent) => agent.id === prefs.selectedId);
       const firstLive = agents.find((agent) => agent.presence !== "ended");
-      selectedId = preferred?.id ?? firstLive?.id ?? agents[0]?.id ?? "";
+      selectedId = linked?.id ?? preferred?.id ?? firstLive?.id ?? agents[0]?.id ?? "";
+      if (selectedId) writeThreadHash(selectedId);
     }
   }
 
@@ -158,6 +179,10 @@ export function createPortal() {
     if (id === selectedId) return;
     selectedId = id;
     timeline = [];
+    // Per-thread, so switching conversations does not carry an unsent reply to
+    // the wrong agent.
+    draft = "";
+    writeThreadHash(id);
     prefs = { ...prefs, selectedId: id };
     persistPrefs();
     unreadCounts = { ...unreadCounts, [id]: 0 };
@@ -195,9 +220,12 @@ export function createPortal() {
       unreadCounts = { ...unreadCounts, [event.session_id]: (unreadCounts[event.session_id] ?? 0) + 1 };
     }
 
-    if (live && notable(event) && prefs.notify) {
+    if (live && notable(event)) {
       const label = agent ? `${agent.engine === "codex" ? "Codex" : "Claude"} · ${agent.host}` : "Fleet agents";
-      notify(event, label, () => void select(event.session_id), Date.now());
+      if (prefs.notify) notify(event, label, () => void select(event.session_id), Date.now());
+      // Announced rather than only drawn: a timeline that grows in place tells
+      // a screen reader nothing.
+      announcement = announcementFor(event.type, label);
     }
     if (AGENT_STATE_EVENTS.has(event.type)) scheduleAgentsRefresh();
   }
@@ -259,6 +287,9 @@ export function createPortal() {
 
   /* ── writes ────────────────────────────────────────────────────────────── */
 
+  const describeFailure = (failure: ApiFailure, fallback: string): string =>
+    describeFailureText(failure, fallback, failure instanceof ApiFailure);
+
   function applyFailure(failure: ApiFailure, fallback: string): void {
     if (failure.code === "agent_portal_disabled") {
       stream?.close();
@@ -267,14 +298,14 @@ export function createPortal() {
       stream?.close();
       phase = "login";
     } else {
-      error = failure.message || fallback;
+      error = describeFailure(failure, fallback);
     }
   }
 
-  async function send(text: string): Promise<void> {
+  async function send(text: string): Promise<boolean> {
     const agent = selected;
     const content = text.trim();
-    if (!agent || sending || !content) return;
+    if (!agent || sending || !content) return false;
     sending = true;
     error = "";
     const clientMessageId = crypto.randomUUID();
@@ -288,34 +319,49 @@ export function createPortal() {
         await api.sendMessage(agent.id, clientMessageId, content);
       }
       markSelectedRead();
+      draft = "";
+      return true;
     } catch (reason) {
       const failure = reason as ApiFailure;
       timeline = timeline.filter((row) => row !== placeholder);
-      error =
-        failure.code === "already_answered"
-          ? "Another user already answered this prompt."
-          : failure.code === "agent_relay_unavailable"
-            ? "This agent stopped accepting instructions before the message was queued."
-            : failure.message;
+      // Hand the text back. Losing the bubble AND the textarea left the
+      // operator with a banner and nothing to retry, so the only recovery was
+      // retyping from memory.
+      draft = content;
+      error = sendFailureMessage(failure, failure instanceof ApiFailure);
+      announcement = "Message not sent.";
+      return false;
     } finally {
       sending = false;
       await refreshAgentsSafe();
     }
   }
 
-  async function requestClose(note: string): Promise<void> {
+  /**
+   * Resolves to "unreachable" when the agent cannot take a cooperative close,
+   * so the caller can escalate instead of dead-ending on an error banner.
+   */
+  async function requestClose(note: string): Promise<"closed" | "unreachable" | "failed"> {
     const agent = selected;
-    if (!agent || closing) return;
+    if (!agent || closing) return "failed";
     closing = true;
     error = "";
+    closeReason = "";
     try {
       const result = await api.closeAgent(agent.id, crypto.randomUUID(), note);
       // Applied from the response so the closing bar appears immediately
       // instead of waiting out the debounced refresh.
       agent.close_requested_at = result.close_requested_at;
       agent.close = result.close;
+      return "closed";
     } catch (reason) {
-      applyFailure(reason as ApiFailure, "The close request could not be sent.");
+      const failure = reason as ApiFailure;
+      if (closeOutcome(failure) === "unreachable") {
+        closeReason = closeReasonFor(failure);
+        return "unreachable";
+      }
+      applyFailure(failure, "The close request could not be sent.");
+      return "failed";
     } finally {
       closing = false;
       await refreshAgentsSafe();
@@ -350,9 +396,25 @@ export function createPortal() {
     if (atBottom) markSelectedRead();
   }
 
+  const threadFromHash = () => threadIdFromHash(location.hash);
+
+  function writeThreadHash(id: string): void {
+    const next = threadHash(id) || location.pathname + location.search;
+    if (location.hash === next) return;
+    history.replaceState(history.state, "", next);
+  }
+
   async function bootstrap(): Promise<void> {
     loadStorage();
     try {
+      // Served rather than duplicated: the browser ages a stale heartbeat
+      // itself, and it used to do that against a literal typed on both sides.
+      try {
+        const state = await api.fetchState();
+        setHeartbeatFreshMs(state.timings?.heartbeat_fresh_seconds);
+      } catch {
+        // Non-fatal: the built-in fallback window is still correct by default.
+      }
       const token = new URLSearchParams(location.hash.slice(1)).get("t");
       const match = /^\/go\/u\/([^/]+)\/?$/.exec(location.pathname);
       const publicId = match ? decodeURIComponent(match[1]!) : null;
@@ -403,6 +465,10 @@ export function createPortal() {
     get connected() { return connected; },
     get sending() { return sending; },
     get closing() { return closing; },
+    get draft() { return draft; },
+    set draft(value: string) { draft = value; },
+    get closeReason() { return closeReason; },
+    get announcement() { return announcement; },
     get now() { return now; },
     get atBottom() { return atBottom; },
     get missed() { return missed; },

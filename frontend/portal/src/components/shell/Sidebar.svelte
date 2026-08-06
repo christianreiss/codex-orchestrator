@@ -5,7 +5,11 @@
   import LogOutIcon from "@lucide/svelte/icons/log-out";
   import { GROUP_LABEL, groupAgents } from "$lib/portal/presence";
   import type { Portal } from "../../lib/portal-state.svelte";
-  import { notificationPermission, requestNotificationPermission } from "../../lib/browser";
+  import {
+    notificationPermission,
+    requestNotificationPermission,
+    setNotifyBrokenHandler,
+  } from "../../lib/browser";
   import ChatListItem from "./ChatListItem.svelte";
 
   let { portal, onselect }: { portal: Portal; onselect: (id: string) => void } = $props();
@@ -13,6 +17,23 @@
   const groups = $derived(groupAgents(portal.agents, portal.now));
   const flat = $derived(groups.flatMap((group) => (group.key === "ended" && !portal.prefs.endedOpen ? [] : group.agents)));
   let permission = $state(notificationPermission());
+
+  // Some browsers only reveal that notifications are unusable when the first
+  // one is constructed. Reflect that instead of leaving the bell lit and inert.
+  setNotifyBrokenHandler(() => {
+    permission = "unsupported";
+    portal.setPrefs({ notify: false });
+  });
+
+  const bellLabel = $derived(
+    permission === "denied"
+      ? "Notifications are blocked in your browser settings"
+      : permission === "unsupported"
+        ? "This browser cannot show notifications"
+        : portal.prefs.notify
+          ? "Turn off notifications"
+          : "Notify me when I am needed",
+  );
 
   async function toggleNotify() {
     if (portal.prefs.notify) {
@@ -70,10 +91,8 @@
       onclick={toggleNotify}
       disabled={permission === "denied" || permission === "unsupported"}
       aria-pressed={portal.prefs.notify}
-      aria-label={permission === "denied"
-        ? "Notifications are blocked in your browser settings"
-        : portal.prefs.notify ? "Turn off notifications" : "Notify me when I am needed"}
-      title={permission === "denied" ? "Blocked in browser settings" : "Notify me when I am needed"}
+      aria-label={bellLabel}
+      title={bellLabel}
     >
       {#if portal.prefs.notify}<BellIcon class="h-4 w-4" />{:else}<BellOffIcon class="h-4 w-4" />{/if}
     </button>

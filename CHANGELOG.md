@@ -1,5 +1,66 @@
 # 2026-08-06
 
+- **The Agent Portal told the operator an agent was listening for 90 seconds after it was gone.**
+  `cxx portal notify` opened the instruction relay before publishing its notice, on the reasoning
+  that a notice you cannot answer is worse than none. But notifying is the last thing an agent does
+  before its turn ends, so the portal spent a full relay window reporting `listening` with
+  `relay_ready: true` against a session with nothing polling it — composer enabled, message
+  accepted, `user_message` written, and nothing on earth going to claim it. Worse, that
+  `user_message` is an attention-clearing event, so the operator's undeliverable reply cleared its
+  own "Needs you" badge and the item quietly left the top of the list having achieved nothing. Only
+  a live `cxx portal wait` iteration opens the relay now; it re-asserts `relay_action=poll` every
+  pass, so the working path is unchanged and the state means what it says.
+- **Force end was unreachable on exactly the sessions that needed it.** The header's close button
+  always tried the cooperative close, which asserts a live relay — so against a dead agent it threw
+  409. "Force end" rendered only inside the closing bar, and the closing bar mounts only once a
+  cooperative close has succeeded. The escalation existed, was correct, and no reachable path
+  called it: an operator with a crashed agent could not end the session from the UI at all. The
+  header now picks the mode from live presence, and a close refused mid-flight reopens in force
+  with the reason instead of dead-ending on a banner.
+- **A crashed agent held "Needs you" for the full 24-hour retention window.** Attention is derived
+  from event cursors, and the only clearing events are the operator's own — neither of which can be
+  sent to an agent that is gone. `listAgents` no longer projects attention for a session that has
+  ended. The notice stays in the timeline, where it is history; it stops occupying a slot that
+  implies an action nobody can take.
+- **A message nobody claimed was discarded in silence.** `close` announced itself when undeliverable
+  and `answer` reopened its prompt, but a plain `message` had no equivalent — it was cancelled at
+  session end and the timeline went on rendering "Queued" against it forever. Cancelling now writes
+  a `message_canceled` event through the same helper, and the portal reads it as "Not delivered —
+  the agent never picked this up".
+- **"Is it working?" had no answer at all.** `active_turn_id` was a real column, accepted by the
+  heartbeat route and applied by the service, that no `cxx portal` subcommand ever set. So `idle`
+  — labelled "Not listening" — covered three unrelated situations, including the damaging one: the
+  relay loop is wait → accept → execute → say → wait, nothing polls during execute, and after 90
+  seconds of honest work a busy agent advised the operator to "run #afk to open the relay". `accept`
+  now claims the turn and `say`/`wait`/`leave` release it, presence gained `working`, and it is
+  deliberately independent of relay freshness — gating it on the relay would reproduce the bug it
+  exists to fix. It is bounded at ten times the relay window so a turn that dies between accept and
+  say cannot hold the channel open on a sticky column; the purge sweep clears the remains.
+- **The two freshness windows that drive the UI were hardcoded while the coarse TTLs were tunable.**
+  `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS` and `AGENT_PORTAL_RELAY_FRESH_SECONDS` are env now, the
+  relay default drops 90 → 60 (a live loop refreshes every ~35s: a ≤25s park plus one model turn),
+  and `GET /go/api/state` serves both so the browser stops duplicating the literal.
+- **Portal UX, the things that lost work.** The composer was replaced outright by an explanatory
+  sentence when presence flipped, destroying whatever was being typed; a failed send deleted both
+  the optimistic bubble and the textarea, leaving a banner and nothing to retry. The draft now lives
+  in the store, survives both, and is handed back on failure. Prompt option buttons called
+  `onanswer` with no argument — clicking "Yes" focused an empty textarea and did not even prefill
+  the word — and now send the option. Added: request timeouts (a hung POST disabled the send button
+  until reload), the error banner moved outside `{#if agent}` (a failing agent list on an empty
+  fleet was swallowed entirely), an `aria-live` region (nothing announced), `/go#/a/<id>` deep
+  links, the real `expires_at` instead of two hardcoded "24 hours", and a Retry on the `login` and
+  `disabled` dead ends.
+- **`--persona-codex` shipped white text at 3.89:1.** Axe found it against the live `/go` page: the
+  engine avatar puts white on it at 10–11px, well under the 4.5:1 floor. Dropped 42% → 38% (4.62:1);
+  claude was already 7.0:1. The contrast test never covered the persona tokens, which is why it
+  slipped — it does now.
+- **The portal had no browser coverage and its store had no tests.** `portal-state.svelte.ts` is
+  written in runes, which `node --test` cannot execute, so 435 lines containing every write path
+  were untested; its decisions now live in `$lib/portal/outcomes.ts` beside the other pure helpers,
+  where the existing suite reaches them. Playwright gained a second project for `/go` — the first
+  end-to-end coverage of the escalation path, draft retention, prompt options, `working`, and Axe.
+  Eleven integration cases pin the lifecycle against a real database, and five Go cases pin the CLI
+  contract; two existing Go assertions that had pinned the notify relay-open were updated.
 - **Every long poll in the fleet answered immediately and called it a timeout.** `cxx portal wait
   --seconds 20` returned `idle` in 0.11 s against live crane. The four loops that hold a portal or
   bus poll open all guarded on `req.raw.destroyed` to notice a client hanging up, and that is not

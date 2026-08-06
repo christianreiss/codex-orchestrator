@@ -10,15 +10,40 @@ export class ApiFailure extends Error {
   }
 }
 
+/**
+ * Nothing here may hang forever. Without a deadline a stalled POST left
+ * `sending` true for the life of the page: the send button stayed disabled and
+ * a reload was the only way out.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
+
 async function api<T = Record<string, unknown>>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, credentials: "same-origin", signal: controller.signal });
+  } catch (reason) {
+    if ((reason as Error)?.name === "AbortError") {
+      throw new ApiFailure("The portal did not respond in time. Try again.", "portal_timeout");
+    }
+    throw reason;
+  } finally {
+    clearTimeout(timer);
+  }
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok || body.status === "error") {
+    // statusText is empty under HTTP/2, which used to render as a blank
+    // paragraph under "Portal unavailable".
+    const message =
+      (typeof body.message === "string" && body.message.trim()) ||
+      response.statusText.trim() ||
+      `The portal returned an error (HTTP ${response.status}).`;
     throw new ApiFailure(
-      typeof body.message === "string" ? body.message : response.statusText,
+      message,
       typeof body.code === "string" ? body.code : undefined,
       response.status,
     );
@@ -47,6 +72,16 @@ const agentPath = (id: string) => `/go/api/agents/${encodeURIComponent(id)}`;
 
 export const exchangeMagicLink = (publicId: string, token: string) =>
   api("/go/api/auth/exchange", json({ public_id: publicId, token }));
+
+export interface PortalTimings {
+  heartbeat_fresh_seconds: number;
+  relay_fresh_seconds: number;
+  retention_hours: number;
+}
+
+/** Serves the freshness windows so the browser stops hardcoding them. */
+export const fetchState = () =>
+  api<{ enabled: boolean; timings?: PortalTimings }>("/go/api/state");
 
 export const fetchMe = () => api<{ user: PortalUser }>("/go/api/me");
 

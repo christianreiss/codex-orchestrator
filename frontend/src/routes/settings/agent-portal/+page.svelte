@@ -250,7 +250,9 @@
 
             {#if links[portalUser.id]}
               <div class="space-y-2 rounded-md border border-success/25 bg-success-muted p-3">
-                <p class="text-xs font-medium">Permanent portal link — bookmark it, or add it to your phone's home screen</p>
+                <!-- Not "add to home screen": the portal ships no manifest or
+                     service worker, so it has no standalone or offline mode. -->
+                <p class="text-xs font-medium">Permanent portal link — bookmark it on every device that needs it</p>
                 <!-- rel=noreferrer keeps the token fragment out of any downstream Referer. -->
                 <a
                   class="block break-all text-xs underline underline-offset-2"

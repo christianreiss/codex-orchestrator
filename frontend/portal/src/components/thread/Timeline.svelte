@@ -15,7 +15,12 @@
   import StatusRun from "./StatusRun.svelte";
   import CloseNotice from "./CloseNotice.svelte";
 
-  let { portal, agent, onreply }: { portal: Portal; agent: Agent; onreply: () => void } = $props();
+  let { portal, agent, onreply }: {
+    portal: Portal;
+    agent: Agent;
+    /** An option answers directly; no option means focus the composer. */
+    onreply: (option?: string) => void;
+  } = $props();
 
   let scroller = $state<HTMLElement | null>(null);
   const items = $derived(buildTimeline(portal.timeline));

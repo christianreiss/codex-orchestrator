@@ -3,7 +3,12 @@
   import { eventText } from "$lib/portal/grouping";
   import { clockTime } from "../../lib/browser";
 
-  let { event, active, onanswer }: { event: EventRow; active: boolean; onanswer: () => void } = $props();
+  let { event, active, onanswer }: {
+    event: EventRow;
+    active: boolean;
+    /** With an option, that option IS the answer. Without one, focus the box. */
+    onanswer: (option?: string) => void;
+  } = $props();
 
   const options = $derived(Array.isArray(event.payload.options) ? (event.payload.options as string[]) : []);
 </script>
@@ -24,7 +29,7 @@
           type="button"
           class="rounded-md border border-border bg-background px-2.5 py-1 text-caption transition
                  hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onclick={onanswer}
+          onclick={() => onanswer(option)}
         >{option}</button>
       {/each}
     </div>

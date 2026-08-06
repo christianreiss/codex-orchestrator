@@ -8,6 +8,12 @@ import portalTailwind from "./tailwind.portal.config";
 export default defineConfig({
   root: resolve(import.meta.dirname, "portal"),
   base: "/go/",
+  // Its own dep cache. Both apps live in this package, so the default
+  // node_modules/.vite is shared -- and a portal dev server starting beside the
+  // admin one re-optimizes that directory out from under it, which breaks the
+  // running admin app rather than the portal. They only ever run together under
+  // Playwright, which is where this surfaced.
+  cacheDir: resolve(import.meta.dirname, "node_modules/.vite-portal"),
   plugins: [svelte()],
   // Lets portal code import the shared tokens, the reused ui/* components and
   // the tested pure helpers under src/lib/portal without a SvelteKit runtime.

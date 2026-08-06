@@ -52,6 +52,22 @@ describe("neutral theme contrast", () => {
   it("keeps the portal's media-query dark block identical to .dark", () => {
     assert.deepEqual(autoDarkBlock, darkBlock);
   });
+  /**
+   * The portal's engine avatar puts white on these at 10-11px, and neither was
+   * covered here -- so `--persona-codex` shipped at 3.89:1 until Axe caught it
+   * against the live /go page. Small white-on-brand text is exactly the case
+   * that needs a floor.
+   */
+  it("keeps white legible on both persona colours", () => {
+    for (const persona of ["persona-codex", "persona-claude"]) {
+      const value = light[persona];
+      assert.ok(value, `missing --${persona}`);
+      assert.ok(
+        contrast(value, "0 0% 100%") >= 4.5,
+        `${persona} carries white text on the portal avatar and must clear 4.5:1`,
+      );
+    }
+  });
   it("keeps navigation labels readable on its dark rail in every mode", () => {
     assert.ok(contrast(sidebar["muted-foreground"]!, sidebar["sidebar-bg"]!) >= 4.5, "sidebar muted label contrast");
     assert.ok(contrast(sidebar["sidebar-fg"]!, sidebar.card!) >= 4.5, "sidebar account contrast");

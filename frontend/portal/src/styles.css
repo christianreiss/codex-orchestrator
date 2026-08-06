@@ -167,6 +167,23 @@
 @media (prefers-reduced-motion: no-preference) {
   .presence-dot--listening::after { animation: presence-breathe 2.4s ease-in-out infinite; }
 }
+/* Half-filled: inside a turn. Distinct from listening by shape, not just hue,
+   so the two live states never depend on colour alone to be told apart. */
+.presence-dot--working {
+  background: hsl(var(--success) / .25);
+  border: 1.5px solid hsl(var(--success));
+  overflow: hidden;
+}
+.presence-dot--working::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: hsl(var(--success));
+  clip-path: inset(0 0 0 50%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .presence-dot--working::after { animation: presence-sweep 1.8s linear infinite; }
+}
 /* Hollow ring: alive, but nothing is listening. */
 .presence-dot--idle {
   background: transparent;
@@ -194,6 +211,12 @@
 @keyframes presence-breathe {
   0%, 100% { opacity: .9; transform: scale(1); }
   50%      { opacity: .35; transform: scale(1.35); }
+}
+
+@keyframes presence-sweep {
+  0%   { clip-path: inset(0 0 0 0); }
+  50%  { clip-path: inset(0 0 0 100%); }
+  100% { clip-path: inset(0 0 0 0); }
 }
 
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }

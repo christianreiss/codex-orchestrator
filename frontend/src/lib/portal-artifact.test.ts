@@ -40,7 +40,7 @@ describe("committed agent portal bundle", () => {
   /**
    * Tailwind tree-shakes rules inside `@layer components` whose class name
    * never appears literally in the scanned source. The presence modifiers are
-   * applied as `presence-dot--{presence}`, so inside the layer all four were
+   * applied as `presence-dot--{presence}`, so inside the layer all of them were
    * dropped from the bundle and every agent rendered the same grey dot -- the
    * exact bug the presence work exists to fix, reintroduced silently at build
    * time. They now live outside the layer; this keeps them there.
@@ -50,7 +50,7 @@ describe("committed agent portal bundle", () => {
       .filter((name) => name.endsWith(".css"))
       .map((name) => readFileSync(resolve(GO, "assets", name), "utf8"))
       .join("\n");
-    for (const state of ["listening", "idle", "offline", "ended"]) {
+    for (const state of ["listening", "working", "idle", "offline", "ended"]) {
       assert.ok(
         css.includes(`.presence-dot--${state}`),
         `.presence-dot--${state} was purged from the bundle; keep it out of @layer components`,
