@@ -3042,6 +3042,164 @@ describe('claude expired-access probe gates', () => {
   });
 });
 
+// Same gates, codex flavor: expiry rides in the access JWT's exp claim and the
+// refresh token has no expiry of its own (refreshExpiresAt is always null).
+describe('codex expired-access probe gates', () => {
+  function fakeJwt(expEpochSeconds: number): string {
+    const header = Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url');
+    const payload = Buffer.from(
+      JSON.stringify({ exp: expEpochSeconds, iat: expEpochSeconds - 10 * 24 * 3600 }),
+    ).toString('base64url');
+    return `${header}.${payload}.sig`;
+  }
+
+  function codexAuthWithExpiry(opts: {
+    accessExpiresMs: number;
+    refresh: string;
+    lastRefresh: string;
+  }): Record<string, unknown> {
+    return {
+      last_refresh: opts.lastRefresh,
+      auth_mode: 'chatgpt',
+      tokens: {
+        access_token: fakeJwt(Math.floor(opts.accessExpiresMs / 1000)),
+        refresh_token: opts.refresh,
+        account_id: 'acct-test',
+      },
+    };
+  }
+
+  function seedCodexCanonical(source: Record<string, unknown>, state: 'verified' | 'failed') {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const projected = validation.ensureAuthsFallback(source, 'codex');
+    const canonical = validation.canonicalizeAuthPayload(
+      projected,
+      validation.normalizeAuthEntries(projected, 'codex'),
+      String(source.last_refresh),
+      'codex',
+    );
+    const body = JSON.stringify(canonical);
+    const digest = validation.calculateDigest(body);
+    const metadata = credentialMetadata(inspectCredential(canonical, 'codex')!, keyring.active());
+    db.tables.set(authPayloads, [
+      {
+        id: 1,
+        lastRefresh: String(source.last_refresh),
+        sha256: digest,
+        sourceHostId: null,
+        createdAt: String(source.last_refresh),
+        body: encrypt(body, keyring),
+        verificationState: state,
+        verificationCheckedAt: nowMinus(99999),
+        verificationReason: null,
+        engine: 'codex',
+        generation: 1,
+        ...metadata,
+      },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'codex', payloadId: 1, generation: 1, updatedAt: String(source.last_refresh) },
+    ]);
+    return { db, keyring, validation, canonical, digest };
+  }
+
+  it('serves a verified codex canonical without probing once its access JWT expired', async () => {
+    const source = codexAuthWithExpiry({
+      accessExpiresMs: Date.now() - 60_000,
+      refresh: 'live-codex-refresh',
+      lastRefresh: nowMinus(10 * 24 * 3600),
+    });
+    const { db, keyring, validation, canonical, digest } = seedCodexCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'codex',
+      hostId: null,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+      auth: canonical,
+      digest,
+      lastRefresh: String(source.last_refresh),
+      ttlSeconds: 0,
+    });
+
+    expect(out.state).toBe('verified');
+    expect(live.calls()).toBe(0);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
+  it('still probes a codex credential whose access JWT is comfortably valid', async () => {
+    const source = codexAuthWithExpiry({
+      accessExpiresMs: Date.now() + 5 * 24 * 3600 * 1000,
+      refresh: 'live-codex-refresh',
+      lastRefresh: nowMinus(3600),
+    });
+    const { db, keyring, validation, canonical, digest } = seedCodexCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true, auth_readback: 'unchanged' });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'codex',
+      hostId: null,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+      auth: canonical,
+      digest,
+      lastRefresh: String(source.last_refresh),
+      ttlSeconds: 0,
+    });
+
+    expect(out.state).toBe('verified');
+    expect(live.calls()).toBe(1);
+  });
+
+  it('arbitrates an unverifiable expired-JWT codex candidate without probing or storing', async () => {
+    const source = codexAuthWithExpiry({
+      accessExpiresMs: Date.now() - 3600_000,
+      refresh: 'canonical-codex-refresh',
+      lastRefresh: nowMinus(11 * 24 * 3600),
+    });
+    const { db, keyring, validation } = seedCodexCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const stored = await svc.storeCandidate({
+      auth: codexAuthWithExpiry({
+        accessExpiresMs: Date.now() - 60_000,
+        refresh: 'newer-codex-refresh',
+        lastRefresh: nowMinus(600),
+      }),
+      engine: 'codex',
+      sourceHostId: 7,
+      requireLastRefresh: false,
+      logAction: 'auth.store',
+      sourceKind: 'host',
+    });
+
+    expect(live.calls()).toBe(0);
+    expect(stored.status).toBe('outdated');
+    expect(stored.candidate_rejected_definitive).toBeUndefined();
+    expect(db.tables.get(authPayloads)!.length).toBe(1);
+  });
+});
+
 function nowMinus(seconds: number): string {
   return new Date(Date.now() - seconds * 1000).toISOString();
 }

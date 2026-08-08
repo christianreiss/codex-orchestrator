@@ -202,7 +202,27 @@ def _minimal_subprocess_env() -> dict:
     return env
 
 
-def _prepare_codex_env(auth_json: dict) -> tuple[dict, str, str]:
+def _codex_probe_auth(auth_json: dict) -> dict:
+    """auth.json copy with nothing spendable, for verification probes.
+
+    Same rationale as _claude_probe_credentials: the canonical grant is shared
+    with every host's own codex CLI, OpenAI rotates the refresh token per use,
+    and a replayed spent token is a terminal "refresh token already used". The
+    refresh token is blanked rather than deleted — codex's TokenData needs the
+    key present to parse the ChatGPT token block at all (verified live: a
+    deleted key makes codex send no auth header, an empty value probes fine).
+    """
+    tokens = auth_json.get("tokens")
+    if not isinstance(tokens, dict) or "refresh_token" not in tokens:
+        return auth_json
+    stripped = dict(auth_json)
+    stripped["tokens"] = {**tokens, "refresh_token": ""}
+    return stripped
+
+
+def _prepare_codex_env(auth_json: dict, probe_only: bool = False) -> tuple[dict, str, str]:
+    if probe_only:
+        auth_json = _codex_probe_auth(auth_json)
     if DEBUG_DUMP_ENABLED:
         # Debug helper: persist the incoming auth.json so it can be inspected from the container.
         # WARNING: contains secrets; enable only when debugging runner probes.
@@ -754,7 +774,7 @@ def _run_codex_exec(prompt: str, env: dict, timeout: float, model: Optional[str]
 
 
 def _run_probe(payload: VerifyRequest) -> dict:
-    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json)
+    env, home_dir, auth_path = _prepare_codex_env(payload.auth_json, probe_only=True)
     try:
         timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
         probe_model = os.getenv("RUNNER_CODEX_PROBE_MODEL", "gpt-5.6-terra").strip() or None
@@ -769,8 +789,10 @@ def _run_probe(payload: VerifyRequest) -> dict:
                 "definitive": False,
                 "codex_version": _codex_version(env),
                 "reason": "Codex CLI probe timed out",
+                # Probe HOMEs carry a blanked refresh token, so the submitted
+                # credential lineage cannot have been consumed or rotated.
+                "auth_readback": "unchanged",
             }
-            result.update(_credential_readback(auth_path, payload.auth_json))
             return result
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
@@ -784,8 +806,9 @@ def _run_probe(payload: VerifyRequest) -> dict:
             "reachable": True,
             "definitive": ok or _is_definitive_auth_rejection(message),
             "codex_version": _codex_version(env),
+            # See above: rotation is impossible with a blanked refresh token.
+            "auth_readback": "unchanged",
         }
-        result.update(_credential_readback(auth_path, payload.auth_json))
         if not ok:
             result["reason"] = message[:400] if message else "probe failed"
         return result

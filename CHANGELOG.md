@@ -1,5 +1,20 @@
 # 2026-08-08
 
+- **The Claude refresh-race fix now covers codex too.** The deep check found the same defect class
+  on the codex side with a smaller blast surface: codex access JWTs live ~10 days (vs 8 hours), the
+  CLI refreshes proactively 5 minutes before expiry behind a guarded reload-from-disk, and OpenAI's
+  rotation tolerates a short reuse grace — the ledger even shows a 9-second runner-vs-host double
+  refresh on 2026-07-30 that both sides survived. But the runner probe was still refresh-capable,
+  and with it stripped the *first host to launch after expiry* becomes the fleet's refresher, so
+  the mid-session watcher stops being optional: without immediate upload, every later host would
+  replay the spent parent past the grace and lock itself out ("refresh token already used").
+  Shipped as one set: `/verify` probes now write `tokens.refresh_token` as the **empty string**
+  (the key must stay present — codex's TokenData refuses to parse the block without it, verified
+  live — but an empty value leaves nothing to spend), the api's expired-access no-probe gate is
+  engine-neutral (`unverifiableWithoutRefreshSpend`, codex expiry read from the JWT `exp` claim),
+  and cdx gained the same 30-second mid-session upload watcher clx got. A `source_kind=runner`
+  ledger row is now a strip-regression signal for **either** engine.
+
 - **The fleet's daily Claude re-login was the orchestrator strangling its own credential.** Anthropic
   rotates the OAuth refresh token on every refresh and revokes the whole token family when a spent
   one is replayed. Crane's verification probe ran the real `claude` CLI with the full credential, so

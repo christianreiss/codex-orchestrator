@@ -42,9 +42,11 @@ import { retentionDeadline } from './auth-generation-retention.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
-// Treat a Claude access token as unverifiable slightly before its hard expiry
-// so a probe never lands in the window where the CLI would want to refresh.
-const CLAUDE_ACCESS_PROBE_MARGIN_MS = 300 * 1000;
+// Treat an access token as unverifiable slightly before its hard expiry so a
+// probe never lands in the window where the native CLI would want to refresh
+// (codex refreshes proactively within 5 minutes of its JWT expiry; Claude
+// refreshes at expiry).
+const ACCESS_PROBE_MARGIN_MS = 300 * 1000;
 // All route groups and the verification worker construct their own service
 // instance. Keep the store coordinator process-wide so those independent
 // instances still serialize a shared per-engine refresh-token lineage.
@@ -368,21 +370,21 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     let postPersistError: ServiceUnavailableError | undefined;
     let invalidateSelectedReason: string | undefined;
 
-    // A Claude OAuth candidate past its access-token lifetime cannot be
+    // An OAuth candidate past its access-token lifetime cannot be
     // live-verified without spending its refresh token, and a probe-side spend
     // races host-side native refreshes of the same rotating grant (a replayed
-    // spent token gets the whole family revoked — the fleet's daily forced
-    // re-logins). Never probe such a candidate: a verified canonical wins
-    // arbitration non-definitively, and without one the store stays gated
-    // until the uploading host refreshes natively and re-submits.
-    if (!hasInternalRunnerVerdict && claudeUnverifiableWithoutRefreshSpend(engine, candidateIdentity)) {
+    // spent token gets the whole family revoked or locked out — the fleet's
+    // daily forced re-logins). Never probe such a candidate: a verified
+    // canonical wins arbitration non-definitively, and without one the store
+    // stays gated until the uploading host refreshes natively and re-submits.
+    if (!hasInternalRunnerVerdict && unverifiableWithoutRefreshSpend(candidateIdentity)) {
       if (currentRow?.verificationState === 'verified' && current && currentDistributable !== null) {
         return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
           generation: currentRow.generation ?? undefined,
         });
       }
       throw new ServiceUnavailableError(
-        'Claude access token expired; live verification would spend the refresh token. Awaiting native host refresh.',
+        'Access token expired; live verification would spend the refresh token. Awaiting native host refresh.',
         'candidate_unverifiable_expired',
       );
     }
@@ -889,12 +891,12 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         return { ...snapshot, refreshed: false };
       }
 
-      // A Claude OAuth credential past its access-token lifetime is not
+      // An OAuth credential past its access-token lifetime is not
       // live-verifiable without spending the refresh token (see the candidate
       // gate in storeCandidateLocked). Keep the row's stored verdict: verified
       // lineage stays served — the hosts hold the refresh token and heal it
       // natively — while pending/failed rows wait for a superseding upload.
-      if (claudeUnverifiableWithoutRefreshSpend(engine, inspectCredential(auth, engine))) {
+      if (unverifiableWithoutRefreshSpend(inspectCredential(auth, engine))) {
         return { ...servedVerificationSnapshot(input), refreshed: false };
       }
 
@@ -1306,20 +1308,21 @@ function projectNativeOauthBearer(
   };
 }
 
-// The one Claude OAuth shape a live probe can only check by consuming refresh
+// The one OAuth shape a live probe can only check by consuming refresh
 // material: access token expired (or about to), refresh token present and
 // unexpired. Anything else either probes cleanly on its access token or is
-// dead outright and may fail definitively.
-function claudeUnverifiableWithoutRefreshSpend(
-  engine: Engine,
+// dead outright and may fail definitively. Applies to both engines — Anthropic
+// and OpenAI both rotate refresh tokens per use, and a probe-side spend races
+// host-side native refreshes of the same grant (Anthropic revokes the family
+// outright; OpenAI locks out reuse beyond a short grace).
+function unverifiableWithoutRefreshSpend(
   identity: ReturnType<typeof inspectCredential>,
 ): boolean {
   return (
-    engine === ENGINE_CLAUDE &&
     identity !== null &&
-    identity.kind === 'claude_oauth' &&
+    (identity.kind === 'claude_oauth' || identity.kind === 'codex_oauth') &&
     identity.refresh !== '' &&
-    accessCredentialExpired(identity, Date.now() + CLAUDE_ACCESS_PROBE_MARGIN_MS) &&
+    accessCredentialExpired(identity, Date.now() + ACCESS_PROBE_MARGIN_MS) &&
     !refreshCredentialExpired(identity)
   );
 }

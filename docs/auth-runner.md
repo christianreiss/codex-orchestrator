@@ -25,14 +25,14 @@ new route has to be documented here before it can ship.
   HTTP 500 and a wrong/missing request secret returns 401. The GET routes below
   and `GET /health` answer without the secret.
 - `POST /verify` and `/verify-claude` probe responses include `status`,
-  `latency_ms`, `reachable`, `definitive`, the engine version, optional
-  `updated_auth`, and optional `reason`. Native Codex probes also report
-  `auth_readback` (`unchanged`, `updated`, or `error`) plus
-  `auth_readback_error` on a failed post-probe read; direct API-key probes use
-  `not_applicable`. Native Claude CLI probes run from a refresh-stripped
-  credential file (see the Claude paragraph below), can therefore never rotate
-  the grant, and always report `auth_readback:"unchanged"` with no
-  `updated_auth`. A failed result is definitive only
+  `latency_ms`, `reachable`, `definitive`, the engine version, and optional
+  `reason`. Native CLI probes for BOTH engines run from a refresh-stripped
+  credential file (Codex: `tokens.refresh_token` blanked; Claude:
+  `refreshToken` removed — see the engine paragraphs below), can therefore
+  never rotate the shared grant, and always report
+  `auth_readback:"unchanged"` with no `updated_auth`; direct API-key probes
+  use `not_applicable`. Only `/exec` (feature execution) still runs with full
+  credentials and may return `updated_auth`. A failed result is definitive only
   when the output explicitly identifies credential rejection; provider
   outages, quota/model errors, timeouts, and generic CLI failures remain
   retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
@@ -62,10 +62,10 @@ new route has to be documented here before it can ship.
 
 1. Optionally persist the incoming auth to `/tmp/last-auth.json` (0600) only when all are true: `RUNNER_DEBUG_DUMP_AUTH=1`, `RUNNER_ALLOW_SECRET_DUMP=1`, and `APP_ENV!=production`.
 2. Resolve the same credential native Codex will execute. Explicit `auth_mode:"apikey"` selects only top-level `OPENAI_API_KEY`; explicit `chatgpt` / `chatgptAuthTokens` selects only `tokens.access_token`. Without a mode, native inference selects personal-access-token/Bedrock first (unsupported by this runner), then a present top-level `OPENAI_API_KEY`, otherwise ChatGPT tokens. Unknown/unsupported modes or a missing selected credential return HTTP 400. Legacy nested/auths-only keys are normalized by the API to native `apikey` shape before this call, not reinterpreted by the runner.
-3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (the bundled runner image sets this to `/dev/shm`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json`, chmod 0600, and clean up the temp home after the probe.
+3. Create a temp `$HOME` under `RUNNER_HOME_PARENT` (the bundled runner image sets this to `/dev/shm`), point `TMPDIR` / `TMP` / `TEMP` at a writable subdirectory inside that home, write `~/.codex/auth.json` with `tokens.refresh_token` **blanked to the empty string**, chmod 0600, and clean up the temp home after the probe. The key must stay present — codex's `TokenData` refuses to parse a ChatGPT token block without it (verified live: a deleted key makes codex send no auth header at all) — but an empty value leaves the probe nothing to spend, so it can never rotate the fleet's shared grant. A failed proactive refresh is non-fatal upstream: codex logs the error and proceeds on the still-valid access token.
 4. Env for the probe: `CODEX_SYNC_BASE_URL` from runner env when set (otherwise `http://api`), plus `CODEX_SYNC_OPTIONAL=1` and `CODEX_SYNC_BAKED=0`.
 5. Run `/usr/local/bin/codex exec --model <probe model> -s read-only --skip-git-repo-check -- "Reply Banana if this works."` with timeout `timeout_seconds` (or `8.0` when unset/falsey). The probe model comes from `RUNNER_CODEX_PROBE_MODEL` (default `gpt-5.6-terra`) and `--` keeps a prompt starting with `-` from being parsed as a flag. The probe passes no images; `/exec` builds its command with the same helper and inserts one `--image <file>` per image right after `--model`.
-6. Reload `~/.codex/auth.json` after the probe; when it differs from the input payload, include it in the response as `updated_auth`.
+6. Report `auth_readback:"unchanged"` unconditionally: with the refresh token blanked, the CLI cannot rotate the credential, so any rewrite of the temp file carries no lineage and is never returned as `updated_auth`.
 7. Compute `codex_version` from `/usr/local/bin/codex --version`; if that command fails, `codex_version` is `unknown`.
 
 Claude OAuth verification mirrors that isolated-home lifecycle with

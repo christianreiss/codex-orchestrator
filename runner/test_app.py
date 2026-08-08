@@ -341,7 +341,10 @@ class RunnerAppTest(unittest.TestCase):
         finally:
             shutil.rmtree(home_dir, ignore_errors=True)
 
-    def test_codex_success_reports_unreadable_post_probe_credentials(self):
+    def test_codex_probe_readback_stays_unchanged_when_cli_removes_probe_file(self):
+        # Probe HOMEs carry a blanked refresh token, so the CLI cannot rotate
+        # the shared grant; a deleted temp file therefore carries no lineage
+        # and must never surface as a readback error.
         class Payload:
             auth_json = {
                 "tokens": {"access_token": "sk-openai-valid-test-token"},
@@ -370,8 +373,9 @@ class RunnerAppTest(unittest.TestCase):
             runner_app._codex_version = original_version
 
         self.assertEqual("ok", result["status"])
-        self.assertEqual("error", result["auth_readback"])
-        self.assertIn("FileNotFoundError", result["auth_readback_error"])
+        self.assertEqual("unchanged", result["auth_readback"])
+        self.assertNotIn("updated_auth", result)
+        self.assertNotIn("auth_readback_error", result)
 
     def test_claude_probe_readback_stays_unchanged_when_cli_mangles_probe_file(self):
         # Probe HOMEs carry no refresh material, so the CLI cannot rotate the
@@ -464,15 +468,13 @@ class RunnerAppTest(unittest.TestCase):
             runner_app._codex_version = original_codex_version
             runner_app._claude_version = original_claude_version
 
+        # Probes for both engines run without spendable refresh material and
+        # therefore never report a rotated lineage, even on timeout.
         for result in (codex_result, claude_result):
             self.assertEqual("fail", result["status"])
             self.assertFalse(result["definitive"])
-        # Codex probes still harvest a rotation observed before the timeout.
-        self.assertEqual("updated", codex_result["auth_readback"])
-        self.assertIn("updated_auth", codex_result)
-        # Claude probes run without refresh material and never report lineage.
-        self.assertEqual("unchanged", claude_result["auth_readback"])
-        self.assertNotIn("updated_auth", claude_result)
+            self.assertEqual("unchanged", result["auth_readback"])
+            self.assertNotIn("updated_auth", result)
 
     def test_claude_probe_treats_rate_limit_as_valid_auth(self):
         class Payload:
@@ -608,6 +610,49 @@ class RunnerAppTest(unittest.TestCase):
         )
         self.assertEqual("unchanged", result["auth_readback"])
         self.assertNotIn("updated_auth", result)
+
+    def test_codex_probe_auth_blanks_refresh_token_only(self):
+        source = {
+            "last_refresh": "2026-06-05T00:00:00Z",
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "id_token": "id-jwt",
+                "access_token": "access-jwt",
+                "refresh_token": "refresh-secret",
+                "account_id": "acct-1",
+            },
+        }
+        projected = runner_app._codex_probe_auth(source)
+        # The key must stay present (codex's TokenData refuses to parse a
+        # ChatGPT token block without it) but hold nothing spendable.
+        self.assertEqual("", projected["tokens"]["refresh_token"])
+        self.assertEqual("id-jwt", projected["tokens"]["id_token"])
+        self.assertEqual("access-jwt", projected["tokens"]["access_token"])
+        self.assertEqual("acct-1", projected["tokens"]["account_id"])
+        # The input payload is never mutated.
+        self.assertEqual("refresh-secret", source["tokens"]["refresh_token"])
+        # API-key payloads (no tokens block) pass through unmodified.
+        api_key = {"OPENAI_API_KEY": "sk-openai-x"}
+        self.assertIs(api_key, runner_app._codex_probe_auth(api_key))
+
+    def test_prepare_codex_env_probe_only_writes_blanked_refresh_token(self):
+        env, home_dir, auth_path = runner_app._prepare_codex_env(
+            {
+                "last_refresh": "2026-06-05T00:00:00Z",
+                "tokens": {
+                    "access_token": "sk-openai-test-access",
+                    "refresh_token": "sk-openai-test-refresh",
+                },
+            },
+            probe_only=True,
+        )
+        try:
+            with open(auth_path, "r", encoding="utf-8") as fh:
+                written = json.load(fh)
+            self.assertEqual("", written["tokens"]["refresh_token"])
+            self.assertEqual("sk-openai-test-access", written["tokens"]["access_token"])
+        finally:
+            shutil.rmtree(home_dir, ignore_errors=True)
 
     def test_claude_probe_credentials_strips_only_refresh_material(self):
         projected = runner_app._claude_probe_credentials(
@@ -1010,9 +1055,12 @@ class RunnerResponseContractTest(unittest.TestCase):
     # Verdict fields every /verify and /verify-claude body carries.
     VERDICT_KEYS = frozenset({"status", "reachable", "definitive", "latency_ms", "auth_readback"})
 
-    CODEX_VERIFY_OK_KEYS = VERDICT_KEYS | {"codex_version", "updated_auth"}
-    CODEX_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"codex_version", "reason", "auth_readback_error"}
-    CODEX_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"codex_version", "reason", "updated_auth"}
+    # Codex CLI probes run with a blanked refresh token and can never rotate
+    # the shared grant, so their responses deliberately carry no updated_auth
+    # or readback-error keys — auth_readback is always "unchanged".
+    CODEX_VERIFY_OK_KEYS = VERDICT_KEYS | {"codex_version"}
+    CODEX_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"codex_version", "reason"}
+    CODEX_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"codex_version", "reason"}
 
     # Claude CLI probes run from a refresh-stripped HOME and can never rotate
     # the shared grant, so their responses deliberately carry no updated_auth
