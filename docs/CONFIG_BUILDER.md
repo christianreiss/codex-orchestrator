@@ -58,6 +58,7 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).
 - `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
+- `code_mode_host` — spawns a companion `codex-code-mode-host` process to back Code Mode execution. Upstream ships this **stable and enabled by default**, but the fleet's wrapper distribution has never published that companion binary to any host's `/usr/local/bin` (confirmed absent from the wrapper store, 2026-08-08), so an unmodified template leaves every host failing closed with a spawn error the moment it launches Codex. The stored template forces this **disabled** until a build is published that bundles the binary.
 - Additional feature flags may be supplied in the API `features` object. The
   normalizer is a denylist, not an allowlist: every key that is not dropped
   below survives into normalized `features` and is rendered under `[features]`,
