@@ -26,10 +26,13 @@ new route has to be documented here before it can ship.
   and `GET /health` answer without the secret.
 - `POST /verify` and `/verify-claude` probe responses include `status`,
   `latency_ms`, `reachable`, `definitive`, the engine version, optional
-  `updated_auth`, and optional `reason`. Native probes also report
+  `updated_auth`, and optional `reason`. Native Codex probes also report
   `auth_readback` (`unchanged`, `updated`, or `error`) plus
   `auth_readback_error` on a failed post-probe read; direct API-key probes use
-  `not_applicable`. A failed result is definitive only
+  `not_applicable`. Native Claude CLI probes run from a refresh-stripped
+  credential file (see the Claude paragraph below), can therefore never rotate
+  the grant, and always report `auth_readback:"unchanged"` with no
+  `updated_auth`. A failed result is definitive only
   when the output explicitly identifies credential rejection; provider
   outages, quota/model errors, timeouts, and generic CLI failures remain
   retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
@@ -66,7 +69,17 @@ new route has to be documented here before it can ship.
 7. Compute `codex_version` from `/usr/local/bin/codex --version`; if that command fails, `codex_version` is `unknown`.
 
 Claude OAuth verification mirrors that isolated-home lifecycle with
-`~/.claude/.credentials.json` and the native Claude CLI. Genuine API keys use a
+`~/.claude/.credentials.json` and the native Claude CLI, with one deliberate
+difference: the probe home receives the credential **without**
+`refreshToken`/`refreshTokenExpiresAt`. The canonical grant is shared with
+every host's own Claude Code and Anthropic rotates the refresh token on every
+refresh, so a probe-side refresh would race host-side native refreshes and a
+replayed spent token gets the whole grant family revoked (the historical
+daily fleet re-login). A probe therefore only proves the access token it was
+given; the API never even requests a probe for a credential whose access token
+has expired while its refresh token is still live — that state is served
+as-is and heals when a host refreshes natively and re-uploads.
+Genuine API keys use a
 direct Anthropic request; only HTTP 401/`authentication_error` is a definitive
 failure, while permission/model/server failures are not.
 Claude credential selection is `claudeAiOauth.accessToken`, top-level API-key

@@ -211,6 +211,12 @@ export function refreshCredentialExpired(identity: CredentialIdentity, now = Dat
   return Number.isFinite(expiry) && expiry <= now;
 }
 
+export function accessCredentialExpired(identity: CredentialIdentity, now = Date.now()): boolean {
+  if (!identity.accessExpiresAt) return false;
+  const expiry = Date.parse(identity.accessExpiresAt);
+  return Number.isFinite(expiry) && expiry <= now;
+}
+
 function compareTuple(a: Array<string | null>, b: Array<string | null>): number | null {
   if (!a[0] || !b[0]) return null;
   for (let i = 0; i < a.length; i += 1) {

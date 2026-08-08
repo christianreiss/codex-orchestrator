@@ -1,3 +1,27 @@
+# 2026-08-08
+
+- **The fleet's daily Claude re-login was the orchestrator strangling its own credential.** Anthropic
+  rotates the OAuth refresh token on every refresh and revokes the whole token family when a spent
+  one is replayed. Crane's verification probe ran the real `claude` CLI with the full credential, so
+  once the 8-hour access token lapsed, the probe *refreshed* — and because every host's own Claude
+  Code also refreshes its local copy mid-session, the two spent each other's tokens within one
+  15-minute probe window of any working day. The ledger shows the kill happening on 2026-08-06,
+  -07, and -08, each time as `OAuth session expired and could not be refreshed`, each time ending in
+  a human running `/login`. Three changes close the loop:
+  - The runner's Claude verification probe now writes a **refresh-stripped** credential into its
+    temp HOME. A probe can prove the access token it was given; it can no longer rotate the grant,
+    so it reports `auth_readback:"unchanged"` always and never returns `updated_auth`.
+  - The API never asks for a probe it could only pass by spending refresh material: a Claude
+    canonical whose access token has expired while its refresh token is live keeps its stored
+    verdict and stays served — hosts hold the refresh token and heal it natively. The same gate
+    arbitrates an unverifiable expired-access candidate non-definitively (`outdated` against a
+    verified canonical, retryable 503 `candidate_unverifiable_expired` otherwise) instead of
+    422-ing the host into a forced login.
+  - clx no longer sits on a mid-session rotation until exit: a watcher polls the native
+    credentials file every 30 seconds while the child runs and uploads each new usable generation
+    immediately, so the canonical copy is superseded within seconds of the rotation instead of
+    hours after.
+
 # 2026-08-06
 
 - **The Agent Portal told the operator an agent was listening for 90 seconds after it was gone.**

@@ -302,6 +302,27 @@ def _claude_native_credentials(auth_json: dict) -> dict:
     return auth_json
 
 
+def _claude_probe_credentials(auth_json: dict) -> dict:
+    """Native projection minus refresh material, for verification probes.
+
+    The canonical OAuth grant is shared with every host's own Claude Code, and
+    Anthropic rotates the refresh token on every refresh: a probe-side refresh
+    spends a token a host may hold a sibling of, and a replayed spent token gets
+    the whole grant family revoked. A probe must therefore never be able to
+    refresh — it validates the access token it was given, nothing more.
+    """
+    native = _claude_native_credentials(auth_json)
+    oauth = native.get("claudeAiOauth")
+    if isinstance(oauth, dict):
+        stripped = {
+            key: value
+            for key, value in oauth.items()
+            if key not in ("refreshToken", "refreshTokenExpiresAt")
+        }
+        return {"claudeAiOauth": stripped}
+    return native
+
+
 def _is_definitive_auth_rejection(message: str) -> bool:
     """Classify only credential-specific CLI failures as definitive.
 
@@ -378,8 +399,12 @@ def _claude_version(env: Optional[dict] = None) -> str:
         return "unavailable"
 
 
-def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
-    """Set up a temp HOME for Claude CLI validation/execution."""
+def _prepare_claude_env(auth_json: dict, probe_only: bool = False) -> tuple[dict, str, str]:
+    """Set up a temp HOME for Claude CLI validation/execution.
+
+    probe_only writes refresh-stripped credentials so the CLI cannot rotate
+    the shared OAuth grant (see _claude_probe_credentials).
+    """
     if DEBUG_DUMP_ENABLED:
         try:
             debug_path = "/tmp/last-claude-auth.json"
@@ -414,9 +439,12 @@ def _prepare_claude_env(auth_json: dict) -> tuple[dict, str, str]:
     claude_dir = os.path.join(home_dir, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
     auth_path = os.path.join(claude_dir, ".credentials.json")
+    credentials = (
+        _claude_probe_credentials(auth_json) if probe_only else _claude_native_credentials(auth_json)
+    )
     try:
         with open(auth_path, "w", encoding="utf-8") as fh:
-            json.dump(_claude_native_credentials(auth_json), fh)
+            json.dump(credentials, fh)
         os.chmod(auth_path, 0o600)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"failed to write credentials.json: {exc}")
@@ -462,7 +490,7 @@ def _run_claude_probe(payload) -> dict:
 
     timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
     if _has_claude_oauth(payload.auth_json) or token.startswith("sk-ant-oat"):
-        env, home_dir, auth_path = _prepare_claude_env(payload.auth_json)
+        env, home_dir, auth_path = _prepare_claude_env(payload.auth_json, probe_only=True)
         try:
             probe_started = time.perf_counter()
             try:
@@ -476,13 +504,10 @@ def _run_claude_probe(payload) -> dict:
                     "claude_version": _claude_version(env),
                     "native_oauth": True,
                     "reason": "Claude CLI probe timed out",
+                    # Probe HOMEs carry no refresh material, so the submitted
+                    # credential lineage cannot have been consumed or rotated.
+                    "auth_readback": "unchanged",
                 }
-                result.update(
-                    _credential_readback(
-                        auth_path,
-                        _claude_native_credentials(payload.auth_json),
-                    )
-                )
                 return result
             stdout = (proc.stdout or "").strip()
             stderr = (proc.stderr or "").strip()
@@ -496,13 +521,10 @@ def _run_claude_probe(payload) -> dict:
                 "definitive": ok or _is_definitive_auth_rejection(message),
                 "claude_version": _claude_version(env),
                 "native_oauth": True,
+                # See above: rotation is impossible without a refresh token, so
+                # any CLI rewrite of the stripped probe file carries no lineage.
+                "auth_readback": "unchanged",
             }
-            result.update(
-                _credential_readback(
-                    auth_path,
-                    _claude_native_credentials(payload.auth_json),
-                )
-            )
             if not ok:
                 result["reason"] = message[:400] if message else "probe failed"
             return result

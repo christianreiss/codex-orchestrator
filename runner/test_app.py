@@ -373,7 +373,10 @@ class RunnerAppTest(unittest.TestCase):
         self.assertEqual("error", result["auth_readback"])
         self.assertIn("FileNotFoundError", result["auth_readback_error"])
 
-    def test_claude_success_reports_malformed_post_probe_credentials(self):
+    def test_claude_probe_readback_stays_unchanged_when_cli_mangles_probe_file(self):
+        # Probe HOMEs carry no refresh material, so the CLI cannot rotate the
+        # shared grant; a mangled temp file therefore carries no lineage and
+        # must never surface as a readback error or replacement credentials.
         class Payload:
             auth_json = {
                 "claudeAiOauth": {"accessToken": "sk-ant-oat01-valid-test-token"},
@@ -404,10 +407,11 @@ class RunnerAppTest(unittest.TestCase):
             runner_app._claude_version = original_version
 
         self.assertEqual("ok", result["status"])
-        self.assertEqual("error", result["auth_readback"])
-        self.assertIn("JSON object", result["auth_readback_error"])
+        self.assertEqual("unchanged", result["auth_readback"])
+        self.assertNotIn("updated_auth", result)
+        self.assertNotIn("auth_readback_error", result)
 
-    def test_native_probe_timeouts_return_changed_credentials_for_both_engines(self):
+    def test_native_probe_timeouts_report_readback_per_engine(self):
         codex_payload = type(
             "CodexPayload",
             (),
@@ -463,8 +467,12 @@ class RunnerAppTest(unittest.TestCase):
         for result in (codex_result, claude_result):
             self.assertEqual("fail", result["status"])
             self.assertFalse(result["definitive"])
-            self.assertEqual("updated", result["auth_readback"])
-            self.assertIn("updated_auth", result)
+        # Codex probes still harvest a rotation observed before the timeout.
+        self.assertEqual("updated", codex_result["auth_readback"])
+        self.assertIn("updated_auth", codex_result)
+        # Claude probes run without refresh material and never report lineage.
+        self.assertEqual("unchanged", claude_result["auth_readback"])
+        self.assertNotIn("updated_auth", claude_result)
 
     def test_claude_probe_treats_rate_limit_as_valid_auth(self):
         class Payload:
@@ -591,17 +599,51 @@ class RunnerAppTest(unittest.TestCase):
         self.assertIsNotNone(version_calls[0])
         self.assertNotIn("ANTHROPIC_API_KEY", captured["env"])
         self.assertEqual("Reply Banana if this works.", captured["prompt"])
+        # The probe HOME must carry no refresh material: a verification probe
+        # that could refresh would race host-side native refreshes of the same
+        # rotating grant and get the whole token family revoked.
         self.assertEqual(
-            {
-                "claudeAiOauth": {
-                    "accessToken": "sk-ant-oat01-test-token",
-                    "refreshToken": "test-refresh-token",
-                }
-            },
+            {"claudeAiOauth": {"accessToken": "sk-ant-oat01-test-token"}},
             captured["credentials"],
         )
         self.assertEqual("unchanged", result["auth_readback"])
         self.assertNotIn("updated_auth", result)
+
+    def test_claude_probe_credentials_strips_only_refresh_material(self):
+        projected = runner_app._claude_probe_credentials(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "sk-ant-oat01-test-token",
+                    "refreshToken": "test-refresh-token",
+                    "refreshTokenExpiresAt": 123,
+                    "expiresAt": 456,
+                    "scopes": ["user:inference"],
+                    "subscriptionType": "max",
+                },
+                "last_refresh": "2026-06-05T00:00:00Z",
+            }
+        )
+        self.assertEqual(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "sk-ant-oat01-test-token",
+                    "expiresAt": 456,
+                    "scopes": ["user:inference"],
+                    "subscriptionType": "max",
+                }
+            },
+            projected,
+        )
+        # Exec environments keep the full native credential untouched.
+        full = runner_app._claude_native_credentials(
+            {"claudeAiOauth": {"accessToken": "a", "refreshToken": "r"}}
+        )
+        self.assertEqual({"claudeAiOauth": {"accessToken": "a", "refreshToken": "r"}}, full)
+        # Non-OAuth envelopes (genuine API keys) pass through unmodified.
+        self.assertEqual(
+            {"api_key": "sk-ant-api03-x"},
+            runner_app._claude_probe_credentials({"api_key": "sk-ant-api03-x"}),
+        )
 
     def test_claude_oauth_transient_cli_failure_is_not_definitive(self):
         class Payload:
@@ -972,9 +1014,12 @@ class RunnerResponseContractTest(unittest.TestCase):
     CODEX_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"codex_version", "reason", "auth_readback_error"}
     CODEX_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"codex_version", "reason", "updated_auth"}
 
-    CLAUDE_VERIFY_OK_KEYS = VERDICT_KEYS | {"claude_version", "updated_auth"}
-    CLAUDE_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"claude_version", "reason", "auth_readback_error"}
-    CLAUDE_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"claude_version", "reason", "updated_auth"}
+    # Claude CLI probes run from a refresh-stripped HOME and can never rotate
+    # the shared grant, so their responses deliberately carry no updated_auth
+    # or readback-error keys — auth_readback is always "unchanged".
+    CLAUDE_VERIFY_OK_KEYS = VERDICT_KEYS | {"claude_version"}
+    CLAUDE_VERIFY_REJECTED_KEYS = VERDICT_KEYS | {"claude_version", "reason"}
+    CLAUDE_VERIFY_TIMEOUT_KEYS = VERDICT_KEYS | {"claude_version", "reason"}
 
     # The Anthropic HTTP probe replaces the CLI for genuine API keys, and is the
     # only path that reports auth_limited.

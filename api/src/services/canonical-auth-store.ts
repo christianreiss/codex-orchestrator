@@ -30,6 +30,7 @@ import type {
 } from './runner-validation.js';
 import { ENGINE_CLAUDE } from '../util/engine.js';
 import {
+  accessCredentialExpired,
   compareCredentialFreshness,
   credentialMetadata,
   fingerprintMatches,
@@ -41,6 +42,9 @@ import { retentionDeadline } from './auth-generation-retention.js';
 
 const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
+// Treat a Claude access token as unverifiable slightly before its hard expiry
+// so a probe never lands in the window where the CLI would want to refresh.
+const CLAUDE_ACCESS_PROBE_MARGIN_MS = 300 * 1000;
 // All route groups and the verification worker construct their own service
 // instance. Keep the store coordinator process-wide so those independent
 // instances still serialize a shared per-engine refresh-token lineage.
@@ -363,6 +367,25 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
     let runnerSkippedReason = input.runnerFailureReason?.slice(0, 500);
     let postPersistError: ServiceUnavailableError | undefined;
     let invalidateSelectedReason: string | undefined;
+
+    // A Claude OAuth candidate past its access-token lifetime cannot be
+    // live-verified without spending its refresh token, and a probe-side spend
+    // races host-side native refreshes of the same rotating grant (a replayed
+    // spent token gets the whole family revoked — the fleet's daily forced
+    // re-logins). Never probe such a candidate: a verified canonical wins
+    // arbitration non-definitively, and without one the store stays gated
+    // until the uploading host refreshes natively and re-submits.
+    if (!hasInternalRunnerVerdict && claudeUnverifiableWithoutRefreshSpend(engine, candidateIdentity)) {
+      if (currentRow?.verificationState === 'verified' && current && currentDistributable !== null) {
+        return returnExisting(input, currentRow.id, currentRow.verificationState, current, 'outdated', {
+          generation: currentRow.generation ?? undefined,
+        });
+      }
+      throw new ServiceUnavailableError(
+        'Claude access token expired; live verification would spend the refresh token. Awaiting native host refresh.',
+        'candidate_unverifiable_expired',
+      );
+    }
 
     if (runner.isConfigured() && !input.runnerVerified && !input.runnerPending && !input.runnerFailed) {
       const verdict =
@@ -866,6 +889,15 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps): C
         return { ...snapshot, refreshed: false };
       }
 
+      // A Claude OAuth credential past its access-token lifetime is not
+      // live-verifiable without spending the refresh token (see the candidate
+      // gate in storeCandidateLocked). Keep the row's stored verdict: verified
+      // lineage stays served — the hosts hold the refresh token and heal it
+      // natively — while pending/failed rows wait for a superseding upload.
+      if (claudeUnverifiableWithoutRefreshSpend(engine, inspectCredential(auth, engine))) {
+        return { ...servedVerificationSnapshot(input), refreshed: false };
+      }
+
       const verdict =
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: auth })
@@ -1272,6 +1304,24 @@ function projectNativeOauthBearer(
       },
     },
   };
+}
+
+// The one Claude OAuth shape a live probe can only check by consuming refresh
+// material: access token expired (or about to), refresh token present and
+// unexpired. Anything else either probes cleanly on its access token or is
+// dead outright and may fail definitively.
+function claudeUnverifiableWithoutRefreshSpend(
+  engine: Engine,
+  identity: ReturnType<typeof inspectCredential>,
+): boolean {
+  return (
+    engine === ENGINE_CLAUDE &&
+    identity !== null &&
+    identity.kind === 'claude_oauth' &&
+    identity.refresh !== '' &&
+    accessCredentialExpired(identity, Date.now() + CLAUDE_ACCESS_PROBE_MARGIN_MS) &&
+    !refreshCredentialExpired(identity)
+  );
 }
 
 function sharesConsumableCredentialLineage(

@@ -458,7 +458,14 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	started := time.Now()
 	launchArgs := guardRootPermissionMode(opts.ExtraArgs, logger)
+	// Upload mid-session native token rotations as they happen instead of
+	// only at exit; see auth_watch.go for why the gap is dangerous.
+	stopAuthWatch := func() {}
+	if !opts.SkipAuthSync && dec.Allowed {
+		stopAuthWatch = startMidSessionAuthUpload(ctx, client, logger, before)
+	}
 	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, launchArgs, authSession)
+	stopAuthWatch()
 	duration := time.Since(started)
 	portalStatus, portalSummary := portalExit(exitCode, runErr)
 	closePortal(portalStatus, portalSummary)

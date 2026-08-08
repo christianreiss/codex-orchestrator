@@ -152,13 +152,16 @@ describe('CanonicalAuthStoreService', () => {
       runnerValidation: createRunnerValidationService({ db: db as never, keyring }),
       runner: live.client,
     });
+    // Live (unexpired) tokens: pair-identity replay ordering is what this
+    // test pins, and an expired access token would trip the no-probe gate
+    // covered by the 'claude expired-access probe gates' suite instead.
     const old = {
       ...CLAUDE_AUTH,
       claudeAiOauth: {
         accessToken: 'sk-ant-oat01-history-a',
         refreshToken: 'history-r1',
-        expiresAt: Date.UTC(2026, 6, 20),
-        refreshTokenExpiresAt: Date.UTC(2026, 7, 20),
+        expiresAt: Date.now() + 24 * 3600 * 1000,
+        refreshTokenExpiresAt: Date.now() + 30 * 24 * 3600 * 1000,
       },
     };
     const newer = {
@@ -167,8 +170,8 @@ describe('CanonicalAuthStoreService', () => {
       claudeAiOauth: {
         accessToken: 'sk-ant-oat01-history-b',
         refreshToken: 'history-r2',
-        expiresAt: Date.UTC(2026, 6, 21),
-        refreshTokenExpiresAt: Date.UTC(2026, 7, 21),
+        expiresAt: Date.now() + 2 * 24 * 3600 * 1000,
+        refreshTokenExpiresAt: Date.now() + 31 * 24 * 3600 * 1000,
       },
     };
     const first = await svc.storeCandidate({
@@ -2779,6 +2782,263 @@ describe('ensureServedVerification (launch-gate proof)', () => {
     expect(b.state).toBe('verified');
     // Both callers shared one live probe instead of racing the token rotation.
     expect(r.calls()).toBe(1);
+  });
+});
+
+// A Claude OAuth credential whose access token has expired can only be
+// live-verified by spending its refresh token — which races host-side native
+// refreshes of the same rotating grant and gets the family revoked. These
+// tests pin the no-probe gates that keep the runner's hands off refresh
+// material (see shared://auth.claude-oauth-refresh-race).
+describe('claude expired-access probe gates', () => {
+  const FUTURE_REFRESH_MS = Date.now() + 30 * 24 * 3600 * 1000;
+
+  function claudeAuthWithExpiry(opts: {
+    access: string;
+    refresh: string;
+    accessExpiresMs: number;
+    refreshExpiresMs?: number;
+    lastRefresh: string;
+  }): Record<string, unknown> {
+    return {
+      last_refresh: opts.lastRefresh,
+      claudeAiOauth: {
+        accessToken: opts.access,
+        refreshToken: opts.refresh,
+        expiresAt: opts.accessExpiresMs,
+        refreshTokenExpiresAt: opts.refreshExpiresMs ?? FUTURE_REFRESH_MS,
+      },
+    };
+  }
+
+  function seedClaudeCanonical(
+    source: Record<string, unknown>,
+    state: 'verified' | 'failed',
+    reason: string | null = null,
+  ) {
+    const db = createDbFake();
+    db.tables.set(authEntries, []);
+    const keyring = makeKeyring();
+    const validation = createRunnerValidationService({ db: db as never, keyring });
+    const projected = validation.ensureAuthsFallback(source, 'claude');
+    const canonical = validation.canonicalizeAuthPayload(
+      projected,
+      validation.normalizeAuthEntries(projected, 'claude'),
+      String(source.last_refresh),
+      'claude',
+    );
+    const body = JSON.stringify(canonical);
+    const digest = validation.calculateDigest(body);
+    const metadata = credentialMetadata(inspectCredential(canonical, 'claude')!, keyring.active());
+    db.tables.set(authPayloads, [
+      {
+        id: 1,
+        lastRefresh: String(source.last_refresh),
+        sha256: digest,
+        sourceHostId: null,
+        createdAt: String(source.last_refresh),
+        body: encrypt(body, keyring),
+        verificationState: state,
+        verificationCheckedAt: nowMinus(99999),
+        verificationReason: reason,
+        engine: 'claude',
+        generation: 1,
+        ...metadata,
+      },
+    ]);
+    db.tables.set(authCanonicalHeads, [
+      { engine: 'claude', payloadId: 1, generation: 1, updatedAt: String(source.last_refresh) },
+    ]);
+    return { db, keyring, validation, canonical, digest };
+  }
+
+  it('serves a verified canonical without probing once its access token expired', async () => {
+    const source = claudeAuthWithExpiry({
+      access: 'sk-ant-oat01-expired-access-token',
+      refresh: 'live-refresh-token',
+      accessExpiresMs: Date.now() - 60_000,
+      lastRefresh: nowMinus(9 * 3600),
+    });
+    const { db, keyring, validation, canonical, digest } = seedClaudeCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'claude',
+      hostId: null,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+      auth: canonical,
+      digest,
+      lastRefresh: String(source.last_refresh),
+      ttlSeconds: 0,
+    });
+
+    expect(out.state).toBe('verified');
+    expect(out.refreshed).toBe(false);
+    expect(live.calls()).toBe(0);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+  });
+
+  it('worker tick reports ok for an expired-access verified canonical without probing', async () => {
+    const source = claudeAuthWithExpiry({
+      access: 'sk-ant-oat01-expired-access-token',
+      refresh: 'live-refresh-token',
+      accessExpiresMs: Date.now() - 60_000,
+      lastRefresh: nowMinus(9 * 3600),
+    });
+    const { db, keyring, validation } = seedClaudeCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+    const telemetry: Array<{ engine: string; state: string }> = [];
+
+    await runAuthVerificationWorkerTick({
+      runnerValidation: validation,
+      authStore: svc,
+      telemetry: {
+        write: async (engine, state) => {
+          telemetry.push({ engine, state });
+        },
+      },
+      ttlSeconds: 0,
+      reason: 'interval',
+    });
+
+    expect(live.calls()).toBe(0);
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('verified');
+    expect(telemetry).toContainEqual({ engine: 'claude', state: 'ok' });
+  });
+
+  it('still probes (and may fail) when the refresh token itself is expired', async () => {
+    const source = claudeAuthWithExpiry({
+      access: 'sk-ant-oat01-expired-access-token',
+      refresh: 'dead-refresh-token',
+      accessExpiresMs: Date.now() - 60_000,
+      refreshExpiresMs: Date.now() - 30_000,
+      lastRefresh: nowMinus(9 * 3600),
+    });
+    const { db, keyring, validation, canonical, digest } = seedClaudeCanonical(source, 'verified');
+    const live = countingRunner({
+      ok: false,
+      status: 'fail',
+      reachable: true,
+      definitive: true,
+      reason: 'OAuth session expired',
+      auth_readback: 'unchanged',
+    });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const out = await svc.ensureServedVerification({
+      engine: 'claude',
+      hostId: null,
+      row: { id: 1, verificationState: 'verified', verificationCheckedAt: nowMinus(99999) },
+      auth: canonical,
+      digest,
+      lastRefresh: String(source.last_refresh),
+      ttlSeconds: 0,
+    });
+
+    expect(live.calls()).toBe(1);
+    expect(out.state).toBe('failed');
+    expect(db.tables.get(authPayloads)![0]!.verificationState).toBe('failed');
+  });
+
+  it('arbitrates an unverifiable expired-access candidate against a verified canonical without probing or storing', async () => {
+    const source = claudeAuthWithExpiry({
+      access: 'sk-ant-oat01-canonical-token',
+      refresh: 'canonical-refresh-token',
+      accessExpiresMs: Date.now() - 3600_000,
+      lastRefresh: nowMinus(10 * 3600),
+    });
+    const { db, keyring, validation } = seedClaudeCanonical(source, 'verified');
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    const stored = await svc.storeCandidate({
+      auth: claudeAuthWithExpiry({
+        access: 'sk-ant-oat01-newer-but-expired-token',
+        refresh: 'newer-refresh-token',
+        accessExpiresMs: Date.now() - 60_000,
+        lastRefresh: nowMinus(600),
+      }),
+      engine: 'claude',
+      sourceHostId: 7,
+      requireLastRefresh: false,
+      logAction: 'auth.store',
+      sourceKind: 'host',
+    });
+
+    expect(live.calls()).toBe(0);
+    expect(stored.status).toBe('outdated');
+    expect(stored.candidate_rejected_definitive).toBeUndefined();
+    expect(stored.verification_state).toBe('verified');
+    expect(stored.auth).toBeDefined();
+    // Nothing was persisted: the candidate stays host-side until it refreshes.
+    expect(db.tables.get(authPayloads)!.length).toBe(1);
+  });
+
+  it('gates an unverifiable expired-access candidate retryably when no verified canonical exists', async () => {
+    const source = claudeAuthWithExpiry({
+      access: 'sk-ant-oat01-dead-canonical-token',
+      refresh: 'dead-canonical-refresh',
+      accessExpiresMs: Date.now() - 3600_000,
+      lastRefresh: nowMinus(10 * 3600),
+    });
+    const { db, keyring, validation } = seedClaudeCanonical(
+      source,
+      'failed',
+      'Failed to authenticate: OAuth session expired and could not be refreshed',
+    );
+    const live = countingRunner({ ok: true, status: 'ok', reachable: true });
+    const svc = createCanonicalAuthStoreService({
+      db: db as never,
+      keyring,
+      runnerValidation: validation,
+      runner: live.client,
+    });
+
+    let caught: unknown;
+    try {
+      await svc.storeCandidate({
+        auth: claudeAuthWithExpiry({
+          access: 'sk-ant-oat01-newer-but-expired-token',
+          refresh: 'newer-refresh-token',
+          accessExpiresMs: Date.now() - 60_000,
+          lastRefresh: nowMinus(600),
+        }),
+        engine: 'claude',
+        sourceHostId: 7,
+        requireLastRefresh: false,
+        logAction: 'auth.store',
+        sourceKind: 'host',
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(live.calls()).toBe(0);
+    expect(caught).toBeInstanceOf(ServiceUnavailableError);
+    expect((caught as ServiceUnavailableError).code).toBe('candidate_unverifiable_expired');
+    expect(db.tables.get(authPayloads)!.length).toBe(1);
   });
 });
 
