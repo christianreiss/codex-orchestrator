@@ -31,7 +31,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 4. `cdx` writes the baked file to effective `CODEX_HOME/config.toml` during the pre-run sync phase and deletes it when `status:missing`. If an active-run lock skips sync (without `--allow-concurrent-sync`), that invocation does not refresh config.
 
 Default notice mappings:
-- Builder defaults include `notice.model_migrations` entries for retired models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.3-codex`) to `gpt-5.6-terra` so Codex upgrade prompts can be auto-resolved from fleet-managed config.
+- Builder defaults include `notice.model_migrations` entries for retired models (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.3-codex`) to `gpt-5.6-terra` so Codex upgrade prompts can be auto-resolved from fleet-managed config. This is the intended state, not necessarily the stored one — `notice.model_migrations` is operator-entered template data, not code-derived, so it drifts silently when the default model changes and nobody revisits it. **Found drifted 2026-08-08**: the live template mapped 3 of these 5 to `gpt-5.4` (itself now upstream-deprecated in favor of `gpt-5.6-terra`) instead of the current default, was missing the `gpt-5.2` and `gpt-5.3-codex` entries entirely, and additionally carried a wrong `gpt-5.3-codex-spark` → `gpt-5.4` entry — `gpt-5.3-codex-spark` is not retired (it's live in `SUPPORTED_MODELS`), so that entry was actively steering a valid model's users onto a deprecated one. Fix tracked the same way as the `code_mode_host` drift: a one-off admin-API write to the stored template, not a code change (there is no code-level default to fix).
 - New top-level config drafts default to `gpt-5.6-terra` with its native `medium` reasoning effort.
 
 ## Managed MCP entry
@@ -50,13 +50,10 @@ The config builder exposes current Codex feature flags under **Security & Featur
 
 - `fast_mode` — prefer lower-latency fast mode (enabled by default).
 - `unified_exec` — use the unified PTY-backed exec tool.
-- `voice_transcription` — enable voice-to-text input tooling for supported clients.
-- `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart (enabled by default).
+- `apps` — enable connected ChatGPT Apps, including `$` App invocations after `/apps` install + restart. **Disabled by default** — both upstream Codex's own default and the fleet template agree on `false`; this entry previously (incorrectly) said "enabled by default", corrected 2026-08-08.
 - `memories` — enable native Codex Memories (`[features].memories = true`) so eligible threads can contribute local memory and later sessions can read it (enabled by default; hosts need Codex `0.125.0+`).
 - `guardian_approval` — dispatch `on-request` approval prompts such as sandbox escapes or blocked network access to a carefully-prompted security reviewer subagent instead of blocking on direct user input (disabled by default).
-- `js_repl` — enable the persistent Node-backed JavaScript REPL for inline website debugging and JavaScript execution (disabled by default; requires Node `>= v22.22.0` on the host).
-- `tui_app_server` — use the app-server-backed TUI implementation (disabled by default).
-- `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default).
+- `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default; still `experimental` stage upstream as of codex-cli 0.147.0).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - `code_mode_host` — spawns a companion `codex-code-mode-host` process to back Code Mode execution. Upstream ships this **stable and enabled by default**, but the fleet's wrapper distribution has never published that companion binary to any host's `/usr/local/bin` (confirmed absent from the wrapper store, 2026-08-08), so an unmodified template leaves every host failing closed with a spawn error the moment it launches Codex. The stored template forces this **disabled** until a build is published that bundles the binary.
 - Additional feature flags may be supplied in the API `features` object. The
@@ -66,8 +63,9 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - Feature values are coerced to booleans (`true`/`1`/`"yes"`/`"on"` and their negatives). A value that is not boolean-ish normalizes to `null` and that key is then omitted from the rendered `[features]` block.
 
 Legacy compatibility:
-- Dropped feature keys: `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`.
+- Dropped feature keys: `steer`, `collaboration_modes`, `elevated_windows_sandbox`, `experimental_windows_sandbox`, `enable_experimental_windows_sandbox`, `remote_models`, `request_permissions`, `request_rule`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `sqlite`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `js_repl`, `tui_app_server`, `voice_transcription`.
 - Those keys are accepted for ingest compatibility but removed from normalized/rendered output — they are discarded, not migrated onto any other field. `features.web_search` is dropped the same way; root `web_search` is the only source for the web search toggle.
+- `js_repl`, `tui_app_server`, `voice_transcription` moved here 2026-08-08: verified against `codex features list` on codex-cli 0.147.0 that `js_repl` and `tui_app_server` are stage `removed` (the latter permanently folded into stable behavior, default `true`, not optional) and `voice_transcription` no longer appears in the feature registry at all. All three were still being documented as live toggles and rendered into every host's `[features]` block; they now normalize away like the rest of this list.
 
 ## Security toggles
 

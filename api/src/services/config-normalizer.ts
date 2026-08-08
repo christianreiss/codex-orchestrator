@@ -74,7 +74,6 @@ export function modelEntry<T>(map: Readonly<Record<string, T>>, key: string): T 
 }
 
 export const REASONING_EFFORTS: readonly string[] = [
-  'minimal',
   'low',
   'medium',
   'high',
@@ -146,6 +145,14 @@ export const DROPPED_FEATURE_KEYS: readonly string[] = [
   'use_linux_sandbox_bwrap',
   'web_search_cached',
   'web_search_request',
+  // Confirmed `removed` (or entirely unrecognized) by `codex features list` on
+  // codex-cli 0.147.0, 2026-08-08. js_repl and tui_app_server are retired
+  // upstream feature stages; voice_transcription no longer appears in the
+  // feature registry at all. Toggling any of them is a no-op, so stop
+  // offering and rendering them.
+  'js_repl',
+  'tui_app_server',
+  'voice_transcription',
 ];
 
 export interface NormalizedSettings {
@@ -438,10 +445,13 @@ export function normalizeSettings(
 /**
  * Allowed values for the Claude `advisorModel` settings.json key. These are
  * the short tier aliases Claude Code resolves itself to the current model
- * version (e.g. `opus` -> claude-opus-4-8); we deliberately store the alias,
+ * version (e.g. `opus` -> claude-opus-5); we deliberately store the alias,
  * not a pinned full id, so the experimental advisor tracks the latest model.
+ * `fable` confirmed as a live `--model` alias against claude-cli 2.1.224,
+ * 2026-08-08 (`claude --model fable -p ...` resolves and answers) — it was
+ * missing here because this list predates the Fable tier.
  */
-export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'haiku'] as const;
+export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
 
 /**
  * Claude settings.json `advisorModel` key (experimental advisor tool). Restricts
@@ -480,11 +490,17 @@ export function normalizeClaudePermissions(
   return { allow, ask, deny };
 }
 
-// The exact `--permission-mode` / `permissions.defaultMode` choices the upstream
-// `claude` CLI accepts (verified against `claude --help`). Anything outside this
-// set is rejected by Claude Code, so we drop it on normalize.
+// The `--permission-mode` / `permissions.defaultMode` choices the upstream
+// `claude` CLI accepts. Re-verified against claude-cli 2.1.224, 2026-08-08:
+// `claude --help` now lists `acceptEdits, auto, bypassPermissions, manual,
+// dontAsk, plan` — `manual` replaces the old `default` label there. `default`
+// is kept because it still passes live (`claude --permission-mode default -p
+// ...` exits 0 with a real answer, unlike a genuinely rejected value), so any
+// already-stored `default` override keeps working; `manual` is the value the
+// CLI now documents and should be offered going forward.
 export const CLAUDE_PERMISSION_MODES = [
   'default',
+  'manual',
   'acceptEdits',
   'plan',
   'auto',

@@ -988,7 +988,6 @@ export interface CodexVersionsCheckResult {
 }
 
 export type ScalingReasoningEffort =
-  | "minimal"
   | "low"
   | "medium"
   | "high"

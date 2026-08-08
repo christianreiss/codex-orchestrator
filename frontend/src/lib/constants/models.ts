@@ -67,6 +67,7 @@ export const ADVISOR_MODELS: ModelOption[] = [
   { label: "Opus", value: "opus" },
   { label: "Sonnet", value: "sonnet" },
   { label: "Haiku", value: "haiku" },
+  { label: "Fable", value: "fable" },
 ];
 
 /**
@@ -86,7 +87,8 @@ export const DEFAULT_CLAUDE_PERMISSION_MODE = "auto";
  */
 export const CLAUDE_PERMISSION_MODES: ModelOption[] = [
   { label: "Auto (auto-approve)", value: "auto" },
-  { label: "Default (prompt)", value: "default" },
+  { label: "Manual (prompt every time)", value: "manual" },
+  { label: "Default (prompt) [legacy]", value: "default" },
   { label: "Accept edits", value: "acceptEdits" },
   { label: "Plan", value: "plan" },
   { label: "Don't ask", value: "dontAsk" },
@@ -109,7 +111,6 @@ export const SUBAGENT_COLORS: string[] = [
 // usage-scaling.ts and the host model-override route — both take a bare
 // string server-side, this is the UI's canonical choice list for it.
 export const REASONING_EFFORT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "minimal", label: "Minimal" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },

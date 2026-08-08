@@ -43,7 +43,7 @@ describe('config-normalizer constants', () => {
   });
 
   it('lists every reasoning effort tier', () => {
-    expect(REASONING_EFFORTS).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(REASONING_EFFORTS).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
@@ -165,7 +165,7 @@ describe('normalizeClaudeModel', () => {
 
 describe('normalizeClaudeAdvisorModel', () => {
   it('exposes the tier alias allowlist', () => {
-    expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'haiku']);
+    expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'haiku', 'fable']);
   });
   it('accepts the tier aliases case-insensitively and trims', () => {
     expect(normalizeClaudeAdvisorModel('opus')).toBe('opus');
@@ -194,9 +194,10 @@ describe('normalizeClaudeEffortLevel', () => {
 });
 
 describe('normalizeClaudePermissionMode', () => {
-  it('exposes exactly the upstream `claude --permission-mode` choices', () => {
+  it('exposes the current upstream `claude --permission-mode` choices, plus the legacy `default` alias', () => {
     expect(CLAUDE_PERMISSION_MODES).toEqual([
       'default',
+      'manual',
       'acceptEdits',
       'plan',
       'auto',
@@ -222,15 +223,15 @@ describe('normalizeClaudePermissionMode', () => {
 
 describe('normalizeReasoningEffort', () => {
   it('accepts valid values', () => {
-    expect(normalizeReasoningEffort('minimal')).toBe('minimal');
     expect(normalizeReasoningEffort('LOW')).toBe('low');
     expect(normalizeReasoningEffort('high')).toBe('high');
     expect(normalizeReasoningEffort('xhigh')).toBe('xhigh');
     expect(normalizeReasoningEffort('MAX')).toBe('max');
     expect(normalizeReasoningEffort('ultra')).toBe('ultra');
   });
-  it('rejects unknown values', () => {
+  it('rejects unknown values, including the retired `minimal` tier (no current model supports it)', () => {
     expect(normalizeReasoningEffort('extreme')).toBeNull();
+    expect(normalizeReasoningEffort('minimal')).toBeNull();
   });
   it('restricts effort to those supported by model', () => {
     expect(normalizeReasoningEffortForModel('high', 'gpt-5.5')).toBe('high');

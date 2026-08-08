@@ -11,7 +11,7 @@ import { SettingsService } from './settings.js';
 export interface ScalingTier {
   at_percent: number;
   lane?: 'normal' | 'spark';
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   model?: string | null;
 }
 
@@ -76,7 +76,6 @@ export class UsageScalingService {
       const tier: ScalingTier = { at_percent: at };
       if (tObj.lane === 'normal' || tObj.lane === 'spark') tier.lane = tObj.lane;
       if (
-        tObj.reasoning_effort === 'minimal' ||
         tObj.reasoning_effort === 'low' ||
         tObj.reasoning_effort === 'medium' ||
         tObj.reasoning_effort === 'high' ||
