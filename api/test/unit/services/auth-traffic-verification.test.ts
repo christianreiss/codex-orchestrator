@@ -57,7 +57,7 @@ function validation(
 ): RunnerValidationService {
   return {
     resolveCanonicalPayload: async () => resolve(),
-    canonicalAuthFromPayload: (r) => authFor(r as CanonicalPayloadRow),
+    canonicalAuthFromPayload: (r: unknown) => authFor(r as CanonicalPayloadRow),
   } as unknown as RunnerValidationService;
 }
 
