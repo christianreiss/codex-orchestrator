@@ -42,12 +42,26 @@ func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *
 
 	current := strings.TrimSpace(Version(ctx))
 	if !enforceExact && current != "" && current != "unknown" && target != "" {
+		skip := false
 		if current == target {
 			logger.Debug("EnsureCodex: already at target", "version", current)
-			return nil
-		}
-		if !semverGT(target, current) {
+			skip = true
+		} else if !semverGT(target, current) {
 			logger.Debug("EnsureCodex: skipping downgrade", "current", current, "target", target)
+			skip = true
+		}
+		if skip {
+			// codex itself needs no action — the common case, true for the
+			// overwhelming majority of already-converged hosts. Still make
+			// sure the codex-code-mode-host companion binary is present and
+			// version-matched; the cheap marker/stat check runs first so this
+			// fast path pays zero extra subprocess/network cost once a host
+			// has converged (isManagedByNpm shells out to npm, so it's only
+			// worth paying for when the marker/stat check says work is
+			// needed).
+			if dir := companionInstallDir(); dir != "" && codeModeHostNeedsWork(current, dir) && !isManagedByNpm(ctx) {
+				ensureCodeModeHost(ctx, current, nil, dir, logger)
+			}
 			return nil
 		}
 	}
@@ -55,7 +69,18 @@ func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *
 	if isManagedByNpm(ctx) {
 		return ensureCodexNpm(ctx, target, enforceExact, logger)
 	}
-	return ensureCodexGitHub(ctx, target, enforceExact, current, logger)
+	rel, err := ensureCodexGitHub(ctx, target, enforceExact, current, logger)
+	if err == nil {
+		// codex was just (re)installed — this is the one moment the
+		// codex/codex-code-mode-host version handshake can actually drift,
+		// so force a refresh regardless of the marker, reusing the already-
+		// fetched release instead of a second GitHub API call.
+		newVersion := strings.TrimSpace(Version(ctx))
+		if dir := companionInstallDir(); dir != "" {
+			ensureCodeModeHost(ctx, newVersion, &rel, dir, logger)
+		}
+	}
+	return err
 }
 
 // isManagedByNpm returns true when an upstream `codex` binary is on PATH AND
@@ -159,7 +184,16 @@ type Release struct {
 //
 // Windows is out of scope.
 func pickAsset(rel Release, goos, goarch string) (Asset, error) {
-	prefix, err := assetPrefix(goos, goarch)
+	return pickAssetFor(rel, "codex", goos, goarch)
+}
+
+// pickAssetFor is pickAsset generalized over the target binary name, so it
+// can also select the codex-code-mode-host companion asset from the same
+// release. Prefix matching already discriminates the two: "codex-code-mode-
+// host-x86_64-..." does not share the "codex-x86_64-..." prefix used for the
+// CLI itself, so there is no ambiguity between the two binaries' assets.
+func pickAssetFor(rel Release, binName, goos, goarch string) (Asset, error) {
+	prefix, err := assetPrefixFor(binName, goos, goarch)
 	if err != nil {
 		return Asset{}, err
 	}
@@ -189,15 +223,31 @@ func pickAsset(rel Release, goos, goarch string) (Asset, error) {
 }
 
 func assetPrefix(goos, goarch string) (string, error) {
+	return assetPrefixFor("codex", goos, goarch)
+}
+
+// assetPrefixFor returns the release-asset name prefix for binName on
+// goos/goarch. binName is "codex" for the CLI itself, or
+// "codex-code-mode-host" for its companion — both follow the same
+// upstream `<binary>-<arch-triple>` naming convention.
+func assetPrefixFor(binName, goos, goarch string) (string, error) {
+	triple, err := archTriple(goos, goarch)
+	if err != nil {
+		return "", err
+	}
+	return binName + "-" + triple, nil
+}
+
+func archTriple(goos, goarch string) (string, error) {
 	switch goos + "/" + goarch {
 	case "linux/amd64":
-		return "codex-x86_64-unknown-linux-musl", nil
+		return "x86_64-unknown-linux-musl", nil
 	case "linux/arm64":
-		return "codex-aarch64-unknown-linux-musl", nil
+		return "aarch64-unknown-linux-musl", nil
 	case "darwin/arm64":
-		return "codex-aarch64-apple-darwin", nil
+		return "aarch64-apple-darwin", nil
 	case "darwin/amd64":
-		return "codex-x86_64-apple-darwin", nil
+		return "x86_64-apple-darwin", nil
 	default:
 		return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
 	}
@@ -273,20 +323,24 @@ func releaseTagCandidates(target string) []string {
 	return out
 }
 
-func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, current string, logger *slog.Logger) error {
+// ensureCodexGitHub installs/updates codex from a GitHub release and returns
+// the resolved Release so a caller that also needs to ensure the
+// codex-code-mode-host companion binary (version-locked to the same release)
+// can reuse it instead of issuing a second GitHub API call.
+func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, current string, logger *slog.Logger) (Release, error) {
 	rel, err := fetchRelease(ctx, target)
 	if err != nil {
-		return err
+		return Release{}, err
 	}
 	if !enforceExact {
 		if relVersion := releaseVersion(rel); relVersion != "" && current == relVersion {
 			logger.Debug("EnsureCodex: already at resolved target", "version", current, "target", target)
-			return nil
+			return rel, nil
 		}
 	}
 	asset, err := pickAsset(rel, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return err
+		return rel, err
 	}
 	// NOTE: asset.Digest comes from the same GitHub release JSON as the
 	// download URL, so this only guards against transport corruption, not a
@@ -297,25 +351,25 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	// does not currently publish and which is out of scope here.
 	expected := strings.TrimPrefix(asset.Digest, "sha256:")
 	if len(expected) != 64 {
-		return fmt.Errorf("codex release %s: asset %s has no sha256 digest", rel.TagName, asset.Name)
+		return rel, fmt.Errorf("codex release %s: asset %s has no sha256 digest", rel.TagName, asset.Name)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "cdx-codex-*")
 	if err != nil {
-		return err
+		return rel, err
 	}
 	defer os.RemoveAll(tmpDir)
 
 	dlPath := filepath.Join(tmpDir, asset.Name)
 	if err := downloadFile(ctx, asset.DownloadURL, dlPath); err != nil {
-		return err
+		return rel, err
 	}
 	gotSHA, err := sha256File(dlPath)
 	if err != nil {
-		return err
+		return rel, err
 	}
 	if !strings.EqualFold(gotSHA, expected) {
-		return fmt.Errorf("codex release %s: sha mismatch (want %s, got %s)", rel.TagName, expected, gotSHA)
+		return rel, fmt.Errorf("codex release %s: sha mismatch (want %s, got %s)", rel.TagName, expected, gotSHA)
 	}
 
 	dest := resolveCodexDest()
@@ -327,14 +381,14 @@ func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, cu
 	} else {
 		// Raw binary.
 		if err := chmodExec(dlPath); err != nil {
-			return err
+			return rel, err
 		}
 		installErr = installBinary(dlPath, dest)
 	}
 	if installErr == nil {
 		_ = cacheCodex(dest)
 	}
-	return installErr
+	return rel, installErr
 }
 
 func releaseVersion(rel Release) string {
@@ -350,10 +404,18 @@ func releaseVersion(rel Release) string {
 // else ~/.local/bin/codex. Returns the path; caller may not actually have
 // permission, in which case installBinary triggers the sudo fallback.
 func resolveCodexDest() string {
+	return resolveInstallDest("codex")
+}
+
+// resolveInstallDest picks /usr/local/bin/<binName> when writable (or via
+// sudo), else ~/.local/bin/<binName>. Returns the path; caller may not
+// actually have permission, in which case installBinary triggers the sudo
+// fallback.
+func resolveInstallDest(binName string) string {
 	if dir := strings.TrimSpace(os.Getenv("CDX_CODEX_INSTALL_DIR")); dir != "" {
-		return filepath.Join(dir, "codex")
+		return filepath.Join(dir, binName)
 	}
-	const sys = "/usr/local/bin/codex"
+	sys := filepath.Join("/usr/local/bin", binName)
 	if dirWritable("/usr/local/bin") {
 		return sys
 	}
@@ -363,7 +425,7 @@ func resolveCodexDest() string {
 	home, err := os.UserHomeDir()
 	if err == nil && home != "" {
 		_ = os.MkdirAll(filepath.Join(home, ".local", "bin"), 0o755)
-		return filepath.Join(home, ".local", "bin", "codex")
+		return filepath.Join(home, ".local", "bin", binName)
 	}
 	return sys
 }
@@ -387,6 +449,24 @@ func dirWritable(dir string) bool {
 // installFromTarball extracts a Codex tar.gz archive and installs the
 // `codex` binary it contains into dest. Exposed for unit-test friendliness.
 func installFromTarball(path, dest string) error {
+	return installFromTarballNamed(path, dest, []string{"codex"}, "codex")
+}
+
+// installFromTarballNamed extracts a tar.gz archive and installs the binary
+// it contains into dest. exactNames is tried in archive order; the first
+// entry whose basename exactly matches any of exactNames wins outright. If
+// no exact match is found, the first entry whose basename has the given
+// prefix is used as a fallback. An exact match always wins over a prefix
+// match so that ancillary files like codex-LICENSE or codex.1 shipped ahead
+// of the real binary in archive order can't be installed in its place.
+//
+// exactNames supports more than one candidate because upstream is not
+// consistent about tarball entry naming: codex's own tarball entry is the
+// bare binary name ("codex"), but the codex-code-mode-host companion's
+// tarball entry is named with the full platform-qualified asset stem (e.g.
+// "codex-code-mode-host-x86_64-unknown-linux-musl") — confirmed by
+// extracting a real downloaded release asset.
+func installFromTarballNamed(path, dest string, exactNames []string, prefix string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -398,6 +478,11 @@ func installFromTarball(path, dest string) error {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+
+	exact := make(map[string]struct{}, len(exactNames))
+	for _, n := range exactNames {
+		exact[n] = struct{}{}
+	}
 
 	var extracted string
 	var fallback string
@@ -419,18 +504,13 @@ func installFromTarball(path, dest string) error {
 			continue
 		}
 		base := filepath.Base(hdr.Name)
-		isExact := base == "codex"
-		// Only extract files named exactly codex, or (as a fallback for
-		// archive layouts we haven't seen) codex* (the bash wrapper uses the
-		// same heuristic). An exact match always wins over a prefix match so
-		// that ancillary files like codex-LICENSE or codex.1 shipped ahead of
-		// the real binary in archive order can't be installed in its place.
-		if !isExact && !strings.HasPrefix(base, "codex") {
+		_, isExact := exact[base]
+		if !isExact && !strings.HasPrefix(base, prefix) {
 			continue
 		}
 		if !isExact && fallback != "" {
 			// Already have a prefix-match fallback candidate; keep scanning
-			// for an exact "codex" entry without extracting more decoys.
+			// for an exact entry without extracting more decoys.
 			continue
 		}
 		out := filepath.Join(extractDir, base)
@@ -453,7 +533,7 @@ func installFromTarball(path, dest string) error {
 		extracted = fallback
 	}
 	if extracted == "" {
-		return errors.New("installFromTarball: no codex binary in archive")
+		return fmt.Errorf("installFromTarballNamed: no matching binary in archive (want %v or prefix %q)", exactNames, prefix)
 	}
 	if err := chmodExec(extracted); err != nil {
 		return err
@@ -559,4 +639,198 @@ func sha256File(p string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// --- codex-code-mode-host companion -----------------------------------------
+//
+// `codex` ships a "Code Mode" feature (stable, enabled by default upstream)
+// that spawns this companion binary as a subprocess. Upstream publishes it as
+// a version-pinned asset on the same GitHub releases as `codex` itself — the
+// CLI and host binary share a versioned handshake, so they must be pinned
+// together. Without it, `codex` fails closed with a "Code Mode is
+// unavailable... host executable was not found" warning on every launch.
+//
+// The companion has no `--version` flag (confirmed live: only `--listen` and
+// `--help`), so its installed version can't be introspected the way
+// Version(ctx) introspects codex. A small local marker file tracks which
+// codex version it was last installed for instead.
+
+const codeModeHostBinName = "codex-code-mode-host"
+
+// codeModeHostRetryCooldown bounds how often a failed install is retried.
+// Unauthenticated GitHub API calls are rate-limited to 60/hr per source IP;
+// without a cooldown, ~103 hosts hitting a transient GitHub error could each
+// retry on every cron tick and starve codex's own update checks, which share
+// the same quota.
+const codeModeHostRetryCooldown = 6 * time.Hour
+
+type codeModeHostState struct {
+	InstalledFor        string `json:"installed_for"`
+	LastAttemptFailedAt string `json:"last_attempt_failed_at,omitempty"`
+}
+
+func codeModeHostMarkerPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "codex-orchestrator", "cdx-code-mode-host-state"), nil
+}
+
+// readCodeModeHostState returns the zero value on any error (missing file,
+// unreadable, malformed) — callers treat that identically to "never
+// installed", which is always the safe default.
+func readCodeModeHostState() codeModeHostState {
+	p, err := codeModeHostMarkerPath()
+	if err != nil {
+		return codeModeHostState{}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return codeModeHostState{}
+	}
+	var s codeModeHostState
+	if err := json.Unmarshal(b, &s); err != nil {
+		return codeModeHostState{}
+	}
+	return s
+}
+
+func writeCodeModeHostState(s codeModeHostState) error {
+	p, err := codeModeHostMarkerPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, b, 0o644)
+}
+
+// codeModeHostNeedsWork reports whether the companion binary in dir needs
+// installing or refreshing for codexVersion: missing, zero-byte, or the
+// marker's recorded version doesn't match. Returns false during the retry
+// cooldown after a recorded failure, even if the binary is still missing.
+func codeModeHostNeedsWork(codexVersion, dir string) bool {
+	dest := filepath.Join(dir, codeModeHostBinName)
+	state := readCodeModeHostState()
+
+	if fi, err := os.Stat(dest); err == nil && fi.Size() > 0 && state.InstalledFor == codexVersion {
+		return false
+	}
+	if state.LastAttemptFailedAt != "" {
+		if failedAt, err := time.Parse(time.RFC3339, state.LastAttemptFailedAt); err == nil {
+			if time.Since(failedAt) < codeModeHostRetryCooldown {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// companionInstallDir derives the directory codex-code-mode-host must land
+// in: the directory of codex's actual resolved binary (via FindCLI, the
+// source of truth for where codex really lives), so the companion is always
+// a same-directory sibling regardless of which install strategy codex itself
+// used. Falls back to resolveInstallDest("codex")'s directory only when
+// FindCLI can't resolve anything (e.g. codex genuinely isn't installed yet).
+func companionInstallDir() string {
+	if p, err := FindCLI(); err == nil && p != "" {
+		if dir := filepath.Dir(p); dir != "" && dir != "." {
+			return dir
+		}
+	}
+	return filepath.Dir(resolveInstallDest("codex"))
+}
+
+// ensureCodeModeHost installs or refreshes the codex-code-mode-host companion
+// binary into dir, version-locked to codexVersion. Pass rel when the caller
+// just fetched a Release for codex in this same call, to avoid a redundant
+// GitHub API call and guarantee the exact same release is used for both
+// binaries; pass nil to fetch fresh (the "codex already current, companion
+// missing" case).
+//
+// Never returns an error: every failure is logged and recorded in the state
+// marker (so the cooldown in codeModeHostNeedsWork engages), then swallowed.
+// A companion-install problem must never regress codex's own install
+// guarantee — both callers of EnsureCodex already treat it as best-effort,
+// running post-session so it never blocks an interactive launch.
+func ensureCodeModeHost(ctx context.Context, codexVersion string, rel *Release, dir string, logger *slog.Logger) {
+	dest := filepath.Join(dir, codeModeHostBinName)
+
+	fail := func(err error) {
+		logger.Warn("EnsureCodex: codex-code-mode-host companion install failed (non-fatal)", "error", err)
+		state := readCodeModeHostState()
+		state.LastAttemptFailedAt = time.Now().UTC().Format(time.RFC3339)
+		_ = writeCodeModeHostState(state)
+	}
+
+	release := rel
+	if release == nil {
+		r, err := fetchRelease(ctx, codexVersion)
+		if err != nil {
+			fail(fmt.Errorf("fetch release: %w", err))
+			return
+		}
+		release = &r
+	}
+
+	asset, err := pickAssetFor(*release, codeModeHostBinName, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		fail(fmt.Errorf("pick asset: %w", err))
+		return
+	}
+	expected := strings.TrimPrefix(asset.Digest, "sha256:")
+	if len(expected) != 64 {
+		fail(fmt.Errorf("%s release %s: asset %s has no sha256 digest", codeModeHostBinName, release.TagName, asset.Name))
+		return
+	}
+
+	tmpDir, err := os.MkdirTemp("", "cdx-code-mode-host-*")
+	if err != nil {
+		fail(err)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dlPath := filepath.Join(tmpDir, asset.Name)
+	if err := downloadFile(ctx, asset.DownloadURL, dlPath); err != nil {
+		fail(err)
+		return
+	}
+	gotSHA, err := sha256File(dlPath)
+	if err != nil {
+		fail(err)
+		return
+	}
+	if !strings.EqualFold(gotSHA, expected) {
+		fail(fmt.Errorf("%s release %s: sha mismatch (want %s, got %s)", codeModeHostBinName, release.TagName, expected, gotSHA))
+		return
+	}
+
+	logger.Debug("EnsureCodex: installing codex-code-mode-host", "version", release.TagName, "asset", asset.Name, "dest", dest)
+
+	var installErr error
+	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
+		// Tarball entries for this binary are named with the full asset stem
+		// (e.g. "codex-code-mode-host-x86_64-unknown-linux-musl"), not the
+		// bare binary name — confirmed against a real downloaded release.
+		exactNames := []string{codeModeHostBinName, strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.gz"), ".tgz")}
+		installErr = installFromTarballNamed(dlPath, dest, exactNames, codeModeHostBinName)
+	} else {
+		if err := chmodExec(dlPath); err != nil {
+			fail(err)
+			return
+		}
+		installErr = installBinary(dlPath, dest)
+	}
+	if installErr != nil {
+		fail(installErr)
+		return
+	}
+	_ = writeCodeModeHostState(codeModeHostState{InstalledFor: codexVersion})
 }

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -342,6 +343,9 @@ func TestEnsureCodexLatestSkipsWhenCurrentMatchesResolvedRelease(t *testing.T) {
 
 	t.Setenv("PATH", bin)
 	t.Setenv("CDX_CODEX_BIN", codexPath)
+	// Isolate the codex-code-mode-host state marker from the real machine —
+	// EnsureCodex's companion check now runs on this fast path too.
+	t.Setenv("HOME", dir)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if err := EnsureCodex(context.Background(), "latest", false, logger); err != nil {
@@ -370,5 +374,429 @@ func TestReleaseTagCandidates(t *testing.T) {
 				t.Errorf("target=%q[%d]: got %s want %s", tc.target, i, got[i], tc.want[i])
 			}
 		}
+	}
+}
+
+// --- codex-code-mode-host companion -----------------------------------------
+
+func TestPickAssetForCompanionBinary(t *testing.T) {
+	rel := Release{
+		Name:    "rust-v0.147.0",
+		TagName: "rust-v0.147.0",
+		Assets: []Asset{
+			{Name: "codex-x86_64-unknown-linux-musl.tar.gz", DownloadURL: "codex-url", Digest: "sha256:aa"},
+			{Name: "codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz", DownloadURL: "companion-url", Digest: "sha256:bb"},
+		},
+	}
+
+	codexAsset, err := pickAsset(rel, "linux", "amd64")
+	if err != nil {
+		t.Fatalf("pickAsset: %v", err)
+	}
+	if codexAsset.DownloadURL != "codex-url" {
+		t.Errorf("pickAsset picked %q, want the codex asset", codexAsset.Name)
+	}
+
+	companionAsset, err := pickAssetFor(rel, "codex-code-mode-host", "linux", "amd64")
+	if err != nil {
+		t.Fatalf("pickAssetFor: %v", err)
+	}
+	if companionAsset.DownloadURL != "companion-url" {
+		t.Errorf("pickAssetFor picked %q, want the companion asset", companionAsset.Name)
+	}
+}
+
+func TestInstallFromTarballNamedFullStemEntry(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(dir, "companion.tar.gz")
+
+	// Real upstream convention: the tar entry is named with the full,
+	// platform-qualified asset stem, not the bare binary name.
+	payload := []byte("#!/bin/sh\necho fake code-mode-host\n")
+	entryName := "codex-code-mode-host-x86_64-unknown-linux-musl"
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: entryName, Mode: 0o755, Size: int64(len(payload)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(payload)
+	_ = tw.Close()
+	_ = gz.Close()
+	if err := os.WriteFile(tarPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(dir, "bin", "codex-code-mode-host")
+	exactNames := []string{"codex-code-mode-host", entryName}
+	if err := installFromTarballNamed(tarPath, dest, exactNames, "codex-code-mode-host"); err != nil {
+		t.Fatalf("installFromTarballNamed: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("dest content mismatch")
+	}
+}
+
+func TestInstallFromTarballNamedDecoyBeforeReal(t *testing.T) {
+	dir := t.TempDir()
+	tarPath := filepath.Join(dir, "companion.tar.gz")
+
+	decoyPayload := []byte("LICENSE TEXT")
+	realPayload := []byte("#!/bin/sh\necho real code-mode-host\n")
+	entryName := "codex-code-mode-host-x86_64-unknown-linux-musl"
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: "codex-code-mode-host-LICENSE", Mode: 0o644, Size: int64(len(decoyPayload)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(decoyPayload)
+	_ = tw.WriteHeader(&tar.Header{Name: entryName, Mode: 0o755, Size: int64(len(realPayload)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(realPayload)
+	_ = tw.Close()
+	_ = gz.Close()
+	if err := os.WriteFile(tarPath, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(dir, "bin", "codex-code-mode-host")
+	exactNames := []string{"codex-code-mode-host", entryName}
+	if err := installFromTarballNamed(tarPath, dest, exactNames, "codex-code-mode-host"); err != nil {
+		t.Fatalf("installFromTarballNamed: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, realPayload) {
+		t.Errorf("decoy file was installed instead of the real binary")
+	}
+}
+
+func TestEnsureCodeModeHostInstalledWhenMissing(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("linux/amd64 fixture")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := []byte("#!/bin/sh\necho fake code-mode-host\n")
+	entryName := "codex-code-mode-host-x86_64-unknown-linux-musl"
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: entryName, Mode: 0o755, Size: int64(len(payload)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(payload)
+	_ = tw.Close()
+	_ = gz.Close()
+	tarBytes := buf.Bytes()
+	sum := sha256.Sum256(tarBytes)
+	expectedSha := hex.EncodeToString(sum[:])
+
+	mux := http.NewServeMux()
+	// releaseTagCandidates("0.50.0") tries "0.50.0" first (no "v" prefix).
+	mux.HandleFunc("/repos/openai/codex/releases/tags/0.50.0", func(w http.ResponseWriter, r *http.Request) {
+		rel := Release{
+			Name:    "rust-v0.50.0",
+			TagName: "v0.50.0",
+			Assets: []Asset{
+				{
+					Name:        entryName + ".tar.gz",
+					DownloadURL: "http://" + r.Host + "/asset.tar.gz",
+					Digest:      "sha256:" + expectedSha,
+					Size:        int64(len(tarBytes)),
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(rel)
+	})
+	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(tarBytes)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", bin)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// enforceExact=false, target == current ("0.50.0") -> codex's own fast
+	// path skips, but the companion is missing so it should still install.
+	if err := EnsureCodex(context.Background(), "0.50.0", false, logger); err != nil {
+		t.Fatalf("EnsureCodex: %v", err)
+	}
+
+	dest := filepath.Join(bin, "codex-code-mode-host")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read installed companion: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("companion content mismatch")
+	}
+
+	state := readCodeModeHostState()
+	if state.InstalledFor != "0.50.0" {
+		t.Errorf("marker InstalledFor = %q, want 0.50.0", state.InstalledFor)
+	}
+}
+
+func TestEnsureCodeModeHostRefreshedAfterCodexUpdate(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("linux/amd64 fixture")
+	}
+	dir := t.TempDir()
+
+	codexPayload := []byte("#!/bin/sh\necho fake codex 0.50.0\n")
+	var codexBuf bytes.Buffer
+	gz := gzip.NewWriter(&codexBuf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: "codex", Mode: 0o755, Size: int64(len(codexPayload)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(codexPayload)
+	_ = tw.Close()
+	_ = gz.Close()
+	codexTarBytes := codexBuf.Bytes()
+	codexSum := sha256.Sum256(codexTarBytes)
+	codexSha := hex.EncodeToString(codexSum[:])
+
+	companionPayload := []byte("#!/bin/sh\necho fake code-mode-host\n")
+	companionEntry := "codex-code-mode-host-x86_64-unknown-linux-musl"
+	var companionBuf bytes.Buffer
+	gz2 := gzip.NewWriter(&companionBuf)
+	tw2 := tar.NewWriter(gz2)
+	_ = tw2.WriteHeader(&tar.Header{Name: companionEntry, Mode: 0o755, Size: int64(len(companionPayload)), Typeflag: tar.TypeReg})
+	_, _ = tw2.Write(companionPayload)
+	_ = tw2.Close()
+	_ = gz2.Close()
+	companionTarBytes := companionBuf.Bytes()
+	companionSum := sha256.Sum256(companionTarBytes)
+	companionSha := hex.EncodeToString(companionSum[:])
+
+	var tagRequests int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/openai/codex/releases/tags/v0.50.0", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&tagRequests, 1)
+		rel := Release{
+			Name:    "rust-v0.50.0",
+			TagName: "v0.50.0",
+			Assets: []Asset{
+				{
+					Name:        "codex-x86_64-unknown-linux-musl.tar.gz",
+					DownloadURL: "http://" + r.Host + "/codex.tar.gz",
+					Digest:      "sha256:" + codexSha,
+					Size:        int64(len(codexTarBytes)),
+				},
+				{
+					Name:        companionEntry + ".tar.gz",
+					DownloadURL: "http://" + r.Host + "/companion.tar.gz",
+					Digest:      "sha256:" + companionSha,
+					Size:        int64(len(companionTarBytes)),
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(rel)
+	})
+	mux.HandleFunc("/codex.tar.gz", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(codexTarBytes)
+	})
+	mux.HandleFunc("/companion.tar.gz", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(companionTarBytes)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	t.Setenv("HOME", dir)
+	t.Setenv("CDX_CODEX_INSTALL_DIR", filepath.Join(dir, ".local", "bin"))
+	t.Setenv("PATH", "")
+	t.Setenv("CDX_CODEX_BIN", "/does/not/exist")
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureCodex(context.Background(), "0.50.0", true, logger); err != nil {
+		t.Fatalf("EnsureCodex: %v", err)
+	}
+
+	installDir := filepath.Join(dir, ".local", "bin")
+	gotCodex, err := os.ReadFile(filepath.Join(installDir, "codex"))
+	if err != nil {
+		t.Fatalf("read installed codex: %v", err)
+	}
+	if !bytes.Equal(gotCodex, codexPayload) {
+		t.Errorf("codex content mismatch")
+	}
+	gotCompanion, err := os.ReadFile(filepath.Join(installDir, "codex-code-mode-host"))
+	if err != nil {
+		t.Fatalf("read installed companion: %v", err)
+	}
+	if !bytes.Equal(gotCompanion, companionPayload) {
+		t.Errorf("companion content mismatch")
+	}
+
+	if got := atomic.LoadInt32(&tagRequests); got != 1 {
+		t.Errorf("expected exactly 1 release-tag request (release reuse, no redundant fetch), got %d", got)
+	}
+}
+
+func TestEnsureCodeModeHostFailureDoesNotFailEnsureCodex(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// No handlers registered — every release lookup 404s, so the companion
+	// fetch fails outright.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", bin)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureCodex(context.Background(), "0.50.0", false, logger); err != nil {
+		t.Fatalf("EnsureCodex should swallow companion failure, got: %v", err)
+	}
+
+	state := readCodeModeHostState()
+	if state.LastAttemptFailedAt == "" {
+		t.Errorf("expected the failed attempt to be recorded in the marker")
+	}
+}
+
+func TestEnsureCodeModeHostSkippedOnNpmManagedPath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmPath := filepath.Join(bin, "npm")
+	if err := os.WriteFile(npmPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var requests int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", bin)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// isManagedByNpm will be true (fake npm on PATH exits 0), and codex is
+	// already at target, so this must never touch the network at all —
+	// npm-managed hosts are out of scope for the companion install.
+	if err := EnsureCodex(context.Background(), "0.50.0", false, logger); err != nil {
+		t.Fatalf("EnsureCodex: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Errorf("expected zero network requests on npm-managed path, got %d", got)
+	}
+}
+
+func TestEnsureCodeModeHostDestMatchesCodexDir(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "somewhere", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", dir)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	got := companionInstallDir()
+	if got != bin {
+		t.Errorf("companionInstallDir() = %q, want %q", got, bin)
+	}
+}
+
+func TestEnsureCodeModeHostSteadyStateNoRequests(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	if err := os.WriteFile(codexPath, []byte("#!/bin/sh\necho codex-cli 0.50.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	companionPath := filepath.Join(bin, "codex-code-mode-host")
+	if err := os.WriteFile(companionPath, []byte("#!/bin/sh\necho fake\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", bin)
+	t.Setenv("CDX_CODEX_BIN", codexPath)
+
+	// Pre-seed the marker as already matching, mirroring a converged host.
+	if err := writeCodeModeHostState(codeModeHostState{InstalledFor: "0.50.0"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var requests int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	prevBase := githubBaseURL
+	githubBaseURL = srv.URL
+	t.Cleanup(func() { githubBaseURL = prevBase })
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := EnsureCodex(context.Background(), "0.50.0", false, logger); err != nil {
+		t.Fatalf("EnsureCodex: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Errorf("expected zero network requests in steady state, got %d", got)
 	}
 }
